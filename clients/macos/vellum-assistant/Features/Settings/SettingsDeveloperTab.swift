@@ -29,6 +29,7 @@ struct SettingsDeveloperTab: View {
     @State private var awakeStates: [String: Bool] = [:]
     @State private var transitioningStates: Set<String> = []
     @State private var platformUuid: String?
+    @State private var machineId: String?
 
     // -- Advanced dev state --
     @State private var macOSFlagStates: [MacOSFeatureFlagState] = []
@@ -251,6 +252,10 @@ struct SettingsDeveloperTab: View {
                         }
                     }
 
+                if let machineId, !machineId.isEmpty {
+                    infoRow(label: "Machine ID", value: machineId, mono: true)
+                }
+
                 let home = assistant.home
                 homeRow(home: home)
             }
@@ -459,6 +464,7 @@ struct SettingsDeveloperTab: View {
     private func resolvePlatformUuid() {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else {
             platformUuid = nil
+            machineId = nil
             return
         }
         let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
@@ -470,6 +476,22 @@ struct SettingsDeveloperTab: View {
             userId: userId,
             credentialStorage: FileCredentialStorage()
         )
+        fetchMachineId(orgId: orgId)
+    }
+
+    private func fetchMachineId(orgId: String?) {
+        machineId = nil
+        guard let orgId, let platformId = platformUuid else { return }
+        Task {
+            do {
+                let result = try await AuthService.shared.getAssistant(id: platformId, organizationId: orgId)
+                if case .found(let assistant) = result {
+                    machineId = assistant.machine_id
+                }
+            } catch {
+                // Best-effort dev info — silently skip on failure.
+            }
+        }
     }
 
     // MARK: - Switch Assistant
