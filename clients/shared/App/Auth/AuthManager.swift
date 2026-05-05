@@ -237,7 +237,7 @@ public final class AuthManager {
                     continuation.resume(throwing: AuthServiceError.authCallbackFailed("No callback URL received."))
                 }
             }
-            session.prefersEphemeralWebBrowserSession = false
+            session.prefersEphemeralWebBrowserSession = true
             session.presentationContextProvider = WebAuthPresentationContext.shared
             self.webAuthSession = session
             session.start()
