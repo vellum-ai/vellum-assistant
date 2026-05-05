@@ -20,6 +20,7 @@ export * from "./message-types/computer-use.js";
 export * from "./message-types/contacts.js";
 export * from "./message-types/conversations.js";
 export * from "./message-types/diagnostics.js";
+export * from "./message-types/disk-pressure.js";
 export * from "./message-types/documents.js";
 export * from "./message-types/guardian-actions.js";
 export * from "./message-types/home.js";
@@ -71,6 +72,7 @@ import type {
   _DiagnosticsClientMessages,
   _DiagnosticsServerMessages,
 } from "./message-types/diagnostics.js";
+import type { _DiskPressureServerMessages } from "./message-types/disk-pressure.js";
 import type {
   _DocumentsClientMessages,
   _DocumentsServerMessages,
@@ -203,6 +205,7 @@ export type ServerMessage =
   | _NotificationsServerMessages
   | _UpgradesServerMessages
   | _AcpServerMessages
+  | _DiskPressureServerMessages
   | SubagentEvent;
 
 // === Contract schema ===

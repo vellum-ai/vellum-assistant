@@ -2821,6 +2821,7 @@ public enum ServerMessage: Decodable, Sendable {
     case memoryStatus(MemoryStatusMessage)
     case memoryRecalled(MemoryRecalledMessage)
     case dictationResponse(DictationResponseMessage)
+    case diskPressureStatusChanged(DiskPressureStatusChanged)
     case error(ErrorMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
@@ -3048,6 +3049,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "dictation_response":
             let message = try DictationResponseMessage(from: decoder)
             self = .dictationResponse(message)
+        case "disk_pressure_status_changed":
+            let message = try DiskPressureStatusChanged(from: decoder)
+            self = .diskPressureStatusChanged(message)
         case "error":
             let message = try ErrorMessage(from: decoder)
             self = .error(message)
