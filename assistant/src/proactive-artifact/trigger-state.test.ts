@@ -18,6 +18,7 @@ import {
   backfillGuardIfNeeded,
   getUserMessageCountUpTo,
   hasProactiveArtifactCompleted,
+  releaseProactiveArtifactClaim,
   tryClaimProactiveArtifactTrigger,
 } from "./trigger-state.js";
 
@@ -122,11 +123,11 @@ describe("trigger-state", () => {
       expect(getUserMessageCountUpTo(350)).toBe(3);
     });
 
-    test("caps at 5 due to LIMIT", () => {
-      for (let i = 1; i <= 10; i++) {
+    test("caps at 11 due to LIMIT", () => {
+      for (let i = 1; i <= 15; i++) {
         seedUserMessage(i * 100);
       }
-      expect(getUserMessageCountUpTo(Date.now())).toBe(5);
+      expect(getUserMessageCountUpTo(Date.now())).toBe(11);
     });
   });
 
@@ -145,50 +146,43 @@ describe("trigger-state", () => {
       expect(existsSync(guardPath())).toBe(false);
     });
 
-    test("returns true at count exactly 4 and writes guard", () => {
-      seedUserMessage(100);
-      seedUserMessage(200);
-      seedUserMessage(300);
-      seedUserMessage(400);
+    test("returns true at count 4 (start of window) and writes guard", () => {
+      for (let i = 1; i <= 4; i++) seedUserMessage(i * 100);
 
       expect(tryClaimProactiveArtifactTrigger(400)).toBe(true);
       expect(existsSync(guardPath())).toBe(true);
     });
 
-    test("returns false on second call at count 4 (EEXIST from wx)", () => {
-      seedUserMessage(100);
-      seedUserMessage(200);
-      seedUserMessage(300);
-      seedUserMessage(400);
+    test("returns true at count 10 (end of window) and writes guard", () => {
+      for (let i = 1; i <= 10; i++) seedUserMessage(i * 100);
+
+      expect(tryClaimProactiveArtifactTrigger(1000)).toBe(true);
+      expect(existsSync(guardPath())).toBe(true);
+    });
+
+    test("returns true at count 7 (mid-window) and writes guard", () => {
+      for (let i = 1; i <= 7; i++) seedUserMessage(i * 100);
+
+      expect(tryClaimProactiveArtifactTrigger(700)).toBe(true);
+      expect(existsSync(guardPath())).toBe(true);
+    });
+
+    test("returns false on second call (EEXIST from wx)", () => {
+      for (let i = 1; i <= 4; i++) seedUserMessage(i * 100);
 
       expect(tryClaimProactiveArtifactTrigger(400)).toBe(true);
       expect(tryClaimProactiveArtifactTrigger(400)).toBe(false);
     });
 
-    test("returns false at count 5+ and does NOT write guard", () => {
-      for (let i = 1; i <= 6; i++) {
-        seedUserMessage(i * 100);
-      }
+    test("returns false at count > 10 and writes guard permanently", () => {
+      for (let i = 1; i <= 11; i++) seedUserMessage(i * 100);
 
-      expect(tryClaimProactiveArtifactTrigger(600)).toBe(false);
-      expect(existsSync(guardPath())).toBe(false);
-    });
-
-    test("count > 4 does not write guard — preserves 4th-turn trigger window", () => {
-      for (let i = 1; i <= 5; i++) {
-        seedUserMessage(i * 100);
-      }
-
-      // Query at timestamp that sees all 5
-      expect(tryClaimProactiveArtifactTrigger(500)).toBe(false);
-      expect(existsSync(guardPath())).toBe(false);
+      expect(tryClaimProactiveArtifactTrigger(1100)).toBe(false);
+      expect(existsSync(guardPath())).toBe(true);
     });
 
     test("concurrent calls: only one returns true", () => {
-      seedUserMessage(100);
-      seedUserMessage(200);
-      seedUserMessage(300);
-      seedUserMessage(400);
+      for (let i = 1; i <= 4; i++) seedUserMessage(i * 100);
 
       const results = [
         tryClaimProactiveArtifactTrigger(400),
@@ -200,18 +194,32 @@ describe("trigger-state", () => {
       expect(results.filter((r) => r === false)).toHaveLength(2);
     });
 
-    test("rapid 5th-message race: 4th message trigger still fires correctly", () => {
-      // Messages 1-4 exist at timestamps 100-400
-      seedUserMessage(100);
-      seedUserMessage(200);
-      seedUserMessage(300);
-      seedUserMessage(400);
-      // 5th message arrives at 500 (processed first due to race)
-      seedUserMessage(500);
+    test("rapid next-message race: in-window trigger still fires", () => {
+      for (let i = 1; i <= 5; i++) seedUserMessage(i * 100);
 
-      // The 4th message's turn uses its own created_at (400)
-      // At that timestamp, count is 4, so it should trigger
       expect(tryClaimProactiveArtifactTrigger(400)).toBe(true);
+    });
+  });
+
+  describe("releaseProactiveArtifactClaim", () => {
+    test("removes guard file so next turn can retry", () => {
+      for (let i = 1; i <= 4; i++) seedUserMessage(i * 100);
+
+      expect(tryClaimProactiveArtifactTrigger(400)).toBe(true);
+      expect(existsSync(guardPath())).toBe(true);
+
+      releaseProactiveArtifactClaim();
+      expect(existsSync(guardPath())).toBe(false);
+
+      seedUserMessage(500);
+      expect(tryClaimProactiveArtifactTrigger(500)).toBe(true);
+      expect(existsSync(guardPath())).toBe(true);
+    });
+
+    test("is no-op when guard does not exist", () => {
+      expect(existsSync(guardPath())).toBe(false);
+      releaseProactiveArtifactClaim();
+      expect(existsSync(guardPath())).toBe(false);
     });
   });
 
@@ -228,8 +236,8 @@ describe("trigger-state", () => {
   });
 
   describe("backfillGuardIfNeeded", () => {
-    test("creates guard when count >= 5", () => {
-      for (let i = 1; i <= 6; i++) {
+    test("creates guard when count > 10", () => {
+      for (let i = 1; i <= 11; i++) {
         seedUserMessage(i * 100);
       }
 
@@ -237,7 +245,16 @@ describe("trigger-state", () => {
       expect(existsSync(guardPath())).toBe(true);
     });
 
-    test("is no-op when count < 5", () => {
+    test("is no-op when count is within window (4-10)", () => {
+      for (let i = 1; i <= 7; i++) {
+        seedUserMessage(i * 100);
+      }
+
+      backfillGuardIfNeeded();
+      expect(existsSync(guardPath())).toBe(false);
+    });
+
+    test("is no-op when count < 4", () => {
       seedUserMessage(100);
       seedUserMessage(200);
       seedUserMessage(300);
@@ -247,14 +264,13 @@ describe("trigger-state", () => {
     });
 
     test("is no-op when guard already exists", () => {
-      for (let i = 1; i <= 6; i++) {
+      for (let i = 1; i <= 11; i++) {
         seedUserMessage(i * 100);
       }
 
       mkdirSync(join(getDataDir()), { recursive: true });
       writeFileSync(guardPath(), "already-exists");
       backfillGuardIfNeeded();
-      // File content should not have changed
       expect(readFileSync(guardPath(), "utf-8")).toBe("already-exists");
     });
   });

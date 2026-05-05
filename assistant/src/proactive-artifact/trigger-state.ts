@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { rawGet } from "../memory/raw-query.js";
@@ -7,13 +7,16 @@ import { getDataDir } from "../util/platform.js";
 
 const log = getLogger("proactive-artifact-trigger");
 
+const TRIGGER_MIN = 4;
+const TRIGGER_MAX = 10;
+
 function guardPath(): string {
   return join(getDataDir(), ".proactive-artifact-completed");
 }
 
 /**
  * Count user messages in standard conversations with created_at <= beforeOrAt.
- * LIMIT 5 caps scan cost since we only care about the threshold around 4.
+ * LIMIT caps scan cost since we only care about thresholds up to TRIGGER_MAX.
  */
 export function getUserMessageCountUpTo(beforeOrAt: number): number {
   const row = rawGet<{ c: number }>(
@@ -23,7 +26,7 @@ export function getUserMessageCountUpTo(beforeOrAt: number): number {
       WHERE m.role = 'user'
         AND c.conversation_type = 'standard'
         AND m.created_at <= ?
-      LIMIT 5
+      LIMIT ${TRIGGER_MAX + 1}
     ) sub`,
     beforeOrAt,
   );
@@ -39,28 +42,33 @@ export function hasProactiveArtifactCompleted(): boolean {
 }
 
 /**
- * Atomic check-and-claim with correct count-first ordering.
+ * Atomic check-and-claim with count-first ordering.
  *
- * Returns true if this call successfully claimed the trigger (count === 4
- * and exclusive file create succeeded). Returns false in all other cases.
- *
- * Count > 4 returns false WITHOUT writing the guard — this preserves the
- * 4th-turn trigger window when the 5th message races ahead.
+ * Trigger window: messages TRIGGER_MIN–TRIGGER_MAX (4–10). Returns true if
+ * count is in-window and exclusive file create succeeded. The guard acts as
+ * an in-flight lock — the job releases it on decision-skip so the next turn
+ * can retry. Past the window, the guard is written permanently.
  */
 export function tryClaimProactiveArtifactTrigger(
   userMessageCreatedAt: number,
 ): boolean {
   const count = getUserMessageCountUpTo(userMessageCreatedAt);
 
-  if (count < 4) {
+  if (count < TRIGGER_MIN) {
     return false;
   }
 
-  if (count > 4) {
+  if (count > TRIGGER_MAX) {
+    try {
+      mkdirSync(dirname(guardPath()), { recursive: true });
+      writeFileSync(guardPath(), new Date().toISOString(), { flag: "wx" });
+    } catch {
+      // Already written or fs error — either way, window is closed
+    }
     return false;
   }
 
-  // count === 4 — attempt exclusive guard write
+  // count in [TRIGGER_MIN, TRIGGER_MAX] — attempt exclusive guard write
   try {
     mkdirSync(dirname(guardPath()), { recursive: true });
     writeFileSync(guardPath(), new Date().toISOString(), { flag: "wx" });
@@ -75,9 +83,21 @@ export function tryClaimProactiveArtifactTrigger(
 }
 
 /**
+ * Release the in-flight claim so the next turn can retry.
+ * Called when the decision phase skips (no build committed).
+ */
+export function releaseProactiveArtifactClaim(): void {
+  try {
+    rmSync(guardPath(), { force: true });
+  } catch {
+    // Best-effort — if removal fails, the next turn just won't retry
+  }
+}
+
+/**
  * Called at daemon startup. If the guard file does not exist and the user
- * already has >= 5 messages, write the guard. This handles existing users
- * who had >4 messages before the feature existed.
+ * already has messages past the trigger window, write the guard. This
+ * handles existing users who had many messages before the feature existed.
  */
 export function backfillGuardIfNeeded(): void {
   if (hasProactiveArtifactCompleted()) {
@@ -85,7 +105,7 @@ export function backfillGuardIfNeeded(): void {
   }
 
   const count = getUserMessageCountUpTo(Date.now());
-  if (count >= 5) {
+  if (count > TRIGGER_MAX) {
     try {
       mkdirSync(dirname(guardPath()), { recursive: true });
       writeFileSync(guardPath(), new Date().toISOString(), { flag: "wx" });

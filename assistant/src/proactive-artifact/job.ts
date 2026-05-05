@@ -18,7 +18,7 @@ import { v4 as uuid } from "uuid";
 import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { saveDocument } from "../documents/document-store.js";
-import { listApps } from "../memory/app-store.js";
+import { addAppConversationId, listApps } from "../memory/app-store.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { rawAll } from "../memory/raw-query.js";
 import type { BroadcastFn } from "../notifications/adapters/macos.js";
@@ -35,6 +35,7 @@ import {
   parseDecisionOutput,
 } from "./decision.js";
 import { buildMessageCopyPrompt, parseMessageCopy } from "./message-copy.js";
+import { releaseProactiveArtifactClaim } from "./trigger-state.js";
 
 const log = getLogger("proactive-artifact-job");
 
@@ -61,6 +62,7 @@ export async function runProactiveArtifactJob(params: {
         { conversationId: params.conversationId },
         "No messages found for proactive artifact transcript",
       );
+      releaseProactiveArtifactClaim();
       return;
     }
 
@@ -72,6 +74,7 @@ export async function runProactiveArtifactJob(params: {
     );
     if (!decisionProvider) {
       log.info("Decision provider unavailable; skipping proactive artifact");
+      releaseProactiveArtifactClaim();
       return;
     }
 
@@ -89,6 +92,7 @@ export async function runProactiveArtifactJob(params: {
         { conversationId: params.conversationId },
         "Malformed decision output from proactive artifact LLM",
       );
+      releaseProactiveArtifactClaim();
       return;
     }
 
@@ -100,6 +104,7 @@ export async function runProactiveArtifactJob(params: {
         },
         "Proactive artifact decision: skip",
       );
+      releaseProactiveArtifactClaim();
       return;
     }
 
@@ -111,6 +116,7 @@ export async function runProactiveArtifactJob(params: {
       artifactId = await buildApp({
         artifactTitle,
         artifactDescription,
+        conversationId: params.conversationId,
       });
     } else {
       artifactId = await buildDocument({
@@ -192,6 +198,7 @@ export async function runProactiveArtifactJob(params: {
 async function buildApp(params: {
   artifactTitle: string;
   artifactDescription: string;
+  conversationId: string;
 }): Promise<string> {
   const conversation = bootstrapConversation({
     conversationType: "background",
@@ -207,6 +214,8 @@ async function buildApp(params: {
 - Title: ${params.artifactTitle}
 - Description: ${params.artifactDescription}
 - auto_open: false
+
+For apps, keep scope tight — single file or 2-3 files max, under ~300 lines. Simple and immediately useful beats impressive and slow. This runs as a background job with limited credits — scope accordingly.
 
 Write the source code following the skill instructions, then compile via app_refresh.`;
 
@@ -231,6 +240,8 @@ Write the source code following the skill instructions, then compile via app_ref
       `App build completed but no matching app found (title: ${params.artifactTitle})`,
     );
   }
+
+  addAppConversationId(match.id, params.conversationId);
 
   return match.id;
 }

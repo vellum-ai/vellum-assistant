@@ -96,9 +96,14 @@ let mockApps: Array<{
   name: string;
   createdAt: number;
 }> = [];
+let addAppConvCalls: Array<{ appId: string; conversationId: string }> = [];
 
 mock.module("../memory/app-store.js", () => ({
   listApps: () => mockApps,
+  addAppConversationId: (appId: string, conversationId: string) => {
+    addAppConvCalls.push({ appId, conversationId });
+    return true;
+  },
 }));
 
 // Document store mock
@@ -179,6 +184,15 @@ mock.module("../agent/message-types.js", () => ({
     role: "assistant",
     content: [{ type: "text", text }],
   }),
+}));
+
+// Trigger state mock
+let releaseClaimCalls = 0;
+
+mock.module("./trigger-state.js", () => ({
+  releaseProactiveArtifactClaim: () => {
+    releaseClaimCalls++;
+  },
 }));
 
 // Trust context mock
@@ -262,9 +276,11 @@ function resetState() {
   processMessageCalls = [];
   processMessageShouldThrow = false;
   mockApps = [];
+  addAppConvCalls = [];
   saveDocumentCalls = [];
   saveDocumentResult = { success: true, surfaceId: "doc-123" };
   addDocConvCalls = [];
+  releaseClaimCalls = 0;
   addMessageCalls = [];
   emitSignalCalls = [];
   broadcastCalls = [];
@@ -285,7 +301,7 @@ afterEach(() => {
 
 describe("runProactiveArtifactJob", () => {
   describe("Phase 1 — Decision", () => {
-    test("shouldBuild:false → no Phase 2, no message, no notification", async () => {
+    test("shouldBuild:false → releases claim, no Phase 2", async () => {
       rawAllRows = defaultTranscript;
       decisionResponse = decisionNo;
 
@@ -296,6 +312,7 @@ describe("runProactiveArtifactJob", () => {
         broadcastMessage: mockBroadcast,
       });
 
+      expect(releaseClaimCalls).toBe(1);
       expect(bootstrapCalls).toHaveLength(0);
       expect(processMessageCalls).toHaveLength(0);
       expect(addMessageCalls).toHaveLength(0);
@@ -303,7 +320,7 @@ describe("runProactiveArtifactJob", () => {
       expect(broadcastCalls).toHaveLength(0);
     });
 
-    test("null (malformed) → silent exit", async () => {
+    test("null (malformed) → releases claim, silent exit", async () => {
       rawAllRows = defaultTranscript;
       decisionResponse = "THIS IS GARBAGE OUTPUT";
 
@@ -314,13 +331,14 @@ describe("runProactiveArtifactJob", () => {
         broadcastMessage: mockBroadcast,
       });
 
+      expect(releaseClaimCalls).toBe(1);
       expect(bootstrapCalls).toHaveLength(0);
       expect(processMessageCalls).toHaveLength(0);
       expect(addMessageCalls).toHaveLength(0);
       expect(emitSignalCalls).toHaveLength(0);
     });
 
-    test("provider unavailable → silent return", async () => {
+    test("provider unavailable → releases claim, silent return", async () => {
       rawAllRows = defaultTranscript;
       decisionProviderAvailable = false;
 
@@ -331,6 +349,7 @@ describe("runProactiveArtifactJob", () => {
         broadcastMessage: mockBroadcast,
       });
 
+      expect(releaseClaimCalls).toBe(1);
       expect(providerSendCalls).toHaveLength(0);
       expect(bootstrapCalls).toHaveLength(0);
       expect(addMessageCalls).toHaveLength(0);
@@ -411,6 +430,11 @@ describe("runProactiveArtifactJob", () => {
       expect(bootstrapCalls[0].conversationType).toBe("background");
       expect(bootstrapCalls[0].source).toBe("proactive_artifact");
 
+      // App associated with user's conversation for Assets chip
+      expect(addAppConvCalls).toHaveLength(1);
+      expect(addAppConvCalls[0].appId).toBe("app-123");
+      expect(addAppConvCalls[0].conversationId).toBe("conv-1");
+
       // Message injection: addMessage called with skipIndexing
       expect(addMessageCalls).toHaveLength(1);
       expect(addMessageCalls[0].opts).toEqual({ skipIndexing: true });
@@ -430,6 +454,9 @@ describe("runProactiveArtifactJob", () => {
       expect(hints.requiresAction).toBe(false);
       // No conversationAffinityHint
       expect(emitSignalCalls[0].conversationAffinityHint).toBeUndefined();
+
+      // Claim NOT released on success — guard stays permanent
+      expect(releaseClaimCalls).toBe(0);
     });
 
     test("successful document: Phase 1 → content gen → saveDocument → message copy → inject → notify", async () => {
@@ -470,6 +497,9 @@ describe("runProactiveArtifactJob", () => {
       // Message injection and notification
       expect(addMessageCalls).toHaveLength(1);
       expect(emitSignalCalls).toHaveLength(1);
+
+      // Claim NOT released on success
+      expect(releaseClaimCalls).toBe(0);
     });
 
     test("app build - no matching app found → treated as build failure", async () => {
@@ -576,6 +606,7 @@ describe("runProactiveArtifactJob", () => {
         broadcastMessage: mockBroadcast,
       });
 
+      expect(releaseClaimCalls).toBe(1);
       expect(providerSendCalls).toHaveLength(0);
       expect(addMessageCalls).toHaveLength(0);
     });
