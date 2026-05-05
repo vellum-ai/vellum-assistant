@@ -1,6 +1,6 @@
 import { loadConfig } from "../config/loader.js";
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getSecureKeyResultAsync } from "../security/secure-keys.js";
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 
@@ -34,11 +34,18 @@ export function resolveTwilioPhoneNumber(): string {
 
 export async function getTwilioConfig(): Promise<TwilioConfig> {
   const accountSid = loadConfig().twilio?.accountSid || "";
-  const authToken =
-    (await getSecureKeyAsync(credentialKey("twilio", "auth_token"))) || "";
+  const authTokenResult = await getSecureKeyResultAsync(
+    credentialKey("twilio", "auth_token"),
+  );
+  const authToken = authTokenResult.value || "";
   const phoneNumber = resolveTwilioPhoneNumber();
 
   if (!accountSid && !authToken) {
+    if (authTokenResult.unreachable) {
+      throw new ConfigError(
+        "Twilio credentials could not be loaded. Account SID is not configured and the credential store is unreachable (auth token cannot be verified).",
+      );
+    }
     throw new ConfigError(
       "Twilio credentials not configured. Set twilio.accountSid via config and store auth token via credential store.",
     );
@@ -49,6 +56,11 @@ export async function getTwilioConfig(): Promise<TwilioConfig> {
     );
   }
   if (!authToken) {
+    if (authTokenResult.unreachable) {
+      throw new ConfigError(
+        "Twilio Auth Token could not be loaded: credential store is unreachable. The token may be stored but cannot be retrieved right now.",
+      );
+    }
     throw new ConfigError(
       "Twilio Auth Token not configured. Store auth token via credential store.",
     );

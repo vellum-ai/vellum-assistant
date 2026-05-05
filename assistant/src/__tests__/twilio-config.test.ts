@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockSecureKeys: Record<string, string | null> = {};
 let mockLoadConfigResult: Record<string, unknown> = {};
+let mockCredentialStoreUnreachable = false;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -14,6 +15,10 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
+  getSecureKeyResultAsync: async (key: string) => ({
+    value: mockSecureKeys[key] ?? undefined,
+    unreachable: mockCredentialStoreUnreachable,
+  }),
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -34,6 +39,7 @@ describe("twilio-config", () => {
         phoneNumber: "+15550123",
       },
     };
+    mockCredentialStoreUnreachable = false;
   });
 
   test("returns config when credentials and phone number are set", async () => {
@@ -83,6 +89,23 @@ describe("twilio-config", () => {
     mockLoadConfigResult = {};
     expect(getTwilioConfig()).rejects.toThrow(
       /Twilio Account SID not configured/,
+    );
+  });
+
+  test("throws credential-store-unreachable error when auth token lookup fails due to CES", async () => {
+    mockSecureKeys = {};
+    mockCredentialStoreUnreachable = true;
+    expect(getTwilioConfig()).rejects.toThrow(
+      /credential store is unreachable/,
+    );
+  });
+
+  test("throws credential-store-unreachable error when both missing and CES is down", async () => {
+    mockLoadConfigResult = {};
+    mockSecureKeys = {};
+    mockCredentialStoreUnreachable = true;
+    expect(getTwilioConfig()).rejects.toThrow(
+      /credential store is unreachable/,
     );
   });
 });
