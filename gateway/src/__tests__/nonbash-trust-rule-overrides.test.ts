@@ -499,3 +499,53 @@ describe("graceful fallback when cache not initialized", () => {
     expect(result.matchType).toBe("registry");
   });
 });
+
+describe("SkillLoadRiskClassifier inline command risk elevation", () => {
+  test("skill with inline expansions is classified as medium risk", async () => {
+    const classifier = new SkillLoadRiskClassifier();
+    const result = await classifier.classify({
+      toolName: "skill_load",
+      skillSelector: "my-skill",
+      resolvedMetadata: {
+        skillId: "my-skill",
+        selector: "my-skill",
+        versionHash: "abc123",
+        transitiveHash: "def456",
+        hasInlineExpansions: true,
+        isDynamic: true,
+      },
+    });
+
+    expect(result.riskLevel).toBe("medium");
+    expect(result.reason).toContain("inline command expansions");
+  });
+
+  test("skill without inline expansions is classified as low risk", async () => {
+    const classifier = new SkillLoadRiskClassifier();
+    const result = await classifier.classify({
+      toolName: "skill_load",
+      skillSelector: "plain-skill",
+      resolvedMetadata: {
+        skillId: "plain-skill",
+        selector: "plain-skill",
+        versionHash: "abc123",
+        transitiveHash: undefined,
+        hasInlineExpansions: false,
+        isDynamic: false,
+      },
+    });
+
+    expect(result.riskLevel).toBe("low");
+    expect(result.reason).toBe("Skill load (default)");
+  });
+
+  test("skill_load with no resolved metadata defaults to low risk", async () => {
+    const classifier = new SkillLoadRiskClassifier();
+    const result = await classifier.classify({
+      toolName: "skill_load",
+      skillSelector: "unknown-skill",
+    });
+
+    expect(result.riskLevel).toBe("low");
+  });
+});
