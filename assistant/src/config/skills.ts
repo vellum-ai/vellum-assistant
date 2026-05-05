@@ -727,6 +727,39 @@ function discoverSkillDirectories(skillsDir: string): string[] {
   return dirs.sort((a, b) => a.localeCompare(b));
 }
 
+function getManagedSkillDirectories(skillsDir: string): string[] {
+  const discoveredDirectories = discoverSkillDirectories(skillsDir);
+  const indexedDirectories = getIndexedSkillDirectories(skillsDir) ?? [];
+  const discoveredCanonicalDirectories = new Set(
+    discoveredDirectories.map((directory) => getCanonicalPath(directory)),
+  );
+  const directories: string[] = [];
+  const seenCanonicalDirectories = new Set<string>();
+
+  const addDirectory = (directory: string): void => {
+    if (!existsSync(directory)) return;
+
+    const canonicalDirectory = getCanonicalPath(directory);
+    if (seenCanonicalDirectories.has(canonicalDirectory)) return;
+
+    seenCanonicalDirectories.add(canonicalDirectory);
+    directories.push(directory);
+  };
+
+  for (const directory of indexedDirectories) {
+    if (!discoveredCanonicalDirectories.has(getCanonicalPath(directory))) {
+      continue;
+    }
+    addDirectory(directory);
+  }
+
+  for (const directory of discoveredDirectories) {
+    addDirectory(directory);
+  }
+
+  return directories;
+}
+
 // ─── Catalog loading ─────────────────────────────────────────────────────────
 
 function skillSummaryFromDefinition(
@@ -867,8 +900,7 @@ export function loadSkillCatalog(
 
   // Load managed (user) skills, which take precedence over bundled skills with the same ID
   const skillsDir = getSkillsDir();
-  const indexedDirectories = getIndexedSkillDirectories(skillsDir);
-  const directories = indexedDirectories ?? discoverSkillDirectories(skillsDir);
+  const directories = getManagedSkillDirectories(skillsDir);
 
   for (const directory of directories) {
     const skill = readSkillFromDirectory(directory, skillsDir, "managed");
