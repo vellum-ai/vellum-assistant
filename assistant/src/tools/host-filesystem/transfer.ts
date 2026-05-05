@@ -132,8 +132,8 @@ class HostFileTransferTool implements Tool {
     // turn. On web/ios, the call must fail loudly rather than silently
     // target the daemon container's filesystem.
     // Note: this scoping deliberately differs from host_bash
-    // (host-shell.ts:239-247), which rejects unconditionally; see PR #29613
-    // review discussion for rationale.
+    // (host-shell.ts:239-247), which rejects unconditionally for any
+    // stale target_client_id regardless of transport.
     if (
       targetClientId != null &&
       context.transportInterface != null &&
