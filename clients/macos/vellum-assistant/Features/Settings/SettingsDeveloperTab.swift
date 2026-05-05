@@ -30,6 +30,7 @@ struct SettingsDeveloperTab: View {
     @State private var transitioningStates: Set<String> = []
     @State private var platformUuid: String?
     @State private var machineId: String?
+    @State private var machineIdTask: Task<Void, Never>?
 
     // -- Advanced dev state --
     @State private var macOSFlagStates: [MacOSFeatureFlagState] = []
@@ -464,6 +465,7 @@ struct SettingsDeveloperTab: View {
     private func resolvePlatformUuid() {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else {
             platformUuid = nil
+            machineIdTask?.cancel()
             machineId = nil
             return
         }
@@ -480,16 +482,18 @@ struct SettingsDeveloperTab: View {
     }
 
     private func fetchMachineId(orgId: String?) {
+        machineIdTask?.cancel()
         machineId = nil
         guard let orgId, let platformId = platformUuid else { return }
-        Task {
+        machineIdTask = Task {
             do {
                 let result = try await AuthService.shared.getAssistant(id: platformId, organizationId: orgId)
+                try Task.checkCancellation()
                 if case .found(let assistant) = result {
                     machineId = assistant.machine_id
                 }
             } catch {
-                // Best-effort dev info — silently skip on failure.
+                // Cancelled, network failure, decode error — best-effort dev info.
             }
         }
     }
