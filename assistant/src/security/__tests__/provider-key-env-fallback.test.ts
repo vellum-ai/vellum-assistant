@@ -54,6 +54,7 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
     "PERPLEXITY_API_KEY",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
+    "OLLAMA_API_KEY",
   ];
 
   beforeEach(() => {
@@ -115,5 +116,10 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
   test("returns OLLAMA_API_KEY for authenticated Ollama-compatible endpoints", async () => {
     process.env.OLLAMA_API_KEY = "ollama-env-test";
     expect(await getProviderKeyAsync("ollama")).toBe("ollama-env-test");
+  });
+
+  test("ignores empty OLLAMA_API_KEY env var for local Ollama", async () => {
+    process.env.OLLAMA_API_KEY = "";
+    expect(await getProviderKeyAsync("ollama")).toBeUndefined();
   });
 });

@@ -44,6 +44,17 @@ function buildGatewayArgs(
 }
 
 describe("buildServiceRunArgs — assistant", () => {
+  const savedOllamaBaseUrl = process.env.OLLAMA_BASE_URL;
+
+  beforeEach(() => {
+    delete process.env.OLLAMA_BASE_URL;
+  });
+
+  afterEach(() => {
+    if (savedOllamaBaseUrl === undefined) delete process.env.OLLAMA_BASE_URL;
+    else process.env.OLLAMA_BASE_URL = savedOllamaBaseUrl;
+  });
+
   test("does not grant elevated capabilities or disable security profiles", () => {
     const args = buildAssistantArgs();
     expect(args).not.toContain("--privileged");
@@ -88,6 +99,21 @@ describe("buildServiceRunArgs — assistant", () => {
     const portIndex = args.indexOf(portSpec);
     expect(portIndex).toBeGreaterThan(0);
     expect(args[portIndex - 1]).toBe("-p");
+  });
+
+  test("adds host-gateway mapping when Ollama uses host.docker.internal", () => {
+    process.env.OLLAMA_BASE_URL = "http://host.docker.internal:11434/v1";
+
+    const args = buildAssistantArgs();
+    const hostIndex = args.indexOf("--add-host");
+    expect(hostIndex).toBeGreaterThan(0);
+    expect(args[hostIndex + 1]).toBe("host.docker.internal=host-gateway");
+  });
+
+  test("omits host-gateway mapping when Ollama host routing is not requested", () => {
+    const args = buildAssistantArgs();
+    expect(args).not.toContain("--add-host");
+    expect(args).not.toContain("host.docker.internal=host-gateway");
   });
 
   test("forwards GUARDIAN_BOOTSTRAP_SECRET into the assistant container when provided, so the runtime can validate the gateway's x-bootstrap-secret header and close the published-port bypass", () => {

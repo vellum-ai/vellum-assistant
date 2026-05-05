@@ -40,8 +40,7 @@ export function getSearchProviderEnvVar(
 /**
  * Resolve a provider env-var name from either source — LLM catalog first,
  * then the search-provider mirror. Returns `undefined` when no provider
- * scope declares an env var for the given ID (keyless LLM providers like
- * Ollama, unknown IDs, etc.).
+ * scope declares an env var for the given ID.
  */
 export function getAnyProviderEnvVar(providerId: string): string | undefined {
   return (

@@ -551,7 +551,9 @@ export async function getProviderKeyAsync(
     (await getSecureKeyAsync(provider));
   if (stored) return stored;
   const envVar = getAnyProviderEnvVar(provider);
-  return envVar ? process.env[envVar] : undefined;
+  if (!envVar) return undefined;
+  const fromEnv = process.env[envVar]?.trim();
+  return fromEnv && fromEnv.length > 0 ? fromEnv : undefined;
 }
 
 // ---------------------------------------------------------------------------

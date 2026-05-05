@@ -266,6 +266,12 @@ function resolveVolume(
   return claim.dockerVolume(instanceName);
 }
 
+function shouldAddHostGateway(extraAssistantEnv?: Record<string, string>): boolean {
+  const ollamaBaseUrl =
+    extraAssistantEnv?.OLLAMA_BASE_URL ?? process.env.OLLAMA_BASE_URL;
+  return ollamaBaseUrl?.includes("host.docker.internal") === true;
+}
+
 /**
  * Build `docker run` argument arrays for each container in the StatefulSet.
  * Returns `Record<ServiceName, () => string[]>` — callers evaluate lazily.
@@ -356,6 +362,10 @@ export function buildServiceRunArgs(
           for (const [k, v] of Object.entries(extraAssistantEnv)) {
             args.push("-e", `${k}=${v}`);
           }
+        }
+
+        if (shouldAddHostGateway(extraAssistantEnv)) {
+          args.push("--add-host", "host.docker.internal=host-gateway");
         }
 
         if (avatarDevicePath && existsSync(avatarDevicePath)) {
