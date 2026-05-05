@@ -165,6 +165,7 @@ import {
   migrateStripPlaceholderSentinelsFromMessages,
   migrateStripThinkingFromConsolidated,
   migrateToolInvocationsMatchedRuleId,
+  migrateTraceEventsCreatedAtIndex,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
@@ -408,6 +409,7 @@ export function initializeDb(): void {
       backfillAppConversationIds();
     },
     migrateScheduleRetryPolicy,
+    migrateTraceEventsCreatedAtIndex,
   ];
 
   // Run each migration step, catching and logging individual failures so one
