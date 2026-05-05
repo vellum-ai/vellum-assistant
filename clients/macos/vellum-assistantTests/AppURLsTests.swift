@@ -147,7 +147,6 @@ final class AppURLsTests: XCTestCase {
 
     func testBillingSettingsHonorsWebURLOverride() {
         setenv("VELLUM_WEB_URL", "https://staging-assistant.vellum.ai", 1)
-        defer { unsetenv("VELLUM_WEB_URL") }
         XCTAssertEqual(
             AppURLs.billingSettings.absoluteString,
             "https://staging-assistant.vellum.ai/assistant/settings/billing"
@@ -156,7 +155,6 @@ final class AppURLsTests: XCTestCase {
 
     func testBillingSettingsStripsTrailingSlash() {
         setenv("VELLUM_WEB_URL", "https://staging-assistant.vellum.ai/", 1)
-        defer { unsetenv("VELLUM_WEB_URL") }
         XCTAssertEqual(
             AppURLs.billingSettings.absoluteString,
             "https://staging-assistant.vellum.ai/assistant/settings/billing"
@@ -165,7 +163,6 @@ final class AppURLsTests: XCTestCase {
 
     func testBillingSettingsFallsBackWhenWebURLOverrideMalformed() {
         setenv("VELLUM_WEB_URL", "not a url with spaces", 1)
-        defer { unsetenv("VELLUM_WEB_URL") }
         // Should fall back to the env-default web URL rather than crash.
         let result = AppURLs.billingSettings.absoluteString
         XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
@@ -174,7 +171,6 @@ final class AppURLsTests: XCTestCase {
 
     func testBillingSettingsFallsBackWhenWebURLOverrideHasNoScheme() {
         setenv("VELLUM_WEB_URL", "example.com/path", 1)
-        defer { unsetenv("VELLUM_WEB_URL") }
         let result = AppURLs.billingSettings.absoluteString
         XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
         XCTAssertFalse(result.contains("example.com"))
@@ -182,7 +178,6 @@ final class AppURLsTests: XCTestCase {
 
     func testBillingSettingsFallsBackWhenWebURLOverrideHasQuery() {
         setenv("VELLUM_WEB_URL", "https://example.com?foo=bar", 1)
-        defer { unsetenv("VELLUM_WEB_URL") }
         let result = AppURLs.billingSettings.absoluteString
         XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
         XCTAssertFalse(result.contains("?foo=bar"))
@@ -190,7 +185,6 @@ final class AppURLsTests: XCTestCase {
 
     func testBillingSettingsFallsBackWhenWebURLOverrideHasFragment() {
         setenv("VELLUM_WEB_URL", "https://example.com#section", 1)
-        defer { unsetenv("VELLUM_WEB_URL") }
         let result = AppURLs.billingSettings.absoluteString
         XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
         XCTAssertFalse(result.contains("#section"))
