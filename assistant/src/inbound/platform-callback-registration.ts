@@ -49,7 +49,9 @@ export async function resolvePlatformCallbackRegistrationContext(): Promise<Plat
   );
   const assistantId =
     getPlatformAssistantId().trim() || storedAssistantIdRaw?.trim() || "";
-  const assistantCredential = storedAssistantApiKeyRaw?.trim();
+  const envAssistantCredential = process.env.ASSISTANT_API_KEY?.trim();
+  const assistantCredential =
+    storedAssistantApiKeyRaw?.trim() || envAssistantCredential || undefined;
   const authHeader = assistantCredential
     ? `Api-Key ${assistantCredential}`
     : null;

@@ -311,7 +311,7 @@ export class RemoteFeatureFlagSync {
       return { status: "error" };
     }
 
-    // Fall back to env vars when credential cache values are missing.
+    // Fall back to env vars when managed pod credentials are not yet cached.
     const platformUrl = (
       platformUrlRaw?.trim() ||
       process.env.VELLUM_PLATFORM_URL?.trim() ||
@@ -320,13 +320,16 @@ export class RemoteFeatureFlagSync {
 
     // Feature flag sync hits the public platform API and requires assistant
     // API key auth.
-    const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
+    const assistantCredential =
+      assistantApiKeyRaw?.trim() ||
+      process.env.ASSISTANT_API_KEY?.trim() ||
+      undefined;
 
-    if (!platformUrl || !assistantApiKey) {
+    if (!platformUrl || !assistantCredential) {
       log.debug(
         {
           hasPlatformUrl: !!platformUrl,
-          hasApiKey: !!assistantApiKey,
+          hasApiKey: !!assistantCredential,
         },
         "Remote feature flag sync skipped: missing credentials",
       );
@@ -339,7 +342,7 @@ export class RemoteFeatureFlagSync {
     const response = await fetchImpl(url, {
       method: "GET",
       headers: {
-        Authorization: `Api-Key ${assistantApiKey}`,
+        Authorization: `Api-Key ${assistantCredential}`,
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(10_000),

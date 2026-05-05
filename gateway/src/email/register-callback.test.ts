@@ -15,6 +15,7 @@ import {
 afterEach(() => {
   resetMockFetch();
   delete process.env.VELLUM_PLATFORM_URL;
+  delete process.env.ASSISTANT_API_KEY;
 });
 
 function makeConfigFile(
@@ -117,8 +118,9 @@ describe("registerEmailCallbackRoute", () => {
     });
   });
 
-  test("uses credential cache for assistant ID", async () => {
+  test("uses env assistant key with credential cache for assistant ID", async () => {
     process.env.VELLUM_PLATFORM_URL = "https://env-platform.example.com";
+    process.env.ASSISTANT_API_KEY = "env-key";
 
     const callbackUrl =
       "https://env-platform.example.com/v1/gateway/callbacks/11111111-2222-3333-4444-555555555555/webhooks/email/";
@@ -133,7 +135,6 @@ describe("registerEmailCallbackRoute", () => {
     );
 
     const caches = makeCaches({
-      assistantApiKey: "assistant-api-key",
       platformAssistantId: "11111111-2222-3333-4444-555555555555",
     });
 
@@ -144,7 +145,7 @@ describe("registerEmailCallbackRoute", () => {
     const calls = getMockFetchCalls();
     expect(calls).toHaveLength(1);
     const headers = calls[0].init.headers as Record<string, string>;
-    expect(headers?.["Authorization"]).toBe("Api-Key assistant-api-key");
+    expect(headers?.["Authorization"]).toBe("Api-Key env-key");
   });
 
   test("throws on non-ok response", async () => {

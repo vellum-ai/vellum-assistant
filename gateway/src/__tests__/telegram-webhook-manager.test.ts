@@ -22,6 +22,7 @@ afterEach(() => {
   fetchMock = mock(async () => new Response());
   delete process.env.IS_CONTAINERIZED;
   delete process.env.VELLUM_PLATFORM_URL;
+  delete process.env.ASSISTANT_API_KEY;
 });
 
 function makeTelegramResponse(result: unknown) {
@@ -294,7 +295,7 @@ describe("reconcileTelegramWebhook", () => {
     expect((calls[2].body as any).secret_token).toBe("test-webhook-secret");
   });
 
-  test("registers via credential cache for assistant ID", async () => {
+  test("registers via env assistant key and credential cache for assistant ID", async () => {
     const calls: {
       method: string;
       body: unknown;
@@ -302,11 +303,12 @@ describe("reconcileTelegramWebhook", () => {
     }[] = [];
     process.env.IS_CONTAINERIZED = "true";
     process.env.VELLUM_PLATFORM_URL = "https://env-platform.example.com";
+    process.env.ASSISTANT_API_KEY = "env-key";
 
     const caches = makeCaches({
       ingressUrl: undefined,
       platformBaseUrl: undefined,
-      assistantApiKey: "assistant-api-key",
+      assistantApiKey: undefined,
       platformAssistantId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
     });
 
@@ -359,7 +361,7 @@ describe("reconcileTelegramWebhook", () => {
       callback_path: "webhooks/telegram",
       type: "telegram",
     });
-    expect(calls[0].headers?.Authorization).toBe("Api-Key assistant-api-key");
+    expect(calls[0].headers?.Authorization).toBe("Api-Key env-key");
     expect(calls[2].method).toBe("setWebhook");
     expect((calls[2].body as any).url).toBe(
       "https://env-platform.example.com/v1/gateway/callbacks/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/webhooks/telegram/",

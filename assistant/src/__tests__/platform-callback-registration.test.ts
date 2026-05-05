@@ -30,6 +30,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const originalFetch = globalThis.fetch;
+const originalEnvCredential = process.env.ASSISTANT_API_KEY;
 
 const { registerCallbackRoute, resolvePlatformCallbackRegistrationContext } =
   await import("../inbound/platform-callback-registration.js");
@@ -40,11 +41,17 @@ describe("platform callback registration", () => {
     mockPlatformBaseUrl = "";
     mockPlatformAssistantId = "";
     mockSecureKeys = {};
+    delete process.env.ASSISTANT_API_KEY;
     globalThis.fetch = originalFetch;
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    if (originalEnvCredential === undefined) {
+      delete process.env.ASSISTANT_API_KEY;
+    } else {
+      process.env.ASSISTANT_API_KEY = originalEnvCredential;
+    }
   });
 
   test("resolves managed callback context from stored credentials", async () => {
@@ -82,6 +89,20 @@ describe("platform callback registration", () => {
     expect(context.assistantId).toBe("22222222-3333-4444-8555-666666666666");
     expect(context.hasAssistantApiKey).toBe(true);
     expect(context.authHeader).toBe("Api-Key ast-self-hosted-key");
+  });
+
+  test("uses ASSISTANT_API_KEY env fallback when stored credential is missing", async () => {
+    process.env.ASSISTANT_API_KEY = "env-key";
+    mockPlatformBaseUrl = "https://platform.example.com";
+    mockPlatformAssistantId = "33333333-4444-4555-8666-777777777777";
+
+    const context = await resolvePlatformCallbackRegistrationContext();
+
+    expect(context.enabled).toBe(true);
+    expect(context.platformBaseUrl).toBe("https://platform.example.com");
+    expect(context.assistantId).toBe("33333333-4444-4555-8666-777777777777");
+    expect(context.hasAssistantApiKey).toBe(true);
+    expect(context.authHeader).toBe("Api-Key env-key");
   });
 
   test("registerCallbackRoute falls back to assistant API key auth", async () => {

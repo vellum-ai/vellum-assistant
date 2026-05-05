@@ -23,8 +23,8 @@ interface PlatformCallbackRouteResponse {
  *
  * Follows the same pattern as Telegram's managed callback route registration
  * in `telegram/webhook-manager.ts`. Requires platform credentials (base URL,
- * assistant API key, assistant ID) from the credential cache; the base URL
- * can fall back to `VELLUM_PLATFORM_URL`.
+ * assistant API key, assistant ID). The base URL can fall back to
+ * `VELLUM_PLATFORM_URL`; the key can fall back to `ASSISTANT_API_KEY`.
  *
  * Self-hosted assistants with a configured ``ingress.publicBaseUrl`` send
  * their own base URL so the callback route points directly at the gateway
@@ -48,7 +48,7 @@ export async function registerEmailCallbackRoute(caches?: {
         ])
       : [undefined, undefined, undefined];
 
-  // Fall back to the env var when the platform URL credential is missing,
+  // Fall back to env vars when managed pod credentials are not yet cached,
   // matching the daemon's resolvePlatformCallbackRegistrationContext().
   const platformBaseUrl = (
     platformBaseUrlRaw?.trim() ||
@@ -56,15 +56,18 @@ export async function registerEmailCallbackRoute(caches?: {
     ""
   ).replace(/\/+$/, "");
 
-  const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
+  const assistantCredential =
+    assistantApiKeyRaw?.trim() ||
+    process.env.ASSISTANT_API_KEY?.trim() ||
+    undefined;
 
   const assistantId = assistantIdRaw?.trim() || undefined;
 
-  if (!platformBaseUrl || !assistantApiKey || !assistantId) {
+  if (!platformBaseUrl || !assistantCredential || !assistantId) {
     log.debug(
       {
         hasPlatformBaseUrl: !!platformBaseUrl,
-        hasApiKey: !!assistantApiKey,
+        hasApiKey: !!assistantCredential,
         hasAssistantId: !!assistantId,
       },
       "Email callback route registration unavailable — missing credentials",
@@ -102,7 +105,7 @@ export async function registerEmailCallbackRoute(caches?: {
     {
       method: "POST",
       headers: {
-        Authorization: `Api-Key ${assistantApiKey}`,
+        Authorization: `Api-Key ${assistantCredential}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(requestBody),

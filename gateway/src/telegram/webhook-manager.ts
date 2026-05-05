@@ -42,7 +42,7 @@ async function registerManagedTelegramCallbackRoute(
         ])
       : [undefined, undefined, undefined];
 
-  // Fall back to the env var when the platform URL credential is missing,
+  // Fall back to env vars when managed pod credentials are not yet cached,
   // matching the daemon's resolvePlatformCallbackRegistrationContext().
   const platformBaseUrl = (
     platformBaseUrlRaw?.trim() ||
@@ -50,15 +50,18 @@ async function registerManagedTelegramCallbackRoute(
     ""
   ).replace(/\/+$/, "");
 
-  const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
+  const assistantCredential =
+    assistantApiKeyRaw?.trim() ||
+    process.env.ASSISTANT_API_KEY?.trim() ||
+    undefined;
 
   const assistantId = assistantIdRaw?.trim() || undefined;
 
-  if (!platformBaseUrl || !assistantApiKey || !assistantId) {
+  if (!platformBaseUrl || !assistantCredential || !assistantId) {
     log.debug(
       {
         hasPlatformBaseUrl: !!platformBaseUrl,
-        hasApiKey: !!assistantApiKey,
+        hasApiKey: !!assistantCredential,
         hasAssistantId: !!assistantId,
       },
       "Managed Telegram callback route registration unavailable",
@@ -88,7 +91,7 @@ async function registerManagedTelegramCallbackRoute(
     {
       method: "POST",
       headers: {
-        Authorization: `Api-Key ${assistantApiKey}`,
+        Authorization: `Api-Key ${assistantCredential}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
