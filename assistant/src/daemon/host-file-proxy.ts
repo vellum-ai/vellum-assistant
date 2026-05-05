@@ -5,6 +5,7 @@ import {
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
 import {
+  ambiguousSameUserError,
   enforceSameActorOrErrorResult,
   pickSameUserAutoResolve,
 } from "../runtime/auth/same-actor.js";
@@ -99,11 +100,19 @@ export class HostFileProxy {
         });
       }
     } else {
-      resolvedTargetClientId = pickSameUserAutoResolve({
+      // Auto-resolve to the unique same-user client. Reject ambiguous
+      // (multi-machine) cases so a single targeted-style request cannot
+      // fan out across the user's machines.
+      const resolved = pickSameUserAutoResolve({
         hub: assistantEventHub,
         capability: "host_file",
         sourceActorPrincipalId,
       });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_file"));
+      }
+      resolvedTargetClientId =
+        resolved.kind === "match" ? resolved.clientId : undefined;
     }
 
     // Same-user check: targeted host_file requests must be bound to the same

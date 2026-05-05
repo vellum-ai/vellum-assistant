@@ -709,7 +709,7 @@ describe("HostTransferProxy — targetClientId", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("same user");
+      expect(result.content).toContain("does not match");
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -738,7 +738,7 @@ describe("HostTransferProxy — targetClientId", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("same user");
+      expect(result.content).toContain("does not match");
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -767,7 +767,7 @@ describe("HostTransferProxy — targetClientId", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("same user");
+      expect(result.content).toContain("does not match");
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -863,7 +863,7 @@ describe("HostTransferProxy — targetClientId", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("same user");
+      expect(result.content).toContain("does not match");
       expect(sentMessages).toHaveLength(0);
     });
 

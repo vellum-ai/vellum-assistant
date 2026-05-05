@@ -41,7 +41,11 @@ export const SAME_ACTOR_FORBIDDEN_DESCRIPTION =
   "Submitting client does not match the targeted client, or the submitting actor's principal does not match the target client's actor.";
 
 /** Per-capability scope for the structured warn log entry. */
-export type SameActorOp = "host_bash" | "host_file" | "host_cu";
+export type SameActorOp =
+  | "host_bash"
+  | "host_file"
+  | "host_cu"
+  | "host_transfer";
 
 export interface SameActorArgs {
   hub: Pick<AssistantEventHub, "getActorPrincipalIdForClient">;
@@ -109,24 +113,66 @@ export function enforceSameActorOrErrorResult(
 }
 
 /**
+ * Result of attempting to auto-resolve a single same-user target client.
+ *
+ * - `match`: exactly one same-user client supports the capability. Use the
+ *   returned clientId.
+ * - `none`: no same-user client supports the capability. Caller's choice
+ *   how to handle (typically: fall through to no-target, which broadcasts
+ *   to nobody when no clients are connected).
+ * - `ambiguous`: more than one same-user client supports the capability.
+ *   Caller MUST refuse to silently broadcast across them; instead surface
+ *   an error asking the caller to specify `target_client_id`.
+ */
+export type AutoResolveResult =
+  | { kind: "match"; clientId: string }
+  | { kind: "none" }
+  | { kind: "ambiguous" };
+
+/**
  * Filter capable clients by `actorPrincipalId === sourcePrincipalId` and
- * return the single match's clientId, or `undefined` when zero or more
- * than one same-user client supports the capability.
+ * report whether exactly one matched, zero matched, or more than one
+ * matched.
  *
  * Used by host proxies to auto-resolve a target client when the caller
  * did not specify one. Skipping when the caller has no principal keeps
- * the same-user binding closed: an unauthenticated caller cannot piggyback
- * on a connected user's session.
+ * the same-user binding closed: an unauthenticated caller cannot
+ * piggyback on a connected user's session.
+ *
+ * Why three outcomes (vs. just `string | undefined`)? Earlier revisions
+ * collapsed `none` and `ambiguous` into `undefined`, which caused the
+ * proxy to fall through to an untargeted broadcast — fanning a single
+ * targeted-style request out across every same-user machine. Surfacing
+ * `ambiguous` separately lets the proxy reject with a clear "specify
+ * target_client_id" error instead.
  */
 export function pickSameUserAutoResolve(args: {
   hub: Pick<AssistantEventHub, "listClientsByCapability">;
   capability: HostProxyCapability;
   sourceActorPrincipalId: string | undefined;
-}): string | undefined {
+}): AutoResolveResult {
   const { hub, capability, sourceActorPrincipalId } = args;
-  if (sourceActorPrincipalId == null) return undefined;
+  if (sourceActorPrincipalId == null) return { kind: "none" };
   const sameUser = hub
     .listClientsByCapability(capability)
     .filter((c) => c.actorPrincipalId === sourceActorPrincipalId);
-  return sameUser.length === 1 ? sameUser[0].clientId : undefined;
+  if (sameUser.length === 0) return { kind: "none" };
+  if (sameUser.length === 1) {
+    return { kind: "match", clientId: sameUser[0].clientId };
+  }
+  return { kind: "ambiguous" };
+}
+
+/**
+ * Standard error result for proxies when {@link pickSameUserAutoResolve}
+ * returns `ambiguous`. Asks the caller to specify `target_client_id`.
+ */
+export function ambiguousSameUserError(capability: HostProxyCapability): {
+  content: string;
+  isError: true;
+} {
+  return {
+    content: `Multiple ${capability} clients are connected for this user. Specify target_client_id to disambiguate. Run \`assistant clients list --capability ${capability}\` to see client IDs.`,
+    isError: true,
+  };
 }

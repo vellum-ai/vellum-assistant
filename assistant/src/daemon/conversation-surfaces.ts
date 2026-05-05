@@ -1930,7 +1930,7 @@ export async function surfaceProxyResolver(
     // Record the action and proxy to the connected desktop client
     const reasoning =
       typeof input.reasoning === "string" ? input.reasoning : undefined;
-    const targetClientId =
+    let targetClientId: string | undefined =
       typeof input.target_client_id === "string" &&
       input.target_client_id !== ""
         ? input.target_client_id
@@ -1985,14 +1985,24 @@ export async function surfaceProxyResolver(
     // host_cu-capable transport for which auto-routing-to-self would be
     // appropriate. We therefore fire whenever there is genuine ambiguity.
     if (targetClientId == null) {
-      const cuClients = assistantEventHub
-        .listClientsByCapability("host_cu")
-        .filter((c) => c.actorPrincipalId === sourceActorPrincipalId);
-      if (cuClients.length > 1) {
+      const allCuClients = assistantEventHub.listClientsByCapability("host_cu");
+      const sameUserCuClients = allCuClients.filter(
+        (c) => c.actorPrincipalId === sourceActorPrincipalId,
+      );
+      if (sameUserCuClients.length > 1) {
         return {
           content: `Error: multiple clients support host_cu. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_cu\` to see client IDs and labels.`,
           isError: true,
         };
+      }
+      // When cross-user host_cu clients are connected, we MUST auto-resolve
+      // to the unique same-user client (or fail explicitly) — otherwise the
+      // proxy would broadcast untargeted and the CU action would reach the
+      // cross-user client too. Setting targetClientId here forces the proxy
+      // to deliver only to that client, with the same-user check below as
+      // belt-and-suspenders.
+      if (sameUserCuClients.length === 1 && allCuClients.length > 1) {
+        targetClientId = sameUserCuClients[0].clientId;
       }
     }
 
