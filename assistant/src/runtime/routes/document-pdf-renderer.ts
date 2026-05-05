@@ -162,7 +162,6 @@ export async function renderMarkdownToPDF(
       },
       printBackground: true,
     });
-    await context.close();
     return Buffer.from(pdfBuffer);
   } finally {
     await browser.close();
