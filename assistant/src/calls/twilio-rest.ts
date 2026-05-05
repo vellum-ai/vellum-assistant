@@ -48,9 +48,19 @@ async function resolveAuthToken(): Promise<string | undefined> {
 export async function getTwilioCredentials(): Promise<TwilioCredentials> {
   const accountSid = resolveAccountSid();
   const authToken = await resolveAuthToken();
-  if (!accountSid || !authToken) {
+  if (!accountSid && !authToken) {
     throw new ConfigError(
       "Twilio credentials not configured. Set twilio.accountSid via config and store auth token via credential store.",
+    );
+  }
+  if (!accountSid) {
+    throw new ConfigError(
+      "Twilio Account SID not configured. Set twilio.accountSid via config.",
+    );
+  }
+  if (!authToken) {
+    throw new ConfigError(
+      "Twilio Auth Token not configured. Store auth token via credential store.",
     );
   }
   return { accountSid, authToken };

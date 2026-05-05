@@ -48,14 +48,14 @@ describe("twilio-config", () => {
       twilio: { accountSid: "", phoneNumber: "+15550123" },
     };
     expect(getTwilioConfig()).rejects.toThrow(
-      /Twilio credentials not configured/,
+      /Twilio Account SID not configured/,
     );
   });
 
   test("throws ConfigError when auth token is missing", async () => {
     mockSecureKeys = {};
     expect(getTwilioConfig()).rejects.toThrow(
-      /Twilio credentials not configured/,
+      /Twilio Auth Token not configured/,
     );
   });
 
@@ -71,10 +71,18 @@ describe("twilio-config", () => {
     );
   });
 
-  test("throws ConfigError when twilio config section is absent", async () => {
+  test("throws ConfigError when twilio config section is absent and no auth token", async () => {
     mockLoadConfigResult = {};
+    mockSecureKeys = {};
     expect(getTwilioConfig()).rejects.toThrow(
       /Twilio credentials not configured/,
+    );
+  });
+
+  test("throws ConfigError for missing SID when twilio config section is absent but auth token exists", async () => {
+    mockLoadConfigResult = {};
+    expect(getTwilioConfig()).rejects.toThrow(
+      /Twilio Account SID not configured/,
     );
   });
 });
