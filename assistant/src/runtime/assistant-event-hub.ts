@@ -86,6 +86,16 @@ export interface ClientEntry extends BaseSubscriberEntry {
   interfaceId: InterfaceId;
   capabilities: HostProxyCapability[];
   machineName?: string;
+  /**
+   * The verified actor principal id (canonical user identity, parsed from JWT
+   * `sub`) of the user that opened this SSE connection, when available.
+   *
+   * Populated from `AuthContext.actorPrincipalId` at SSE subscription time.
+   * Used by host proxies to gate cross-client targeted execution to the same
+   * authenticated user identity. May be `undefined` for legacy or
+   * service-token connections that have no principal.
+   */
+  actorPrincipalId?: string;
 }
 
 export interface ProcessEntry extends BaseSubscriberEntry {
@@ -255,7 +265,10 @@ export class AssistantEventHub {
    */
   async publish(
     event: AssistantEvent,
-    options?: { targetCapability?: HostProxyCapability; targetClientId?: string },
+    options?: {
+      targetCapability?: HostProxyCapability;
+      targetClientId?: string;
+    },
   ): Promise<void> {
     if (event.conversationId) {
       try {
@@ -323,10 +336,26 @@ export class AssistantEventHub {
    */
   getClientById(clientId: string): ClientEntry | undefined {
     for (const entry of this.subscribers) {
-      if (entry.active && entry.type === "client" && entry.clientId === clientId)
+      if (
+        entry.active &&
+        entry.type === "client" &&
+        entry.clientId === clientId
+      )
         return entry;
     }
     return undefined;
+  }
+
+  /**
+   * Return the verified actor principal id captured at SSE subscription time
+   * for the given client, or `undefined` if the client is unknown or
+   * connected without a principal (e.g. legacy/service tokens).
+   *
+   * Used by host proxies to bind cross-client targeted execution to the same
+   * authenticated user identity that opened the target client's SSE stream.
+   */
+  getActorPrincipalIdForClient(clientId: string): string | undefined {
+    return this.getClientById(clientId)?.actorPrincipalId;
   }
 
   /**

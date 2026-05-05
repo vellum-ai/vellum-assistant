@@ -395,6 +395,58 @@ describe("events client registration", () => {
     ac2.abort();
   });
 
+  // ── actorPrincipalId capture ──────────────────────────────────────────────
+
+  test("captures actorPrincipalId from x-vellum-actor-principal-id header", () => {
+    const ac = new AbortController();
+    const hub = new AssistantEventHub();
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "principal-client-001",
+          "x-vellum-interface-id": "macos",
+          "x-vellum-actor-principal-id": "user-A",
+        },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
+
+    const entry = hub.getClientById("principal-client-001");
+    expect(entry?.actorPrincipalId).toBe("user-A");
+    expect(hub.getActorPrincipalIdForClient("principal-client-001")).toBe(
+      "user-A",
+    );
+
+    ac.abort();
+  });
+
+  test("registers client with undefined actorPrincipalId when header is absent", () => {
+    const ac = new AbortController();
+    const hub = new AssistantEventHub();
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "principal-client-002",
+          "x-vellum-interface-id": "macos",
+        },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
+
+    const entry = hub.getClientById("principal-client-002");
+    expect(entry).toBeDefined();
+    expect(entry?.actorPrincipalId).toBeUndefined();
+    expect(
+      hub.getActorPrincipalIdForClient("principal-client-002"),
+    ).toBeUndefined();
+
+    ac.abort();
+  });
+
   // ── disposeClient (force disconnect) ──────────────────────────────────────
 
   test("disposeClient removes all subscribers for the clientId", () => {
