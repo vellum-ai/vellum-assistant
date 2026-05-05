@@ -5,17 +5,29 @@ import { dirname, join } from "node:path";
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
 
 /**
- * The daemon's root data directory (`~/.vellum`).
+ * Resolve the Vellum root directory.
  *
- * Multi-instance path relocation is handled by the CLI when spawning the
- * daemon (via `VELLUM_WORKSPACE_DIR` and `GATEWAY_SECURITY_DIR`); the
- * assistant itself never reads an env var for this.
+ * Resolution order:
+ * 1. Parent of VELLUM_WORKSPACE_DIR — e.g. /data/.vellum/workspace → /data/.vellum
+ * 2. If that parent is "/" (workspace mounted at top level, e.g. /workspace),
+ *    fall back to homedir()/.vellum
+ *
+ * This mirrors the same logic used in workspace/migrations/utils.ts so that
+ * the protected directory (and other root-relative paths) correctly follow
+ * the workspace location in containerised deployments.
  */
-const VELLUM_ROOT = join(homedir(), ".vellum");
+function getVellumRoot(): string {
+  const override = getWorkspaceDirOverride();
+  if (override) {
+    const parent = dirname(override);
+    if (parent !== "/") return parent;
+  }
+  return join(homedir(), ".vellum");
+}
 
 /** Returns the daemon's root data directory (`~/.vellum`). */
 export function vellumRoot(): string {
-  return VELLUM_ROOT;
+  return getVellumRoot();
 }
 
 export function isMacOS(): boolean {
@@ -170,7 +182,7 @@ export function getHistoryPath(): string {
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
  */
 export function getProtectedDir(): string {
-  return join(VELLUM_ROOT, "protected");
+  return join(getVellumRoot(), "protected");
 }
 
 /** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
@@ -204,7 +216,7 @@ export function getBinDir(): string {
 
 /** Returns the path to the dot-env file (~/.vellum/.env). Stays at root because it contains secrets. */
 export function getDotEnvPath(): string {
-  return join(VELLUM_ROOT, ".env");
+  return join(getVellumRoot(), ".env");
 }
 
 /** Returns the path to the embed-worker PID file (~/.vellum/workspace/embed-worker.pid). */
@@ -222,7 +234,7 @@ export function getEmbedWorkerPidPath(): string {
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
   if (override) return override;
-  return join(VELLUM_ROOT, "workspace");
+  return join(getVellumRoot(), "workspace");
 }
 
 /**
@@ -368,7 +380,7 @@ export function getBundledBunPath(): string | undefined {
 }
 
 export function ensureDataDir(): void {
-  const root = VELLUM_ROOT;
+  const root = getVellumRoot();
   const workspace = getWorkspaceDir();
   const wsData = join(workspace, "data");
   const dirs = [
