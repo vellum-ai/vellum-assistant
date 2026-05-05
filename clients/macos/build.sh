@@ -765,6 +765,15 @@ case "$VELLUM_ENVIRONMENT" in
 esac
 echo "BUNDLE_ID=$BUNDLE_ID"
 
+# Derive a per-environment URL scheme for native auth callbacks.
+# Matches the iOS xcconfig pattern (App-Dev.xcconfig → vellum-assistant-dev,
+# App-Staging.xcconfig → vellum-assistant-staging, App.xcconfig → vellum-assistant).
+case "$VELLUM_ENVIRONMENT" in
+    production) BUNDLE_URL_SCHEME="vellum-assistant" ;;
+    *)          BUNDLE_URL_SCHEME="vellum-assistant-${VELLUM_ENVIRONMENT}" ;;
+esac
+echo "BUNDLE_URL_SCHEME=$BUNDLE_URL_SCHEME"
+
 # ---------------------------------------------------------------------------
 # Resolve dock display name from the environment-scoped XDG config directory.
 # Mirrors VellumPaths.configDir (Swift) and getConfigDir() (TS):
@@ -1491,7 +1500,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
             <string>$BUNDLE_ID.auth</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>vellum-assistant</string>
+                <string>$BUNDLE_URL_SCHEME</string>
             </array>
         </dict>
     </array>

@@ -28,7 +28,21 @@ public final class AuthManager {
     public var errorMessage: String?
 
     private let authService = AuthService.shared
-    private static let callbackScheme = "vellum-assistant"
+    /// Read the URL scheme from the bundle's CFBundleURLTypes rather than
+    /// hardcoding it. Each environment gets its own scheme at build time
+    /// (e.g. vellum-assistant-dev, vellum-assistant-staging). Falls back
+    /// to "vellum-assistant" if the plist entry is missing.
+    private static let callbackScheme: String = {
+        guard let urlTypes = Bundle.main.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]],
+              let schemes = urlTypes.first?["CFBundleURLSchemes"] as? [String],
+              let scheme = schemes.first,
+              !scheme.isEmpty,
+              !scheme.contains("$")
+        else {
+            return "vellum-assistant"
+        }
+        return scheme
+    }()
     private var webAuthSession: ASWebAuthenticationSession?
 
     /// Optional hook invoked after a successful authentication (both the fresh
