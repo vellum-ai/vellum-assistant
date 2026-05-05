@@ -424,15 +424,9 @@ Examples:
     .action(async (_opts: Record<string, unknown>, cmd: Command) => {
       try {
         const info = await getActiveBackendInfoAsync();
-        const envContext = {
-          CREDENTIAL_SECURITY_DIR:
-            process.env.CREDENTIAL_SECURITY_DIR ?? null,
-          GATEWAY_SECURITY_DIR: process.env.GATEWAY_SECURITY_DIR ?? null,
-          VELLUM_WORKSPACE_DIR: process.env.VELLUM_WORKSPACE_DIR ?? null,
-        };
 
         if (shouldOutputJson(cmd)) {
-          writeOutput(cmd, { ok: true, ...info, env: envContext });
+          writeOutput(cmd, { ok: true, ...info });
         } else {
           log.info(`Backend: ${info.backend}`);
           if (info.backend === "encrypted-store") {
@@ -446,11 +440,6 @@ Examples:
             log.info(`  RPC ready:   ${info.ready}`);
           } else if (info.backend === "ces-http") {
             log.info(`  URL:         ${info.url}`);
-          }
-          log.info("");
-          log.info("Environment:");
-          for (const [key, value] of Object.entries(envContext)) {
-            log.info(`  ${key}: ${value ?? "(not set)"}`);
           }
         }
       } catch (err) {

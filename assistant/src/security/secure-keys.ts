@@ -19,6 +19,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import type {
   SecureKeyBackend,
@@ -29,6 +30,7 @@ import { getIsContainerized } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { getAnyProviderEnvVar } from "../providers/provider-env-vars.js";
 import { getLogger } from "../util/logger.js";
+import { getProtectedDir } from "../util/platform.js";
 import { createCesCredentialBackend } from "./ces-credential-client.js";
 import { CesRpcCredentialBackend } from "./ces-rpc-credential-backend.js";
 import type {
@@ -38,10 +40,6 @@ import type {
 } from "./credential-backend.js";
 import { createEncryptedStoreBackend } from "./credential-backend.js";
 import { credentialKey } from "./credential-key.js";
-import {
-  getStoreFilePath,
-  getStoreKeyFilePath,
-} from "./encrypted-store.js";
 
 export type {
   CredentialListResult,
@@ -613,26 +611,32 @@ export type BackendInfo =
  * to, so path/socket mismatches between the CLI and daemon are immediately
  * visible.
  */
-export async function getActiveBackendInfoAsync(): Promise<BackendInfo> {
-  const backend = await resolveBackendAsync();
-  if (backend.name === "encrypted-store") {
-    const storePath = getStoreFilePath();
-    const storeKeyPath = getStoreKeyFilePath();
-    return {
-      backend: "encrypted-store",
-      storePath,
-      storeKeyPath,
-      storeExists: existsSync(storePath),
-      storeKeyExists: existsSync(storeKeyPath),
-    };
-  }
-  if (backend.name === "ces-rpc") {
-    return { backend: "ces-rpc", ready: backend.isAvailable() };
-  }
-  if (backend.name === "ces-http") {
-    return { backend: "ces-http", url: process.env.CES_CREDENTIAL_URL ?? "" };
-  }
-  return { backend: "none" };
+export function getActiveBackendInfoAsync(): Promise<BackendInfo> {
+  return withCredentialTimeout(async () => {
+    const backend = await resolveBackendAsync();
+    if (backend.name === "encrypted-store") {
+      const protectedDir = getProtectedDir();
+      const storePath = join(protectedDir, "keys.enc");
+      const storeKeyPath = join(protectedDir, "store.key");
+      return {
+        backend: "encrypted-store" as const,
+        storePath,
+        storeKeyPath,
+        storeExists: existsSync(storePath),
+        storeKeyExists: existsSync(storeKeyPath),
+      };
+    }
+    if (backend.name === "ces-rpc") {
+      return { backend: "ces-rpc" as const, ready: backend.isAvailable() };
+    }
+    if (backend.name === "ces-http") {
+      return {
+        backend: "ces-http" as const,
+        url: process.env.CES_CREDENTIAL_URL ?? "",
+      };
+    }
+    return { backend: "none" as const };
+  }, { backend: "none" as const });
 }
 
 /** @internal Test-only: reset the cached backends so they're re-created. */

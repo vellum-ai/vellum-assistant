@@ -32,6 +32,13 @@ mock.module("../../../../security/secure-keys.js", () => ({
   onCesClientChanged: () => ({ unsubscribe: () => {} }),
   setCesReconnect: () => {},
   getActiveBackendName: () => "file",
+  getActiveBackendInfoAsync: async () => ({
+    backend: "encrypted-store",
+    storePath: "/tmp/keys.enc",
+    storeKeyPath: "/tmp/store.key",
+    storeExists: false,
+    storeKeyExists: false,
+  }),
   _resetBackend: () => {},
 }));
 
