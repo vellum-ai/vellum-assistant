@@ -74,24 +74,27 @@ describe("resolveTargetAssistant platform fallback", () => {
     fetchAssistantByIdFromPlatformMock.mockResolvedValue(null);
   });
 
-  test("name not in lockfile + token present + platform returns assistant → synthetic entry", async () => {
+  test("name not in lockfile + token present + platform returns assistant → synthetic entry uses canonical id", async () => {
+    // Input is mixed-case; platform returns the canonical lower-case id.
+    // The synthetic entry MUST use the platform-returned id, not the raw
+    // user input — `entry.assistantId` flows into the upgrade POST body.
     readPlatformTokenMock.mockReturnValue("platform-token");
     fetchAssistantByIdFromPlatformMock.mockResolvedValueOnce({
-      id: "uuid-1",
-      name: "uuid-1",
+      id: "uuid-canonical",
+      name: "managed",
       status: "active",
     });
 
-    const entry = await resolveTargetAssistant("uuid-1");
+    const entry = await resolveTargetAssistant("UUID-CANONICAL");
 
     expect(entry).toEqual({
-      assistantId: "uuid-1",
+      assistantId: "uuid-canonical",
       cloud: "vellum",
       runtimeUrl: "https://platform.test",
     });
     expect(fetchAssistantByIdFromPlatformMock).toHaveBeenCalledWith(
       "platform-token",
-      "uuid-1",
+      "UUID-CANONICAL",
     );
   });
 

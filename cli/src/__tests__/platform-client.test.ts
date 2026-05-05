@@ -321,4 +321,39 @@ describe("fetchAssistantByIdFromPlatform", () => {
       ),
     ).rejects.toThrow(/Run 'vellum login'/);
   });
+
+  test("auth-shaped error from authHeaders is normalized to standard sentinel", async () => {
+    // Use a session token (non-vak_) so authHeaders calls fetchOrganizationId.
+    // Stub /v1/organizations/ to 401 so fetchOrganizationId throws
+    // "Failed to fetch organizations from ... (401). Try logging in again."
+    // The new normalization path should rewrite that to the standard
+    // "Authentication failed. Run 'vellum login' to refresh." sentinel so
+    // the upgrade command's catch routes it to AUTH_FAILED.
+    const { fetchMock } = captureFetch((call) => {
+      if (call.url.includes("/v1/organizations/")) {
+        return new Response("", { status: 401 });
+      }
+      // Should never reach the assistants endpoint on this path.
+      return new Response("unexpected", { status: 500 });
+    });
+    globalThis.fetch = fetchMock;
+
+    // Silence the console.error inside authHeaders' catch block.
+    const errSpy = mock(() => {});
+    const origErr = console.error;
+    console.error = errSpy as unknown as typeof console.error;
+    try {
+      await expect(
+        fetchAssistantByIdFromPlatform(
+          "session-token",
+          "uuid-123",
+          "https://platform.test",
+        ),
+      ).rejects.toThrow(
+        "Authentication failed. Run 'vellum login' to refresh.",
+      );
+    } finally {
+      console.error = origErr;
+    }
+  });
 });
