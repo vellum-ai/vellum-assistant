@@ -39,6 +39,7 @@ import {
   resolveSlash,
 } from "../../daemon/conversation-slash.js";
 import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
+import { canonicalizeTimeZone } from "../../daemon/date-context.js";
 import {
   getCannedFirstGreeting,
   isWakeUpGreeting,
@@ -1095,6 +1096,7 @@ export async function handleSendMessage(
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
+    clientTimezone?: unknown;
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
@@ -1174,6 +1176,10 @@ export async function handleSendMessage(
       )}`,
     );
   }
+  const clientTimezone =
+    typeof body.clientTimezone === "string"
+      ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
+      : undefined;
 
   // When conversationKey is omitted, derive a stable default from
   // sourceChannel + sourceInterface so that repeated calls from the same
@@ -1293,10 +1299,12 @@ export async function handleSendMessage(
         interfaceId: sourceInterface,
         hostHomeDir: body.hostHomeDir,
         hostUsername: body.hostUsername,
+        ...(clientTimezone ? { clientTimezone } : {}),
       } satisfies HostProxyTransportMetadata)
     : ({
         channelId: sourceChannel,
         interfaceId: sourceInterface,
+        ...(clientTimezone ? { clientTimezone } : {}),
       } satisfies NonHostProxyTransportMetadata);
 
   const conversation = await smDeps.getOrCreateConversation(
@@ -2274,6 +2282,7 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
       conversationType: z.string().optional(),
       slashCommand: z.string().optional(),
+      clientTimezone: z.string().optional(),
       inferenceProfile: z.string().nullable().optional(),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
     }),
