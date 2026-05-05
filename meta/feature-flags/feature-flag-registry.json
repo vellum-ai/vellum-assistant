@@ -272,6 +272,14 @@
       "label": "Analyze Conversation",
       "description": "Show the 'Analyze' / 'Analyze conversation' option in conversation context menus and the conversation title actions dropdown.",
       "defaultEnabled": false
+    },
+    {
+      "id": "pro-plan-adjust",
+      "scope": "assistant",
+      "key": "pro-plan-adjust",
+      "label": "Pro Plan Adjust",
+      "description": "Show the 'Adjust Plan' and 'Configure Auto Top Ups' CTAs in the macOS Settings → Billing tab. Both open the web app's billing settings page.",
+      "defaultEnabled": false
     }
   ]
 }
