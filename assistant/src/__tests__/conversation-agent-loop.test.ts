@@ -711,7 +711,6 @@ describe("session-agent-loop", () => {
       const activityStates: unknown[][] = [];
       const traceEvents: unknown[][] = [];
       const ctx = makeCtx({
-        agentLoopRun: agentLoopRun as AgentLoopRun,
         emitActivityState: (...args: unknown[]) => {
           activityStates.push(args);
         },
@@ -721,6 +720,7 @@ describe("session-agent-loop", () => {
           },
         } as unknown as AgentLoopConversationContext["traceEmitter"],
       });
+      ctx.agentLoop.run = agentLoopRun as AgentLoopRun;
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
