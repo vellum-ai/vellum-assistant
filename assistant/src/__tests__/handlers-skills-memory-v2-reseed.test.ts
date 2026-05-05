@@ -152,7 +152,6 @@ mock.module("../skills/catalog-cache.js", () => ({
 
 mock.module("../skills/catalog-install.js", () => ({
   installSkillLocally: async () => {},
-  upsertSkillsIndex: () => {},
   getRepoSkillsDir: () => undefined,
 }));
 
@@ -163,7 +162,6 @@ mock.module("../skills/catalog-search.js", () => ({
 mock.module("../skills/managed-store.js", () => ({
   createManagedSkill: () => ({ created: true }),
   deleteManagedSkill: () => ({ deleted: true }),
-  removeSkillsIndexEntry: () => {},
   validateManagedSkillId: () => null,
 }));
 

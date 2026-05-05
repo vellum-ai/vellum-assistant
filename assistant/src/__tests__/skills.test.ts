@@ -86,6 +86,20 @@ describe("skills catalog loading", () => {
     expect(catalog.map((skill) => skill.id)).toEqual(["first", "second"]);
   });
 
+  test("managed skill overrides bundled skill with the same id", () => {
+    writeSkill(
+      "skill-management",
+      "Custom Skill Management",
+      "Managed override",
+    );
+
+    const skill = loadSkillCatalog().find((s) => s.id === "skill-management");
+    expect(skill).toBeDefined();
+    expect(skill!.source).toBe("managed");
+    expect(skill!.name).toBe("Custom Skill Management");
+    expect(skill!.bundled).toBeUndefined();
+  });
+
   test("does not discover symlinked skill directories that point outside ~/.vellum/workspace/skills", () => {
     const externalSkillDir = join(TEST_DIR, "outside", "external-skill");
     mkdirSync(externalSkillDir, { recursive: true });
@@ -201,6 +215,18 @@ describe("workspace skills", () => {
     expect(result.skill!.id).toBe("ws-load");
     expect(result.skill!.body).toBe("Full workspace body here");
     expect(result.skill!.source).toBe("workspace");
+  });
+
+  test("workspace skill overrides managed skill with the same id", () => {
+    writeSkill("shared-id", "Managed Shared", "Managed version");
+    writeWorkspaceSkill("shared-id", "Workspace Shared", "Workspace version");
+
+    const skill = loadSkillCatalog(workspaceSkillsDir).find(
+      (s) => s.id === "shared-id",
+    );
+    expect(skill).toBeDefined();
+    expect(skill!.source).toBe("workspace");
+    expect(skill!.name).toBe("Workspace Shared");
   });
 });
 
