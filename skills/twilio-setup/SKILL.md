@@ -1,12 +1,12 @@
 ---
 name: twilio-setup
-description: Configure Twilio credentials and phone numbers for voice calls
+description: Configure Twilio credentials, phone numbers, webhooks, and call voice setup
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📱"
   vellum:
     display-name: "Twilio Setup"
-    includes: ["public-ingress"]
+    includes: ["public-ingress", "elevenlabs-voice"]
 ---
 
 You are helping your user configure Twilio for voice calls. Walk through each step below.
@@ -20,9 +20,11 @@ Before you begin, understand how each Twilio value is stored:
 | Account SID  | Config     | `assistant config set twilio.accountSid`                        | No      |
 | Auth Token   | Credential | `assistant credentials set --service twilio --field auth_token` | **Yes** |
 | Phone Number | Config     | `assistant config set twilio.phoneNumber`                       | No      |
+| TTS Voice    | Config     | `voice_config_update setting="tts_voice_id"`                    | No      |
 
 - **Config values** (Account SID, Phone Number) are non-sensitive identifiers. Collect them via normal conversation -- the user can paste them in chat or you can use `AskUserQuestion`.
   **Auth Token** is a secret. Collect it securely via `credential_store` prompt -- never accept it pasted in plaintext chat.
+- **TTS Voice** is not a Twilio credential, but phone calls use it for the assistant's spoken voice. Prompt for it during setup if the user has not explicitly configured one yet.
 
 ## Retrieving Twilio Credentials
 
@@ -43,8 +45,28 @@ assistant credentials inspect --service twilio --field auth_token --json  # chec
 assistant config get twilio.phoneNumber
 ```
 
-- If all three config values are non-empty -- Twilio is fully configured. Offer to show status or reconfigure.
+- If all three Twilio values are non-empty -- Twilio credentials and phone number are configured, but still check the TTS voice before declaring setup complete.
 - Otherwise, continue to the missing steps.
+
+## Checking Current TTS Voice Configuration
+
+TTS has runtime defaults, so do not treat a default voice as explicitly configured. Check the raw config values:
+
+```bash
+assistant config get services.tts.provider
+assistant config get services.tts.providers.elevenlabs.voiceId
+assistant config get services.tts.providers.fish-audio.referenceId
+assistant config get services.tts.providers.xai.voiceId
+```
+
+Treat the TTS voice as already configured when the active provider has a non-empty raw voice value:
+
+- Provider `(not set)` or `elevenlabs`: `services.tts.providers.elevenlabs.voiceId` is set.
+- Provider `fish-audio`: `services.tts.providers.fish-audio.referenceId` is set.
+- Provider `xai`: `services.tts.providers.xai.voiceId` is set.
+- Provider `deepgram`: no voice-selection prompt is needed.
+
+If no TTS voice has been explicitly configured, prompt the user to choose one before finishing setup. For the default ElevenLabs flow, follow the included `elevenlabs-voice` skill and use `voice_config_update setting="tts_voice_id" value="<selected-voice-id>"`.
 
 # Twilio Setup Steps
 
@@ -52,7 +74,7 @@ Follow the steps below in order to fully configure Twilio in preparation to make
 
 ## Step 1: Check Current Configuration
 
-Refer to "Checking Current Configuration" above to see the current state of the user's Twilio setup. If Twilio appears to be fully configured. Offer to show status or reconfigure. Otherwise, continue to the missing steps below.
+Refer to "Checking Current Configuration" above to see the current state of the user's Twilio setup. If Twilio credentials and phone number are configured, skip to the TTS voice check before declaring setup complete. Otherwise, continue to the missing steps below.
 
 ## Step 2: Collect and Store Credentials
 
@@ -182,6 +204,14 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   -d "VoiceUrl=$PUBLIC_URL/webhooks/twilio/voice" \
   -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status"
 ```
+
+## Step 5: Configure TTS Voice If Missing
+
+Refer to "Checking Current TTS Voice Configuration" above. If a TTS voice has already been explicitly configured, do not prompt again.
+
+If no TTS voice is configured, tell the user: **"One more thing before calls are ready: choose the voice I should use on phone calls. I can pick a good default from the curated voices, or you can choose one."**
+
+Then follow the included `elevenlabs-voice` skill to select and set a voice. Do not skip this prompt just because the runtime has an ElevenLabs default -- the goal is to get an explicit user preference before calls go live.
 
 ## Clearing Credentials
 

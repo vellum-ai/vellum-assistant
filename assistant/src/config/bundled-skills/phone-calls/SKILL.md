@@ -25,7 +25,7 @@ When speaking on behalf of your user during calls, refer to yourself as an "assi
 
 # Overview
 
-The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls. The text-to-speech voice is provided by the globally configured TTS provider (set via `services.tts.provider`, default: ElevenLabs). After Twilio setup, the assistant prompts the user to choose a voice from a curated list of supported options.
+The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls. The text-to-speech voice is provided by the globally configured TTS provider (set via `services.tts.provider`, default: ElevenLabs). The Twilio setup flow checks whether the user has explicitly configured a TTS voice and prompts them to choose one if not.
 
 # Initial Setup
 
@@ -51,7 +51,7 @@ assistant config get calls.enabled
 
 ## Step 3: Choose a Voice
 
-Voice selection and tuning are handled by the `elevenlabs-voice` skill. Follow the instructions there to pick a curated voice, optionally set up an ElevenLabs API key for advanced selection, or tune voice parameters.
+If the Twilio setup flow already prompted for and configured a TTS voice, skip this step. Otherwise, voice selection and tuning are handled by the `elevenlabs-voice` skill. Follow the instructions there to pick a curated voice, optionally set up an ElevenLabs API key for advanced selection, or tune voice parameters.
 
 ## Step 4: Verify Setup (Test Call)
 
