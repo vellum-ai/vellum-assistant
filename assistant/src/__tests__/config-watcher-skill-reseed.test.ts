@@ -151,4 +151,30 @@ describe("ConfigWatcher skills watcher reseeding", () => {
     expect(evictCalls).toBe(1);
     expect(skillsChangedCalls).toBe(1);
   });
+
+  test("coalesces multiple skill file changes into one catalog refresh", async () => {
+    watcher.start(
+      () => {
+        evictCalls++;
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        skillsChangedCalls++;
+      },
+    );
+
+    const skillsWatcher = findWatcher(SKILLS_DIR);
+    expect(skillsWatcher).toBeDefined();
+    skillsWatcher!.callback("change", "example-skill/SKILL.md");
+    skillsWatcher!.callback("change", "example-skill/package.json");
+    skillsWatcher!.callback("change", "other-skill/SKILL.md");
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(evictCalls).toBe(1);
+    expect(skillsChangedCalls).toBe(1);
+  });
 });

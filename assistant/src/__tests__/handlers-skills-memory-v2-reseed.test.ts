@@ -3,19 +3,13 @@
  * `assistant/src/daemon/handlers/skills.ts`.
  *
  * One representative call site (the `installSkill` bundled branch) is
- * exercised — all 5 sites share the same delegation to
- * `maybeSeedMemoryV2Skills`, so a single suite covers behavior. Validates:
- *   - flag + config both on → helper invoked after seedSkillGraphNodes
- *     and the seed observed (callOrder picks up "v2")
- *   - flag off → helper still invoked, but the seed short-circuits
- *   - config.memory.v2.enabled off → helper still invoked, seed short-circuits
+ * exercised — all handler seed sites share the same delegation to
+ * `refreshSkillCapabilityMemories`, so a single suite covers behavior. Validates:
+ *   - handler invokes the centralized refresh helper with the live config.
  *
- * The handler delegates to `maybeSeedMemoryV2Skills` from
- * `daemon/memory-v2-startup.ts`. We mock that module directly so the test
- * does not have to drain the dynamic-import microtask chain. The helper's
- * gate semantics (flag + config + rejection swallowing) are covered by
- * `lifecycle-memory-v2-seed.test.ts`; here we only verify that the
- * handler invokes the helper synchronously with the live config.
+ * The helper's gate semantics (flag + config + rejection swallowing) are
+ * covered by `lifecycle-memory-v2-seed.test.ts`; here we only verify that the
+ * handler delegates to the centralized refresh path synchronously.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -25,14 +19,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const flagsState = { flagEnabled: true, configV2Enabled: true };
 
-const callOrder: string[] = [];
-
-const mockSeedSkillGraphNodes = mock(() => {
-  callOrder.push("v1");
-});
-// Body installed in `beforeEach` so each test sees a fresh implementation
-// that closes over the up-to-date `flagsState`.
-const mockMaybeSeedMemoryV2Skills = mock(
+const mockRefreshSkillCapabilityMemories = mock(
   (_config: { memory: { v2: { enabled: boolean } } }) => {},
 );
 
@@ -151,6 +138,7 @@ mock.module("../skills/catalog-cache.js", () => ({
 }));
 
 mock.module("../skills/catalog-install.js", () => ({
+  assertInstalledSkillDiscoverable: () => {},
   installSkillLocally: async () => {},
   getRepoSkillsDir: () => undefined,
 }));
@@ -167,7 +155,7 @@ mock.module("../skills/managed-store.js", () => ({
 
 mock.module("../memory/graph/capability-seed.js", () => ({
   deleteSkillCapabilityNode: () => {},
-  seedSkillGraphNodes: mockSeedSkillGraphNodes,
+  seedSkillGraphNodes: () => {},
   seedUninstalledCatalogSkillMemories: async () => {},
 }));
 
@@ -176,8 +164,8 @@ mock.module("../memory/v2/skill-store.js", () => ({
   getSkillCapability: () => null,
 }));
 
-mock.module("../daemon/memory-v2-startup.js", () => ({
-  maybeSeedMemoryV2Skills: mockMaybeSeedMemoryV2Skills,
+mock.module("../daemon/skill-memory-refresh.js", () => ({
+  refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
 
 mock.module("../util/platform.js", () => ({
@@ -220,44 +208,38 @@ describe("v2 skill re-seed gating in skill handlers", () => {
   beforeEach(() => {
     flagsState.flagEnabled = true;
     flagsState.configV2Enabled = true;
-    callOrder.length = 0;
-    mockSeedSkillGraphNodes.mockClear();
-    mockMaybeSeedMemoryV2Skills.mockClear();
-    mockMaybeSeedMemoryV2Skills.mockImplementation((config) => {
-      if (!flagsState.flagEnabled || !config.memory.v2.enabled) return;
-      callOrder.push("v2");
-    });
+    mockRefreshSkillCapabilityMemories.mockClear();
   });
 
-  test("flag + config both on → maybeSeedMemoryV2Skills invoked after seedSkillGraphNodes", async () => {
+  test("flag + config both on → refresh helper invoked with live config", async () => {
     const result = await installSkill({ slug: "bundled-skill" });
 
     expect(result.success).toBe(true);
-    expect(mockSeedSkillGraphNodes).toHaveBeenCalledTimes(1);
-    expect(mockMaybeSeedMemoryV2Skills).toHaveBeenCalledTimes(1);
-    expect(callOrder).toEqual(["v1", "v2"]);
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
+    expect(mockRefreshSkillCapabilityMemories.mock.calls[0]?.[0]).toEqual({
+      memory: { v2: { enabled: true } },
+    });
   });
 
-  test("flag off → seed mock observes the disabled flag and skips", async () => {
+  test("flag off → handler still delegates to refresh helper", async () => {
     flagsState.flagEnabled = false;
 
     const result = await installSkill({ slug: "bundled-skill" });
 
     expect(result.success).toBe(true);
-    expect(mockSeedSkillGraphNodes).toHaveBeenCalledTimes(1);
-    expect(mockMaybeSeedMemoryV2Skills).toHaveBeenCalledTimes(1);
-    expect(callOrder).toEqual(["v1"]);
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
   });
 
-  test("config.memory.v2.enabled off → seed mock observes config and skips", async () => {
+  test("config.memory.v2.enabled off → helper receives disabled config", async () => {
     flagsState.configV2Enabled = false;
 
     const result = await installSkill({ slug: "bundled-skill" });
 
     expect(result.success).toBe(true);
-    expect(mockSeedSkillGraphNodes).toHaveBeenCalledTimes(1);
-    expect(mockMaybeSeedMemoryV2Skills).toHaveBeenCalledTimes(1);
-    expect(callOrder).toEqual(["v1"]);
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
+    expect(mockRefreshSkillCapabilityMemories.mock.calls[0]?.[0]).toEqual({
+      memory: { v2: { enabled: false } },
+    });
   });
 
   // Note: "seed rejection swallowed" is now an internal concern of

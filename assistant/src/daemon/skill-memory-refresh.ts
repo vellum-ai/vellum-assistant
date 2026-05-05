@@ -14,10 +14,16 @@ export function refreshSkillCapabilityMemories(
 ): void {
   seedSkillGraphNodes();
   maybeSeedMemoryV2Skills(config);
-  void seedUninstalledCatalogSkillMemories().catch((err) =>
-    log.warn(
-      { err },
-      "Uninstalled catalog skill memory seeding failed — continuing",
-    ),
-  );
+  void seedUninstalledCatalogSkillMemories()
+    .then(() => {
+      // Re-run after the async catalog fetch populates the cache so stale
+      // installed-skill nodes can be pruned without deleting catalog-only nodes.
+      seedSkillGraphNodes();
+    })
+    .catch((err) =>
+      log.warn(
+        { err },
+        "Uninstalled catalog skill memory seeding failed — continuing",
+      ),
+    );
 }

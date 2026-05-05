@@ -15,10 +15,20 @@
  *   - It swallows errors from the embedding backend — the function resolves
  *     and the cache is unchanged from prior state.
  *
- * Hermetic by design: the catalog loader, state resolver, embedding backend,
- * Qdrant module, and feature-flag resolver are all module-mocked so the suite
- * never reaches a real backend or filesystem.
+ * Hermetic by design: the embedding backend, Qdrant module, and feature-flag
+ * resolver are module-mocked so the suite never reaches a real backend. One
+ * regression case uses a temp workspace to exercise disk-discovered skills.
  */
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
@@ -47,8 +57,8 @@ interface PruneCall {
 }
 
 interface TestState {
-  catalog: SkillSummary[];
-  resolved: ResolvedSkill[];
+  catalog: SkillSummary[] | null;
+  resolved: ResolvedSkill[] | null;
   fullCatalog: CatalogSkill[];
   fullCatalogThrows: Error | null;
   flagsEnabled: Record<string, boolean>;
@@ -81,16 +91,39 @@ mock.module("../../../config/loader.js", () => ({
       qdrant: { url: "http://127.0.0.1:6333", vectorSize: 3, onDisk: false },
     },
     mcp: { servers: {} },
-    skills: { entries: {}, allowBundled: null },
+    skills: { entries: {}, allowBundled: [] },
   }),
 }));
 
 mock.module("../../../config/skills.js", () => ({
-  loadSkillCatalog: () => state.catalog,
+  loadSkillCatalog: () => state.catalog ?? loadDiskSkillCatalog(),
 }));
 
 mock.module("../../../config/skill-state.js", () => ({
-  resolveSkillStates: () => state.resolved,
+  resolveSkillStates: (
+    catalog: SkillSummary[],
+    config: { skills?: { allowBundled?: string[] | null } },
+  ) => {
+    if (state.resolved) return state.resolved;
+    return catalog
+      .filter((summary) => {
+        const allowBundled = config.skills?.allowBundled;
+        return !(
+          summary.source === "bundled" &&
+          allowBundled != null &&
+          !allowBundled.includes(summary.id)
+        );
+      })
+      .map((summary) => ({
+        summary,
+        state:
+          summary.source === "managed" ||
+          summary.source === "bundled" ||
+          summary.source === "plugin"
+            ? "enabled"
+            : "disabled",
+      }));
+  },
 }));
 
 mock.module("../../../config/assistant-feature-flags.js", () => ({
@@ -149,6 +182,34 @@ function makeSummary(overrides: Partial<SkillSummary> = {}): SkillSummary {
     source: "managed",
     ...overrides,
   };
+}
+
+function loadDiskSkillCatalog(): SkillSummary[] {
+  const skillsDir = join(process.env.VELLUM_WORKSPACE_DIR!, "skills");
+  return readdirSync(skillsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const directoryPath = join(skillsDir, entry.name);
+      const skillFilePath = join(directoryPath, "SKILL.md");
+      const content = readFileSync(skillFilePath, "utf-8");
+      const name = content.match(/^name:\s*"([^"]+)"/m)?.[1] ?? entry.name;
+      const description =
+        content.match(/^description:\s*"([^"]+)"/m)?.[1] ?? "";
+      const activationHints = [...content.matchAll(/^\s+-\s+(.+)$/gm)].map(
+        (match) => match[1]!.trim(),
+      );
+      return {
+        id: entry.name,
+        name,
+        displayName: name,
+        description,
+        directoryPath,
+        skillFilePath,
+        source: "managed" as const,
+        activationHints: activationHints.slice(0, 1),
+        avoidWhen: activationHints.slice(1, 2),
+      };
+    });
 }
 
 function resetState(): void {
@@ -383,21 +444,73 @@ describe("seedV2SkillEntries", () => {
     expect(getSkillCapability("skills/unknown-skill")).toBeNull();
   });
 
-  test("seeds disk-discovered managed skills omitted from a stale SKILLS.md index", async () => {
-    const diskDiscovered = makeSummary({
-      id: "geo-article-writer",
-      name: "geo-article-writer",
-      displayName: "Geo Article Writer",
-      description: "Writes local geo articles",
-      activationHints: ["user asks for local article drafts"],
-      avoidWhen: ["user only wants citation extraction"],
-      source: "managed",
+  test("skips stale in-flight seed results when a newer refresh is requested", async () => {
+    const skillA = makeSummary({
+      id: "example-skill-a",
+      displayName: "Skill A",
     });
-    state.catalog = [diskDiscovered];
-    state.resolved = [{ summary: diskDiscovered, state: "enabled" }];
+    const skillB = makeSummary({
+      id: "example-skill-b",
+      displayName: "Skill B",
+    });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    const firstSeed = seedV2SkillEntries();
+    state.catalog = [skillB];
+    state.resolved = [{ summary: skillB, state: "enabled" }];
+    const secondSeed = seedV2SkillEntries();
+
+    await Promise.all([firstSeed, secondSeed]);
+
+    expect(state.upsertCalls.map((call) => call.slug)).toEqual([
+      "skills/example-skill-b",
+    ]);
+    expect(getSkillCapability("example-skill-a")).toBeNull();
+    expect(getSkillCapability("example-skill-b")?.content).toContain("Skill B");
+  });
+
+  test("seeds disk-discovered managed skills omitted from a stale SKILLS.md index", async () => {
+    const previousWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    const workspaceDir = mkdtempSync(join(tmpdir(), "skill-store-index-"));
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+    state.catalog = null;
+    state.resolved = null;
     state.embedReturn = [[0.7, 0.8, 0.9]];
 
-    await seedV2SkillEntries();
+    try {
+      const skillsDir = join(workspaceDir, "skills");
+      const skillDir = join(skillsDir, "geo-article-writer");
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(join(skillsDir, "SKILLS.md"), "- stale-only\n", "utf-8");
+      writeFileSync(
+        join(skillDir, "SKILL.md"),
+        `---
+name: "Geo Article Writer"
+description: "Writes local geo articles"
+metadata:
+  vellum:
+    activation-hints:
+      - user asks for local article drafts
+    avoid-when:
+      - user only wants citation extraction
+---
+
+Write a local article draft.
+`,
+        "utf-8",
+      );
+
+      await seedV2SkillEntries();
+    } finally {
+      if (previousWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceDir;
+      }
+      rmSync(workspaceDir, { recursive: true, force: true });
+    }
 
     expect(state.upsertCalls).toHaveLength(1);
     expect(state.upsertCalls[0].slug).toBe("skills/geo-article-writer");

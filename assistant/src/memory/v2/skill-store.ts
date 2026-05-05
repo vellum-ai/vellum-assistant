@@ -65,6 +65,10 @@ export function skillSlugFor(id: string): string {
  * successful re-seed so callers always see a consistent snapshot.
  */
 let entries: Map<string, SkillEntry> | null = null;
+let requestedSeedGeneration = 0;
+let processedSeedGeneration = 0;
+let activeSeedDrain: Promise<void> | null = null;
+const seedWaiters: Array<{ generation: number; resolve: () => void }> = [];
 
 /**
  * Seed (or re-seed) skill embeddings into the unified concept-page collection.
@@ -90,7 +94,43 @@ let entries: Map<string, SkillEntry> | null = null;
  *      stale points from prior catalog state (e.g. uninstalled skills).
  *   7. Replace the module-level `entries` cache with the freshly built map.
  */
-export async function seedV2SkillEntries(): Promise<void> {
+export function seedV2SkillEntries(): Promise<void> {
+  const generation = ++requestedSeedGeneration;
+  const waiter = new Promise<void>((resolve) => {
+    seedWaiters.push({ generation, resolve });
+  });
+  if (!activeSeedDrain) {
+    activeSeedDrain = drainSeedQueue().finally(() => {
+      activeSeedDrain = null;
+      if (processedSeedGeneration < requestedSeedGeneration) {
+        activeSeedDrain = drainSeedQueue().finally(() => {
+          activeSeedDrain = null;
+        });
+      }
+    });
+  }
+  return waiter;
+}
+
+async function drainSeedQueue(): Promise<void> {
+  while (processedSeedGeneration < requestedSeedGeneration) {
+    const generationToProcess = requestedSeedGeneration;
+    await runSeedV2SkillEntries(generationToProcess);
+    processedSeedGeneration = generationToProcess;
+    resolveSeedWaiters();
+  }
+}
+
+function resolveSeedWaiters(): void {
+  for (let i = seedWaiters.length - 1; i >= 0; i -= 1) {
+    const waiter = seedWaiters[i]!;
+    if (waiter.generation > processedSeedGeneration) continue;
+    seedWaiters.splice(i, 1);
+    waiter.resolve();
+  }
+}
+
+async function runSeedV2SkillEntries(generation: number): Promise<void> {
   try {
     const config = getConfig();
     const catalog = loadSkillCatalog();
@@ -148,6 +188,13 @@ export async function seedV2SkillEntries(): Promise<void> {
         applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),
       ),
     );
+    if (generation !== requestedSeedGeneration) {
+      log.info(
+        { generation, latestGeneration: requestedSeedGeneration },
+        "Skipping stale v2 skill seed result",
+      );
+      return;
+    }
 
     const now = Date.now();
     const nextEntries = new Map<string, SkillEntry>();
@@ -211,4 +258,8 @@ export function isSkillSlug(slug: string): boolean {
 /** @internal Test-only: clear the module-level cache. */
 export function _resetSkillStoreForTests(): void {
   entries = null;
+  requestedSeedGeneration = 0;
+  processedSeedGeneration = 0;
+  activeSeedDrain = null;
+  seedWaiters.splice(0, seedWaiters.length);
 }

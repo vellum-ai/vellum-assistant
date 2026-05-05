@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -12,6 +13,7 @@ import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { getPlatformBaseUrl } from "../config/env.js";
+import { loadSkillCatalog } from "../config/skills.js";
 import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
@@ -124,7 +126,7 @@ export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
 
 /**
  * Extract all files from a tar archive (uncompressed) into a directory.
- * Returns true if a SKILL.md was found in the archive.
+ * Returns true if a top-level SKILL.md was found in the archive.
  */
 export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
   let foundSkillMd = false;
@@ -178,10 +180,7 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
         mkdirSync(dirname(destPath), { recursive: true });
         writeFileSync(destPath, tarBuffer.subarray(offset, offset + size));
 
-        if (
-          normalizedPath === "SKILL.md" ||
-          normalizedPath.endsWith("/SKILL.md")
-        ) {
+        if (normalizedPath === "SKILL.md") {
           foundSkillMd = true;
         }
       }
@@ -231,6 +230,32 @@ export function uninstallSkillLocally(skillId: string): void {
   deleteSkillCapabilityNode(skillId);
 }
 
+export function assertInstalledSkillDiscoverable(
+  skillId: string,
+  skillDir = join(getWorkspaceSkillsDir(), skillId),
+): void {
+  const skillFilePath = join(skillDir, "SKILL.md");
+  if (!existsSync(skillFilePath)) {
+    throw new Error(
+      `Installed skill "${skillId}" is missing SKILL.md at the skill root`,
+    );
+  }
+
+  const discovered = loadSkillCatalog().some((skill) => {
+    if (skill.id !== skillId) return false;
+    try {
+      return realpathSync(skill.directoryPath) === realpathSync(skillDir);
+    } catch {
+      return skill.directoryPath === skillDir;
+    }
+  });
+  if (!discovered) {
+    throw new Error(
+      `Installed skill "${skillId}" was not discovered by the skill catalog`,
+    );
+  }
+}
+
 export async function installSkillLocally(
   skillId: string,
   catalogEntry: CatalogSkill,
@@ -246,6 +271,9 @@ export async function installSkillLocally(
     );
   }
 
+  if (overwrite && existsSync(skillDir)) {
+    rmSync(skillDir, { recursive: true, force: true });
+  }
   mkdirSync(skillDir, { recursive: true });
 
   // In dev mode, install from the local repo skills directory if available
@@ -267,6 +295,8 @@ export async function installSkillLocally(
     "Installed skill from %s",
     installSource,
   );
+
+  assertInstalledSkillDiscoverable(skillId, skillDir);
 
   // Write install metadata
   writeInstallMeta(skillDir, {

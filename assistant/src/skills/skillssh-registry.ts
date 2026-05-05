@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
 import { getWorkspaceSkillsDir } from "../util/platform.js";
+import { assertInstalledSkillDiscoverable } from "./catalog-install.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 import type {
   AuditResponse,
@@ -469,6 +470,8 @@ export async function installExternalSkill(
     mkdirSync(dirname(destPath), { recursive: true });
     writeFileSync(destPath, content, "utf-8");
   }
+
+  assertInstalledSkillDiscoverable(skillSlug, skillDir);
 
   // Write install metadata
   writeInstallMeta(skillDir, {

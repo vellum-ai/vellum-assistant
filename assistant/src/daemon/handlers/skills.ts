@@ -20,11 +20,7 @@ import {
 } from "../../config/loader.js";
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../../config/skills.js";
-import {
-  deleteSkillCapabilityNode,
-  seedSkillGraphNodes,
-  seedUninstalledCatalogSkillMemories,
-} from "../../memory/graph/capability-seed.js";
+import { deleteSkillCapabilityNode } from "../../memory/graph/capability-seed.js";
 import {
   createTimeout,
   extractText,
@@ -46,6 +42,7 @@ import {
   SKIP_DIRS,
 } from "../../skills/catalog-files.js";
 import {
+  assertInstalledSkillDiscoverable,
   type CatalogSkill,
   installSkillLocally,
 } from "../../skills/catalog-install.js";
@@ -80,12 +77,12 @@ import {
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import { getConfigWatcher } from "../config-watcher.js";
-import { maybeSeedMemoryV2Skills } from "../memory-v2-startup.js";
 import type {
   SkillDetailResponse,
   SkillFileContentResponse,
   SlimSkillResponse,
 } from "../message-types/skills.js";
+import { refreshSkillCapabilityMemories } from "../skill-memory-refresh.js";
 import { CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, log } from "./shared.js";
 
 // ─── Provider chain for uninstalled skill file preview ───────────────────────
@@ -268,9 +265,9 @@ function saveConfigWithSuppression(raw: Record<string, unknown>): void {
  * NOT used for bundled skills — those have a simpler inline path in
  * `installSkill()` that only auto-enables, broadcasts, and seeds memories.
  */
-function postInstallSkill(skillId: string, _skillDir: string): void {
+function postInstallSkill(skillId: string, skillDir: string): void {
   // Reload skill catalog so the newly installed skill is picked up
-  loadSkillCatalog();
+  assertInstalledSkillDiscoverable(skillId, skillDir);
 
   // Auto-enable the skill in config
   try {
@@ -287,9 +284,7 @@ function postInstallSkill(skillId: string, _skillDir: string): void {
   }
 
   // Seed skill memories
-  seedSkillGraphNodes();
-  maybeSeedMemoryV2Skills(getConfig());
-  void seedUninstalledCatalogSkillMemories().catch(() => {});
+  refreshSkillCapabilityMemories(getConfig());
 }
 
 // ─── Kind / origin / status derivation ───────────────────────────────────────
@@ -945,9 +940,7 @@ export function enableSkill(
       name: skillId,
       state: "enabled",
     });
-    seedSkillGraphNodes();
-    maybeSeedMemoryV2Skills(getConfig());
-    void seedUninstalledCatalogSkillMemories().catch(() => {});
+    refreshSkillCapabilityMemories(getConfig());
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -968,9 +961,7 @@ export function disableSkill(
       name: skillId,
       state: "disabled",
     });
-    seedSkillGraphNodes();
-    maybeSeedMemoryV2Skills(getConfig());
-    void seedUninstalledCatalogSkillMemories().catch(() => {});
+    refreshSkillCapabilityMemories(getConfig());
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1059,9 +1050,7 @@ export async function installSkill(spec: {
           "Failed to auto-enable bundled skill",
         );
       }
-      seedSkillGraphNodes();
-      maybeSeedMemoryV2Skills(config);
-      void seedUninstalledCatalogSkillMemories().catch(() => {});
+      refreshSkillCapabilityMemories(config);
       return { success: true, skillId: spec.slug };
     }
 
@@ -1620,9 +1609,7 @@ export async function createSkill(
       );
     }
 
-    seedSkillGraphNodes();
-    maybeSeedMemoryV2Skills(getConfig());
-    void seedUninstalledCatalogSkillMemories().catch(() => {});
+    refreshSkillCapabilityMemories(getConfig());
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
