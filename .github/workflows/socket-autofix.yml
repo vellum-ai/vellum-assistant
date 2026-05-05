@@ -57,7 +57,7 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Run socket fix
-        run: bunx @socketsecurity/cli fix --autopilot --pr-limit 3 --minimum-release-age 1w
+        run: bunx @socketsecurity/cli@1.1.91 fix --autopilot --pr-limit 3 --minimum-release-age 1w
         env:
           SOCKET_CLI_API_TOKEN: ${{ secrets.SOCKET_CLI_API_TOKEN }}
           SOCKET_CLI_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
