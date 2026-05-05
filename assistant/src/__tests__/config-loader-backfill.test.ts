@@ -327,6 +327,21 @@ describe("loadConfig startup behavior", () => {
     expect(config.memory.v2.bm25_b).toBe(0.4);
   });
 
+  test("reloads cached config when config.json is updated externally", () => {
+    // Models a CLI subprocess writing twilio.accountSid while the assistant
+    // process already has an effective config cached in memory.
+    writeConfig({ twilio: { accountSid: "AC_cached_before" } });
+    expect(loadConfig().twilio.accountSid).toBe("AC_cached_before");
+
+    writeConfig({
+      twilio: { accountSid: "AC_fresh_after_external_write" },
+    });
+
+    expect(loadConfig().twilio.accountSid).toBe(
+      "AC_fresh_after_external_write",
+    );
+  });
+
   test("still strips deprecated fields and rewrites", () => {
     // `warnAndStripDeprecatedFields` is a legitimate self-healing path:
     // it removes fields the schema no longer recognizes and persists the
