@@ -957,6 +957,65 @@ describe("assistant oauth connect", () => {
       expect(parsed.error).toBe("internal server error");
     });
 
+    test("IPC poll returns ok:false with statusCode → breaks early with error, does NOT wait for timeout", async () => {
+      // Fix 1: daemon was reachable during status poll but errored — should surface the
+      // error immediately instead of waiting out the full 5-minute timeout.
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=poll-err-state",
+              state: "poll-err-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          return { ok: false, statusCode: 500, error: "poll error" };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(1);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(false);
+      // The daemon error should be surfaced, not a timeout sentinel
+      expect(parsed.error).toBe("poll error");
+    });
+
+    test("IPC start returns ok:true with no auth_url → surfaces error, does NOT call in-process orchestrator", async () => {
+      // Fix 2: daemon returns { ok: true } but without an auth_url — malformed response
+      // should be an error, not a silent fallback to in-process (which has heap-split bug).
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return { ok: true, result: {} };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+      let orchestratorCalled = false;
+      mockOrchestrateOAuthConnect = async () => {
+        orchestratorCalled = true;
+        return { success: true, deferred: false, grantedScopes: [] };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(1);
+      // Must NOT fall back to the in-process orchestrator
+      expect(orchestratorCalled).toBe(false);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("Daemon returned unexpected response");
+    });
+
     test("IPC start with --callback-transport=gateway passes callbackTransport in body", async () => {
       let capturedParams: Record<string, unknown> | undefined;
       mockCliIpcCallFn = async (method, params) => {
