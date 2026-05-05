@@ -237,6 +237,16 @@ describe("enforcePolicy", () => {
     expect(result!.status).toBe(403);
   });
 
+  test("internal/oauth/connect/start allows svc_gateway with internal.write", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({
+      principalType: "svc_gateway",
+      scopes: ["internal.write"],
+    });
+    const result = enforcePolicy("internal/oauth/connect/start", ctx);
+    expect(result).toBeNull();
+  });
+
   // -- internal/oauth/connect/status policy ---------------------------------
 
   test("internal/oauth/connect/status is registered as a protected endpoint", () => {
@@ -257,5 +267,15 @@ describe("enforcePolicy", () => {
     const result = enforcePolicy("internal/oauth/connect/status", ctx);
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
+  });
+
+  test("internal/oauth/connect/status allows svc_gateway with internal.write", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({
+      principalType: "svc_gateway",
+      scopes: ["internal.write"],
+    });
+    const result = enforcePolicy("internal/oauth/connect/status", ctx);
+    expect(result).toBeNull();
   });
 });
