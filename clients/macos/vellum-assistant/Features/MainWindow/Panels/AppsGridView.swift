@@ -39,6 +39,7 @@ struct AppsGridView: View {
     @State private var isLoadingDocuments = false
     @State private var hasFetchedDocuments = false
     @State private var documentsTask: Task<Void, Never>?
+    @State private var documentsTaskGeneration = 0
 
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
@@ -131,10 +132,13 @@ struct AppsGridView: View {
                 if !docs.isEmpty {
                     documentSection(title: "Documents", documents: docs)
                 } else if isLoadingDocuments {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, VSpacing.lg)
+                    HStack {
+                        Spacer(minLength: 0)
+                        ProgressView()
+                            .controlSize(.small)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.top, VSpacing.lg)
                 }
 
                 if !shared.isEmpty {
@@ -583,18 +587,25 @@ struct AppsGridView: View {
     private func refreshDocumentsFromDaemon() {
         documentsTask?.cancel()
         isLoadingDocuments = true
-        documentsTask = Task { @MainActor in
+        documentsTaskGeneration += 1
+        let generation = documentsTaskGeneration
+
+        let task = Task { @MainActor in
             defer {
-                documentsTask = nil
-                isLoadingDocuments = false
-                hasFetchedDocuments = true
+                if documentsTaskGeneration == generation {
+                    documentsTask = nil
+                    isLoadingDocuments = false
+                    hasFetchedDocuments = true
+                }
             }
 
             guard let response = await DocumentClient().fetchList(conversationId: nil) else {
                 return
             }
+            guard documentsTaskGeneration == generation else { return }
             documents = response.documents
         }
+        documentsTask = task
     }
 
     // MARK: - Sections
