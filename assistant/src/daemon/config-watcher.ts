@@ -4,13 +4,14 @@
  * for changes.
  */
 import {
+  type Dirent,
   existsSync,
   type FSWatcher,
   mkdirSync,
   readdirSync,
   watch,
 } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
@@ -446,39 +447,69 @@ export class ConfigWatcher {
       }
     };
 
+    const formatSkillChangeLabel = (
+      dirPath: string,
+      filename: string,
+    ): string => {
+      if (filename === "(unknown)") {
+        const relativeDir = relative(skillsDir, dirPath);
+        return relativeDir || "(unknown)";
+      }
+      const relativeFile = relative(skillsDir, join(dirPath, filename));
+      return relativeFile || filename;
+    };
+
+    const enumerateSkillSubdirectories = (
+      dirPath: string,
+      acc: Set<string>,
+    ): boolean => {
+      let entries: Dirent[];
+      try {
+        entries = readdirSync(dirPath, { withFileTypes: true });
+      } catch (err) {
+        log.warn({ err, dirPath }, "Failed to enumerate skill directories");
+        return dirPath !== skillsDir;
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const childDir = join(dirPath, entry.name);
+        acc.add(childDir);
+        enumerateSkillSubdirectories(childDir, acc);
+      }
+      return true;
+    };
+
+    const closeChildWatcher = (dirPath: string, watcher: FSWatcher): void => {
+      watcher.close();
+      childWatchers.delete(dirPath);
+      removeWatcher(watcher);
+    };
+
     const refreshChildWatchers = (): void => {
       const nextChildDirs = new Set<string>();
-
-      try {
-        const entries = readdirSync(skillsDir, { withFileTypes: true });
-        for (const entry of entries) {
-          if (!entry.isDirectory()) continue;
-          const childDir = join(skillsDir, entry.name);
-          nextChildDirs.add(childDir);
-
-          if (childWatchers.has(childDir)) continue;
-
-          const watcher = watchDir(childDir, (filename) => {
-            const label =
-              filename === "(unknown)"
-                ? entry.name
-                : `${entry.name}/${filename}`;
-            scheduleSkillsReload(label);
-          });
-          if (watcher) {
-            childWatchers.set(childDir, watcher);
-          }
+      if (!enumerateSkillSubdirectories(skillsDir, nextChildDirs)) {
+        for (const [childDir, watcher] of childWatchers.entries()) {
+          closeChildWatcher(childDir, watcher);
         }
-      } catch (err) {
-        log.warn({ err, skillsDir }, "Failed to enumerate skill directories");
         return;
       }
 
       for (const [childDir, watcher] of childWatchers.entries()) {
         if (nextChildDirs.has(childDir)) continue;
-        watcher.close();
-        childWatchers.delete(childDir);
-        removeWatcher(watcher);
+        closeChildWatcher(childDir, watcher);
+      }
+
+      for (const childDir of nextChildDirs) {
+        if (childWatchers.has(childDir)) continue;
+
+        const watcher = watchDir(childDir, (filename) => {
+          scheduleSkillsReload(formatSkillChangeLabel(childDir, filename));
+          refreshChildWatchers();
+        });
+        if (watcher) {
+          childWatchers.set(childDir, watcher);
+        }
       }
     };
 
