@@ -145,7 +145,10 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
             "ui": ["userTimezone": "America/New_York", "detectedTimezone": "America/Los_Angeles"]
         ]
 
-        let store = SettingsStore(settingsClient: mock)
+        let store = SettingsStore(
+            settingsClient: mock,
+            currentDeviceTimezoneIdentifier: { "America/Los_Angeles" }
+        )
 
         let predicate = NSPredicate { _, _ in
             store.userTimezone == "America/New_York"
@@ -165,7 +168,10 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
         let mock = MockSettingsClient()
         mock.fetchConfigResponse = [:]
 
-        let store = SettingsStore(settingsClient: mock)
+        let store = SettingsStore(
+            settingsClient: mock,
+            currentDeviceTimezoneIdentifier: { "Europe/Paris" }
+        )
 
         // Wait for the eager init-time fetch to land.
         let initFetched = NSPredicate { _, _ in
@@ -191,5 +197,81 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
             timeout: 2.0
         )
         XCTAssertEqual(store.detectedTimezone, "Europe/Paris")
+    }
+
+    func testDetectedTimezonePersistsFromDeviceOnDaemonConfigLoad() {
+        let mock = MockSettingsClient()
+        mock.fetchConfigResponse = [
+            "ui": [
+                "mediaEmbeds": [
+                    "enabled": true,
+                    "enabledSince": "2026-02-15T12:00:00Z",
+                    "videoAllowlistDomains": []
+                ]
+            ]
+        ]
+
+        let store = SettingsStore(
+            settingsClient: mock,
+            currentDeviceTimezoneIdentifier: { "America/Chicago" }
+        )
+
+        let patched = NSPredicate { _, _ in
+            mock.patchConfigCalls.contains { payload in
+                guard let ui = payload["ui"] as? [String: Any] else { return false }
+                return ui["detectedTimezone"] as? String == "America/Chicago"
+            }
+        }
+        wait(
+            for: [XCTNSPredicateExpectation(predicate: patched, object: nil)],
+            timeout: 2.0
+        )
+        XCTAssertEqual(store.detectedTimezone, "America/Chicago")
+    }
+
+    func testDetectedTimezonePersistsWhenSystemTimezoneChanges() {
+        let mock = MockSettingsClient()
+        mock.fetchConfigResponse = [
+            "ui": [
+                "detectedTimezone": "America/Chicago",
+                "mediaEmbeds": [
+                    "enabled": true,
+                    "enabledSince": "2026-02-15T12:00:00Z",
+                    "videoAllowlistDomains": []
+                ]
+            ]
+        ]
+        var currentDeviceTimezone = "America/Chicago"
+
+        let store = SettingsStore(
+            settingsClient: mock,
+            currentDeviceTimezoneIdentifier: { currentDeviceTimezone }
+        )
+
+        let loaded = NSPredicate { _, _ in
+            store.detectedTimezone == "America/Chicago"
+        }
+        wait(
+            for: [XCTNSPredicateExpectation(predicate: loaded, object: nil)],
+            timeout: 2.0
+        )
+
+        currentDeviceTimezone = "Europe/London"
+        NotificationCenter.default.post(
+            name: NSNotification.Name.NSSystemTimeZoneDidChange,
+            object: nil
+        )
+
+        let patched = NSPredicate { _, _ in
+            mock.patchConfigCalls.contains { payload in
+                guard let ui = payload["ui"] as? [String: Any] else { return false }
+                return ui["detectedTimezone"] as? String == "Europe/London"
+            }
+        }
+        wait(
+            for: [XCTNSPredicateExpectation(predicate: patched, object: nil)],
+            timeout: 2.0
+        )
+        XCTAssertEqual(store.detectedTimezone, "Europe/London")
     }
 }

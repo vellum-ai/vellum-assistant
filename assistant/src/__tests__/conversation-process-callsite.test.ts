@@ -388,4 +388,41 @@ describe("processMessage callSite threading", () => {
     expect(captured.resolvedMaxTokens).toBe(1234);
     expect(captured.resolvedHasMaxTokens).toBe(true);
   });
+
+  test("applies clientTimezone in the create and reuse transport metadata path", async () => {
+    mockConversation = {
+      id: "conv-store-client-timezone",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [];
+    clearCaptured();
+    clearAllActiveConversations();
+
+    const conversation = await getOrCreateConversation(
+      "conv-store-client-timezone",
+      {
+        transport: {
+          channelId: "vellum",
+          interfaceId: "macos",
+          clientTimezone: "america/new_york",
+        },
+      },
+    );
+
+    expect(conversation.clientTimezone).toBe("America/New_York");
+
+    await getOrCreateConversation("conv-store-client-timezone", {
+      transport: {
+        channelId: "vellum",
+        interfaceId: "ios",
+        clientTimezone: "europe/london",
+      },
+    });
+
+    expect(conversation.clientTimezone).toBe("Europe/London");
+  });
 });
