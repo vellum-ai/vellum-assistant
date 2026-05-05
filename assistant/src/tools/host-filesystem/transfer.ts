@@ -106,6 +106,24 @@ class HostFileTransferTool implements Tool {
       return { content: `Error: multiple clients support host_file. Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_file\` to see client IDs and labels.`, isError: true };
     }
 
+    // Guard: non-host-proxy interfaces with no capable clients connected.
+    // Without this guard, a web/ios turn whose host_file client has
+    // disconnected since projection would fall through to executeLocal
+    // below and act on the daemon container's filesystem instead of
+    // the user's host machine.
+    if (
+      targetClientId == null &&
+      context.transportInterface != null &&
+      !supportsHostProxy(context.transportInterface) &&
+      !HostTransferProxy.instance.isAvailable()
+    ) {
+      return {
+        content:
+          "Error: no client with host_file capability is connected. Connect a macOS client to use host_file_transfer from a non-desktop interface.",
+        isError: true,
+      };
+    }
+
     // Validate that host-side paths are absolute.
     if (direction === "to_host" && !isAbsolute(destPath)) {
       return {

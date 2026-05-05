@@ -50,8 +50,16 @@ function makeTempDir(): string {
   return dir;
 }
 
-function makeContext(workingDir: string): ToolContext {
-  return { workingDir, conversationId: "test-conv", trustClass: "guardian" };
+function makeContext(
+  workingDir: string,
+  transportInterface?: ToolContext["transportInterface"],
+): ToolContext {
+  return {
+    workingDir,
+    conversationId: "test-conv",
+    trustClass: "guardian",
+    transportInterface,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +274,35 @@ describe("host_file_transfer managed mode", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Invalid destination path");
+    expect(toSandboxCalls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-client guard tests
+// ---------------------------------------------------------------------------
+
+describe("host_file_transfer cross-client guards", () => {
+  test("returns 'no client' error on web transport when proxy unavailable and no targetClientId", async () => {
+    // mockProxyAvailable defaults to false.
+    const workingDir = makeTempDir();
+    const srcDir = makeTempDir();
+    const srcFile = join(srcDir, "source.txt");
+    writeFileSync(srcFile, "content");
+
+    const result = await hostFileTransferTool.execute(
+      {
+        source_path: srcFile,
+        dest_path: "out.txt",
+        direction: "to_sandbox",
+      },
+      makeContext(workingDir, "web"),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "no client with host_file capability is connected",
+    );
     expect(toSandboxCalls.length).toBe(0);
   });
 });

@@ -80,6 +80,37 @@ class HostFileReadTool implements Tool {
       };
     }
 
+    // Guard: non-host-proxy interfaces with no capable clients connected.
+    // Without this guard, the request would fall through to local
+    // FileSystemOps below and read the daemon container's filesystem
+    // instead of the user's host machine.
+    if (
+      targetClientId == null &&
+      transportInterface != null &&
+      !supportsHostProxy(transportInterface) &&
+      !HostFileProxy.instance.isAvailable()
+    ) {
+      return {
+        content:
+          "Error: no client with host_file capability is connected. Connect a macOS client to use host_file from a non-desktop interface.",
+        isError: true,
+      };
+    }
+
+    // Guard: explicit targetClientId provided but proxy is unavailable
+    // (client disconnected between tool-definition and tool-execution).
+    // Without this guard the call falls through to local filesystem
+    // ops in the daemon container instead of the intended host.
+    if (
+      targetClientId != null &&
+      !HostFileProxy.instance.isAvailable()
+    ) {
+      return {
+        content: `Error: target client "${targetClientId}" is no longer connected. The specified client may have disconnected since the tool was called. Run \`assistant clients list --capability host_file\` to see currently connected clients.`,
+        isError: true,
+      };
+    }
+
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode),
     // including image reads that need the host filesystem view.
