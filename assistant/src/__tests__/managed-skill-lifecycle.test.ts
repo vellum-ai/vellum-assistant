@@ -177,7 +177,7 @@ Run the custom lifecycle verification procedure.
     expect(scaffoldResult.isError).not.toBe(true);
     const scaffoldData = JSON.parse(scaffoldResult.content as string);
     expect(scaffoldData.created).toBe(true);
-    expect(scaffoldData.index_updated).toBe(false);
+    expect(scaffoldData).not.toHaveProperty("index_updated");
 
     // Step 2: Verify SKILL.md was written
     const skillDir = join(TEST_DIR, "skills", "lifecycle-test");
@@ -207,7 +207,7 @@ Run the custom lifecycle verification procedure.
     expect(deleteResult.isError).not.toBe(true);
     const deleteData = JSON.parse(deleteResult.content as string);
     expect(deleteData.deleted).toBe(true);
-    expect(deleteData.index_updated).toBe(false);
+    expect(deleteData).not.toHaveProperty("index_updated");
 
     // Step 5: Verify skill directory is gone from filesystem
     expect(existsSync(skillDir)).toBe(false);

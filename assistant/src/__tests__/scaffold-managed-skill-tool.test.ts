@@ -32,7 +32,27 @@ afterEach(() => {
 });
 
 describe("scaffold_managed_skill tool", () => {
-  test("creates a valid skill discovered from its SKILL.md directory", async () => {
+  test("does not expose legacy index controls in the bundled tool schema", () => {
+    const tools = JSON.parse(
+      readFileSync(
+        join(
+          import.meta.dirname,
+          "../config/bundled-skills/skill-management/TOOLS.json",
+        ),
+        "utf-8",
+      ),
+    );
+    const scaffoldTool = tools.tools.find(
+      (tool: { name: string }) => tool.name === "scaffold_managed_skill",
+    );
+
+    expect(scaffoldTool).toBeDefined();
+    expect(scaffoldTool.input_schema.properties).not.toHaveProperty(
+      "add_to_index",
+    );
+  });
+
+  test("creates a valid skill discovered from its SKILL.md directory while ignoring legacy inputs", async () => {
     const result = await executeScaffoldManagedSkill(
       {
         skill_id: "test-skill",
@@ -48,7 +68,7 @@ describe("scaffold_managed_skill tool", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.created).toBe(true);
     expect(parsed.skill_id).toBe("test-skill");
-    expect(parsed.index_updated).toBe(false);
+    expect(parsed).not.toHaveProperty("index_updated");
 
     const skillFile = join(TEST_DIR, "skills", "test-skill", "SKILL.md");
     expect(existsSync(skillFile)).toBe(true);
