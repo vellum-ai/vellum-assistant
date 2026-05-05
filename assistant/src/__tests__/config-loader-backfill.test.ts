@@ -565,6 +565,43 @@ describe("loadConfig startup behavior", () => {
     });
   });
 
+  test("quarantines corrupt config before merging hatch overlay", () => {
+    writeFileSync(CONFIG_PATH, "{not valid json");
+
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: {
+              provider: "anthropic",
+              model: "claude-opus-4-7",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const quarantined = readdirSync(WORKSPACE_DIR).filter((n) =>
+      n.startsWith("config.json.corrupt-"),
+    );
+    expect(quarantined.length).toBeGreaterThan(0);
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+    });
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+  });
+
   test("still quarantines corrupt JSON", () => {
     // Corrupt-config quarantine is a recovery path: the broken file is
     // renamed to `config.json.corrupt-<ts>.json` and the daemon proceeds

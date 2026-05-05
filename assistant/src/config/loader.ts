@@ -542,8 +542,10 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
   if (existsSync(configPath)) {
     try {
       existing = JSON.parse(readFileSync(configPath, "utf-8"));
-    } catch {
-      // If existing config is corrupt, start fresh
+    } catch (err) {
+      quarantineCorruptConfig(configPath, err);
+      // After preserving the corrupt file, start fresh so the default overlay
+      // can still initialize a valid config for this startup.
     }
   }
 
