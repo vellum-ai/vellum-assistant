@@ -1183,6 +1183,8 @@ export async function uninstallSkill(
       state: "uninstalled",
     });
 
+    refreshSkillCapabilityMemories(getConfig());
+
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
