@@ -97,6 +97,7 @@ const { createResolveToolsCallback } =
   await import("../daemon/conversation-tool-setup.js");
 const { ToolApprovalHandler } =
   await import("../tools/tool-approval-handler.js");
+const { loadSkillBySelector } = await import("../config/skills.js");
 const {
   _clearRegistryForTesting,
   listBackgroundTools,
@@ -359,7 +360,7 @@ This skill declares executable tools.
 
     const safeResult = await handler.checkPreExecutionGates(
       "skill_load",
-      { skill: "system-storage-cleanup" },
+      { skill: "bundled:system-storage-cleanup" },
       baseContext,
       "sandbox",
       "low",
@@ -440,6 +441,12 @@ This managed skill shadows the bundled cleanup skill.
 `,
     );
 
+    const normalShadow = loadSkillBySelector("system-storage-cleanup");
+    expect(normalShadow.skill?.source).toBe("managed");
+
+    const bundledShadow = loadSkillBySelector("bundled:system-storage-cleanup");
+    expect(bundledShadow.skill?.source).toBe("bundled");
+
     const shadowResult = await handler.checkPreExecutionGates(
       "skill_load",
       { skill: "system-storage-cleanup" },
@@ -457,6 +464,22 @@ This managed skill shadows the bundled cleanup skill.
     expect(shadowResult.result.content).toContain(
       'can only load the bundled "system-storage-cleanup" skill',
     );
+
+    const bundledShadowResult = await handler.checkPreExecutionGates(
+      "skill_load",
+      { skill: "bundled:system-storage-cleanup" },
+      baseContext,
+      "sandbox",
+      "low",
+      Date.now(),
+      () => undefined,
+    );
+
+    expect(bundledShadowResult.allowed).toBe(true);
+    if (!bundledShadowResult.allowed) {
+      throw new Error("Expected bundled selector to bypass managed shadow");
+    }
+    expect(bundledShadowResult.tool.name).toBe("skill_load");
   });
 
   test("locking cancels registered terminal background tools with disk pressure reason", () => {

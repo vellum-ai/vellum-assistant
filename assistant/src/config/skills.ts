@@ -36,6 +36,7 @@ import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { getConfig } from "./loader.js";
 
 const log = getLogger("skills");
+const BUNDLED_SKILL_SELECTOR_PREFIX = "bundled:";
 
 // ─── Zod schemas for frontmatter metadata validation ─────────────────────────
 
@@ -1158,6 +1159,42 @@ export function resolveSkillSelector(
     return {
       error: "Skill selector is required and must be a non-empty string.",
       errorCode: "invalid_selector",
+    };
+  }
+
+  if (needle.startsWith(BUNDLED_SKILL_SELECTOR_PREFIX)) {
+    const bundledNeedle = needle
+      .slice(BUNDLED_SKILL_SELECTOR_PREFIX.length)
+      .trim();
+    if (!bundledNeedle) {
+      return {
+        error:
+          'Bundled skill selector must include a skill id after "bundled:".',
+        errorCode: "invalid_selector",
+      };
+    }
+
+    const bundledSkills = loadBundledSkills();
+    if (bundledSkills.length === 0) {
+      return {
+        error: "No bundled skills are available.",
+        errorCode: "empty_catalog",
+      };
+    }
+
+    const exactBundledIdMatch = bundledSkills.find(
+      (skill) => skill.id === bundledNeedle,
+    );
+    if (exactBundledIdMatch) {
+      return { skill: exactBundledIdMatch };
+    }
+
+    const knownBundledSkills = bundledSkills
+      .map((skill) => skill.id)
+      .join(", ");
+    return {
+      error: `No bundled skill matched "${bundledNeedle}". Available bundled skills: ${knownBundledSkills}`,
+      errorCode: "not_found",
     };
   }
 

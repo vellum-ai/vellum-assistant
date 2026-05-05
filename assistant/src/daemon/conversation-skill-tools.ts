@@ -30,6 +30,7 @@ import { createSkillToolsFromManifest } from "../tools/skills/skill-tool-factory
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("conversation-skill-tools");
+const SYSTEM_STORAGE_CLEANUP_SKILL_ID = "system-storage-cleanup";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -293,11 +294,6 @@ export function projectSkillTools(
       continue;
     }
 
-    const manifest = loadManifestForSkill(skill);
-    if (!manifest) {
-      continue;
-    }
-
     // Compute the current version hash for this skill directory
     let currentHash: string;
     try {
@@ -308,6 +304,27 @@ export function projectSkillTools(
         "Failed to compute skill version hash, treating as changed",
       );
       currentHash = `unknown-${Date.now()}`;
+    }
+
+    const markerVersion = markerVersionById.get(skillId);
+    // Cleanup mode loads the bundled cleanup skill through a source-qualified
+    // selector, but the persisted marker is id-only. If that id now resolves
+    // to a managed shadow, do not project the shadow's tools from the marker.
+    if (
+      skillId === SYSTEM_STORAGE_CLEANUP_SKILL_ID &&
+      markerVersion &&
+      markerVersion !== currentHash
+    ) {
+      log.info(
+        { skillId, markerVersion, currentHash },
+        "Skipping storage cleanup skill tool projection because the loaded marker no longer matches the catalog skill",
+      );
+      continue;
+    }
+
+    const manifest = loadManifestForSkill(skill);
+    if (!manifest) {
+      continue;
     }
 
     // Create runtime Tool objects
