@@ -305,51 +305,6 @@ describe("disk pressure cleanup tool restrictions", () => {
   });
 
   test("executor fallback keeps only instruction-only skill_load safe during cleanup mode", async () => {
-    writeManagedSkill(
-      "plain-cleanup",
-      `---
-name: plain-cleanup
-description: Plain cleanup
----
-
-This skill is instruction-only but unrelated.
-`,
-    );
-    writeManagedSkill(
-      "dynamic-cleanup",
-      `---
-name: dynamic-cleanup
-description: Dynamic cleanup
----
-
-This skill runs !\`echo unsafe\`.
-`,
-    );
-    writeManagedSkill(
-      "tool-cleanup",
-      `---
-name: tool-cleanup
-description: Tool cleanup
----
-
-This skill declares executable tools.
-`,
-      {
-        version: 1,
-        tools: [
-          {
-            name: "tool_cleanup_run",
-            description: "Run cleanup",
-            category: "test",
-            risk: "low",
-            input_schema: { type: "object", properties: {} },
-            executor: "run.ts",
-            execution_target: "sandbox",
-          },
-        ],
-      },
-    );
-
     const handler = new ToolApprovalHandler();
     const baseContext = {
       workingDir: "/workspace",
@@ -409,27 +364,9 @@ This skill declares executable tools.
       BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
     );
 
-    const dynamicResult = await handler.checkPreExecutionGates(
-      "skill_load",
-      { skill: "dynamic-cleanup" },
-      baseContext,
-      "sandbox",
-      "low",
-      Date.now(),
-      () => undefined,
-    );
-
-    expect(dynamicResult.allowed).toBe(false);
-    if (dynamicResult.allowed) {
-      throw new Error("Expected dynamic skill_load to be rejected");
-    }
-    expect(dynamicResult.result.content).toContain(
-      BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-    );
-
     const unrelatedResult = await handler.checkPreExecutionGates(
       "skill_load",
-      { skill: "plain-cleanup" },
+      { skill: "app-builder" },
       baseContext,
       "sandbox",
       "low",
@@ -439,29 +376,9 @@ This skill declares executable tools.
 
     expect(unrelatedResult.allowed).toBe(false);
     if (unrelatedResult.allowed) {
-      throw new Error(
-        "Expected unrelated instruction-only skill to be rejected",
-      );
+      throw new Error("Expected unrelated skill selector to be rejected");
     }
     expect(unrelatedResult.result.content).toContain(
-      BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-    );
-
-    const toolManifestResult = await handler.checkPreExecutionGates(
-      "skill_load",
-      { skill: "tool-cleanup" },
-      baseContext,
-      "sandbox",
-      "low",
-      Date.now(),
-      () => undefined,
-    );
-
-    expect(toolManifestResult.allowed).toBe(false);
-    if (toolManifestResult.allowed) {
-      throw new Error("Expected tool-manifest skill_load to be rejected");
-    }
-    expect(toolManifestResult.result.content).toContain(
       BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
     );
 

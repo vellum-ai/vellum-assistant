@@ -25,9 +25,8 @@ import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
 import {
-  BUNDLED_SKILL_SELECTOR_PREFIX,
   BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-  normalizeBundledSkillSelector,
+  normalizeBundledSystemStorageCleanupSelector,
   SYSTEM_STORAGE_CLEANUP_SKILL_ID,
 } from "../skills/system-storage-cleanup-constants.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
@@ -42,6 +41,7 @@ import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { getConfig } from "./loader.js";
 
 const log = getLogger("skills");
+const BUNDLED_SKILL_SELECTOR_PREFIX = "bundled:";
 
 // ─── Zod schemas for frontmatter metadata validation ─────────────────────────
 
@@ -1168,7 +1168,8 @@ export function resolveSkillSelector(
   }
 
   if (needle.startsWith(BUNDLED_SKILL_SELECTOR_PREFIX)) {
-    const normalizedSelector = normalizeBundledSkillSelector(needle);
+    const normalizedSelector =
+      normalizeBundledSystemStorageCleanupSelector(needle);
     if (normalizedSelector !== BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR) {
       return {
         error: `The "bundled:" skill selector is only supported for "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}".`,
