@@ -139,8 +139,12 @@ mock.module("../skills/catalog-cache.js", () => ({
 
 mock.module("../skills/catalog-install.js", () => ({
   assertInstalledSkillDiscoverable: () => {},
+  discardSkillInstallBackup: () => {},
+  installSkillDependenciesIfPresent: () => {},
   installSkillLocally: async () => {},
   getRepoSkillsDir: () => undefined,
+  restoreOrRemoveFailedSkillInstall: () => {},
+  snapshotExistingSkillDir: () => null,
 }));
 
 mock.module("../skills/catalog-search.js", () => ({
