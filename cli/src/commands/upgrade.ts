@@ -187,10 +187,25 @@ export async function resolveTargetAssistant(
       process.exit(1);
     }
 
-    const platformAssistant = await fetchAssistantByIdFromPlatform(
-      token,
-      nameArg,
-    );
+    let platformAssistant;
+    try {
+      platformAssistant = await fetchAssistantByIdFromPlatform(token, nameArg);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (
+        detail.includes("Authentication failed") ||
+        detail.includes("vellum login")
+      ) {
+        const msg = `Authentication failed while looking up assistant '${nameArg}'. Run 'vellum login' to refresh.`;
+        console.error(msg);
+        emitCliError("AUTH_FAILED", msg, detail);
+      } else {
+        const msg = `Failed to look up assistant '${nameArg}' on the platform: ${detail}`;
+        console.error(msg);
+        emitCliError("PLATFORM_API_ERROR", msg, detail);
+      }
+      process.exit(1);
+    }
     if (!platformAssistant) {
       const msg = `No local or platform assistant found with name '${nameArg}'. Make sure you are logged in and this assistant belongs to your account.`;
       console.error(msg);

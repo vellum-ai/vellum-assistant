@@ -128,6 +128,78 @@ describe("resolveTargetAssistant platform fallback", () => {
     }
   });
 
+  test("platform fetch throws auth error → exits AUTH_FAILED", async () => {
+    readPlatformTokenMock.mockReturnValue("platform-token");
+    fetchAssistantByIdFromPlatformMock.mockRejectedValueOnce(
+      new Error("Authentication failed. Run 'vellum login' to refresh."),
+    );
+
+    const stderrWrites: string[] = [];
+    const stderrWriteMock = spyOn(process.stderr, "write").mockImplementation(
+      (chunk: unknown) => {
+        stderrWrites.push(typeof chunk === "string" ? chunk : String(chunk));
+        return true;
+      },
+    );
+
+    const mockExit = mock((_code?: number) => {
+      throw new Error("process.exit called");
+    });
+    const origExit = process.exit;
+    process.exit = mockExit as unknown as typeof process.exit;
+    try {
+      await expect(resolveTargetAssistant("uuid-auth")).rejects.toThrow(
+        "process.exit called",
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+      const cliErrorLine = stderrWrites.find((s) => s.startsWith("CLI_ERROR:"));
+      expect(cliErrorLine).toBeDefined();
+      const payload = JSON.parse(
+        (cliErrorLine ?? "").slice("CLI_ERROR:".length).trim(),
+      );
+      expect(payload.error).toBe("AUTH_FAILED");
+    } finally {
+      process.exit = origExit;
+      stderrWriteMock.mockRestore();
+    }
+  });
+
+  test("platform fetch throws other error → exits PLATFORM_API_ERROR", async () => {
+    readPlatformTokenMock.mockReturnValue("platform-token");
+    fetchAssistantByIdFromPlatformMock.mockRejectedValueOnce(
+      new Error("Failed to fetch assistant uuid-1: 500 Internal Server Error"),
+    );
+
+    const stderrWrites: string[] = [];
+    const stderrWriteMock = spyOn(process.stderr, "write").mockImplementation(
+      (chunk: unknown) => {
+        stderrWrites.push(typeof chunk === "string" ? chunk : String(chunk));
+        return true;
+      },
+    );
+
+    const mockExit = mock((_code?: number) => {
+      throw new Error("process.exit called");
+    });
+    const origExit = process.exit;
+    process.exit = mockExit as unknown as typeof process.exit;
+    try {
+      await expect(resolveTargetAssistant("uuid-500")).rejects.toThrow(
+        "process.exit called",
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+      const cliErrorLine = stderrWrites.find((s) => s.startsWith("CLI_ERROR:"));
+      expect(cliErrorLine).toBeDefined();
+      const payload = JSON.parse(
+        (cliErrorLine ?? "").slice("CLI_ERROR:".length).trim(),
+      );
+      expect(payload.error).toBe("PLATFORM_API_ERROR");
+    } finally {
+      process.exit = origExit;
+      stderrWriteMock.mockRestore();
+    }
+  });
+
   test("name not in lockfile + no platform token → exits ASSISTANT_NOT_FOUND, no platform call", async () => {
     readPlatformTokenMock.mockReturnValue(null);
 
