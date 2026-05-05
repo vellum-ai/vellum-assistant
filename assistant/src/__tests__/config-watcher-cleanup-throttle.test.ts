@@ -37,6 +37,7 @@ describe("cleanupSettingsChanged", () => {
     supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
     conversationRetentionDays: 0,
     llmRequestLogRetentionMs: 1 * 24 * 60 * 60 * 1000,
+    traceEventRetentionDays: 3,
   };
 
   test("returns false when either side is undefined", () => {

@@ -358,6 +358,7 @@ describe("AssistantConfigSchema", () => {
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
       conversationRetentionDays: 0,
       llmRequestLogRetentionMs: 1 * 60 * 60 * 1000,
+      traceEventRetentionDays: 3,
     });
   });
 
