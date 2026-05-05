@@ -17,6 +17,24 @@ const WEIGHT_SUM_TOLERANCE = 0.001;
 const DEFAULT_RERANK_MODEL = "Alibaba-NLP/gte-reranker-modernbert-base";
 
 /**
+ * ONNX weight precision passed to `@huggingface/transformers`. Sourced from
+ * transformers.js's supported `dtype` values; `q8` (int8) is ~3× faster than
+ * `fp32` on CPU with negligible reranker accuracy loss. Single source of
+ * truth for both the schema enum and the `LocalRerankBackend` type.
+ */
+export const RerankDtypeEnum = z.enum([
+  "fp32",
+  "fp16",
+  "q8",
+  "int8",
+  "uint8",
+  "q4",
+  "bnb4",
+  "q4f16",
+]);
+export type RerankDtype = z.infer<typeof RerankDtypeEnum>;
+
+/**
  * Memory v2 (concept-page activation model) configuration.
  *
  * Activation weights (`d`, `c_user`, `c_assistant`, `c_now`) must sum to 1.0
@@ -224,12 +242,16 @@ export const MemoryV2ConfigSchema = z
           .describe(
             "HuggingFace model id for the cross-encoder. Must have an ONNX export reachable from huggingface.co/<model>/resolve/main/onnx/model.onnx.",
           ),
+        dtype: RerankDtypeEnum.default("q8").describe(
+          "ONNX weight precision passed to `@huggingface/transformers`. `q8` (int8) is ~3× faster than `fp32` on CPU with negligible reranker accuracy loss. The worker fails to spawn if the configured model has no matching quantized export — `reranker.ts` then falls back to pure fused scores for the turn.",
+        ),
       })
       .default({
         enabled: false,
         top_k: 50,
         alpha: 0.3,
         model: DEFAULT_RERANK_MODEL,
+        dtype: "q8",
       })
       .describe(
         "Cross-encoder rerank configuration. When enabled, picks the top-K candidates by pre-rerank A_o, runs the cross-encoder once per channel (user, assistant) on that unified set, and adds an alpha-weighted normalized boost to A_o for each scored slug.",

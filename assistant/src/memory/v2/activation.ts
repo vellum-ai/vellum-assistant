@@ -254,7 +254,10 @@ export async function computeOwnActivation(
 
   // Unified top-K by pre-rerank A_o. Both channels rerank against the **same**
   // slug set, so a slug strong on user can't crowd out one strong on assistant
-  // by virtue of appearing in both per-channel top-Ks.
+  // by virtue of appearing in both per-channel top-Ks. Both channel queries
+  // ride in a single `rerankCandidates` call so the worker tokenizes and
+  // forward-passes them together — half the per-call overhead of two
+  // serialised round-trips.
   let userRerankBoost: ReadonlyMap<string, number> = new Map();
   let assistantRerankBoost: ReadonlyMap<string, number> = new Map();
   const rerankCfg = config.memory.v2.rerank;
@@ -265,10 +268,11 @@ export async function computeOwnActivation(
       .slice(0, rerankCfg.top_k)
       .map((e) => e.slug);
     if (topSlugs.length > 0) {
-      const [userScores, assistantScores] = await Promise.all([
-        rerankCandidates(userText, topSlugs, config),
-        rerankCandidates(assistantText, topSlugs, config),
-      ]);
+      const [userScores, assistantScores] = await rerankCandidates(
+        [userText, assistantText],
+        topSlugs,
+        config,
+      );
       userRerankBoost = normalizeRerankScores(userScores, rerankCfg.alpha);
       assistantRerankBoost = normalizeRerankScores(
         assistantScores,

@@ -22,12 +22,15 @@ mock.module("../../../util/platform.js", () => ({
 const backendState = {
   scores: [] as number[],
   shouldThrow: false,
-  calls: [] as Array<{ query: string; passages: string[] }>,
+  calls: [] as Array<{ queries: string[]; passages: string[] }>,
 };
 mock.module("../../rerank-local.js", () => ({
-  getOrCreateRerankBackend: (_model: string) => ({
-    score: async (query: string, passages: string[]): Promise<number[]> => {
-      backendState.calls.push({ query, passages: [...passages] });
+  getOrCreateRerankBackend: (_model: string, _dtype: string) => ({
+    score: async (queries: string[], passages: string[]): Promise<number[]> => {
+      backendState.calls.push({
+        queries: [...queries],
+        passages: [...passages],
+      });
       if (backendState.shouldThrow) throw new Error("backend down");
       return backendState.scores.slice(0, passages.length);
     },
@@ -59,7 +62,13 @@ function configWithModel(model = "test-model"): AssistantConfig {
   return {
     memory: {
       v2: {
-        rerank: { model, enabled: true, top_k: 50, alpha: 0.3 },
+        rerank: {
+          model,
+          enabled: true,
+          top_k: 50,
+          alpha: 0.3,
+          dtype: "q8",
+        },
       },
     },
   } as unknown as AssistantConfig;
@@ -77,16 +86,37 @@ function resetState() {
 beforeEach(resetState);
 afterEach(resetState);
 
+/**
+ * Convenience: run `rerankCandidates` with a single query and unwrap the
+ * returned array. Most tests below assert the contract for the
+ * legacy-equivalent single-query path.
+ */
+async function rerankSingle(
+  query: string,
+  candidates: readonly string[],
+  config: AssistantConfig,
+): Promise<Map<string, number>> {
+  const out = await rerankCandidates([query], candidates, config);
+  return out[0] ?? new Map();
+}
+
 describe("rerankCandidates", () => {
-  test("returns empty map for empty candidates", async () => {
-    const out = await rerankCandidates("query", [], configWithModel());
-    expect(out.size).toBe(0);
+  test("returns empty maps for empty candidates", async () => {
+    const out = await rerankCandidates(["query"], [], configWithModel());
+    expect(out).toHaveLength(1);
+    expect(out[0].size).toBe(0);
+    expect(backendState.calls).toHaveLength(0);
+  });
+
+  test("returns empty array when no queries are passed", async () => {
+    const out = await rerankCandidates([], ["a"], configWithModel());
+    expect(out).toHaveLength(0);
     expect(backendState.calls).toHaveLength(0);
   });
 
   test("returns empty map for whitespace-only query", async () => {
     pageState.pages.set("a", { body: "content" });
-    const out = await rerankCandidates("   ", ["a"], configWithModel());
+    const out = await rerankSingle("   ", ["a"], configWithModel());
     expect(out.size).toBe(0);
     expect(backendState.calls).toHaveLength(0);
   });
@@ -96,7 +126,7 @@ describe("rerankCandidates", () => {
     pageState.pages.set("b", { body: "first paragraph of b" });
     backendState.scores = [0.9, 0.1];
 
-    const out = await rerankCandidates("query", ["a", "b"], configWithModel());
+    const out = await rerankSingle("query", ["a", "b"], configWithModel());
 
     expect(out.get("a")).toBe(0.9);
     expect(out.get("b")).toBe(0.1);
@@ -107,7 +137,7 @@ describe("rerankCandidates", () => {
     pageState.pages.set("b", { body: "x" });
     backendState.scores = [1.5, -0.2];
 
-    const out = await rerankCandidates("query", ["a", "b"], configWithModel());
+    const out = await rerankSingle("query", ["a", "b"], configWithModel());
 
     expect(out.get("a")).toBe(1);
     expect(out.get("b")).toBe(0);
@@ -119,11 +149,7 @@ describe("rerankCandidates", () => {
     pageState.pages.set("c", { body: "y" });
     backendState.scores = [0.5, 0.7];
 
-    const out = await rerankCandidates(
-      "query",
-      ["a", "b", "c"],
-      configWithModel(),
-    );
+    const out = await rerankSingle("query", ["a", "b", "c"], configWithModel());
 
     expect(out.has("b")).toBe(false);
     expect(out.get("a")).toBe(0.5);
@@ -135,7 +161,7 @@ describe("rerankCandidates", () => {
     pageState.pages.set("missing", null);
     backendState.scores = [0.5];
 
-    const out = await rerankCandidates(
+    const out = await rerankSingle(
       "query",
       ["a", "missing"],
       configWithModel(),
@@ -150,7 +176,7 @@ describe("rerankCandidates", () => {
     pageState.pages.set("a", { body: "x" });
     backendState.shouldThrow = true;
 
-    const out = await rerankCandidates("query", ["a"], configWithModel());
+    const out = await rerankSingle("query", ["a"], configWithModel());
 
     expect(out.size).toBe(0);
   });
@@ -158,7 +184,7 @@ describe("rerankCandidates", () => {
   test("returns empty map when no pages load (no backend call)", async () => {
     pageState.failingSlugs.add("a");
 
-    const out = await rerankCandidates("query", ["a"], configWithModel());
+    const out = await rerankSingle("query", ["a"], configWithModel());
 
     expect(out.size).toBe(0);
     expect(backendState.calls).toHaveLength(0);
@@ -168,8 +194,8 @@ describe("rerankCandidates", () => {
     pageState.pages.set("a", { body: "x" });
     backendState.scores = [0.7];
 
-    const first = await rerankCandidates("query", ["a"], configWithModel());
-    const second = await rerankCandidates("query", ["a"], configWithModel());
+    const first = await rerankSingle("query", ["a"], configWithModel());
+    const second = await rerankSingle("query", ["a"], configWithModel());
 
     expect(first.get("a")).toBe(0.7);
     expect(second.get("a")).toBe(0.7);
@@ -182,8 +208,8 @@ describe("rerankCandidates", () => {
     pageState.pages.set("b", { body: "y" });
     backendState.scores = [0.5, 0.6];
 
-    await rerankCandidates("query", ["a", "b"], configWithModel());
-    await rerankCandidates("query", ["b", "a"], configWithModel());
+    await rerankSingle("query", ["a", "b"], configWithModel());
+    await rerankSingle("query", ["b", "a"], configWithModel());
 
     // Same query, same set of candidates — second call hits cache.
     expect(backendState.calls).toHaveLength(1);
@@ -194,7 +220,7 @@ describe("rerankCandidates", () => {
     pageState.pages.set("slug", { body: longBody });
     backendState.scores = [0.5];
 
-    await rerankCandidates("q", ["slug"], configWithModel());
+    await rerankSingle("q", ["slug"], configWithModel());
 
     expect(backendState.calls).toHaveLength(1);
     const passage = backendState.calls[0].passages[0];
@@ -209,10 +235,104 @@ describe("rerankCandidates", () => {
     });
     backendState.scores = [0.5];
 
-    await rerankCandidates("q", ["slug"], configWithModel());
+    await rerankSingle("q", ["slug"], configWithModel());
 
     const passage = backendState.calls[0].passages[0];
     expect(passage).toContain("first para line");
     expect(passage).not.toContain("second para");
+  });
+
+  test("multiple queries are batched into one backend call", async () => {
+    pageState.pages.set("a", { body: "x" });
+    pageState.pages.set("b", { body: "y" });
+    // Two queries × two passages = four scores, query-major:
+    //   q1×a, q1×b, q2×a, q2×b
+    backendState.scores = [0.9, 0.1, 0.2, 0.8];
+
+    const out = await rerankCandidates(
+      ["user-text", "assistant-text"],
+      ["a", "b"],
+      configWithModel(),
+    );
+
+    expect(out).toHaveLength(2);
+    // Backend invoked exactly once with both queries' pairs.
+    expect(backendState.calls).toHaveLength(1);
+    expect(backendState.calls[0].queries).toEqual([
+      "user-text",
+      "user-text",
+      "assistant-text",
+      "assistant-text",
+    ]);
+    expect(backendState.calls[0].passages).toHaveLength(4);
+
+    expect(out[0].get("a")).toBe(0.9);
+    expect(out[0].get("b")).toBeCloseTo(0.1, 6);
+    expect(out[1].get("a")).toBe(0.2);
+    expect(out[1].get("b")).toBe(0.8);
+  });
+
+  test("partial cache hit skips the backend for the cached query", async () => {
+    pageState.pages.set("a", { body: "x" });
+    // Prime the cache with q1.
+    backendState.scores = [0.7];
+    await rerankCandidates(["q1"], ["a"], configWithModel());
+    expect(backendState.calls).toHaveLength(1);
+
+    // Now request both q1 (cached) and q2 (fresh). The backend should see
+    // only q2's pair, not q1's.
+    backendState.scores = [0.4];
+    const out = await rerankCandidates(["q1", "q2"], ["a"], configWithModel());
+
+    expect(backendState.calls).toHaveLength(2);
+    expect(backendState.calls[1].queries).toEqual(["q2"]);
+    expect(out[0].get("a")).toBe(0.7);
+    expect(out[1].get("a")).toBe(0.4);
+  });
+
+  test("forwards configured dtype to the backend factory", async () => {
+    pageState.pages.set("a", { body: "x" });
+    backendState.scores = [0.5];
+    const dtypes: string[] = [];
+
+    // Re-mock the factory just for this test to capture the dtype arg.
+    mock.module("../../rerank-local.js", () => ({
+      getOrCreateRerankBackend: (_model: string, dtype: string) => {
+        dtypes.push(dtype);
+        return {
+          score: async (
+            queries: string[],
+            passages: string[],
+          ): Promise<number[]> => {
+            backendState.calls.push({
+              queries: [...queries],
+              passages: [...passages],
+            });
+            return backendState.scores.slice(0, passages.length);
+          },
+        };
+      },
+    }));
+    const { rerankCandidates: freshRerank, _resetRerankCacheForTests: reset } =
+      await import("../reranker.js");
+    reset();
+
+    const config = {
+      memory: {
+        v2: {
+          rerank: {
+            model: "test-model",
+            enabled: true,
+            top_k: 50,
+            alpha: 0.3,
+            dtype: "fp32",
+          },
+        },
+      },
+    } as unknown as AssistantConfig;
+
+    await freshRerank(["q"], ["a"], config);
+
+    expect(dtypes).toContain("fp32");
   });
 });

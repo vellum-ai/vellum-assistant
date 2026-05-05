@@ -30,6 +30,7 @@ describe("MemoryV2ConfigSchema", () => {
         top_k: 50,
         alpha: 0.3,
         model: "Alibaba-NLP/gte-reranker-modernbert-base",
+        dtype: "q8",
       },
     });
   });

@@ -51,30 +51,55 @@ function buildPassage(slug: string, body: string): string {
 }
 
 /**
- * Run the cross-encoder over each candidate's first-paragraph preview.
- * Returns raw sigmoid scores; failures (worker down, page read error) yield
- * an empty Map so callers can fall back to pure fused scores. Per-batch
- * normalisation and boost math live in `computeOwnActivation`.
+ * Run the cross-encoder over each candidate's first-paragraph preview for
+ * one or more queries against the same candidate set. Returns one
+ * `Map<slug, score>` per query, in the same order as the `queries` array.
+ *
+ * Multi-query batching: the user-channel and assistant-channel queries share
+ * a candidate set per turn, so scoring them in a single tokenizer +
+ * forward-pass call avoids the ONNX-invocation overhead of two serialised
+ * worker round-trips. Cache hits short-circuit per-query independently —
+ * a whitespace-only query yields an empty Map without hitting the backend.
+ *
+ * Failures (worker down, page read errors) yield empty Maps so callers can
+ * fall back to pure fused scores. Per-batch normalisation and boost math
+ * live in `computeOwnActivation`.
  */
 export async function rerankCandidates(
-  query: string,
+  queries: readonly string[],
   candidates: readonly string[],
   config: AssistantConfig,
-): Promise<Map<string, number>> {
-  if (candidates.length === 0 || query.trim().length === 0) {
-    return new Map();
-  }
+): Promise<Array<Map<string, number>>> {
+  if (queries.length === 0) return [];
+  if (candidates.length === 0) return queries.map(() => new Map());
 
   const now = Date.now();
   evictExpired(now);
-  const key = cacheKey(query, candidates);
-  const cached = cache.get(key);
-  if (cached) {
-    // Refresh insertion order so frequently-hit entries survive eviction.
-    cache.delete(key);
-    cache.set(key, { ...cached, ts: now });
-    return new Map(cached.scores);
+
+  const results: Array<Map<string, number> | null> = queries.map(() => null);
+  const uncachedIndices: number[] = [];
+  for (let i = 0; i < queries.length; i++) {
+    const q = queries[i];
+    if (q.trim().length === 0) {
+      results[i] = new Map();
+      continue;
+    }
+    const key = cacheKey(q, candidates);
+    const cached = cache.get(key);
+    if (cached) {
+      // Refresh insertion order so frequently-hit entries survive eviction.
+      cache.delete(key);
+      cache.set(key, { ...cached, ts: now });
+      results[i] = new Map(cached.scores);
+    } else {
+      uncachedIndices.push(i);
+    }
   }
+
+  const finalize = (): Array<Map<string, number>> =>
+    results.map((r) => r ?? new Map());
+
+  if (uncachedIndices.length === 0) return finalize();
 
   const workspaceDir = getWorkspaceDir();
   const pages = await Promise.all(
@@ -94,30 +119,56 @@ export async function rerankCandidates(
     slugsForPassages.push(candidates[i]);
   }
 
-  if (passages.length === 0) return new Map();
+  if (passages.length === 0) {
+    for (const i of uncachedIndices) results[i] = new Map();
+    return finalize();
+  }
 
+  // One tokenizer + ONNX forward pass over every uncached query × passage
+  // pair. Pairs are laid out query-major: queries[uncached[0]] × passages,
+  // then queries[uncached[1]] × passages, etc.
+  const batchQueries: string[] = [];
+  const batchPassages: string[] = [];
+  for (const qi of uncachedIndices) {
+    const q = queries[qi];
+    for (const p of passages) {
+      batchQueries.push(q);
+      batchPassages.push(p);
+    }
+  }
+
+  const { model, dtype } = config.memory.v2.rerank;
   let scores: number[];
   try {
-    const backend = getOrCreateRerankBackend(config.memory.v2.rerank.model);
-    scores = await backend.score(query, passages);
+    const backend = getOrCreateRerankBackend(model, dtype);
+    scores = await backend.score(batchQueries, batchPassages);
   } catch (err) {
     log.warn(
-      { err, model: config.memory.v2.rerank.model, n: passages.length },
+      { err, model, n: batchPassages.length },
       "Rerank backend failed; falling back to pure fused scores",
     );
-    return new Map();
+    for (const i of uncachedIndices) results[i] = new Map();
+    return finalize();
   }
 
-  const result = new Map<string, number>();
-  for (let i = 0; i < slugsForPassages.length; i++) {
-    const s = scores[i];
-    if (typeof s !== "number" || Number.isNaN(s)) continue;
-    // sigmoid output should already be in [0, 1]; clamp defensively.
-    result.set(slugsForPassages[i], Math.max(0, Math.min(1, s)));
+  for (let j = 0; j < uncachedIndices.length; j++) {
+    const qi = uncachedIndices[j];
+    const offset = j * passages.length;
+    const result = new Map<string, number>();
+    for (let i = 0; i < slugsForPassages.length; i++) {
+      const s = scores[offset + i];
+      if (typeof s !== "number" || Number.isNaN(s)) continue;
+      // sigmoid output should already be in [0, 1]; clamp defensively.
+      result.set(slugsForPassages[i], Math.max(0, Math.min(1, s)));
+    }
+    results[qi] = result;
+    cache.set(cacheKey(queries[qi], candidates), {
+      scores: new Map(result),
+      ts: now,
+    });
   }
 
-  cache.set(key, { scores: new Map(result), ts: now });
-  return result;
+  return finalize();
 }
 
 /** @internal Test-only: clear the LRU cache. */

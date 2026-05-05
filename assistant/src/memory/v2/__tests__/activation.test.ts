@@ -125,24 +125,31 @@ mock.module("@qdrant/js-client-rest", () => ({
 
 // Reranker mock — keeps the activation tests hermetic when rerank.enabled is
 // flipped on by an integration case. Tests stage `rerankState.scores` to
-// program the boost outcome.
+// program the boost outcome. The activation pipeline now passes both the
+// user-channel and assistant-channel queries into a single rerank call, so
+// `rerankState.calls` records the full `queries` array per invocation.
 const rerankState = {
   scores: null as Map<string, number> | null,
-  calls: [] as Array<{ query: string; candidates: string[] }>,
+  calls: [] as Array<{ queries: string[]; candidates: string[] }>,
 };
 mock.module("../reranker.js", () => ({
   rerankCandidates: async (
-    query: string,
+    queries: readonly string[],
     candidates: readonly string[],
-  ): Promise<Map<string, number>> => {
-    rerankState.calls.push({ query, candidates: [...candidates] });
-    if (rerankState.scores === null) return new Map();
-    const out = new Map<string, number>();
-    for (const slug of candidates) {
-      const v = rerankState.scores.get(slug);
-      if (v !== undefined) out.set(slug, v);
-    }
-    return out;
+  ): Promise<Array<Map<string, number>>> => {
+    rerankState.calls.push({
+      queries: [...queries],
+      candidates: [...candidates],
+    });
+    return queries.map(() => {
+      if (rerankState.scores === null) return new Map();
+      const out = new Map<string, number>();
+      for (const slug of candidates) {
+        const v = rerankState.scores.get(slug);
+        if (v !== undefined) out.set(slug, v);
+      }
+      return out;
+    });
   },
   _resetRerankCacheForTests: () => {},
 }));
@@ -612,8 +619,9 @@ describe("computeOwnActivation", () => {
     expect(out.activation.get("semantic")!).toBeGreaterThan(
       out.activation.get("lexical")!,
     );
-    // Rerank should have been called once per rerank-enabled channel.
-    expect(rerankState.calls).toHaveLength(2);
+    // Both rerank-enabled channels ride in a single batched rerank call.
+    expect(rerankState.calls).toHaveLength(1);
+    expect(rerankState.calls[0].queries).toEqual(["u", "a"]);
   });
 
   test("rerank pool is the unified top-K by pre-rerank A_o, not per-channel fused", async () => {
@@ -672,11 +680,11 @@ describe("computeOwnActivation", () => {
       config,
     });
 
-    expect(rerankState.calls).toHaveLength(2);
-    // Both channels rerank against the same unified slug set, sorted by
-    // pre-rerank A_o descending.
+    // Single batched rerank call carrying both channel queries against the
+    // unified slug set, sorted by pre-rerank A_o descending.
+    expect(rerankState.calls).toHaveLength(1);
+    expect(rerankState.calls[0].queries).toEqual(["u", "a"]);
     expect(rerankState.calls[0].candidates).toEqual(["a", "c"]);
-    expect(rerankState.calls[1].candidates).toEqual(["a", "c"]);
   });
 
   test("rerank-disabled candidates outside the unified pool get zero boost", async () => {
