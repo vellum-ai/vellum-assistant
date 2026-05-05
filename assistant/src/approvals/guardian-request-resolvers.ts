@@ -119,12 +119,6 @@ export type ResolverResult =
       applied: true;
       grantMinted?: boolean;
       guardianReplyText?: string;
-      activatedContact?: {
-        sourceChannel: string;
-        externalUserId: string;
-        externalChatId?: string;
-        displayName?: string;
-      };
     }
   | { ok: false; reason: string };
 
@@ -539,16 +533,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         );
       });
 
-      return {
-        ok: true,
-        applied: true,
-        activatedContact: {
-          sourceChannel: "phone",
-          externalUserId: requesterExternalUserId,
-          ...(requesterChatId ? { externalChatId: requesterChatId } : {}),
-          ...(requesterDisplayName ? { displayName: requesterDisplayName } : {}),
-        },
-      };
+      return { ok: true, applied: true };
     }
 
     // Non-voice approvals: mint an identity-bound verification session so the
