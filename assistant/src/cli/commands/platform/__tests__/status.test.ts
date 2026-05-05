@@ -20,6 +20,11 @@ let mockResolvePlatformCallbackRegistrationContext: () => Promise<
   enabled: false,
 });
 
+let mockIpcGetVelayStatus: () => Promise<{
+  connected: boolean;
+  publicUrl: string | null;
+} | null> = async () => null;
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -100,6 +105,15 @@ mock.module("../../../../config/loader.js", () => ({
   mergeDefaultWorkspaceConfig: () => {},
 }));
 
+mock.module("../../../../ipc/gateway-client.js", () => ({
+  ipcGetVelayStatus: () => mockIpcGetVelayStatus(),
+  ipcCall: async () => undefined,
+  ipcCallPersistent: async () => undefined,
+  resetPersistentClient: () => {},
+  ipcGetFeatureFlags: async () => ({}),
+  ipcClassifyRisk: async () => undefined,
+}));
+
 // ---------------------------------------------------------------------------
 // Import module under test (after mocks are registered)
 // ---------------------------------------------------------------------------
@@ -163,6 +177,7 @@ describe("assistant platform status", () => {
       authHeader: null,
       enabled: false,
     });
+    mockIpcGetVelayStatus = async () => null;
     process.exitCode = 0;
   });
 
@@ -215,6 +230,86 @@ describe("assistant platform status", () => {
     expect(parsed.available).toBe(true);
     expect(parsed.organizationId).toBe("org-456");
     expect(parsed.userId).toBe("user-789");
+    // velayTunnel is null when gateway is unreachable
+    expect(parsed.velayTunnel).toBeNull();
+  });
+
+  test("velayTunnel connected with publicUrl is returned when gateway is live", async () => {
+    /**
+     * When the gateway is running and the Velay tunnel is connected, the
+     * status command includes velayTunnel.connected=true and the public URL.
+     */
+
+    // GIVEN a connected Velay tunnel reported by the gateway IPC
+    mockIpcGetVelayStatus = async () => ({
+      connected: true,
+      publicUrl: "https://abc123.vellum.ai",
+    });
+
+    // WHEN the status command is run with --json
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "status",
+      "--json",
+    ]);
+
+    // THEN the command succeeds
+    expect(exitCode).toBe(0);
+
+    // AND velayTunnel reflects the live connection
+    const parsed = JSON.parse(stdout);
+    expect(parsed.velayTunnel).toEqual({
+      connected: true,
+      publicUrl: "https://abc123.vellum.ai",
+    });
+  });
+
+  test("velayTunnel disconnected when gateway reports no active connection", async () => {
+    /**
+     * When the gateway is running but Velay is not connected (e.g.
+     * reconnecting after disconnect), velayTunnel.connected is false.
+     */
+
+    // GIVEN a disconnected Velay tunnel
+    mockIpcGetVelayStatus = async () => ({
+      connected: false,
+      publicUrl: null,
+    });
+
+    // WHEN the status command is run with --json
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "status",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.velayTunnel).toEqual({ connected: false, publicUrl: null });
+  });
+
+  test("velayTunnel is null when gateway IPC is unreachable", async () => {
+    /**
+     * When the gateway IPC socket is not available (assistant not running),
+     * velayTunnel is null rather than causing the status command to fail.
+     */
+
+    // GIVEN the gateway IPC throws
+    mockIpcGetVelayStatus = async () => {
+      throw new Error("ENOENT");
+    };
+
+    // WHEN the status command is run with --json
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "status",
+      "--json",
+    ]);
+
+    // THEN the command still succeeds (graceful fallback)
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.velayTunnel).toBeNull();
   });
 
   test("plain text mode does not emit JSON to stdout", async () => {

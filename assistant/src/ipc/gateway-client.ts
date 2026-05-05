@@ -103,6 +103,33 @@ export async function ipcGetFeatureFlags(): Promise<Record<string, boolean>> {
   return {};
 }
 
+// ---------------------------------------------------------------------------
+// Velay tunnel status
+// ---------------------------------------------------------------------------
+
+export interface VelayTunnelStatus {
+  connected: boolean;
+  publicUrl: string | null;
+}
+
+/**
+ * Fetch the current Velay tunnel status from the gateway via IPC.
+ * Returns `null` when the gateway is unreachable or returns an unexpected
+ * response — callers should treat `null` as "gateway not running".
+ */
+export async function ipcGetVelayStatus(): Promise<VelayTunnelStatus | null> {
+  const result = await ipcCall("get_velay_status");
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return null;
+  }
+  const obj = result as Record<string, unknown>;
+  if (typeof obj.connected !== "boolean") return null;
+  return {
+    connected: obj.connected,
+    publicUrl: typeof obj.publicUrl === "string" ? obj.publicUrl : null,
+  };
+}
+
 /**
  * Classify risk for a tool invocation via the gateway's persistent IPC
  * connection.

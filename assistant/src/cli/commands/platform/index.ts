@@ -4,6 +4,7 @@ import {
   registerCallbackRoute,
   resolvePlatformCallbackRegistrationContext,
 } from "../../../inbound/platform-callback-registration.js";
+import { ipcGetVelayStatus } from "../../../ipc/gateway-client.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { log } from "../../logger.js";
@@ -70,6 +71,8 @@ Fields:
   available           Whether callback registration prerequisites are satisfied
   organizationId      The platform organization ID (from stored credentials)
   userId              The platform user ID (from stored credentials)
+  velayTunnel         Live Velay tunnel status from the gateway IPC socket
+                      (null when the gateway is not running)
 
 Examples:
   $ assistant platform status
@@ -77,7 +80,10 @@ Examples:
     )
     .action(async (_opts: Record<string, unknown>, cmd: Command) => {
       try {
-        const context = await resolvePlatformCallbackRegistrationContext();
+        const [context, velayTunnel] = await Promise.all([
+          resolvePlatformCallbackRegistrationContext(),
+          ipcGetVelayStatus().catch(() => null),
+        ]);
 
         const organizationId =
           (
@@ -112,6 +118,7 @@ Examples:
           available: context.enabled,
           organizationId: organizationId || null,
           userId: userId || null,
+          velayTunnel,
         };
 
         if (shouldOutputJson(cmd)) {
@@ -134,6 +141,14 @@ Examples:
           );
           log.info(`Organization ID: ${organizationId || "(not set)"}`);
           log.info(`User ID: ${userId || "(not set)"}`);
+          if (result.velayTunnel !== null) {
+            const tunnelState = result.velayTunnel.connected
+              ? `connected${result.velayTunnel.publicUrl ? ` (${result.velayTunnel.publicUrl})` : ""}`
+              : "disconnected";
+            log.info(`Velay tunnel: ${tunnelState}`);
+          } else {
+            log.info(`Velay tunnel: (gateway not running)`);
+          }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

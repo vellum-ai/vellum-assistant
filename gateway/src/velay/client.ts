@@ -97,6 +97,17 @@ export class VelayTunnelClient {
     this.timerApi = options.timerApi ?? defaultTimerApi;
   }
 
+  getStatus(): { connected: boolean; publicUrl: string | null } {
+    const connected =
+      this.ws !== null &&
+      this.ws.readyState === WebSocket.OPEN &&
+      this.publishedTwilioPublicBaseUrl !== undefined;
+    return {
+      connected,
+      publicUrl: this.publishedTwilioPublicBaseUrl ?? null,
+    };
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
