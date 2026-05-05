@@ -31,7 +31,11 @@ struct PlanCard: View {
     enum DisplayState: Equatable {
         case loading
         case loaded(planName: String, subtitle: String, buttonLabel: String, isPro: Bool)
-        case error(String)
+        /// Plan/subscription fetch failed. We still render a fallback CTA so
+        /// users hitting a transient error retain a path to billing settings —
+        /// otherwise an `auto-credit-topup`-disabled user has no way to manage
+        /// or upgrade their plan when the API blips.
+        case error(message: String, buttonLabel: String)
     }
 
     var displayState: DisplayState {
@@ -52,7 +56,7 @@ struct PlanCard: View {
                 isPro: isPro
             )
         }
-        return .error(error ?? "Unable to load plan information.")
+        return .error(message: error ?? "Unable to load plan information.", buttonLabel: "Manage Plan")
     }
 
     var body: some View {
@@ -61,8 +65,8 @@ struct PlanCard: View {
             loadingCard
         case let .loaded(planName, subtitle, buttonLabel, isPro):
             loadedCard(planName: planName, subtitle: subtitle, buttonLabel: buttonLabel, isPro: isPro)
-        case let .error(message):
-            errorCard(message: message)
+        case let .error(message, buttonLabel):
+            errorCard(message: message, buttonLabel: buttonLabel)
         }
     }
 
@@ -114,14 +118,20 @@ struct PlanCard: View {
 
     // MARK: - Error
 
-    private func errorCard(message: String) -> some View {
+    private func errorCard(message: String, buttonLabel: String) -> some View {
         SettingsCard(title: "Plan", subtitle: "Manage your subscription tier and billing.") {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.circleAlert, size: 14)
-                    .foregroundStyle(VColor.systemNegativeStrong)
-                Text(message)
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.systemNegativeStrong)
+            HStack(alignment: .center, spacing: VSpacing.md) {
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(.circleAlert, size: 14)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                    Text(message)
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                }
+                Spacer()
+                VButton(label: buttonLabel, style: .outlined) {
+                    onManage()
+                }
             }
         }
     }

@@ -132,7 +132,31 @@ final class PlanCardTests: XCTestCase {
             error: "Boom",
             onManage: {}
         )
-        XCTAssertEqual(card.displayState, .error("Boom"))
+        XCTAssertEqual(card.displayState, .error(message: "Boom", buttonLabel: "Manage Plan"))
+    }
+
+    /// Without a fallback CTA in the error state, an `auto-credit-topup`-disabled
+    /// user hitting a transient `/billing/subscription` failure has no path to
+    /// billing settings — the prior simple "Adjust Plan" card always had a button.
+    func testErrorStateExposesManageButton() {
+        var manageInvocations = 0
+        let card = PlanCard(
+            subscription: nil,
+            plans: nil,
+            isLoading: false,
+            error: "Network is down",
+            onManage: { manageInvocations += 1 }
+        )
+
+        guard case let .error(message, buttonLabel) = card.displayState else {
+            XCTFail("Expected .error state, got \(card.displayState)")
+            return
+        }
+        XCTAssertEqual(message, "Network is down")
+        XCTAssertEqual(buttonLabel, "Manage Plan")
+
+        card.onManage()
+        XCTAssertEqual(manageInvocations, 1)
     }
 
     // MARK: - SettingsBillingTab.planRenewalLine
