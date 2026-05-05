@@ -1991,6 +1991,13 @@ async function generateLlmSuggestion(
   // prefill-safe model. Keep `stop_sequences: ["</reply>"]` as an
   // early-termination hint; the parser below handles both tagged and
   // untagged responses so untagged "casual answer" replies still work.
+  //
+  // Force `thinking: disabled` + `effort: none` so the call works on any
+  // user profile — including thinking-enabled profiles (Opus 4.x at
+  // `effort: high|xhigh`, etc.) where Anthropic 400s on `temperature` ≠ 1
+  // when thinking is enabled or in adaptive mode. A 60-token reply chip
+  // doesn't benefit from extended thinking anyway, and burning thinking
+  // tokens here would be wasteful.
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
     [], // no tools
@@ -2001,6 +2008,8 @@ async function generateLlmSuggestion(
         max_tokens: 60,
         stop_sequences: ["</reply>"],
         temperature: 0.7,
+        thinking: { type: "disabled" },
+        effort: "none",
       },
     },
   );

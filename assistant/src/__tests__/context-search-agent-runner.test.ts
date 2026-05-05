@@ -963,7 +963,14 @@ describe("runAgenticRecall", () => {
     ]);
   });
 
-  test("routes provider calls through the recall call site with temperature zero", async () => {
+  test("routes provider calls through the recall call site with temperature zero and thinking disabled", async () => {
+    // `thinking: disabled` is required because the call hardcodes
+    // `temperature: 0`. Anthropic 400s on `temperature` ≠ 1 whenever
+    // thinking is enabled or in adaptive mode, so user profiles that
+    // resolve thinking-enabled (Opus 4.x at `effort: high|xhigh`, etc.)
+    // would fail without an explicit opt-out. Recall is tool-call-heavy
+    // reasoning where determinism (temp=0) matters more than extended
+    // chain-of-thought.
     const providerCalls: unknown[][] = [];
     configuredProvider = makeProvider(
       [textResponse("not a tool call")],
@@ -992,7 +999,59 @@ describe("runAgenticRecall", () => {
     expect(options.config).toEqual({
       callSite: "recall",
       temperature: 0,
+      thinking: { type: "disabled" },
     });
-    expect(options.config).not.toHaveProperty("thinking");
+  });
+
+  test("final finish-only call also disables thinking", async () => {
+    // Regression guard for the second `temperature: 0` call site in
+    // `tryFinalFinishRecall`. Both recall provider calls (the agent loop
+    // round and the fallback finalize) must opt out of thinking; otherwise
+    // user profiles that resolve thinking-enabled trigger the Anthropic
+    // 400 on `temperature` ≠ 1.
+    const providerCalls: unknown[][] = [];
+    configuredProvider = makeProvider(
+      [
+        // First call: agent loop round — emits a search_sources tool use
+        // so the loop continues until the round budget is exhausted.
+        toolResponse("search_sources", {
+          query: "more notes",
+          sources: ["workspace"],
+          reason: "Need more.",
+        }),
+        // Second call: fallback finalize — handler we want to assert on.
+        toolResponse("finish_recall", {
+          answer: "Resolved.",
+          confidence: "medium",
+          citation_ids: ["workspace:more"],
+        }),
+      ],
+      providerCalls,
+    );
+
+    await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"], depth: "fast" },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter({
+              "launch notes": [makeEvidence("workspace:seed")],
+              "more notes": [makeEvidence("workspace:more")],
+            }),
+          ],
+        },
+      },
+    );
+
+    expect(providerCalls).toHaveLength(2);
+    const finalizeOptions = providerCalls[1]?.[3] as {
+      config?: Record<string, unknown>;
+    };
+    expect(finalizeOptions.config).toEqual({
+      callSite: "recall",
+      temperature: 0,
+      thinking: { type: "disabled" },
+    });
   });
 });

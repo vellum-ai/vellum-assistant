@@ -306,7 +306,17 @@ export async function runAgenticRecall(
         [...RECALL_AGENT_TOOL_DEFINITIONS],
         undefined,
         {
-          config: { callSite: "recall", temperature: 0 },
+          // `thinking: disabled` is required because we set `temperature: 0`
+          // explicitly. Anthropic 400s on `temperature` ≠ 1 whenever thinking
+          // is enabled or in adaptive mode; without this, profiles that
+          // resolve thinking-enabled (Opus 4.x at `effort: high|xhigh`, etc.)
+          // would fail. Recall is tool-call-heavy reasoning where determinism
+          // matters more than extended chain-of-thought.
+          config: {
+            callSite: "recall",
+            temperature: 0,
+            thinking: { type: "disabled" },
+          },
           signal: context.signal,
         },
       );
@@ -597,7 +607,14 @@ async function tryFinalFinishRecall(options: {
       [FINISH_RECALL_TOOL_DEFINITION],
       undefined,
       {
-        config: { callSite: "recall", temperature: 0 },
+        // `thinking: disabled` required for the same reason as the agent
+        // round above — Anthropic 400s on `temperature` ≠ 1 whenever
+        // thinking is enabled or in adaptive mode.
+        config: {
+          callSite: "recall",
+          temperature: 0,
+          thinking: { type: "disabled" },
+        },
         signal: options.context.signal,
       },
     );
