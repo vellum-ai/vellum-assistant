@@ -2882,9 +2882,14 @@ export async function runAgentLoopImpl(
         }
 
         // Proactive artifact: fire once when the processed turn was the 4th user message.
+        // Only trigger for real user-authored turns (not subagent/system messages).
         {
           const paConv = getConversation(ctx.conversationId);
-          if (paConv && paConv.conversationType === "standard") {
+          if (
+            paConv &&
+            paConv.conversationType === "standard" &&
+            options?.isUserMessage
+          ) {
             void (async () => {
               try {
                 if (hasProactiveArtifactCompleted()) return;
