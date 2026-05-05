@@ -21,7 +21,7 @@ export const MemoryV2ConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "memory.v2.enabled must be a boolean" })
-      .default(false)
+      .default(true)
       .describe(
         "Whether the v2 memory subsystem (concept-page activation model) is enabled. Independent of the memory-v2-enabled feature flag — both must be true for v2 to run.",
       ),

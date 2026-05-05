@@ -247,7 +247,7 @@
       "key": "memory-v2-enabled",
       "label": "Memory v2 (concept-page activation model)",
       "description": "Enables the v2 memory subsystem: prose concept pages with bidirectional edges, activation-based retrieval, and hourly LLM-driven consolidation. v1 graph + PKB stays write-active until cutover.",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "account-deletion",

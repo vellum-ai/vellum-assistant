@@ -7,7 +7,7 @@ describe("MemoryV2ConfigSchema", () => {
   test("parses an empty object to documented defaults", () => {
     const parsed = MemoryV2ConfigSchema.parse({});
     expect(parsed).toEqual({
-      enabled: false,
+      enabled: true,
       sweep_enabled: false,
       d: 0.3,
       c_user: 0.3,
@@ -155,7 +155,7 @@ describe("MemoryConfigSchema integration with v2 block", () => {
   test("parses an empty memory config and includes a v2 block with defaults", () => {
     const parsed = MemoryConfigSchema.parse({});
     expect(parsed.v2).toBeDefined();
-    expect(parsed.v2.enabled).toBe(false);
+    expect(parsed.v2.enabled).toBe(true);
     expect(parsed.v2.sweep_enabled).toBe(false);
     expect(parsed.v2.d).toBe(0.3);
     expect(parsed.v2.dense_weight).toBe(0.85);
