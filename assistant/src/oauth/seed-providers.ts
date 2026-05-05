@@ -610,15 +610,20 @@ export const PROVIDER_SEED_DATA: Record<
     tokenEndpointAuthMethod: "client_secret_post",
     loopbackPort: 17336,
     managedServiceConfigKey: "salesforce-oauth",
+    // Salesforce REST traffic goes to per-org instance hosts like
+    // ``acme.my.salesforce.com`` and ``acme.lightning.force.com``.
+    // ``matchHostPattern`` only treats ``*.<domain>`` as a wildcard match —
+    // bare ``salesforce.com`` would only match the apex. Use wildcards so
+    // ``Authorization: Bearer`` injection actually fires on tenant hosts.
     injectionTemplates: [
       {
-        hostPattern: "salesforce.com",
+        hostPattern: "*.salesforce.com",
         injectionType: "header",
         headerName: "Authorization",
         valuePrefix: "Bearer ",
       },
       {
-        hostPattern: "force.com",
+        hostPattern: "*.force.com",
         injectionType: "header",
         headerName: "Authorization",
         valuePrefix: "Bearer ",
