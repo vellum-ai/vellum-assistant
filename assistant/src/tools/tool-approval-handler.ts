@@ -10,6 +10,11 @@ import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import {
+  BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
+  isBundledSystemStorageCleanupSelector,
+  SYSTEM_STORAGE_CLEANUP_SKILL_ID,
+} from "../skills/system-storage-cleanup-constants.js";
 import { getLogger } from "../util/logger.js";
 import { getAllTools, getTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
@@ -151,7 +156,6 @@ export async function waitForInlineGrant(
 }
 
 const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
-const DISK_PRESSURE_CLEANUP_SKILL_ID = "system-storage-cleanup";
 
 function requiresGuardianApprovalForActor(
   toolName: string,
@@ -185,35 +189,40 @@ function getDiskPressureSkillLoadBlockReason(
   input: Record<string, unknown>,
 ): string | null {
   const selector = input.skill;
-  if (typeof selector !== "string" || selector.trim().length === 0) {
-    return null;
+  if (
+    typeof selector !== "string" ||
+    !isBundledSystemStorageCleanupSelector(selector)
+  ) {
+    return `Skill "${String(selector ?? "")}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}".`;
   }
 
-  const resolved = resolveSkillSelector(selector);
+  const resolved = resolveSkillSelector(
+    BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
+  );
   if (!resolved.skill) {
     if (
       resolved.errorCode === "not_found" ||
       resolved.errorCode === "empty_catalog" ||
       resolved.errorCode === "invalid_selector"
     ) {
-      return `Skill "${selector}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load the bundled "${DISK_PRESSURE_CLEANUP_SKILL_ID}" skill.`;
+      return `Skill "${selector}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}".`;
     }
     return null;
   }
 
   if (
-    resolved.skill.id !== DISK_PRESSURE_CLEANUP_SKILL_ID ||
+    resolved.skill.id !== SYSTEM_STORAGE_CLEANUP_SKILL_ID ||
     resolved.skill.source !== "bundled"
   ) {
-    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load the bundled "${DISK_PRESSURE_CLEANUP_SKILL_ID}" skill.`;
+    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}".`;
   }
 
   if (resolved.skill.inlineCommandExpansions?.length) {
-    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode because it contains inline command expansions. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
+    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode because it contains inline command expansions. Load an instruction-only cleanup skill such as "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}" instead.`;
   }
 
   if (resolved.skill.toolManifest?.present) {
-    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode because it declares executable skill tools. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
+    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode because it declares executable skill tools. Load an instruction-only cleanup skill such as "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}" instead.`;
   }
 
   return null;

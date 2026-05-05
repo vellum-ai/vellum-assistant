@@ -1,4 +1,5 @@
 import type { Message } from "../providers/types.js";
+import { normalizeBundledSkillSelector } from "./system-storage-cleanup-constants.js";
 
 /** Matches both old (`<loaded_skill id="..." />`) and new versioned
  *  (`<loaded_skill id="..." version="v1:hex" />`) marker formats.
@@ -14,7 +15,7 @@ export interface ActiveSkillEntry {
   id: string;
   /** Present only when the marker includes a `version` attribute; retained for versioned marker compatibility. */
   version?: string;
-  /** The selector originally passed to skill_load, when available. */
+  /** Canonical bundled selector originally passed to skill_load, when available. */
   selector?: string;
 }
 
@@ -42,8 +43,8 @@ export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
       if (block.type === "tool_use" && block.name === "skill_load") {
         const rawSelector =
           typeof block.input.skill === "string" ? block.input.skill : undefined;
-        const selector = rawSelector?.startsWith("bundled:")
-          ? rawSelector
+        const selector = rawSelector
+          ? (normalizeBundledSkillSelector(rawSelector) ?? undefined)
           : undefined;
         skillLoadSelectorsByUseId.set(block.id, selector);
       }

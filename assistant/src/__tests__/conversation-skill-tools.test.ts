@@ -34,64 +34,6 @@ mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
 }));
 
-mock.module("../skills/active-skill-tools.js", () => {
-  // Shared parsing logic for deriveActiveSkills
-  const parseMarkers = (messages: Message[]) => {
-    // Two-pass approach matching real implementation:
-    // 1. Collect tool_use IDs where name === 'skill_load'
-    const skillLoadSelectorsByUseId = new Map<string, string | undefined>();
-    for (const msg of messages) {
-      for (const block of msg.content) {
-        if (block.type === "tool_use" && block.name === "skill_load") {
-          const rawSelector =
-            typeof block.input.skill === "string"
-              ? block.input.skill
-              : undefined;
-          const selector = rawSelector?.startsWith("bundled:")
-            ? rawSelector
-            : undefined;
-          skillLoadSelectorsByUseId.set(block.id, selector);
-        }
-      }
-    }
-
-    // 2. Parse markers only from tool_result blocks whose tool_use_id matches
-    const re = /<loaded_skill\s+id="([^"]+)"(?:\s+version="([^"]+)")?\s*\/>/g;
-    const seen = new Set<string>();
-    const entries: Array<{ id: string; version?: string; selector?: string }> =
-      [];
-    for (const msg of messages) {
-      for (const block of msg.content) {
-        if (block.type !== "tool_result") continue;
-        if (!skillLoadSelectorsByUseId.has(block.tool_use_id)) continue;
-        const text = block.content;
-        if (!text) continue;
-        for (const match of text.matchAll(re)) {
-          if (!seen.has(match[1])) {
-            seen.add(match[1]);
-            const entry: { id: string; version?: string; selector?: string } = {
-              id: match[1],
-            };
-            if (match[2]) {
-              entry.version = match[2];
-            }
-            const selector = skillLoadSelectorsByUseId.get(block.tool_use_id);
-            if (selector) {
-              entry.selector = selector;
-            }
-            entries.push(entry);
-          }
-        }
-      }
-    }
-    return entries;
-  };
-
-  return {
-    deriveActiveSkills: (messages: Message[]) => parseMarkers(messages),
-  };
-});
-
 mock.module("../skills/tool-manifest.js", () => ({
   parseToolManifestFile: (filePath: string) => {
     // Extract skill ID from path: /skills/<id>/TOOLS.json → <id>
@@ -2089,7 +2031,7 @@ describe("versioned markers through session projection", () => {
     const history: Message[] = [
       ...skillLoadMessages(
         '<loaded_skill id="system-storage-cleanup" version="v1:bundled-cleanup" />',
-        "bundled:system-storage-cleanup",
+        "bundled: system-storage-cleanup",
       ),
     ];
 
@@ -2138,7 +2080,7 @@ describe("versioned markers through session projection", () => {
     expect(mockUnregisteredSkillIds).toContain("system-storage-cleanup");
   });
 
-  test("storage cleanup marker projects catalog tools when marker version matches", () => {
+  test("managed storage cleanup marker without bundled selector projects catalog tools", () => {
     mockCatalog = [makeSkill("system-storage-cleanup")];
     mockManifests = {
       "system-storage-cleanup": makeManifest(["shadow_cleanup_run"]),
