@@ -10,8 +10,8 @@ export function isProviderSafeToolName(name: string): boolean {
 
 export function toProviderSafeToolName(rawName: string): string {
   const trimmed = rawName.trim();
-  if (isProviderSafeToolName(trimmed)) {
-    return trimmed;
+  if (isProviderSafeToolName(rawName)) {
+    return rawName;
   }
 
   const hash = createHash("sha256")

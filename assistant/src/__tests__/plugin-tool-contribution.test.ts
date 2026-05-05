@@ -266,6 +266,23 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  test("registerPluginTools keeps edge-whitespace tool names distinct", () => {
+    const accepted = registerPluginTools("deploy-plugin", [
+      makeFakeTool("deploy"),
+      makeFakeTool(" deploy "),
+    ]);
+
+    expect(accepted).toHaveLength(2);
+    const aliases = accepted.map((tool) => tool.name);
+    expect(new Set(aliases).size).toBe(2);
+    expect(aliases).toContain("deploy");
+
+    const paddedAlias = aliases.find((name) => name !== "deploy");
+    expect(paddedAlias).toMatch(/^deploy__[a-f0-9]{12}$/);
+    expect(getTool("deploy")).toBeDefined();
+    expect(getTool(paddedAlias!)).toBeDefined();
+  });
+
   test("registerPluginTools overwrites any pre-existing ownership metadata", () => {
     // A plugin author could (maliciously or mistakenly) hand in a tool
     // pre-tagged with another skill's or plugin's ID. The helper must

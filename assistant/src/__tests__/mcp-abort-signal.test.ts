@@ -145,6 +145,45 @@ describe("MCP AbortSignal threading", () => {
       expect(tool.getDefinition().name).toBe("mcp__test-server__my-tool");
     });
 
+    test("keeps MCP tool names with trailing whitespace distinct", () => {
+      const fakeManager = { callTool: jest.fn() } as any;
+
+      const plain = createMcpTool(
+        {
+          name: "deploy",
+          description: "Deploy",
+          inputSchema: { type: "object", properties: {} },
+        },
+        "test-server",
+        {
+          transport: { type: "stdio", command: "echo", args: [] },
+          enabled: true,
+          defaultRiskLevel: "high",
+          maxTools: 100,
+        },
+        fakeManager,
+      );
+      const padded = createMcpTool(
+        {
+          name: "deploy ",
+          description: "Deploy padded",
+          inputSchema: { type: "object", properties: {} },
+        },
+        "test-server",
+        {
+          transport: { type: "stdio", command: "echo", args: [] },
+          enabled: true,
+          defaultRiskLevel: "high",
+          maxTools: 100,
+        },
+        fakeManager,
+      );
+
+      expect(plain.name).toBe("mcp__test-server__deploy");
+      expect(padded.name).toMatch(/^mcp__test-server__deploy__[a-f0-9]{12}$/);
+      expect(padded.name).not.toBe(plain.name);
+    });
+
     test("exposes provider-safe MCP names while preserving raw execution names", async () => {
       const callToolSpy = jest.fn().mockResolvedValue({
         content: "tool result",
