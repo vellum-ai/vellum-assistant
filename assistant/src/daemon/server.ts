@@ -42,6 +42,7 @@ import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
+import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("server");
 
@@ -274,6 +275,7 @@ export class DaemonServer {
       () => this.broadcastSoundsConfigUpdated(),
       () => this.broadcastAvatarUpdated(),
       () => this.broadcastConfigChanged(),
+      () => refreshSkillCapabilityMemories(getConfig()),
     );
 
     this.syncIdentityToPlatform();

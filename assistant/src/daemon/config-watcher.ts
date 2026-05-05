@@ -133,6 +133,8 @@ export class ConfigWatcher {
    * Start all file watchers. `onConversationEvict` is called when watched
    * files change and conversations need to be evicted for reload.
    * `onIdentityChanged` is called when IDENTITY.md changes on disk.
+   * `onSkillsChanged` is called after skill directory changes evict
+   * conversations.
    */
   start(
     onConversationEvict: () => void,
@@ -140,6 +142,7 @@ export class ConfigWatcher {
     onSoundsConfigChanged?: () => void,
     onAvatarChanged?: () => void,
     onConfigChanged?: () => void,
+    onSkillsChanged?: () => void,
   ): void {
     const workspaceDir = getWorkspaceDir();
 
@@ -215,7 +218,7 @@ export class ConfigWatcher {
 
     this.startSignalsWatcher();
     this.startUsersWatcher(onConversationEvict);
-    this.startSkillsWatchers(onConversationEvict);
+    this.startSkillsWatchers(onConversationEvict, onSkillsChanged);
   }
 
   stop(): void {
@@ -383,7 +386,10 @@ export class ConfigWatcher {
     }
   }
 
-  private startSkillsWatchers(onConversationEvict: () => void): void {
+  private startSkillsWatchers(
+    onConversationEvict: () => void,
+    onSkillsChanged?: () => void,
+  ): void {
     const skillsDir = getWorkspaceSkillsDir();
     if (!existsSync(skillsDir)) return;
 
@@ -391,6 +397,7 @@ export class ConfigWatcher {
       this.debounceTimers.schedule(`skills:${file}`, () => {
         log.info({ file }, "Skill file changed, reloading");
         onConversationEvict();
+        onSkillsChanged?.();
       });
     };
 
