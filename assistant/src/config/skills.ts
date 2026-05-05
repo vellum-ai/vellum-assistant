@@ -37,6 +37,9 @@ import { getConfig } from "./loader.js";
 
 const log = getLogger("skills");
 const BUNDLED_SKILL_SELECTOR_PREFIX = "bundled:";
+const BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR =
+  "bundled:system-storage-cleanup";
+const SYSTEM_STORAGE_CLEANUP_SKILL_ID = "system-storage-cleanup";
 
 // ─── Zod schemas for frontmatter metadata validation ─────────────────────────
 
@@ -1166,10 +1169,9 @@ export function resolveSkillSelector(
     const bundledNeedle = needle
       .slice(BUNDLED_SKILL_SELECTOR_PREFIX.length)
       .trim();
-    if (!bundledNeedle) {
+    if (!bundledNeedle || bundledNeedle !== SYSTEM_STORAGE_CLEANUP_SKILL_ID) {
       return {
-        error:
-          'Bundled skill selector must include a skill id after "bundled:".',
+        error: `The "bundled:" skill selector is only supported for "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}".`,
         errorCode: "invalid_selector",
       };
     }
