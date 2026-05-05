@@ -29,6 +29,8 @@ interface BaseTransportMetadata {
   uxBrief?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel"). */
   chatType?: string;
+  /** IANA timezone reported by the active client for the current turn. */
+  clientTimezone?: string;
 }
 
 /**

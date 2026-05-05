@@ -182,6 +182,8 @@ export interface ProcessConversationContext {
   forceCompact(): Promise<ContextWindowResult>;
   /** Set transport-derived hints for the conversation. */
   setTransportHints(hints: string[] | undefined): void;
+  /** IANA timezone reported by the active client for the current turn. */
+  clientTimezone?: string;
   /**
    * Apply client-reported host env (home dir, username) from transport
    * metadata, gating on `supportsHostProxy` so non-host-proxy interfaces
@@ -189,6 +191,10 @@ export interface ProcessConversationContext {
    * `DaemonServer.applyTransportMetadata` and the queue-drain path below.
    */
   applyHostEnvFromTransport(transport: ConversationTransportMetadata): void;
+  /** Apply the per-turn client timezone reported by transport metadata. */
+  applyClientTimezoneFromTransport(
+    transport: ConversationTransportMetadata,
+  ): void;
 }
 
 function resolveQueuedTurnContext(
@@ -423,6 +429,7 @@ async function drainSingleMessage(
     // setter used by DaemonServer.applyTransportMetadata so create/reuse
     // and queue-drain stay in sync without duplicating the gate logic.
     conversation.applyHostEnvFromTransport(next.transport);
+    conversation.applyClientTimezoneFromTransport(next.transport);
   }
 
   // Re-preactivate host-proxy skills for interactive desktop turns. The
@@ -865,6 +872,7 @@ async function drainBatch(
   if (head.transport) {
     conversation.setTransportHints(buildTransportHints(head.transport));
     conversation.applyHostEnvFromTransport(head.transport);
+    conversation.applyClientTimezoneFromTransport(head.transport);
   }
 
   // Re-preactivate host-proxy skills for interactive desktop turns.
