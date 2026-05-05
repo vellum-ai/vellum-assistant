@@ -4,7 +4,6 @@ import type { Command } from "commander";
 
 import { getIsContainerized } from "../../../config/env-registry.js";
 import { cliIpcCall } from "../../../ipc/cli-client.js";
-import { orchestrateOAuthConnect } from "../../../oauth/connect-orchestrator.js";
 import {
   getAppByProviderAndClientId,
   getMostRecentAppByProvider,
@@ -514,57 +513,22 @@ Examples:
               return;
             }
 
-            // IPC unavailable (daemon unreachable, older daemon without this route, socket missing).
-            // Fall through to the existing in-process flow. This still carries the heap-split bug
-            // for gateway transport, but if the daemon is unreachable we have a worse problem;
-            // the fallback preserves existing behavior as a regression guard.
-            // e. Call the orchestrator (in-process fallback)
-            const result = await orchestrateOAuthConnect({
-              service: provider,
-              clientId,
-              clientSecret,
-              callbackTransport: opts.callbackTransport,
-              isInteractive: opts.browser !== false,
-              openUrl: opts.browser !== false ? openInHostBrowser : undefined,
-              ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
-            });
-
-            // f. Handle results
-            if (!result.success) {
-              writeError(result.error ?? "OAuth connect failed");
-              return;
-            }
-
-            if (result.deferred) {
-              if (jsonMode) {
-                writeOutput(cmd, {
-                  ok: true,
-                  deferred: true,
-                  // Wire key stays `authUrl` for backward compatibility with
-                  // existing CLI script consumers; the internal field on
-                  // `result` is `authorizeUrl`.
-                  authUrl: result.authorizeUrl,
-                  service: result.service,
-                });
-              } else {
-                process.stdout.write(
-                  `\nAuthorize with ${provider}:\n\n${result.authorizeUrl}\n\nThe connection will complete automatically once you authorize.\n`,
-                );
-              }
-              return;
-            }
-
-            // Interactive mode completed
-            if (jsonMode) {
-              writeOutput(cmd, {
-                ok: true,
-                grantedScopes: result.grantedScopes,
-                accountInfo: result.accountInfo,
-              });
-            } else {
-              const msg = `Connected to ${provider}${result.accountInfo ? ` as ${result.accountInfo}` : ""}`;
-              process.stdout.write(msg + "\n");
-            }
+            // IPC unavailable (daemon unreachable, older daemon without this route, socket
+            // missing). Surface a clear error and exit 1.
+            //
+            // We previously fell through to an in-process invocation of
+            // `orchestrateOAuthConnect`, but that fallback re-introduced the heap-split bug
+            // for `--callback-transport=gateway` (the platform redirect would land in a
+            // different process from the loopback waiter — see #29596). The fallback is also
+            // dead code in practice: the OAuth tokens it would acquire need the daemon to be
+            // running before they're useful, so "daemon unreachable" is already a fatal
+            // precondition. Mirrors the MCP CLI consolidation in #29484.
+            writeError(
+              startResult.error
+                ? `Could not reach the assistant daemon: ${startResult.error}. Is the assistant running?`
+                : "Could not reach the assistant daemon. Is the assistant running?",
+            );
+            return;
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
