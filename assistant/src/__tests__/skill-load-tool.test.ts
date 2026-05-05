@@ -237,6 +237,32 @@ describe("skill_load tool", () => {
     expect(result.content).not.toContain("<loaded_skill");
   });
 
+  test("loads a valid disk-discovered skill omitted from stale SKILLS.md", async () => {
+    writeSkill("existing", "Existing Skill", "Exists", "Existing body");
+    writeSkill(
+      "geo-article-writer",
+      "Geo Article Writer",
+      "Writes local geo articles",
+      "Draft the article.",
+    );
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- existing\n");
+
+    const result = await executeSkillLoad({ skill: "geo-article-writer" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("ID: geo-article-writer");
+    const markers = result.content.match(/<loaded_skill/g) || [];
+    expect(markers.length).toBe(1);
+    expect(result.content).toMatch(
+      /<loaded_skill id="geo-article-writer" version="v1:[a-f0-9]{64}" \/>/,
+    );
+
+    const missing = await executeSkillLoad({ skill: "does-not-exist" });
+    expect(missing.isError).toBe(true);
+    expect(missing.content).toContain("No skill matched");
+    expect(missing.content).not.toContain("<loaded_skill");
+  });
+
   test('successful skill_load output shows "none" for skills without includes', async () => {
     writeSkill(
       "standalone",
