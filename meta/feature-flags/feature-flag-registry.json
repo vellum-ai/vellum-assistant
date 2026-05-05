@@ -286,7 +286,7 @@
       "scope": "assistant",
       "key": "pro-plan-adjust",
       "label": "Pro Plan Adjust",
-      "description": "Show the 'Adjust Plan' and 'Configure Auto Top Ups' CTAs in the macOS Settings → Billing tab. Both open the web app's billing settings page.",
+      "description": "Show the rich Plan card (current plan, features, Manage/Upgrade CTA) at the top of the macOS Settings → Billing tab. The 'Configure Auto Top Ups' CTA is gated separately on `auto-credit-topup`.",
       "defaultEnabled": false
     },
     {
