@@ -655,6 +655,47 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       );
       expect(sentMessages).toHaveLength(0);
     });
+
+    test("auto-resolves to the unique same-user CU client when cross-user clients are present", async () => {
+      // Regression: previously the dispatch counted only same-user clients
+      // for the multi-client guard, so 1 same-user + 1 cross-user passed the
+      // guard with no targetClientId — and the proxy then broadcast to ALL
+      // host_cu subscribers, including the cross-user one.
+      sentMessages.length = 0;
+      mockHasClient = true;
+      mockCuClients = [
+        {
+          clientId: "cu-mine",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+        {
+          clientId: "cu-other",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "user-other",
+        },
+      ];
+      proxy = new HostCuProxy();
+      const ctx = buildMockContext(proxy, DEFAULT_PRINCIPAL);
+
+      const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+        reasoning: "click",
+        // Intentionally no target_client_id — exercises auto-resolve.
+      });
+
+      // Broadcast happens, but with the same-user clientId set so only
+      // that client receives it.
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("cu-mine");
+
+      // Manually resolve to clean up the pending promise.
+      proxy.resolve(sent.requestId as string, {
+        executionResult: "ok",
+      });
+      await resultPromise;
+    });
   });
 
   describe("step limit enforcement through resolver", () => {

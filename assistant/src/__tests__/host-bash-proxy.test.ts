@@ -679,38 +679,23 @@ describe("HostBashProxy", () => {
       expect(sentMessages).toHaveLength(0);
     });
 
-    test("falls through to untargeted broadcast when multiple capable clients are connected and no targetClientId", async () => {
+    test("rejects ambiguously when multiple same-user capable clients are connected and no targetClientId", async () => {
+      // Regression: previously fell through to untargeted broadcast, fanning
+      // a single targeted-style request out across every same-user machine.
       setup();
       setupMultipleClients(["client-1", "client-2", "client-3"]);
 
-      const resultPromise = proxy.request(
+      const result = await proxy.request(
         { command: "echo hello" },
         "session-1",
         undefined,
         "user-A",
       );
 
-      // Should broadcast without an early error return
-      expect(sentMessages).toHaveLength(1);
-      const sent = sentMessages[0] as Record<string, unknown>;
-      expect(sent.type).toBe("host_bash_request");
-      // No target client resolved — untargeted broadcast
-      expect(sent.targetClientId).toBeUndefined();
-
-      const opts = sentMessageOptions[0] as Record<string, unknown> | undefined;
-      expect(opts?.targetClientId).toBeUndefined();
-
-      // Manually resolve to clean up
-      const requestId = sent.requestId as string;
-      proxy.resolveResult(requestId, {
-        stdout: "hello\n",
-        stderr: "",
-        exitCode: 0,
-        timedOut: false,
-      });
-
-      const result = await resultPromise;
-      expect(result.isError).toBe(false);
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("target_client_id");
+      // No broadcast happened
+      expect(sentMessages).toHaveLength(0);
     });
 
     test("falls through to broadcast when zero capable clients (existing timeout path)", async () => {

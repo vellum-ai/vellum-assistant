@@ -9,6 +9,11 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -147,47 +152,29 @@ export class HostTransferProxy {
         });
       }
     } else {
-      // Auto-resolve only to a capable client whose actorPrincipalId matches
-      // the source caller's. Skips auto-resolve when the caller has no
-      // identity, since same-user binding cannot be enforced.
-      if (sourceActorPrincipalId != null) {
-        const capable = assistantEventHub.listClientsByCapability("host_file");
-        const sameUser = capable.filter(
-          (c) => c.actorPrincipalId === sourceActorPrincipalId,
-        );
-        if (sameUser.length === 1) {
-          resolvedTargetClientId = sameUser[0].clientId;
-        }
+      // Auto-resolve to the unique same-user client; reject ambiguous
+      // (multi-machine) cases so a single targeted-style transfer cannot
+      // fan out across the user's machines.
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_file",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_file"));
       }
+      resolvedTargetClientId =
+        resolved.kind === "match" ? resolved.clientId : undefined;
     }
 
-    // Same-user check: targeted host_transfer requests must be bound to the
-    // same authenticated user identity that opened the target client's SSE
-    // stream. Prevents cross-user routing through actor token mis-targeting.
     if (resolvedTargetClientId != null) {
-      const targetActorPrincipalId =
-        assistantEventHub.getActorPrincipalIdForClient(resolvedTargetClientId);
-      if (
-        sourceActorPrincipalId == null ||
-        targetActorPrincipalId == null ||
-        sourceActorPrincipalId !== targetActorPrincipalId
-      ) {
-        log.warn(
-          {
-            sourceActorPrincipalId,
-            targetClientId: resolvedTargetClientId,
-            targetActorPrincipalId,
-            op: "host_transfer",
-            direction: "to_host",
-          },
-          "Rejected cross-user targeted host_transfer request",
-        );
-        return Promise.resolve({
-          content:
-            "Targeted host_transfer requests require the target client to be owned by the same user as the caller.",
-          isError: true,
-        });
-      }
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_transfer",
+      });
+      if (rejection != null) return Promise.resolve(rejection);
     }
 
     const requestId = uuid();
@@ -355,47 +342,29 @@ export class HostTransferProxy {
         });
       }
     } else {
-      // Auto-resolve only to a capable client whose actorPrincipalId matches
-      // the source caller's. Skips auto-resolve when the caller has no
-      // identity, since same-user binding cannot be enforced.
-      if (sourceActorPrincipalId != null) {
-        const capable = assistantEventHub.listClientsByCapability("host_file");
-        const sameUser = capable.filter(
-          (c) => c.actorPrincipalId === sourceActorPrincipalId,
-        );
-        if (sameUser.length === 1) {
-          resolvedTargetClientId = sameUser[0].clientId;
-        }
+      // Auto-resolve to the unique same-user client; reject ambiguous
+      // (multi-machine) cases so a single targeted-style transfer cannot
+      // fan out across the user's machines.
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_file",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_file"));
       }
+      resolvedTargetClientId =
+        resolved.kind === "match" ? resolved.clientId : undefined;
     }
 
-    // Same-user check: targeted host_transfer requests must be bound to the
-    // same authenticated user identity that opened the target client's SSE
-    // stream. Prevents cross-user routing through actor token mis-targeting.
     if (resolvedTargetClientId != null) {
-      const targetActorPrincipalId =
-        assistantEventHub.getActorPrincipalIdForClient(resolvedTargetClientId);
-      if (
-        sourceActorPrincipalId == null ||
-        targetActorPrincipalId == null ||
-        sourceActorPrincipalId !== targetActorPrincipalId
-      ) {
-        log.warn(
-          {
-            sourceActorPrincipalId,
-            targetClientId: resolvedTargetClientId,
-            targetActorPrincipalId,
-            op: "host_transfer",
-            direction: "to_sandbox",
-          },
-          "Rejected cross-user targeted host_transfer request",
-        );
-        return Promise.resolve({
-          content:
-            "Targeted host_transfer requests require the target client to be owned by the same user as the caller.",
-          isError: true,
-        });
-      }
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_transfer",
+      });
+      if (rejection != null) return Promise.resolve(rejection);
     }
 
     const requestId = uuid();
