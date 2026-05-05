@@ -12,6 +12,7 @@ import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
 } from "../auth/same-actor.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -94,8 +95,9 @@ function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
     // stream. This prevents a different authenticated user with knowledge of
     // both the requestId and target clientId from submitting a result on
     // behalf of the targeted client.
-    const submittingActorPrincipalId =
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined;
+    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+    );
     enforceSameActorOrThrow({
       hub: assistantEventHub,
       sourceActorPrincipalId: submittingActorPrincipalId,
