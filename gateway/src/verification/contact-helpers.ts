@@ -100,9 +100,12 @@ export async function upsertVerifiedContactChannel(params: {
     channelId: string;
     contactId: string;
     channelStatus: string;
+    contactRole: string;
   }>(
-    `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
+    `SELECT cc.id AS channelId, cc.contact_id AS contactId,
+            cc.status AS channelStatus, c.role AS contactRole
      FROM contact_channels cc
+     JOIN contacts c ON c.id = cc.contact_id
      WHERE cc.type = ? AND cc.address = ?
      LIMIT 1`,
     [sourceChannel, address],
@@ -111,9 +114,25 @@ export async function upsertVerifiedContactChannel(params: {
   if (existing.length > 0) {
     const row = existing[0];
 
-    // Don't overwrite blocked channels
-    if (row.channelStatus === "blocked") {
-      log.warn({ sourceChannel, address }, "Skipping upsert: channel is blocked");
+    // Don't overwrite blocked or revoked channels.
+    if (row.channelStatus === "blocked" || row.channelStatus === "revoked") {
+      log.warn(
+        { sourceChannel, address, status: row.channelStatus },
+        "Skipping upsert: channel is blocked or revoked",
+      );
+      return;
+    }
+
+    // Don't touch guardian channels via the trusted-contact path.
+    // A guardian's channels may only be managed through guardian bootstrap.
+    // Without this guard, a revoked guardian phone channel could be
+    // reactivated here, which trust resolution would then treat as
+    // guardian-level access (ATL-434).
+    if (row.contactRole === "guardian") {
+      log.warn(
+        { sourceChannel, address },
+        "Skipping upsert: channel belongs to a guardian contact",
+      );
       return;
     }
 
