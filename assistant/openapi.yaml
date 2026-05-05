@@ -7712,6 +7712,8 @@ paths:
                   type: string
                 slashCommand:
                   type: string
+                clientTimezone:
+                  type: string
                 inferenceProfile:
                   anyOf:
                     - type: string
