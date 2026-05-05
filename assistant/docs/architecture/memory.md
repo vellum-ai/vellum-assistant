@@ -472,7 +472,7 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 
 The session injects a unified `<turn_context>` block into every user message, giving the model awareness of the current timestamp (with timezone), interface, channel, and actor identity. This replaces the former separate `<temporal_context>`, `<inbound_actor_context>`, and per-channel turn context blocks. The unified block persists in conversation history so the assistant retains temporal and actor grounding across turns. Legacy blocks from pre-change history are stripped for backward compatibility.
 
-The `current_time:` field format is: `2026-04-02 (Wednesday) 14:30:00 -05:00 (America/Chicago)` — date, weekday name, local time, UTC offset, and IANA timezone name.
+The `current_time:` field format is: `2026-04-02 (Wednesday) 14:30:00 -05:00 (America/Chicago)` — date, weekday name, local time, UTC offset, and IANA timezone name. The timestamp is grounded in the user's effective timezone, not UTC, so a message sent at 10pm local time is represented as 10pm for date/time reasoning.
 
 ### Per-turn flow
 
@@ -492,7 +492,10 @@ graph TB
 
 - **Fresh each turn**: `buildUnifiedTurnContextBlock()` is called at the start of every agent loop invocation, ensuring the model always sees the current timestamp even in long-running conversations.
 - **Clock source invariant**: Absolute time (`now`) always comes from the assistant host clock (`Date.now()`), never from channel/client clocks.
-- **Timezone precedence**: If `ui.userTimezone` is configured, turn context uses it for local-date interpretation. Otherwise it falls back to memory-stored timezone, then assistant host timezone.
+- **Timezone precedence**: Turn context resolves the effective timezone in this order: explicit runtime override for tests/legacy callers, manual `ui.userTimezone`, current turn `clientTimezone`, persisted `ui.detectedTimezone`, then assistant host timezone. The host clock still supplies the absolute instant; this cascade only selects the local timezone used to render `current_time`.
+- **Manual override semantics**: `ui.userTimezone` is a historical config path, but it is runtime-affecting, not purely presentational. When set, it is authoritative for `current_time` across all clients until the user clears or changes it.
+- **Device timezone semantics**: `clientTimezone` is the timezone reported with the active message for this turn. `ui.detectedTimezone` is the last device-detected timezone persisted by a client and is only used when there is no manual override and the current message does not carry a client timezone.
+- **Timezone mismatch guidance**: When `ui.userTimezone` differs from the current device timezone (`clientTimezone`, or `ui.detectedTimezone` when no current client value exists), `<turn_context>` also includes `configured_user_timezone`, `client_device_timezone`, and `timezone_update_available`. The last line tells the assistant that, after explicit user confirmation, it can persist the device timezone with `assistant config set ui.userTimezone "<IANA zone>"`. This gives the assistant a natural-language path to fix stale manual overrides without adding a dedicated tool.
 - **Timezone-aware**: Uses `Intl.DateTimeFormat` APIs for DST-safe date arithmetic and timezone validation/canonicalization.
 - **Persists in history**: The `<turn_context>` block persists in conversation history. Legacy `<temporal_context>`, `<inbound_actor_context>`, and separate channel context blocks from pre-change history are stripped for backward compatibility.
 - **Retry paths**: Turn context is included in all `applyRuntimeInjections` call sites (main path, compact retry, media-trim retry).
