@@ -1198,15 +1198,15 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    // Prune trace events older than 7 days to keep the database lean.
+    // Prune trace events older than 3 days to keep the database lean.
     // Deferred so synchronous cleanup doesn't block the startup path.
     setTimeout(() => {
       try {
-        const deletedTraceEvents = deleteOldTraceEvents(7);
+        const deletedTraceEvents = deleteOldTraceEvents(3);
         if (deletedTraceEvents > 0) {
           log.debug(
             { deletedTraceEvents },
-            `Pruned ${deletedTraceEvents} trace event(s) older than 7 days`,
+            `Pruned ${deletedTraceEvents} trace event(s) older than 3 days`,
           );
         }
       } catch (err) {
