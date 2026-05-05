@@ -6,9 +6,10 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import { loadSkillBySelector } from "../config/skills.js";
 import { removeLegacySkillsIndexMigration } from "../workspace/migrations/068-remove-legacy-skills-index.js";
@@ -45,6 +46,14 @@ function writeSkill(skillId: string): string {
   return skillFilePath;
 }
 
+function writeLegacyIndex(contents = "- alpha\n"): string {
+  const skillsDir = join(workspaceDir, "skills");
+  mkdirSync(skillsDir, { recursive: true });
+  const legacyIndexPath = join(skillsDir, "SKILLS.md");
+  writeFileSync(legacyIndexPath, contents, "utf-8");
+  return legacyIndexPath;
+}
+
 describe("068-remove-legacy-skills-index migration", () => {
   test("has correct id and description", () => {
     expect(removeLegacySkillsIndexMigration.id).toBe(
@@ -55,9 +64,7 @@ describe("068-remove-legacy-skills-index migration", () => {
 
   test("removes only skills/SKILLS.md when present", () => {
     const skillsDir = join(workspaceDir, "skills");
-    mkdirSync(skillsDir, { recursive: true });
-    const legacyIndexPath = join(skillsDir, "SKILLS.md");
-    writeFileSync(legacyIndexPath, "- alpha\n", "utf-8");
+    const legacyIndexPath = writeLegacyIndex();
 
     const alphaSkillPath = writeSkill("alpha");
     const betaSkillPath = writeSkill("beta");
@@ -88,10 +95,7 @@ describe("068-remove-legacy-skills-index migration", () => {
   });
 
   test("removing a stale SKILLS.md index preserves loadability for omitted valid skill directories", () => {
-    const skillsDir = join(workspaceDir, "skills");
-    mkdirSync(skillsDir, { recursive: true });
-    const legacyIndexPath = join(skillsDir, "SKILLS.md");
-    writeFileSync(legacyIndexPath, "- indexed-skill\n", "utf-8");
+    const legacyIndexPath = writeLegacyIndex("- indexed-skill\n");
 
     writeSkill("indexed-skill");
     writeSkill("omitted-skill");
@@ -107,10 +111,7 @@ describe("068-remove-legacy-skills-index migration", () => {
   });
 
   test("is safe to re-run", () => {
-    const skillsDir = join(workspaceDir, "skills");
-    mkdirSync(skillsDir, { recursive: true });
-    const legacyIndexPath = join(skillsDir, "SKILLS.md");
-    writeFileSync(legacyIndexPath, "- alpha\n", "utf-8");
+    const legacyIndexPath = writeLegacyIndex();
 
     removeLegacySkillsIndexMigration.run(workspaceDir);
     expect(() =>
@@ -129,6 +130,46 @@ describe("068-remove-legacy-skills-index migration", () => {
     expect(readFileSync(join(legacyIndexDir, "nested.txt"), "utf-8")).toBe(
       "keep\n",
     );
+  });
+
+  test("rethrows unexpected lstat failures", () => {
+    const legacyIndexPath = writeLegacyIndex();
+
+    const lstatError = Object.assign(new Error("simulated lstat failure"), {
+      code: "EACCES",
+    });
+    const lstatSpy = spyOn(fs, "lstatSync").mockImplementation(() => {
+      throw lstatError;
+    });
+
+    try {
+      expect(() => removeLegacySkillsIndexMigration.run(workspaceDir)).toThrow(
+        lstatError,
+      );
+      expect(existsSync(legacyIndexPath)).toBe(true);
+    } finally {
+      lstatSpy.mockRestore();
+    }
+  });
+
+  test("rethrows unexpected unlink failures and leaves SKILLS.md for retry", () => {
+    const legacyIndexPath = writeLegacyIndex();
+
+    const unlinkError = Object.assign(new Error("simulated unlink failure"), {
+      code: "EACCES",
+    });
+    const unlinkSpy = spyOn(fs, "unlinkSync").mockImplementation(() => {
+      throw unlinkError;
+    });
+
+    try {
+      expect(() => removeLegacySkillsIndexMigration.run(workspaceDir)).toThrow(
+        unlinkError,
+      );
+      expect(existsSync(legacyIndexPath)).toBe(true);
+    } finally {
+      unlinkSpy.mockRestore();
+    }
   });
 
   test("down() is a no-op", () => {
