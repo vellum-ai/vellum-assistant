@@ -24,6 +24,12 @@ import {
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
+import {
+  BUNDLED_SKILL_SELECTOR_PREFIX,
+  BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
+  normalizeBundledSkillSelector,
+  SYSTEM_STORAGE_CLEANUP_SKILL_ID,
+} from "../skills/system-storage-cleanup-constants.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { getLogger } from "../util/logger.js";
@@ -36,10 +42,6 @@ import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { getConfig } from "./loader.js";
 
 const log = getLogger("skills");
-const BUNDLED_SKILL_SELECTOR_PREFIX = "bundled:";
-const BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR =
-  "bundled:system-storage-cleanup";
-const SYSTEM_STORAGE_CLEANUP_SKILL_ID = "system-storage-cleanup";
 
 // ─── Zod schemas for frontmatter metadata validation ─────────────────────────
 
@@ -1166,15 +1168,14 @@ export function resolveSkillSelector(
   }
 
   if (needle.startsWith(BUNDLED_SKILL_SELECTOR_PREFIX)) {
-    const bundledNeedle = needle
-      .slice(BUNDLED_SKILL_SELECTOR_PREFIX.length)
-      .trim();
-    if (!bundledNeedle || bundledNeedle !== SYSTEM_STORAGE_CLEANUP_SKILL_ID) {
+    const normalizedSelector = normalizeBundledSkillSelector(needle);
+    if (normalizedSelector !== BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR) {
       return {
         error: `The "bundled:" skill selector is only supported for "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}".`,
         errorCode: "invalid_selector",
       };
     }
+    const bundledNeedle = SYSTEM_STORAGE_CLEANUP_SKILL_ID;
 
     const bundledSkills = loadBundledSkills();
     if (bundledSkills.length === 0) {
