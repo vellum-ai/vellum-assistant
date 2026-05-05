@@ -102,8 +102,11 @@ class HostFileReadTool implements Tool {
     // and tool-execution). Scoped to !supportsHostProxy so macos turns —
     // where local-fs fallback IS the intended offline behavior — still fall
     // through if the LLM auto-fills a stale target_client_id from a prior
-    // cross-client turn. On web/iphone, the call must fail loudly rather
+    // cross-client turn. On web/ios, the call must fail loudly rather
     // than silently target the daemon container's filesystem.
+    // Note: this scoping deliberately differs from host_bash
+    // (host-shell.ts:239-247), which rejects unconditionally; see PR #29613
+    // review discussion for rationale.
     if (
       targetClientId != null &&
       transportInterface != null &&

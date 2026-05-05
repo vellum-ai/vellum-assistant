@@ -119,7 +119,7 @@ class HostFileTransferTool implements Tool {
     ) {
       return {
         content:
-          "Error: no client with host_file capability is connected. Connect a macOS client to use host_file_transfer from a non-desktop interface.",
+          "Error: no client with host_file capability is connected. Connect a macOS client to use host_file from a non-desktop interface.",
         isError: true,
       };
     }
@@ -129,8 +129,11 @@ class HostFileTransferTool implements Tool {
     // and tool-execution). Scoped to !supportsHostProxy so macos turns —
     // where local-fs fallback IS the intended offline behavior — silently
     // ignore a stale target_client_id auto-filled from a prior cross-client
-    // turn. On web/iphone, the call must fail loudly rather than silently
+    // turn. On web/ios, the call must fail loudly rather than silently
     // target the daemon container's filesystem.
+    // Note: this scoping deliberately differs from host_bash
+    // (host-shell.ts:239-247), which rejects unconditionally; see PR #29613
+    // review discussion for rationale.
     if (
       targetClientId != null &&
       context.transportInterface != null &&
