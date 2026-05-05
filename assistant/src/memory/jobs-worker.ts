@@ -22,7 +22,7 @@ import { runPatternScan } from "./graph/pattern-scan.js";
 import { backfillJob } from "./job-handlers/backfill.js";
 import {
   pruneOldConversationsJob,
-  pruneOldLlmRequestLogsJob,
+  // pruneOldLlmRequestLogsJob, // disabled — built-in retention config handles this
   pruneOldTraceEventsJob,
 } from "./job-handlers/cleanup.js";
 import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
@@ -54,7 +54,7 @@ import {
   EMBED_JOB_TYPES,
   enqueueMemoryJob,
   enqueuePruneOldConversationsJob,
-  enqueuePruneOldLlmRequestLogsJob,
+  // enqueuePruneOldLlmRequestLogsJob, // disabled — built-in retention config handles this
   enqueuePruneOldTraceEventsJob,
   failMemoryJob,
   failStalledJobs,
@@ -454,9 +454,9 @@ async function processJob(
     case "prune_old_conversations":
       pruneOldConversationsJob(job, config);
       return;
-    case "prune_old_llm_request_logs":
-      pruneOldLlmRequestLogsJob(job, config);
-      return;
+    // case "prune_old_llm_request_logs": // disabled — built-in retention config handles this
+    //   pruneOldLlmRequestLogsJob(job, config);
+    //   return;
     case "prune_old_trace_events":
       pruneOldTraceEventsJob(job, config);
       return;
@@ -561,10 +561,10 @@ function maybeEnqueueScheduledCleanupJobs(
     cleanup.conversationRetentionDays > 0
       ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
       : null;
-  const pruneLlmRequestLogsJobId =
-    cleanup.llmRequestLogRetentionMs !== null
-      ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
-      : null;
+  // const pruneLlmRequestLogsJobId = // disabled — built-in retention config handles this
+  //   cleanup.llmRequestLogRetentionMs !== null
+  //     ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
+  //     : null;
   const pruneTraceEventsJobId =
     cleanup.traceEventRetentionDays > 0
       ? enqueuePruneOldTraceEventsJob(cleanup.traceEventRetentionDays)
@@ -573,11 +573,11 @@ function maybeEnqueueScheduledCleanupJobs(
   log.debug(
     {
       pruneConversationsJobId,
-      pruneLlmRequestLogsJobId,
+      // pruneLlmRequestLogsJobId, // disabled
       pruneTraceEventsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
-      llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs,
+      // llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs, // disabled
       traceEventRetentionDays: cleanup.traceEventRetentionDays,
     },
     "Enqueued scheduled memory cleanup jobs",

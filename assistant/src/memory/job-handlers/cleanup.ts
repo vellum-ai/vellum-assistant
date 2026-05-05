@@ -13,46 +13,48 @@ const PRUNE_LOG_BATCH_LIMIT = 1000;
  * Delete LLM request/response logs older than the configured retention period.
  * Processes in batches to avoid long DB locks and excessive WAL growth.
  * Re-enqueues itself if more rows remain.
+ *
+ * Disabled: built-in retention config now handles this.
  */
-export function pruneOldLlmRequestLogsJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): void {
-  const rawRetention = job.payload.retentionMs;
-  const retentionMs =
-    rawRetention === null
-      ? null
-      : typeof rawRetention === "number" &&
-          Number.isFinite(rawRetention) &&
-          rawRetention >= 0
-        ? rawRetention
-        : config.memory.cleanup.llmRequestLogRetentionMs;
-
-  // null means "keep forever" — skip pruning entirely
-  if (retentionMs === null || retentionMs === undefined) return;
-
-  const cutoffMs = Date.now() - retentionMs;
-
-  rawRun(
-    `DELETE FROM llm_request_logs WHERE rowid IN (SELECT rowid FROM llm_request_logs WHERE created_at < ? LIMIT ?)`,
-    cutoffMs,
-    PRUNE_LOG_BATCH_LIMIT,
-  );
-  const deleted = rawChanges();
-
-  if (deleted >= PRUNE_LOG_BATCH_LIMIT) {
-    enqueueMemoryJob("prune_old_llm_request_logs", { retentionMs });
-  }
-
-  log.info(
-    {
-      deleted,
-      retentionMs,
-      cutoffMs,
-    },
-    "Pruned old LLM request logs",
-  );
-}
+// export function pruneOldLlmRequestLogsJob(
+//   job: MemoryJob,
+//   config: AssistantConfig,
+// ): void {
+//   const rawRetention = job.payload.retentionMs;
+//   const retentionMs =
+//     rawRetention === null
+//       ? null
+//       : typeof rawRetention === "number" &&
+//           Number.isFinite(rawRetention) &&
+//           rawRetention >= 0
+//         ? rawRetention
+//         : config.memory.cleanup.llmRequestLogRetentionMs;
+//
+//   // null means "keep forever" — skip pruning entirely
+//   if (retentionMs === null || retentionMs === undefined) return;
+//
+//   const cutoffMs = Date.now() - retentionMs;
+//
+//   rawRun(
+//     `DELETE FROM llm_request_logs WHERE rowid IN (SELECT rowid FROM llm_request_logs WHERE created_at < ? LIMIT ?)`,
+//     cutoffMs,
+//     PRUNE_LOG_BATCH_LIMIT,
+//   );
+//   const deleted = rawChanges();
+//
+//   if (deleted >= PRUNE_LOG_BATCH_LIMIT) {
+//     enqueueMemoryJob("prune_old_llm_request_logs", { retentionMs });
+//   }
+//
+//   log.info(
+//     {
+//       deleted,
+//       retentionMs,
+//       cutoffMs,
+//     },
+//     "Pruned old LLM request logs",
+//   );
+// }
 
 /**
  * Delete trace events older than the configured retention period.
