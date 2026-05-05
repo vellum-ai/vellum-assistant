@@ -125,31 +125,14 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     ).toThrow(BadRequestError);
   });
 
-  test("rejects edits to custom-balanced", () => {
-    expect(() =>
-      replaceRoute.handler({
-        pathParams: { name: "custom-balanced" },
-        body: { provider: "openai", model: "gpt-4o" },
-      }),
-    ).toThrow(BadRequestError);
-  });
-
-  test("rejects edits to custom-quality-optimized", () => {
-    expect(() =>
-      replaceRoute.handler({
-        pathParams: { name: "custom-quality-optimized" },
-        body: { provider: "openai", model: "gpt-4o" },
-      }),
-    ).toThrow(BadRequestError);
-  });
-
-  test("rejects edits to custom-cost-optimized", () => {
-    expect(() =>
-      replaceRoute.handler({
-        pathParams: { name: "custom-cost-optimized" },
-        body: { provider: "openai", model: "gpt-4o" },
-      }),
-    ).toThrow(BadRequestError);
+  test("allows edits to custom-balanced (user-owned)", () => {
+    savedRaw = null;
+    const result = replaceRoute.handler({
+      pathParams: { name: "custom-balanced" },
+      body: { provider: "openai", model: "gpt-4o" },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedRaw).not.toBeNull();
   });
 
   test("allows edits to a user-defined profile", () => {
@@ -192,28 +175,12 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     ).rejects.toThrow(BadRequestError);
   });
 
-  test("rejects deletion of custom-balanced via null", async () => {
-    await expect(
-      patchRoute.handler({
-        body: { llm: { profiles: { "custom-balanced": null } } },
-      }),
-    ).rejects.toThrow(BadRequestError);
-  });
-
-  test("rejects deletion of custom-quality-optimized via null", async () => {
-    await expect(
-      patchRoute.handler({
-        body: { llm: { profiles: { "custom-quality-optimized": null } } },
-      }),
-    ).rejects.toThrow(BadRequestError);
-  });
-
-  test("rejects deletion of custom-cost-optimized via null", async () => {
-    await expect(
-      patchRoute.handler({
-        body: { llm: { profiles: { "custom-cost-optimized": null } } },
-      }),
-    ).rejects.toThrow(BadRequestError);
+  test("allows deletion of custom-balanced via null (user-owned)", async () => {
+    savedRaw = null;
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: { "custom-balanced": null } } },
+    });
+    expect(result).toEqual({ ok: true });
   });
 
   test("allows deletion of a user-defined profile via null", async () => {
