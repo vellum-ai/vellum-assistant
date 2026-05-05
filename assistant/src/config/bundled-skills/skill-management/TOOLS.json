@@ -37,6 +37,10 @@
             "type": "array",
             "items": { "type": "string" },
             "description": "Optional list of child skill IDs that this skill includes (metadata only, no auto-activation)."
+          },
+          "add_to_index": {
+            "type": "boolean",
+            "description": "Deprecated no-op compatibility field. Skills are discovered from top-level SKILL.md files."
           }
         },
         "required": ["skill_id", "name", "description", "body_markdown"]
@@ -55,6 +59,10 @@
           "skill_id": {
             "type": "string",
             "description": "The ID of the managed skill to delete."
+          },
+          "remove_from_index": {
+            "type": "boolean",
+            "description": "Deprecated no-op compatibility field. Skill deletion does not edit SKILLS.md."
           }
         },
         "required": ["skill_id"]

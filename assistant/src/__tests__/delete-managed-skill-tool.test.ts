@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("delete_managed_skill tool", () => {
-  test("does not expose legacy index controls in the bundled tool schema", () => {
+  test("keeps legacy index control as a deprecated no-op schema field", () => {
     const tools = JSON.parse(
       readFileSync(
         join(
@@ -61,9 +61,11 @@ describe("delete_managed_skill tool", () => {
     );
 
     expect(deleteTool).toBeDefined();
-    expect(deleteTool.input_schema.properties).not.toHaveProperty(
-      "remove_from_index",
-    );
+    expect(deleteTool.input_schema.properties.remove_from_index).toEqual({
+      type: "boolean",
+      description:
+        "Deprecated no-op compatibility field. Skill deletion does not edit SKILLS.md.",
+    });
   });
 
   test("deletes existing skill without modifying the legacy index", async () => {
@@ -90,6 +92,24 @@ describe("delete_managed_skill tool", () => {
 
     expect(existsSync(indexPath)).toBe(true);
     expect(readFileSync(indexPath, "utf-8")).toBe(staleIndex);
+  });
+
+  test("accepts legacy remove_from_index input without returning index metadata", async () => {
+    createSkill("legacy-delete");
+
+    const result = await executeDeleteManagedSkill(
+      {
+        skill_id: "legacy-delete",
+        remove_from_index: true,
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.deleted).toBe(true);
+    expect(parsed).not.toHaveProperty("index_updated");
+    expect(existsSync(join(TEST_DIR, "skills", "legacy-delete"))).toBe(false);
   });
 
   test("returns error for non-existent skill", async () => {

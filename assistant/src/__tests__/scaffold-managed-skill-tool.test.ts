@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 describe("scaffold_managed_skill tool", () => {
-  test("does not expose legacy index controls in the bundled tool schema", () => {
+  test("keeps legacy index control as a deprecated no-op schema field", () => {
     const tools = JSON.parse(
       readFileSync(
         join(
@@ -47,9 +47,11 @@ describe("scaffold_managed_skill tool", () => {
     );
 
     expect(scaffoldTool).toBeDefined();
-    expect(scaffoldTool.input_schema.properties).not.toHaveProperty(
-      "add_to_index",
-    );
+    expect(scaffoldTool.input_schema.properties.add_to_index).toEqual({
+      type: "boolean",
+      description:
+        "Deprecated no-op compatibility field. Skills are discovered from top-level SKILL.md files.",
+    });
   });
 
   test("creates a valid skill discovered from its SKILL.md directory", async () => {
@@ -80,6 +82,25 @@ describe("scaffold_managed_skill tool", () => {
     const skill = catalog.find((s) => s.id === "test-skill");
     expect(skill).toBeDefined();
     expect(skill!.name).toBe("Test Skill");
+  });
+
+  test("accepts legacy add_to_index input without returning index metadata", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "legacy-input",
+        name: "Legacy Input",
+        description: "A test skill",
+        body_markdown: "Do the thing.",
+        add_to_index: true,
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.created).toBe(true);
+    expect(parsed).not.toHaveProperty("index_updated");
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
   });
 
   test("rejects duplicate unless overwrite=true", async () => {
