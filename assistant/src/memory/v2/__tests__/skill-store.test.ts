@@ -19,14 +19,7 @@
  * resolver are module-mocked so the suite never reaches a real backend. One
  * regression case uses a temp workspace to exercise disk-discovered skills.
  */
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -35,6 +28,9 @@ import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 import type { ResolvedSkill } from "../../../config/skill-state.js";
 import type { SkillSummary } from "../../../config/skills.js";
 import type { CatalogSkill } from "../../../skills/catalog-install.js";
+
+const { loadSkillCatalog: realLoadSkillCatalog } =
+  await import("../../../config/skills.js");
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
@@ -96,7 +92,8 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 mock.module("../../../config/skills.js", () => ({
-  loadSkillCatalog: () => state.catalog ?? loadDiskSkillCatalog(),
+  loadSkillCatalog: (...args: Parameters<typeof realLoadSkillCatalog>) =>
+    state.catalog ?? realLoadSkillCatalog(...args),
 }));
 
 mock.module("../../../config/skill-state.js", () => ({
@@ -182,34 +179,6 @@ function makeSummary(overrides: Partial<SkillSummary> = {}): SkillSummary {
     source: "managed",
     ...overrides,
   };
-}
-
-function loadDiskSkillCatalog(): SkillSummary[] {
-  const skillsDir = join(process.env.VELLUM_WORKSPACE_DIR!, "skills");
-  return readdirSync(skillsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => {
-      const directoryPath = join(skillsDir, entry.name);
-      const skillFilePath = join(directoryPath, "SKILL.md");
-      const content = readFileSync(skillFilePath, "utf-8");
-      const name = content.match(/^name:\s*"([^"]+)"/m)?.[1] ?? entry.name;
-      const description =
-        content.match(/^description:\s*"([^"]+)"/m)?.[1] ?? "";
-      const activationHints = [...content.matchAll(/^\s+-\s+(.+)$/gm)].map(
-        (match) => match[1]!.trim(),
-      );
-      return {
-        id: entry.name,
-        name,
-        displayName: name,
-        description,
-        directoryPath,
-        skillFilePath,
-        source: "managed" as const,
-        activationHints: activationHints.slice(0, 1),
-        avoidWhen: activationHints.slice(1, 2),
-      };
-    });
 }
 
 function resetState(): void {

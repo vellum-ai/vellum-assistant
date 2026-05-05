@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -104,38 +103,8 @@ function atomicWriteFile(filePath: string, content: string): void {
 
 // ─── Version metadata ─────────────────────────────────────────────────────────
 
-interface SkillVersionMeta {
-  version: string;
-  installedAt: string;
-}
-
 function getVersionMetaPath(id: string): string {
   return join(getManagedSkillDir(id), "version.json");
-}
-
-export function readSkillVersion(id: string): string | null {
-  // Try install-meta.json first (new format)
-  const installMetaPath = join(getManagedSkillDir(id), "install-meta.json");
-  if (existsSync(installMetaPath)) {
-    try {
-      const raw = readFileSync(installMetaPath, "utf-8");
-      const meta = JSON.parse(raw) as { version?: string };
-      if (meta.version) return meta.version;
-    } catch {
-      // Fall through to legacy path
-    }
-  }
-
-  // Fall back to legacy version.json
-  const metaPath = getVersionMetaPath(id);
-  if (!existsSync(metaPath)) return null;
-  try {
-    const raw = readFileSync(metaPath, "utf-8");
-    const meta: SkillVersionMeta = JSON.parse(raw);
-    return meta.version ?? null;
-  } catch {
-    return null;
-  }
 }
 
 // ─── Create / Delete ─────────────────────────────────────────────────────────

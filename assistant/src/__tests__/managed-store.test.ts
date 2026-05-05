@@ -34,7 +34,6 @@ import {
   buildSkillMarkdown,
   createManagedSkill,
   deleteManagedSkill,
-  readSkillVersion,
   validateManagedSkillId,
 } from "../skills/managed-store.js";
 
@@ -45,6 +44,22 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(join(TEST_DIR, "skills"), { recursive: true, force: true });
 });
+
+interface TestInstallMeta {
+  origin?: string;
+  version?: string;
+  installedAt?: string;
+  installedBy?: string;
+}
+
+function readInstallMetaFile(skillId: string): TestInstallMeta {
+  return JSON.parse(
+    readFileSync(
+      join(TEST_DIR, "skills", skillId, "install-meta.json"),
+      "utf-8",
+    ),
+  );
+}
 
 describe("validateManagedSkillId", () => {
   test("accepts valid slug IDs", () => {
@@ -500,18 +515,17 @@ describe("deleteManagedSkill", () => {
 });
 
 describe("version metadata", () => {
-  test("readSkillVersion returns null for non-existent skill", () => {
-    expect(readSkillVersion("nonexistent")).toBeNull();
-  });
-
-  test("readSkillVersion returns null when skill exists but has no version.json", () => {
+  test("createManagedSkill writes install-meta.json without version when version is omitted", () => {
     createManagedSkill({
       id: "no-version",
       name: "No Version",
       description: "Created without version",
       bodyMarkdown: "Body.",
     });
-    expect(readSkillVersion("no-version")).toBeNull();
+
+    const meta = readInstallMetaFile("no-version");
+    expect(meta.origin).toBe("custom");
+    expect(meta.version).toBeUndefined();
   });
 
   test("createManagedSkill writes install-meta.json when version is provided", () => {
@@ -523,8 +537,8 @@ describe("version metadata", () => {
       version: "v1:abc123",
     });
 
-    const version = readSkillVersion("versioned");
-    expect(version).toBe("v1:abc123");
+    const meta = readInstallMetaFile("versioned");
+    expect(meta.version).toBe("v1:abc123");
   });
 
   test("install-meta.json contains valid JSON with origin, version, and installedAt", () => {
@@ -543,10 +557,13 @@ describe("version metadata", () => {
       "install-meta.json",
     );
     expect(existsSync(metaPath)).toBe(true);
-    const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+    const meta = readInstallMetaFile("version-meta");
     expect(meta.origin).toBe("custom");
     expect(meta.version).toBe("v1:deadbeef");
     expect(typeof meta.installedAt).toBe("string");
+    if (typeof meta.installedAt !== "string") {
+      throw new Error("installedAt must be a string");
+    }
     // installedAt should be a valid ISO date
     expect(new Date(meta.installedAt).toISOString()).toBe(meta.installedAt);
   });
@@ -567,7 +584,7 @@ describe("version metadata", () => {
       "install-meta.json",
     );
     expect(existsSync(metaPath)).toBe(true);
-    const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+    const meta = readInstallMetaFile("with-contact");
     expect(meta.origin).toBe("custom");
     expect(meta.installedBy).toBe("contact-uuid-456");
   });
@@ -580,7 +597,8 @@ describe("version metadata", () => {
       bodyMarkdown: "Body.",
       version: "v1:first",
     });
-    expect(readSkillVersion("update-version")).toBe("v1:first");
+
+    expect(readInstallMetaFile("update-version").version).toBe("v1:first");
 
     createManagedSkill({
       id: "update-version",
@@ -590,28 +608,37 @@ describe("version metadata", () => {
       version: "v1:second",
       overwrite: true,
     });
-    expect(readSkillVersion("update-version")).toBe("v1:second");
+    expect(readInstallMetaFile("update-version").version).toBe("v1:second");
   });
 
-  test("readSkillVersion returns null for corrupted install-meta.json", () => {
+  test("overwrite removes legacy version.json", () => {
     createManagedSkill({
-      id: "corrupt-version",
-      name: "Corrupt",
-      description: "Will corrupt meta file",
+      id: "legacy-version",
+      name: "Legacy",
+      description: "Has legacy metadata",
       bodyMarkdown: "Body.",
-      version: "v1:valid",
+      version: "v1:first",
     });
 
-    // Corrupt the install-meta.json
-    const metaPath = join(
+    const legacyMetaPath = join(
       TEST_DIR,
       "skills",
-      "corrupt-version",
-      "install-meta.json",
+      "legacy-version",
+      "version.json",
     );
-    writeFileSync(metaPath, "{invalid json!!!", "utf-8");
+    writeFileSync(legacyMetaPath, '{"version":"legacy"}', "utf-8");
+    expect(existsSync(legacyMetaPath)).toBe(true);
 
-    expect(readSkillVersion("corrupt-version")).toBeNull();
+    createManagedSkill({
+      id: "legacy-version",
+      name: "Legacy Updated",
+      description: "Has current metadata",
+      bodyMarkdown: "Body.",
+      version: "v1:second",
+      overwrite: true,
+    });
+
+    expect(existsSync(legacyMetaPath)).toBe(false);
   });
 });
 

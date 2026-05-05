@@ -74,7 +74,6 @@ describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
       join(skillsDir, "test-skill", "SKILL.md"),
       '---\nname: "Test Skill"\ndescription: "For testing."\n---\n\nDo testing.\n',
     );
-    writeFileSync(join(skillsDir, "SKILLS.md"), "- test-skill\n");
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
 
     const result = buildSystemPrompt();

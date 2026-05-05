@@ -184,7 +184,6 @@ describe("buildSystemPrompt", () => {
       join(skillsDir, "release-checklist", "SKILL.md"),
       '---\nname: "Release Checklist"\ndescription: "Deployment checks."\n---\n\nRun checks.\n',
     );
-    writeFileSync(join(skillsDir, "SKILLS.md"), "- release-checklist\n");
 
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Custom identity");
     const result = buildSystemPrompt();
@@ -200,7 +199,6 @@ describe("buildSystemPrompt", () => {
       join(skillsDir, "incident-response", "SKILL.md"),
       '---\nname: "Incident Response"\ndescription: "Triage and mitigation."\n---\n\nFollow runbook.\n',
     );
-    writeFileSync(join(skillsDir, "SKILLS.md"), "- incident-response\n");
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity content");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul content");
 
