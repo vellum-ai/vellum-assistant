@@ -62,6 +62,23 @@ mock.module("../../../providers/provider-send-message.js", () => ({
     response.content.find((b): b is ToolUseContent => b.type === "tool_use"),
 }));
 
+// emitNotificationSignal spy — captures every notification the sweep emits
+// so the failure-path test can assert on `activity.failed` shape and dedupe.
+const emitCalls: Array<Record<string, unknown>> = [];
+
+mock.module("../../../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async (params: Record<string, unknown>) => {
+    emitCalls.push(params);
+    return {
+      signalId: "sig-1",
+      deduplicated: false,
+      dispatched: true,
+      reason: "ok",
+      deliveryResults: [],
+    };
+  },
+}));
+
 // Workspace setup — temp dir per test run, pinned via VELLUM_WORKSPACE_DIR
 // so `getWorkspaceDir()` resolves to the tmpdir.
 let tmpWorkspace: string;
@@ -203,6 +220,7 @@ beforeEach(() => {
   mkdirSync(join(tmpWorkspace, "memory"), { recursive: true });
   providerCalls.length = 0;
   providerStub = null;
+  emitCalls.length = 0;
 });
 
 afterEach(() => {
@@ -430,6 +448,34 @@ describe("memoryV2SweepJob — flag on, recent messages", () => {
     const written = await memoryV2SweepJob(makeJob(), CONFIG);
 
     expect(written).toBe(0);
+  });
+
+  test("emits an activity.failed notification when provider.sendMessage throws", async () => {
+    // Simulate a transient provider failure once we're past the early
+    // bail checks. The sweep must (a) preserve the existing silent-failure
+    // contract by returning 0, and (b) surface the failure via the
+    // centralized notifications pipeline so the user sees it instead of
+    // the failure being silently swallowed.
+    providerStub = {
+      name: "stub",
+      sendMessage: async () => {
+        throw new Error("simulated provider failure");
+      },
+    };
+
+    const written = await memoryV2SweepJob(makeJob(), CONFIG);
+
+    expect(written).toBe(0);
+    expect(emitCalls).toHaveLength(1);
+    const emitted = emitCalls[0]!;
+    expect(emitted.sourceEventName).toBe("activity.failed");
+    expect(emitted.sourceChannel).toBe("scheduler");
+    const day = new Date().toISOString().slice(0, 10);
+    expect(emitted.dedupeKey).toBe(`activity-failed:memory.v2.sweep:${day}`);
+    const contextPayload = emitted.contextPayload as Record<string, unknown>;
+    expect(contextPayload.jobName).toBe("memory.v2.sweep");
+    expect(contextPayload.errorKind).toBe("exception");
+    expect(contextPayload.errorMessage).toContain("simulated provider failure");
   });
 });
 

@@ -28,6 +28,7 @@ import { z } from "zod";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
+import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import {
   extractToolUse,
   getConfiguredProvider,
@@ -46,6 +47,9 @@ import { messages } from "../schema.js";
 import { renderSweepPrompt } from "./prompts/sweep.js";
 
 const log = getLogger("memory-v2-sweep");
+
+/** Stable job identifier surfaced in `activity.failed` notifications. */
+const JOB_NAME = "memory.v2.sweep";
 
 /** Window of conversation history the sweep inspects on each run. */
 const RECENT_MESSAGES_WINDOW_MS = 30 * 60 * 1000;
@@ -101,7 +105,7 @@ const SweepResultSchema = z.object({
  * progress without inspecting the filesystem.
  */
 export async function memoryV2SweepJob(
-  _job: MemoryJob,
+  job: MemoryJob,
   config: AssistantConfig,
 ): Promise<number> {
   if (!isAssistantFeatureFlagEnabled("memory-v2-enabled", config)) {
@@ -116,59 +120,116 @@ export async function memoryV2SweepJob(
 
   const workspaceDir = getWorkspaceDir();
   const memoryDir = join(workspaceDir, "memory");
-  const recentText = loadRecentMessagesText(Date.now());
-  if (!recentText) {
-    log.debug("No recent messages in window; sweep skipped");
-    return 0;
-  }
 
-  const existingBuffer = readBufferText(memoryDir);
+  // Once we're committed to running (past the flag/feature gates), any
+  // unexpected error is surfaced via an `activity.failed` notification —
+  // mirrors v1 filing's post-migration treatment, but hand-rolled because
+  // the sweep makes a single forced-tool `provider.sendMessage` call rather
+  // than driving a conversation through `runBackgroundJob`. The function
+  // continues to return 0 on caught failures (preserving the existing
+  // silent-failure contract); only the notification side-effect is new.
+  try {
+    const recentText = loadRecentMessagesText(Date.now());
+    if (!recentText) {
+      log.debug("No recent messages in window; sweep skipped");
+      return 0;
+    }
 
-  const provider = await getConfiguredProvider("memoryV2Sweep");
-  if (!provider) {
-    log.warn("memoryV2Sweep provider unavailable; sweep skipped");
-    return 0;
-  }
+    const existingBuffer = readBufferText(memoryDir);
 
-  const systemPrompt = renderSweepPrompt({
-    assistantName: getAssistantName(),
-    userName: resolveUserName(workspaceDir),
-  });
-  const userText =
-    `## existingBuffer\n\n${existingBuffer || "(empty)"}\n\n` +
-    `## recentMessages\n\n${recentText}`;
+    const provider = await getConfiguredProvider("memoryV2Sweep");
+    if (!provider) {
+      log.warn("memoryV2Sweep provider unavailable; sweep skipped");
+      return 0;
+    }
 
-  const response = await provider.sendMessage(
-    [userMessage(userText)],
-    [SWEEP_TOOL],
-    systemPrompt,
-    {
-      config: {
-        callSite: "memoryV2Sweep" as const,
-        tool_choice: { type: "tool" as const, name: SWEEP_TOOL_NAME },
+    const systemPrompt = renderSweepPrompt({
+      assistantName: getAssistantName(),
+      userName: resolveUserName(workspaceDir),
+    });
+    const userText =
+      `## existingBuffer\n\n${existingBuffer || "(empty)"}\n\n` +
+      `## recentMessages\n\n${recentText}`;
+
+    const response = await provider.sendMessage(
+      [userMessage(userText)],
+      [SWEEP_TOOL],
+      systemPrompt,
+      {
+        config: {
+          callSite: "memoryV2Sweep" as const,
+          tool_choice: { type: "tool" as const, name: SWEEP_TOOL_NAME },
+        },
       },
-    },
-  );
-
-  const toolBlock = extractToolUse(response);
-  if (!toolBlock || toolBlock.name !== SWEEP_TOOL_NAME) {
-    log.debug("Sweep model returned no tool_use block");
-    return 0;
-  }
-  const parsed = SweepResultSchema.safeParse(toolBlock.input);
-  if (!parsed.success) {
-    log.warn(
-      { error: parsed.error.message },
-      "Sweep tool input did not match schema",
     );
+
+    const toolBlock = extractToolUse(response);
+    if (!toolBlock || toolBlock.name !== SWEEP_TOOL_NAME) {
+      log.debug("Sweep model returned no tool_use block");
+      return 0;
+    }
+    const parsed = SweepResultSchema.safeParse(toolBlock.input);
+    if (!parsed.success) {
+      log.warn(
+        { error: parsed.error.message },
+        "Sweep tool input did not match schema",
+      );
+      return 0;
+    }
+
+    const written = appendEntries(memoryDir, parsed.data.entries);
+    if (written > 0) {
+      log.info({ written }, "Memory v2 sweep wrote new buffer entries");
+    }
+    return written;
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "memory v2 sweep failed");
+    emitSweepActivityFailed({
+      jobId: job.id,
+      errorMessage,
+    });
     return 0;
   }
+}
 
-  const written = appendEntries(memoryDir, parsed.data.entries);
-  if (written > 0) {
-    log.info({ written }, "Memory v2 sweep wrote new buffer entries");
-  }
-  return written;
+/**
+ * Emit an `activity.failed` notification for a failed sweep run. Mirrors
+ * the shape `runBackgroundJob` produces for its own failures so the home
+ * feed and native notifications stay consistent regardless of which code
+ * path executed the work. Fire-and-forget — a notification failure must
+ * never break sweep operation.
+ */
+function emitSweepActivityFailed(args: {
+  jobId: string;
+  errorMessage: string;
+}): void {
+  const day = new Date().toISOString().slice(0, 10);
+  emitNotificationSignal({
+    sourceChannel: "scheduler",
+    sourceContextId: args.jobId,
+    sourceEventName: "activity.failed",
+    dedupeKey: `activity-failed:${JOB_NAME}:${day}`,
+    contextPayload: {
+      jobName: JOB_NAME,
+      errorMessage: args.errorMessage,
+      errorKind: "exception",
+    },
+    attentionHints: {
+      requiresAction: false,
+      urgency: "medium",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+  }).catch((emitErr) => {
+    log.warn(
+      {
+        err: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        jobId: args.jobId,
+      },
+      "Failed to emit activity.failed notification for memory v2 sweep",
+    );
+  });
 }
 
 /**
