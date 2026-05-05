@@ -62,13 +62,22 @@ const CONNECT_TIMEOUT_MS = 3_000;
  * Designed for CLI and daemon startup where we need a single RPC call
  * without leaving open handles. Returns `undefined` on any failure
  * (socket not found, timeout, parse error) so callers can fall back.
+ *
+ * @param timeoutMs - Optional override for both the connect and call
+ *   timeouts. When omitted, defaults to the module constants
+ *   (CONNECT_TIMEOUT_MS / DEFAULT_CALL_TIMEOUT_MS). Pass a small value
+ *   (e.g. 200) for opportunistic CLI checks where a slow/absent gateway
+ *   should fail fast rather than block startup.
  */
 export async function ipcCall(
   socketPath: string,
   method: string,
   params?: Record<string, unknown>,
   log: Logger = noopLogger,
+  timeoutMs?: number,
 ): Promise<unknown> {
+  const connectTimeoutMs = timeoutMs ?? CONNECT_TIMEOUT_MS;
+  const callTimeoutMs = timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
   return new Promise<unknown>((resolve) => {
     let settled = false;
     let callTimer: ReturnType<typeof setTimeout> | undefined;
@@ -84,11 +93,11 @@ export async function ipcCall(
 
     const connectTimer = setTimeout(() => {
       log.warn(
-        { method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS },
+        { method, socketPath, timeoutMs: connectTimeoutMs },
         "IPC connect timed out",
       );
       finish(undefined);
-    }, CONNECT_TIMEOUT_MS);
+    }, connectTimeoutMs);
 
     const socket: Socket = connect(socketPath);
     socket.unref();
@@ -103,11 +112,11 @@ export async function ipcCall(
 
       callTimer = setTimeout(() => {
         log.warn(
-          { method, socketPath, timeoutMs: DEFAULT_CALL_TIMEOUT_MS },
+          { method, socketPath, timeoutMs: callTimeoutMs },
           "IPC call timed out waiting for response",
         );
         finish(undefined);
-      }, DEFAULT_CALL_TIMEOUT_MS);
+      }, callTimeoutMs);
 
       socket.on("data", (chunk) => {
         buffer += chunk.toString();

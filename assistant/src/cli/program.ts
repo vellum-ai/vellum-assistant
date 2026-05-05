@@ -57,7 +57,7 @@ import { log } from "./logger.js";
  * the gateway so flag-gated commands are registered correctly.
  */
 export async function buildCliProgram(): Promise<Command> {
-  await initFeatureFlagOverrides();
+  await initFeatureFlagOverrides({ retryBackoffsMs: [], callTimeoutMs: 200 });
   const program = new Command();
 
   program
