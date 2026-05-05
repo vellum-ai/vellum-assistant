@@ -5,12 +5,7 @@ export interface RenderSlackTextOptions {
   channelFallbackLabel?: string;
 }
 
-export interface BuildSlackUserLabelMapOptions {
-  ignoredUserIds?: Iterable<string | undefined>;
-}
-
 const SLACK_USER_MENTION_RE = /<@([UW][A-Z0-9]+)>/g;
-const LEADING_SLACK_USER_MENTION_RE = /^\s*<@[UW][A-Z0-9]+>\s*/;
 
 export function extractSlackUserMentionIds(text: string): string[] {
   const seen = new Set<string>();
@@ -25,30 +20,6 @@ export function extractSlackUserMentionIds(text: string): string[] {
   }
 
   return ids;
-}
-
-export function stripLeadingSlackUserMention(
-  text: string,
-  userId: string
-): string {
-  if (!isSlackUserId(userId)) {
-    return text;
-  }
-
-  const mention = `<@${userId}>`;
-  let stripped = text;
-
-  while (true) {
-    const next = stripLeadingExactToken(stripped, mention);
-    if (next === stripped) {
-      return stripped;
-    }
-    stripped = next;
-  }
-}
-
-export function stripLeadingSlackMentionFallback(text: string): string {
-  return text.replace(LEADING_SLACK_USER_MENTION_RE, "");
 }
 
 export function renderSlackTextForModel(
@@ -78,21 +49,15 @@ export function renderSlackTextForModel(
 
 export async function buildSlackUserLabelMap(
   texts: Iterable<string | undefined>,
-  resolveLabel: (userId: string) => Promise<string | undefined | null>,
-  options: BuildSlackUserLabelMapOptions = {}
+  resolveLabel: (userId: string) => Promise<string | undefined | null>
 ): Promise<Record<string, string>> {
-  const ignored = new Set(
-    [...(options.ignoredUserIds ?? [])].filter(
-      (id): id is string => typeof id === "string" && id.length > 0
-    )
-  );
   const ids: string[] = [];
   const seen = new Set<string>();
 
   for (const text of texts) {
     if (!text) continue;
     for (const id of extractSlackUserMentionIds(text)) {
-      if (ignored.has(id) || seen.has(id)) continue;
+      if (seen.has(id)) continue;
       seen.add(id);
       ids.push(id);
     }
@@ -213,17 +178,6 @@ function sanitizeOptionalLabel(label: string | undefined): string | undefined {
     .trim()
     .replace(/^[@#]+/, "")
     .trim();
-}
-
-function stripLeadingExactToken(text: string, token: string): string {
-  const leadingWhitespaceLength = text.length - text.trimStart().length;
-  const afterWhitespace = text.slice(leadingWhitespaceLength);
-
-  if (!afterWhitespace.startsWith(token)) {
-    return text;
-  }
-
-  return afterWhitespace.slice(token.length).trimStart();
 }
 
 function isSlackUserId(value: string): boolean {

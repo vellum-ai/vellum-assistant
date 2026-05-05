@@ -802,7 +802,7 @@ describe("attachment extraction in normalize functions", () => {
         expect(result!.slackFiles).toBeDefined();
       });
 
-      it("normalizes channel file_share mentions after stripping only the bot mention", () => {
+      it("normalizes channel file_share mentions and renders the bot mention", () => {
         const config = makeConfig();
         const event = makeChannelEvent({
           subtype: "file_share",
@@ -821,11 +821,11 @@ describe("attachment extraction in normalize functions", () => {
           config,
           "UBOT",
           undefined,
-          { userLabels: { ULEO: "leo" } },
+          { userLabels: { UBOT: "vex", ULEO: "leo" } },
         );
 
         expect(result).not.toBeNull();
-        expect(result!.event.message.content).toBe("@leo shared this");
+        expect(result!.event.message.content).toBe("@vex @leo shared this");
         expect(result!.event.message.content).not.toContain("ULEO");
         expect(result!.event.message.attachments).toHaveLength(1);
         expect(result!.event.message.attachments![0]).toEqual({

@@ -4,8 +4,6 @@ import {
   buildSlackUserLabelMap,
   extractSlackUserMentionIds,
   renderSlackTextForModel,
-  stripLeadingSlackMentionFallback,
-  stripLeadingSlackUserMention,
 } from "./index.js";
 
 describe("extractSlackUserMentionIds", () => {
@@ -13,34 +11,6 @@ describe("extractSlackUserMentionIds", () => {
     expect(
       extractSlackUserMentionIds("<@U123> hi <@W456> and <@U123> again")
     ).toEqual(["U123", "W456"]);
-  });
-});
-
-describe("stripLeadingSlackUserMention", () => {
-  test("strips only leading mentions for the exact bot ID", () => {
-    expect(stripLeadingSlackUserMention("<@U111> <@U222> hi", "U111")).toBe(
-      "<@U222> hi"
-    );
-  });
-
-  test("strips repeated leading mentions for the exact bot ID", () => {
-    expect(stripLeadingSlackUserMention(" <@U111> <@U111> hi", "U111")).toBe(
-      "hi"
-    );
-  });
-
-  test("preserves text when the leading mention is a different user", () => {
-    expect(stripLeadingSlackUserMention("<@U222> hi <@U111>", "U111")).toBe(
-      "<@U222> hi <@U111>"
-    );
-  });
-});
-
-describe("stripLeadingSlackMentionFallback", () => {
-  test("strips only the first leading Slack user mention", () => {
-    expect(stripLeadingSlackMentionFallback(" <@U111> <@U222> hi")).toBe(
-      "<@U222> hi"
-    );
   });
 });
 
@@ -123,19 +93,32 @@ describe("renderSlackTextForModel", () => {
 });
 
 describe("buildSlackUserLabelMap", () => {
-  test("dedupes mentioned users across text inputs and ignores configured IDs", async () => {
+  test("dedupes mentioned users across text inputs and resolves them in parallel", async () => {
     const resolved: string[] = [];
     const labels = await buildSlackUserLabelMap(
       ["<@U123> hi <@U999>", undefined, "<@U123> and <@W456>"],
       async (userId) => {
         resolved.push(userId);
+        if (userId === "U999") return "Charlie";
         return userId === "W456" ? "Bob" : "Alice";
-      },
-      { ignoredUserIds: ["U999"] }
+      }
     );
 
-    expect(resolved).toEqual(["U123", "W456"]);
-    expect(labels).toEqual({ U123: "Alice", W456: "Bob" });
+    expect(resolved.sort()).toEqual(["U123", "U999", "W456"]);
+    expect(labels).toEqual({ U123: "Alice", U999: "Charlie", W456: "Bob" });
+  });
+
+  test("resolves bot and human user mentions together", async () => {
+    const labels = await buildSlackUserLabelMap(
+      ["<@UBOT> can you help <@ULEO> with the deploy?"],
+      async (userId) => {
+        if (userId === "UBOT") return "vex";
+        if (userId === "ULEO") return "leo";
+        return undefined;
+      }
+    );
+
+    expect(labels).toEqual({ UBOT: "vex", ULEO: "leo" });
   });
 
   test("omits unresolved labels and labels equal to the Slack user ID", async () => {

@@ -762,7 +762,6 @@ export class SlackSocketModeClient {
         if (!userInfo) return undefined;
         return userInfo.displayName || userInfo.username;
       },
-      { ignoredUserIds: [this.config.botUserId] },
     );
   }
 
