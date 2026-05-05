@@ -1,6 +1,6 @@
 /**
- * Tests for ATL-434: upsertVerifiedContactChannel must not reactivate
- * revoked channels or touch channels that belong to guardian contacts.
+ * Tests for upsertVerifiedContactChannel: must not reactivate
+ * revoked or blocked channels.
  */
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
@@ -15,7 +15,6 @@ type ExistingRow = {
   channelId: string;
   contactId: string;
   channelStatus: string;
-  contactRole: string;
 };
 
 let queryRows: ExistingRow[] = [];
@@ -75,7 +74,6 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
         channelId: "ch-1",
         contactId: "co-1",
         channelStatus: "revoked",
-        contactRole: "contact",
       },
     ];
 
@@ -94,7 +92,6 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
         channelId: "ch-2",
         contactId: "co-2",
         channelStatus: "blocked",
-        contactRole: "contact",
       },
     ];
 
@@ -113,7 +110,6 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
         channelId: "ch-3",
         contactId: "co-3",
         channelStatus: "revoked",
-        contactRole: "guardian",
       },
     ];
 
@@ -132,7 +128,6 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
         channelId: "ch-4",
         contactId: "co-4",
         channelStatus: "active",
-        contactRole: "guardian",
       },
     ];
 
@@ -151,7 +146,6 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
         channelId: "ch-5",
         contactId: "co-5",
         channelStatus: "active",
-        contactRole: "contact",
       },
     ];
 

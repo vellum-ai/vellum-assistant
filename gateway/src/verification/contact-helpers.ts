@@ -100,12 +100,9 @@ export async function upsertVerifiedContactChannel(params: {
     channelId: string;
     contactId: string;
     channelStatus: string;
-    contactRole: string;
   }>(
-    `SELECT cc.id AS channelId, cc.contact_id AS contactId,
-            cc.status AS channelStatus, c.role AS contactRole
+    `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     JOIN contacts c ON c.id = cc.contact_id
      WHERE cc.type = ? AND cc.address = ?
      LIMIT 1`,
     [sourceChannel, address],
