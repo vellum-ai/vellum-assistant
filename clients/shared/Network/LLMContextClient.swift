@@ -549,6 +549,14 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
     public let simUser: Double
     public let simAssistant: Double
     public let simNow: Double
+    /// Portion of `simUser` contributed by the cross-encoder rerank step.
+    /// Zero when rerank is disabled or the slug fell outside the top-K
+    /// window. Older log rows that pre-date this field decode as 0.
+    public let simUserRerankBoost: Double
+    /// Portion of `simAssistant` contributed by the cross-encoder rerank
+    /// step. Same semantics as `simUserRerankBoost`. NOW channel bypasses
+    /// rerank, so there is no corresponding NOW boost.
+    public let simAssistantRerankBoost: Double
     public let spreadContribution: Double
     public let source: String  // "prior_state" | "ann_top50" | "both"
     public let status: String  // "in_context" | "injected" | "not_injected"
@@ -561,6 +569,8 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
         simUser: Double,
         simAssistant: Double,
         simNow: Double,
+        simUserRerankBoost: Double = 0,
+        simAssistantRerankBoost: Double = 0,
         spreadContribution: Double,
         source: String,
         status: String
@@ -572,9 +582,30 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
         self.simUser = simUser
         self.simAssistant = simAssistant
         self.simNow = simNow
+        self.simUserRerankBoost = simUserRerankBoost
+        self.simAssistantRerankBoost = simAssistantRerankBoost
         self.spreadContribution = spreadContribution
         self.source = source
         self.status = status
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.slug = try c.decode(String.self, forKey: .slug)
+        self.finalActivation = try c.decode(Double.self, forKey: .finalActivation)
+        self.ownActivation = try c.decode(Double.self, forKey: .ownActivation)
+        self.priorActivation = try c.decode(Double.self, forKey: .priorActivation)
+        self.simUser = try c.decode(Double.self, forKey: .simUser)
+        self.simAssistant = try c.decode(Double.self, forKey: .simAssistant)
+        self.simNow = try c.decode(Double.self, forKey: .simNow)
+        // Default to 0 so log rows written before the rerank-boost fields
+        // were added still decode and render as "no boost" instead of
+        // failing the whole inspector tab.
+        self.simUserRerankBoost = try c.decodeIfPresent(Double.self, forKey: .simUserRerankBoost) ?? 0
+        self.simAssistantRerankBoost = try c.decodeIfPresent(Double.self, forKey: .simAssistantRerankBoost) ?? 0
+        self.spreadContribution = try c.decode(Double.self, forKey: .spreadContribution)
+        self.source = try c.decode(String.self, forKey: .source)
+        self.status = try c.decode(String.self, forKey: .status)
     }
 }
 

@@ -301,6 +301,8 @@ export async function injectMemoryV2Block(
         simUser: breakdown?.simUser ?? 0,
         simAssistant: breakdown?.simAssistant ?? 0,
         simNow: breakdown?.simNow ?? 0,
+        simUserRerankBoost: breakdown?.simUserRerankBoost ?? 0,
+        simAssistantRerankBoost: breakdown?.simAssistantRerankBoost ?? 0,
         spreadContribution: spreadContribution.get(slug) ?? 0,
         source:
           inPrior && inAnn ? "both" : inPrior ? "prior_state" : "ann_top50",

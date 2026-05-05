@@ -12,6 +12,19 @@ export interface MemoryV2ConceptRowRecord {
   simUser: number;
   simAssistant: number;
   simNow: number;
+  /**
+   * Portion of `simUser` contributed by the cross-encoder rerank step.
+   * Zero when rerank is disabled or the slug fell outside the top-K
+   * window. Stored as a JSON field, so older log rows that pre-date
+   * this addition decode with `undefined`; readers should fall back to 0.
+   */
+  simUserRerankBoost: number;
+  /**
+   * Portion of `simAssistant` contributed by the cross-encoder rerank
+   * step. Same semantics as `simUserRerankBoost`. The NOW channel
+   * intentionally bypasses rerank, so there is no `simNowRerankBoost`.
+   */
+  simAssistantRerankBoost: number;
   spreadContribution: number;
   source: "prior_state" | "ann_top50" | "both";
   status: "in_context" | "injected" | "not_injected" | "page_missing";

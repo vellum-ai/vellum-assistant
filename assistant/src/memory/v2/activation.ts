@@ -170,6 +170,10 @@ interface OwnActivationBreakdown {
   simAssistant: number;
   /** Raw `sim(now, slug)` similarity, before `c_now` weighting. */
   simNow: number;
+  /** Cross-encoder boost folded into `simUser`. `simUser - simUserRerankBoost` recovers the pre-rerank fused score. */
+  simUserRerankBoost: number;
+  /** Cross-encoder boost folded into `simAssistant`. NOW channel skips rerank, so there is no `simNowRerankBoost`. */
+  simAssistantRerankBoost: number;
 }
 
 interface ComputeOwnActivationResult {
@@ -206,9 +210,17 @@ export async function computeOwnActivation(
 
   // NOW context is structured (timestamps, current focus) — outside the
   // cross-encoder's training distribution, so it stays on pure fused fusion.
+  const userRerankBoost = new Map<string, number>();
+  const assistantRerankBoost = new Map<string, number>();
   const [simUser, simAssistant, simNow] = await Promise.all([
-    simBatch(userText, slugList, config, { useRerank: true }),
-    simBatch(assistantText, slugList, config, { useRerank: true }),
+    simBatch(userText, slugList, config, {
+      useRerank: true,
+      rerankBoost: userRerankBoost,
+    }),
+    simBatch(assistantText, slugList, config, {
+      useRerank: true,
+      rerankBoost: assistantRerankBoost,
+    }),
     simBatch(nowText, slugList, config),
   ]);
 
@@ -224,6 +236,8 @@ export async function computeOwnActivation(
       simUser: simU,
       simAssistant: simA,
       simNow: simN,
+      simUserRerankBoost: userRerankBoost.get(slug) ?? 0,
+      simAssistantRerankBoost: assistantRerankBoost.get(slug) ?? 0,
     });
   }
 

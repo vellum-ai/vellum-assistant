@@ -70,6 +70,8 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
                         simUser: concept.simUser,
                         simAssistant: concept.simAssistant,
                         simNow: concept.simNow,
+                        simUserRerankBoost: concept.simUserRerankBoost,
+                        simAssistantRerankBoost: concept.simAssistantRerankBoost,
                         config: activation.config
                     )
                 )
@@ -134,22 +136,42 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         simUser: Double,
         simAssistant: Double,
         simNow: Double,
+        simUserRerankBoost: Double = 0,
+        simAssistantRerankBoost: Double = 0,
         config: MemoryV2Config
     ) -> [LabeledValue] {
-        [
+        var rows: [LabeledValue] = [
             LabeledValue(
                 label: "c_user · sim_u",
                 value: "\(formatScaled(simUser, scale: config.cUser))  (raw \(formatActivation(simUser)))"
             ),
-            LabeledValue(
-                label: "c_assistant · sim_a",
-                value: "\(formatScaled(simAssistant, scale: config.cAssistant))  (raw \(formatActivation(simAssistant)))"
-            ),
-            LabeledValue(
-                label: "c_now · sim_n",
-                value: "\(formatScaled(simNow, scale: config.cNow))  (raw \(formatActivation(simNow)))"
-            ),
         ]
+        // Surface the rerank delta only when the cross-encoder actually
+        // contributed. We can't tell "outside top-K" from "in top-K but
+        // contributed 0" since the activation log stores the realized
+        // delta only; rendering "+0.000" everywhere when rerank is
+        // enabled would just be noise.
+        if simUserRerankBoost > 0 {
+            rows.append(LabeledValue(
+                label: "  └ rerank Δ_u",
+                value: "+\(formatActivation(simUserRerankBoost))"
+            ))
+        }
+        rows.append(LabeledValue(
+            label: "c_assistant · sim_a",
+            value: "\(formatScaled(simAssistant, scale: config.cAssistant))  (raw \(formatActivation(simAssistant)))"
+        ))
+        if simAssistantRerankBoost > 0 {
+            rows.append(LabeledValue(
+                label: "  └ rerank Δ_a",
+                value: "+\(formatActivation(simAssistantRerankBoost))"
+            ))
+        }
+        rows.append(LabeledValue(
+            label: "c_now · sim_n",
+            value: "\(formatScaled(simNow, scale: config.cNow))  (raw \(formatActivation(simNow)))"
+        ))
+        return rows
     }
 }
 
@@ -635,6 +657,8 @@ private struct ActivationBar: View {
                 simUser: 0.610,
                 simAssistant: 0.305,
                 simNow: 0.120,
+                simUserRerankBoost: 0.085,
+                simAssistantRerankBoost: 0.042,
                 spreadContribution: 0.110,
                 source: "both",
                 status: "injected"
@@ -647,6 +671,7 @@ private struct ActivationBar: View {
                 simUser: 0.420,
                 simAssistant: 0.260,
                 simNow: 0.080,
+                simUserRerankBoost: 0.030,
                 spreadContribution: 0.060,
                 source: "ann_top50",
                 status: "in_context"
