@@ -155,20 +155,25 @@ public final class AuthManager {
                 throw AuthServiceError.authCallbackFailed("Failed to generate secure random state.")
             }
 
-            // Build /accounts/native/start?state={state}. The server
-            // determines the callback scheme from settings.ENVIRONMENT
-            // — the client no longer sends it (ATL-454).
+            // Build /accounts/native/start?scheme={scheme}&state={state}.
+            // The platform validates the callback scheme against its native
+            // auth allowlist before redirecting to WorkOS.
             guard var startComponents = URLComponents(string: VellumEnvironment.resolvedWebURL) else {
                 throw AuthServiceError.invalidURL
             }
             startComponents.path = "/accounts/native/start"
-            startComponents.queryItems = [URLQueryItem(name: "state", value: stateParam)]
+            let callbackScheme = Self.callbackScheme
+            startComponents.queryItems = [
+                URLQueryItem(name: "scheme", value: callbackScheme),
+                URLQueryItem(name: "state", value: stateParam),
+            ]
 
             guard let loginURL = startComponents.url else {
                 throw AuthServiceError.invalidURL
             }
 
-            let callbackURL = try await performWebAuth(url: loginURL, callbackScheme: Self.callbackScheme)
+            log.info("Starting native auth flow with callbackScheme=\(callbackScheme, privacy: .public)")
+            let callbackURL = try await performWebAuth(url: loginURL, callbackScheme: callbackScheme)
 
             guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
                   let queryItems = components.queryItems else {
