@@ -1,3 +1,8 @@
+import {
+  checkDiskPressureBackgroundGate,
+  diskPressureBackgroundSkipLogFields,
+  shouldLogDiskPressureBackgroundSkip,
+} from "../daemon/disk-pressure-background-gate.js";
 import { getLogger } from "../util/logger.js";
 import { getEnrichmentService } from "./commit-message-enrichment-service.js";
 import {
@@ -134,6 +139,20 @@ export class WorkspaceHeartbeatService {
   async check(): Promise<HeartbeatCheckResult> {
     // Guard: skip if a previous check is still running
     if (this.activeCheck) {
+      return { checked: 0, committed: 0, skipped: 0, failed: 0 };
+    }
+
+    const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+    if (diskPressureGate.action === "skip") {
+      if (shouldLogDiskPressureBackgroundSkip("workspace-heartbeat")) {
+        log.warn(
+          {
+            source: "workspace-heartbeat",
+            ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+          },
+          "Workspace heartbeat skipped during disk pressure cleanup mode",
+        );
+      }
       return { checked: 0, committed: 0, skipped: 0, failed: 0 };
     }
 

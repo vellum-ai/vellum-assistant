@@ -1,3 +1,8 @@
+import {
+  checkDiskPressureBackgroundGate,
+  diskPressureBackgroundSkipLogFields,
+  shouldLogDiskPressureBackgroundSkip,
+} from "../daemon/disk-pressure-background-gate.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
@@ -129,7 +134,7 @@ export function startScheduler(
   };
 }
 
-async function runScheduleOnce(
+export async function runScheduleOnce(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
   watcherNotifier?: WatcherNotifier,
@@ -138,6 +143,20 @@ async function runScheduleOnce(
 ): Promise<number> {
   const now = Date.now();
   let processed = 0;
+
+  const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+  if (diskPressureGate.action === "skip") {
+    if (shouldLogDiskPressureBackgroundSkip("scheduler")) {
+      log.warn(
+        {
+          source: "schedule",
+          ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+        },
+        "Schedule tick skipped during disk pressure cleanup mode",
+      );
+    }
+    return 0;
+  }
 
   // ── Schedules (recurring cron/RRULE + one-shot) ─────────────────────
   const jobs = claimDueSchedules(now);
