@@ -185,6 +185,8 @@ export function seedInferenceProfiles(
   if (!isAnthropicDefault) {
     for (const [name, template] of Object.entries(CUSTOM_PROFILE_TEMPLATES)) {
       if (preservedProfileNames.has(name)) continue;
+      const existing = readObject(profiles[name]);
+      if (existing !== null && readString(existing.source) === "user") continue;
       profiles[name] = materializeProfile(template, resolvedProvider);
     }
   }
