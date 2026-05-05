@@ -95,6 +95,15 @@ describe("oauth-connect-state", () => {
     expect(getOAuthConnectState("state-1")).toBeNull();
   });
 
+  test("clearExpiredOAuthConnectStates removes expired error entries (past 60s grace)", () => {
+    setOAuthConnectError("state-1", "google", "token exchange failed");
+    const originalNow = Date.now;
+    Date.now = () => originalNow() + 2 * 60 * 1000; // advance 2 minutes past 60s grace
+    clearExpiredOAuthConnectStates();
+    Date.now = originalNow;
+    expect(getOAuthConnectState("state-1")).toBeNull();
+  });
+
   test("clearExpiredOAuthConnectStates does not remove non-expired pending entries", () => {
     setOAuthConnectPending("state-1", "google");
     clearExpiredOAuthConnectStates(); // called without advancing time

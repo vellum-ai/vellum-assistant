@@ -1016,6 +1016,54 @@ describe("assistant oauth connect", () => {
       expect(parsed.error).toContain("Daemon returned unexpected response");
     });
 
+    test("IPC poll: transient ok:false with no statusCode does not abort the flow (continues to next poll)", async () => {
+      // Verifies intentional behavior: a single IPC status call returning { ok: false }
+      // with NO statusCode (socket error / timeout) is treated as a transient failure and
+      // silently retried. Only ok:false WITH a statusCode (i.e., the daemon was reachable
+      // and returned an HTTP error) causes an early abort.
+      let statusCallCount = 0;
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=transient-state",
+              state: "transient-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          statusCallCount++;
+          if (statusCallCount === 1) {
+            // First poll: transient IPC failure (no statusCode — socket error/timeout)
+            return { ok: false };
+          }
+          // Second poll: succeeds
+          return {
+            ok: true,
+            result: {
+              status: "complete",
+              service: "google",
+              account_info: "user@example.com",
+            },
+          };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.accountInfo).toBe("user@example.com");
+      // Both poll calls were made — the transient failure did not abort the loop
+      expect(statusCallCount).toBeGreaterThanOrEqual(2);
+    });
+
     test("IPC start with --callback-transport=gateway passes callbackTransport in body", async () => {
       let capturedParams: Record<string, unknown> | undefined;
       mockCliIpcCallFn = async (method, params) => {

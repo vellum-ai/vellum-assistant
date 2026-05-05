@@ -161,6 +161,28 @@ describe("oauth-connect-routes", () => {
         state: "test-state-uuid-abc123",
       });
     });
+
+    test("success:true, deferred:false throws InternalError (synchronous completion not supported via daemon route)", async () => {
+      // The daemon-owned route requires a deferred flow so the CLI can poll for status.
+      // When the orchestrator returns { success: true, deferred: false } (e.g., already
+      // authenticated), the handler has no auth_url or state to return and throws an
+      // InternalError rather than silently returning a malformed response.
+      mockOrchestrateResult = {
+        success: true,
+        deferred: false,
+        service: "google",
+        grantedScopes: [],
+      };
+      await expect(
+        findRoute("internal_oauth_connect_start").handler({
+          body: {
+            service: "google",
+            clientId: "my-client-id",
+            callbackTransport: "gateway",
+          },
+        }),
+      ).rejects.toBeInstanceOf(InternalError);
+    });
   });
 
   describe("GET internal/oauth/connect/status/:state", () => {
