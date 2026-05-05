@@ -29,21 +29,18 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import type { DrizzleDb } from "../db-connection.js";
 import {
   type MemoryV2ConceptRowRecord,
-  type MemoryV2SkillRowRecord,
   recordMemoryV2ActivationLog,
 } from "../memory-v2-activation-log-store.js";
 import {
   computeOwnActivation,
-  computeSkillActivation,
   selectCandidates,
   selectInjections,
-  selectSkillInjections,
   spreadActivation,
 } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
 import { getEdgeIndex } from "./edge-index.js";
 import { readPage, renderPageContent } from "./page-store.js";
-import { getAllSkillIds, getSkillCapability } from "./skill-store.js";
+import { getSkillCapability, isSkillSlug } from "./skill-store.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 const log = getLogger("memory-v2-injection");
@@ -182,25 +179,6 @@ export async function injectMemoryV2Block(
   });
   const slugsToRender = mode === "context-load" ? topNow : toInject;
 
-  // (6b) Skill pipeline — a sibling pipeline to the concept-page one above.
-  // Skills are stateless (no decay, no spread, no `everInjected` dedup) and
-  // the catalog is small, so every known skill is scored every turn. The
-  // top-K injection slate is re-presented every turn so the agent can drop
-  // and pick skills up freely; the inspector renders the full ranked list.
-  const skillCandidates = new Set(getAllSkillIds());
-  const { activation: skillActivation, breakdown: skillBreakdown } =
-    await computeSkillActivation({
-      candidates: skillCandidates,
-      userText: userMessage,
-      assistantText: assistantMessage,
-      nowText,
-      config,
-    });
-  const { topNow: topSkillIds } = selectSkillInjections({
-    A: skillActivation,
-    topK: config.memory.v2.top_k_skills,
-  });
-
   // Build the next persisted state regardless of whether we render anything:
   // even on a "no new injection" turn, prior-state activations decay via the
   // candidate-set carry-forward and need to be rewritten so `epsilon`-trimmed
@@ -215,8 +193,10 @@ export async function injectMemoryV2Block(
   // just rendered all of them); on per-turn it's just the newly added slugs.
   // We append rather than reset so that compaction-driven eviction
   // (`evictCompactedTurns`) is the only path that can re-enable a previously-
-  // injected slug. Skills do NOT enter `everInjected` — they are stateless
-  // and re-presented every turn.
+  // injected slug. Skill slugs (`skills/<id>`) participate in this dedup just
+  // like concept slugs — once attached on a turn, the cached attachment lives
+  // on that user message and the agent keeps seeing it across subsequent turns
+  // until compaction evicts the turn.
   const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
   const newlyInjected = slugsToRender.filter(
     (slug) => !everInjectedSet.has(slug),
@@ -243,7 +223,6 @@ export async function injectMemoryV2Block(
   const { block, missingSlugs } = await renderInjectionBlock(
     workspaceDir,
     slugsToRender,
-    topSkillIds,
   );
   const missingSlugSet = new Set(missingSlugs);
   if (missingSlugs.length > 0) {
@@ -262,7 +241,6 @@ export async function injectMemoryV2Block(
   // block memory injection.
   const toInjectSet = new Set(toInject);
   const renderedSet = new Set(slugsToRender);
-  const topSkillIdSet = new Set(topSkillIds);
   const conceptRows: MemoryV2ConceptRowRecord[] = [...candidates].map(
     (slug) => {
       const breakdown = ownBreakdown.get(slug);
@@ -312,19 +290,6 @@ export async function injectMemoryV2Block(
   );
   conceptRows.sort((a, b) => b.finalActivation - a.finalActivation);
 
-  const skillRows: MemoryV2SkillRowRecord[] = [...skillCandidates].map((id) => {
-    const breakdown = skillBreakdown.get(id);
-    return {
-      id,
-      activation: skillActivation.get(id) ?? 0,
-      simUser: breakdown?.simUser ?? 0,
-      simAssistant: breakdown?.simAssistant ?? 0,
-      simNow: breakdown?.simNow ?? 0,
-      status: topSkillIdSet.has(id) ? "injected" : "not_injected",
-    };
-  });
-  skillRows.sort((a, b) => b.activation - a.activation);
-
   const v2Cfg = config.memory.v2;
   try {
     recordMemoryV2ActivationLog({
@@ -332,7 +297,6 @@ export async function injectMemoryV2Block(
       turn: currentTurn,
       mode,
       concepts: conceptRows,
-      skills: skillRows,
       config: {
         d: v2Cfg.d,
         c_user: v2Cfg.c_user,
@@ -341,7 +305,6 @@ export async function injectMemoryV2Block(
         k: v2Cfg.k,
         hops: v2Cfg.hops,
         top_k: v2Cfg.top_k,
-        top_k_skills: v2Cfg.top_k_skills,
         epsilon: v2Cfg.epsilon,
       },
     });
@@ -382,9 +345,14 @@ interface RenderInjectionBlockResult {
 }
 
 /**
- * Render the inner content of the `<memory>` block for a list of slugs and
- * a list of ranked skill ids. The caller wraps the result in
- * `<memory>...</memory>` exactly once at injection time.
+ * Render the inner content of the `<memory>` block for a list of slugs.
+ * The caller wraps the result in `<memory>...</memory>` exactly once at
+ * injection time.
+ *
+ * The slug list is partitioned by prefix: slugs starting with `skills/`
+ * resolve to a `SkillEntry` via `getSkillCapability` and render under the
+ * trailing `### Skills You Can Use` subsection; everything else is read
+ * from disk via `readPage` and rendered as a concept-page section.
  *
  * Concept pages are read in parallel via `readPage`. Pages whose file has
  * gone missing between selection and render (e.g. consolidation deleted
@@ -392,17 +360,17 @@ interface RenderInjectionBlockResult {
  * block but reported back via `missingSlugs` so callers can surface the
  * divergence.
  *
- * Skill ids are looked up via `getSkillCapability`. Ids that the cache no
- * longer knows (e.g. uninstalled mid-run) are silently dropped, mirroring
- * the missing-pages behavior.
+ * Skill slugs whose entry the cache no longer knows (e.g. uninstalled
+ * mid-run) are silently dropped, mirroring the missing-pages behavior but
+ * without entering `missingSlugs` — the skill catalog is the source of
+ * truth for skill availability, not on-disk concept pages, so a missing
+ * skill is an expected catalog-level outcome rather than a stale-index
+ * bug.
  *
- * The block shape is the §5 layout from the design doc, with an optional
- * trailing skills subsection. Each concept-page section reproduces the page
- * as it lives on disk — frontmatter (`edges`, `ref_files`) plus body — so
- * the agent sees the page's edges and any referenced media paths alongside
- * the prose:
+ * The block shape mirrors the §5 layout — concept-page sections first,
+ * skills subsection last — preserving the prompt format the agent sees:
  *
- *   ### <slug-1>
+ *   ### <concept-slug-1>
  *   ---
  *   edges:
  *     - <neighbor-slug>
@@ -411,7 +379,7 @@ interface RenderInjectionBlockResult {
  *   ---
  *   <body-1>
  *
- *   ### <slug-2>
+ *   ### <concept-slug-2>
  *   ---
  *   edges: []
  *   ref_files: []
@@ -425,10 +393,12 @@ interface RenderInjectionBlockResult {
 async function renderInjectionBlock(
   workspaceDir: string,
   slugs: string[],
-  skillIds: string[],
 ): Promise<RenderInjectionBlockResult> {
+  const conceptSlugs = slugs.filter((s) => !isSkillSlug(s));
+  const skillSlugs = slugs.filter((s) => isSkillSlug(s));
+
   const pages = await Promise.all(
-    slugs.map(async (slug) => {
+    conceptSlugs.map(async (slug) => {
       const page = await readPage(workspaceDir, slug);
       return { slug, page };
     }),
@@ -446,10 +416,9 @@ async function renderInjectionBlock(
     sections.push(`### ${slug}\n${content}`);
   }
 
-  // v2's skills collection is skills-only, so the activation suffix always applies.
   const skillLines: string[] = [];
-  for (const id of skillIds) {
-    const entry = getSkillCapability(id);
+  for (const slug of skillSlugs) {
+    const entry = getSkillCapability(slug);
     if (!entry) continue;
     skillLines.push(`- ${entry.content} → use skill_load to activate`);
   }

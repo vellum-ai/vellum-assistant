@@ -267,9 +267,10 @@ Examples:
       "after",
       `
 Re-runs the v2 skill catalog seed against the current skill set, replacing
-both the in-process skill cache and the memory_v2_skills Qdrant collection.
-Useful after editing a skill's SKILL.md, after a feature-flag flip changes
-the enabled-skill set, or to recover a corrupted skills collection.
+both the in-process skill cache and the skill entries in the unified
+memory_v2_concept_pages Qdrant collection (under the skills/<id> slug
+prefix). Useful after editing a skill's SKILL.md, after a feature-flag flip
+changes the enabled-skill set, or to recover corrupted skill embeddings.
 
 Unlike 'reembed' (concept pages), this runs synchronously inside the
 daemon — the command returns only once the seed completes. Requires both

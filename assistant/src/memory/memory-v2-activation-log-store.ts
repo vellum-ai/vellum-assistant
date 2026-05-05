@@ -30,15 +30,6 @@ export interface MemoryV2ConceptRowRecord {
   status: "in_context" | "injected" | "not_injected" | "page_missing";
 }
 
-export interface MemoryV2SkillRowRecord {
-  id: string;
-  activation: number;
-  simUser: number;
-  simAssistant: number;
-  simNow: number;
-  status: "injected" | "not_injected";
-}
-
 export interface MemoryV2ConfigSnapshot {
   d: number;
   c_user: number;
@@ -47,7 +38,6 @@ export interface MemoryV2ConfigSnapshot {
   k: number;
   hops: number;
   top_k: number;
-  top_k_skills: number;
   epsilon: number;
 }
 
@@ -56,7 +46,6 @@ export interface RecordMemoryV2ActivationLogParams {
   turn: number;
   mode: "context-load" | "per-turn";
   concepts: MemoryV2ConceptRowRecord[];
-  skills: MemoryV2SkillRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
 
@@ -64,6 +53,11 @@ export function recordMemoryV2ActivationLog(
   params: RecordMemoryV2ActivationLogParams,
 ): void {
   const db = getDb();
+  // Skills now live as concept rows under `slug: "skills/<id>"`, so the
+  // separate `skills_json` column is always written empty. The column itself
+  // remains in the schema for backwards-compat with prior log rows; the
+  // reader drops it. A future migration can DROP the column once those rows
+  // age out of relevance.
   db.insert(memoryV2ActivationLogs)
     .values({
       id: uuid(),
@@ -72,7 +66,7 @@ export function recordMemoryV2ActivationLog(
       turn: params.turn,
       mode: params.mode,
       conceptsJson: JSON.stringify(params.concepts),
-      skillsJson: JSON.stringify(params.skills),
+      skillsJson: "[]",
       configJson: JSON.stringify(params.config),
       createdAt: Date.now(),
     })
@@ -100,7 +94,6 @@ export interface MemoryV2ActivationLog {
   turn: number;
   mode: "context-load" | "per-turn";
   concepts: MemoryV2ConceptRowRecord[];
-  skills: MemoryV2SkillRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
 
@@ -122,7 +115,6 @@ export function getMemoryV2ActivationLogByMessageIds(
     turn: row.turn,
     mode: row.mode as "context-load" | "per-turn",
     concepts: JSON.parse(row.conceptsJson) as MemoryV2ConceptRowRecord[],
-    skills: JSON.parse(row.skillsJson) as MemoryV2SkillRowRecord[],
     config: JSON.parse(row.configJson) as MemoryV2ConfigSnapshot,
   };
 }

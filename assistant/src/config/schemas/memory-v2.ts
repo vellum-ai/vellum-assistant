@@ -92,9 +92,9 @@ export const MemoryV2ConfigSchema = z
       .number({ error: "memory.v2.top_k must be a number" })
       .int("memory.v2.top_k must be an integer")
       .positive("memory.v2.top_k must be a positive integer")
-      .default(20)
+      .default(25)
       .describe(
-        "Number of top-activation concept pages considered for injection per turn",
+        "Number of top-activation entries (concept pages and skills combined) considered for injection per turn. Skills are scored alongside concepts in the same pool; this cap covers both.",
       ),
     ann_candidate_limit: z
       .number({ error: "memory.v2.ann_candidate_limit must be a number" })
@@ -104,14 +104,6 @@ export const MemoryV2ConfigSchema = z
       .default(null)
       .describe(
         "Per-channel cap on the unrestricted ANN candidate query (dense and sparse each return up to this many hits before they are unioned and fed into the activation pipeline). `null` = unlimited (every page in the v2 collection is eligible). Increase or null this out to surface more candidates at the cost of higher per-turn embedding/scoring work.",
-      ),
-    top_k_skills: z
-      .number({ error: "memory.v2.top_k_skills must be a number" })
-      .int()
-      .nonnegative()
-      .default(5)
-      .describe(
-        "Cap on the per-turn skill-autoinjection slate rendered in `### Skills You Can Use`. 0 disables skill autoinjection without code changes.",
       ),
     epsilon: z
       .number({ error: "memory.v2.epsilon must be a number" })

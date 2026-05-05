@@ -29,7 +29,6 @@ import { memoryV2ActivationLogs } from "../schema.js";
 import {
   sampleConcepts,
   sampleConfig,
-  sampleSkills,
 } from "./fixtures/memory-v2-activation-fixtures.js";
 
 initializeDb();
@@ -53,7 +52,6 @@ describe("memory-v2-activation-log-store", () => {
       turn: 3,
       mode: "per-turn",
       concepts: sampleConcepts,
-      skills: sampleSkills,
       config: sampleConfig,
     });
 
@@ -65,7 +63,6 @@ describe("memory-v2-activation-log-store", () => {
     expect(result!.turn).toBe(3);
     expect(result!.mode).toBe("per-turn");
     expect(result!.concepts).toEqual(sampleConcepts);
-    expect(result!.skills).toEqual(sampleSkills);
     expect(result!.config).toEqual(sampleConfig);
   });
 
@@ -82,7 +79,6 @@ describe("memory-v2-activation-log-store", () => {
       turn: 1,
       mode: "context-load",
       concepts: sampleConcepts,
-      skills: sampleSkills,
       config: sampleConfig,
     });
     recordMemoryV2ActivationLog({
@@ -90,7 +86,6 @@ describe("memory-v2-activation-log-store", () => {
       turn: 2,
       mode: "per-turn",
       concepts: sampleConcepts,
-      skills: sampleSkills,
       config: sampleConfig,
     });
 
@@ -110,7 +105,6 @@ describe("memory-v2-activation-log-store", () => {
       turn: 3,
       mode: "per-turn",
       concepts: sampleConcepts,
-      skills: sampleSkills,
       config: sampleConfig,
     });
 

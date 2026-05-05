@@ -15,9 +15,8 @@ describe("MemoryV2ConfigSchema", () => {
       c_now: 0.2,
       k: 0.5,
       hops: 2,
-      top_k: 20,
+      top_k: 25,
       ann_candidate_limit: null,
-      top_k_skills: 5,
       epsilon: 0.01,
       dense_weight: 0.85,
       sparse_weight: 0.15,
@@ -166,7 +165,6 @@ describe("MemoryConfigSchema integration with v2 block", () => {
     expect(parsed.v2.d).toBe(0.3);
     expect(parsed.v2.dense_weight).toBe(0.85);
     expect(parsed.v2.sparse_weight).toBe(0.15);
-    expect(parsed.v2.top_k_skills).toBe(5);
     expect(parsed.v2.consolidation_interval_hours).toBe(4);
     expect(parsed.v2.max_page_chars).toBe(5000);
   });

@@ -10,7 +10,6 @@ mock.module("../../../util/logger.js", () => ({
 import {
   sampleConcepts as sharedSampleConcepts,
   sampleConfig,
-  sampleSkills,
 } from "../../../memory/__tests__/fixtures/memory-v2-activation-fixtures.js";
 
 let rawConfigFixture: Record<string, unknown> = {};
@@ -36,7 +35,6 @@ import {
   backfillMemoryV2ActivationMessageId,
   type MemoryV2ConceptRowRecord,
   type MemoryV2ConfigSnapshot,
-  type MemoryV2SkillRowRecord,
   recordMemoryV2ActivationLog,
 } from "../../../memory/memory-v2-activation-log-store.js";
 import {
@@ -153,7 +151,6 @@ describe("GET /v1/messages/:id/llm-context — memoryV2Activation", () => {
       turn: 4,
       mode: "per-turn",
       concepts: sampleConcepts,
-      skills: sampleSkills,
       config: sampleConfig,
     });
     backfillMemoryV2ActivationMessageId(conversationId, messageId);
@@ -163,7 +160,6 @@ describe("GET /v1/messages/:id/llm-context — memoryV2Activation", () => {
         turn: number;
         mode: "context-load" | "per-turn";
         concepts: MemoryV2ConceptRowRecord[];
-        skills: MemoryV2SkillRowRecord[];
         config: MemoryV2ConfigSnapshot;
       } | null;
       memoryRecall: unknown;
@@ -173,7 +169,6 @@ describe("GET /v1/messages/:id/llm-context — memoryV2Activation", () => {
     expect(body.memoryV2Activation!.turn).toBe(4);
     expect(body.memoryV2Activation!.mode).toBe("per-turn");
     expect(body.memoryV2Activation!.concepts).toEqual(sampleConcepts);
-    expect(body.memoryV2Activation!.skills).toEqual(sampleSkills);
     expect(body.memoryV2Activation!.config).toEqual(sampleConfig);
     // Backwards-compat: memoryRecall field still present.
     expect(body).toHaveProperty("memoryRecall");

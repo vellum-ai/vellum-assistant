@@ -216,6 +216,95 @@ export async function deleteConceptPageEmbedding(slug: string): Promise<void> {
 }
 
 /**
+ * Remove every point whose slug starts with the given prefix and whose
+ * remaining suffix is not in `activeSuffixes`. Used by the skill-seed flow to
+ * drop stale `skills/<id>` slugs after a skill is uninstalled or disabled,
+ * since skills now share the concept-page collection rather than living in a
+ * dedicated one.
+ *
+ * Idempotent: when the live `<prefix>*` slugs already match `activeSuffixes`,
+ * the function performs a single scroll and no deletes.
+ */
+export async function pruneSlugsWithPrefixExcept(
+  prefix: string,
+  activeSuffixes: readonly string[],
+): Promise<void> {
+  await ensureConceptPageCollection();
+
+  const client = getClient();
+  const activeSet = new Set(activeSuffixes);
+
+  const doPrune = async (): Promise<void> => {
+    const stalePointIds: Array<string | number> = [];
+    let offset: string | number | undefined = undefined;
+    const maxIterations = 10_000;
+    const batchSize = 256;
+    for (let i = 0; i < maxIterations; i++) {
+      const result = await client.scroll(MEMORY_V2_COLLECTION, {
+        limit: batchSize,
+        with_payload: true,
+        with_vector: false,
+        ...(offset !== undefined ? { offset } : {}),
+      });
+      for (const point of result.points) {
+        const slug = (point.payload as { slug?: unknown } | null)?.slug;
+        if (typeof slug !== "string") continue;
+        if (!slug.startsWith(prefix)) continue;
+        const suffix = slug.slice(prefix.length);
+        if (!activeSet.has(suffix)) {
+          stalePointIds.push(point.id);
+        }
+      }
+      const next = result.next_page_offset;
+      if (next == null) break;
+      offset = typeof next === "string" ? next : (next as number);
+    }
+
+    if (stalePointIds.length === 0) return;
+
+    await client.delete(MEMORY_V2_COLLECTION, {
+      wait: true,
+      points: stalePointIds,
+    });
+  };
+
+  try {
+    await doPrune();
+  } catch (err) {
+    if (isCollectionMissing(err)) {
+      _collectionReady = false;
+      await ensureConceptPageCollection();
+      await doPrune();
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Best-effort delete of the legacy `memory_v2_skills` Qdrant collection. Skill
+ * embeddings now live alongside concept pages in `memory_v2_concept_pages`
+ * under the `skills/<id>` slug prefix, so the dedicated collection is dead
+ * weight on installs upgraded from the split-collection era. Fire-and-forget:
+ * on a fresh install (collection never existed) or a transient Qdrant
+ * unavailable, we log and move on.
+ */
+export async function dropLegacySkillsCollection(): Promise<void> {
+  try {
+    const client = getClient();
+    const exists = await client.collectionExists("memory_v2_skills");
+    if (!exists.exists) return;
+    await client.deleteCollection("memory_v2_skills");
+    log.info("Deleted legacy memory_v2_skills Qdrant collection");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to drop legacy memory_v2_skills collection — non-fatal",
+    );
+  }
+}
+
+/**
  * Run separate dense and sparse queries against the concept-page collection
  * and return per-channel scores per slug. Callers fuse these — typically via
  * a normalized weighted-sum — because RRF would discard the score magnitudes

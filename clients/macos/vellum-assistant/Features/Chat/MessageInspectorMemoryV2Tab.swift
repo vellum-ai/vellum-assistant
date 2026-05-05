@@ -13,7 +13,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         let k: String
         let hops: String
         let topK: String
-        let topKSkills: String
         let epsilon: String
     }
 
@@ -30,14 +29,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         let simBreakdownRows: [LabeledValue]
     }
 
-    struct SkillRowVM: Identifiable, Equatable {
-        let id: String
-        let status: String
-        let activation: Double
-        let activationLabel: String
-        let simBreakdownRows: [LabeledValue]
-    }
-
     struct LabeledValue: Equatable {
         let label: String
         let value: String
@@ -46,7 +37,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
     let mode: String
     let turn: Int
     let conceptRows: [ConceptRowVM]
-    let skillRows: [SkillRowVM]
     let inContextCount: Int
     let injectedCount: Int
     let notInjectedCount: Int
@@ -77,25 +67,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
                 )
             }
 
-        let skillRows = activation.skills
-            .sorted { $0.activation > $1.activation }
-            .map { skill in
-                SkillRowVM(
-                    id: skill.id,
-                    status: skill.status,
-                    activation: skill.activation,
-                    activationLabel: formatActivation(skill.activation),
-                    simBreakdownRows: simBreakdownRows(
-                        simUser: skill.simUser,
-                        simAssistant: skill.simAssistant,
-                        simNow: skill.simNow,
-                        config: activation.config
-                    )
-                )
-            }
-
-        // Concept-only partition: skills lack `in_context`, so summing them in would
-        // make the three chips asymmetric. Skills are surfaced in their own card.
         let inContext = conceptRows.filter { $0.status == "in_context" }.count
         let injected = conceptRows.filter { $0.status == "injected" }.count
         let notInjected = conceptRows.filter { $0.status == "not_injected" }.count
@@ -108,7 +79,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
             k: formatActivation(activation.config.k),
             hops: "\(activation.config.hops)",
             topK: "\(activation.config.topK)",
-            topKSkills: "\(activation.config.topKSkills)",
             epsilon: formatActivation(activation.config.epsilon)
         )
 
@@ -116,7 +86,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
             mode: activation.mode,
             turn: activation.turn,
             conceptRows: conceptRows,
-            skillRows: skillRows,
             inContextCount: inContext,
             injectedCount: injected,
             notInjectedCount: notInjected,
@@ -204,7 +173,6 @@ struct MessageInspectorMemoryV2Tab: View {
                 countsRow(model: model)
                 configCard(config: model.config)
                 conceptsCard(rows: model.conceptRows)
-                skillsCard(rows: model.skillRows)
             }
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -276,7 +244,6 @@ struct MessageInspectorMemoryV2Tab: View {
                     metadataRow(label: "k (sharpening)", value: config.k)
                     metadataRow(label: "hops", value: config.hops)
                     metadataRow(label: "top_k", value: config.topK)
-                    metadataRow(label: "top_k_skills", value: config.topKSkills)
                     metadataRow(label: "epsilon", value: config.epsilon)
                 }
                 .padding(.top, VSpacing.sm)
@@ -294,44 +261,17 @@ struct MessageInspectorMemoryV2Tab: View {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 cardHeader(
                     title: "Concept activations (\(rows.count))",
-                    subtitle: "Sorted by final activation. Expand a row for the activation breakdown."
+                    subtitle: "Sorted by final activation. Skill entries appear with the `skills/` slug prefix; expand a row for the activation breakdown."
                 )
 
                 if rows.isEmpty {
-                    Text("No concepts ranked.")
+                    Text("No entries ranked.")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                 } else {
                     LazyVStack(alignment: .leading, spacing: VSpacing.xs) {
                         ForEach(rows) { row in
                             ConceptRowView(row: row)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Skills
-
-    private func skillsCard(
-        rows: [MessageInspectorMemoryV2TabModel.SkillRowVM]
-    ) -> some View {
-        VCard {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                cardHeader(
-                    title: "Skills (\(rows.count))",
-                    subtitle: "Sorted by activation. Green-dotted rows are injected this turn; the rest are scored but not picked."
-                )
-
-                if rows.isEmpty {
-                    Text("No skills ranked.")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentSecondary)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(rows) { row in
-                            SkillRowView(row: row)
                         }
                     }
                 }
@@ -604,24 +544,6 @@ private struct ConceptPageContentView: View {
     }
 }
 
-// MARK: - Skill row
-
-private struct SkillRowView: View {
-    let row: MessageInspectorMemoryV2TabModel.SkillRowVM
-
-    var body: some View {
-        ActivationRowView(config: ActivationRowConfig(
-            id: row.id,
-            activation: row.activation,
-            activationLabel: row.activationLabel,
-            statusColor: statusColor(row.status),
-            sourceBadge: nil,
-            breakdownRows: row.simBreakdownRows,
-            statusLabel: statusLabel(row.status)
-        ))
-    }
-}
-
 // MARK: - Activation bar
 
 private struct ActivationBar: View {
@@ -664,6 +586,18 @@ private struct ActivationBar: View {
                 status: "injected"
             ),
             MemoryV2ConceptRow(
+                slug: "skills/meeting-bot",
+                finalActivation: 0.720,
+                ownActivation: 0.720,
+                priorActivation: 0.000,
+                simUser: 0.510,
+                simAssistant: 0.420,
+                simNow: 0.090,
+                spreadContribution: 0.000,
+                source: "ann_top50",
+                status: "injected"
+            ),
+            MemoryV2ConceptRow(
                 slug: "project-onboarding-notes",
                 finalActivation: 0.610,
                 ownActivation: 0.430,
@@ -689,24 +623,6 @@ private struct ActivationBar: View {
                 status: "not_injected"
             ),
         ],
-        skills: [
-            MemoryV2SkillRow(
-                id: "meeting-bot",
-                activation: 0.720,
-                simUser: 0.510,
-                simAssistant: 0.420,
-                simNow: 0.090,
-                status: "injected"
-            ),
-            MemoryV2SkillRow(
-                id: "calendar-search",
-                activation: 0.140,
-                simUser: 0.180,
-                simAssistant: 0.110,
-                simNow: 0.020,
-                status: "not_injected"
-            ),
-        ],
         config: MemoryV2Config(
             d: 0.85,
             cUser: 0.6,
@@ -715,7 +631,6 @@ private struct ActivationBar: View {
             k: 4.0,
             hops: 2,
             topK: 12,
-            topKSkills: 4,
             epsilon: 0.05
         )
     )

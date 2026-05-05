@@ -31,7 +31,6 @@ import { embedWithBackend } from "../embedding-backend.js";
 import { clampUnitInterval } from "../validation.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
 import { rerankCandidates } from "./reranker.js";
-import { hybridQuerySkills } from "./skill-qdrant.js";
 import { generateBm25QueryEmbedding } from "./sparse-bm25.js";
 
 /**
@@ -248,91 +247,6 @@ async function applyRerankBoost(
     boostOut?.set(slug, boosted - base);
   }
   return out;
-}
-
-/**
- * Compute hybrid (dense + sparse) similarity scores between a query text and
- * a fixed set of candidate skill ids. Mirrors `simBatch` but targets the
- * dedicated `memory_v2_skills` Qdrant collection via `hybridQuerySkills`.
- *
- * Differences from `simBatch`:
- *   - Keys are skill `id` values (not concept-page slugs).
- *   - Restricts the query to the caller's candidate ids server-side via
- *     `hybridQuerySkills`'s `restrictToIds` parameter. Without this, when the
- *     skills collection has more skills than `ids.length`, Qdrant would
- *     return its global top-K and candidate ids absent from that top-K would
- *     silently score 0 — corrupting the activation calculation.
- *
- * Returns a `Map<id, score>` of fused scores in [0, 1]. Ids that did not hit
- * either channel are absent from the map.
- *
- * Edge cases:
- *   - Empty `ids` → returns an empty map without touching Qdrant or the
- *     embedding backend.
- *   - Empty / whitespace-only `text` → returns an empty map without touching
- *     Qdrant or the embedding backend. Same rationale as {@link simBatch}:
- *     Gemini rejects empty content with HTTP 400, so the activation pipeline
- *     would otherwise fail on turn 1 (where the assistant-text channel is
- *     `""`). Treating the channel's contribution as 0 matches a no-hit
- *     query.
- */
-export async function simSkillBatch(
-  text: string,
-  ids: readonly string[],
-  config: AssistantConfig,
-): Promise<Map<string, number>> {
-  if (ids.length === 0) {
-    return new Map();
-  }
-  if (text.trim().length === 0) {
-    return new Map();
-  }
-
-  const denseResult = await embedWithBackend(config, [text]);
-  const denseVector = await applyCorrectionIfCalibrated(
-    denseResult.vectors[0],
-    denseResult.provider,
-    denseResult.model,
-  );
-  const sparseVector = generateBm25QueryEmbedding(text);
-
-  const hits = await hybridQuerySkills(
-    denseVector,
-    sparseVector,
-    ids.length,
-    ids,
-  );
-
-  if (hits.length === 0) {
-    return new Map();
-  }
-
-  // Defensive post-filter — `hybridQuerySkills` restricts server-side, so
-  // every hit should already be in `ids`, but keep this guard so a buggy
-  // payload (e.g. a missing/typoed id index) can't silently inject
-  // out-of-set ids into the score map.
-  const idSet = new Set(ids);
-  const filtered = hits.filter((h) => idSet.has(h.id));
-  if (filtered.length === 0) {
-    return new Map();
-  }
-
-  const maxSparse = computeMaxSparse(filtered);
-  const { dense_weight: baseDense, sparse_weight: baseSparse } =
-    config.memory.v2;
-  const { dense: denseWeight, sparse: sparseWeight } = effectiveWeights(
-    filtered,
-    maxSparse,
-    baseDense,
-    baseSparse,
-    config,
-  );
-
-  const scores = new Map<string, number>();
-  for (const hit of filtered) {
-    scores.set(hit.id, fuseHit(hit, maxSparse, denseWeight, sparseWeight));
-  }
-  return scores;
 }
 
 /**

@@ -85,20 +85,20 @@ export const ActivationStateSchema = z.object({
 export type ActivationState = z.infer<typeof ActivationStateSchema>;
 
 // ---------------------------------------------------------------------------
-// Skill autoinjection (synthetic in-memory entries, not on-disk pages)
+// Skill entries (synthetic concept-collection rows, not on-disk pages)
 // ---------------------------------------------------------------------------
 
 /**
- * Per-skill capability snapshot held in-process and embedded into the
- * `memory_v2_skills` Qdrant collection. `content` is the rendered
- * `buildSkillContent` string — already capped at 500 chars upstream and
- * already containing the skill's display name — and is what we embed and
- * what we render verbatim in `### Skills You Can Use`.
+ * Per-skill capability snapshot held in-process and embedded into the unified
+ * `memory_v2_concept_pages` Qdrant collection under the slug `skills/<id>`.
+ * `content` is the rendered `buildSkillContent` string — already capped at
+ * 500 chars upstream and already containing the skill's display name — and
+ * is what we embed and what we render verbatim in `### Skills You Can Use`.
  *
- * Plain interface (no Zod) because skill data does not cross a
- * serialization boundary: it is built in-process by `seedV2SkillEntries`
- * and read in-process by `renderInjectionBlock`. The Qdrant payload is
- * not parsed back through this type.
+ * Plain interface (no Zod) because skill data does not cross a serialization
+ * boundary: it is built in-process by `seedV2SkillEntries` and read in-process
+ * by `renderInjectionBlock`. The Qdrant payload is not parsed back through
+ * this type.
  */
 export interface SkillEntry {
   id: string;

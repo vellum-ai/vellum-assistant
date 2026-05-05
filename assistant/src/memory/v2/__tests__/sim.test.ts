@@ -70,16 +70,6 @@ const state = {
       points: Array<{ score?: number; payload: Record<string, unknown> }>;
     }>,
   },
-  // Separate response queue for the dedicated skills collection so a test
-  // querying both concept pages and skills doesn't have to interleave.
-  skillQueryResponses: {
-    dense: [] as Array<{
-      points: Array<{ score?: number; payload: Record<string, unknown> }>;
-    }>,
-    sparse: [] as Array<{
-      points: Array<{ score?: number; payload: Record<string, unknown> }>;
-    }>,
-  },
   queryCalls: [] as Array<{
     collection: string;
     using: string;
@@ -147,11 +137,7 @@ class MockQdrantClient {
       filter: params.filter,
     });
     const channel = params.using as "dense" | "sparse";
-    const queue =
-      name === "memory_v2_skills"
-        ? state.skillQueryResponses[channel]
-        : state.queryResponses[channel];
-    return queue.shift() ?? { points: [] };
+    return state.queryResponses[channel].shift() ?? { points: [] };
   }
 }
 
@@ -184,10 +170,7 @@ mock.module("../reranker.js", () => ({
   _resetRerankCacheForTests: () => {},
 }));
 
-const { simBatch, simSkillBatch, clamp01, effectiveWeights } =
-  await import("../sim.js");
-const { _resetMemoryV2SkillQdrantForTests } =
-  await import("../skill-qdrant.js");
+const { simBatch, clamp01, effectiveWeights } = await import("../sim.js");
 const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
 
 // ---------------------------------------------------------------------------
@@ -200,18 +183,15 @@ function resetState(): void {
   state.embedReturn = [[0.1, 0.2, 0.3]];
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
-  state.skillQueryResponses.dense.length = 0;
-  state.skillQueryResponses.sparse.length = 0;
   state.queryCalls.length = 0;
   rerankState.scores = null;
   rerankState.shouldThrow = false;
   rerankState.calls.length = 0;
   // Bun's `mock.module` persists across files in the same process, so the
-  // qdrant modules' singletons may already hold a MockQdrantClient instance
-  // from a sibling test file. Reset both readiness caches so each test in
-  // this file gets a fresh `new QdrantClient()` resolved against our mock.
+  // qdrant module's singleton may already hold a MockQdrantClient instance
+  // from a sibling test file. Reset readiness so each test in this file
+  // gets a fresh `new QdrantClient()` resolved against our mock.
   _resetMemoryV2QdrantForTests();
-  _resetMemoryV2SkillQdrantForTests();
 }
 
 function configWithWeights(
@@ -559,180 +539,6 @@ describe("simBatch", () => {
       expect(score).toBeGreaterThanOrEqual(0);
       expect(score).toBeLessThanOrEqual(1);
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// simSkillBatch
-// ---------------------------------------------------------------------------
-
-/**
- * Stage a single hybrid response on the dedicated skills queues. Mirrors
- * `stageHybridResponse` but uses `payload.id` (skills' Qdrant payload key)
- * instead of `payload.slug`.
- */
-function stageSkillHybridResponse(
-  hits: Array<{ id: string; denseScore?: number; sparseScore?: number }>,
-): void {
-  state.skillQueryResponses.dense.push({
-    points: hits
-      .filter((h) => h.denseScore !== undefined)
-      .map((h) => ({ score: h.denseScore, payload: { id: h.id } })),
-  });
-  state.skillQueryResponses.sparse.push({
-    points: hits
-      .filter((h) => h.sparseScore !== undefined)
-      .map((h) => ({ score: h.sparseScore, payload: { id: h.id } })),
-  });
-}
-
-describe("simSkillBatch", () => {
-  test("empty id list returns empty map without touching backends", async () => {
-    const config = configWithWeights(0.7, 0.3);
-
-    const out = await simSkillBatch("anything", [], config);
-
-    expect(out.size).toBe(0);
-    expect(state.embedCalls).toHaveLength(0);
-    expect(state.sparseCalls).toHaveLength(0);
-    expect(state.queryCalls).toHaveLength(0);
-  });
-
-  test("empty text returns empty map without touching backends", async () => {
-    const config = configWithWeights(0.7, 0.3);
-
-    for (const text of ["", "   ", "\n\n"]) {
-      state.embedCalls.length = 0;
-      state.sparseCalls.length = 0;
-      state.queryCalls.length = 0;
-      const out = await simSkillBatch(text, ["example-skill-a"], config);
-      expect(out.size).toBe(0);
-      expect(state.embedCalls).toHaveLength(0);
-      expect(state.sparseCalls).toHaveLength(0);
-      expect(state.queryCalls).toHaveLength(0);
-    }
-  });
-
-  test("queries the dedicated skills collection and forwards an id-IN filter", async () => {
-    const config = configWithWeights(0.7, 0.3);
-    stageSkillHybridResponse([]);
-
-    await simSkillBatch(
-      "query",
-      ["example-skill-a", "example-skill-b"],
-      config,
-    );
-
-    expect(state.queryCalls).toHaveLength(2);
-    for (const call of state.queryCalls) {
-      expect(call.collection).toBe("memory_v2_skills");
-      // The candidate ids are forwarded as a Qdrant filter so Qdrant scores
-      // exactly the candidate set, not its global top-K. Without this,
-      // candidate ids absent from the global top-K silently score 0.
-      expect(call.filter).toEqual({
-        must: [
-          { key: "id", match: { any: ["example-skill-a", "example-skill-b"] } },
-        ],
-      });
-      // Limit equals the candidate count.
-      expect(call.limit).toBe(2);
-    }
-  });
-
-  test("fuses dense + sparse with the configured weight blend", async () => {
-    const config = configWithWeights(0.4, 0.6);
-    stageSkillHybridResponse([
-      { id: "example-skill-a", denseScore: 0.5, sparseScore: 4 }, // sparse-norm 1.0
-      { id: "example-skill-b", denseScore: 0.25, sparseScore: 2 }, // sparse-norm 0.5
-    ]);
-
-    const out = await simSkillBatch(
-      "query",
-      ["example-skill-a", "example-skill-b"],
-      config,
-    );
-
-    // example-skill-a: 0.4 * 0.5 + 0.6 * 1.0 = 0.8
-    // example-skill-b: 0.4 * 0.25 + 0.6 * 0.5 = 0.4
-    expect(out.get("example-skill-a")).toBeCloseTo(0.8, 6);
-    expect(out.get("example-skill-b")).toBeCloseTo(0.4, 6);
-  });
-
-  test("dense-only and sparse-only hits are handled symmetrically", async () => {
-    const config = configWithWeights(0.7, 0.3);
-    stageSkillHybridResponse([
-      { id: "example-skill-a", denseScore: 0.5 /* sparse omitted */ },
-      { id: "example-skill-b", sparseScore: 8 /* dense omitted */ },
-    ]);
-
-    const out = await simSkillBatch(
-      "query",
-      ["example-skill-a", "example-skill-b"],
-      config,
-    );
-
-    // example-skill-a: 0.7 * 0.5 + 0.3 * 0   = 0.35
-    // example-skill-b: 0.7 * 0   + 0.3 * 1.0 = 0.30 (sparse-norm = 8/8)
-    expect(out.get("example-skill-a")).toBeCloseTo(0.35, 6);
-    expect(out.get("example-skill-b")).toBeCloseTo(0.3, 6);
-  });
-
-  test("forwards candidate ids as the Qdrant restriction; only candidates in result", async () => {
-    // The bug we're guarding against: when the skills collection has more
-    // skills than `ids.length`, calling `hybridQuerySkills` without a filter
-    // returns Qdrant's global top-K. Candidate ids absent from that top-K
-    // would silently score 0. The fix is to forward the candidate ids as a
-    // server-side restriction so Qdrant scores exactly the candidate set.
-    const config = configWithWeights(0.7, 0.3);
-    stageSkillHybridResponse([
-      { id: "example-skill-a", denseScore: 0.5, sparseScore: 1 },
-      // `example-skill-c` would never be returned in production once the
-      // filter is applied; the post-filter in simSkillBatch defensively
-      // drops it even if a stale payload slips through.
-      { id: "example-skill-c", denseScore: 0.9, sparseScore: 1 },
-    ]);
-
-    const out = await simSkillBatch(
-      "query",
-      ["example-skill-a", "example-skill-b"],
-      config,
-    );
-
-    // The Qdrant filter was forwarded — both channels carry the id-IN
-    // restriction matching the caller's candidate set.
-    expect(state.queryCalls).toHaveLength(2);
-    for (const call of state.queryCalls) {
-      expect(call.filter).toEqual({
-        must: [
-          { key: "id", match: { any: ["example-skill-a", "example-skill-b"] } },
-        ],
-      });
-    }
-    // Only candidate ids appear in the result map.
-    expect(out.has("example-skill-a")).toBe(true);
-    expect(out.has("example-skill-c")).toBe(false);
-  });
-
-  test("returned scores are clamped into [0, 1]", async () => {
-    const config = configWithWeights(0.8, 0.5); // intentionally sums to > 1
-    stageSkillHybridResponse([
-      { id: "example-skill-a", denseScore: 1.0, sparseScore: 1 },
-    ]);
-
-    const out = await simSkillBatch("query", ["example-skill-a"], config);
-
-    expect(out.get("example-skill-a")).toBe(1);
-  });
-
-  test("embeds the query text exactly once via dense + sparse backends", async () => {
-    const config = configWithWeights(0.7, 0.3);
-    stageSkillHybridResponse([]);
-
-    await simSkillBatch("hello skill", ["example-skill-a"], config);
-
-    expect(state.embedCalls).toHaveLength(1);
-    expect(state.embedCalls[0].inputs).toEqual(["hello skill"]);
-    expect(state.sparseCalls).toEqual(["hello skill"]);
   });
 });
 
