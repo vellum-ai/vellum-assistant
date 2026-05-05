@@ -19,10 +19,11 @@
  * host_file_* are filtered out for chrome-extension regardless of the
  * hasNoClient flag.
  *
- * Cross-client exception (Phase 1): host_bash is allowed for non-host-proxy
- * interfaces (e.g. "web") when at least one host_bash-capable client is
- * connected via the event hub. host_file_* and host_browser remain filtered
- * regardless (Phase 2).
+ * Cross-client exception: tools whose capabilities are in
+ * CROSS_CLIENT_EXPOSED_CAPABILITIES (host_bash, host_file) are allowed for
+ * non-host-proxy interfaces (e.g. "web") when at least one capable client
+ * is connected via the event hub. host_browser is excluded (chrome-extension
+ * is its own executor; web turns have no CDP target model).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -231,10 +232,10 @@ describe("isToolActiveForContext — cross-client exception (Phase 1: host_bash)
     ).toBe(false);
   });
 
-  test("host_file_read is NOT active for web transport even when a capable client is connected (Phase 2 gate)", () => {
-    // The cross-client exception is scoped to host_bash only.
-    // host_file_* remain filtered for non-host-proxy interfaces regardless
-    // of connected clients until Phase 2 lands.
+  test("host_file_read is NOT active for web transport when only a host_bash client is connected", () => {
+    // The cross-client exception is per-capability: a host_bash-capable
+    // client in the hub does not satisfy host_file's exposure check, since
+    // listClientsByCapability is queried with the tool's actual capability.
     mockClientCountByCapability.set("host_bash", 1);
     expect(
       isToolActiveForContext(
