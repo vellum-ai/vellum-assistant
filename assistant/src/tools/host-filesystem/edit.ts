@@ -126,21 +126,21 @@ class HostFileEditTool implements Tool {
       };
     }
 
-    // Guard: explicit targetClientId provided on a non-host-proxy transport
-    // but proxy is unavailable (client disconnected between tool-definition
-    // and tool-execution). Scoped to !supportsHostProxy so macos turns —
-    // where local-fs fallback IS the intended offline behavior — still fall
-    // through if the LLM auto-fills a stale target_client_id from a prior
-    // cross-client turn. On web/ios, the call must fail loudly rather
-    // than silently target the daemon container's filesystem.
+    // Guard: explicit targetClientId provided but proxy is unavailable.
+    // Fires on non-host-proxy transports (web, ios) AND on legacy callers
+    // without transport metadata, where falling through to local fs would
+    // silently target the daemon container's filesystem instead of the
+    // intended host client. Skips only when transport is explicitly
+    // host-proxy-capable (macos), where local-fs fallback IS the intended
+    // offline behavior — a stale target_client_id auto-filled from a prior
+    // cross-client turn is silently ignored on those turns.
     // Note: this scoping deliberately differs from host_bash
     // (host-shell.ts:239-247), which rejects unconditionally for any
     // stale target_client_id regardless of transport.
     if (
       targetClientId != null &&
-      transportInterface != null &&
-      !supportsHostProxy(transportInterface) &&
-      !HostFileProxy.instance.isAvailable()
+      !HostFileProxy.instance.isAvailable() &&
+      (transportInterface == null || !supportsHostProxy(transportInterface))
     ) {
       return {
         content: `Error: target client "${targetClientId}" is no longer connected. The specified client may have disconnected since the tool was called. Run \`assistant clients list --capability host_file\` to see currently connected clients.`,

@@ -127,4 +127,25 @@ describe("host_file_edit cross-client guards", () => {
     expect(result.content).not.toContain("is no longer connected");
     expect(result.content.toLowerCase()).toMatch(/not found|enoent|editing/);
   });
+
+  test("rejects when target_client_id is set but transport metadata is missing (legacy/backwards-compat path)", async () => {
+    const workingDir = makeTempDir();
+    const result = await hostFileEditTool.execute(
+      {
+        path: "/some/host/path.txt",
+        old_string: "foo",
+        new_string: "bar",
+        target_client_id: "abc-123",
+      },
+      // transportInterface intentionally undefined (legacy callers).
+      makeContext(workingDir, undefined),
+    );
+    // Without transport metadata, falling through to local fs would
+    // silently target the daemon container. The guard fires for undefined
+    // transport AND non-host-proxy transports — only macos turns skip it.
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'target client "abc-123" is no longer connected',
+    );
+  });
 });

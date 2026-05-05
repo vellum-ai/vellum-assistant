@@ -338,6 +338,35 @@ describe("host_file_transfer cross-client guards", () => {
     expect(toSandboxCalls.length).toBe(0);
   });
 
+  test("rejects when target_client_id is set but transport metadata is missing (legacy/backwards-compat path)", async () => {
+    const workingDir = makeTempDir();
+    const srcDir = makeTempDir();
+    const srcFile = join(srcDir, "source.txt");
+    writeFileSync(srcFile, "content");
+    const destFile = join(workingDir, "should-not-exist.txt");
+
+    const result = await hostFileTransferTool.execute(
+      {
+        source_path: srcFile,
+        dest_path: destFile,
+        direction: "to_sandbox",
+        target_client_id: "abc-123",
+      },
+      // transportInterface intentionally omitted (legacy callers).
+      makeContext(workingDir),
+    );
+
+    // Without transport metadata, falling through to executeLocal would
+    // silently target the daemon container. The guard fires for undefined
+    // transport AND non-host-proxy transports — only macos turns skip it.
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'target client "abc-123" is no longer connected',
+    );
+    expect(existsSync(destFile)).toBe(false);
+    expect(toSandboxCalls.length).toBe(0);
+  });
+
   test("does NOT reject on macos transport with a stale target_client_id when proxy unavailable (regression: Devin-flagged scope drift fix)", async () => {
     const workingDir = makeTempDir();
     const srcDir = makeTempDir();

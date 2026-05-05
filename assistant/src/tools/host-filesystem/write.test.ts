@@ -113,4 +113,22 @@ describe("host_file_write cross-client guards", () => {
     expect(result.isError).toBe(false);
     expect(existsSync(destFile)).toBe(true);
   });
+
+  test("rejects when target_client_id is set but transport metadata is missing (legacy/backwards-compat path)", async () => {
+    const workingDir = makeTempDir();
+    const destFile = join(workingDir, "should-not-exist.txt");
+    const result = await hostFileWriteTool.execute(
+      { path: destFile, content: "hello", target_client_id: "abc-123" },
+      // transportInterface intentionally undefined (legacy callers).
+      makeContext(workingDir, undefined),
+    );
+    // Without transport metadata, falling through to local fs would
+    // silently target the daemon container. The guard fires for undefined
+    // transport AND non-host-proxy transports — only macos turns skip it.
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'target client "abc-123" is no longer connected',
+    );
+    expect(existsSync(destFile)).toBe(false);
+  });
 });
