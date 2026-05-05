@@ -435,6 +435,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
     endpoint: "memory/v2/rebuild-corpus-stats:POST",
     scopes: ["settings.write"],
   },
+  { endpoint: "memory/v2/concept-frequency:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/fit-anisotropy:POST", scopes: ["settings.write"] },
 
   // Trust rule listing
@@ -587,7 +588,7 @@ const INTERNAL_ENDPOINTS = [
   "internal/oauth/callback",
   "internal/mcp/auth/start",
   "internal/mcp/auth/status",
-  "internal/mcp/reload",  // ← new
+  "internal/mcp/reload", // ← new
 ];
 for (const endpoint of INTERNAL_ENDPOINTS) {
   registerPolicy(endpoint, {
