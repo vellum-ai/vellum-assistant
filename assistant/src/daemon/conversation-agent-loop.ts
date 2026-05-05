@@ -182,6 +182,8 @@ import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
+import { getDiskPressureStatus } from "./disk-pressure-guard.js";
+import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import { deepRepairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -1321,6 +1323,31 @@ export async function runAgentLoopImpl(
 
     const isInteractiveResolved =
       options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
+    const diskPressureDecision = classifyDiskPressureTurnPolicy(
+      getDiskPressureStatus(),
+      {
+        conversationType: turnStartConversation?.conversationType ?? null,
+        conversationSource: turnStartConversation?.source ?? null,
+        callSite: turnCallSite,
+        isInteractive: isInteractiveResolved,
+        sourceChannel:
+          ctx.trustContext?.sourceChannel ??
+          capturedTurnChannelContext.userMessageChannel,
+        sourceInterface:
+          ctx.channelCapabilities?.clientOS ??
+          capturedTurnInterfaceContext.userMessageInterface,
+        trustContext: ctx.trustContext
+          ? {
+              sourceChannel: ctx.trustContext.sourceChannel,
+              trustClass: ctx.trustContext.trustClass,
+            }
+          : null,
+      },
+    );
+    const diskPressureContext =
+      diskPressureDecision.action === "allow-cleanup-mode"
+        ? { cleanupModeActive: true }
+        : null;
 
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
@@ -1423,6 +1450,7 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
+      diskPressureContext,
       activeSurface,
       workspaceTopLevelContext: shouldInjectWorkspace
         ? ctx.workspaceTopLevelContext

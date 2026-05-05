@@ -125,6 +125,34 @@ mock.module("../daemon/context-overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
 }));
 
+const mockDiskPressureStatus = {
+  enabled: true,
+  state: "critical",
+  locked: true,
+  acknowledged: true,
+  overrideActive: false,
+  effectivelyLocked: true,
+  lockId: "disk-pressure-test",
+  usagePercent: 98,
+  thresholdPercent: 95,
+  path: "/workspace",
+  lastCheckedAt: "2026-05-05T00:00:00.000Z",
+  blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
+  error: null,
+};
+let mockDiskPressureDecision: Record<string, unknown> = {
+  action: "allow-normal",
+};
+const classifyDiskPressureTurnPolicyMock = mock(
+  (_status: unknown, _metadata: unknown) => mockDiskPressureDecision,
+);
+mock.module("../daemon/disk-pressure-guard.js", () => ({
+  getDiskPressureStatus: () => mockDiskPressureStatus,
+}));
+mock.module("../daemon/disk-pressure-policy.js", () => ({
+  classifyDiskPressureTurnPolicy: classifyDiskPressureTurnPolicyMock,
+}));
+
 const updateMessageMetadataMock = mock(
   (_id: string, _updates: Record<string, unknown>) => {},
 );
@@ -572,6 +600,8 @@ beforeEach(() => {
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
+  mockDiskPressureDecision = { action: "allow-normal" };
+  classifyDiskPressureTurnPolicyMock.mockClear();
   mockInjectionBlocks = {};
   recordUsageMock.mockClear();
   recordRequestLogMock.mockClear();
@@ -615,6 +645,58 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
+    });
+  });
+
+  describe("disk pressure injection context", () => {
+    test("passes cleanup context into runtime injections for cleanup-mode turns", async () => {
+      mockDiskPressureDecision = {
+        action: "allow-cleanup-mode",
+        reason: "guardian",
+      };
+      mockConversationRow = {
+        ...mockConversationRow,
+        conversationType: "standard",
+        source: "user",
+      };
+      const ctx = makeCtx({
+        channelCapabilities: {
+          channel: "telegram",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "private",
+        },
+        trustContext: {
+          sourceChannel: "telegram",
+          trustClass: "guardian",
+        } as AgentLoopConversationContext["trustContext"],
+      });
+
+      await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
+
+      expect(classifyDiskPressureTurnPolicyMock).toHaveBeenCalledWith(
+        mockDiskPressureStatus,
+        expect.objectContaining({
+          callSite: "mainAgent",
+          conversationSource: "user",
+          conversationType: "standard",
+          isInteractive: true,
+          sourceChannel: "telegram",
+          sourceInterface: "web",
+          trustContext: {
+            sourceChannel: "telegram",
+            trustClass: "guardian",
+          },
+        }),
+      );
+      const firstInjectionOptions = applyRuntimeInjectionsMock.mock
+        .calls[0]![1] as {
+        diskPressureContext?: { cleanupModeActive: boolean } | null;
+      };
+      expect(firstInjectionOptions.diskPressureContext).toEqual({
+        cleanupModeActive: true,
+      });
     });
   });
 
