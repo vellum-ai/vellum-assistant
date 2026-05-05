@@ -318,9 +318,8 @@ export class RemoteFeatureFlagSync {
       ""
     ).replace(/\/+$/, "");
 
-    // Feature flag sync hits the public platform API (/v1/feature-flags/assistant-flag-values/),
-    // which requires Api-Key auth. PLATFORM_INTERNAL_API_KEY is only valid
-    // for internal gateway endpoints and would produce 401s here.
+    // Feature flag sync hits the public platform API and requires assistant
+    // API key auth.
     const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
 
     if (!platformUrl || !assistantApiKey) {

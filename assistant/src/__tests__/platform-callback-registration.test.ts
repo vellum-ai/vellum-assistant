@@ -5,7 +5,6 @@ import { credentialKey } from "../security/credential-key.js";
 let mockIsPlatform = true;
 let mockPlatformBaseUrl = "";
 let mockPlatformAssistantId = "";
-let mockPlatformInternalApiKey = "";
 let mockSecureKeys: Record<string, string> = {};
 
 mock.module("../config/env-registry.js", () => ({
@@ -15,7 +14,6 @@ mock.module("../config/env-registry.js", () => ({
 mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
   getPlatformAssistantId: () => mockPlatformAssistantId,
-  getPlatformInternalApiKey: () => mockPlatformInternalApiKey,
 }));
 
 mock.module("../security/secure-keys.js", () => ({
@@ -41,7 +39,6 @@ describe("platform callback registration", () => {
     mockIsPlatform = true;
     mockPlatformBaseUrl = "";
     mockPlatformAssistantId = "";
-    mockPlatformInternalApiKey = "";
     mockSecureKeys = {};
     globalThis.fetch = originalFetch;
   });
@@ -64,7 +61,6 @@ describe("platform callback registration", () => {
     expect(context.isPlatform).toBe(true);
     expect(context.platformBaseUrl).toBe("https://platform.example.com");
     expect(context.assistantId).toBe("11111111-2222-4333-8444-555555555555");
-    expect(context.hasInternalApiKey).toBe(false);
     expect(context.hasAssistantApiKey).toBe(true);
     expect(context.authHeader).toBe("Api-Key ast-managed-key");
   });

@@ -63,8 +63,6 @@ Fields:
   isPlatform          Whether IS_PLATFORM is set (boolean)
   baseUrl             VELLUM_PLATFORM_URL — the platform gateway base URL
   assistantId         This assistant's platform UUID
-  hasInternalApiKey   Whether PLATFORM_INTERNAL_API_KEY is set (boolean,
-                      value not disclosed)
   hasAssistantApiKey  Whether a stored assistant API key is available
   hasWebhookSecret    Whether a stored webhook secret is available (needed
                       for email and other inbound webhook channels)
@@ -112,7 +110,6 @@ Examples:
           isPlatform: context.isPlatform,
           baseUrl: context.platformBaseUrl,
           assistantId: context.assistantId,
-          hasInternalApiKey: context.hasInternalApiKey,
           hasAssistantApiKey: context.hasAssistantApiKey,
           hasWebhookSecret,
           available: context.enabled,
@@ -127,9 +124,6 @@ Examples:
           log.info(`Platform: ${result.isPlatform}`);
           log.info(`Base URL: ${result.baseUrl || "(not set)"}`);
           log.info(`Assistant ID: ${result.assistantId || "(not set)"}`);
-          log.info(
-            `Internal API key: ${result.hasInternalApiKey ? "set" : "not set"}`,
-          );
           log.info(
             `Assistant API key: ${result.hasAssistantApiKey ? "set" : "not set"}`,
           );

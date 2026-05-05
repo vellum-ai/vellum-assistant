@@ -52,7 +52,6 @@ mock.module("../../../../inbound/platform-callback-registration.js", () => ({
     isPlatform: false,
     platformBaseUrl: "",
     assistantId: "",
-    hasInternalApiKey: false,
     hasAssistantApiKey: false,
     authHeader: null,
     enabled: false,

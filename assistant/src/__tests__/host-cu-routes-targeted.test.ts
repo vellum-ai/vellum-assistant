@@ -42,7 +42,6 @@ mock.module("../config/env.js", () => ({
   getPlatformOrganizationId: () => "test-org-id",
   setPlatformUserId: () => {},
   getPlatformUserId: () => "test-user-id",
-  getPlatformInternalApiKey: () => "test-api-key",
   validateEnv: () => {},
 }));
 

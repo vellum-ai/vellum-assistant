@@ -31,7 +31,6 @@ interface PlatformCallbackRouteResponse {
 async function registerManagedTelegramCallbackRoute(
   caches?: WebhookManagerCaches,
 ): Promise<string | undefined> {
-  // Read from credential cache when available
   const [platformBaseUrlRaw, assistantApiKeyRaw, assistantIdRaw] =
     caches?.credentials
       ? await Promise.all([
@@ -43,29 +42,23 @@ async function registerManagedTelegramCallbackRoute(
         ])
       : [undefined, undefined, undefined];
 
-  // Fall back to env vars when credential cache values are missing, matching
-  // the daemon's resolvePlatformCallbackRegistrationContext() behaviour.
+  // Fall back to the env var when the platform URL credential is missing,
+  // matching the daemon's resolvePlatformCallbackRegistrationContext().
   const platformBaseUrl = (
     platformBaseUrlRaw?.trim() ||
     process.env.VELLUM_PLATFORM_URL?.trim() ||
     ""
   ).replace(/\/+$/, "");
 
-  const platformInternalApiKey =
-    process.env.PLATFORM_INTERNAL_API_KEY?.trim() || undefined;
-  const assistantApiKey = !platformInternalApiKey
-    ? assistantApiKeyRaw?.trim() || undefined
-    : undefined;
-  const authToken = platformInternalApiKey || assistantApiKey;
-  const authScheme = platformInternalApiKey ? "Bearer" : "Api-Key";
+  const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
 
   const assistantId = assistantIdRaw?.trim() || undefined;
 
-  if (!platformBaseUrl || !authToken || !assistantId) {
+  if (!platformBaseUrl || !assistantApiKey || !assistantId) {
     log.debug(
       {
         hasPlatformBaseUrl: !!platformBaseUrl,
-        hasApiKey: !!authToken,
+        hasApiKey: !!assistantApiKey,
         hasAssistantId: !!assistantId,
       },
       "Managed Telegram callback route registration unavailable",
@@ -95,7 +88,7 @@ async function registerManagedTelegramCallbackRoute(
     {
       method: "POST",
       headers: {
-        Authorization: `${authScheme} ${authToken}`,
+        Authorization: `Api-Key ${assistantApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
