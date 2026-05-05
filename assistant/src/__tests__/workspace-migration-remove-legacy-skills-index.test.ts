@@ -54,6 +54,25 @@ function writeLegacyIndex(contents = "- alpha\n"): string {
   return legacyIndexPath;
 }
 
+function expectNestedSkillPreserved(
+  legacyIndexPath: string,
+  nestedSkillPath: string,
+): void {
+  const topLevelSkillPath = join(
+    workspaceDir,
+    "skills",
+    "my-skill",
+    "SKILL.md",
+  );
+  expect(existsSync(legacyIndexPath)).toBe(false);
+  expect(existsSync(nestedSkillPath)).toBe(true);
+  expect(readFileSync(topLevelSkillPath, "utf-8")).toContain("org/my-skill");
+
+  const loaded = loadSkillBySelector("my-skill");
+  expect(loaded.error).toBeUndefined();
+  expect(loaded.skill!.id).toBe("my-skill");
+}
+
 describe("068-remove-legacy-skills-index migration", () => {
   test("has correct id and description", () => {
     expect(removeLegacySkillsIndexMigration.id).toBe(
@@ -139,6 +158,26 @@ describe("068-remove-legacy-skills-index migration", () => {
     expect(loaded.error).toBeUndefined();
     expect(loaded.skill!.id).toBe("my-skill");
     expect(loaded.skill!.body).toBe("Body.");
+  });
+
+  test("copies nested indexed skills from plain entries that point to SKILL.md", () => {
+    const legacyIndexPath = writeLegacyIndex("- org/my-skill/SKILL.md\n");
+    const nestedSkillPath = writeSkill("org/my-skill");
+
+    removeLegacySkillsIndexMigration.run(workspaceDir);
+
+    expectNestedSkillPreserved(legacyIndexPath, nestedSkillPath);
+  });
+
+  test("copies nested indexed skills from markdown links that point to SKILL.md", () => {
+    const legacyIndexPath = writeLegacyIndex(
+      "- [My Skill](org/my-skill/skill.md)\n",
+    );
+    const nestedSkillPath = writeSkill("org/my-skill");
+
+    removeLegacySkillsIndexMigration.run(workspaceDir);
+
+    expectNestedSkillPreserved(legacyIndexPath, nestedSkillPath);
   });
 
   test("does not overwrite an existing top-level skill when preserving nested indexed skills", () => {

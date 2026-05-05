@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import {
   basename,
+  dirname,
   isAbsolute,
   join,
   normalize,
@@ -54,6 +55,11 @@ function parseLegacySkillIndexEntry(line: string): string | null {
     isAbsolute(normalized)
   ) {
     return null;
+  }
+
+  if (basename(normalized).toLowerCase() === "skill.md") {
+    const skillDir = dirname(normalized);
+    return skillDir === "." ? null : skillDir;
   }
 
   return normalized;
