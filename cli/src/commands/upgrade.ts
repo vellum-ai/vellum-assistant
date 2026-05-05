@@ -192,10 +192,7 @@ export async function resolveTargetAssistant(
       platformAssistant = await fetchAssistantByIdFromPlatform(token, nameArg);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
-      if (
-        detail.includes("Authentication failed") ||
-        detail.includes("vellum login")
-      ) {
+      if (detail.includes("Authentication failed")) {
         // authHeaders already printed the user-facing
         // "Authentication failed…" line to stderr before re-throwing; emit
         // only the structured CLI_ERROR here to avoid a duplicate log.
