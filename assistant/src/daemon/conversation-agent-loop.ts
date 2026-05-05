@@ -222,7 +222,7 @@ type GitServiceInitializer = {
 };
 
 function formatDiskPressureBlockedMessage(): string {
-  return "Storage is critically low, so background processes and messages from trusted contacts are paused until the guardian frees enough space.";
+  return "Storage is critically low, so background processes are paused and remote messages are ignored until the guardian frees enough space. Remote senders should try again later.";
 }
 
 // ── Compaction circuit-breaker pipeline helpers ─────────────────────

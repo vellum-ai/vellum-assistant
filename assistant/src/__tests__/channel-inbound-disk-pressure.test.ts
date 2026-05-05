@@ -7,6 +7,8 @@ import type { DiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 const deliverChannelReplyMock = mock(
   async (_callbackUrl: string, _payload: Record<string, unknown>) => {},
 );
+const expectedRemoteBlockReply =
+  "Storage is critically low, so remote messages are ignored until the guardian frees enough space. Please try again later.";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -157,12 +159,81 @@ describe("channel inbound disk pressure gate", () => {
       "https://gateway.test/deliver/telegram",
       expect.objectContaining({
         chatId: "chat-123",
-        text: expect.stringContaining("trusted contacts are paused"),
+        text: expect.stringContaining("remote messages are ignored"),
       }),
     );
 
     const db = getDb();
     const event = db.select().from(channelInboundEvents).get();
+    expect(event?.processingStatus).toBe("processed");
+    expect(event?.messageId).toBeNull();
+    expect(event?.rawPayload).toBeNull();
+    expect(db.select().from(messages).all()).toHaveLength(0);
+  });
+
+  test("notifies duplicate blocked ingress before consuming a retryable event", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "telegram",
+      "chat-123",
+      "msg-duplicate-blocked",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "retry me",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      externalChatId: "chat-123",
+      trustCtx: {
+        trustClass: "trusted_contact",
+        sourceChannel: "telegram",
+        requesterExternalUserId: "telegram-user-1",
+        requesterChatId: "chat-123",
+      },
+      replyCallbackUrl: "https://gateway.test/deliver/telegram",
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    const processMessage = mock(async () => {
+      throw new Error("processMessage should not run");
+    });
+    setAdapterProcessMessage(processMessage);
+
+    const res = await handleChannelInbound(
+      makeInboundRequest({ externalMessageId: "msg-duplicate-blocked" }),
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      accepted: true,
+      duplicate: true,
+      diskPressure: "blocked",
+      reason: "trusted-contact",
+    });
+    expect(processMessage).not.toHaveBeenCalled();
+    expect(deliverChannelReplyMock.mock.calls).toEqual([
+      [
+        "https://gateway.test/deliver/telegram",
+        {
+          chatId: "chat-123",
+          text: expectedRemoteBlockReply,
+          assistantId: "self",
+        },
+      ],
+    ]);
+
+    const event = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
     expect(event?.processingStatus).toBe("processed");
     expect(event?.messageId).toBeNull();
     expect(event?.rawPayload).toBeNull();
@@ -248,7 +319,7 @@ describe("channel inbound disk pressure gate", () => {
       "https://gateway.test/deliver/telegram",
       expect.objectContaining({
         chatId: "chat-retry",
-        text: expect.stringContaining("trusted contacts are paused"),
+        text: expect.stringContaining("remote messages are ignored"),
       }),
     );
 
@@ -280,6 +351,7 @@ describe("channel inbound disk pressure gate", () => {
         requesterChatId: "slack-channel-1",
       },
       replyCallbackUrl: "https://gateway.test/deliver/slack",
+      assistantId: "self",
     });
 
     const db = getDb();
@@ -296,15 +368,18 @@ describe("channel inbound disk pressure gate", () => {
     await sweepFailedEvents(processMessage);
 
     expect(processMessage).not.toHaveBeenCalled();
-    expect(deliverChannelReplyMock).toHaveBeenCalledWith(
-      "https://gateway.test/deliver/slack",
-      expect.objectContaining({
-        chatId: "slack-channel-1",
-        ephemeral: true,
-        user: "slack-user-1",
-        text: expect.stringContaining("trusted contacts are paused"),
-      }),
-    );
+    expect(deliverChannelReplyMock.mock.calls).toEqual([
+      [
+        "https://gateway.test/deliver/slack",
+        {
+          chatId: "slack-channel-1",
+          text: expectedRemoteBlockReply,
+          assistantId: "self",
+          ephemeral: true,
+          user: "slack-user-1",
+        },
+      ],
+    ]);
 
     const row = db
       .select()

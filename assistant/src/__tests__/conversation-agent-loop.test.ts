@@ -813,7 +813,7 @@ describe("session-agent-loop", () => {
         requestId: "test-req",
         code: "DISK_SPACE_CRITICAL",
         category: "disk_pressure",
-        message: expect.stringContaining("trusted contacts"),
+        message: expect.stringContaining("remote messages are ignored"),
       });
       expect(
         events.find((event) => event.type === "conversation_error"),
@@ -823,7 +823,7 @@ describe("session-agent-loop", () => {
         code: "DISK_SPACE_CRITICAL",
         retryable: true,
         errorCategory: "disk_pressure",
-        userMessage: expect.stringContaining("trusted contacts"),
+        userMessage: expect.stringContaining("remote messages are ignored"),
       });
     });
 
