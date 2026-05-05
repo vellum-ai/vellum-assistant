@@ -3,9 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { SkillSummary } from "../config/skills.js";
 import { fromSkillSummary } from "../skills/skill-memory.js";
 
-function makeSkillSummary(
-  overrides: Partial<SkillSummary> = {},
-): SkillSummary {
+function makeSkillSummary(overrides: Partial<SkillSummary> = {}): SkillSummary {
   return {
     id: "test-skill",
     name: "test-skill",
@@ -61,5 +59,27 @@ describe("fromSkillSummary", () => {
     const input = fromSkillSummary(entry);
     expect(input.id).toBe("my-id");
     expect(input.description).toBe("Does amazing things");
+  });
+
+  test("maps custom managed skill metadata required by Memory V2 rendering", () => {
+    const entry = makeSkillSummary({
+      id: "geo-article-writer",
+      name: "geo-article-writer",
+      displayName: "Geo Article Writer",
+      description: "Writes local geo articles",
+      source: "managed",
+      activationHints: ["user asks for local article drafts"],
+      avoidWhen: ["user only wants citation extraction"],
+    });
+
+    const input = fromSkillSummary(entry);
+
+    expect(input).toEqual({
+      id: "geo-article-writer",
+      displayName: "Geo Article Writer",
+      description: "Writes local geo articles",
+      activationHints: ["user asks for local article drafts"],
+      avoidWhen: ["user only wants citation extraction"],
+    });
   });
 });

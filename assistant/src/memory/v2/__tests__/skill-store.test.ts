@@ -383,6 +383,38 @@ describe("seedV2SkillEntries", () => {
     expect(getSkillCapability("skills/unknown-skill")).toBeNull();
   });
 
+  test("seeds disk-discovered managed skills omitted from a stale SKILLS.md index", async () => {
+    const diskDiscovered = makeSummary({
+      id: "geo-article-writer",
+      name: "geo-article-writer",
+      displayName: "Geo Article Writer",
+      description: "Writes local geo articles",
+      activationHints: ["user asks for local article drafts"],
+      avoidWhen: ["user only wants citation extraction"],
+      source: "managed",
+    });
+    state.catalog = [diskDiscovered];
+    state.resolved = [{ summary: diskDiscovered, state: "enabled" }];
+    state.embedReturn = [[0.7, 0.8, 0.9]];
+
+    await seedV2SkillEntries();
+
+    expect(state.upsertCalls).toHaveLength(1);
+    expect(state.upsertCalls[0].slug).toBe("skills/geo-article-writer");
+
+    const entry = getSkillCapability("geo-article-writer");
+    expect(entry).not.toBeNull();
+    expect(entry?.id).toBe("geo-article-writer");
+    expect(entry?.content).toContain('The "Geo Article Writer" skill');
+    expect(entry?.content).toContain("Writes local geo articles");
+    expect(entry?.content).toContain(
+      "Use when: user asks for local article drafts.",
+    );
+    expect(entry?.content).toContain(
+      "Avoid when: user only wants citation extraction.",
+    );
+  });
+
   test("swallows errors from embedWithBackend and leaves prior cache intact", async () => {
     const skillA = makeSummary({ id: "example-skill-a" });
     state.catalog = [skillA];
