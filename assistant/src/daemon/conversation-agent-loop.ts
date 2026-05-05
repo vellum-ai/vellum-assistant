@@ -796,6 +796,7 @@ export async function runAgentLoopImpl(
         code: DISK_PRESSURE_ERROR_CODE,
         message,
         category: DISK_PRESSURE_ERROR_CATEGORY,
+        errorCategory: DISK_PRESSURE_ERROR_CATEGORY,
       });
       onEvent({
         type: "conversation_error",
@@ -3058,6 +3059,7 @@ export async function runAgentLoopImpl(
         conversationId: ctx.conversationId,
         code: classified.code,
         message: classified.userMessage,
+        errorCategory: classified.errorCategory,
       });
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }

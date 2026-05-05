@@ -2337,16 +2337,29 @@ describe("session-agent-loop", () => {
     });
 
     test("clears state even when agent loop throws", async () => {
+      const events: ServerMessage[] = [];
       const ctx = makeCtx({
         agentLoopRun: async () => {
           throw new Error("unexpected crash");
         },
       });
 
-      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
 
       expect(ctx.processing).toBe(false);
       expect(ctx.abortController).toBeNull();
+      expect(events.find((event) => event.type === "error")).toMatchObject({
+        type: "error",
+        code: "CONVERSATION_PROCESSING_FAILED",
+        errorCategory: "processing_failed",
+      });
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toMatchObject({
+        type: "conversation_error",
+        code: "CONVERSATION_PROCESSING_FAILED",
+        errorCategory: "processing_failed",
+      });
     });
 
     test("drains queue after completion", async () => {

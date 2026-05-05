@@ -50,6 +50,10 @@ let lastCreateOptions: Record<string, unknown> | null = null;
 let lastConstructorOptions: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
 
+function userMsg(text: string): Message {
+  return { role: "user", content: [{ type: "text", text }] };
+}
+
 // Simulate OpenAI.APIError
 class FakeAPIError extends Error {
   status: number;
@@ -1294,10 +1298,6 @@ describe("effort config passthrough", () => {
 // ---------------------------------------------------------------------------
 
 describe("OpenRouterProvider reasoning", () => {
-  function userMsg(text: string): Message {
-    return { role: "user", content: [{ type: "text", text }] };
-  }
-
   beforeEach(() => {
     fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
     lastCreateParams = null;
@@ -1368,10 +1368,6 @@ describe("OpenRouterProvider reasoning", () => {
 });
 
 describe("OpenRouterProvider Anthropic-compatible errors", () => {
-  function userMsg(text: string): Message {
-    return { role: "user", content: [{ type: "text", text }] };
-  }
-
   test("retags Anthropic ProviderError instances as OpenRouter errors", async () => {
     const provider = new OpenRouterProvider("or-key", "anthropic/claude-4.5");
     const abortReason = createAbortReason(
@@ -1418,10 +1414,6 @@ describe("OpenRouterProvider Anthropic-compatible errors", () => {
 
 describe("OpenAIProvider reasoning_effort", () => {
   let provider: OpenAIProvider;
-
-  function userMsg(text: string): Message {
-    return { role: "user", content: [{ type: "text", text }] };
-  }
 
   beforeEach(() => {
     fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
