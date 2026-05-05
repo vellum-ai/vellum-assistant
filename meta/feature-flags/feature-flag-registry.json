@@ -246,7 +246,7 @@
       "scope": "assistant",
       "key": "memory-v2-enabled",
       "label": "Memory v2 (concept-page activation model)",
-      "description": "Enables the v2 memory subsystem: prose concept pages with bidirectional edges, activation-based retrieval, and hourly LLM-driven consolidation. v1 graph + PKB stays write-active until cutover.",
+      "description": "Enables the v2 memory subsystem: prose concept pages with bidirectional edges, activation-based retrieval, and hourly LLM-driven consolidation. When on, v1 graph extraction/maintenance and PKB filing are suppressed; flipping the flag back off re-engages the full v1 pipeline.",
       "defaultEnabled": true
     },
     {

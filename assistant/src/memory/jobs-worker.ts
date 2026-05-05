@@ -1,4 +1,3 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
@@ -7,6 +6,7 @@ import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
 } from "./cleanup-schedule-state.js";
+import { isMemoryV2ReadActive } from "./context-search/sources/memory-v2.js";
 import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
@@ -601,58 +601,66 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
 } as const;
 
 /**
- * Enqueue periodic graph maintenance jobs (decay, consolidation, pattern scan, narrative).
- * Uses durable checkpoints so intervals survive daemon restarts — jobs only fire
- * when the actual elapsed time since last run exceeds the interval.
+ * Enqueue periodic graph maintenance jobs.
  *
- * The v2 consolidation entry is gated on both the `memory-v2-enabled` feature
- * flag and the `memory.v2.enabled` config — both must be true for the cron
- * to fire. Sweep is intentionally not on this schedule: it is debounced from
- * the live `graph_extract` trigger path (see `indexMessageNow` in
- * `indexer.ts`) so it runs on the same idle/message-count cadence.
+ * Mutually exclusive between v1 and v2:
+ *   - v2 active (both `memory-v2-enabled` flag and `memory.v2.enabled`
+ *     config on) → only `memory_v2_consolidate` is scheduled.
+ *   - v2 inactive → the four v1 entries (decay, consolidate, pattern_scan,
+ *     narrative) are scheduled instead.
+ *
+ * Read/write paths route to v2 when the flag is on, so v1 graph data goes
+ * unread; running v1 maintenance alongside v2 is wasted compute and LLM
+ * spend. The v1 code path remains live so flipping the flag back to off
+ * fully re-engages v1.
+ *
+ * Uses durable checkpoints so intervals survive daemon restarts — jobs only
+ * fire when the actual elapsed time since last run exceeds the interval.
+ * Sweep is intentionally not on this schedule: it is debounced from the
+ * live `graph_extract` trigger path (see `indexMessageNow` in `indexer.ts`)
+ * so it runs on the same idle/message-count cadence.
  */
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): void {
+  const v2Active = isMemoryV2ReadActive(config);
+
   const schedule: Array<{
     key: string;
     intervalMs: number;
     jobType: MemoryJobType;
-  }> = [
-    {
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
-      intervalMs: GRAPH_DECAY_INTERVAL_MS,
-      jobType: "graph_decay",
-    },
-    {
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.consolidate,
-      intervalMs: GRAPH_CONSOLIDATE_INTERVAL_MS,
-      jobType: "graph_consolidate",
-    },
-    {
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.patternScan,
-      intervalMs: GRAPH_PATTERN_SCAN_INTERVAL_MS,
-      jobType: "graph_pattern_scan",
-    },
-    {
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.narrative,
-      intervalMs: GRAPH_NARRATIVE_INTERVAL_MS,
-      jobType: "graph_narrative_refine",
-    },
-  ];
-
-  if (
-    isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
-    config.memory.v2.enabled
-  ) {
-    schedule.push({
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
-      intervalMs:
-        config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000,
-      jobType: "memory_v2_consolidate",
-    });
-  }
+  }> = v2Active
+    ? [
+        {
+          key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
+          intervalMs:
+            config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000,
+          jobType: "memory_v2_consolidate",
+        },
+      ]
+    : [
+        {
+          key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
+          intervalMs: GRAPH_DECAY_INTERVAL_MS,
+          jobType: "graph_decay",
+        },
+        {
+          key: GRAPH_MAINTENANCE_CHECKPOINTS.consolidate,
+          intervalMs: GRAPH_CONSOLIDATE_INTERVAL_MS,
+          jobType: "graph_consolidate",
+        },
+        {
+          key: GRAPH_MAINTENANCE_CHECKPOINTS.patternScan,
+          intervalMs: GRAPH_PATTERN_SCAN_INTERVAL_MS,
+          jobType: "graph_pattern_scan",
+        },
+        {
+          key: GRAPH_MAINTENANCE_CHECKPOINTS.narrative,
+          intervalMs: GRAPH_NARRATIVE_INTERVAL_MS,
+          jobType: "graph_narrative_refine",
+        },
+      ];
 
   for (const { key, intervalMs, jobType } of schedule) {
     const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);

@@ -390,7 +390,12 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
   const originalAnalysisBatch = TEST_CONFIG.analysis.batchSize;
 
   beforeEach(() => {
-    _setOverridesForTesting({ "auto-analyze": true });
+    // memory-v2-enabled gates v1 graph_extract enqueue; force off so
+    // these cadence tests can observe the v1 path.
+    _setOverridesForTesting({
+      "auto-analyze": true,
+      "memory-v2-enabled": false,
+    });
     TEST_CONFIG.memory.extraction.batchSize = 2;
     TEST_CONFIG.analysis.batchSize = 5;
   });
@@ -535,5 +540,61 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
     const row = graphRows[0]!;
     expect(row.runAfter).toBeGreaterThanOrEqual(before - 1_000);
     expect(row.runAfter).toBeLessThanOrEqual(after + 1_000);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Indexer v1/v2 mutual exclusion: when memory-v2-enabled is on AND
+// memory.v2.enabled is on, the v1 graph_extract enqueue is suppressed
+// (v2 reads from buffer.md, so v1 graph data is unread). When either
+// gate is off, v1 graph_extract fires.
+// ─────────────────────────────────────────────────────────────────
+
+describe("indexer v1/v2 mutual exclusion for graph_extract", () => {
+  // Force the v1 batch trigger so any enqueued row is observable.
+  const originalExtractionBatch = TEST_CONFIG.memory.extraction.batchSize;
+  const originalV2Enabled = TEST_CONFIG.memory.v2.enabled;
+
+  beforeEach(() => {
+    TEST_CONFIG.memory.extraction.batchSize = 1;
+  });
+
+  afterEach(() => {
+    TEST_CONFIG.memory.extraction.batchSize = originalExtractionBatch;
+    TEST_CONFIG.memory.v2.enabled = originalV2Enabled;
+  });
+
+  test("v2 active (flag on + config on) → graph_extract not enqueued", async () => {
+    _setOverridesForTesting({ "memory-v2-enabled": true });
+    TEST_CONFIG.memory.v2.enabled = true;
+
+    const source = createConversation("v2-active");
+    await indexMessages(source.id, 2);
+
+    expect(countJobsOfType("graph_extract", source.id)).toBe(0);
+  });
+
+  test("flag off → graph_extract enqueued", async () => {
+    _setOverridesForTesting({ "memory-v2-enabled": false });
+    TEST_CONFIG.memory.v2.enabled = true;
+
+    const source = createConversation("v2-flag-off");
+    await indexMessages(source.id, 2);
+
+    expect(countJobsOfType("graph_extract", source.id)).toBeGreaterThanOrEqual(
+      1,
+    );
+  });
+
+  test("config gate off (flag on) → graph_extract enqueued", async () => {
+    _setOverridesForTesting({ "memory-v2-enabled": true });
+    TEST_CONFIG.memory.v2.enabled = false;
+
+    const source = createConversation("v2-config-off");
+    await indexMessages(source.id, 2);
+
+    expect(countJobsOfType("graph_extract", source.id)).toBeGreaterThanOrEqual(
+      1,
+    );
   });
 });
