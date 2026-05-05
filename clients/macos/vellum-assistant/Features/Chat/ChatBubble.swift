@@ -453,7 +453,7 @@ struct ChatBubble: View, Equatable {
                 onSave: { rule in
                     Task {
                         do {
-                            try await TrustRuleClient().createRule(
+                            _ = try await TrustRuleClient().createRule(
                                 tool: rule.toolName,
                                 pattern: rule.pattern,
                                 risk: rule.riskLevel,
