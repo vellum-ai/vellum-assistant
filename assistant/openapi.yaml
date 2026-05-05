@@ -4439,6 +4439,275 @@ paths:
                 - transcription
                 - context
               additionalProperties: false
+  /v1/disk-pressure/acknowledge:
+    post:
+      operationId: diskpressure_acknowledge_post
+      summary: Acknowledge disk pressure
+      description: Acknowledge the current disk pressure lock and enter cleanup mode without overriding assistant protections.
+      tags:
+        - disk-pressure
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - disabled
+                          - ok
+                          - critical
+                          - unknown
+                      locked:
+                        type: boolean
+                      acknowledged:
+                        type: boolean
+                      overrideActive:
+                        type: boolean
+                      effectivelyLocked:
+                        type: boolean
+                      lockId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      usagePercent:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      thresholdPercent:
+                        type: number
+                      path:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastCheckedAt:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      blockedCapabilities:
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - agent-turns
+                            - background-work
+                            - remote-ingress
+                      error:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - state
+                      - locked
+                      - acknowledged
+                      - overrideActive
+                      - effectivelyLocked
+                      - lockId
+                      - usagePercent
+                      - thresholdPercent
+                      - path
+                      - lastCheckedAt
+                      - blockedCapabilities
+                      - error
+                    additionalProperties: false
+                required:
+                  - status
+                additionalProperties: false
+        "409":
+          description: No active lock or lock already acknowledged.
+  /v1/disk-pressure/override:
+    post:
+      operationId: diskpressure_override_post
+      summary: Override disk pressure
+      description: Override the current disk pressure lock only after confirming "I understand the risks".
+      tags:
+        - disk-pressure
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - disabled
+                          - ok
+                          - critical
+                          - unknown
+                      locked:
+                        type: boolean
+                      acknowledged:
+                        type: boolean
+                      overrideActive:
+                        type: boolean
+                      effectivelyLocked:
+                        type: boolean
+                      lockId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      usagePercent:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      thresholdPercent:
+                        type: number
+                      path:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastCheckedAt:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      blockedCapabilities:
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - agent-turns
+                            - background-work
+                            - remote-ingress
+                      error:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - state
+                      - locked
+                      - acknowledged
+                      - overrideActive
+                      - effectivelyLocked
+                      - lockId
+                      - usagePercent
+                      - thresholdPercent
+                      - path
+                      - lastCheckedAt
+                      - blockedCapabilities
+                      - error
+                    additionalProperties: false
+                required:
+                  - status
+                additionalProperties: false
+        "400":
+          description: Confirmation phrase is invalid.
+        "409":
+          description: No active lock or lock already overridden.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirmation:
+                  type: string
+              required:
+                - confirmation
+              additionalProperties: false
+  /v1/disk-pressure/status:
+    get:
+      operationId: diskpressure_status_get
+      summary: Get disk pressure status
+      description:
+        Return the current disk pressure status snapshot. When safe storage limits are disabled, returns a disabled
+        status.
+      tags:
+        - disk-pressure
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - disabled
+                          - ok
+                          - critical
+                          - unknown
+                      locked:
+                        type: boolean
+                      acknowledged:
+                        type: boolean
+                      overrideActive:
+                        type: boolean
+                      effectivelyLocked:
+                        type: boolean
+                      lockId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      usagePercent:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      thresholdPercent:
+                        type: number
+                      path:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastCheckedAt:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      blockedCapabilities:
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - agent-turns
+                            - background-work
+                            - remote-ingress
+                      error:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - state
+                      - locked
+                      - acknowledged
+                      - overrideActive
+                      - effectivelyLocked
+                      - lockId
+                      - usagePercent
+                      - thresholdPercent
+                      - path
+                      - lastCheckedAt
+                      - blockedCapabilities
+                      - error
+                    additionalProperties: false
+                required:
+                  - status
+                additionalProperties: false
   /v1/documents:
     get:
       operationId: documents_get

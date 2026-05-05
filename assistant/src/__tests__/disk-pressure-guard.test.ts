@@ -19,6 +19,25 @@ mock.module("../util/disk-usage.js", () => ({
   },
 }));
 
+mock.module("../runtime/assistant-event.js", () => ({
+  buildAssistantEvent: (message: unknown, conversationId?: string) => ({
+    id: "event-test",
+    type: "message",
+    timestamp: new Date().toISOString(),
+    conversationId,
+    message,
+  }),
+}));
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  AssistantEventHub: class {},
+  broadcastMessage: () => {},
+  capabilityForMessageType: () => undefined,
+  assistantEventHub: {
+    publish: async () => {},
+  },
+}));
+
 const { _setOverridesForTesting } =
   await import("../config/assistant-feature-flags.js");
 const {
@@ -234,7 +253,7 @@ describe("disk pressure guard", () => {
     expect(__getDiskPressureGuardTimerForTests()).toBeTruthy();
 
     setFeatureFlag(false);
-    const status = getDiskPressureStatus();
+    const status = evaluateDiskPressureNow();
 
     expect(status.enabled).toBe(false);
     expect(status.locked).toBe(false);

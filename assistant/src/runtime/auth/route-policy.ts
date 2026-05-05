@@ -186,6 +186,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "calls/instruction", scopes: ["calls.write"] },
 
   // Settings / integrations / identity
+  { endpoint: "disk-pressure/status", scopes: ["settings.read"] },
+  { endpoint: "disk-pressure/acknowledge", scopes: ["settings.write"] },
+  { endpoint: "disk-pressure/override", scopes: ["settings.write"] },
   { endpoint: "ps", scopes: ["settings.read"] },
   { endpoint: "identity", scopes: ["settings.read"] },
   { endpoint: "identity/intro", scopes: ["settings.read"] },
