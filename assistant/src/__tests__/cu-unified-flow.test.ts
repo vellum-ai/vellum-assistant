@@ -691,7 +691,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       expect(sent.targetClientId).toBe("cu-mine");
 
       // Manually resolve to clean up the pending promise.
-      proxy.resolve(sent.requestId as string, {
+      proxy.processObservation(sent.requestId as string, {
         executionResult: "ok",
       });
       await resultPromise;
