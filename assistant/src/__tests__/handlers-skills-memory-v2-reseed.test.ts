@@ -182,7 +182,8 @@ mock.module("../daemon/config-watcher.js", () => ({
 }));
 
 // Import after mocking
-const { installSkill } = await import("../daemon/handlers/skills.js");
+const { installSkill, uninstallSkill } =
+  await import("../daemon/handlers/skills.js");
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -213,6 +214,16 @@ describe("v2 skill refresh delegation in skill handlers", () => {
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
     expect(mockRefreshSkillCapabilityMemories.mock.calls[0]?.[0]).toEqual({
       memory: { v2: { enabled: false } },
+    });
+  });
+
+  test("uninstall delegates to refresh helper", async () => {
+    const result = await uninstallSkill("managed-skill");
+
+    expect(result.success).toBe(true);
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
+    expect(mockRefreshSkillCapabilityMemories.mock.calls[0]?.[0]).toEqual({
+      memory: { v2: { enabled: true } },
     });
   });
 
