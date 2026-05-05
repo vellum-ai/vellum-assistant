@@ -192,19 +192,9 @@ const pendingInteractionResolver: GuardianRequestResolver = {
       return { ok: false, reason: "pending_interaction_not_found" };
     }
 
-    // Resolve the interaction: remove from tracker and get the session.
-    const resolved = pendingInteractions.resolve(request.id);
-    if (!resolved) {
-      // Race condition: interaction was consumed between get() and resolve().
-      log.warn(
-        {
-          event: "resolver_tool_approval_resolve_race",
-          requestId: request.id,
-        },
-        "Tool approval resolver: pending interaction consumed between lookup and resolve",
-      );
-      return { ok: false, reason: "pending_interaction_race" };
-    }
+    // Use the already-peeked interaction — resolveConfirmation() owns
+    // deregistration and must fire the promptResolve callback stored in it.
+    const resolved = interaction;
 
     // Map action to the permission system's UserDecision type and notify session.
     const userDecision: UserDecision =

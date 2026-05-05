@@ -151,7 +151,8 @@ export function getByConversation(
  * proxy timer would fire with a spurious timeout error.
  */
 export function removeByConversation(conversationId: string): void {
-  for (const [requestId, interaction] of pending) {
+  // Snapshot keys to avoid mutation-during-iteration.
+  for (const [requestId, interaction] of [...pending]) {
     if (
       interaction.conversationId === conversationId &&
       interaction.kind !== "host_bash" &&
@@ -162,7 +163,11 @@ export function removeByConversation(conversationId: string): void {
       interaction.kind !== "host_transfer" &&
       interaction.kind !== "acp_confirmation"
     ) {
-      pending.delete(requestId);
+      // Use resolve() instead of pending.delete() so that stored timers are
+      // cleared and abort listeners detached. prompter.dispose() should have
+      // already fired promptReject before this point; resolve() here is a
+      // safety-net to prevent timer leaks if dispose() was skipped.
+      resolve(requestId);
     }
   }
 }

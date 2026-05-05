@@ -97,10 +97,13 @@ export class PermissionPrompter {
 
       // Register all lifecycle state in pendingInteractions — same pattern as
       // host proxies. The prompter tracks ownership via ownedIds.
-      if (conversationId) {
-        pendingInteractions.register(requestId, {
-          conversationId,
-          kind: "confirmation",
+      // Always register unconditionally so promptResolve/promptReject/timer
+      // are reachable by resolveConfirmation, denyAllPending, and the timeout
+      // handler even when conversationId is absent. Routes return 404 for
+      // interactions with an empty conversationId, which is correct behaviour.
+      pendingInteractions.register(requestId, {
+        conversationId: conversationId ?? "",
+        kind: "confirmation",
           confirmationDetails: {
             toolName,
             input: redactSensitiveFields(input),
@@ -122,7 +125,6 @@ export class PermissionPrompter {
           timer,
           toolUseId,
         });
-      }
       this.ownedIds.add(requestId);
 
       if (signal) {
