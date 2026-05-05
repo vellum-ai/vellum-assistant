@@ -903,6 +903,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Called from both the first-launch and non-first-launch paths in `proceedToApp`
     /// so that auth-gate onboarding flows also persist avatar traits on the assistant.
     func syncOnboardingAvatarIfNeeded() {
+        // When the managed bootstrap reused an existing assistant (hatched
+        // elsewhere, e.g. the web platform), the daemon already has the
+        // user's chosen avatar. Reload it instead of overwriting with the
+        // random traits generated for the hatching animation.
+        if onboardingState?.hasExistingManagedAssistant == true {
+            log.info("[avatarSync] syncOnboardingAvatarIfNeeded: reused existing managed assistant — reloading daemon avatar instead of syncing onboarding traits")
+            onboardingState = nil
+            AvatarAppearanceManager.shared.reloadAvatar()
+            return
+        }
+
         guard let body = onboardingState?.hatchAvatarBodyShape,
               let eyes = onboardingState?.hatchAvatarEyeStyle,
               let color = onboardingState?.hatchAvatarColor else {
