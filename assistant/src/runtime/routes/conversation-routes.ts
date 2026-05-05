@@ -1062,8 +1062,12 @@ export function persistOnboardingArtifacts(onboarding: {
     }
   }
 
-  const normalized = normalizeOnboardingContext(onboarding);
-  writeOnboardingSection(normalized);
+  try {
+    const normalized = normalizeOnboardingContext(onboarding);
+    writeOnboardingSection(normalized);
+  } catch (err) {
+    log.warn({ err }, "Failed to write onboarding section to persona file");
+  }
 
   void writeRelationshipState().catch((err) => {
     log.warn(
