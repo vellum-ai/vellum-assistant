@@ -57,8 +57,10 @@ export async function runProactiveArtifactJob(params: {
       `SELECT m.role, m.content FROM messages m
        JOIN conversations c ON m.conversation_id = c.id
        WHERE c.conversation_type = 'standard'
+         AND m.conversation_id = ?
          AND (m.created_at <= ? OR m.id = ?)
        ORDER BY m.created_at ASC`,
+      params.conversationId,
       params.userMessageCutoff,
       params.assistantMessageId ?? "",
     );

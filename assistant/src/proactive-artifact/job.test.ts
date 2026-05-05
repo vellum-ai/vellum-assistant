@@ -51,9 +51,13 @@ mock.module("../providers/provider-send-message.js", () => ({
 
 // rawAll mock
 let rawAllRows: Array<{ role: string; content: string }> = [];
+let rawAllLastArgs: unknown[] = [];
 
 mock.module("../memory/raw-query.js", () => ({
-  rawAll: () => rawAllRows,
+  rawAll: (_sql: string, ...args: unknown[]) => {
+    rawAllLastArgs = args;
+    return rawAllRows;
+  },
   rawRun: () => 0,
 }));
 
@@ -276,6 +280,7 @@ function resetState() {
   copyResponse = "";
   providerSendCalls = [];
   rawAllRows = [];
+  rawAllLastArgs = [];
   bootstrapCalls = [];
   processMessageCalls = [];
   processMessageShouldThrow = false;
@@ -640,8 +645,13 @@ describe("runProactiveArtifactJob", () => {
         broadcastMessage: mockBroadcast,
       });
 
-      // The rawAll mock captures all calls; verify the decision was called
-      // (proving transcript was collected and passed to decision)
+      // Verify the transcript SQL is scoped to the triggering conversation —
+      // the first bound parameter must be conversationId so the query cannot
+      // leak messages from other conversations (ATL-451).
+      expect(rawAllLastArgs[0]).toBe("conv-1");
+      expect(rawAllLastArgs[1]).toBe(5000);
+      expect(rawAllLastArgs[2]).toBe("asst-msg-99");
+
       expect(
         providerSendCalls.some(
           (c) => c.callSite === "proactiveArtifactDecision",
