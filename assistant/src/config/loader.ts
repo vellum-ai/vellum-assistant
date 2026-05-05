@@ -132,11 +132,8 @@ function getDeploymentContextDefaults(): Record<string, unknown> {
       "notion-oauth": managed,
       "asana-oauth": managed,
       "todoist-oauth": managed,
-      "dropbox-oauth": managed,
       "discord-oauth": managed,
-      "airtable-oauth": managed,
       "hubspot-oauth": managed,
-      "salesforce-oauth": managed,
     },
   };
 }
