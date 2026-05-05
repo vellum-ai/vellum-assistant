@@ -18,6 +18,20 @@ import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 
+export const DISK_PRESSURE_CLEANUP_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "bash",
+  "host_bash",
+  "file_read",
+  "file_list",
+  "host_file_read",
+  "background_tool_list",
+  "background_tool_cancel",
+]);
+
+export function isDiskPressureCleanupToolName(name: string): boolean {
+  return DISK_PRESSURE_CLEANUP_TOOL_NAMES.has(name);
+}
+
 // ---------------------------------------------------------------------------
 // Re-exports + concrete overlays for types that live in
 // @vellumai/skill-host-contracts.
@@ -177,6 +191,8 @@ export interface ToolContext {
   proxyToolResolver?: ProxyToolResolver;
   /** When set, only tools in this set may execute. Tools outside the set are blocked with an error. */
   allowedToolNames?: Set<string>;
+  /** True when this turn is restricted to storage cleanup-safe tools. */
+  diskPressureCleanupModeActive?: boolean;
   /** Prompt the user for a secret value via native SecureField UI. */
   requestSecret?: (params: {
     service: string;

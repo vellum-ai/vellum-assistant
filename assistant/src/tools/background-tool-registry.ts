@@ -19,7 +19,7 @@ export interface BackgroundTool {
   command: string;
   startedAt: number;
   /** Kills the process (bash) or aborts the proxy (host_bash). */
-  cancel: () => void;
+  cancel: (reason?: string) => void;
 }
 
 /** Maximum number of concurrent background tools allowed. */
@@ -61,14 +61,28 @@ export function listBackgroundTools(conversationId?: string): BackgroundTool[] {
  * Cancels a background tool by ID: calls `tool.cancel()`, removes the entry,
  * and returns `true`. Returns `false` if the ID is not found.
  */
-export function cancelBackgroundTool(id: string): boolean {
+export function cancelBackgroundTool(id: string, reason?: string): boolean {
   const tool = registry.get(id);
   if (!tool) {
     return false;
   }
-  tool.cancel();
+  tool.cancel(reason);
   registry.delete(id);
   return true;
+}
+
+export function cancelBackgroundTools(
+  shouldCancel: (tool: BackgroundTool) => boolean,
+  reason?: string,
+): BackgroundTool[] {
+  const cancelled: BackgroundTool[] = [];
+  for (const tool of Array.from(registry.values())) {
+    if (!shouldCancel(tool)) continue;
+    tool.cancel(reason);
+    registry.delete(tool.id);
+    cancelled.push(tool);
+  }
+  return cancelled;
 }
 
 /**

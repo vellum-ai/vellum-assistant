@@ -179,9 +179,17 @@ class HostShellTool implements Tool {
       };
     }
     const background = input.background === true;
+    if (background && context.diskPressureCleanupModeActive === true) {
+      return {
+        content:
+          "Error: background host shell commands are not available during disk pressure cleanup mode.",
+        isError: true,
+      };
+    }
 
     const targetClientId =
-      typeof input.target_client_id === "string" && input.target_client_id !== ""
+      typeof input.target_client_id === "string" &&
+      input.target_client_id !== ""
         ? input.target_client_id
         : undefined;
 
@@ -236,10 +244,7 @@ class HostShellTool implements Tool {
     // guard both targetClientId != null guards above are bypassed, and the
     // code falls through to local daemon execution — silently running commands
     // inside the Docker container instead of on the intended host machine.
-    if (
-      targetClientId != null &&
-      !HostBashProxy.instance.isAvailable()
-    ) {
+    if (targetClientId != null && !HostBashProxy.instance.isAvailable()) {
       return {
         content: `Error: target client "${targetClientId}" is no longer connected. The specified client may have disconnected since the tool was called. Run \`assistant clients list --capability host_bash\` to see currently connected clients.`,
         isError: true,
@@ -315,7 +320,7 @@ class HostShellTool implements Tool {
           conversationId: context.conversationId,
           command,
           startedAt: Date.now(),
-          cancel: () => abortController.abort(),
+          cancel: (reason?: string) => abortController.abort(reason),
         });
 
         return {

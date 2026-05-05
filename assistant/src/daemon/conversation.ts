@@ -160,6 +160,7 @@ export class Conversation {
   /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
+  /** @internal */ diskPressureCleanupModeActive?: boolean;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;

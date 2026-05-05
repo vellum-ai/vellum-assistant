@@ -30,12 +30,13 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
-import type {
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-  ToolContext,
-  ToolExecutionResult,
-  ToolLifecycleEventHandler,
+import {
+  isDiskPressureCleanupToolName,
+  type ProxyApprovalCallback,
+  type ProxyApprovalRequest,
+  type ToolContext,
+  type ToolExecutionResult,
+  type ToolLifecycleEventHandler,
 } from "../tools/types.js";
 import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
 import { getLogger } from "../util/logger.js";
@@ -151,6 +152,7 @@ export function createToolExecutor(
       onOutput,
       signal: ctx.abortController?.signal,
       allowedToolNames: ctx.allowedToolNames,
+      diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
       toolUseId,
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
@@ -304,6 +306,8 @@ export interface SkillProjectionContext {
   readonly hasNoClient?: boolean;
   /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
   subagentAllowedTools?: Set<string>;
+  /** True when the current turn is restricted to disk-pressure cleanup-safe tools. */
+  diskPressureCleanupModeActive?: boolean;
   /** True when this conversation belongs to a subagent spawned by SubagentManager. */
   readonly isSubagent?: boolean;
   /**
@@ -515,6 +519,16 @@ export function createResolveToolsCallback(
       }
       turnAllowed.add(name);
     }
+    if (ctx.diskPressureCleanupModeActive === true) {
+      const cleanupDefs = allBaseDefs.filter((d) =>
+        isDiskPressureCleanupToolName(d.name),
+      );
+      ctx.allowedToolNames = new Set(
+        Array.from(turnAllowed).filter(isDiskPressureCleanupToolName),
+      );
+      return injectActivityField(cleanupDefs, ACTIVITY_SKIP_SET);
+    }
+
     ctx.allowedToolNames = turnAllowed;
     return injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
   };
