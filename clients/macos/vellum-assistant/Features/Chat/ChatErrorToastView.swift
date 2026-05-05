@@ -243,6 +243,48 @@ struct CreditsExhaustedBanner: View {
     }
 }
 
+// MARK: - Provider Billing Banner
+
+/// Inline banner shown when the user's configured provider reports
+/// account or API-key billing trouble.
+/// This intentionally mirrors the managed credits blocker: there is no manual
+/// dismiss action because the banner clears with the conversation error state.
+struct ProviderBillingBanner: View {
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        HStack(spacing: VSpacing.xl) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Your API key needs credits")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentEmphasized)
+                Text("Add funds with your provider or lower the model token limit.")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 0)
+
+            VButton(label: "Open Settings", style: .primary) {
+                onOpenSettings()
+            }
+        }
+        .padding(VSpacing.lg)
+        .background(VColor.surfaceActive)
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: VRadius.lg,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: VRadius.lg
+            )
+        )
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .layoutHangSignpost("chat.providerBillingBanner")
+    }
+}
+
 // MARK: - Compaction Circuit Open Banner
 
 /// Inline banner shown when the assistant has paused automatic context

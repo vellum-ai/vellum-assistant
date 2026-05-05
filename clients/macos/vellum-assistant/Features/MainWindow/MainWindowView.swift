@@ -684,7 +684,11 @@ struct ErrorToastOverlay: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
-            if let conversationError = errorManager.conversationError, !conversationError.isCreditsExhausted, !conversationError.isProviderNotConfigured, !errorManager.isConversationErrorDisplayedInline {
+            if let conversationError = errorManager.conversationError,
+               !conversationError.isManagedCreditsExhausted,
+               !conversationError.isProviderBilling,
+               !conversationError.isProviderNotConfigured,
+               !errorManager.isConversationErrorDisplayedInline {
                 ChatConversationErrorToast(
                     error: conversationError,
                     onRetry: onRetryConversationError,
