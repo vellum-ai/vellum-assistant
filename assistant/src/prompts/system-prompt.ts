@@ -21,6 +21,7 @@ import {
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
+import { normalizeOnboardingContext } from "./normalize-onboarding.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
@@ -322,14 +323,27 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     );
 
     if (options?.onboardingContext) {
-      dynamicParts.push(
-        "## Pre-chat Onboarding Context\n\n" +
-          "The user completed the native pre-chat onboarding. Here is their context:\n\n" +
-          "```json\n" +
-          JSON.stringify(options.onboardingContext, null, 2) +
-          "\n```\n\n" +
-          "Use this to personalize your opener and skip redundant discovery. If `assistantName` is present, it is the name the user chose for you; preserve it in IDENTITY.md.",
+      const n = normalizeOnboardingContext(options.onboardingContext);
+      const lines: string[] = [
+        "## First-Run User Context",
+        "",
+        "The user completed setup before this conversation.",
+        "",
+        "Known context:",
+      ];
+      if (n.preferredName) lines.push(`- Name: ${n.preferredName}`);
+      if (n.commonWork.length)
+        lines.push(`- Common work: ${n.commonWork.join("; ")}`);
+      if (n.dailyTools.length)
+        lines.push(`- Daily tools: ${n.dailyTools.join(", ")}`);
+      if (n.assistantName)
+        lines.push(`- Chosen assistant name: ${n.assistantName}`);
+      if (n.tone) lines.push(`- Preferred initial voice: ${n.tone}`);
+      lines.push(
+        "",
+        "Apply this context quietly. Do not recap it as a list unless the user asks.",
       );
+      dynamicParts.push(lines.join("\n"));
     }
   }
   // Configuration section removed — workspace files are self-describing,
