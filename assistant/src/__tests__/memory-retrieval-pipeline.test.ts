@@ -158,6 +158,40 @@ describe("runDefaultMemoryRetrieval", () => {
     expect(result.nowContent).toBe("now-default");
   });
 
+  test("soft-times out graph retrieval and keeps PKB/NOW", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const hangingPrepare = mock(
+      (
+        _msgs: Message[],
+        _cfg: AssistantConfig,
+        signal: AbortSignal,
+        _onEvent: (msg: ServerMessage) => void,
+      ) => {
+        capturedSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        });
+      },
+    );
+    const graphMemory = {
+      prepareMemory: hangingPrepare,
+    } as unknown as ConversationGraphMemory;
+    const deps = makeDeps({
+      graphMemory,
+      isTrustedActor: true,
+      graphRetrievalBudgetMs: 20,
+    });
+
+    const result = await runDefaultMemoryRetrieval(makeMemoryArgs(), deps);
+
+    expect(result.pkbContent).toBe("pkb-default");
+    expect(result.nowContent).toBe("now-default");
+    expect(result.memoryGraphBlocks).toEqual([]);
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
   test("passes through null PKB and NOW when the files are absent", async () => {
     readPkbContextMock.mockImplementation(() => null);
     readNowContextMock.mockImplementation(() => null);
@@ -314,7 +348,7 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
         (innerArgs: MemoryArgs) => runDefaultMemoryRetrieval(innerArgs, deps),
         args,
         makeTurnCtx(),
-        30, // tiny budget — real production path uses 5_000ms
+        30, // tiny pipeline budget to keep the test fast
       );
     } catch (err) {
       caught = err;

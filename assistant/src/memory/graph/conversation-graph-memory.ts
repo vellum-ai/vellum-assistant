@@ -412,6 +412,7 @@ export class ConversationGraphMemory {
       "context-load",
       rawUserText ?? userQuery ?? "",
       "",
+      signal,
     );
     if (v2.routed) {
       this.lastInjectedBlock = v2.injectedBlockText;
@@ -561,6 +562,7 @@ export class ConversationGraphMemory {
       "per-turn",
       userLast,
       assistantLast,
+      signal,
     );
     if (v2.routed) {
       this.lastInjectedBlock = v2.injectedBlockText;
@@ -655,6 +657,7 @@ export class ConversationGraphMemory {
     mode: InjectMemoryV2Mode,
     userMessage: string,
     assistantMessage: string,
+    signal: AbortSignal,
   ): Promise<{
     routed: boolean;
     runMessages: Message[];
@@ -680,6 +683,7 @@ export class ConversationGraphMemory {
       messageId: `${this.conversationId}:turn:${currentTurn}`,
       mode,
       config,
+      signal,
     });
 
     if (!result.block) {

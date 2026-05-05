@@ -62,6 +62,7 @@ export interface ConceptPageQueryResult {
 
 let _client: QdrantRestClient | null = null;
 let _collectionReady = false;
+let _collectionReadyPromise: Promise<void> | null = null;
 
 /** Lazily create a Qdrant REST client bound to the resolved URL. */
 function getClient(): QdrantRestClient {
@@ -85,7 +86,15 @@ function getClient(): QdrantRestClient {
  */
 export async function ensureConceptPageCollection(): Promise<void> {
   if (_collectionReady) return;
+  if (_collectionReadyPromise) return _collectionReadyPromise;
 
+  _collectionReadyPromise = ensureConceptPageCollectionOnce().finally(() => {
+    _collectionReadyPromise = null;
+  });
+  return _collectionReadyPromise;
+}
+
+async function ensureConceptPageCollectionOnce(): Promise<void> {
   const client = getClient();
   const config = getConfig();
   const vectorSize = config.memory.qdrant.vectorSize;
@@ -526,4 +535,5 @@ function pointIdForSlug(slug: string): string {
 export function _resetMemoryV2QdrantForTests(): void {
   _client = null;
   _collectionReady = false;
+  _collectionReadyPromise = null;
 }

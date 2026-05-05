@@ -60,13 +60,12 @@ export const MANAGED_PROFILE_NAMES = new Set(
  * User-created profiles are never touched; pre-existing profiles
  * without a `source` field get `source: "user"` backfilled.
  *
- * No-op when `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH` is set (same guard
- * as migration 052) because the platform-provided default-config overlay
- * is the authoritative source for profile seeds.
+ * Still runs when `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH` is set. Lifecycle
+ * calls this before merging the hatch overlay so managed profiles exist for the
+ * first config load, while the overlay can still override profile/default
+ * fields immediately afterward.
  */
 export function seedInferenceProfiles(): void {
-  if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
-
   const config = loadRawConfig();
 
   if (config.llm == null || typeof config.llm !== "object") {

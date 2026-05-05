@@ -81,6 +81,7 @@ export interface InjectMemoryV2BlockParams {
    */
   mode?: InjectMemoryV2Mode;
   config: AssistantConfig;
+  signal?: AbortSignal;
 }
 
 export interface InjectMemoryV2BlockResult {
@@ -124,30 +125,36 @@ export async function injectMemoryV2Block(
     nowText,
     messageId,
     config,
+    signal,
   } = params;
 
   const workspaceDir = getWorkspaceDir();
 
   // (1) Hydrate. Missing rows are normal at conversation start — proceed
   // with an effective empty prior state so the first turn can still inject.
+  throwIfAborted(signal);
   const priorState = await hydrate(database, conversationId);
 
   // (2) Topology. `getEdgeIndex` walks concept-page frontmatter and caches
   // the result module-locally; an empty workspace yields an empty index.
+  throwIfAborted(signal);
   const edgeIndex = await getEdgeIndex(workspaceDir);
 
   // (3) Candidate set: prior-state survivors above epsilon ∪ ANN top-50.
   // `selectCandidates` also returns `fromPrior` / `fromAnn` provenance sets so
   // telemetry can attribute each candidate back to its source.
+  throwIfAborted(signal);
   const { candidates, fromPrior, fromAnn } = await selectCandidates({
     priorState,
     userText: userMessage,
     assistantText: assistantMessage,
     nowText,
     config,
+    signal,
   });
 
   // (4) Own activation: A_o = d·prev + c_user·sim_u + c_a·sim_a + c_now·sim_n.
+  throwIfAborted(signal);
   const { activation: ownActivation, breakdown: ownBreakdown } =
     await computeOwnActivation({
       candidates,
@@ -156,9 +163,11 @@ export async function injectMemoryV2Block(
       assistantText: assistantMessage,
       nowText,
       config,
+      signal,
     });
 
   // (5) Spreading activation across the edge graph (k, hops from config).
+  throwIfAborted(signal);
   const { k, hops, top_k, epsilon } = config.memory.v2;
   const { final: finalActivation, contribution: spreadContribution } =
     spreadActivation(ownActivation, edgeIndex, k, hops);
@@ -317,6 +326,12 @@ export async function injectMemoryV2Block(
   }
 
   return { block, toInject: newlyInjected };
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
 }
 
 // ---------------------------------------------------------------------------

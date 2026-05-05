@@ -499,10 +499,10 @@ export async function runDaemon(): Promise<void> {
       }
     } // end if (dbReady)
 
-    // Seed managed inference profiles into the workspace config. Runs
-    // after workspace migrations (which may have created the initial
-    // profile slots) and before mergeDefaultWorkspaceConfig / loadConfig
-    // so the profiles are on disk for the first config load.
+    // Seed managed inference profiles into the workspace config. Runs after
+    // workspace migrations and before mergeDefaultWorkspaceConfig / loadConfig
+    // so fresh hatches have profiles on disk before the first config load; the
+    // hatch overlay still merges afterward and can override seeded fields.
     try {
       seedInferenceProfiles();
       log.info("Inference profile seeding complete");
