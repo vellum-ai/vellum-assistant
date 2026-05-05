@@ -549,7 +549,7 @@ struct AssistantUpgradeSection: View {
     }
 
     /// Upgrade or roll back a managed (platform-hosted) assistant by calling
-    /// the platform upgrade API directly.
+    /// the platform upgrade/rollback APIs directly.
     ///
     /// The CLI path (`vellum upgrade <id>`) fails for managed assistants
     /// because the CLI binary reads its own lockfile, which does not contain
@@ -563,19 +563,21 @@ struct AssistantUpgradeSection: View {
         let version = selectedVersion ?? latestRelease?.version
         let action = isRollback ? "Rollback" : "Upgrade"
 
-        // Build the request body — same shape the CLI sends.
-        var body: [String: Any] = ["assistant_id": assistantId]
+        // Build the request path and body — same shape the CLI sends.
+        // Upgrade calls POST /v1/assistants/upgrade/ with {assistant_id, version?};
+        // rollback calls POST /v1/assistants/rollback/ with {version?} only.
+        let path = isRollback ? "assistants/rollback/" : "assistants/upgrade/"
+        var body: [String: Any] = [:]
+        if !isRollback {
+            body["assistant_id"] = assistantId
+        }
         if let v = version {
             body["version"] = v
         }
 
         do {
-            // POST /v1/assistants/upgrade/ (list-level, unprefixed) with the
-            // assistant ID in the request body. This is the same endpoint the
-            // CLI calls via `upgradePlatform()`, reached here without spawning
-            // a CLI subprocess.
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/upgrade/",
+                path: path,
                 json: body,
                 unprefixed: true
             )
