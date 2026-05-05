@@ -46,7 +46,27 @@ afterEach(() => {
 });
 
 describe("delete_managed_skill tool", () => {
-  test("deletes existing skill while leaving a stale SKILLS.md index unchanged", async () => {
+  test("does not expose legacy index controls in the bundled tool schema", () => {
+    const tools = JSON.parse(
+      readFileSync(
+        join(
+          import.meta.dirname,
+          "../config/bundled-skills/skill-management/TOOLS.json",
+        ),
+        "utf-8",
+      ),
+    );
+    const deleteTool = tools.tools.find(
+      (tool: { name: string }) => tool.name === "delete_managed_skill",
+    );
+
+    expect(deleteTool).toBeDefined();
+    expect(deleteTool.input_schema.properties).not.toHaveProperty(
+      "remove_from_index",
+    );
+  });
+
+  test("deletes existing skill while ignoring legacy index inputs", async () => {
     createSkill("doomed");
     createSkill("survivor");
     const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
@@ -65,7 +85,7 @@ describe("delete_managed_skill tool", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.deleted).toBe(true);
     expect(parsed.skill_id).toBe("doomed");
-    expect(parsed.index_updated).toBe(false);
+    expect(parsed).not.toHaveProperty("index_updated");
 
     expect(existsSync(join(TEST_DIR, "skills", "doomed"))).toBe(false);
 

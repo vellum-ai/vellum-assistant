@@ -33,10 +33,6 @@
             "type": "boolean",
             "description": "Whether to overwrite an existing skill with the same ID (default: false)."
           },
-          "add_to_index": {
-            "type": "boolean",
-            "description": "Deprecated compatibility input. No-op; managed skills are discovered from top-level SKILL.md files in skill directories."
-          },
           "includes": {
             "type": "array",
             "items": { "type": "string" },
@@ -59,10 +55,6 @@
           "skill_id": {
             "type": "string",
             "description": "The ID of the managed skill to delete."
-          },
-          "remove_from_index": {
-            "type": "boolean",
-            "description": "Deprecated compatibility input. No-op; managed skills disappear when their skill directory is removed."
           }
         },
         "required": ["skill_id"]

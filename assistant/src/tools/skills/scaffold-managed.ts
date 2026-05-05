@@ -83,7 +83,6 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
-  // add_to_index is accepted for compatibility; it has no effect.
   const result = createManagedSkill({
     id: skillId.trim(),
     name: sanitizeFrontmatterValue(name),
@@ -106,7 +105,6 @@ export async function executeScaffoldManagedSkill(
       created: true,
       skill_id: skillId.trim(),
       path: result.path,
-      index_updated: false,
     }),
     isError: false,
   };
