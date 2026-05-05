@@ -181,6 +181,7 @@ export const DOCKER_STATEFUL_SET_SPEC: DockerStatefulSetSpec = {
         ...Object.values(PROVIDER_ENV_VAR_NAMES).map(
           (v): HostEnv => ({ kind: "host", name: v }),
         ),
+        { kind: "host", name: "OLLAMA_BASE_URL" },
         { kind: "host", name: "VELLUM_ENVIRONMENT" },
         { kind: "host", name: "VELLUM_PLATFORM_URL" },
       ],

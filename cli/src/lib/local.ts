@@ -955,6 +955,8 @@ export async function startLocalDaemon(
       // config dir) to the same location as the CLI that spawned it.
       for (const key of [
         "ANTHROPIC_API_KEY",
+        "OLLAMA_API_KEY",
+        "OLLAMA_BASE_URL",
         "APP_VERSION",
         "GATEWAY_SECURITY_DIR",
         "CREDENTIAL_SECURITY_DIR",

@@ -40,10 +40,15 @@ cp .env.example .env
 | `ANTHROPIC_API_KEY` | Yes      | —                           | Anthropic Claude API key                          |
 | `OPENAI_API_KEY`    | No       | —                           | OpenAI API key                                    |
 | `GEMINI_API_KEY`    | No       | —                           | Google Gemini API key                             |
-| `OLLAMA_API_KEY`    | No       | —                           | API key for authenticated Ollama deployments      |
-| `OLLAMA_BASE_URL`   | No       | `http://127.0.0.1:11434/v1` | Ollama base URL                                   |
+| `OLLAMA_API_KEY`    | No       | —                           | Optional key for authenticated Ollama-compatible endpoints; not needed for local Ollama |
+| `OLLAMA_BASE_URL`   | No       | `http://127.0.0.1:11434/v1` | Ollama OpenAI-compatible base URL                 |
 | `RUNTIME_HTTP_PORT` | No       | —                           | Enable the HTTP server (required for gateway/web) |
 | `RUNTIME_HTTP_HOST` | No       | `127.0.0.1`                 | HTTP server bind address                          |
+
+Local Ollama does not require an API key. For Docker self-hosting where the
+assistant container needs to reach Ollama running on the host machine, set
+`OLLAMA_BASE_URL=http://host.docker.internal:11434/v1` and make sure Ollama is
+listening somewhere the container can reach.
 
 ## Update Bulletin
 

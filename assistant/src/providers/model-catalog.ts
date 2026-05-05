@@ -440,9 +440,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
     ],
     defaultModel: "llama3.2",
-    subtitle: "Run local models via Ollama. No API key required.",
+    subtitle: "Run local models via Ollama. No API key required for local use.",
     setupMode: "keyless",
-    setupHint: "Install Ollama locally and pull the models you want to use.",
+    setupHint:
+      "Install Ollama locally and pull the models you want to use. Add a key only for authenticated Ollama-compatible endpoints.",
+    envVar: "OLLAMA_API_KEY",
     credentialsGuide: {
       description:
         "Download and install Ollama, then pull models via `ollama pull <model>`.",

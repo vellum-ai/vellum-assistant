@@ -1,7 +1,19 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Sheet for managing API keys across all key-required inference providers.
+private func supportsInferenceAPIKey(_ provider: ProviderCatalogEntry) -> Bool {
+    provider.apiKeyPlaceholder != nil || provider.envVar != nil
+}
+
+private func requiresInferenceAPIKey(_ provider: ProviderCatalogEntry) -> Bool {
+    provider.apiKeyPlaceholder != nil
+}
+
+private func apiKeyPlaceholder(for provider: ProviderCatalogEntry) -> String {
+    provider.apiKeyPlaceholder ?? "Bearer token"
+}
+
+/// Sheet for managing API keys across all configurable inference providers.
 ///
 /// Each provider row shows its current key status (configured / not configured)
 /// and expands inline to reveal an `APIKeyTextField` for entry. Keys are
@@ -39,10 +51,9 @@ struct APIKeysSheet: View {
 
     // MARK: - Computed
 
-    /// Providers that require an API key, derived from the store's provider
-    /// catalog. Excludes keyless providers like Ollama.
-    private var keyRequiredProviders: [ProviderCatalogEntry] {
-        store.providerCatalog.filter { $0.apiKeyPlaceholder != nil }
+    /// Providers that support API key storage, derived from the provider catalog.
+    private var keyConfigurableProviders: [ProviderCatalogEntry] {
+        store.providerCatalog.filter { supportsInferenceAPIKey($0) }
     }
 
     // MARK: - Body
@@ -77,7 +88,7 @@ struct APIKeysSheet: View {
             }
         } message: {
             if let provider = providerToRemove {
-                Text("Remove the \(store.dynamicProviderDisplayName(provider)) API key? Profiles using this provider will stop working until a new key is added.")
+                Text(removeConfirmationMessage(for: provider))
             }
         }
     }
@@ -90,7 +101,7 @@ struct APIKeysSheet: View {
                 Text("Provider API Keys")
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
-                Text("Add API keys for the LLM providers you want to use.")
+                Text("Add API keys for providers that require them. Local Ollama works without a key.")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -123,9 +134,9 @@ struct APIKeysSheet: View {
     private var providerList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(keyRequiredProviders, id: \.id) { provider in
+                ForEach(keyConfigurableProviders, id: \.id) { provider in
                     providerRow(provider)
-                    if provider.id != keyRequiredProviders.last?.id {
+                    if provider.id != keyConfigurableProviders.last?.id {
                         SettingsDivider()
                             .padding(.horizontal, VSpacing.lg)
                     }
@@ -141,6 +152,10 @@ struct APIKeysSheet: View {
         let isConfigured = keyStatuses[provider.id] == true
         let isExpanded = expandedProvider == provider.id
         let isSaving = saving[provider.id] == true
+        let requiresKey = requiresInferenceAPIKey(provider)
+        let keyLabel = requiresKey
+            ? "\(provider.displayName) API Key"
+            : "\(provider.displayName) API Key (Optional)"
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Header: provider name + masked key + actions
@@ -151,6 +166,10 @@ struct APIKeysSheet: View {
                         .foregroundStyle(VColor.contentDefault)
                     if isConfigured, !isExpanded, let masked = maskedKeys[provider.id] {
                         Text(masked)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    } else if !requiresKey && !isConfigured && !isExpanded {
+                        Text("No key is needed for local Ollama. Add one only for an authenticated proxy.")
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
                     }
@@ -169,8 +188,17 @@ struct APIKeysSheet: View {
                         }
                     }
                 } else if !isConfigured && !isExpanded {
-                    VButton(label: "Add Key", style: .outlined, size: .compact) {
-                        expandProvider(provider.id)
+                    if requiresKey {
+                        VButton(label: "Add Key", style: .outlined, size: .compact) {
+                            expandProvider(provider.id)
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            VTag("No Key Needed", color: VColor.contentTertiary, icon: .check)
+                            VButton(label: "Add Optional Key", style: .outlined, size: .compact) {
+                                expandProvider(provider.id)
+                            }
+                        }
                     }
                 }
             }
@@ -179,13 +207,13 @@ struct APIKeysSheet: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     APIKeyTextField(
-                        label: "\(provider.displayName) API Key",
+                        label: keyLabel,
                         hasKey: isConfigured,
                         text: Binding(
                             get: { keyTexts[provider.id] ?? "" },
                             set: { keyTexts[provider.id] = $0 }
                         ),
-                        emptyPlaceholder: provider.apiKeyPlaceholder ?? "Enter your API key",
+                        emptyPlaceholder: apiKeyPlaceholder(for: provider),
                         errorMessage: errors[provider.id]
                     )
                     .disabled(isSaving)
@@ -264,10 +292,19 @@ struct APIKeysSheet: View {
         showToast("\(store.dynamicProviderDisplayName(providerId)) API key removed", .success)
     }
 
+    private func removeConfirmationMessage(for providerId: String) -> String {
+        let displayName = store.dynamicProviderDisplayName(providerId)
+        let provider = keyConfigurableProviders.first { $0.id == providerId }
+        if let provider, !requiresInferenceAPIKey(provider) {
+            return "Remove the \(displayName) API key? Local connections will continue to work unless this endpoint requires bearer authentication."
+        }
+        return "Remove the \(displayName) API key? Profiles using this provider will stop working until a new key is added."
+    }
+
     // MARK: - Key Status Loading
 
     private func loadAllKeyStatuses() async {
-        for provider in keyRequiredProviders {
+        for provider in keyConfigurableProviders {
             let hasKey = await APIKeyManager.hasKey(for: provider.id)
             keyStatuses[provider.id] = hasKey
             if hasKey {

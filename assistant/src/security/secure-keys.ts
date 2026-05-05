@@ -535,8 +535,8 @@ export async function bulkSetSecureKeysAsync(
  *
  * Env var names are resolved via `getAnyProviderEnvVar`, which covers both
  * LLM providers (sourced from `PROVIDER_CATALOG`) and search providers
- * (sourced from `SEARCH_PROVIDER_ENV_VAR_NAMES`). Keyless providers (e.g.
- * Ollama) return `undefined` and fall through to a stored-only lookup.
+ * (sourced from `SEARCH_PROVIDER_ENV_VAR_NAMES`). Providers without a
+ * declared env var return `undefined` and fall through to a stored-only lookup.
  *
  * Use this instead of raw `getSecureKeyAsync` when looking up provider
  * API keys so that env-var-only setups continue to work.

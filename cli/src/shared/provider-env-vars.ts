@@ -21,6 +21,7 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
   gemini: "GEMINI_API_KEY",
+  ollama: "OLLAMA_API_KEY",
   fireworks: "FIREWORKS_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
 };

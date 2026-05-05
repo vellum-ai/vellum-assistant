@@ -27,8 +27,8 @@ describe("getLlmProviderEnvVar", () => {
     expect(getLlmProviderEnvVar("openrouter")).toBe("OPENROUTER_API_KEY");
   });
 
-  test("returns undefined for ollama (keyless provider)", () => {
-    expect(getLlmProviderEnvVar("ollama")).toBeUndefined();
+  test("returns OLLAMA_API_KEY for ollama optional authenticated endpoints", () => {
+    expect(getLlmProviderEnvVar("ollama")).toBe("OLLAMA_API_KEY");
   });
 
   test("returns undefined for search providers (out of scope)", () => {
@@ -71,8 +71,8 @@ describe("getAnyProviderEnvVar", () => {
     expect(getAnyProviderEnvVar("perplexity")).toBe("PERPLEXITY_API_KEY");
   });
 
-  test("returns undefined for ollama (keyless LLM provider)", () => {
-    expect(getAnyProviderEnvVar("ollama")).toBeUndefined();
+  test("returns OLLAMA_API_KEY for ollama optional authenticated endpoints", () => {
+    expect(getAnyProviderEnvVar("ollama")).toBe("OLLAMA_API_KEY");
   });
 
   test("returns undefined for unknown provider", () => {

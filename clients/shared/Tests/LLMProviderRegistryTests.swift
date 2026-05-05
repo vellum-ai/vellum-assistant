@@ -70,7 +70,7 @@ final class LLMProviderRegistryTests: XCTestCase {
         let ollama = LLMProviderRegistry.provider(id: "ollama")
         XCTAssertNotNil(ollama)
         XCTAssertEqual(ollama?.setupMode, .keyless)
-        XCTAssertNil(ollama?.envVar)
+        XCTAssertEqual(ollama?.envVar, "OLLAMA_API_KEY")
         XCTAssertNil(ollama?.apiKeyPlaceholder)
         XCTAssertNil(ollama?.credentialsGuide)
     }

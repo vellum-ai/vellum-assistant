@@ -42,6 +42,7 @@ enum APIKeyManager {
         "brave",
         "fireworks",
         "gemini",
+        "ollama",
         "openai",
         "openrouter",
         "perplexity",

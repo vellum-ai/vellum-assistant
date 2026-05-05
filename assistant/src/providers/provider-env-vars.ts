@@ -14,8 +14,10 @@
  * `getAnyProviderEnvVar` (LLM-first, then search) when you accept either
  * kind — e.g. the generic `getProviderKeyAsync` env-var fallback.
  *
- * Each helper returns `undefined` for keyless providers (e.g. Ollama),
- * unknown IDs, and providers outside the helper's scope.
+ * Each helper returns `undefined` for providers without a declared env var,
+ * unknown IDs, and providers outside the helper's scope. Ollama remains
+ * keyless for local use but declares `OLLAMA_API_KEY` for authenticated
+ * Ollama-compatible endpoints.
  */
 import { PROVIDER_CATALOG } from "./model-catalog.js";
 

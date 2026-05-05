@@ -1,6 +1,10 @@
 import SwiftUI
 import VellumAssistantShared
 
+private func supportsInferenceServiceAPIKey(_ provider: ProviderCatalogEntry) -> Bool {
+    provider.apiKeyPlaceholder != nil || provider.envVar != nil
+}
+
 /// Card for the inference service with Managed/Your Own mode toggle.
 ///
 /// Shows different content based on mode and auth state:
@@ -358,7 +362,10 @@ struct InferenceServiceCard: View {
     /// "API Keys" action button lives in the consolidated `secondaryActionsRow`.
     private var apiKeysSection: some View {
         let configuredProviders = store.providerCatalog
-            .filter { $0.apiKeyPlaceholder != nil && (providerKeyStatuses[$0.id] ?? nil) == true }
+            .filter {
+                supportsInferenceServiceAPIKey($0)
+                    && (providerKeyStatuses[$0.id] ?? nil) == true
+            }
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("API Keys")
@@ -400,9 +407,9 @@ struct InferenceServiceCard: View {
         .padding(.vertical, VSpacing.lg)
     }
 
-    /// Fetches the key-exists status for every key-required provider.
+    /// Fetches the key-exists status for every provider with configurable key storage.
     private func loadProviderKeyStatuses() async {
-        for provider in store.providerCatalog where provider.apiKeyPlaceholder != nil {
+        for provider in store.providerCatalog where supportsInferenceServiceAPIKey(provider) {
             providerKeyStatuses[provider.id] = await APIKeyManager.keyStatus(for: provider.id)
         }
     }

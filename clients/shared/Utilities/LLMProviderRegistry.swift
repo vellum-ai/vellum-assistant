@@ -138,8 +138,8 @@ public struct LLMProviderEntry: Decodable {
     /// Brief help text guiding the user through setup.
     public let setupHint: String
     /// Name of the environment variable the provider conventionally reads
-    /// its API key from (e.g. `ANTHROPIC_API_KEY`). `nil` for keyless
-    /// providers.
+    /// its API key from (e.g. `ANTHROPIC_API_KEY`). Local keyless providers
+    /// may still expose an optional env var for authenticated endpoints.
     public let envVar: String?
     /// Example placeholder text shown in the API-key input field to hint
     /// at the key format (e.g. `"sk-ant-api03-..."`). `nil` for keyless
@@ -396,10 +396,10 @@ private let fallbackCatalog = LLMProviderCatalog(
         LLMProviderEntry(
             id: "ollama",
             displayName: "Ollama",
-            subtitle: "Run open-source models locally with Ollama. No API key required.",
+            subtitle: "Run open-source models locally with Ollama. No API key required for local use.",
             setupMode: .keyless,
-            setupHint: "Install Ollama locally and pull a model to get started.",
-            envVar: nil,
+            setupHint: "Install Ollama locally and pull a model to get started. Add a key only for authenticated Ollama-compatible endpoints.",
+            envVar: "OLLAMA_API_KEY",
             apiKeyPlaceholder: nil,
             credentialsGuide: nil,
             defaultModel: "llama3.2",

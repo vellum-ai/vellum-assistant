@@ -112,8 +112,8 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
     expect(await getProviderKeyAsync("unknown-provider")).toBeUndefined();
   });
 
-  test("returns undefined for keyless ollama even if env has unrelated keys", async () => {
-    process.env.BRAVE_API_KEY = "brave-env-test";
-    expect(await getProviderKeyAsync("ollama")).toBeUndefined();
+  test("returns OLLAMA_API_KEY for authenticated Ollama-compatible endpoints", async () => {
+    process.env.OLLAMA_API_KEY = "ollama-env-test";
+    expect(await getProviderKeyAsync("ollama")).toBe("ollama-env-test");
   });
 });

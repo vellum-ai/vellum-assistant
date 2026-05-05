@@ -216,7 +216,7 @@ export async function initializeProviders(
     routingSources.set("gemini", geminiCreds.source);
   }
 
-  // Ollama (keyless provider — always init when configured or key present)
+  // Ollama (keyless locally — always init when configured or a key is present)
   const ollamaKey = await getProviderKeyAsync("ollama");
   if (config.llm.default.provider === "ollama" || ollamaKey) {
     const model = resolveModel(config, "ollama");
