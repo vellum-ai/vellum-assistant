@@ -718,22 +718,26 @@ export function generateScopeOptions(
     options.push({ pattern, label });
   }
 
-  // For multi-segment commands (pipelines, &&, etc.), use the full command as
-  // exact match and individual segment programs for broader options.
-  // Reconstruct using actual operators from the parsed segments (not hardcoded " | ").
+  // For multi-segment commands (pipelines, &&, etc.), use the full
+  // original command string as exact match (segment reconstruction loses
+  // separator characters like `;` and is corrupted for parse-recovery
+  // cases where unquoted parens/brackets in path arguments make
+  // tree-sitter split a single command into fragments). Per-program
+  // wildcards are derived only from non-synthetic segments — synthetic
+  // segments come from inside subshells, command substitutions, or
+  // parse-recovery, none of which represent commands the user
+  // independently typed at the top level.
   if (parsed.segments.length > 1) {
-    const parts: string[] = [];
-    for (let i = 0; i < parsed.segments.length; i++) {
-      const seg = parsed.segments[i];
-      if (i > 0 && seg.operator) {
-        parts.push(seg.operator);
-      }
-      parts.push(seg.command);
-    }
-    const fullCommand = parts.join(" ");
-    addOption(`^${escapeRegex(fullCommand)}$`, fullCommand);
-    // Add command-level wildcards for each unique program
-    const programs = new Set(parsed.segments.map((s) => s.program));
+    addOption(
+      `^${escapeRegex(parsed.originalCommand)}$`,
+      parsed.originalCommand,
+    );
+    // Add command-level wildcards for each unique non-synthetic program
+    const programs = new Set(
+      parsed.segments
+        .filter((s) => !s.synthetic)
+        .map((s) => s.program),
+    );
     for (const prog of programs) {
       addOption(`^${escapeRegex(prog)}\\b`, `${prog} *`);
     }

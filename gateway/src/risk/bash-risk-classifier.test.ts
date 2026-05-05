@@ -1609,6 +1609,88 @@ describe("generateScopeOptions with parseArgs", () => {
   });
 });
 
+// ── generateScopeOptions with synthetic segments (parse-recovery) ────────────
+
+describe("generateScopeOptions with synthetic segments", () => {
+  test("parse-recovery from unquoted parens in path: no wildcards, exact match uses original command", async () => {
+    // Bug: tree-sitter splits `cat /a/(b)/c.txt` into multiple sibling
+    // statements with no separator (parse-recovery). Without the synthetic
+    // filter we'd surface bogus wildcards like `app *` or `/c.txt *`.
+    const parsed = await cachedParse("cat /a/(b)/c.txt");
+    const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+    const labels = options.map((o) => o.label);
+
+    // Exact match must be the literal user input — segment reconstruction
+    // would produce something like "cat /a/(b) /c.txt" (extra space).
+    expect(labels[0]).toBe("cat /a/(b)/c.txt");
+
+    // No per-program wildcards should be emitted from the recovery
+    // fragments — they're not real top-level commands.
+    expect(labels).not.toContain("cat *");
+    expect(labels).not.toContain("/c.txt *");
+    // Only the exact match should remain.
+    expect(options).toHaveLength(1);
+  });
+
+  test("parse-recovery in iPhone bug repro: only exact match, no synthetic wildcards", async () => {
+    // The exact command from the user's screenshot. The synthetic-filter
+    // regression: pre-fix, `app *` and `/admin/organizations/[id]/page.tsx *`
+    // both leaked into the trust-rule editor's "Apply to" list.
+    const cmd =
+      "cat /workspace/vellum-assistant-platform/web/src/app/(app)/admin/organizations/[id]/page.tsx | grep -A 30 -B 5 \"credit\\|Credit\" | head -80";
+    const parsed = await cachedParse(cmd);
+    const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+    const labels = options.map((o) => o.label);
+
+    expect(labels[0]).toBe(cmd);
+    expect(labels).not.toContain("app *");
+    expect(labels).not.toContain("/admin/organizations/[id]/page.tsx *");
+    // Even legitimate-looking programs that happened to be inside the
+    // recovery fragments (cat/grep/head) are filtered — the parse can't
+    // be trusted to know what was a real top-level command.
+    expect(labels).not.toContain("cat *");
+    expect(labels).not.toContain("grep *");
+    expect(labels).not.toContain("head *");
+    expect(options).toHaveLength(1);
+  });
+
+  test("legitimate pipeline still emits per-program wildcards", async () => {
+    // Regression check: filtering synthetic must not break the common
+    // case of a real pipeline.
+    const parsed = await cachedParse("ls -la | grep foo");
+    const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+    const labels = options.map((o) => o.label);
+
+    expect(labels[0]).toBe("ls -la | grep foo");
+    expect(labels).toContain("ls *");
+    expect(labels).toContain("grep *");
+  });
+
+  test("legitimate ;-separated commands: exact match preserves the `;`", async () => {
+    // Pre-fix: `parts.join(" ")` produced "ls rm -rf /tmp/foo" (no `;`).
+    // With originalCommand the exact-match label is the verbatim input.
+    const parsed = await cachedParse("ls; rm -rf /tmp/foo");
+    const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+    const labels = options.map((o) => o.label);
+
+    expect(labels[0]).toBe("ls; rm -rf /tmp/foo");
+    expect(labels).toContain("ls *");
+    expect(labels).toContain("rm *");
+  });
+
+  test("subshell content is not surfaced as a top-level wildcard", async () => {
+    // (cd /tmp && ls) — segments are synthetic (nested context), so
+    // per-program wildcards must be filtered out. Only exact match remains.
+    const parsed = await cachedParse("(cd /tmp && ls)");
+    const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+    const labels = options.map((o) => o.label);
+
+    expect(labels[0]).toBe("(cd /tmp && ls)");
+    expect(labels).not.toContain("cd *");
+    expect(labels).not.toContain("ls *");
+  });
+});
+
 // ── scopeOptionsToAllowlistOptions ───────────────────────────────────────────
 
 describe("scopeOptionsToAllowlistOptions", () => {

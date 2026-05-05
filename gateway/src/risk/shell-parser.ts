@@ -48,9 +48,41 @@ export interface CommandSegment {
   program: string;
   args: string[];
   operator: "&&" | "||" | ";" | "|" | "";
+  /**
+   * `true` when this segment did not originate from a top-level pipeline
+   * member that the user typed directly. Set in two cases:
+   *
+   * 1. **Nested context** — the segment was extracted from inside a
+   *    subshell, command substitution, or other compound construct
+   *    (`(...)`, `$(...)`, `{ ... }`, `if`/`while`/`for`/`case` blocks).
+   * 2. **Parse-error recovery** — tree-sitter could not parse the
+   *    user-typed expression and recovered by splitting it into multiple
+   *    sibling top-level statements with no actual list separator
+   *    (`;`, newline, `&&`, `||`) between them in the source text. The
+   *    canonical trigger is unquoted parens or brackets in a path
+   *    argument, e.g. `cat /a/(b)/c.txt | grep d`, which tree-sitter
+   *    decomposes into `cat /a/`, `(b)`, and `/c.txt | grep d`.
+   *
+   * Risk classification still considers synthetic segments (so dangers
+   * inside subshells are caught), but consumers that present commands
+   * back to the user — like the trust-rule editor's "Apply to" wildcard
+   * list — should filter them out, since their `program` names don't
+   * correspond to commands the user actually intended to run.
+   */
+  synthetic?: boolean;
 }
 
 export interface ParsedCommand {
+  /**
+   * The literal command string that was parsed. Preserved verbatim so
+   * downstream consumers (scope option generation, allowlist UIs) can
+   * present the original text the user typed instead of attempting to
+   * reconstruct it from segments — segment reconstruction loses
+   * separator characters like `;` and is unreliable for parse-recovery
+   * cases where unquoted parens/brackets in path arguments make
+   * tree-sitter split a single command into multiple fragments.
+   */
+  originalCommand: string;
   segments: CommandSegment[];
   dangerousPatterns: DangerousPattern[];
   hasOpaqueConstructs: boolean;
@@ -275,14 +307,76 @@ export async function ensureParser(): Promise<Parser> {
   return parserInstance!;
 }
 
-function extractSegments(node: TSNode): CommandSegment[] {
+/**
+ * Source-text characters that, when present in the gap between two
+ * consecutive top-level `program` children, indicate the user actually
+ * typed a list/pipeline separator (so the second child is a real sibling
+ * statement, not parse-error recovery).
+ *
+ * Includes `\r` for completeness on Windows-style line endings, even
+ * though tree-sitter normally consumes them as part of `\n`.
+ */
+const LIST_SEPARATOR_CHARS_RE = /[;\n\r&|]/;
+
+function extractSegments(node: TSNode, source: string): CommandSegment[] {
   const segments: CommandSegment[] = [];
 
-  function walkNode(n: TSNode, operator: CommandSegment["operator"]): void {
+  function emit(seg: CommandSegment, synthetic: boolean): void {
+    if (synthetic) {
+      segments.push({ ...seg, synthetic: true });
+    } else {
+      segments.push(seg);
+    }
+  }
+
+  // `nestingDepth` counts how many subshell/command-substitution/compound
+  // ancestors enclose the current node. A non-zero depth means any segment
+  // emitted from this subtree is "synthetic" — extracted from a nested
+  // context rather than a top-level pipeline member.
+  //
+  // `recoverySibling` is true when we are walking a `program` child that
+  // sits next to a previous child with no list separator between them in
+  // the source — i.e. tree-sitter parse-recovered a malformed expression
+  // into multiple statements. The flag propagates to all descendants so
+  // their emitted segments are also marked synthetic.
+  function walkNode(
+    n: TSNode,
+    operator: CommandSegment["operator"],
+    nestingDepth: number,
+    recoverySibling: boolean,
+  ): void {
+    const synthetic = nestingDepth > 0 || recoverySibling;
+
     switch (n.type) {
       case "program": {
+        // The `program` root has no enclosing context, so any list
+        // separator the user typed appears in the literal source between
+        // sibling statement children. If ANY pair of statement siblings
+        // is missing a separator in the gap between them, tree-sitter
+        // parse-recovered a single malformed command into fragments —
+        // and ALL siblings (including the first) must be marked
+        // synthetic, since they are pieces of a command the user didn't
+        // intend to split.
+        const statementChildren: TSNode[] = [];
         for (const child of n.namedChildren) {
-          walkNode(child, "");
+          if (child.type === "comment") continue;
+          statementChildren.push(child);
+        }
+        let isRecovery = recoverySibling;
+        if (!isRecovery) {
+          for (let i = 1; i < statementChildren.length; i++) {
+            const gap = source.slice(
+              statementChildren[i - 1].endIndex,
+              statementChildren[i].startIndex,
+            );
+            if (!LIST_SEPARATOR_CHARS_RE.test(gap)) {
+              isRecovery = true;
+              break;
+            }
+          }
+        }
+        for (const child of statementChildren) {
+          walkNode(child, "", nestingDepth, isRecovery);
         }
         break;
       }
@@ -299,7 +393,7 @@ function extractSegments(node: TSNode): CommandSegment[] {
           ) {
             operator = child.type as CommandSegment["operator"];
           } else if (child.type !== "comment") {
-            walkNode(child, operator);
+            walkNode(child, operator, nestingDepth, recoverySibling);
             operator = "";
           }
         }
@@ -309,7 +403,12 @@ function extractSegments(node: TSNode): CommandSegment[] {
       case "pipeline": {
         let first = true;
         for (const child of n.namedChildren) {
-          walkNode(child, first ? operator : "|");
+          walkNode(
+            child,
+            first ? operator : "|",
+            nestingDepth,
+            recoverySibling,
+          );
           first = false;
         }
         break;
@@ -333,12 +432,15 @@ function extractSegments(node: TSNode): CommandSegment[] {
           }
         }
         if (words.length > 0) {
-          segments.push({
-            command: n.text,
-            program: words[0],
-            args: words.slice(1),
-            operator,
-          });
+          emit(
+            {
+              command: n.text,
+              program: words[0],
+              args: words.slice(1),
+              operator,
+            },
+            synthetic,
+          );
         }
         break;
       }
@@ -350,7 +452,7 @@ function extractSegments(node: TSNode): CommandSegment[] {
             child.type !== "heredoc_redirect" &&
             child.type !== "herestring_redirect"
           ) {
-            walkNode(child, operator);
+            walkNode(child, operator, nestingDepth, recoverySibling);
           }
         }
         break;
@@ -365,22 +467,24 @@ function extractSegments(node: TSNode): CommandSegment[] {
       case "case_statement":
       case "function_definition":
       case "negated_command": {
+        // Descending into a nested execution context — bump depth so any
+        // segments emitted from this subtree are marked synthetic.
         for (const child of n.namedChildren) {
-          walkNode(child, operator);
+          walkNode(child, operator, nestingDepth + 1, recoverySibling);
         }
         break;
       }
 
       default: {
         for (const child of n.namedChildren) {
-          walkNode(child, operator);
+          walkNode(child, operator, nestingDepth, recoverySibling);
         }
         break;
       }
     }
   }
 
-  walkNode(node, "");
+  walkNode(node, "", 0, false);
   return segments;
 }
 
@@ -620,15 +724,25 @@ export async function parse(command: string): Promise<ParsedCommand> {
   const tree = parser.parse(command);
   if (!tree) {
     // Parser couldn't parse - treat as opaque
-    return { segments: [], dangerousPatterns: [], hasOpaqueConstructs: true };
+    return {
+      originalCommand: command,
+      segments: [],
+      dangerousPatterns: [],
+      hasOpaqueConstructs: true,
+    };
   }
   const rootNode = tree.rootNode;
 
-  const segments = extractSegments(rootNode);
+  const segments = extractSegments(rootNode, command);
   const dangerousPatterns = detectDangerousPatterns(rootNode, segments);
   const hasOpaqueConstructs = detectOpaqueConstructs(rootNode, segments);
 
   tree.delete();
 
-  return { segments, dangerousPatterns, hasOpaqueConstructs };
+  return {
+    originalCommand: command,
+    segments,
+    dangerousPatterns,
+    hasOpaqueConstructs,
+  };
 }
