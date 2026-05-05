@@ -1,3 +1,4 @@
+import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
 import { createManagedSkill } from "../../skills/managed-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -99,6 +100,8 @@ export async function executeScaffoldManagedSkill(
   if (!result.created) {
     return { content: `Error: ${result.error}`, isError: true };
   }
+
+  refreshSkillCapabilityMemories();
 
   return {
     content: JSON.stringify({
