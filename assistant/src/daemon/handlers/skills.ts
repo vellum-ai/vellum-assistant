@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -8,7 +7,6 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join, relative, sep } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
@@ -44,7 +42,11 @@ import {
 import {
   assertInstalledSkillDiscoverable,
   type CatalogSkill,
+  discardSkillInstallBackup,
+  installSkillDependenciesIfPresent,
   installSkillLocally,
+  restoreOrRemoveFailedSkillInstall,
+  snapshotExistingSkillDir,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
 import { inferCategory } from "../../skills/category-inference.js";
@@ -262,13 +264,12 @@ function saveConfigWithSuppression(raw: Record<string, unknown>): void {
  * inline in `installSkill()` since `clawhubInstall` only runs the clawhub CLI
  * and writes metadata.
  *
+ * Discoverability verification is handled by the install path before this runs.
+ *
  * NOT used for bundled skills — those have a simpler inline path in
  * `installSkill()` that only auto-enables, broadcasts, and seeds memories.
  */
-function postInstallSkill(skillId: string, skillDir: string): void {
-  // Reload skill catalog so the newly installed skill is picked up
-  assertInstalledSkillDiscoverable(skillId, skillDir);
-
+function postInstallSkill(skillId: string): void {
   // Auto-enable the skill in config
   try {
     const raw = loadRawConfig();
@@ -1070,8 +1071,7 @@ export async function installSkill(spec: {
             spec.contactId,
           );
 
-          const skillDir = join(getWorkspaceSkillsDir(), spec.slug);
-          postInstallSkill(spec.slug, skillDir);
+          postInstallSkill(spec.slug);
           return { success: true, skillId: spec.slug };
         }
       } catch (err) {
@@ -1098,35 +1098,41 @@ export async function installSkill(spec: {
         spec.contactId,
       );
 
-      const skillDir = join(getWorkspaceSkillsDir(), resolved.skillSlug);
-      postInstallSkill(resolved.skillSlug, skillDir);
+      postInstallSkill(resolved.skillSlug);
       return { success: true, skillId: resolved.skillSlug };
     }
 
     // Install from clawhub (community)
-    const result = await clawhubInstall(spec.slug, {
-      version: spec.version,
-      contactId: spec.contactId,
-    });
-    if (!result.success) {
-      return { success: false, error: result.error ?? "Unknown error" };
-    }
-    const rawId = result.skillName ?? spec.slug;
-    const skillId = rawId.includes("/") ? rawId.split("/").pop()! : rawId;
-
-    // clawhubInstall uses the clawhub CLI which doesn't handle bun install, so
-    // install dependencies here before post-install.
-    const skillDir = join(getWorkspaceSkillsDir(), skillId);
-    if (existsSync(join(skillDir, "package.json"))) {
-      const bunPath = `${homedir()}/.bun/bin`;
-      execSync("bun install", {
-        cwd: skillDir,
-        stdio: "inherit",
-        env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    const expectedSkillId = spec.slug.includes("/")
+      ? spec.slug.split("/").pop()!
+      : spec.slug;
+    let backupDir: string | null = null;
+    let skillId = expectedSkillId;
+    backupDir = snapshotExistingSkillDir(expectedSkillId);
+    try {
+      const result = await clawhubInstall(spec.slug, {
+        version: spec.version,
+        contactId: spec.contactId,
       });
+      if (!result.success) {
+        restoreOrRemoveFailedSkillInstall(expectedSkillId, backupDir);
+        return { success: false, error: result.error ?? "Unknown error" };
+      }
+      const rawId = result.skillName ?? spec.slug;
+      skillId = rawId.includes("/") ? rawId.split("/").pop()! : rawId;
+
+      // clawhubInstall uses the clawhub CLI which doesn't handle bun install, so
+      // install dependencies here before post-install.
+      const skillDir = join(getWorkspaceSkillsDir(), skillId);
+      installSkillDependenciesIfPresent(skillDir);
+      assertInstalledSkillDiscoverable(skillId, skillDir);
+      discardSkillInstallBackup(backupDir);
+    } catch (err) {
+      restoreOrRemoveFailedSkillInstall(expectedSkillId, backupDir);
+      throw err;
     }
 
-    postInstallSkill(skillId, skillDir);
+    postInstallSkill(skillId);
     return { success: true, skillId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

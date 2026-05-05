@@ -3,8 +3,10 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -256,6 +258,110 @@ export function assertInstalledSkillDiscoverable(
   }
 }
 
+function getInstallStagingRoot(): string {
+  return join(getWorkspaceSkillsDir(), ".install-staging");
+}
+
+export function createSkillInstallStagingDir(): string {
+  const stagingRoot = getInstallStagingRoot();
+  mkdirSync(stagingRoot, { recursive: true });
+  return mkdtempSync(join(stagingRoot, "skill-"));
+}
+
+function createSkillInstallBackupPath(): string {
+  const stagingRoot = getInstallStagingRoot();
+  mkdirSync(stagingRoot, { recursive: true });
+  return join(
+    stagingRoot,
+    `backup-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+}
+
+function assertStagedSkillRoot(skillId: string, stagedDir: string): void {
+  if (!existsSync(join(stagedDir, "SKILL.md"))) {
+    throw new Error(
+      `Installed skill "${skillId}" is missing SKILL.md at the skill root`,
+    );
+  }
+}
+
+export function installSkillDependenciesIfPresent(skillDir: string): void {
+  if (existsSync(join(skillDir, "package.json"))) {
+    const bunPath = `${homedir()}/.bun/bin`;
+    execSync("bun install", {
+      cwd: skillDir,
+      stdio: "inherit",
+      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    });
+  }
+}
+
+export function restoreOrRemoveFailedSkillInstall(
+  skillId: string,
+  backupDir: string | null,
+): void {
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
+  rmSync(skillDir, { recursive: true, force: true });
+  if (backupDir) {
+    renameSync(backupDir, skillDir);
+  }
+}
+
+export function discardSkillInstallBackup(backupDir: string | null): void {
+  if (backupDir) {
+    rmSync(backupDir, { recursive: true, force: true });
+  }
+}
+
+export function snapshotExistingSkillDir(skillId: string): string | null {
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
+  if (!existsSync(skillDir)) return null;
+
+  const backupDir = createSkillInstallBackupPath();
+  renameSync(skillDir, backupDir);
+  return backupDir;
+}
+
+export function commitStagedSkillInstall(
+  skillId: string,
+  stagedDir: string,
+): void {
+  assertStagedSkillRoot(skillId, stagedDir);
+
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
+  let backupDir: string | null = null;
+  let stagedMovedToFinal = false;
+
+  try {
+    backupDir = snapshotExistingSkillDir(skillId);
+    renameSync(stagedDir, skillDir);
+    stagedMovedToFinal = true;
+    assertInstalledSkillDiscoverable(skillId, skillDir);
+    discardSkillInstallBackup(backupDir);
+  } catch (err) {
+    const originalMessage = err instanceof Error ? err.message : String(err);
+    let restoreError: unknown;
+    if (backupDir || stagedMovedToFinal) {
+      try {
+        restoreOrRemoveFailedSkillInstall(skillId, backupDir);
+      } catch (restoreErr) {
+        restoreError = restoreErr;
+      }
+    }
+    rmSync(stagedDir, { recursive: true, force: true });
+    if (restoreError) {
+      const restoreMessage =
+        restoreError instanceof Error
+          ? restoreError.message
+          : String(restoreError);
+      throw new Error(
+        `${originalMessage}; failed to restore previous skill: ${restoreMessage}`,
+      );
+    }
+    throw err;
+  }
+}
+
 export async function installSkillLocally(
   skillId: string,
   catalogEntry: CatalogSkill,
@@ -271,10 +377,7 @@ export async function installSkillLocally(
     );
   }
 
-  if (overwrite && existsSync(skillDir)) {
-    rmSync(skillDir, { recursive: true, force: true });
-  }
-  mkdirSync(skillDir, { recursive: true });
+  const stagedDir = createSkillInstallStagingDir();
 
   // In dev mode, install from the local repo skills directory if available
   const repoSkillsDir = getRepoSkillsDir();
@@ -283,38 +386,36 @@ export async function installSkillLocally(
     : undefined;
 
   let installSource: "repo" | "platform";
-  if (repoSkillSource && existsSync(join(repoSkillSource, "SKILL.md"))) {
-    installSource = "repo";
-    cpSync(repoSkillSource, skillDir, { recursive: true });
-  } else {
-    installSource = "platform";
-    await fetchAndExtractSkill(skillId, skillDir);
-  }
-  log.info(
-    { skillId, source: installSource },
-    "Installed skill from %s",
-    installSource,
-  );
+  try {
+    if (repoSkillSource && existsSync(join(repoSkillSource, "SKILL.md"))) {
+      installSource = "repo";
+      cpSync(repoSkillSource, stagedDir, { recursive: true });
+    } else {
+      installSource = "platform";
+      await fetchAndExtractSkill(skillId, stagedDir);
+    }
 
-  assertInstalledSkillDiscoverable(skillId, skillDir);
+    assertStagedSkillRoot(skillId, stagedDir);
 
-  // Write install metadata
-  writeInstallMeta(skillDir, {
-    origin: "vellum",
-    installedAt: new Date().toISOString(),
-    ...(catalogEntry.version ? { version: catalogEntry.version } : {}),
-    ...(contactId ? { installedBy: contactId } : {}),
-    contentHash: computeSkillHash(skillDir) ?? undefined,
-  });
-
-  // Post-install: install dependencies before reporting success.
-  if (existsSync(join(skillDir, "package.json"))) {
-    const bunPath = `${homedir()}/.bun/bin`;
-    execSync("bun install", {
-      cwd: skillDir,
-      stdio: "inherit",
-      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    writeInstallMeta(stagedDir, {
+      origin: "vellum",
+      installedAt: new Date().toISOString(),
+      ...(catalogEntry.version ? { version: catalogEntry.version } : {}),
+      ...(contactId ? { installedBy: contactId } : {}),
+      contentHash: computeSkillHash(stagedDir) ?? undefined,
     });
+
+    installSkillDependenciesIfPresent(stagedDir);
+    commitStagedSkillInstall(skillId, stagedDir);
+
+    log.info(
+      { skillId, source: installSource },
+      "Installed skill from %s",
+      installSource,
+    );
+  } catch (err) {
+    rmSync(stagedDir, { recursive: true, force: true });
+    throw err;
   }
 }
 
