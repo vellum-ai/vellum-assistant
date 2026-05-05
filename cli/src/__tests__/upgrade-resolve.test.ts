@@ -56,7 +56,7 @@ const fetchAssistantByIdFromPlatformMock = spyOn(
   "fetchAssistantByIdFromPlatform",
 ).mockResolvedValue(null);
 
-import { resolveTargetAssistant } from "../commands/upgrade.js";
+import { resolveTargetAssistant } from "../lib/upgrade-resolve.js";
 
 /**
  * Run `fn` expecting it to call `process.exit(1)` and emit a `CLI_ERROR:`
