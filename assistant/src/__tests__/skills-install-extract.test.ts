@@ -90,4 +90,19 @@ describe("extractTarToDir", () => {
     expect(existsSync(join(tempDir, "windows.txt"))).toBe(false);
     expect(readFileSync(join(tempDir, "SKILL.md"), "utf-8")).toBe("# demo\n");
   });
+
+  test("does not count nested SKILL.md as a valid skill root", () => {
+    const tar = makeTar([
+      { name: "nested/SKILL.md", content: "# nested\n" },
+      { name: "README.md", content: "# wrapper\n" },
+    ]);
+
+    const foundSkillMd = extractTarToDir(tar, tempDir);
+
+    expect(foundSkillMd).toBe(false);
+    expect(existsSync(join(tempDir, "SKILL.md"))).toBe(false);
+    expect(readFileSync(join(tempDir, "nested", "SKILL.md"), "utf-8")).toBe(
+      "# nested\n",
+    );
+  });
 });

@@ -394,7 +394,7 @@ export class ConfigWatcher {
     if (!existsSync(skillsDir)) return;
 
     const scheduleSkillsReload = (file: string): void => {
-      this.debounceTimers.schedule(`skills:${file}`, () => {
+      this.debounceTimers.schedule("skills:catalog", () => {
         log.info({ file }, "Skill file changed, reloading");
         onConversationEvict();
         onSkillsChanged?.();
