@@ -131,19 +131,6 @@ function indexEntryRegex(id: string): RegExp {
   );
 }
 
-export function upsertSkillsIndexEntry(id: string): void {
-  const lines = readIndexLines();
-  const pattern = indexEntryRegex(id);
-  if (lines.some((line) => pattern.test(line))) {
-    return; // already present
-  }
-  // Append new entry
-  const nonEmpty = lines.filter((l) => l.trim());
-  nonEmpty.push(`- ${id}`);
-  writeIndexLines(nonEmpty);
-  log.info({ id }, "Added managed skill to SKILLS.md index");
-}
-
 export function removeSkillsIndexEntry(id: string): void {
   const lines = readIndexLines();
   const pattern = indexEntryRegex(id);
@@ -200,6 +187,7 @@ interface CreateManagedSkillParams {
   bodyMarkdown: string;
   emoji?: string;
   overwrite?: boolean;
+  /** @deprecated Managed skills are discovered from SKILL.md files. No-op. */
   addToIndex?: boolean;
   includes?: string[];
   version?: string;
@@ -209,6 +197,7 @@ interface CreateManagedSkillParams {
 interface CreateManagedSkillResult {
   created: boolean;
   path: string;
+  /** @deprecated Always false; managed skills are discovered from SKILL.md files. */
   indexUpdated: boolean;
   error?: string;
 }
@@ -285,24 +274,19 @@ export function createManagedSkill(
     "Created managed skill",
   );
 
-  let indexUpdated = false;
-  if (params.addToIndex !== false) {
-    upsertSkillsIndexEntry(params.id);
-    indexUpdated = true;
-  }
-
-  return { created: true, path: skillFilePath, indexUpdated };
+  return { created: true, path: skillFilePath, indexUpdated: false };
 }
 
 interface DeleteManagedSkillResult {
   deleted: boolean;
+  /** @deprecated Always false; managed skills are discovered from SKILL.md files. */
   indexUpdated: boolean;
   error?: string;
 }
 
 export function deleteManagedSkill(
   id: string,
-  removeFromIndex = true,
+  _removeFromIndex = true,
 ): DeleteManagedSkillResult {
   const validationError = validateManagedSkillId(id);
   if (validationError) {
@@ -322,19 +306,5 @@ export function deleteManagedSkill(
   deleteSkillCapabilityNode(id);
   log.info({ id, path: skillDir }, "Deleted managed skill");
 
-  let indexUpdated = false;
-  if (removeFromIndex) {
-    try {
-      removeSkillsIndexEntry(id);
-      indexUpdated = true;
-    } catch (err) {
-      // Best-effort: skill dir is already gone, don't fail the whole delete
-      log.warn(
-        { id, err },
-        "Failed to update skills index after deleting managed skill",
-      );
-    }
-  }
-
-  return { deleted: true, indexUpdated };
+  return { deleted: true, indexUpdated: false };
 }

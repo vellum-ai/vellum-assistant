@@ -87,9 +87,11 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(scaffoldResult.isError).not.toBe(true);
     const scaffoldData = JSON.parse(scaffoldResult.content as string);
     expect(scaffoldData.created).toBe(true);
+    expect(scaffoldData.index_updated).toBe(false);
 
     // Step 2: Verify SKILL.md was written
-    const skillMdPath = join(TEST_DIR, "skills", "lifecycle-test", "SKILL.md");
+    const skillDir = join(TEST_DIR, "skills", "lifecycle-test");
+    const skillMdPath = join(skillDir, "SKILL.md");
     expect(existsSync(skillMdPath)).toBe(true);
     const skillContent = readFileSync(skillMdPath, "utf-8");
     expect(skillContent).toContain('name: "Lifecycle Test"');
@@ -102,6 +104,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(found).toBeDefined();
     expect(found!.name).toBe("Lifecycle Test");
     expect(found!.description).toBe("Integration test skill.");
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
 
     // Step 4: Delete the skill
     const deleteResult = await executeDeleteManagedSkill(
@@ -114,20 +117,15 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(deleteResult.isError).not.toBe(true);
     const deleteData = JSON.parse(deleteResult.content as string);
     expect(deleteData.deleted).toBe(true);
+    expect(deleteData.index_updated).toBe(false);
 
-    // Step 5: Verify skill is gone from filesystem
-    expect(existsSync(skillMdPath)).toBe(false);
+    // Step 5: Verify skill directory is gone from filesystem
+    expect(existsSync(skillDir)).toBe(false);
 
     // Step 6: Verify skill no longer in catalog
     const catalogAfter = loadSkillCatalog();
     expect(catalogAfter.find((s) => s.id === "lifecycle-test")).toBeUndefined();
-
-    // Step 7: Verify SKILLS.md index no longer has the entry
-    const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
-    if (existsSync(indexPath)) {
-      const indexContent = readFileSync(indexPath, "utf-8");
-      expect(indexContent).not.toContain("lifecycle-test");
-    }
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
   });
 
   test("scaffold with overwrite replaces existing skill", async () => {
@@ -166,13 +164,12 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(skillContent).toContain("Updated body.");
     expect(skillContent).not.toContain("Original body.");
 
-    // Index should still have exactly one entry
-    const indexContent = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    const matches = indexContent.match(/overwrite-test/g);
-    expect(matches?.length).toBe(1);
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
+
+    const catalog = loadSkillCatalog();
+    const skill = catalog.find((s) => s.id === "overwrite-test");
+    expect(skill).toBeDefined();
+    expect(skill!.name).toBe("V2");
   });
 
   test("delete non-existent skill returns error", async () => {

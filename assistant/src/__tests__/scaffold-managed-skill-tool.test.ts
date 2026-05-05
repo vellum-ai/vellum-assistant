@@ -11,6 +11,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import { loadSkillCatalog } from "../config/skills.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -31,7 +32,7 @@ afterEach(() => {
 });
 
 describe("scaffold_managed_skill tool", () => {
-  test("creates a valid skill and index entry", async () => {
+  test("creates a valid skill discovered from its SKILL.md directory", async () => {
     const result = await executeScaffoldManagedSkill(
       {
         skill_id: "test-skill",
@@ -46,18 +47,19 @@ describe("scaffold_managed_skill tool", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.created).toBe(true);
     expect(parsed.skill_id).toBe("test-skill");
-    expect(parsed.index_updated).toBe(true);
+    expect(parsed.index_updated).toBe(false);
 
     const skillFile = join(TEST_DIR, "skills", "test-skill", "SKILL.md");
     expect(existsSync(skillFile)).toBe(true);
     const content = readFileSync(skillFile, "utf-8");
     expect(content).toContain('name: "Test Skill"');
 
-    const indexContent = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(indexContent).toContain("- test-skill");
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
+
+    const catalog = loadSkillCatalog();
+    const skill = catalog.find((s) => s.id === "test-skill");
+    expect(skill).toBeDefined();
+    expect(skill!.name).toBe("Test Skill");
   });
 
   test("rejects duplicate unless overwrite=true", async () => {
@@ -258,7 +260,7 @@ describe("scaffold_managed_skill tool", () => {
     expect(result.content).toContain("traversal");
   });
 
-  test("e2e: scaffold child then parent with includes, verify files and index", async () => {
+  test("e2e: scaffold child then parent with includes, verify file discovery", async () => {
     const childResult = await executeScaffoldManagedSkill(
       {
         skill_id: "e2e-child",
@@ -288,11 +290,12 @@ describe("scaffold_managed_skill tool", () => {
     expect(parentContent).toContain("    includes:");
     expect(parentContent).toContain("      - e2e-child");
 
-    const indexContent = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(indexContent).toContain("- e2e-child");
-    expect(indexContent).toContain("- e2e-parent");
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
+
+    const catalog = loadSkillCatalog();
+    expect(catalog.find((s) => s.id === "e2e-child")).toBeDefined();
+    const parent = catalog.find((s) => s.id === "e2e-parent");
+    expect(parent).toBeDefined();
+    expect(parent!.includes).toEqual(["e2e-child"]);
   });
 });
