@@ -79,6 +79,7 @@ function getDeploymentContextDefaults(): Record<string, unknown> {
       "discord-oauth": managed,
       "airtable-oauth": managed,
       "hubspot-oauth": managed,
+      "salesforce-oauth": managed,
     },
   };
 }
