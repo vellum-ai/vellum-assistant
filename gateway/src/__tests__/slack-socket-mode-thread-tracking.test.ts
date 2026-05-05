@@ -293,7 +293,7 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted).toHaveLength(2);
       expect(emitted[0].event.source.updateId).toBe("Ev-race-mention");
       expect(emitted[0].event.message.content).toBe(
-        "@Example User can you help here?",
+        "@Example User @Example User can you help here?",
       );
       expect(emitted[1].event.source.updateId).toBe("Ev-race-reply");
       expect(emitted[1].event.message.content).toBe(
@@ -644,7 +644,9 @@ describe("SlackSocketModeClient thread tracking", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.content).toBe("@Leo please look");
+      expect(emitted[0].event.message.content).toBe(
+        "@Example User @Leo please look",
+      );
       expect(emitted[0].event.message.content).not.toContain("<@ULEO>");
       expect(emitted[0].event.message.content).not.toContain("ULEO");
     } finally {

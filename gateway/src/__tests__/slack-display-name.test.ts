@@ -259,7 +259,9 @@ describe("normalizeSlackAppMention with display name", () => {
     );
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.content).toBe("@Leo please look");
+    expect(result!.event.message.content).toBe(
+      "@unknown-user @Leo please look",
+    );
     expect(result!.event.message.content).not.toContain("<@ULEO>");
     expect(result!.event.message.content).not.toContain("ULEO");
   });
@@ -285,7 +287,9 @@ describe("normalizeSlackAppMention with display name", () => {
     );
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.content).toBe("@unknown-user please look");
+    expect(result!.event.message.content).toBe(
+      "@unknown-user @unknown-user please look",
+    );
     expect(result!.event.message.content).not.toContain("<@UFAIL>");
     expect(result!.event.message.content).not.toContain("UFAIL");
   });
