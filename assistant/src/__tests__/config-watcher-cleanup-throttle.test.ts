@@ -198,10 +198,6 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: async () => {},
 }));
 
-mock.module("../signals/bash.js", () => ({
-  handleBashSignal: () => {},
-}));
-
 mock.module("../signals/cancel.js", () => ({
   handleCancelSignal: () => {},
 }));

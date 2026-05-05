@@ -37,6 +37,7 @@ import { ROUTES as CONVERSATION_QUERY_ROUTES } from "./conversation-query-routes
 import { ROUTES as CONVERSATION_MESSAGE_ROUTES } from "./conversation-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
 import { ROUTES as CREDENTIAL_PROMPT_ROUTES } from "./credential-prompt-routes.js";
+import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
@@ -139,6 +140,7 @@ export const ROUTES: RouteDefinition[] = [
   ...DEFER_ROUTES,
   ...CONVERSATION_QUERY_ROUTES,
   ...CONVERSATION_STARTER_ROUTES,
+  ...DEBUG_BASH_ROUTES,
   ...DEBUG_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,

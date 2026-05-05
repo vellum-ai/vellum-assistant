@@ -17,7 +17,6 @@ import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js"
 import { resetCleanupScheduleThrottle } from "../memory/cleanup-schedule-state.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
 import { initializeProviders } from "../providers/registry.js";
-import { handleBashSignal } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
@@ -345,7 +344,6 @@ export class ConfigWatcher {
       string,
       (filename: string) => void | Promise<void>
     > = {
-      "bash.": handleBashSignal,
       "user-message.": handleUserMessageSignal,
     };
 
