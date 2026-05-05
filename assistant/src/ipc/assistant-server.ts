@@ -32,9 +32,13 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
+import { findLocalGuardianPrincipalId } from "../runtime/local-actor-identity.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/index.js";
-import type { RouteDefinition } from "../runtime/routes/types.js";
+import type {
+  RouteDefinition,
+  RouteHandlerArgs,
+} from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
 import {
   type IpcEnvelope,
@@ -150,7 +154,6 @@ export class AssistantIpcServer {
     this.methods.set("db_proxy", (params) =>
       handleDbProxy(params as unknown as DbProxyParams),
     );
-
   }
 
   /** Start listening on the Unix domain socket. */
@@ -257,7 +260,8 @@ export class AssistantIpcServer {
     void binary;
 
     try {
-      const result = handler(req.params ?? {});
+      const handlerArgs = injectLocalActorHeader(req.params);
+      const result = handler(handlerArgs);
 
       if (result instanceof Promise) {
         result
@@ -455,3 +459,52 @@ export class AssistantIpcServer {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Inject a synthetic `x-vellum-actor-principal-id` header from the local
+ * guardian principal when the caller hasn't already provided one.
+ *
+ * Local IPC is intra-process and owned by the same user as the daemon, so
+ * routes that consume `headers["x-vellum-actor-principal-id"]` (e.g. the
+ * same-user filter on `GET /v1/clients`) need an actor identity to function
+ * over IPC. The HTTP adapter does this from the verified `AuthContext`
+ * (`http-adapter.ts`); this helper mirrors that convention for IPC.
+ *
+ * Existing headers from the caller (e.g. the gateway's IPC runtime proxy,
+ * which forwards real `x-vellum-*` headers from the authenticated HTTP
+ * request) are preserved — we only fill in the gap for direct CLI/local
+ * IPC callers.
+ */
+function injectLocalActorHeader(
+  params: Record<string, unknown> | undefined,
+): RouteHandlerArgs {
+  const args = (params ?? {}) as RouteHandlerArgs;
+  const existingHeaders = args.headers;
+  if (existingHeaders?.["x-vellum-actor-principal-id"]) {
+    return args;
+  }
+
+  // Defensive: the guardian lookup queries the contacts table, which may
+  // not yet exist on a very early boot path or in test fixtures that don't
+  // initialize the DB. A failure here must not block IPC dispatch — routes
+  // that require the header will fail-closed on their own.
+  let localActor: string | undefined;
+  try {
+    localActor = findLocalGuardianPrincipalId();
+  } catch (err) {
+    log.debug(
+      { err },
+      "failed to resolve local actor principal for IPC header injection",
+    );
+    return args;
+  }
+  if (!localActor) return args;
+
+  return {
+    ...args,
+    headers: {
+      ...existingHeaders,
+      "x-vellum-actor-principal-id": localActor,
+    },
+  };
+}
