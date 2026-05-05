@@ -28,7 +28,6 @@ import {
   DEFAULT_MEMORY_GRAPH_KIND,
   type DefaultMemoryRetrievalDeps,
   defaultMemoryRetrievalPlugin,
-  readStaticMemoryResult,
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
@@ -281,16 +280,6 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
     // plugin supplied a block without the default discriminator — this is
     // what drives the agent-loop escape hatch.
     expect(asDefaultGraphPayload(result.memoryGraphBlocks)).toBeNull();
-  });
-
-  test("static fallback preserves PKB and NOW without graph blocks", () => {
-    const result = readStaticMemoryResult();
-
-    expect(result).toEqual({
-      pkbContent: "pkb-default",
-      nowContent: "now-default",
-      memoryGraphBlocks: [],
-    });
   });
 
   test("timeout: terminal that hangs past the budget fails with PluginTimeoutError", async () => {

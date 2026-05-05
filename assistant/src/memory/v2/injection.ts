@@ -81,7 +81,6 @@ export interface InjectMemoryV2BlockParams {
    */
   mode?: InjectMemoryV2Mode;
   config: AssistantConfig;
-  signal?: AbortSignal;
 }
 
 export interface InjectMemoryV2BlockResult {
@@ -125,7 +124,6 @@ export async function injectMemoryV2Block(
     nowText,
     messageId,
     config,
-    signal,
   } = params;
 
   const workspaceDir = getWorkspaceDir();
@@ -147,7 +145,6 @@ export async function injectMemoryV2Block(
     assistantText: assistantMessage,
     nowText,
     config,
-    signal,
   });
 
   // (4) Own activation: A_o = d·prev + c_user·sim_u + c_a·sim_a + c_now·sim_n.
@@ -159,7 +156,6 @@ export async function injectMemoryV2Block(
       assistantText: assistantMessage,
       nowText,
       config,
-      signal,
     });
 
   // (5) Spreading activation across the edge graph (k, hops from config).

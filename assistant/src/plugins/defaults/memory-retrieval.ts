@@ -93,18 +93,6 @@ export interface DefaultMemoryRetrievalDeps {
 }
 
 /**
- * Read only the cheap static memory sources. Used as the graceful fallback
- * when graph retrieval exceeds the turn budget.
- */
-export function readStaticMemoryResult(): MemoryResult {
-  return {
-    pkbContent: readPkbContext(),
-    nowContent: readNowScratchpad(),
-    memoryGraphBlocks: [],
-  };
-}
-
-/**
  * Run the default retrieval. Always returns a {@link MemoryResult}; skips
  * the memory-graph call entirely when the actor is not trusted (matches the
  * prior agent-loop gate).
@@ -120,12 +108,17 @@ export async function runDefaultMemoryRetrieval(
 ): Promise<MemoryResult> {
   // NOW.md and PKB are read unconditionally — the agent loop decides
   // whether to inject them based on first-turn / post-compaction gating.
-  const staticResult = readStaticMemoryResult();
+  const pkbContent = readPkbContext();
+  const nowContent = readNowScratchpad();
 
   if (!deps.isTrustedActor) {
     // Untrusted actors skip memory-graph retrieval entirely — preserves the
     // pre-plugin gate that lived inline in `conversation-agent-loop.ts`.
-    return staticResult;
+    return {
+      pkbContent,
+      nowContent,
+      memoryGraphBlocks: [],
+    };
   }
 
   const graphResult = await deps.graphMemory.prepareMemory(
@@ -141,8 +134,8 @@ export async function runDefaultMemoryRetrieval(
   };
 
   return {
-    pkbContent: staticResult.pkbContent,
-    nowContent: staticResult.nowContent,
+    pkbContent,
+    nowContent,
     memoryGraphBlocks: [payload],
   };
 }
