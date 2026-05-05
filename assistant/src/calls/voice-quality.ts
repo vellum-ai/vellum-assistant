@@ -15,16 +15,37 @@ export interface VoiceQualityProfile {
   hints: string[];
 }
 
+const TWILIO_ELEVENLABS_MODEL_ID_ALIASES: Record<string, string> = {
+  flash_v2: "flash_v2",
+  flash_v2_5: "flash_v2_5",
+  turbo_v2: "turbo_v2",
+  turbo_v2_5: "turbo_v2_5",
+  eleven_flash_v2: "flash_v2",
+  eleven_flash_v2_5: "flash_v2_5",
+  eleven_turbo_v2: "turbo_v2",
+  eleven_turbo_v2_5: "turbo_v2_5",
+};
+
+function resolveTwilioElevenLabsModelId(
+  voiceModelId: string | undefined,
+): string | undefined {
+  const trimmed = voiceModelId?.trim();
+  if (!trimmed) return undefined;
+  return TWILIO_ELEVENLABS_MODEL_ID_ALIASES[trimmed];
+}
+
 /**
  * Build a Twilio-compatible ElevenLabs voice string.
  *
  * Twilio ConversationRelay accepts:
  *   - bare voiceId
+ *   - voiceId-speed_stability_similarity
  *   - voiceId-model-speed_stability_similarity
  *
- * We default to bare voiceId unless a model is explicitly configured.
- * This avoids forcing model/tuning suffixes that may be rejected for some
- * voice + model combinations.
+ * The in-app ElevenLabs provider uses ElevenLabs REST model IDs such as
+ * `eleven_turbo_v2_5`; ConversationRelay expects the shorter model suffixes
+ * documented by Twilio. Unknown model IDs are omitted so Twilio can fall back
+ * to its default ElevenLabs model instead of rejecting the call setup.
  *
  * See: https://www.twilio.com/docs/voice/conversationrelay/voice-configuration
  */
@@ -44,7 +65,10 @@ export function buildElevenLabsVoiceSpec(config: {
   const speed = config.speed ?? 1.0;
   const stability = config.stability ?? 0.5;
   const similarityBoost = config.similarityBoost ?? 0.75;
-  return `${voiceId}-${voiceModelId}-${speed}_${stability}_${similarityBoost}`;
+  const tuning = `${speed}_${stability}_${similarityBoost}`;
+  const twilioModelId = resolveTwilioElevenLabsModelId(voiceModelId);
+  if (!twilioModelId) return `${voiceId}-${tuning}`;
+  return `${voiceId}-${twilioModelId}-${tuning}`;
 }
 
 /**

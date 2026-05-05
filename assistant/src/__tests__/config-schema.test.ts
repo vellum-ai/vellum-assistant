@@ -1585,7 +1585,7 @@ describe("buildElevenLabsVoiceSpec", () => {
     expect(spec).toBe("");
   });
 
-  test("formats custom parameters correctly", () => {
+  test("omits unsupported model IDs while keeping custom tuning values", () => {
     const spec = buildElevenLabsVoiceSpec({
       voiceId: "myVoice",
       voiceModelId: "eleven_multilingual_v2",
@@ -1593,7 +1593,18 @@ describe("buildElevenLabsVoiceSpec", () => {
       stability: 0.8,
       similarityBoost: 0.9,
     });
-    expect(spec).toBe("myVoice-eleven_multilingual_v2-0.9_0.8_0.9");
+    expect(spec).toBe("myVoice-0.9_0.8_0.9");
+  });
+
+  test("maps ElevenLabs REST model IDs to Twilio ConversationRelay model IDs", () => {
+    const spec = buildElevenLabsVoiceSpec({
+      voiceId: "myVoice",
+      voiceModelId: "eleven_turbo_v2_5",
+      speed: 0.9,
+      stability: 0.8,
+      similarityBoost: 0.9,
+    });
+    expect(spec).toBe("myVoice-turbo_v2_5-0.9_0.8_0.9");
   });
 
   test("default config uses a bare voiceId when no model override is set", () => {
