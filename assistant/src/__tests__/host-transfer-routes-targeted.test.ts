@@ -47,6 +47,11 @@ mock.module("../daemon/host-transfer-proxy.js", () => ({
         getTargetClientIdForTransfer(_transferId: string) {
           return stubTargetClientId;
         },
+        getTargetActorPrincipalIdForTransfer(_transferId: string) {
+          return stubTargetClientId
+            ? clientActors.get(stubTargetClientId)
+            : undefined;
+        },
         getTransferContent(transferId: string) {
           getTransferContentCalls.push(transferId);
           return {
@@ -109,10 +114,19 @@ const TEST_TRANSFER_ID = "transfer-abc";
 const TEST_REQUEST_ID = "req-1";
 
 function registerPending(overrides: Partial<PendingInteraction> = {}): void {
+  // Mirror the production proxy: capture the target's actor principal at
+  // registration time so the result-route check compares against a stable
+  // value rather than the live hub.
+  const targetActorPrincipalId =
+    overrides.targetActorPrincipalId ??
+    (overrides.targetClientId
+      ? clientActors.get(overrides.targetClientId)
+      : undefined);
   pendingStore.set(TEST_REQUEST_ID, {
     conversationId: "conv-1",
     kind: "host_transfer",
     ...overrides,
+    targetActorPrincipalId,
   });
 }
 
@@ -472,8 +486,8 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
 
   describe("targeted + correct x-vellum-client-id header", () => {
     test("returns { accepted: true } and calls resolveTransferResult", async () => {
-      registerHostTransferPending("client-A");
       clientActors.set("client-A", "actor-1");
+      registerHostTransferPending("client-A");
       const result = await handleTransferResult({
         body: resultBody(),
         headers: {
@@ -487,8 +501,8 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
     });
 
     test("trims whitespace from header before comparing", async () => {
-      registerHostTransferPending("client-A");
       clientActors.set("client-A", "actor-1");
+      registerHostTransferPending("client-A");
       const result = await handleTransferResult({
         body: resultBody(),
         headers: {

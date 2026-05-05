@@ -36,6 +36,13 @@ interface TransferEntry {
   sha256?: string;
   fileBuffer?: Buffer;
   targetClientId?: string;
+  /**
+   * Snapshot of `targetClientId`'s `actorPrincipalId` taken at registration
+   * time. Persisted so the GET/PUT content routes compare against a stable
+   * value rather than the live hub — the target client's SSE subscription
+   * may briefly disconnect between dispatch and content fetch/upload.
+   */
+  targetActorPrincipalId?: string;
 }
 
 /**
@@ -248,12 +255,24 @@ export class HostTransferProxy {
             sha256,
             fileBuffer,
             targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId:
+              resolvedTargetClientId != null
+                ? assistantEventHub.getActorPrincipalIdForClient(
+                    resolvedTargetClientId,
+                  )
+                : undefined,
           });
 
           pendingInteractions.register(requestId, {
             conversationId: input.conversationId,
             kind: "host_transfer",
             targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId:
+              resolvedTargetClientId != null
+                ? assistantEventHub.getActorPrincipalIdForClient(
+                    resolvedTargetClientId,
+                  )
+                : undefined,
             rpcResolve: resolve,
             rpcReject: reject,
             timer,
@@ -425,12 +444,24 @@ export class HostTransferProxy {
         filePath: input.destPath,
         overwrite: input.overwrite,
         targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
       });
 
       pendingInteractions.register(requestId, {
         conversationId: input.conversationId,
         kind: "host_transfer",
         targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
         rpcResolve: resolve,
         rpcReject: reject,
         timer,
@@ -672,6 +703,15 @@ export class HostTransferProxy {
    */
   getTargetClientIdForTransfer(transferId: string): string | null {
     return this.transfers.get(transferId)?.targetClientId ?? null;
+  }
+
+  /**
+   * Look up the persisted `targetActorPrincipalId` for a given transferId
+   * without consuming the entry. Routes call this for the same-actor
+   * binding check so it's stable across brief SSE reconnects.
+   */
+  getTargetActorPrincipalIdForTransfer(transferId: string): string | undefined {
+    return this.transfers.get(transferId)?.targetActorPrincipalId;
   }
 
   dispose(): void {

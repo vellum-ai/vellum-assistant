@@ -102,10 +102,19 @@ function registerPending(
   requestId: string,
   overrides: Partial<PendingInteraction> = {},
 ): void {
+  // Mirror the production proxy behavior: capture the target's actor
+  // principal at registration time so the result-route check compares
+  // against the persisted value rather than a live hub lookup.
+  const targetActorPrincipalId =
+    overrides.targetActorPrincipalId ??
+    (overrides.targetClientId
+      ? clientActorPrincipals.get(overrides.targetClientId)
+      : undefined);
   pendingStore.set(requestId, {
     conversationId: "conv-1",
     kind: "host_bash",
     ...overrides,
+    targetActorPrincipalId,
   });
 }
 
@@ -163,8 +172,8 @@ describe("handleHostBashResult", () => {
   describe("targeted request (targetClientId set)", () => {
     test("accepts when x-vellum-client-id matches targetClientId", async () => {
       const requestId = "req-targeted-match";
-      registerPending(requestId, { targetClientId: "client-abc" });
       clientActorPrincipals.set("client-abc", "principal-1");
+      registerPending(requestId, { targetClientId: "client-abc" });
 
       const result = await handleHostBashResult({
         body: bashBody(requestId),
@@ -182,8 +191,8 @@ describe("handleHostBashResult", () => {
 
     test("trims whitespace from x-vellum-client-id before comparing", async () => {
       const requestId = "req-targeted-trim";
-      registerPending(requestId, { targetClientId: "client-abc" });
       clientActorPrincipals.set("client-abc", "principal-1");
+      registerPending(requestId, { targetClientId: "client-abc" });
 
       const result = await handleHostBashResult({
         body: bashBody(requestId),
@@ -202,8 +211,8 @@ describe("handleHostBashResult", () => {
   describe("targeted request — actor principal binding", () => {
     test("accepts when submitting actor matches target client's actor", async () => {
       const requestId = "req-actor-match";
-      registerPending(requestId, { targetClientId: "client-abc" });
       clientActorPrincipals.set("client-abc", "principal-shared");
+      registerPending(requestId, { targetClientId: "client-abc" });
 
       const result = await handleHostBashResult({
         body: bashBody(requestId),
@@ -220,8 +229,8 @@ describe("handleHostBashResult", () => {
 
     test("throws ForbiddenError (403) when submitting actor does not match target client's actor", () => {
       const requestId = "req-actor-mismatch";
-      registerPending(requestId, { targetClientId: "client-abc" });
       clientActorPrincipals.set("client-abc", "principal-victim");
+      registerPending(requestId, { targetClientId: "client-abc" });
 
       expect(() =>
         handleHostBashResult({
@@ -236,8 +245,8 @@ describe("handleHostBashResult", () => {
 
     test("interaction is NOT resolved on cross-actor 403 (still pending)", () => {
       const requestId = "req-actor-mismatch-stays";
-      registerPending(requestId, { targetClientId: "client-abc" });
       clientActorPrincipals.set("client-abc", "principal-victim");
+      registerPending(requestId, { targetClientId: "client-abc" });
 
       try {
         handleHostBashResult({
@@ -257,8 +266,8 @@ describe("handleHostBashResult", () => {
 
     test("throws ForbiddenError (403) when x-vellum-actor-principal-id header is missing entirely", () => {
       const requestId = "req-actor-missing";
-      registerPending(requestId, { targetClientId: "client-abc" });
       clientActorPrincipals.set("client-abc", "principal-victim");
+      registerPending(requestId, { targetClientId: "client-abc" });
 
       expect(() =>
         handleHostBashResult({
@@ -270,8 +279,8 @@ describe("handleHostBashResult", () => {
 
     test("interaction is NOT resolved when submitting actor is missing (still pending)", () => {
       const requestId = "req-actor-missing-stays";
-      registerPending(requestId, { targetClientId: "client-abc" });
       clientActorPrincipals.set("client-abc", "principal-victim");
+      registerPending(requestId, { targetClientId: "client-abc" });
 
       try {
         handleHostBashResult({

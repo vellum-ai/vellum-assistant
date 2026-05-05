@@ -180,6 +180,12 @@ export class HostFileProxy {
         conversationId,
         kind: "host_file",
         targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
         rpcResolve: resolve,
         rpcReject: reject,
         timer,

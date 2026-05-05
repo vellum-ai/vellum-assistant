@@ -94,10 +94,16 @@ function registerPending(
   requestId: string,
   overrides: Partial<PendingInteraction> = {},
 ): void {
+  const targetActorPrincipalId =
+    overrides.targetActorPrincipalId ??
+    (overrides.targetClientId
+      ? clientActors.get(overrides.targetClientId)
+      : undefined);
   pendingStore.set(requestId, {
     conversationId: "conv-1",
     kind: "host_file",
     ...overrides,
+    targetActorPrincipalId,
   });
 }
 
@@ -124,8 +130,8 @@ describe("handleHostFileResult — targetClientId guard", () => {
   describe("targeted + correct x-vellum-client-id header", () => {
     test("returns { accepted: true } and resolves the interaction", async () => {
       const requestId = "req-file-targeted-match";
-      registerPending(requestId, { targetClientId: "client-A" });
       clientActors.set("client-A", "actor-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       const result = await handleHostFileResult({
         body: fileBody(requestId),
@@ -143,8 +149,8 @@ describe("handleHostFileResult — targetClientId guard", () => {
 
     test("trims whitespace from header before comparing", async () => {
       const requestId = "req-file-targeted-trim";
-      registerPending(requestId, { targetClientId: "client-A" });
       clientActors.set("client-A", "actor-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       const result = await handleHostFileResult({
         body: fileBody(requestId),
@@ -285,8 +291,8 @@ describe("handleHostFileResult — targetClientId guard", () => {
   describe("targeted + actor principal mismatch", () => {
     test("throws ForbiddenError (403) when submitting actor does not match target client's actor", () => {
       const requestId = "req-file-actor-mismatch";
-      registerPending(requestId, { targetClientId: "client-A" });
       clientActors.set("client-A", "actor-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       expect(() =>
         handleHostFileResult({
@@ -301,8 +307,8 @@ describe("handleHostFileResult — targetClientId guard", () => {
 
     test("interaction is NOT consumed on actor-mismatch 403", () => {
       const requestId = "req-file-actor-mismatch-stays";
-      registerPending(requestId, { targetClientId: "client-A" });
       clientActors.set("client-A", "actor-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       try {
         handleHostFileResult({
@@ -326,8 +332,8 @@ describe("handleHostFileResult — targetClientId guard", () => {
   describe("targeted + missing x-vellum-actor-principal-id header", () => {
     test("throws ForbiddenError (403) when submitting actor header is absent", () => {
       const requestId = "req-file-actor-missing";
-      registerPending(requestId, { targetClientId: "client-A" });
       clientActors.set("client-A", "actor-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       expect(() =>
         handleHostFileResult({
@@ -339,8 +345,8 @@ describe("handleHostFileResult — targetClientId guard", () => {
 
     test("throws ForbiddenError (403) when submitting actor header is empty string", () => {
       const requestId = "req-file-actor-empty";
-      registerPending(requestId, { targetClientId: "client-A" });
       clientActors.set("client-A", "actor-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       expect(() =>
         handleHostFileResult({
@@ -355,8 +361,8 @@ describe("handleHostFileResult — targetClientId guard", () => {
 
     test("interaction is NOT consumed when submitting actor is missing", () => {
       const requestId = "req-file-actor-missing-stays";
-      registerPending(requestId, { targetClientId: "client-A" });
       clientActors.set("client-A", "actor-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       try {
         handleHostFileResult({
