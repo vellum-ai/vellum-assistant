@@ -86,6 +86,22 @@ export function resolveLocalTrustContext(
 }
 
 /**
+ * Resolve the local guardian's `actorPrincipalId` from the vellum channel
+ * binding, when available.
+ *
+ * Returns `undefined` when no vellum guardian binding exists (e.g. fresh
+ * install before bootstrap). Callers that need an `AuthContext` shape
+ * should use `resolveLocalAuthContext`; callers that only need the
+ * principal id (e.g. the IPC adapter populating the
+ * `x-vellum-actor-principal-id` header for shared route handlers) can
+ * use this directly.
+ */
+export function resolveLocalActorPrincipalId(): string | undefined {
+  const guardianResult = findGuardianForChannel("vellum");
+  return guardianResult?.contact.principalId ?? undefined;
+}
+
+/**
  * Build an AuthContext for a local connection.
  *
  * Produces the same AuthContext shape that HTTP routes receive from JWT
@@ -97,13 +113,9 @@ export function resolveLocalTrustContext(
 export function resolveLocalAuthContext(conversationId: string): AuthContext {
   const authContext = buildLocalAuthContext(conversationId);
 
-  // Enrich with the guardian principal ID from contacts-first path
-  const guardianResult = findGuardianForChannel("vellum");
-  if (guardianResult && guardianResult.contact.principalId) {
-    return {
-      ...authContext,
-      actorPrincipalId: guardianResult.contact.principalId,
-    };
+  const actorPrincipalId = resolveLocalActorPrincipalId();
+  if (actorPrincipalId) {
+    return { ...authContext, actorPrincipalId };
   }
 
   log.warn(
