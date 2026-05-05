@@ -1130,6 +1130,10 @@ if [ "$NEEDS_REBUILD" = true ]; then
         echo "Bundling assistant CLI binary..."
         cp "$ASSISTANT_CLI_BIN" "$MACOS_DIR/vellum-assistant"
         chmod +x "$MACOS_DIR/vellum-assistant"
+        # Create an 'assistant' symlink so `which assistant` inside any subprocess
+        # spawned by the app resolves to the bundled binary rather than a
+        # globally installed version (e.g. ~/.bun/bin/assistant).
+        ln -sf "vellum-assistant" "$MACOS_DIR/assistant"
     else
         echo "No assistant CLI binary at $ASSISTANT_CLI_BIN — skipping (dev mode)"
     fi

@@ -120,9 +120,15 @@ final class VellumCli: AssistantManagementClient {
     /// consent dialog.
     nonisolated private static func makeBaseEnvironment() -> [String: String] {
         let fullEnv = ProcessInfo.processInfo.environment
+        let systemPath = fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        // Prepend the bundle's MacOS directory so `which assistant` inside any
+        // subprocess resolves to the bundled binary (via the 'assistant' symlink
+        // created by build.sh) rather than a globally installed version.
+        let macOSDir = Bundle.main.executableURL?.deletingLastPathComponent().path
+        let resolvedPath = macOSDir.map { "\($0):\(systemPath)" } ?? systemPath
         var env: [String: String] = [
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
-            "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "PATH": resolvedPath,
             "VELLUM_DESKTOP_APP": "1",
         ]
         for key in forwardedEnvKeys {
