@@ -1064,6 +1064,46 @@ describe("assistant oauth connect", () => {
       expect(statusCallCount).toBeGreaterThanOrEqual(2);
     });
 
+    test("IPC success path with --json: stdout does NOT contain 'Waiting for authorization' text", async () => {
+      // Regression guard for P1: the browser-wait log.info must be suppressed in JSON mode
+      // so that machine consumers parsing stdout as JSON don't see corrupted non-JSON output.
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=json-mode-state",
+              state: "json-mode-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          return {
+            ok: true,
+            result: {
+              status: "complete",
+              service: "google",
+              account_info: "user@example.com",
+            },
+          };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      // stdout must be valid JSON — no plain-text lines mixed in
+      expect(() => JSON.parse(stdout)).not.toThrow();
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      // The suppressed log line must not appear anywhere in stdout
+      expect(stdout).not.toContain("Waiting for authorization");
+    });
+
     test("IPC start with --callback-transport=gateway passes callbackTransport in body", async () => {
       let capturedParams: Record<string, unknown> | undefined;
       mockCliIpcCallFn = async (method, params) => {

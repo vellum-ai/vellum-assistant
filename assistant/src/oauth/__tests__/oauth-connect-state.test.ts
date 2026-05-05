@@ -109,4 +109,29 @@ describe("oauth-connect-state", () => {
     clearExpiredOAuthConnectStates(); // called without advancing time
     expect(getOAuthConnectState("state-1")).not.toBeNull();
   });
+
+  test("sweep-on-insert: setOAuthConnectPending purges expired entries before inserting new one", () => {
+    // 1. Add an entry that will expire
+    setOAuthConnectPending("expired-state", "google");
+
+    // 2. Advance Date.now past the PENDING_TTL_MS (5 min)
+    const originalNow = Date.now;
+    Date.now = () => originalNow() + 6 * 60 * 1000;
+
+    // 3. Insert a new entry — this should trigger clearExpiredOAuthConnectStates() internally
+    setOAuthConnectPending("new-state", "github");
+
+    // 4. Restore Date.now before assertions (getOAuthConnectState also calls clearExpiredOAuthConnectStates)
+    Date.now = originalNow;
+
+    // The expired entry must have been swept out during the insert
+    // Use the map directly via getOAuthConnectState — expired-state is gone
+    // We call _clearAllOAuthConnectStates in beforeEach so we know the map started empty.
+    // After the insert the map should only contain "new-state".
+    const expiredResult = getOAuthConnectState("expired-state");
+    expect(expiredResult).toBeNull();
+
+    const newResult = getOAuthConnectState("new-state");
+    expect(newResult).toMatchObject({ status: "pending", service: "github" });
+  });
 });

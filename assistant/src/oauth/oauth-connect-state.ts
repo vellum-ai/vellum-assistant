@@ -15,6 +15,7 @@ const PENDING_TTL_MS = 5 * 60 * 1000; // 5 min — matches oauth-callback-regist
 const COMPLETION_GRACE_MS = 60 * 1000; // 60s so the polling CLI gets one final read
 
 export function setOAuthConnectPending(state: string, service: string): void {
+  clearExpiredOAuthConnectStates();
   activeOAuthConnectFlows.set(state, {
     status: "pending",
     service,
@@ -28,6 +29,7 @@ export function setOAuthConnectComplete(
   accountInfo?: string,
   grantedScopes?: string[],
 ): void {
+  clearExpiredOAuthConnectStates();
   activeOAuthConnectFlows.set(state, {
     status: "complete",
     service,
@@ -42,6 +44,7 @@ export function setOAuthConnectError(
   service: string,
   error: string,
 ): void {
+  clearExpiredOAuthConnectStates();
   activeOAuthConnectFlows.set(state, {
     status: "error",
     service,
