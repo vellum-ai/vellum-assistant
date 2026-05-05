@@ -1459,6 +1459,7 @@ jobs:
 
       - name: Build binaries
         run: |
+          VELLUM_ENVIRONMENT="${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}" \
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
           ./build.sh binaries
