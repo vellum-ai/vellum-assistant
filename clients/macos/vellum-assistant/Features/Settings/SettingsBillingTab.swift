@@ -8,6 +8,9 @@ struct SettingsBillingTab: View {
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
 
     @State private var summary: BillingSummaryResponse?
+    @State private var subscription: SubscriptionResponse?
+    @State private var plans: [PlanCatalogEntry]?
+    @State private var planError: String?
     @State private var isLoading: Bool = true
     @State private var error: String?
     @State private var selectedAmount: String = ""
@@ -24,6 +27,10 @@ struct SettingsBillingTab: View {
         assistantFeatureFlagStore.isEnabled("pro-plan-adjust")
     }
 
+    var isAutoCreditTopUpEnabled: Bool {
+        assistantFeatureFlagStore.isEnabled("auto-credit-topup")
+    }
+
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
@@ -31,10 +38,10 @@ struct SettingsBillingTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            balanceCard
             if isProPlanAdjustEnabled {
-                adjustPlanCard
+                planSection
             }
+            balanceCard
             if isLoading {
                 addFundsSkeleton
             } else if !topUpAmounts.isEmpty {
@@ -169,16 +176,51 @@ struct SettingsBillingTab: View {
         }
     }
 
-    // MARK: - Adjust Plan Card
+    // MARK: - Plan Section
 
-    private var adjustPlanCard: some View {
-        SettingsCard(title: "Adjust Plan") {
-            VButton(
-                label: "Adjust Plan",
-                style: .primary
-            ) {
-                NSWorkspace.shared.open(AppURLs.billingSettings)
-            }
+    /// Resolved subtitle line shown beneath the `PlanCard` for Pro subscriptions.
+    /// Exposed for testability — see `PlanCardTests.testCancellingSubscriptionRendersCancelLine`.
+    /// Returns `nil` when nothing should render below the card (loading, base
+    /// plan, etc.).
+    enum PlanRenewalLine: Equatable {
+        case renews(String)
+        case cancels(String)
+    }
+
+    var planRenewalLine: PlanRenewalLine? {
+        guard let sub = subscription, sub.plan_id == "pro" else { return nil }
+        if !sub.cancel_at_period_end, let renewalISO = sub.current_period_end {
+            return .renews(formatRenewalDate(renewalISO))
+        }
+        if sub.cancel_at_period_end, let cancelISO = sub.cancel_at ?? sub.current_period_end {
+            return .cancels(formatRenewalDate(cancelISO))
+        }
+        return nil
+    }
+
+    /// Renders the new rich `PlanCard` plus a renewal-or-cancel subtitle line for
+    /// Pro subscriptions. The subtitle lives in the parent so `PlanCard` stays a
+    /// pure presentational view over its props.
+    @ViewBuilder
+    private var planSection: some View {
+        PlanCard(
+            subscription: subscription,
+            plans: plans,
+            isLoading: subscription == nil && planError == nil,
+            error: planError,
+            onManage: { NSWorkspace.shared.open(AppURLs.billingSettings) }
+        )
+        switch planRenewalLine {
+        case let .renews(date):
+            Text("Renews on \(date).")
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentTertiary)
+        case let .cancels(date):
+            Text("Cancels on \(date).")
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.systemMidStrong)
+        case .none:
+            EmptyView()
         }
     }
 
@@ -269,7 +311,7 @@ struct SettingsBillingTab: View {
                 ) {
                     Task { await handleTopUp() }
                 }
-                if isProPlanAdjustEnabled {
+                if isAutoCreditTopUpEnabled {
                     VButton(
                         label: "Configure Auto Top Ups",
                         style: .outlined
@@ -332,19 +374,58 @@ struct SettingsBillingTab: View {
             isLoading = true
         }
         error = nil
+        planError = nil
+
+        // Always refresh the billing summary. When `pro-plan-adjust` is on we
+        // also fetch the subscription + plan catalog in parallel; while the flag
+        // is off those endpoints aren't called so users on the legacy billing
+        // tab don't pay for unused requests. Each fetch has its own `do/catch`
+        // so a flaky `/subscription/` call still lets the balance card render
+        // (and vice versa).
+        async let summaryTask = BillingService.shared.getBillingSummary()
+        if isProPlanAdjustEnabled {
+            async let subscriptionTask = BillingService.shared.getSubscription()
+            async let plansTask = BillingService.shared.getPlanCatalog()
+
+            do {
+                subscription = try await subscriptionTask
+                let catalog = try await plansTask
+                plans = catalog.plans
+            } catch {
+                if subscription == nil {
+                    planError = "Unable to load plan information."
+                }
+            }
+        }
+
         do {
-            var result = try await BillingService.shared.getBillingSummary()
+            var result = try await summaryTask
             if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: result) {
                 result = bootstrapped
             }
             summary = result
         } catch {
-            // Only show error if we have no cached data to display
             if summary == nil {
                 self.error = "Unable to load billing information. Please try again."
             }
         }
+
         isLoading = false
+    }
+
+    /// Formats an ISO 8601 timestamp as a long-style locale date (e.g.
+    /// `April 1, 2026`). Mirrors `formatGraceDate` in
+    /// `web/src/lib/billing/use-billing-portal-session.ts` so the macOS and web
+    /// surfaces render the same string for a given subscription. Falls back to
+    /// the raw ISO string if parsing fails so the user still sees something.
+    private func formatRenewalDate(_ iso: String) -> String {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime]
+        guard let date = parser.date(from: iso) else { return iso }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 
     private func handleTopUp() async {
@@ -378,17 +459,21 @@ struct SettingsBillingTab: View {
 // MARK: - Test Support
 
 extension SettingsBillingTab {
-    /// Test-only convenience initializer that pre-populates the `summary` `@State`
-    /// without going through the `loadSummary()` async path. Used by
-    /// `SettingsBillingTabSubtitleTests` to exercise `addCreditsSubtitleAttributed`
-    /// against a known billing summary fixture.
+    /// Test-only convenience initializer that pre-populates the `summary`,
+    /// `subscription`, and `plans` `@State` values without going through the
+    /// `loadSummary()` async path. Used by `SettingsBillingTabSubtitleTests`
+    /// and `PlanCardTests` to exercise the rendered output against known fixtures.
     init(
         authManager: AuthManager,
         assistantFeatureFlagStore: AssistantFeatureFlagStore,
-        initialSummary: BillingSummaryResponse?
+        initialSummary: BillingSummaryResponse?,
+        initialSubscription: SubscriptionResponse? = nil,
+        initialPlans: [PlanCatalogEntry]? = nil
     ) {
         self.authManager = authManager
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self._summary = State(initialValue: initialSummary)
+        self._subscription = State(initialValue: initialSubscription)
+        self._plans = State(initialValue: initialPlans)
     }
 }
