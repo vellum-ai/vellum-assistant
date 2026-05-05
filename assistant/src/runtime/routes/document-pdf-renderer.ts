@@ -146,8 +146,12 @@ export async function renderMarkdownToPDF(
   const pw = await importPlaywright();
   const browser = await pw.chromium.launch({ headless: true });
   try {
-    const page = await browser.newPage();
-    await page.setContent(fullHtml, { waitUntil: "networkidle" });
+    const context = await browser.newContext({
+      javaScriptEnabled: false,
+    });
+    const page = await context.newPage();
+    await page.route("**/*", (route) => route.abort());
+    await page.setContent(fullHtml, { waitUntil: "domcontentloaded" });
     const pdfBuffer = await page.pdf({
       format: "A4",
       margin: {
@@ -158,6 +162,7 @@ export async function renderMarkdownToPDF(
       },
       printBackground: true,
     });
+    await context.close();
     return Buffer.from(pdfBuffer);
   } finally {
     await browser.close();
