@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   existsSync,
   mkdtempSync,
@@ -11,9 +11,11 @@ import { join } from "node:path";
 
 import {
   clearPlatformToken,
+  fetchAssistantByIdFromPlatform,
   getPlatformUrl,
   readPlatformToken,
   savePlatformToken,
+  type HatchedAssistant,
 } from "../lib/platform-client.js";
 
 describe("platform-client token path is env-scoped", () => {
@@ -200,5 +202,123 @@ describe("getPlatformUrl resolution order", () => {
   test("trims whitespace from VELLUM_PLATFORM_URL", () => {
     process.env.VELLUM_PLATFORM_URL = "  https://trimmed.vellum.ai  ";
     expect(getPlatformUrl()).toBe("https://trimmed.vellum.ai");
+  });
+});
+
+describe("fetchAssistantByIdFromPlatform", () => {
+  interface CapturedCall {
+    url: string;
+    method: string;
+    headers: Record<string, string>;
+    body: unknown;
+  }
+
+  function captureFetch(
+    responder: (call: CapturedCall) => Response | Promise<Response>,
+  ): {
+    calls: CapturedCall[];
+    fetchMock: typeof globalThis.fetch;
+  } {
+    const calls: CapturedCall[] = [];
+    const fetchMock = mock(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = typeof url === "string" ? url : url.toString();
+        const rawHeaders = (init?.headers ?? {}) as
+          | Record<string, string>
+          | Headers;
+        const headers: Record<string, string> = {};
+        if (rawHeaders instanceof Headers) {
+          rawHeaders.forEach((v, k) => {
+            headers[k] = v;
+          });
+        } else {
+          Object.assign(headers, rawHeaders);
+        }
+        let parsedBody: unknown = undefined;
+        const b = init?.body;
+        if (typeof b === "string") {
+          try {
+            parsedBody = JSON.parse(b);
+          } catch {
+            parsedBody = b;
+          }
+        }
+        const call: CapturedCall = {
+          url: urlStr,
+          method: init?.method ?? "GET",
+          headers,
+          body: parsedBody,
+        };
+        calls.push(call);
+        return responder(call);
+      },
+    );
+    return {
+      calls,
+      fetchMock: fetchMock as unknown as typeof globalThis.fetch,
+    };
+  }
+
+  let originalFetch: typeof globalThis.fetch;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("200 → returns HatchedAssistant", async () => {
+    const { calls, fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({ id: "uuid-123", name: "managed", status: "active" }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    const result = await fetchAssistantByIdFromPlatform(
+      "vak_test_abc",
+      "uuid-123",
+      "https://platform.test",
+    );
+
+    expect(result).toEqual({
+      id: "uuid-123",
+      name: "managed",
+      status: "active",
+    } as HatchedAssistant);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://platform.test/v1/assistants/uuid-123/");
+    expect(calls[0]!.method).toBe("GET");
+  });
+
+  test("404 → returns null", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response("", { status: 404 });
+    });
+    globalThis.fetch = fetchMock;
+
+    const result = await fetchAssistantByIdFromPlatform(
+      "vak_test_abc",
+      "uuid-missing",
+      "https://platform.test",
+    );
+
+    expect(result).toBeNull();
+  });
+
+  test("401 → throws", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response("", { status: 401 });
+    });
+    globalThis.fetch = fetchMock;
+
+    await expect(
+      fetchAssistantByIdFromPlatform(
+        "vak_test_abc",
+        "uuid-123",
+        "https://platform.test",
+      ),
+    ).rejects.toThrow(/Run 'vellum login'/);
   });
 });
