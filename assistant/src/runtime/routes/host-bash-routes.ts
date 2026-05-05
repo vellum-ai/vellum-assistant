@@ -12,6 +12,7 @@ import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
 } from "../auth/same-actor.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -44,8 +45,9 @@ function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
 
   const submittingClientId =
     headers?.["x-vellum-client-id"]?.trim() || undefined;
-  const submittingActorPrincipalId =
-    headers?.["x-vellum-actor-principal-id"]?.trim() || undefined;
+  const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+    headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {

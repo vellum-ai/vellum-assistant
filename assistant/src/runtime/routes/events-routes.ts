@@ -22,7 +22,6 @@ import { z } from "zod";
 
 import type { HostProxyCapability } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
-import { isHttpAuthDisabled } from "../../config/env.js";
 import { emitContactChange } from "../../contacts/contact-events.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -36,7 +35,7 @@ import {
   AssistantEventHub,
   assistantEventHub,
 } from "../assistant-event-hub.js";
-import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -44,28 +43,6 @@ const log = getLogger("events-routes");
 
 /** Keep-alive comment sent to idle clients every 7 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 7_000;
-
-/**
- * Translate the synthetic dev-bypass actor principal to the real local
- * guardian's principalId when running in `DISABLE_HTTP_AUTH=true` mode.
- *
- * The dev-bypass `AuthContext` (`runtime/auth/middleware.ts`) injects
- * `"dev-bypass"` for every request, but tool-side trust resolution
- * (`resolveLocalTrustContext`) returns the real guardian principalId. Without
- * translation, every targeted host_bash/host_file/host_cu request mismatches
- * the same-user check and is rejected. Mirrors `resolveLocalAuthContext`.
- */
-function resolveActorPrincipalId(raw: string | undefined): string | undefined {
-  if (raw !== "dev-bypass" || !isHttpAuthDisabled()) return raw;
-
-  const guardianPrincipalId = findLocalGuardianPrincipalId();
-  if (guardianPrincipalId) return guardianPrincipalId;
-
-  log.warn(
-    "dev-bypass actor principal received but no vellum guardian binding found; registering client without actorPrincipalId",
-  );
-  return undefined;
-}
 
 /**
  * Stream assistant events as Server-Sent Events.
@@ -114,7 +91,7 @@ export function handleSubscribeAssistantEvents(
   // bearer token's AuthContext. May be absent for legacy / service-token
   // connections that have no principal. See `resolveActorPrincipalId` for the
   // dev-bypass translation rationale.
-  const actorPrincipalId = resolveActorPrincipalId(
+  const actorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
     rawActorPrincipalId?.trim() || undefined,
   );
 

@@ -12,6 +12,7 @@ import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
 } from "../auth/same-actor.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -72,8 +73,9 @@ function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
     // match the actor that opened the target client's SSE stream. This blocks
     // cross-user submissions even if a different user somehow obtains the
     // target client id.
-    const submittingActorPrincipalId =
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined;
+    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+    );
     enforceSameActorOrThrow({
       hub: assistantEventHub,
       sourceActorPrincipalId: submittingActorPrincipalId,

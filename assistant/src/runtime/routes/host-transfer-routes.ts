@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -66,8 +67,9 @@ function handleTransferContentGet({
     // match the actor that opened the target client's SSE stream. This blocks
     // cross-user submissions even if a different user obtains the target
     // client id.
-    const submittingActorPrincipalId =
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined;
+    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+    );
     const targetActorPrincipalId =
       assistantEventHub.getActorPrincipalIdForClient(targetClientId);
     if (
@@ -153,8 +155,9 @@ async function handleTransferContentPut({
     // match the actor that opened the target client's SSE stream. This blocks
     // cross-user submissions even if a different user obtains the target
     // client id.
-    const submittingActorPrincipalId =
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined;
+    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+    );
     const targetActorPrincipalId =
       assistantEventHub.getActorPrincipalIdForClient(targetClientId);
     if (
@@ -232,8 +235,9 @@ function handleTransferResult({ body, headers }: RouteHandlerArgs) {
     // match the actor that opened the target client's SSE stream. Blocks
     // cross-user submissions even if a different user obtains the target
     // client id.
-    const submittingActorPrincipalId =
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined;
+    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+    );
     const targetActorPrincipalId =
       assistantEventHub.getActorPrincipalIdForClient(peeked.targetClientId);
     if (

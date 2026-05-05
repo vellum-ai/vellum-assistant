@@ -12,6 +12,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
+import { isHttpAuthDisabled } from "../config/env.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
@@ -52,6 +53,41 @@ export function buildLocalAuthContext(conversationId: string): AuthContext {
  */
 export function findLocalGuardianPrincipalId(): string | undefined {
   return findGuardianForChannel("vellum")?.contact.principalId ?? undefined;
+}
+
+/**
+ * Translate the synthetic dev-bypass actor principal to the real local
+ * guardian's principalId when running in `DISABLE_HTTP_AUTH=true` mode.
+ *
+ * The dev-bypass `AuthContext` (`runtime/auth/middleware.ts`) injects
+ * `"dev-bypass"` as the actor principal id for every request, but tool-side
+ * trust resolution (`resolveLocalTrustContext`) and SSE registration both
+ * carry the real local guardian principalId. Without this translation, every
+ * targeted host_bash/host_file/host_cu/host_transfer result POST mismatches
+ * the same-user check and is rejected with 403, and conversation/surface/
+ * guardian-action routes resolve trust against the wrong principal.
+ *
+ * Returns the input unchanged when:
+ *   - HTTP auth is enabled (production / non-dev-bypass deployments), OR
+ *   - the input is not literally `"dev-bypass"` (e.g. service tokens).
+ *
+ * Returns the local guardian principalId when both gates are true. Returns
+ * `undefined` when dev-bypass is set but no guardian binding has been created
+ * yet (e.g. fresh install before bootstrap); callers must treat this the
+ * same as a missing principal.
+ */
+export function resolveActorPrincipalIdForLocalGuardian(
+  rawHeader: string | undefined,
+): string | undefined {
+  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) return rawHeader;
+
+  const guardianPrincipalId = findLocalGuardianPrincipalId();
+  if (guardianPrincipalId) return guardianPrincipalId;
+
+  log.warn(
+    "dev-bypass actor principal received but no vellum guardian binding found; returning undefined",
+  );
+  return undefined;
 }
 
 /**
