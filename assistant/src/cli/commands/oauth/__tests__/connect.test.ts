@@ -42,6 +42,11 @@ let mockPlatformFetchCallIndex = 0;
 
 let mockIsManagedMode: (key: string) => boolean = () => false;
 
+// Configurable logger mock: by default no-ops; individual tests can override
+// mockLogInfo to write to process.stdout so the JSON-mode suppression guard is
+// exercised (the real CLI logger writes log lines to stdout).
+let mockLogInfo: (msg: string) => void = () => {};
+
 let mockCliIpcCallFn: (
   method: string,
   params?: Record<string, unknown>,
@@ -110,7 +115,7 @@ mock.module("../../../../util/logger.js", () => ({
     debug: () => {},
   }),
   getCliLogger: () => ({
-    info: () => {},
+    info: (msg: string) => mockLogInfo(msg),
     warn: () => {},
     error: () => {},
     debug: () => {},
@@ -272,6 +277,7 @@ describe("assistant oauth connect", () => {
     mockPlatformFetchCallIndex = 0;
     mockIsManagedMode = () => false;
     mockCliIpcCallFn = async () => ({ ok: false, error: "IPC unavailable" });
+    mockLogInfo = () => {};
     process.exitCode = 0;
   });
 
@@ -1067,6 +1073,13 @@ describe("assistant oauth connect", () => {
     test("IPC success path with --json: stdout does NOT contain 'Waiting for authorization' text", async () => {
       // Regression guard for P1: the browser-wait log.info must be suppressed in JSON mode
       // so that machine consumers parsing stdout as JSON don't see corrupted non-JSON output.
+      //
+      // We configure the logger mock to write to process.stdout (matching the real CLI logger's
+      // behavior) so this test would FAIL if the `if (!jsonMode)` guard were removed from connect.ts.
+      mockLogInfo = (msg: string) => {
+        process.stdout.write(msg + "\n");
+      };
+
       mockCliIpcCallFn = async (method) => {
         if (method === "internal_oauth_connect_start") {
           return {
@@ -1096,12 +1109,12 @@ describe("assistant oauth connect", () => {
         "--json",
       ]);
       expect(exitCode).toBe(0);
+      // The suppressed log line must not appear anywhere in stdout
+      expect(stdout).not.toContain("Waiting for authorization");
       // stdout must be valid JSON — no plain-text lines mixed in
       expect(() => JSON.parse(stdout)).not.toThrow();
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      // The suppressed log line must not appear anywhere in stdout
-      expect(stdout).not.toContain("Waiting for authorization");
     });
 
     test("IPC start with --callback-transport=gateway passes callbackTransport in body", async () => {
