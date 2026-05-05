@@ -149,6 +149,12 @@ export class ConfigWatcher {
     onAvatarChanged?: () => void,
     onConfigChanged?: () => void,
   ): void {
+    // Reset the stopped flag so a stop()→start() cycle on the same
+    // instance resumes hot-reload instead of silently bailing in every
+    // watchFile callback. This matters because getConfigWatcher() is a
+    // module-level singleton — a daemon restart path that reuses it
+    // would otherwise be permanently mute.
+    this.stopped = false;
     const workspaceDir = getWorkspaceDir();
 
     const workspaceHandlers: Record<string, () => void> = {
@@ -219,16 +225,27 @@ export class ConfigWatcher {
     handler: () => void,
     label: string,
   ): void {
-    log.info({ file: filePath }, `Watching ${label}`);
-    watchFile(filePath, { interval: this.pollIntervalMs }, (curr, prev) => {
-      if (this.stopped) return;
-      if (curr.ino === prev.ino && curr.mtimeMs === prev.mtimeMs) return;
-      this.debounceTimers.schedule(`file:${filePath}`, () => {
-        log.info({ file: filePath }, "File changed, reloading");
-        handler();
+    // Match the defensive pattern used by every other startXWatcher in
+    // this file: log the failure and continue. Per AGENTS.md, the daemon
+    // must never block startup — a watchFile() throw on some platform
+    // edge case must not propagate up to DaemonServer.start().
+    try {
+      watchFile(filePath, { interval: this.pollIntervalMs }, (curr, prev) => {
+        if (this.stopped) return;
+        if (curr.ino === prev.ino && curr.mtimeMs === prev.mtimeMs) return;
+        this.debounceTimers.schedule(`file:${filePath}`, () => {
+          log.info({ file: filePath }, "File changed, reloading");
+          handler();
+        });
       });
-    });
-    this.watchedFiles.add(filePath);
+      this.watchedFiles.add(filePath);
+      log.info({ file: filePath }, `Watching ${label}`);
+    } catch (err) {
+      log.warn(
+        { err, file: filePath },
+        `Failed to watch ${label}. Hot-reload will be unavailable until restart.`,
+      );
+    }
   }
 
   private startSoundsWatcher(onSoundsConfigChanged: () => void): void {

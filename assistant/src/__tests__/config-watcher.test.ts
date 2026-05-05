@@ -117,7 +117,12 @@ const { ConfigWatcher } = await import("../daemon/config-watcher.js");
 // ---------------------------------------------------------------------------
 
 const TEST_POLL_INTERVAL_MS = 50;
-const POLL_THEN_DEBOUNCE_MS = TEST_POLL_INTERVAL_MS + 200 + 50;
+// Wait budget for "poll tick saw the change → debouncer fires → handler runs."
+// Generous because `fs.watchFile`'s shared polling scheduler is jittery, the
+// debouncer adds 200ms, and CI Linux runners are noticeably slower than local.
+// The CI failure mode at 300ms (exactly TEST_POLL_INTERVAL_MS + 200 + 50)
+// shows the previous budget was right at the edge.
+const POLL_THEN_DEBOUNCE_MS = TEST_POLL_INTERVAL_MS * 4 + 200 + 300;
 
 function findWatcher(path: string): CapturedWatcher | undefined {
   return capturedWatchers.find((w) => w.dir === path);
