@@ -655,7 +655,9 @@ describe("HostFileProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("same user");
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
       // No host_file_request was broadcast.
       expect(sentMessages).toHaveLength(0);
     });
@@ -679,7 +681,9 @@ describe("HostFileProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("same user");
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -702,7 +706,9 @@ describe("HostFileProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("same user");
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
       expect(sentMessages).toHaveLength(0);
     });
 

@@ -27,10 +27,7 @@ mock.module("../../../util/logger.js", () => ({
 
 // ── Real imports (after mocks) ────────────────────────────────────────────
 
-import {
-  AssistantEventHub,
-  assistantEventHub,
-} from "../../assistant-event-hub.js";
+import { assistantEventHub } from "../../assistant-event-hub.js";
 import { ROUTES } from "../client-routes.js";
 import type { RouteDefinition } from "../types.js";
 
@@ -77,10 +74,6 @@ function clearHub(): void {
     assistantEventHub.disposeClient(id);
   }
 }
-
-// Suppress unused-binding warning when AssistantEventHub isn't directly
-// referenced — the import keeps the type available for future extensions.
-void AssistantEventHub;
 
 // ── Tests ────────────────────────────────────────────────────────────────
 

@@ -8,6 +8,10 @@ import { z } from "zod";
 
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import {
+  enforceSameActorOrThrow,
+  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+} from "../auth/same-actor.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -51,8 +55,8 @@ function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
   // Validate submitting client matches the targeted client (if any).
   if (peeked.targetClientId != null) {
     const headerMap = (headers as Record<string, string | undefined>) ?? {};
-    const rawClientId = headerMap["x-vellum-client-id"];
-    const submittingClientId = rawClientId?.trim() || undefined;
+    const submittingClientId =
+      headerMap["x-vellum-client-id"]?.trim() || undefined;
     if (!submittingClientId) {
       throw new BadRequestError(
         "x-vellum-client-id header is missing for a targeted host file request.",
@@ -68,19 +72,14 @@ function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
     // match the actor that opened the target client's SSE stream. This blocks
     // cross-user submissions even if a different user somehow obtains the
     // target client id.
-    const rawActorPrincipalId = headerMap["x-vellum-actor-principal-id"];
-    const submittingActorPrincipalId = rawActorPrincipalId?.trim() || undefined;
-    const targetActorPrincipalId =
-      assistantEventHub.getActorPrincipalIdForClient(peeked.targetClientId);
-    if (
-      !submittingActorPrincipalId ||
-      !targetActorPrincipalId ||
-      submittingActorPrincipalId !== targetActorPrincipalId
-    ) {
-      throw new ForbiddenError(
-        "Submitting actor does not match the target client's actor for this request.",
-      );
-    }
+    const submittingActorPrincipalId =
+      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined;
+    enforceSameActorOrThrow({
+      hub: assistantEventHub,
+      sourceActorPrincipalId: submittingActorPrincipalId,
+      targetClientId: peeked.targetClientId,
+      op: "host_file",
+    });
   }
 
   HostFileProxy.instance.resolve(requestId, {
@@ -129,8 +128,7 @@ export const ROUTES: RouteDefinition[] = [
           "x-vellum-client-id header is missing for a targeted host file request.",
       },
       "403": {
-        description:
-          "Submitting client or actor does not match the targeted client/actor for this request.",
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
       },
       "404": {
         description: "No pending interaction found for the given requestId.",

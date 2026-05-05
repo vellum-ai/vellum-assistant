@@ -8,6 +8,10 @@ import { z } from "zod";
 
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import {
+  enforceSameActorOrThrow,
+  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+} from "../auth/same-actor.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -72,18 +76,12 @@ function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
     // for the target client at SSE subscription time. This prevents a
     // cross-user submission even when the attacker can guess or spoof the
     // target's client ID.
-    const targetActorPrincipalId =
-      assistantEventHub.getActorPrincipalIdForClient(targetClientId);
-    if (!targetActorPrincipalId || !submittingActorPrincipalId) {
-      throw new ForbiddenError(
-        "Submitting actor identity is missing; cannot verify same-user binding for this targeted host bash request.",
-      );
-    }
-    if (submittingActorPrincipalId !== targetActorPrincipalId) {
-      throw new ForbiddenError(
-        "Submitting actor does not match the target client's actor for this request. The same authenticated user must submit the result.",
-      );
-    }
+    enforceSameActorOrThrow({
+      hub: assistantEventHub,
+      sourceActorPrincipalId: submittingActorPrincipalId,
+      targetClientId,
+      op: "host_bash",
+    });
   }
 
   HostBashProxy.instance.resolveResult(requestId, {
@@ -125,8 +123,7 @@ export const ROUTES: RouteDefinition[] = [
           "x-vellum-client-id header is missing for a targeted host bash request.",
       },
       "403": {
-        description:
-          "Submitting client does not match the targeted client, or the submitting actor's principal does not match the target client's actor.",
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
       },
       "404": {
         description: "No pending interaction found for the given requestId.",

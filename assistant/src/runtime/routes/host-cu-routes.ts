@@ -8,6 +8,10 @@ import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-store.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import {
+  enforceSameActorOrThrow,
+  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+} from "../auth/same-actor.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -71,10 +75,9 @@ function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
 
   // Validate submitting client matches the targeted client (if any).
   if (peeked.targetClientId != null) {
-    const rawClientId = (headers as Record<string, string | undefined>)?.[
-      "x-vellum-client-id"
-    ];
-    const submittingClientId = rawClientId?.trim() || undefined;
+    const headerMap = (headers as Record<string, string | undefined>) ?? {};
+    const submittingClientId =
+      headerMap["x-vellum-client-id"]?.trim() || undefined;
     if (!submittingClientId) {
       throw new BadRequestError(
         "x-vellum-client-id header is missing for a targeted host CU request.",
@@ -91,21 +94,14 @@ function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
     // stream. This prevents a different authenticated user with knowledge of
     // both the requestId and target clientId from submitting a result on
     // behalf of the targeted client.
-    const rawActorPrincipalId = (
-      headers as Record<string, string | undefined>
-    )?.["x-vellum-actor-principal-id"];
-    const submittingActorPrincipalId = rawActorPrincipalId?.trim() || undefined;
-    const targetActorPrincipalId =
-      assistantEventHub.getActorPrincipalIdForClient(peeked.targetClientId);
-    if (
-      !submittingActorPrincipalId ||
-      !targetActorPrincipalId ||
-      submittingActorPrincipalId !== targetActorPrincipalId
-    ) {
-      throw new ForbiddenError(
-        `Submitting actor does not match the target client's actor for this request. The targeted client's authenticated user must submit the result.`,
-      );
-    }
+    const submittingActorPrincipalId =
+      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined;
+    enforceSameActorOrThrow({
+      hub: assistantEventHub,
+      sourceActorPrincipalId: submittingActorPrincipalId,
+      targetClientId: peeked.targetClientId,
+      op: "host_cu",
+    });
   }
 
   const conversation = findConversation(peeked.conversationId);
@@ -172,8 +168,7 @@ export const ROUTES: RouteDefinition[] = [
           "x-vellum-client-id header is missing for a targeted host CU request.",
       },
       "403": {
-        description:
-          "Submitting client does not match the targeted client, or the submitting actor's principal id does not match the target client's stored actor principal id.",
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
       },
       "404": {
         description:
