@@ -4,7 +4,14 @@
  * file-based override and falls back to the bundled prompt when the
  * override is missing/empty/unreadable.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -67,7 +74,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const entry of ["custom-prompt.md", "empty.md", "no-placeholder.md"]) {
+  for (const entry of [
+    "custom-prompt.md",
+    "empty.md",
+    "no-placeholder.md",
+    "huge.md",
+    "link.md",
+    "fifo",
+  ]) {
     rmSync(join(tmpWorkspace, entry), { force: true });
   }
 });
@@ -177,5 +191,50 @@ describe("resolveConsolidationPrompt — failure modes", () => {
     expect(warnCalls).toHaveLength(1);
     const data = warnCalls[0].data as Record<string, unknown>;
     expect(data.reason).toBe("empty_override");
+  });
+
+  test("falls back to bundled prompt when the override exceeds the size limit", () => {
+    const path = join(tmpWorkspace, "huge.md");
+    // 1 MiB + 1 byte — just over the cap so we don't waste test memory.
+    writeFileSync(path, Buffer.alloc(1 * 1024 * 1024 + 1, 0x61));
+
+    const result = resolveConsolidationPrompt(path, CUTOFF);
+
+    expect(result).toBe(bundledPrompt());
+    expect(warnCalls).toHaveLength(1);
+    const data = warnCalls[0].data as Record<string, unknown>;
+    expect(data.reason).toBe("oversized_override");
+    expect(data.size).toBe(1 * 1024 * 1024 + 1);
+  });
+
+  test("falls back to bundled prompt when the override is a symlink", () => {
+    const target = join(tmpWorkspace, "custom-prompt.md");
+    writeFileSync(target, "real prompt body\n");
+    const link = join(tmpWorkspace, "link.md");
+    symlinkSync(target, link);
+
+    const result = resolveConsolidationPrompt(link, CUTOFF);
+
+    expect(result).toBe(bundledPrompt());
+    expect(warnCalls).toHaveLength(1);
+    const data = warnCalls[0].data as Record<string, unknown>;
+    expect(data.reason).toBe("not_regular_file");
+  });
+
+  test("falls back to bundled prompt when the override is a FIFO", () => {
+    const fifoPath = join(tmpWorkspace, "fifo");
+    try {
+      execFileSync("mkfifo", [fifoPath]);
+    } catch {
+      // mkfifo unavailable on this platform — skip without failing.
+      return;
+    }
+
+    const result = resolveConsolidationPrompt(fifoPath, CUTOFF);
+
+    expect(result).toBe(bundledPrompt());
+    expect(warnCalls).toHaveLength(1);
+    const data = warnCalls[0].data as Record<string, unknown>;
+    expect(data.reason).toBe("not_regular_file");
   });
 });
