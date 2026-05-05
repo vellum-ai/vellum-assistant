@@ -10,7 +10,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Assis
 @MainActor
 struct AssistantPickerView: View {
     let assistants: [AssistantPickerItem]
-    let onConnect: (String) -> Void
+    let onConnect: (String) -> Bool
     let onSignOut: () -> Void
 
     @State private var connectingId: String?
@@ -87,7 +87,9 @@ struct AssistantPickerView: View {
             } else {
                 VButton(label: "Connect", style: .outlined) {
                     connectingId = item.id
-                    onConnect(item.id)
+                    if !onConnect(item.id) {
+                        connectingId = nil
+                    }
                 }
                 .disabled(connectingId != nil)
             }
@@ -132,5 +134,70 @@ struct AssistantPickerItem: Identifiable {
             subtitle: "Managed",
             isManaged: true
         )
+    }
+
+    /// Build picker items from the router landscape. Platform results are
+    /// authoritative for managed assistants when available, but local lockfile
+    /// entries must remain visible so a user who signs in after hatching
+    /// locally can choose either assistant.
+    @MainActor
+    static func from(landscape: ReturningUserRouter.AssistantLandscape) -> [AssistantPickerItem] {
+        let platformById = Dictionary(
+            landscape.platformAssistants.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        let lockfileItems = landscape.currentEnvironmentLockfileAssistants
+            .map { entry in
+                AssistantPickerItem.from(
+                    lockfile: entry,
+                    platformName: platformById[entry.assistantId]?.name
+                )
+            }
+
+        let lockfileIds = Set(landscape.currentEnvironmentLockfileAssistants.map(\.assistantId))
+        let platformItems = landscape.platformAssistants
+            .filter { !lockfileIds.contains($0.id) }
+            .map(AssistantPickerItem.from(platform:))
+
+        return lockfileItems + platformItems
+    }
+}
+
+enum AssistantPickerSelectionResolver {
+    /// Resolves a selected picker row to a lockfile entry. Platform-only rows
+    /// are materialized locally first so the normal assistant switch/connect
+    /// path can load transport configuration from the lockfile.
+    @MainActor
+    static func resolveLockfileAssistant(
+        assistantId: String,
+        platformAssistants: [String: PlatformAssistant],
+        lockfilePath: String? = nil,
+        runtimeURL: String = VellumEnvironment.resolvedPlatformURL
+    ) -> LockfileAssistant? {
+        if let existing = LockfileAssistant.loadByName(
+            assistantId,
+            lockfilePath: lockfilePath
+        ), existing.isCurrentEnvironment {
+            return existing
+        }
+
+        guard let platformAssistant = platformAssistants[assistantId] else {
+            return nil
+        }
+
+        let persisted = LockfileAssistant.ensureManagedEntry(
+            assistantId: platformAssistant.id,
+            runtimeUrl: runtimeURL,
+            hatchedAt: platformAssistant.created_at ?? Date().iso8601String,
+            lockfilePath: lockfilePath
+        )
+        guard persisted else { return nil }
+
+        if let name = platformAssistant.name {
+            IdentityInfo.seedCache(name: name, forAssistantId: platformAssistant.id)
+        }
+
+        return LockfileAssistant.loadByName(platformAssistant.id, lockfilePath: lockfilePath)
     }
 }

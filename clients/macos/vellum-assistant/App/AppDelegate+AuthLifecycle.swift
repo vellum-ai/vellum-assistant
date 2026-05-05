@@ -193,45 +193,104 @@ extension AppDelegate {
         authWindow = window
     }
 
+    /// Shared post-login path for sign-ins that happen while the app is
+    /// already running on a local or remote assistant. It mirrors the
+    /// re-auth router instead of blindly provisioning the current assistant,
+    /// so platform assistants hatched elsewhere are offered alongside local
+    /// lockfile entries.
+    func handlePlatformLoginSucceeded() {
+        Task { @MainActor [weak self] in
+            await self?.handlePlatformLoginSucceededAsync()
+        }
+    }
+
+    private func handlePlatformLoginSucceededAsync() async {
+        guard authManager.isAuthenticated else { return }
+
+        do {
+            _ = try await AuthService.shared.resolveOrganizationId()
+        } catch is CancellationError {
+            return
+        } catch {
+            log.warning("Post-login organization resolution failed — continuing with current assistant: \(error.localizedDescription, privacy: .public)")
+        }
+
+        let router = ReturningUserRouter()
+        do {
+            let landscape = try await router.fetchLandscape()
+            switch router.decide(for: landscape) {
+            case .showAssistantPicker:
+                log.info("Post-login router → showAssistantPicker")
+                showAssistantPicker(landscape: landscape)
+                return
+            case .showHostingPicker:
+                log.info("Post-login router → showHostingPicker")
+                showAuthWindow(forceOnboarding: true)
+                return
+            case .autoConnect:
+                break
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            log.warning("Post-login assistant routing failed — continuing with current assistant: \(error.localizedDescription, privacy: .public)")
+        }
+
+        completePostLoginForCurrentAssistant()
+    }
+
+    private func completePostLoginForCurrentAssistant() {
+        // Re-bootstrap actor credentials first so the actor token is available
+        // when local assistant API key provisioning waits for it. Managed
+        // assistants derive identity from the platform session.
+        if !isCurrentAssistantManaged {
+            ensureActorCredentials()
+        }
+
+        localBootstrapDidComplete = false
+        ensureLocalAssistantApiKey()
+
+        if isCurrentAssistantManaged {
+            reconnectManagedAssistant()
+        }
+    }
+
     /// Show the assistant picker in the auth window. Builds picker items
     /// from both the lockfile and the platform list (via the landscape) so
     /// platform-only assistants (hatched on another device) are included.
     private func showAssistantPicker(landscape: ReturningUserRouter.AssistantLandscape) {
-        // Index platform names by ID so lockfile items can show real names
         let platformById = Dictionary(
             landscape.platformAssistants.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-
-        // Lockfile entries (current-env, both local and managed)
-        let localItems = landscape.currentEnvironmentLockfileAssistants
-            .map { entry in
-                AssistantPickerItem.from(
-                    lockfile: entry,
-                    platformName: platformById[entry.assistantId]?.name
-                )
-            }
-
-        // Platform entries — exclude any already represented in the lockfile
-        let lockfileIds = Set(landscape.currentEnvironmentLockfileAssistants.map(\.assistantId))
-        let platformItems = landscape.platformAssistants
-            .filter { !lockfileIds.contains($0.id) }
-            .map(AssistantPickerItem.from(platform:))
-
-        let items = localItems + platformItems
+        let items = AssistantPickerItem.from(landscape: landscape)
 
         let pickerView = AssistantPickerView(
             assistants: items,
             onConnect: { [weak self] assistantId in
-                LockfileAssistant.setActiveAssistantId(assistantId)
-                // Fire-and-forget: tell the platform this is the active
-                // assistant. Failure is non-fatal — the local lockfile is
-                // the source of truth for which assistant to connect to.
-                if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+                guard let self else { return false }
+                guard let target = AssistantPickerSelectionResolver.resolveLockfileAssistant(
+                    assistantId: assistantId,
+                    platformAssistants: platformById
+                ) else {
+                    let alert = NSAlert()
+                    alert.messageText = "Could not connect to assistant"
+                    alert.informativeText = "The selected assistant could not be saved locally. Please try again."
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                    return false
+                }
+
+                // Fire-and-forget for managed assistants: tell the platform
+                // this is the active assistant. Failure is non-fatal — the
+                // lockfile is the client source of truth for which assistant
+                // to connect to.
+                if target.isManaged,
+                   let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
                     Task {
                         do {
                             try await AuthService.shared.activateAssistant(
-                                id: assistantId,
+                                id: target.assistantId,
                                 organizationId: orgId
                             )
                         } catch {
@@ -239,7 +298,26 @@ extension AppDelegate {
                         }
                     }
                 }
-                self?.proceedToApp()
+
+                self.authWindow?.close()
+                self.authWindow = nil
+
+                if self.hasSetupApp {
+                    if LockfileAssistant.loadActiveAssistantId() == target.assistantId {
+                        self.completePostLoginForCurrentAssistant()
+                        self.showMainWindow()
+                    } else {
+                        self.performSwitchAssistant(
+                            to: target,
+                            managedAuthenticationAlreadyVerified: target.isManaged
+                        )
+                    }
+                } else {
+                    LockfileAssistant.setActiveAssistantId(target.assistantId)
+                    SentryDeviceInfo.updateAssistantTag(target.assistantId)
+                    self.proceedToApp()
+                }
+                return true
             },
             onSignOut: { [weak self] in
                 Task {
@@ -261,8 +339,39 @@ extension AppDelegate {
                 let y = visibleFrame.midY - targetHeight / 2
                 window.setFrame(NSRect(x: x, y: y, width: targetWidth, height: targetHeight), display: true, animate: true)
             }
+            NSApp.activateAsDockAppIfNeeded()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
         } else {
-            showAuthWindow()
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentViewController = NSHostingController(rootView: pickerView)
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = NSColor(VColor.surfaceOverlay)
+            window.isReleasedWhenClosed = false
+            window.contentMinSize = NSSize(width: 420, height: 580)
+
+            let targetWidth: CGFloat = 460
+            let targetHeight: CGFloat = 620
+            if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
+                let x = visibleFrame.midX - targetWidth / 2
+                let y = visibleFrame.midY - targetHeight / 2
+                window.setFrame(NSRect(x: x, y: y, width: targetWidth, height: targetHeight), display: true)
+            } else {
+                window.setContentSize(NSSize(width: targetWidth, height: targetHeight))
+                window.center()
+            }
+
+            authWindow = window
+            NSApp.activateAsDockAppIfNeeded()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 

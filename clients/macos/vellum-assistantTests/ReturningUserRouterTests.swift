@@ -161,6 +161,20 @@ final class ReturningUserRouterTests: XCTestCase {
         XCTAssertEqual(router.decide(for: landscape), .autoConnect)
     }
 
+    func testStaleManagedLockfileEntryShowsHostingPickerWhenPlatformConsulted() {
+        let router = makeRouter()
+        let landscape = ReturningUserRouter.AssistantLandscape(
+            lockfileAssistants: [makeManagedAssistant(id: "stale-managed")],
+            platformAssistants: [],
+            platformWasConsulted: true
+        )
+        // The platform list is authoritative for managed assistants once
+        // consulted. If the only managed lockfile entry is absent from the
+        // platform list, treat it as stale and send the user to setup.
+        XCTAssertEqual(landscape.totalCount, 0)
+        XCTAssertEqual(router.decide(for: landscape), .showHostingPicker)
+    }
+
     func testManagedLockfileEntryCountedWhenPlatformNotConsulted() {
         let router = makeRouter()
         let landscape = ReturningUserRouter.AssistantLandscape(

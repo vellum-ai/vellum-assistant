@@ -424,25 +424,7 @@ struct SettingsPanel: View {
         switch selectedTab {
         case .general:
             SettingsGeneralTab(store: store, connectionManager: connectionManager, authManager: authManager, onClose: onClose, showToast: showToast, onSignIn: {
-                // Re-bootstrap actor credentials first so the actor token is
-                // available when ensureLocalAssistantApiKey() waits for it.
-                // This mirrors the pattern in proceedToApp() and
-                // performSwitchAssistant(). Managed assistants derive identity
-                // from the platform session, so skip for them.
-                if !(AppDelegate.shared?.isCurrentAssistantManaged ?? false) {
-                    AppDelegate.shared?.ensureActorCredentials()
-                }
-                // Reset before provisioning so a stale flag from a previous
-                // bootstrap cycle doesn't cause awaitLocalBootstrapCompleted
-                // to skip the wait. Mirrors the reset in proceedToApp().
-                AppDelegate.shared?.localBootstrapDidComplete = false
-                AppDelegate.shared?.ensureLocalAssistantApiKey()
-
-                // For managed assistants, re-establish the connection now that
-                // the user has a valid session token.
-                if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
-                    AppDelegate.shared?.reconnectManagedAssistant()
-                }
+                AppDelegate.shared?.handlePlatformLoginSucceeded()
             })
         case .modelsAndServices:
             modelsAndServicesContent
