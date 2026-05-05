@@ -2610,6 +2610,14 @@ extension ImageGenModelSetRequest {
 /// Backed by generated `ModelInfo`.
 public typealias ModelInfoMessage = ModelInfo
 
+extension ProviderCatalogEntry {
+    /// The wire DTO carries model-selection fields only; setup metadata comes
+    /// from the bundled LLM provider registry.
+    public var envVar: String? {
+        LLMProviderRegistry.provider(id: id)?.envVar
+    }
+}
+
 // MARK: - Equatable conformance for generated types
 // Added here (not in GeneratedAPITypes.swift) because generated files must not
 // be edited manually. Swift only auto-synthesizes Equatable when the
