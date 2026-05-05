@@ -20,6 +20,7 @@ const conversationDiskViewRealSnapshot = {
     "../memory/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
+let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -60,7 +61,7 @@ mock.module("../config/loader.js", () => ({
     },
     rateLimit: { maxRequestsPerMinute: 0 },
     workspaceGit: { turnCommitMaxWaitMs: 10 },
-    ui: {},
+    ui: mockUiConfig,
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -265,6 +266,10 @@ let mockInjectionBlocks: {
   pkbSystemReminder?: string;
   unifiedTurnContext?: string;
 } = {};
+const buildUnifiedTurnContextBlockMock = mock(
+  (options: Record<string, unknown>) =>
+    `<turn_context>\ncurrent_time: ${String(options.timestamp)}\n</turn_context>`,
+);
 const applyRuntimeInjectionsMock = mock(
   async (msgs: Message[], _options?: unknown) => ({
     messages: msgs,
@@ -306,6 +311,7 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
 );
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
+  buildUnifiedTurnContextBlock: buildUnifiedTurnContextBlockMock,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
@@ -326,8 +332,40 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   assembleSlackActiveThreadFocusBlock: () => null,
 }));
 
+const resolveTurnTimezoneContextMock = mock(
+  (options: {
+    configuredUserTimeZone?: string | null;
+    clientTimezone?: string | null;
+    detectedTimezone?: string | null;
+    hostTimeZone?: string | null;
+  }) => ({
+    configuredUserTimezone: options.configuredUserTimeZone ?? null,
+    clientTimezone: options.clientTimezone ?? null,
+    detectedTimezone: options.detectedTimezone ?? null,
+    hostTimezone: options.hostTimeZone ?? "UTC",
+    effectiveTimezone:
+      options.configuredUserTimeZone ??
+      options.clientTimezone ??
+      options.detectedTimezone ??
+      options.hostTimeZone ??
+      "UTC",
+    source: options.configuredUserTimeZone
+      ? "configuredUserTimezone"
+      : options.clientTimezone
+        ? "clientTimezone"
+        : options.detectedTimezone
+          ? "detectedTimezone"
+          : options.hostTimeZone
+            ? "hostTimezone"
+            : "utcFallback",
+  }),
+);
+const formatTurnTimestampMock = mock(
+  (_options?: unknown) => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
+);
 mock.module("../daemon/date-context.js", () => ({
-  formatTurnTimestamp: () => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
+  formatTurnTimestamp: formatTurnTimestampMock,
+  resolveTurnTimezoneContext: resolveTurnTimezoneContextMock,
 }));
 
 mock.module("../daemon/history-repair.js", () => ({
@@ -597,6 +635,7 @@ function makeCtx(
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  mockUiConfig = {};
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -626,6 +665,9 @@ beforeEach(() => {
     () => {},
   );
   applyRuntimeInjectionsMock.mockClear();
+  buildUnifiedTurnContextBlockMock.mockClear();
+  resolveTurnTimezoneContextMock.mockClear();
+  formatTurnTimestampMock.mockClear();
   mockSlackChronologicalContext = null;
   loadSlackChronologicalContextMock.mockClear();
   getSlackCompactionWatermarkForPrefixMock.mockClear();
@@ -638,6 +680,56 @@ beforeEach(() => {
 });
 
 describe("session-agent-loop", () => {
+  describe("timezone turn context", () => {
+    test("passes ctx.clientTimezone and ui.detectedTimezone into timezone resolution", async () => {
+      mockUiConfig = {
+        userTimezone: "America/New_York",
+        detectedTimezone: "America/Chicago",
+      };
+      const ctx = makeCtx({ clientTimezone: "America/Los_Angeles" });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(resolveTurnTimezoneContextMock).toHaveBeenCalled();
+      const timezoneOptions = resolveTurnTimezoneContextMock.mock.calls[0]?.[0];
+      expect(timezoneOptions).toMatchObject({
+        configuredUserTimeZone: "America/New_York",
+        clientTimezone: "America/Los_Angeles",
+        detectedTimezone: "America/Chicago",
+      });
+    });
+
+    test("passes resolved canonical timezones into unified turn context", async () => {
+      mockUiConfig = {
+        userTimezone: "US/Eastern",
+        detectedTimezone: "US/Central",
+      };
+      resolveTurnTimezoneContextMock.mockImplementationOnce(() => ({
+        configuredUserTimezone: "America/New_York",
+        clientTimezone: "America/Los_Angeles",
+        detectedTimezone: "America/Chicago",
+        hostTimezone: "America/Denver",
+        effectiveTimezone: "America/New_York",
+        source: "configuredUserTimezone",
+      }));
+      const ctx = makeCtx({ clientTimezone: "US/Pacific" });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(formatTurnTimestampMock).toHaveBeenCalledWith({
+        timeZone: "America/New_York",
+      });
+      expect(buildUnifiedTurnContextBlockMock).toHaveBeenCalled();
+      const turnContextOptions =
+        buildUnifiedTurnContextBlockMock.mock.calls[0]?.[0];
+      expect(turnContextOptions).toMatchObject({
+        configuredUserTimezone: "America/New_York",
+        clientTimezone: "America/Los_Angeles",
+        detectedTimezone: "America/Chicago",
+      });
+    });
+  });
+
   describe("pre-flight checks", () => {
     test("throws if called without an abortController", async () => {
       const ctx = makeCtx();
