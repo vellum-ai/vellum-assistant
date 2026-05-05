@@ -382,6 +382,7 @@ public final class SettingsStore: ObservableObject {
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
     private let settingsClient: SettingsClientProtocol
+    private let currentDeviceTimezoneIdentifier: () -> String
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
@@ -452,6 +453,7 @@ public final class SettingsStore: ObservableObject {
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
         settingsClient: SettingsClientProtocol = SettingsClient(),
         configPath: String? = nil,
+        currentDeviceTimezoneIdentifier: @escaping () -> String = { TimeZone.autoupdatingCurrent.identifier },
         verificationSessionTimeoutDuration: TimeInterval = 12,
         verificationStatusPollInterval: TimeInterval = 2,
         verificationStatusPollWindow: TimeInterval = 600
@@ -461,6 +463,7 @@ public final class SettingsStore: ObservableObject {
         self.channelClient = channelClient
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient
+        self.currentDeviceTimezoneIdentifier = currentDeviceTimezoneIdentifier
         self.configPath = configPath
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
@@ -804,6 +807,15 @@ public final class SettingsStore: ObservableObject {
                 guard let self else { return }
                 self.refreshModelInfo()
                 self.refreshDaemonConfig()
+            }
+            .store(in: &cancellables)
+
+        // Keep the assistant's persisted device timezone fresh even if the
+        // Appearance settings tab is never opened.
+        NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.persistCurrentDetectedTimezoneIfNeeded()
             }
             .store(in: &cancellables)
 
@@ -4459,6 +4471,10 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    private func persistCurrentDetectedTimezoneIfNeeded() {
+        _ = saveDetectedTimezone(currentDeviceTimezoneIdentifier())
+    }
+
     /// In-flight config refresh task. Cancelled when a new refresh is
     /// requested so that a slow stale response can't clobber a newer
     /// applied state when startup, reconnect, and configChanged triggers
@@ -4588,6 +4604,8 @@ public final class SettingsStore: ObservableObject {
         if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
             persistMediaEmbedState()
         }
+
+        persistCurrentDetectedTimezoneIfNeeded()
     }
 
     private func callSiteIdsReferencingProfile(_ profileName: String) -> [String] {
