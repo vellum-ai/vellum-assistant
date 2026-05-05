@@ -9,7 +9,6 @@ import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation, getMessages } from "../memory/conversation-crud.js";
 import { GENERATING_TITLE } from "../memory/conversation-title-service.js";
-import { extractTextFromStoredMessageContent } from "../memory/message-content.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
   resolveGuardianPersona,
@@ -100,15 +99,25 @@ type HeartbeatDisposition = "alert" | "ok" | "unknown";
 
 function parseHeartbeatDisposition(text: string | null): HeartbeatDisposition {
   if (!text) return "unknown";
-  if (new RegExp(`\\b${HEARTBEAT_ALERT_MARKER}\\b`).test(text)) return "alert";
-  if (new RegExp(`\\b${HEARTBEAT_OK_MARKER}\\b`).test(text)) return "ok";
+  const lines = text
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const lastLine = lines.at(-1);
+  if (lastLine === HEARTBEAT_ALERT_MARKER) return "alert";
+  if (lastLine === HEARTBEAT_OK_MARKER) return "ok";
   return "unknown";
 }
 
 function stripHeartbeatDispositionMarkers(text: string): string {
   return text
-    .replace(new RegExp(`\\b${HEARTBEAT_ALERT_MARKER}\\b`, "g"), "")
-    .replace(new RegExp(`\\b${HEARTBEAT_OK_MARKER}\\b`, "g"), "")
+    .replace(
+      new RegExp(
+        `(?:\\r?\\n)?\\s*(?:${HEARTBEAT_ALERT_MARKER}|${HEARTBEAT_OK_MARKER})\\s*$`,
+      ),
+      "",
+    )
     .trim();
 }
 
@@ -123,6 +132,30 @@ function buildHeartbeatAlertSummary(text: string | null): string {
     summary || "Your assistant found something worth your attention.",
     HEARTBEAT_ALERT_SUMMARY_MAX_CHARS,
   );
+}
+
+function extractVisibleTextFromStoredMessageContent(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed === "string") return parsed;
+    if (!Array.isArray(parsed)) return "";
+    const texts: string[] = [];
+    for (const block of parsed) {
+      if (
+        block != null &&
+        typeof block === "object" &&
+        "type" in block &&
+        block.type === "text" &&
+        "text" in block &&
+        typeof block.text === "string"
+      ) {
+        texts.push(block.text);
+      }
+    }
+    return texts.join("\n").trim();
+  } catch {
+    return raw;
+  }
 }
 
 export interface HeartbeatDeps {
@@ -622,7 +655,7 @@ export class HeartbeatService {
         if (message.role !== "assistant") continue;
         return {
           id: message.id,
-          text: extractTextFromStoredMessageContent(message.content),
+          text: extractVisibleTextFromStoredMessageContent(message.content),
         };
       }
     } catch (err) {
@@ -661,7 +694,6 @@ export class HeartbeatService {
         conversationTitle: params.conversationTitle,
         conversationId: params.conversationId,
         messageId: params.messageId,
-        sourceInterface: "macos",
       },
       routingIntent: "single_channel",
       conversationAffinityHint: { vellum: params.conversationId },

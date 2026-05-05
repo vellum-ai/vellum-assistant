@@ -810,6 +810,9 @@ describe("HeartbeatService", () => {
     expect(emittedNotificationSignals[0].contextPayload.messageId).toBe(
       "assistant-alert-1",
     );
+    expect(
+      emittedNotificationSignals[0].contextPayload.sourceInterface,
+    ).toBeUndefined();
   });
 
   test("HEARTBEAT_OK stays silent", async () => {
@@ -850,6 +853,48 @@ describe("HeartbeatService", () => {
       },
     );
     expect(successFeedCalls).toHaveLength(0);
+  });
+
+  test("HEARTBEAT_OK stays silent when earlier content mentions HEARTBEAT_ALERT", async () => {
+    const conversationCreatedCalls: Array<{
+      conversationId: string;
+      title: string;
+    }> = [];
+    const service = createService({
+      onConversationCreated: (info) => conversationCreatedCalls.push(info),
+      processMessage: async (...args: unknown[]) => {
+        const conversationId = args[0] as string;
+        mockStoredMessages.push({
+          id: "assistant-ok-2",
+          conversationId,
+          role: "assistant",
+          content: JSON.stringify([
+            {
+              type: "thinking",
+              thinking:
+                "I should decide between HEARTBEAT_ALERT and HEARTBEAT_OK.",
+            },
+            {
+              type: "tool_result",
+              content: "Tool output mentions HEARTBEAT_ALERT.",
+            },
+            {
+              type: "text",
+              text: "I considered HEARTBEAT_ALERT, but there is nothing useful to surface.\nHEARTBEAT_OK",
+            },
+          ]),
+          createdAt: Date.now(),
+          metadata: null,
+        });
+        return { messageId: "user-heartbeat-1" };
+      },
+    });
+
+    await service.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(conversationCreatedCalls).toHaveLength(0);
+    expect(emittedNotificationSignals).toHaveLength(0);
   });
 
   test("end-to-end: llm.callSites.heartbeatAgent.speed resolves to 'fast'", async () => {

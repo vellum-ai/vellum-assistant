@@ -14,7 +14,10 @@ const LEGACY_DEFAULT_INTERVALS_MS = new Set([
  *
  * Older first-launch config files materialized the then-current heartbeat
  * default into `config.json`, so changing the schema default alone would not
- * affect existing default users.
+ * affect existing default users. A workspace could have intentionally selected
+ * one of these exact intervals; product intent is still to move legacy 3h/6h
+ * heartbeat schedules to the 30-minute default, and those users can reset the
+ * interval after upgrade.
  */
 export const bumpStaleHeartbeatIntervalMigration: WorkspaceMigration = {
   id: "065-bump-stale-heartbeat-interval",
