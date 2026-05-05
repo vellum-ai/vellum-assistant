@@ -220,7 +220,10 @@ Write the source code following the skill instructions, then compile via app_ref
   const match = apps.find(
     (app) =>
       app.createdAt >= buildStartedAt &&
-      app.name.includes(params.artifactTitle),
+      app.name
+        .trim()
+        .toLowerCase()
+        .includes(params.artifactTitle.trim().toLowerCase()),
   );
 
   if (!match) {
