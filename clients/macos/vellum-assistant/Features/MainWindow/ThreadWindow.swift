@@ -219,10 +219,13 @@ private struct ThreadWindowContentView: View {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                         AppDelegate.shared?.showSettingsWindow(nil)
                     },
-                    diskPressureAlert: AppDelegate.shared?.services.diskPressureStatusStore.alert,
-                    onReviewDiskUsage: {
-                        AppDelegate.shared?.showMainWindow()
-                        AppDelegate.shared?.mainWindow?.windowState.showWorkspace()
+                    safeStorageRequiresAcknowledgement: diskPressureStatusStore?.requiresAcknowledgement ?? false,
+                    safeStorageCleanupState: SafeStorageCleanupStatusViewState(
+                        status: diskPressureStatusStore?.status,
+                        isCleanupModeActive: diskPressureStatusStore?.isCleanupModeActive ?? false
+                    ),
+                    onOpenStorageCleanup: {
+                        focusStorageCleanup()
                     },
                     onOpenConversationApp: { artifact in
                         guard let appId = artifact.appId else { return }
@@ -275,6 +278,26 @@ private struct ThreadWindowContentView: View {
                     .offset(y: 48)
             }
         }
+        .overlay {
+            ObservationBoundaryView {
+                if let diskPressureStatusStore {
+                    MainWindowSafeStorageBanner(
+                        status: diskPressureStatusStore.status,
+                        requiresAcknowledgement: diskPressureStatusStore.requiresAcknowledgement,
+                        acknowledgementErrorMessage: diskPressureStatusStore.acknowledgementErrorMessage,
+                        actions: MainWindowSafeStorageAcknowledgementActions(
+                            acknowledge: {
+                                diskPressureStatusStore.acknowledge()
+                            },
+                            focusCleanup: {
+                                focusStorageCleanup()
+                            }
+                        )
+                    )
+                    .animation(VAnimation.standard, value: diskPressureStatusStore.requiresAcknowledgement)
+                }
+            }
+        }
         .frame(minWidth: 480, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
         .background(VColor.surfaceBase)
         .frame(width: windowSize.width / zoomManager.zoomLevel,
@@ -291,6 +314,15 @@ private struct ThreadWindowContentView: View {
             )
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
+    }
+
+    private var diskPressureStatusStore: DiskPressureStatusStore? {
+        AppDelegate.shared?.services.diskPressureStatusStore
+    }
+
+    private func focusStorageCleanup() {
+        AppDelegate.shared?.showMainWindow()
+        AppDelegate.shared?.mainWindow?.windowState.showWorkspace()
     }
 
     private var threadTitleBar: some View {

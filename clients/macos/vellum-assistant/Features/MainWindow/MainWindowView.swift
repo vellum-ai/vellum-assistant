@@ -42,6 +42,7 @@ struct MainWindowView: View {
     /// invalidation policy — Observation still tracks property granularly.
     @Bindable var windowState: MainWindowState
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    var diskPressureStatusStore: DiskPressureStatusStore
     @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
@@ -121,7 +122,7 @@ struct MainWindowView: View {
     /// inside ``HomePageView``) so the selection survives any @ViewBuilder
     /// rebuild of the Home panel wrapper.
     @State var activeHomeDetailPanel: HomeDetailPanelKind? = nil
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, acpSessionStore: ACPSessionStore, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, diskPressureStatusStore: DiskPressureStatusStore, documentManager: DocumentManager, acpSessionStore: ACPSessionStore, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
         self.conversationManager = conversationManager
         self.listStore = conversationManager.listStore
         self.appListManager = appListManager
@@ -136,6 +137,7 @@ struct MainWindowView: View {
         self.authManager = authManager
         self.windowState = windowState
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
+        self.diskPressureStatusStore = diskPressureStatusStore
         self.documentManager = documentManager
         self.acpSessionStore = acpSessionStore
         self.onMicrophoneToggle = onMicrophoneToggle
@@ -568,6 +570,24 @@ struct MainWindowView: View {
             .overlay {
                 ObservationBoundaryView {
                     UpgradeProgressOverlay(connectionManager: connectionManager)
+                }
+            }
+            .overlay {
+                ObservationBoundaryView {
+                    MainWindowSafeStorageBanner(
+                        status: diskPressureStatusStore.status,
+                        requiresAcknowledgement: diskPressureStatusStore.requiresAcknowledgement,
+                        acknowledgementErrorMessage: diskPressureStatusStore.acknowledgementErrorMessage,
+                        actions: MainWindowSafeStorageAcknowledgementActions(
+                            acknowledge: {
+                                diskPressureStatusStore.acknowledge()
+                            },
+                            focusCleanup: {
+                                windowState.showWorkspace()
+                            }
+                        )
+                    )
+                    .animation(VAnimation.standard, value: diskPressureStatusStore.requiresAcknowledgement)
                 }
             }
     }

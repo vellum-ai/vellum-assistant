@@ -751,6 +751,7 @@ extension MainWindowView {
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 conversationManager: conversationManager,
+                diskPressureStatusStore: diskPressureStatusStore,
                 onMicrophoneToggle: onMicrophoneToggle,
                 isReadonly: activeConversation?.isChannelConversation ?? false,
                 voiceModeManager: voiceModeManager,
@@ -984,6 +985,7 @@ struct ActiveChatViewWrapper: View {
     var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
+    let diskPressureStatusStore: DiskPressureStatusStore
     let onMicrophoneToggle: () -> Void
     var isReadonly: Bool = false
     var voiceModeManager: VoiceModeManager? = nil
@@ -1034,8 +1036,12 @@ struct ActiveChatViewWrapper: View {
                     settingsStore.pendingSettingsTab = .modelsAndServices
                     windowState.selection = .panel(.settings)
                 },
-                diskPressureAlert: AppDelegate.shared?.services.diskPressureStatusStore.alert,
-                onReviewDiskUsage: {
+                safeStorageRequiresAcknowledgement: diskPressureStatusStore.requiresAcknowledgement,
+                safeStorageCleanupState: SafeStorageCleanupStatusViewState(
+                    status: diskPressureStatusStore.status,
+                    isCleanupModeActive: diskPressureStatusStore.isCleanupModeActive
+                ),
+                onOpenStorageCleanup: {
                     windowState.showWorkspace()
                 },
                 onBootstrapSendLogs: {
