@@ -1,5 +1,12 @@
 import * as fs from "node:fs";
-import { join } from "node:path";
+import {
+  basename,
+  isAbsolute,
+  join,
+  normalize,
+  relative,
+  resolve,
+} from "node:path";
 
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
@@ -15,13 +22,159 @@ function isNotFoundError(err: unknown): boolean {
   );
 }
 
+function isInsideDirectory(rootDir: string, candidatePath: string): boolean {
+  const rootRealPath = fs.realpathSync(rootDir);
+  const candidateRealPath = fs.realpathSync(candidatePath);
+  const relativePath = relative(rootRealPath, candidateRealPath);
+  return (
+    relativePath === "" ||
+    (!relativePath.startsWith("..") && !isAbsolute(relativePath))
+  );
+}
+
+function parseLegacySkillIndexEntry(line: string): string | null {
+  const match = line.match(/^\s*[-*]\s+(.+?)\s*$/);
+  if (!match) return null;
+
+  let entry = match[1].trim();
+  const markdownLink = entry.match(/^\[.+?\]\((.+?)\)$/);
+  if (markdownLink) {
+    entry = markdownLink[1].trim();
+  } else {
+    entry = entry.split(/\s+/)[0]?.trim() ?? "";
+  }
+
+  entry = entry.replace(/^`|`$/g, "");
+  if (!entry || entry.includes("\0") || isAbsolute(entry)) return null;
+
+  const normalized = normalize(entry);
+  if (
+    normalized === "." ||
+    normalized.startsWith("..") ||
+    isAbsolute(normalized)
+  ) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function parseLegacySkillIndexEntries(contents: string): string[] {
+  const entries = new Set<string>();
+  for (const line of contents.split(/\r?\n/)) {
+    const entry = parseLegacySkillIndexEntry(line);
+    if (entry) entries.add(entry);
+  }
+  return [...entries];
+}
+
+function preserveNestedIndexedSkill(
+  tempRootDir: string,
+  skillsDir: string,
+  relativeSkillDir: string,
+): void {
+  const skillName = basename(relativeSkillDir);
+  if (!skillName || skillName === relativeSkillDir) return;
+
+  const sourceDir = resolve(skillsDir, relativeSkillDir);
+  const destinationDir = join(skillsDir, skillName);
+  if (fs.existsSync(destinationDir)) {
+    log.warn(
+      { destinationDir, sourceDir },
+      "Skipping nested indexed skill preservation because top-level destination already exists",
+    );
+    return;
+  }
+
+  try {
+    if (!fs.existsSync(sourceDir)) return;
+    if (!isInsideDirectory(skillsDir, sourceDir)) {
+      log.warn(
+        { relativeSkillDir, sourceDir },
+        "Skipping nested indexed skill that resolves outside skills root",
+      );
+      return;
+    }
+
+    const sourceStat = fs.lstatSync(sourceDir);
+    if (!sourceStat.isDirectory()) return;
+
+    const skillFilePath = join(sourceDir, "SKILL.md");
+    if (!fs.existsSync(skillFilePath)) return;
+    if (!isInsideDirectory(sourceDir, skillFilePath)) {
+      log.warn(
+        { skillFilePath, sourceDir },
+        "Skipping nested indexed skill with SKILL.md outside skill directory",
+      );
+      return;
+    }
+
+    const skillFileStat = fs.lstatSync(skillFilePath);
+    if (!skillFileStat.isFile()) return;
+
+    fs.mkdirSync(tempRootDir, { recursive: true });
+    const tempDir = join(tempRootDir, skillName);
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+
+    fs.cpSync(sourceDir, tempDir, {
+      dereference: false,
+      errorOnExist: true,
+      force: false,
+      recursive: true,
+    });
+
+    if (fs.existsSync(destinationDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      log.warn(
+        { destinationDir, sourceDir },
+        "Skipping nested indexed skill preservation because destination appeared during copy",
+      );
+      return;
+    }
+
+    fs.renameSync(tempDir, destinationDir);
+    log.info(
+      { destinationDir, sourceDir },
+      "Preserved nested indexed skill at top-level skills directory",
+    );
+  } catch (err) {
+    if (isNotFoundError(err)) return;
+    log.warn(
+      { err, relativeSkillDir, sourceDir, destinationDir },
+      "Failed to preserve nested indexed skill",
+    );
+    throw err;
+  }
+}
+
+function preserveNestedIndexedSkills(
+  workspaceDir: string,
+  skillsDir: string,
+  indexPath: string,
+): void {
+  const contents = fs.readFileSync(indexPath, "utf-8");
+  const tempRootDir = join(
+    workspaceDir,
+    ".workspace-migration-068-remove-legacy-skills-index",
+  );
+  for (const relativeSkillDir of parseLegacySkillIndexEntries(contents)) {
+    preserveNestedIndexedSkill(tempRootDir, skillsDir, relativeSkillDir);
+  }
+  if (fs.existsSync(tempRootDir)) {
+    fs.rmSync(tempRootDir, { recursive: true, force: true });
+  }
+}
+
 export const removeLegacySkillsIndexMigration: WorkspaceMigration = {
   id: "068-remove-legacy-skills-index",
   description: "Remove legacy workspace skills/SKILLS.md index file",
   retryFailedCheckpoint: true,
 
   run(workspaceDir: string): void {
-    const indexPath = join(workspaceDir, "skills", "SKILLS.md");
+    const skillsDir = join(workspaceDir, "skills");
+    const indexPath = join(skillsDir, "SKILLS.md");
 
     try {
       const stat = fs.lstatSync(indexPath);
@@ -31,6 +184,10 @@ export const removeLegacySkillsIndexMigration: WorkspaceMigration = {
           "Legacy SKILLS.md path is not a file; leaving it in place",
         );
         return;
+      }
+
+      if (stat.isFile()) {
+        preserveNestedIndexedSkills(workspaceDir, skillsDir, indexPath);
       }
 
       fs.unlinkSync(indexPath);
