@@ -446,7 +446,7 @@ Examples:
                 log.info("Waiting for authorization in browser... (press Ctrl+C to cancel)");
                 const final = await pollOAuthConnectStatus(state, {
                   intervalMs: 2000,
-                  timeoutMs: 150_000, // matches existing OAuth timeout in managed path
+                  timeoutMs: 5 * 60 * 1000, // match LOOPBACK_TIMEOUT_MS in oauth2.ts (5 min)
                 });
 
                 if (final.status === "complete") {
