@@ -12,6 +12,7 @@ import {
 import { renderOAuthCompletionPage } from "../../../security/oauth-completion-page.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { openInHostBrowser } from "../../../util/browser.js";
+import { cliIpcCall } from "../../../ipc/cli-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
@@ -67,6 +68,35 @@ function startManagedRedirectServer(provider: string): Promise<{
       reject(new Error(`Failed to start redirect server: ${err.message}`));
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// IPC polling helpers
+// ---------------------------------------------------------------------------
+
+type OAuthConnectStatusResponse =
+  | { status: "pending"; service: string }
+  | { status: "complete"; service: string; account_info?: string }
+  | { status: "error"; service: string; error?: string };
+
+async function pollOAuthConnectStatus(
+  state: string,
+  opts: { intervalMs: number; timeoutMs: number },
+): Promise<OAuthConnectStatusResponse> {
+  const deadline = Date.now() + opts.timeoutMs;
+  while (Date.now() < deadline) {
+    const r = await cliIpcCall<OAuthConnectStatusResponse>(
+      `internal/oauth/connect/status/${encodeURIComponent(state)}`,
+    );
+    if (r.ok && r.result) {
+      const { status } = r.result;
+      if (status === "complete" || status === "error") {
+        return r.result;
+      }
+    }
+    await new Promise<void>((res) => setTimeout(res, opts.intervalMs));
+  }
+  return { status: "error", service: "?", error: "Timed out waiting for OAuth callback" };
 }
 
 // ---------------------------------------------------------------------------
@@ -392,7 +422,72 @@ Examples:
               }
             }
 
-            // e. Call the orchestrator
+            // e. Try daemon-orchestrated path first (fixes heap-split for gateway transport).
+            const startResult = await cliIpcCall<{ auth_url: string; state: string }>(
+              "internal/oauth/connect/start",
+              {
+                service: provider,
+                clientId,
+                ...(clientSecret !== undefined ? { clientSecret } : {}),
+                callbackTransport: opts.callbackTransport,
+                ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
+              },
+            );
+
+            if (startResult.ok && startResult.result?.auth_url) {
+              const { auth_url, state } = startResult.result;
+
+              if (opts.browser !== false) {
+                await openInHostBrowser(auth_url);
+
+                log.info("Waiting for authorization in browser... (press Ctrl+C to cancel)");
+                const final = await pollOAuthConnectStatus(state, {
+                  intervalMs: 2000,
+                  timeoutMs: 150_000, // matches existing OAuth timeout in managed path
+                });
+
+                if (final.status === "complete") {
+                  if (jsonMode) {
+                    writeOutput(cmd, {
+                      ok: true,
+                      grantedScopes: [],
+                      accountInfo: final.account_info,
+                    });
+                  } else {
+                    process.stdout.write(
+                      `Connected to ${provider}${final.account_info ? ` as ${final.account_info}` : ""}\n`,
+                    );
+                  }
+                  return;
+                }
+
+                // status === "error" (includes timeout sentinel)
+                writeError(final.error ?? "OAuth connect failed");
+                return;
+              } else {
+                // --no-browser: return the URL immediately, matching existing deferred behavior.
+                if (jsonMode) {
+                  writeOutput(cmd, {
+                    ok: true,
+                    deferred: true,
+                    authUrl: auth_url,
+                    state,
+                    service: provider,
+                  });
+                } else {
+                  process.stdout.write(
+                    `\nAuthorize with ${provider}:\n\n${auth_url}\n\nThe connection will complete automatically once you authorize.\n`,
+                  );
+                }
+                return;
+              }
+            }
+
+            // IPC unavailable (daemon unreachable, older daemon without this route, socket missing).
+            // Fall through to the existing in-process flow. This still carries the heap-split bug
+            // for gateway transport, but if the daemon is unreachable we have a worse problem;
+            // the fallback preserves existing behavior as a regression guard.
+            // e. Call the orchestrator (in-process fallback)
             const result = await orchestrateOAuthConnect({
               service: provider,
               clientId,
