@@ -180,6 +180,7 @@ function applyTransportMetadata(
   if (!transport) return;
   conversation.setTransportHints(buildTransportHints(transport));
   conversation.applyHostEnvFromTransport(transport);
+  conversation.applyClientTimezoneFromTransport(transport);
 }
 
 /**
