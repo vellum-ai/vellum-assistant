@@ -60,18 +60,31 @@ export class ConfigWatcher {
   private watchers: FSWatcher[] = [];
   private watchedFiles: Set<string> = new Set();
   private stopped = false;
-  private debounceTimers = new DebouncerMap({
-    defaultDelayMs: 200,
-    maxEntries: 1000,
-    protectedKeyPrefix: "__",
-  });
+  private debounceTimers: DebouncerMap;
   private suppressReload = false;
   lastFingerprint = "";
   private lastRefreshTime = 0;
 
   static readonly REFRESH_INTERVAL_MS = 30_000;
 
-  constructor(private readonly pollIntervalMs: number = WATCH_FILE_POLL_MS) {}
+  /**
+   * @param pollIntervalMs Per-file stat poll interval (passed to
+   *   `fs.watchFile`). Default `WATCH_FILE_POLL_MS` (2s); tests pass a
+   *   smaller value for fast turnaround.
+   * @param debounceMs Debounce window applied to any detected file
+   *   change before invoking its handler. Default 200ms; tests pass a
+   *   smaller value to avoid sleeping unnecessarily.
+   */
+  constructor(
+    private readonly pollIntervalMs: number = WATCH_FILE_POLL_MS,
+    debounceMs = 200,
+  ) {
+    this.debounceTimers = new DebouncerMap({
+      defaultDelayMs: debounceMs,
+      maxEntries: 1000,
+      protectedKeyPrefix: "__",
+    });
+  }
 
   /** Expose the debounce timers so handlers can schedule debounced work. */
   get timers(): DebouncerMap {
