@@ -1,6 +1,9 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
+import { getLogger } from "../util/logger.js";
 
 export const DISK_PRESSURE_THRESHOLD_PERCENT = 95;
 export const DISK_PRESSURE_CHECK_INTERVAL_MS = 60_000;
@@ -36,7 +39,11 @@ export type DiskPressureTransitionResult =
   | { ok: true; status: DiskPressureStatus }
   | {
       ok: false;
-      reason: "not_locked" | "already_overridden" | "invalid_confirmation";
+      reason:
+        | "not_locked"
+        | "already_acknowledged"
+        | "already_overridden"
+        | "invalid_confirmation";
       message: string;
       status: DiskPressureStatus;
     };
@@ -45,6 +52,8 @@ interface DiskPressureGuardState {
   timer: ReturnType<typeof setInterval> | null;
   status: DiskPressureStatus;
 }
+
+const log = getLogger("disk-pressure-guard");
 
 const DISABLED_STATUS: DiskPressureStatus = {
   enabled: false,
@@ -81,13 +90,42 @@ function cloneStatus(status: DiskPressureStatus): DiskPressureStatus {
   };
 }
 
+function statusFingerprint(status: DiskPressureStatus): string {
+  const { lastCheckedAt: _lastCheckedAt, ...substantiveStatus } = status;
+  return JSON.stringify(substantiveStatus);
+}
+
+function publishStatusChangedIfNeeded(previous: DiskPressureStatus): void {
+  if (statusFingerprint(previous) === statusFingerprint(state.status)) return;
+  const status = cloneStatus(state.status);
+  assistantEventHub
+    .publish(
+      buildAssistantEvent({
+        type: "disk_pressure_status_changed",
+        status,
+      }),
+    )
+    .catch((err) => {
+      log.warn({ err }, "Failed to publish disk pressure status change");
+    });
+}
+
+function replaceStatus(next: DiskPressureStatus): DiskPressureStatus {
+  const previous = cloneStatus(state.status);
+  state.status = cloneStatus(next);
+  publishStatusChangedIfNeeded(previous);
+  return cloneStatus(state.status);
+}
+
 function isEnabled(): boolean {
   return isAssistantFeatureFlagEnabled("safe-storage-limits", getConfig());
 }
 
 function resetToDisabled(): DiskPressureStatus {
+  const previous = cloneStatus(state.status);
   stopDiskPressureGuard();
   state.status = cloneStatus(DISABLED_STATUS);
+  publishStatusChangedIfNeeded(previous);
   return cloneStatus(state.status);
 }
 
@@ -167,13 +205,11 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
   try {
     usageInfo = getDiskUsageInfo();
   } catch (error) {
-    state.status = sampleFailureStatus(error);
-    return cloneStatus(state.status);
+    return replaceStatus(sampleFailureStatus(error));
   }
 
   if (!usageInfo || usageInfo.totalMb <= 0) {
-    state.status = sampleFailureStatus("Disk usage sample unavailable");
-    return cloneStatus(state.status);
+    return replaceStatus(sampleFailureStatus("Disk usage sample unavailable"));
   }
 
   const usagePercent = roundPercent(
@@ -183,17 +219,16 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
   const lastCheckedAt = new Date().toISOString();
 
   if (!isCritical) {
-    state.status = {
+    return replaceStatus({
       ...OPEN_STATUS,
       usagePercent,
       path: usageInfo.path,
       lastCheckedAt,
-    };
-    return cloneStatus(state.status);
+    });
   }
 
   const lockId = state.status.locked ? state.status.lockId : nextLockId();
-  state.status = {
+  return replaceStatus({
     enabled: true,
     state: "critical",
     locked: true,
@@ -209,14 +244,12 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
     lastCheckedAt,
     blockedCapabilities: [...DISK_PRESSURE_BLOCKED_CAPABILITIES],
     error: null,
-  };
-
-  return cloneStatus(state.status);
+  });
 }
 
 export function getDiskPressureStatus(): DiskPressureStatus {
-  const disabledStatus = ensureEnabledStatus();
-  if (disabledStatus) return disabledStatus;
+  if (!isEnabled()) return cloneStatus(DISABLED_STATUS);
+  if (!state.status.enabled) return cloneStatus(OPEN_STATUS);
   return cloneStatus(state.status);
 }
 
@@ -231,7 +264,17 @@ export function acknowledgeDiskPressureLock(): DiskPressureTransitionResult {
     );
   }
 
+  if (status.acknowledged) {
+    return rejectTransition(
+      "already_acknowledged",
+      "The disk pressure lock has already been acknowledged.",
+      status,
+    );
+  }
+
+  const previous = cloneStatus(state.status);
   state.status.acknowledged = true;
+  publishStatusChangedIfNeeded(previous);
   return { ok: true, status: cloneStatus(state.status) };
 }
 
@@ -264,8 +307,10 @@ export function overrideDiskPressureLock(
     );
   }
 
+  const previous = cloneStatus(state.status);
   state.status.overrideActive = true;
   state.status.effectivelyLocked = false;
+  publishStatusChangedIfNeeded(previous);
   return { ok: true, status: cloneStatus(state.status) };
 }
 

@@ -7,6 +7,24 @@ let stopCalls = 0;
 let evaluateCalls = 0;
 let evaluateError: string | null = null;
 
+function makeOpenStatus() {
+  return {
+    enabled: true,
+    state: "ok",
+    locked: false,
+    acknowledged: false,
+    overrideActive: false,
+    effectivelyLocked: false,
+    lockId: null,
+    usagePercent: 10,
+    thresholdPercent: 95,
+    path: "/workspace",
+    lastCheckedAt: new Date().toISOString(),
+    blockedCapabilities: [],
+    error: null,
+  };
+}
+
 mock.module("../daemon/disk-pressure-guard.js", () => ({
   startDiskPressureGuard: () => {
     startCalls += 1;
@@ -47,6 +65,20 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
       error: evaluateError,
     };
   },
+  getDiskPressureStatus: () => makeOpenStatus(),
+  acknowledgeDiskPressureLock: () => ({
+    ok: false,
+    reason: "not_locked",
+    message: "No disk pressure lock is active for this assistant.",
+    status: makeOpenStatus(),
+  }),
+  overrideDiskPressureLock: () => ({
+    ok: false,
+    reason: "not_locked",
+    message: "No disk pressure lock is active for this assistant.",
+    status: makeOpenStatus(),
+  }),
+  DISK_PRESSURE_OVERRIDE_CONFIRMATION: "I understand the risks",
 }));
 
 mock.module("../util/logger.js", () => ({

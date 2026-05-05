@@ -1307,6 +1307,48 @@ public struct DictationResponse: Codable, Sendable {
     }
 }
 
+public struct DiskPressureStatus: Codable, Sendable {
+    public let enabled: Bool
+    public let state: String
+    public let locked: Bool
+    public let acknowledged: Bool
+    public let overrideActive: Bool
+    public let effectivelyLocked: Bool
+    public let lockId: String?
+    public let usagePercent: Double?
+    public let thresholdPercent: Double
+    public let path: String?
+    public let lastCheckedAt: String?
+    public let blockedCapabilities: [String]
+    public let error: String?
+
+    public init(enabled: Bool, state: String, locked: Bool, acknowledged: Bool, overrideActive: Bool, effectivelyLocked: Bool, lockId: String? = nil, usagePercent: Double? = nil, thresholdPercent: Double, path: String? = nil, lastCheckedAt: String? = nil, blockedCapabilities: [String], error: String? = nil) {
+        self.enabled = enabled
+        self.state = state
+        self.locked = locked
+        self.acknowledged = acknowledged
+        self.overrideActive = overrideActive
+        self.effectivelyLocked = effectivelyLocked
+        self.lockId = lockId
+        self.usagePercent = usagePercent
+        self.thresholdPercent = thresholdPercent
+        self.path = path
+        self.lastCheckedAt = lastCheckedAt
+        self.blockedCapabilities = blockedCapabilities
+        self.error = error
+    }
+}
+
+public struct DiskPressureStatusChanged: Codable, Sendable {
+    public let type: String
+    public let status: DiskPressureStatus
+
+    public init(type: String, status: DiskPressureStatus) {
+        self.type = type
+        self.status = status
+    }
+}
+
 public struct DocumentEditorShow: Codable, Sendable {
     public let type: String
     public let conversationId: String
