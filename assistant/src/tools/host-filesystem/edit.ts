@@ -126,12 +126,17 @@ class HostFileEditTool implements Tool {
       };
     }
 
-    // Guard: explicit targetClientId provided but proxy is unavailable
-    // (client disconnected between tool-definition and tool-execution).
-    // Without this guard the call falls through to local filesystem
-    // ops in the daemon container instead of the intended host.
+    // Guard: explicit targetClientId provided on a non-host-proxy transport
+    // but proxy is unavailable (client disconnected between tool-definition
+    // and tool-execution). Scoped to !supportsHostProxy so macos turns —
+    // where local-fs fallback IS the intended offline behavior — still fall
+    // through if the LLM auto-fills a stale target_client_id from a prior
+    // cross-client turn. On web/iphone, the call must fail loudly rather
+    // than silently target the daemon container's filesystem.
     if (
       targetClientId != null &&
+      transportInterface != null &&
+      !supportsHostProxy(transportInterface) &&
       !HostFileProxy.instance.isAvailable()
     ) {
       return {

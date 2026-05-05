@@ -97,4 +97,20 @@ describe("host_file_write cross-client guards", () => {
     expect(result.isError).toBe(false);
     expect(existsSync(destFile)).toBe(true);
   });
+
+  test("does NOT reject on macos transport with a stale target_client_id when proxy unavailable (regression: P2 fix)", async () => {
+    const workingDir = makeTempDir();
+    const destFile = join(workingDir, "stale-target.txt");
+    const result = await hostFileWriteTool.execute(
+      { path: destFile, content: "hello", target_client_id: "stale-mac" },
+      makeContext(workingDir, "macos"),
+    );
+    // The disconnected-target guard is scoped to non-host-proxy transports
+    // (!supportsHostProxy). On macos, a stale target_client_id auto-filled
+    // from a prior cross-client turn must be silently ignored and the local
+    // write must succeed, NOT reject with "target client ... is no longer
+    // connected".
+    expect(result.isError).toBe(false);
+    expect(existsSync(destFile)).toBe(true);
+  });
 });

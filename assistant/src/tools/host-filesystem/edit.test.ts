@@ -106,4 +106,25 @@ describe("host_file_edit cross-client guards", () => {
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toMatch(/not found|enoent|editing/);
   });
+
+  test("does NOT reject on macos transport with a stale target_client_id when proxy unavailable (regression: P2 fix)", async () => {
+    const workingDir = makeTempDir();
+    const result = await hostFileEditTool.execute(
+      {
+        path: "/nonexistent/x.txt",
+        old_string: "foo",
+        new_string: "bar",
+        target_client_id: "stale-mac",
+      },
+      makeContext(workingDir, "macos"),
+    );
+    // The disconnected-target guard is scoped to non-host-proxy transports
+    // (!supportsHostProxy). On macos, a stale target_client_id auto-filled
+    // from a prior cross-client turn must be silently ignored and the call
+    // must fall through to local FileSystemOps, NOT reject with "target
+    // client ... is no longer connected".
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toContain("is no longer connected");
+    expect(result.content.toLowerCase()).toMatch(/not found|enoent|editing/);
+  });
 });
