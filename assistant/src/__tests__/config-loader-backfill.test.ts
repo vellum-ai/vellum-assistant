@@ -552,6 +552,17 @@ describe("loadConfig startup behavior", () => {
     });
     expect(raw.llm.profiles.balanced.maxTokens).toBeUndefined();
     expect(raw.llm.profiles.balanced.thinking).toBeUndefined();
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const afterRestart = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(afterRestart.llm.activeProfile).toBe("balanced");
+    expect(afterRestart.llm.profiles.balanced).toEqual({
+      source: "managed",
+      provider: "openai",
+      model: "gpt-5.4",
+      label: "Platform Balanced",
+    });
   });
 
   test("still quarantines corrupt JSON", () => {

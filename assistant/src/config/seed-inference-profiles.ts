@@ -94,9 +94,12 @@ export function seedInferenceProfiles(
     resolveEffectiveDefaultProvider(llm) === "anthropic";
 
   for (const [name, seed] of Object.entries(MANAGED_PROFILE_SEED_DATA)) {
+    const existingProfile = readObject(profiles[name]);
     if (
-      preservedProfileNames.has(name) &&
-      readObject(profiles[name]) !== null
+      existingProfile !== null &&
+      (preservedProfileNames.has(name) ||
+        (!isAnthropicDefault &&
+          isProviderSpecificManagedProfile(existingProfile)))
     ) {
       continue;
     }
@@ -104,10 +107,17 @@ export function seedInferenceProfiles(
   }
 
   const activeProfile = readString(llm.activeProfile);
+  const activeProfileEntry =
+    activeProfile !== undefined ? readObject(profiles[activeProfile]) : null;
   const activeProfileExists =
-    activeProfile !== undefined && readObject(profiles[activeProfile]) !== null;
+    activeProfile !== undefined && activeProfileEntry !== null;
   const shouldPreserveActiveProfile =
     options.preserveActiveProfile && activeProfileExists;
+  const activeProfileIsManaged = MANAGED_PROFILE_NAMES.has(activeProfile ?? "");
+  const activeProfileIsProviderSpecificManaged =
+    activeProfileIsManaged &&
+    activeProfileEntry !== null &&
+    isProviderSpecificManagedProfile(activeProfileEntry);
 
   if (isAnthropicDefault) {
     // Reset to the default managed profile when the current value is missing.
@@ -118,7 +128,7 @@ export function seedInferenceProfiles(
     !shouldPreserveActiveProfile &&
     (activeProfile === undefined ||
       !activeProfileExists ||
-      MANAGED_PROFILE_NAMES.has(activeProfile))
+      (activeProfileIsManaged && !activeProfileIsProviderSpecificManaged))
   ) {
     delete llm.activeProfile;
   }
@@ -150,6 +160,14 @@ export function seedInferenceProfiles(
 
 function resolveEffectiveDefaultProvider(llm: Record<string, unknown>): string {
   return readString(readObject(llm.default)?.provider) ?? "anthropic";
+}
+
+function isProviderSpecificManagedProfile(
+  profile: Record<string, unknown>,
+): boolean {
+  const provider = readString(profile.provider);
+  if (provider === "anthropic") return false;
+  return provider !== undefined || readString(profile.source) === "managed";
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {
