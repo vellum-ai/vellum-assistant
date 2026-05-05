@@ -23,6 +23,10 @@ import {
   type MemoryJobType,
 } from "../../memory/jobs-store.js";
 import {
+  type ConceptFrequencyResponse,
+  getConceptFrequencySummary,
+} from "../../memory/memory-v2-concept-frequency.js";
+import {
   getEdgeIndex,
   totalEdgeCount,
   validateEdgeTargets,
@@ -459,6 +463,24 @@ async function handleExplainSimilarity({
   };
 }
 
+// ── Concept injection frequency (debug-only) ────────────────────────────
+
+const MemoryV2ConceptFrequencyParams = z
+  .object({
+    conversationId: z.string().min(1).optional(),
+    sinceMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+async function handleConceptFrequency({
+  body = {},
+}: RouteHandlerArgs): Promise<ConceptFrequencyResponse> {
+  const { conversationId, sinceMs } =
+    MemoryV2ConceptFrequencyParams.parse(body);
+  const workspaceDir = getWorkspaceDir();
+  return getConceptFrequencySummary(workspaceDir, { conversationId, sinceMs });
+}
+
 // ── Fit anisotropy calibration ──────────────────────────────────────────
 
 const MemoryV2FitAnisotropyParams = z
@@ -613,6 +635,17 @@ export const ROUTES: RouteDefinition[] = [
       "Walks every concept page on disk, recomputes the document-frequency table and average document length used by the BM25 sparse channel, and atomically swaps the in-memory stats. Run after bulk content imports or to recover from a rebuild that errored at startup. Does not reembed individual page sparse vectors — pair with `assistant memory v2 reembed` when document-side weights need refreshing.",
     tags: ["memory"],
     requestBody: MemoryV2RebuildCorpusStatsParams,
+  },
+  {
+    operationId: "memory_v2_concept_frequency",
+    method: "POST",
+    endpoint: "memory/v2/concept-frequency",
+    handler: handleConceptFrequency,
+    summary: "Aggregate per-concept injection frequency from activation logs",
+    description:
+      "Debug-only. Aggregates the existing memory_v2_activation_logs table by (slug, status) and cross-references on-disk concept pages so an operator can see which concepts get injected often, which get scored but rejected, and which on-disk pages never even surface as candidates. Optional filters: conversationId narrows to a single conversation; sinceMs restricts to logs created at-or-after the given epoch ms timestamp.",
+    tags: ["memory"],
+    requestBody: MemoryV2ConceptFrequencyParams,
   },
   {
     operationId: "memory_v2_fit_anisotropy",
