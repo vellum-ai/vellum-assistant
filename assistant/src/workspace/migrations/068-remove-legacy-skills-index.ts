@@ -18,6 +18,7 @@ function isNotFoundError(err: unknown): boolean {
 export const removeLegacySkillsIndexMigration: WorkspaceMigration = {
   id: "068-remove-legacy-skills-index",
   description: "Remove legacy workspace skills/SKILLS.md index file",
+  retryFailedCheckpoint: true,
 
   run(workspaceDir: string): void {
     const indexPath = join(workspaceDir, "skills", "SKILLS.md");

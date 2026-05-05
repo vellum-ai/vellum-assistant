@@ -60,6 +60,7 @@ describe("068-remove-legacy-skills-index migration", () => {
       "068-remove-legacy-skills-index",
     );
     expect(removeLegacySkillsIndexMigration.description).toContain("SKILLS.md");
+    expect(removeLegacySkillsIndexMigration.retryFailedCheckpoint).toBe(true);
   });
 
   test("removes only skills/SKILLS.md when present", () => {
