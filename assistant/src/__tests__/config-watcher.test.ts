@@ -122,13 +122,31 @@ const { ConfigWatcher } = await import("../daemon/config-watcher.js");
 
 // Compress both timing knobs in tests so the suite stays fast without
 // sacrificing real fs.watchFile integration coverage. Production uses
-// 2_000ms / 200ms; tests use ~50ms / ~10ms.
-const TEST_POLL_INTERVAL_MS = 50;
+// 2_000ms / 200ms; tests use 100ms / 10ms.
+//
+// Don't go below 100ms for the poll interval: Bun's libuv-based
+// fs.watchFile on Linux CI does not reliably honor very small intervals,
+// which manifested as flaky "listener never fired" failures.
+const TEST_POLL_INTERVAL_MS = 100;
 const TEST_DEBOUNCE_MS = 10;
-// Wait long enough for poll → debounce → handler chain to complete on a
-// loaded CI runner. Keep this generous; the cost is bounded because each
-// test pays it at most once.
-const WAIT_MS = TEST_POLL_INTERVAL_MS + TEST_DEBOUNCE_MS + 500;
+// Hard cap for poll→detect→debounce→handler chain. Positive-case tests
+// poll-and-return-early via `waitForCount`, so this only bounds the
+// failure path. Negative-case tests (expect 0) sleep a fixed budget to
+// give any spurious event a chance to surface.
+const POSITIVE_TIMEOUT_MS = 5_000;
+const NEGATIVE_WAIT_MS = TEST_POLL_INTERVAL_MS + TEST_DEBOUNCE_MS + 500;
+
+async function waitForCount(
+  getter: () => number,
+  expected: number,
+  timeoutMs = POSITIVE_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (getter() >= expected) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
 
 function findWatcher(path: string): CapturedWatcher | undefined {
   return capturedWatchers.find((w) => w.dir === path);
@@ -190,14 +208,14 @@ describe("ConfigWatcher workspace file handlers", () => {
   test("SOUL.md change triggers onConversationEvict", async () => {
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
-    await new Promise((r) => setTimeout(r, WAIT_MS));
+    await waitForCount(() => evictCallCount, 1);
     expect(evictCallCount).toBe(1);
   });
 
   test("IDENTITY.md change triggers onConversationEvict", async () => {
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
-    await new Promise((r) => setTimeout(r, WAIT_MS));
+    await waitForCount(() => evictCallCount, 1);
     expect(evictCallCount).toBe(1);
   });
 
@@ -209,7 +227,7 @@ describe("ConfigWatcher workspace file handlers", () => {
     // would eventually trigger an eviction; it should not.
     writeFileSync(join(WORKSPACE_DIR, "UPDATES.md"), "");
     writeFileSync(join(WORKSPACE_DIR, "UPDATES.md"), "changed");
-    await new Promise((r) => setTimeout(r, WAIT_MS));
+    await new Promise((r) => setTimeout(r, NEGATIVE_WAIT_MS));
     expect(evictCallCount).toBe(0);
     expect(findWatcher(WORKSPACE_DIR)).toBeUndefined();
   });
@@ -222,7 +240,7 @@ describe("ConfigWatcher workspace file handlers", () => {
     };
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
-    await new Promise((r) => setTimeout(r, WAIT_MS));
+    await waitForCount(() => (refreshCalled ? 1 : 0), 1);
     expect(refreshCalled).toBe(true);
     expect(evictCallCount).toBe(0);
   });
@@ -231,7 +249,7 @@ describe("ConfigWatcher workspace file handlers", () => {
     watcher.refreshConfigFromSources = async () => true;
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
-    await new Promise((r) => setTimeout(r, WAIT_MS));
+    await waitForCount(() => evictCallCount, 1);
     expect(evictCallCount).toBe(1);
   });
 
@@ -244,7 +262,7 @@ describe("ConfigWatcher workspace file handlers", () => {
     watcher.suppressConfigReload = true;
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
-    await new Promise((r) => setTimeout(r, WAIT_MS));
+    await new Promise((r) => setTimeout(r, NEGATIVE_WAIT_MS));
     expect(refreshCalled).toBe(false);
     expect(evictCallCount).toBe(0);
   });
@@ -263,7 +281,7 @@ describe("ConfigWatcher watcher lifecycle", () => {
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     watcher.stop();
-    await new Promise((r) => setTimeout(r, WAIT_MS));
+    await new Promise((r) => setTimeout(r, NEGATIVE_WAIT_MS));
     expect(evictCallCount).toBe(0);
   });
 
@@ -272,7 +290,10 @@ describe("ConfigWatcher watcher lifecycle", () => {
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
-    await new Promise((r) => setTimeout(r, WAIT_MS));
+    await waitForCount(() => evictCallCount, 1);
+    // Give any extra/duplicate firing a chance to surface before asserting
+    // exact count.
+    await new Promise((r) => setTimeout(r, NEGATIVE_WAIT_MS));
     expect(evictCallCount).toBe(1);
   });
 
@@ -280,7 +301,7 @@ describe("ConfigWatcher watcher lifecycle", () => {
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
-    await new Promise((r) => setTimeout(r, WAIT_MS));
+    await waitForCount(() => evictCallCount, 2);
     expect(evictCallCount).toBe(2);
   });
 });
