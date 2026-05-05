@@ -35,13 +35,6 @@ import { shouldOutputJson, writeOutput } from "../output.js";
 // Human-readable formatters
 // ---------------------------------------------------------------------------
 
-function formatChannelSummary(ch: ContactChannel): string {
-  const parts = [ch.type, ch.address];
-  if (ch.status !== "active") parts.push(`(${ch.status})`);
-  if (ch.policy !== "allow") parts.push(`[${ch.policy}]`);
-  return parts.join(" ");
-}
-
 function formatContactTable(contacts: ContactWithChannels[]): string {
   const headers = ["ID", "NAME", "ROLE", "CHANNELS"];
   const rows = contacts.map((c) => [
@@ -52,7 +45,6 @@ function formatContactTable(contacts: ContactWithChannels[]): string {
   ]);
 
   // Pad all columns
-  const fixedCols = headers.length;
   const widths = headers.map((h, i) =>
     Math.max(h.length, ...rows.map((r) => r[i]?.length ?? 0)),
   );
