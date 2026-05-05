@@ -52,6 +52,8 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["internal_mcp_auth_start", ["internal.write"], ["svc_gateway"]],
   ["internal_mcp_auth_status", ["internal.write"], ["svc_gateway"]],
   ["internal_mcp_reload", ["internal.write"], ["svc_gateway"]],
+  ["internal_oauth_connect_start", ["internal.write"], ["svc_gateway"]],
+  ["internal_oauth_connect_status", ["internal.write"], ["svc_gateway"]],
 
   // Calls
   ["calls_answer", ["calls.write"]],
