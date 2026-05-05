@@ -50,6 +50,7 @@ async function handleOAuthConnectStart({
   // Capture resolvedState separately so the onDeferredComplete closure can
   // reference it without a reference-before-assignment risk (the fire-and-forget
   // tail only fires after the await resolves, by which point resolvedState is set).
+  // eslint-disable-next-line prefer-const -- intentional forward-declared binding
   let resolvedState: string | undefined;
 
   let result: Awaited<ReturnType<typeof orchestrateOAuthConnect>>;
@@ -74,8 +75,11 @@ async function handleOAuthConnectStart({
     throw new InternalError(err instanceof Error ? err.message : String(err));
   }
 
-  if (!result.success || !result.deferred) {
-    throw new InternalError(result.error ?? "Orchestrator returned non-deferred result");
+  if (!result.success) {
+    throw new InternalError(result.error);
+  }
+  if (!result.deferred) {
+    throw new InternalError("Orchestrator returned non-deferred result");
   }
 
   resolvedState = result.state;

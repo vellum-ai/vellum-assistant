@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { Command } from "commander";
 
 import { getIsContainerized } from "../../../config/env-registry.js";
+import { cliIpcCall } from "../../../ipc/cli-client.js";
 import { orchestrateOAuthConnect } from "../../../oauth/connect-orchestrator.js";
 import {
   getAppByProviderAndClientId,
@@ -12,7 +13,6 @@ import {
 import { renderOAuthCompletionPage } from "../../../security/oauth-completion-page.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { openInHostBrowser } from "../../../util/browser.js";
-import { cliIpcCall } from "../../../ipc/cli-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
@@ -461,8 +461,15 @@ Examples:
                   return;
                 }
 
-                // status === "error" (includes timeout sentinel)
-                writeError(final.error ?? "OAuth connect failed");
+                if (final.status === "error") {
+                  // Includes the timeout sentinel emitted by pollOAuthConnectStatus.
+                  writeError(final.error ?? "OAuth connect failed");
+                  return;
+                }
+
+                // Defensive: pollOAuthConnectStatus should never return pending,
+                // but TS narrowing requires us to handle it.
+                writeError("OAuth connect ended in an unexpected pending state");
                 return;
               } else {
                 // --no-browser: return the URL immediately, matching existing deferred behavior.
