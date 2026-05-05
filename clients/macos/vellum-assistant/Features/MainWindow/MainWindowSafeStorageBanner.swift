@@ -9,6 +9,7 @@ struct SafeStorageAcknowledgementViewState: Equatable, Sendable {
 
     let usageText: String
     let blockedCapabilityLabels: [String]
+    let acknowledgementErrorMessage: String?
 
     var bodyText: String {
         "\(Self.backgroundProcessesBlockedCopy) \(Self.trustedContactsBlockedCopy)"
@@ -16,7 +17,8 @@ struct SafeStorageAcknowledgementViewState: Equatable, Sendable {
 
     init?(
         status: DiskPressureStatus?,
-        requiresAcknowledgement: Bool
+        requiresAcknowledgement: Bool,
+        acknowledgementErrorMessage: String? = nil
     ) {
         guard requiresAcknowledgement,
               let status,
@@ -31,6 +33,12 @@ struct SafeStorageAcknowledgementViewState: Equatable, Sendable {
 
         self.usageText = SafeStorageCopy.usageText(for: status)
         self.blockedCapabilityLabels = SafeStorageCopy.blockedCapabilityLabels(for: status.blockedCapabilities)
+        self.acknowledgementErrorMessage = Self.visibleErrorMessage(from: acknowledgementErrorMessage)
+    }
+
+    private static func visibleErrorMessage(from message: String?) -> String? {
+        let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -84,12 +92,14 @@ struct MainWindowSafeStorageAcknowledgementActions {
 struct MainWindowSafeStorageBanner: View {
     let status: DiskPressureStatus?
     let requiresAcknowledgement: Bool
+    var acknowledgementErrorMessage: String? = nil
     let actions: MainWindowSafeStorageAcknowledgementActions
 
     var body: some View {
         if let state = SafeStorageAcknowledgementViewState(
             status: status,
-            requiresAcknowledgement: requiresAcknowledgement
+            requiresAcknowledgement: requiresAcknowledgement,
+            acknowledgementErrorMessage: acknowledgementErrorMessage
         ) {
             ZStack(alignment: .top) {
                 VColor.auxBlack.opacity(0.22)
@@ -144,6 +154,10 @@ struct MainWindowSafeStorageBanner: View {
             }
 
             blockedCapabilitiesList(state.blockedCapabilityLabels)
+
+            if let acknowledgementErrorMessage = state.acknowledgementErrorMessage {
+                VNotification(acknowledgementErrorMessage, tone: .negative)
+            }
 
             HStack(spacing: VSpacing.sm) {
                 Spacer(minLength: 0)

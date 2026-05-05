@@ -11,6 +11,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DiskP
 final class DiskPressureStatusStore {
     typealias ActiveAssistantIdProvider = @MainActor @Sendable () -> String?
     typealias FeatureFlagEnabledProvider = @MainActor @Sendable (String) -> Bool
+    static let acknowledgementFailureMessage = "Unable to acknowledge storage cleanup. Check your connection and try again."
 
     @ObservationIgnored private let client: any DiskPressureClientProtocol
     @ObservationIgnored private let eventStreamClient: EventStreamClient?
@@ -19,6 +20,7 @@ final class DiskPressureStatusStore {
     @ObservationIgnored private let notificationCenter: NotificationCenter
 
     private(set) var status: DiskPressureStatus?
+    private(set) var acknowledgementErrorMessage: String?
 
     @ObservationIgnored private var activeAssistantId: String?
     @ObservationIgnored private var started = false
@@ -158,6 +160,7 @@ final class DiskPressureStatusStore {
 
     func acknowledge() {
         guard featureFlagEnabled("safe-storage-limits") else { return }
+        acknowledgementErrorMessage = nil
         generation += 1
         let requestGeneration = generation
         bootstrapTask?.cancel()
@@ -169,6 +172,8 @@ final class DiskPressureStatusStore {
                 self.applyStatus(nextStatus)
             } catch {
                 guard !Task.isCancelled else { return }
+                guard requestGeneration == self.generation else { return }
+                self.acknowledgementErrorMessage = Self.acknowledgementFailureMessage
                 log.warning("Disk pressure acknowledgement failed: \(error.localizedDescription)")
             }
         }
@@ -224,10 +229,12 @@ final class DiskPressureStatusStore {
         }
 
         status = nextStatus
+        acknowledgementErrorMessage = nil
     }
 
     private func clearStatus() {
-        guard status != nil else { return }
+        guard status != nil || acknowledgementErrorMessage != nil else { return }
         status = nil
+        acknowledgementErrorMessage = nil
     }
 }

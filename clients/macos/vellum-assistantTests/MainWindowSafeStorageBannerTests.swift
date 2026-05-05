@@ -36,6 +36,17 @@ struct MainWindowSafeStorageBannerTests {
     }
 
     @Test
+    func acknowledgementErrorMessageIsVisibleWhenProvided() {
+        let state = SafeStorageAcknowledgementViewState(
+            status: Self.status(acknowledged: false),
+            requiresAcknowledgement: true,
+            acknowledgementErrorMessage: " Unable to acknowledge storage cleanup. "
+        )
+
+        #expect(state?.acknowledgementErrorMessage == "Unable to acknowledge storage cleanup.")
+    }
+
+    @Test
     func acknowledgementActionsWireDismissAndCleanupRoutes() {
         var acknowledgeCount = 0
         var cleanupCount = 0

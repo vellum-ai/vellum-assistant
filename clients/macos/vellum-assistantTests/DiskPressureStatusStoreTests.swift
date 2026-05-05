@@ -109,6 +109,35 @@ final class DiskPressureStatusStoreTests: XCTestCase {
         XCTAssertFalse(store.requiresAcknowledgement)
     }
 
+    func testAcknowledgementFailureShowsRetryErrorAndClearsOnStatusUpdate() async throws {
+        let client = MockDiskPressureClient(getStatuses: [
+            Self.status(acknowledged: false),
+        ])
+        let eventStreamClient = EventStreamClient()
+        let store = makeStore(client: client, eventStreamClient: eventStreamClient)
+
+        store.start()
+        try await waitUntil { store.requiresAcknowledgement }
+
+        store.acknowledge()
+
+        try await waitUntil { store.acknowledgementErrorMessage != nil }
+        XCTAssertEqual(client.acknowledgeCallCount, 1)
+        XCTAssertEqual(
+            store.acknowledgementErrorMessage,
+            DiskPressureStatusStore.acknowledgementFailureMessage
+        )
+
+        eventStreamClient.broadcastMessage(.diskPressureStatusChanged(DiskPressureStatusChanged(
+            type: "disk_pressure_status_changed",
+            status: Self.status(acknowledged: true)
+        )))
+
+        try await waitUntil {
+            store.acknowledgementErrorMessage == nil && store.isCleanupModeActive
+        }
+    }
+
     func testActiveAssistantSwitchFetchesNewStatusAndScopesAlert() async throws {
         let client = MockDiskPressureClient(getStatuses: [
             Self.status(lockId: "lock-a", usagePercent: 97),

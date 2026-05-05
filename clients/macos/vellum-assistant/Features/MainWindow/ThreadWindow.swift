@@ -284,6 +284,7 @@ private struct ThreadWindowContentView: View {
                     MainWindowSafeStorageBanner(
                         status: diskPressureStatusStore.status,
                         requiresAcknowledgement: diskPressureStatusStore.requiresAcknowledgement,
+                        acknowledgementErrorMessage: diskPressureStatusStore.acknowledgementErrorMessage,
                         actions: MainWindowSafeStorageAcknowledgementActions(
                             acknowledge: {
                                 diskPressureStatusStore.acknowledge()
