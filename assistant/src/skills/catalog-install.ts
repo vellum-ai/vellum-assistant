@@ -126,6 +126,60 @@ export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
 
 // ─── Tar extraction ──────────────────────────────────────────────────────────
 
+export interface SafeSkillInstallPath {
+  normalizedPath: string;
+  destPath: string;
+}
+
+export function safeResolveSkillInstallPath(
+  destRoot: string,
+  relativePath: string,
+): SafeSkillInstallPath | null {
+  const normalizedName = relativePath.replace(/\\/g, "/").replace(/^\.\/+/, "");
+  const normalizedPath = posix.normalize(normalizedName);
+  const hasWindowsDrivePrefix = /^[a-zA-Z]:\//.test(normalizedPath);
+  const isTraversal =
+    normalizedPath === ".." || normalizedPath.startsWith("../");
+
+  if (
+    !normalizedPath ||
+    normalizedPath === "." ||
+    normalizedPath.startsWith("/") ||
+    hasWindowsDrivePrefix ||
+    isTraversal
+  ) {
+    return null;
+  }
+
+  const resolvedDestRoot = resolve(destRoot);
+  const destPath = resolve(resolvedDestRoot, normalizedPath);
+  const insideDestination =
+    destPath === resolvedDestRoot ||
+    destPath.startsWith(resolvedDestRoot + sep);
+  if (!insideDestination) return null;
+
+  return { normalizedPath, destPath };
+}
+
+export function writeSkillFilesToDir(
+  files: Record<string, string | Buffer>,
+  destDir: string,
+): boolean {
+  let foundSkillMd = false;
+  for (const [relativePath, content] of Object.entries(files)) {
+    const resolved = safeResolveSkillInstallPath(destDir, relativePath);
+    if (!resolved) continue;
+
+    mkdirSync(dirname(resolved.destPath), { recursive: true });
+    writeFileSync(resolved.destPath, content);
+
+    if (resolved.normalizedPath === "SKILL.md") {
+      foundSkillMd = true;
+    }
+  }
+  return foundSkillMd;
+}
+
 /**
  * Extract all files from a tar archive (uncompressed) into a directory.
  * Returns true if a top-level SKILL.md was found in the archive.
@@ -156,35 +210,15 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
 
     // Skip directories and empty names
     if (name && typeFlag !== 53 /* '5' */) {
-      // Prevent path traversal and absolute path writes
-      const normalizedName = name.replace(/\\/g, "/").replace(/^\.\/+/, "");
-      const normalizedPath = posix.normalize(normalizedName);
-      const hasWindowsDrivePrefix = /^[a-zA-Z]:\//.test(normalizedPath);
-      const isTraversal =
-        normalizedPath === ".." || normalizedPath.startsWith("../");
+      const resolved = safeResolveSkillInstallPath(destDir, name);
+      if (resolved) {
+        mkdirSync(dirname(resolved.destPath), { recursive: true });
+        writeFileSync(
+          resolved.destPath,
+          tarBuffer.subarray(offset, offset + size),
+        );
 
-      if (
-        normalizedPath &&
-        normalizedPath !== "." &&
-        !normalizedPath.startsWith("/") &&
-        !hasWindowsDrivePrefix &&
-        !isTraversal
-      ) {
-        const destRoot = resolve(destDir);
-        const destPath = resolve(destRoot, normalizedPath);
-        const insideDestination =
-          destPath === destRoot || destPath.startsWith(destRoot + sep);
-        if (!insideDestination) {
-          offset += Math.ceil(size / 512) * 512;
-          continue;
-        }
-
-        mkdirSync(dirname(destPath), { recursive: true });
-        writeFileSync(destPath, tarBuffer.subarray(offset, offset + size));
-
-        if (normalizedPath === "SKILL.md") {
-          foundSkillMd = true;
-        }
+        if (resolved.normalizedPath === "SKILL.md") foundSkillMd = true;
       }
     }
 

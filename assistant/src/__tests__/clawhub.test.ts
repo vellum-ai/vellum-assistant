@@ -79,6 +79,63 @@ describe("clawhubInstall slug validation", () => {
   });
 });
 
+describe("clawhubInstall staging", () => {
+  test("runs clawhub in a staging project root without touching the managed skill", async () => {
+    const originalSpawn = Bun.spawn;
+    const projectRoot = join(TEST_DIR, "clawhub-staging-project");
+    const finalSkillDir = join(TEST_DIR, "skills", "demo-skill");
+    const stagedSkillDir = join(projectRoot, "skills", "demo-skill");
+
+    rmSync(projectRoot, { recursive: true, force: true });
+    rmSync(finalSkillDir, { recursive: true, force: true });
+    mkdirSync(finalSkillDir, { recursive: true });
+    writeFileSync(join(finalSkillDir, "SKILL.md"), "# Old Skill\n", "utf-8");
+
+    const spawnMock = mock((cmd: string[], opts: { cwd?: string }) => {
+      expect(cmd).toEqual([
+        "npx",
+        "clawhub",
+        "install",
+        "demo-skill",
+        "--force",
+      ]);
+      expect(opts.cwd).toBe(projectRoot);
+      mkdirSync(stagedSkillDir, { recursive: true });
+      writeFileSync(
+        join(stagedSkillDir, "SKILL.md"),
+        "# Staged Skill\n",
+        "utf-8",
+      );
+      return {
+        stdout: new Response("").body!,
+        stderr: new Response("").body!,
+        exited: Promise.resolve(0),
+        kill: () => {},
+      };
+    });
+
+    Bun.spawn = spawnMock as unknown as typeof Bun.spawn;
+    try {
+      const result = await clawhubInstall("demo-skill", { projectRoot });
+
+      expect(result.success).toBe(true);
+      expect(result.skillName).toBe("demo-skill");
+      expect(result.skillDir).toBe(stagedSkillDir);
+      expect(readFileSync(join(finalSkillDir, "SKILL.md"), "utf-8")).toBe(
+        "# Old Skill\n",
+      );
+      expect(readFileSync(join(stagedSkillDir, "SKILL.md"), "utf-8")).toBe(
+        "# Staged Skill\n",
+      );
+      expect(existsSync(join(stagedSkillDir, "install-meta.json"))).toBe(true);
+    } finally {
+      Bun.spawn = originalSpawn;
+      rmSync(projectRoot, { recursive: true, force: true });
+      rmSync(finalSkillDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("clawhubInspect slug validation", () => {
   test("rejects empty slug", async () => {
     const result = await clawhubInspect("");

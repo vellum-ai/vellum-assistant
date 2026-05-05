@@ -1,11 +1,12 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import {
   commitStagedSkillInstall,
   createSkillInstallStagingDir,
   installSkillDependenciesIfPresent,
+  writeSkillFilesToDir,
 } from "./catalog-install.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 import type {
@@ -455,24 +456,7 @@ export async function installExternalSkill(
 
   const stagedDir = createSkillInstallStagingDir();
   try {
-    // Write files with path traversal protection (follows extractTarToDir pattern)
-    for (const [filename, content] of Object.entries(files)) {
-      const normalized = filename.replace(/\\/g, "/").replace(/^\.\/+/g, "");
-      if (
-        !normalized ||
-        normalized.includes("..") ||
-        normalized.startsWith("/")
-      )
-        continue;
-      const destPath = resolve(stagedDir, normalized);
-      if (
-        !destPath.startsWith(resolve(stagedDir) + sep) &&
-        destPath !== resolve(stagedDir)
-      )
-        continue;
-      mkdirSync(dirname(destPath), { recursive: true });
-      writeFileSync(destPath, content, "utf-8");
-    }
+    writeSkillFilesToDir(files, stagedDir);
 
     writeInstallMeta(stagedDir, {
       origin: "skillssh",
