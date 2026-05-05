@@ -514,11 +514,10 @@ const TWILIO_RELAY_TOKEN_PLACEHOLDER = "__VELLUM_RELAY_TOKEN__";
  * Resolve the public base URL as a WebSocket URL (`wss://…`).
  *
  * Sources (in priority order):
- * 1. `VELAY_BASE_URL` — present on platform-hosted gateway sidecars.
- *    When Velay is the tunnel provider, Twilio WebSocket connections
- *    are routed through the Velay service URL.
- * 2. `ingress.publicBaseUrl` from the config file — written by Velay
- *    on tunnel registration, or set manually for self-hosted.
+ * 1. `ingress.publicBaseUrl` from the config file — written by Velay
+ *    after tunnel registration, or set manually for self-hosted.
+ * 2. `VELAY_BASE_URL` + platform assistant ID — fallback for platform
+ *    sidecars before the config cache has observed the registered URL.
  *
  * Returns `undefined` when no source provides a value — the placeholder
  * will remain in TwiML and Twilio will fail to connect, which is the
@@ -529,16 +528,19 @@ export function resolvePublicBaseWssUrl(
   configFile?: ConfigFileCache,
   platformAssistantId?: string,
 ): string | undefined {
+  const raw = configFile?.getString("ingress", "publicBaseUrl");
+  const normalized = normalizePublicBaseUrl(raw);
+  if (normalized) return normalized.replace(/^http(s?)/, "ws$1");
+
   if (config.velayBaseUrl && platformAssistantId) {
     const withPath =
       config.velayBaseUrl.replace(/\/+$/, "") + "/" + platformAssistantId;
-    const normalized = normalizePublicBaseUrl(withPath);
-    if (normalized) return normalized.replace(/^http(s?)/, "ws$1");
+    const normalizedVelayUrl = normalizePublicBaseUrl(withPath);
+    if (normalizedVelayUrl) {
+      return normalizedVelayUrl.replace(/^http(s?)/, "ws$1");
+    }
   }
-  const raw = configFile?.getString("ingress", "publicBaseUrl");
-  const normalized = normalizePublicBaseUrl(raw);
-  if (!normalized) return undefined;
-  return normalized.replace(/^http(s?)/, "ws$1");
+  return undefined;
 }
 
 /**
@@ -608,7 +610,7 @@ export async function forwardTwilioVoiceWebhook(
     } else {
       log.error(
         "TwiML contains public URL placeholder but no public base URL is configured. " +
-          "Twilio will fail to connect. Set VELAY_BASE_URL or ingress.publicBaseUrl.",
+          "Twilio will fail to connect. Wait for Velay tunnel registration or set ingress.publicBaseUrl.",
       );
     }
   }

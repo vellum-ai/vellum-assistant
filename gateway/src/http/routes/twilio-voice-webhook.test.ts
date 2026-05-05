@@ -314,7 +314,28 @@ describe("resolvePublicBaseWssUrl", () => {
     );
   });
 
-  test("falls back to configFile publicBaseUrl when velayBaseUrl is set but platformAssistantId is missing", () => {
+  test("uses configFile publicBaseUrl before velayBaseUrl fallback", () => {
+    const config = {
+      ...baseConfig,
+      velayBaseUrl: "http://host.docker.internal:8501",
+    };
+    const mockConfigFile = {
+      getString: (section: string, key: string) =>
+        section === "ingress" && key === "publicBaseUrl"
+          ? "https://velay-public.example.test/abc12345-0000-0000-0000-000000000000"
+          : undefined,
+    } as Parameters<typeof resolvePublicBaseWssUrl>[1];
+    const result = resolvePublicBaseWssUrl(
+      config,
+      mockConfigFile,
+      "abc12345-0000-0000-0000-000000000000",
+    );
+    expect(result).toBe(
+      "wss://velay-public.example.test/abc12345-0000-0000-0000-000000000000",
+    );
+  });
+
+  test("falls back to configFile publicBaseUrl when platformAssistantId is missing", () => {
     const config = {
       ...baseConfig,
       velayBaseUrl: "https://velay-dev.vellum.ai",
