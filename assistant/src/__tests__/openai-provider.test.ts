@@ -1367,6 +1367,51 @@ describe("OpenRouterProvider reasoning", () => {
   });
 });
 
+describe("OpenRouterProvider Anthropic-compatible errors", () => {
+  function userMsg(text: string): Message {
+    return { role: "user", content: [{ type: "text", text }] };
+  }
+
+  test("retags Anthropic ProviderError instances as OpenRouter errors", async () => {
+    const provider = new OpenRouterProvider("or-key", "anthropic/claude-4.5");
+    const abortReason = createAbortReason(
+      "user_cancel",
+      "openrouter-provider-test",
+    );
+    const cause = new Error("upstream cause");
+    const innerError = new ProviderError(
+      "Anthropic API error (402): Payment Required",
+      "anthropic",
+      402,
+      { cause, retryAfterMs: 1250, abortReason },
+    );
+
+    (
+      provider as unknown as {
+        anthropicInner: {
+          sendMessage: OpenRouterProvider["sendMessage"];
+        };
+      }
+    ).anthropicInner = {
+      sendMessage: async () => {
+        throw innerError;
+      },
+    };
+
+    try {
+      await provider.sendMessage([userMsg("hi")]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).provider).toBe("openrouter");
+      expect((error as ProviderError).statusCode).toBe(402);
+      expect((error as ProviderError).retryAfterMs).toBe(1250);
+      expect((error as ProviderError).abortReason).toBe(abortReason);
+      expect((error as Error).cause).toBe(cause);
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Reasoning effort → OpenAI reasoning_effort mapping
 // ---------------------------------------------------------------------------
