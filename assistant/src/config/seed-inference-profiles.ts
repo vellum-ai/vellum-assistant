@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
@@ -53,24 +51,35 @@ export const MANAGED_PROFILE_NAMES = new Set(
   Object.keys(MANAGED_PROFILE_SEED_DATA),
 );
 
+export type SeedInferenceProfilesOptions = {
+  /**
+   * Managed profile names supplied by the platform/default overlay for this
+   * startup. Those entries are already on disk by the time seeding runs and
+   * should remain authoritative for this boot.
+   */
+  preserveProfileNames?: Iterable<string>;
+  preserveActiveProfile?: boolean;
+};
+
 /**
  * Seed managed inference profiles into the workspace config.
  *
- * Called on every daemon startup after workspace migrations and before
- * the first `loadConfig()`. Managed profiles are overwritten entirely
- * (replace, not merge) so upstream model/effort changes propagate.
- * User-created profiles are never touched; pre-existing profiles
+ * Called on every daemon startup after workspace migrations and default-config
+ * overlays merge, but before the first `loadConfig()`. Managed profiles are
+ * overwritten entirely (replace, not merge) so upstream model/effort changes
+ * propagate. User-created profiles are never touched; pre-existing profiles
  * without a `source` field get `source: "user"` backfilled.
  *
- * Still runs when `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH` is set. Lifecycle
- * calls this before merging the hatch overlay so managed profiles exist for the
- * first config load, while the overlay can still override profile/default
- * fields immediately afterward. When that overlay declares a non-Anthropic
- * default provider, seed placeholder profile slots but do not force the
- * Anthropic `balanced` profile active.
+ * Default-config overlays can provide their own profile fragments and active
+ * profile. Lifecycle passes those explicit fields in `options`, letting local
+ * hatches still receive managed Anthropic defaults while platform-owned
+ * profile choices remain authoritative.
  */
-export function seedInferenceProfiles(): void {
+export function seedInferenceProfiles(
+  options: SeedInferenceProfilesOptions = {},
+): void {
   const config = loadRawConfig();
+  const preservedProfileNames = new Set(options.preserveProfileNames ?? []);
 
   if (config.llm == null || typeof config.llm !== "object") {
     config.llm = {};
@@ -85,21 +94,31 @@ export function seedInferenceProfiles(): void {
     resolveEffectiveDefaultProvider(llm) === "anthropic";
 
   for (const [name, seed] of Object.entries(MANAGED_PROFILE_SEED_DATA)) {
+    if (
+      preservedProfileNames.has(name) &&
+      readObject(profiles[name]) !== null
+    ) {
+      continue;
+    }
     profiles[name] = isAnthropicDefault ? { ...seed } : {};
   }
 
+  const activeProfile = readString(llm.activeProfile);
+  const activeProfileExists =
+    activeProfile !== undefined && readObject(profiles[activeProfile]) !== null;
+  const shouldPreserveActiveProfile =
+    options.preserveActiveProfile && activeProfileExists;
+
   if (isAnthropicDefault) {
     // Reset to the default managed profile when the current value is missing.
-    if (
-      typeof llm.activeProfile !== "string" ||
-      !(llm.activeProfile in profiles)
-    ) {
+    if (!activeProfileExists) {
       llm.activeProfile = "balanced";
     }
   } else if (
-    typeof llm.activeProfile !== "string" ||
-    !(llm.activeProfile in profiles) ||
-    MANAGED_PROFILE_NAMES.has(llm.activeProfile)
+    !shouldPreserveActiveProfile &&
+    (activeProfile === undefined ||
+      !activeProfileExists ||
+      MANAGED_PROFILE_NAMES.has(activeProfile))
   ) {
     delete llm.activeProfile;
   }
@@ -130,25 +149,7 @@ export function seedInferenceProfiles(): void {
 }
 
 function resolveEffectiveDefaultProvider(llm: Record<string, unknown>): string {
-  return (
-    readDefaultProviderFromOverlay() ??
-    readString(readObject(llm.default)?.provider) ??
-    "anthropic"
-  );
-}
-
-function readDefaultProviderFromOverlay(): string | undefined {
-  const defaultConfigPath = process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
-  if (!defaultConfigPath) return undefined;
-
-  try {
-    const raw = JSON.parse(readFileSync(defaultConfigPath, "utf-8"));
-    const llm = readObject(raw)?.llm;
-    const defaultBlock = readObject(readObject(llm)?.default);
-    return readString(defaultBlock?.provider);
-  } catch {
-    return undefined;
-  }
+  return readString(readObject(llm.default)?.provider) ?? "anthropic";
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {

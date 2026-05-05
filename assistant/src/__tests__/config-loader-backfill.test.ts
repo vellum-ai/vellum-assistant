@@ -83,6 +83,14 @@ function writeConfig(obj: unknown): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n");
 }
 
+function mergeDefaultConfigAndSeedInferenceProfiles(): void {
+  const defaultConfigMerge = mergeDefaultWorkspaceConfig();
+  seedInferenceProfiles({
+    preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
+    preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tests: deepMergeOverwrite (unit) — JSON-null-as-deletion semantics
 //
@@ -417,8 +425,7 @@ describe("loadConfig startup behavior", () => {
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
-    seedInferenceProfiles();
-    mergeDefaultWorkspaceConfig();
+    mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
     expect(config.llm.default.provider).toBe("anthropic");
@@ -454,8 +461,7 @@ describe("loadConfig startup behavior", () => {
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
-    seedInferenceProfiles();
-    mergeDefaultWorkspaceConfig();
+    mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
     const mainAgentConfig = resolveCallSiteConfig("mainAgent", config.llm);
 
@@ -473,6 +479,79 @@ describe("loadConfig startup behavior", () => {
     });
     expect(raw.llm.activeProfile).toBeUndefined();
     expect(raw.llm.profiles.balanced).toEqual({});
+  });
+
+  test("platform-provided profile fragments are not polluted by managed seeds", () => {
+    writeConfig({
+      llm: {
+        default: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+        },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            maxTokens: 16000,
+            effort: "high",
+            thinking: { enabled: true, streamThinking: true },
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: {
+              provider: "openai",
+              model: "gpt-5.4",
+            },
+            profiles: {
+              balanced: {
+                source: "managed",
+                provider: "openai",
+                model: "gpt-5.4",
+                label: "Platform Balanced",
+              },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+    const mainAgentConfig = resolveCallSiteConfig("mainAgent", config.llm);
+
+    expect(config.llm.activeProfile).toBe("balanced");
+    expect(config.llm.profiles.balanced).toEqual({
+      source: "managed",
+      provider: "openai",
+      model: "gpt-5.4",
+      label: "Platform Balanced",
+    });
+    expect(mainAgentConfig.provider).toBe("openai");
+    expect(mainAgentConfig.model).toBe("gpt-5.4");
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles.balanced).toEqual({
+      source: "managed",
+      provider: "openai",
+      model: "gpt-5.4",
+      label: "Platform Balanced",
+    });
+    expect(raw.llm.profiles.balanced.maxTokens).toBeUndefined();
+    expect(raw.llm.profiles.balanced.thinking).toBeUndefined();
   });
 
   test("still quarantines corrupt JSON", () => {
