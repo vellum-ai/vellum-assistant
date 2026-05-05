@@ -123,19 +123,6 @@ export async function upsertVerifiedContactChannel(params: {
       return;
     }
 
-    // Don't touch guardian channels via the trusted-contact path.
-    // A guardian's channels may only be managed through guardian bootstrap.
-    // Without this guard, a revoked guardian phone channel could be
-    // reactivated here, which trust resolution would then treat as
-    // guardian-level access (ATL-434).
-    if (row.contactRole === "guardian") {
-      log.warn(
-        { sourceChannel, address },
-        "Skipping upsert: channel belongs to a guardian contact",
-      );
-      return;
-    }
-
     // Update existing channel
     await assistantDbRun(
       `UPDATE contact_channels

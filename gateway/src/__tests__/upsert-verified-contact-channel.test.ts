@@ -68,7 +68,7 @@ beforeEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("upsertVerifiedContactChannel — guardian and revoked guards", () => {
+describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
   test("skips update when existing channel is revoked", async () => {
     queryRows = [
       {
@@ -85,17 +85,16 @@ describe("upsertVerifiedContactChannel — guardian and revoked guards", () => {
       externalChatId: "+15550001111",
     });
 
-    // No UPDATE should have been issued
     expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(0);
   });
 
-  test("skips update when existing channel belongs to a guardian contact", async () => {
+  test("skips update when channel is blocked", async () => {
     queryRows = [
       {
         channelId: "ch-2",
         contactId: "co-2",
-        channelStatus: "active",
-        contactRole: "guardian",
+        channelStatus: "blocked",
+        contactRole: "contact",
       },
     ];
 
@@ -108,7 +107,7 @@ describe("upsertVerifiedContactChannel — guardian and revoked guards", () => {
     expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(0);
   });
 
-  test("skips update when revoked channel belongs to a guardian contact", async () => {
+  test("skips update when a guardian's channel is revoked", async () => {
     queryRows = [
       {
         channelId: "ch-3",
@@ -127,13 +126,13 @@ describe("upsertVerifiedContactChannel — guardian and revoked guards", () => {
     expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(0);
   });
 
-  test("skips update when channel is blocked (pre-existing guard)", async () => {
+  test("updates an active channel belonging to a guardian contact", async () => {
     queryRows = [
       {
         channelId: "ch-4",
         contactId: "co-4",
-        channelStatus: "blocked",
-        contactRole: "contact",
+        channelStatus: "active",
+        contactRole: "guardian",
       },
     ];
 
@@ -143,7 +142,7 @@ describe("upsertVerifiedContactChannel — guardian and revoked guards", () => {
       externalChatId: "+15550001111",
     });
 
-    expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(0);
+    expect(runCalls.filter((c) => c.sql.includes("UPDATE"))).toHaveLength(1);
   });
 
   test("updates an active channel belonging to a non-guardian contact", async () => {
@@ -166,7 +165,7 @@ describe("upsertVerifiedContactChannel — guardian and revoked guards", () => {
   });
 
   test("creates new contact + channel when no existing channel found", async () => {
-    queryRows = []; // no existing channel
+    queryRows = [];
 
     await upsertVerifiedContactChannel({
       sourceChannel: "phone",
@@ -175,6 +174,6 @@ describe("upsertVerifiedContactChannel — guardian and revoked guards", () => {
     });
 
     const inserts = runCalls.filter((c) => c.sql.includes("INSERT"));
-    expect(inserts).toHaveLength(2); // one for contacts, one for contact_channels
+    expect(inserts).toHaveLength(2);
   });
 });
