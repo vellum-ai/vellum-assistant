@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -35,12 +29,6 @@ function createSkill(id: string): void {
     join(skillDir, "SKILL.md"),
     '---\nname: "Test"\ndescription: "Test"\n---\n\nBody.\n',
   );
-  // Update SKILLS.md
-  const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
-  const existing = existsSync(indexPath)
-    ? readFileSync(indexPath, "utf-8")
-    : "";
-  writeFileSync(indexPath, existing + `- ${id}\n`);
 }
 
 beforeEach(() => {
@@ -52,9 +40,11 @@ afterEach(() => {
 });
 
 describe("delete_managed_skill tool", () => {
-  test("deletes existing skill and updates index", async () => {
+  test("deletes existing skill without updating SKILLS.md", async () => {
     createSkill("doomed");
     createSkill("survivor");
+    const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
+    writeFileSync(indexPath, "- doomed\n- survivor\n");
 
     const result = await executeDeleteManagedSkill(
       {
@@ -67,16 +57,11 @@ describe("delete_managed_skill tool", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.deleted).toBe(true);
     expect(parsed.skill_id).toBe("doomed");
-    expect(parsed.index_updated).toBe(true);
+    expect(parsed.index_updated).toBe(false);
 
     expect(existsSync(join(TEST_DIR, "skills", "doomed"))).toBe(false);
 
-    const indexContent = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(indexContent).not.toContain("doomed");
-    expect(indexContent).toContain("survivor");
+    expect(existsSync(indexPath)).toBe(true);
   });
 
   test("returns error for non-existent skill", async () => {
