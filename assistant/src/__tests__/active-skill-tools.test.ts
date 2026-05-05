@@ -81,6 +81,22 @@ describe("deriveActiveSkills (ID-only)", () => {
     ]);
   });
 
+  test("later bundled cleanup marker upgrades plain marker provenance", () => {
+    const messages: Message[] = [
+      skillLoadUseMsg("t1", "system-storage-cleanup"),
+      toolResultMsg("t1", '<loaded_skill id="system-storage-cleanup" />'),
+      skillLoadUseMsg("t2", BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR),
+      toolResultMsg("t2", '<loaded_skill id="system-storage-cleanup" />'),
+    ];
+
+    expect(deriveActiveSkills(messages)).toEqual([
+      {
+        id: "system-storage-cleanup",
+        selector: BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
+      },
+    ]);
+  });
+
   test("multiple markers from different skill_load tool results", () => {
     const messages: Message[] = [
       skillLoadUseMsg("t1"),

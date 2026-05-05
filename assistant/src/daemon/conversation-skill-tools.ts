@@ -17,6 +17,7 @@ import { skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { mergeActiveSkillEntry } from "../skills/active-skill-entry-merge.js";
 import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
 import {
@@ -161,14 +162,12 @@ function getCachedActiveSkills(
     const delta = history.slice(cached.messageCount);
     const newEntries = deriveActiveSkills(delta);
 
-    // Merge: add any entries not already seen.
+    // Merge appended entries while preserving order and upgrading cleanup
+    // provenance if a later bundled selector supersedes an older id-only marker.
     let changed = false;
     for (const entry of newEntries) {
-      if (!cached.seenIds.has(entry.id)) {
-        cached.seenIds.add(entry.id);
-        cached.entries.push(entry);
-        changed = true;
-      }
+      changed =
+        mergeActiveSkillEntry(cached.entries, cached.seenIds, entry) || changed;
     }
 
     cached.messageCount = history.length;
