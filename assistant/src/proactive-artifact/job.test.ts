@@ -358,7 +358,7 @@ describe("runProactiveArtifactJob", () => {
   });
 
   describe("Phase 2 — Build", () => {
-    test("Phase 2 failure → no message, no notification", async () => {
+    test("Phase 2 failure → releases claim, no message, no notification", async () => {
       rawAllRows = defaultTranscript;
       decisionResponse = decisionYesApp;
       processMessageShouldThrow = true;
@@ -376,6 +376,8 @@ describe("runProactiveArtifactJob", () => {
       expect(addMessageCalls).toHaveLength(0);
       expect(emitSignalCalls).toHaveLength(0);
       expect(broadcastCalls).toHaveLength(0);
+      // Claim released so next turn can retry
+      expect(releaseClaimCalls).toBe(1);
     });
 
     test("successful app: Phase 1 → Phase 2 → app store query → message copy → inject → notify", async () => {
@@ -502,7 +504,7 @@ describe("runProactiveArtifactJob", () => {
       expect(releaseClaimCalls).toBe(0);
     });
 
-    test("app build - no matching app found → treated as build failure", async () => {
+    test("app build - no matching app found → releases claim for retry", async () => {
       rawAllRows = defaultTranscript;
       decisionResponse = decisionYesApp;
       mockApps = []; // no apps in store
@@ -514,14 +516,13 @@ describe("runProactiveArtifactJob", () => {
         broadcastMessage: mockBroadcast,
       });
 
-      // Build attempted
       expect(processMessageCalls).toHaveLength(1);
-      // But failure = no message, no notification
       expect(addMessageCalls).toHaveLength(0);
       expect(emitSignalCalls).toHaveLength(0);
+      expect(releaseClaimCalls).toBe(1);
     });
 
-    test("document build - build provider unavailable → build failure → silence", async () => {
+    test("document build - build provider unavailable → releases claim for retry", async () => {
       rawAllRows = defaultTranscript;
       decisionResponse = decisionYesDocument;
       buildProviderAvailable = false;
@@ -536,6 +537,7 @@ describe("runProactiveArtifactJob", () => {
       // No message, no notification
       expect(addMessageCalls).toHaveLength(0);
       expect(emitSignalCalls).toHaveLength(0);
+      expect(releaseClaimCalls).toBe(1);
     });
   });
 

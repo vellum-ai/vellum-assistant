@@ -45,6 +45,7 @@ export async function runProactiveArtifactJob(params: {
   assistantMessageId: string | undefined;
   broadcastMessage: BroadcastFn;
 }): Promise<void> {
+  let buildSucceeded = false;
   try {
     // ── Collect transcript (bounded) ────────────────────────────────
     const rows = rawAll<{ role: string; content: string }>(
@@ -126,6 +127,7 @@ export async function runProactiveArtifactJob(params: {
         transcript,
       });
     }
+    buildSucceeded = true;
 
     // ── Post-build message copy ─────────────────────────────────────
     let messageCopy: string;
@@ -190,6 +192,9 @@ export async function runProactiveArtifactJob(params: {
       { err, conversationId: params.conversationId },
       "Proactive artifact job failed",
     );
+    if (!buildSucceeded) {
+      releaseProactiveArtifactClaim();
+    }
   }
 }
 
