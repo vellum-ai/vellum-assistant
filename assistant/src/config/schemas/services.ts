@@ -76,6 +76,26 @@ const AsanaOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
+const TodoistOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const DropboxOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const DiscordOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const AirtableOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const HubspotOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
 /**
  * `services.meet.host.*` — daemon-side knobs for the externalized meet-join
  * skill process. Kept narrow: only the values the daemon reads before the
@@ -146,6 +166,21 @@ export const ServicesSchema = z.object({
   ),
   "asana-oauth": AsanaOAuthServiceSchema.default(
     AsanaOAuthServiceSchema.parse({}),
+  ),
+  "todoist-oauth": TodoistOAuthServiceSchema.default(
+    TodoistOAuthServiceSchema.parse({}),
+  ),
+  "dropbox-oauth": DropboxOAuthServiceSchema.default(
+    DropboxOAuthServiceSchema.parse({}),
+  ),
+  "discord-oauth": DiscordOAuthServiceSchema.default(
+    DiscordOAuthServiceSchema.parse({}),
+  ),
+  "airtable-oauth": AirtableOAuthServiceSchema.default(
+    AirtableOAuthServiceSchema.parse({}),
+  ),
+  "hubspot-oauth": HubspotOAuthServiceSchema.default(
+    HubspotOAuthServiceSchema.parse({}),
   ),
   meet: MeetDaemonServiceSchema.default(MeetDaemonServiceSchema.parse({})),
 });

@@ -393,6 +393,7 @@ export const PROVIDER_SEED_DATA: Record<
       { scope: "project:delete", description: "Delete entire projects" },
     ],
     loopbackPort: 17325,
+    managedServiceConfigKey: "todoist-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.todoist.com",
@@ -429,6 +430,7 @@ export const PROVIDER_SEED_DATA: Record<
     availableScopes:
       "https://discord.com/developers/docs/topics/oauth2#shared-resources-oauth2-scopes",
     loopbackPort: 17326,
+    managedServiceConfigKey: "discord-oauth",
     injectionTemplates: [
       {
         hostPattern: "discord.com",
@@ -463,6 +465,7 @@ export const PROVIDER_SEED_DATA: Record<
     availableScopes: "https://developers.dropbox.com/oauth-guide",
     authorizeParams: { token_access_type: "offline" },
     loopbackPort: 17327,
+    managedServiceConfigKey: "dropbox-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.dropboxapi.com",
@@ -530,6 +533,7 @@ export const PROVIDER_SEED_DATA: Record<
     availableScopes: "https://airtable.com/developers/web/api/scopes",
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17329,
+    managedServiceConfigKey: "airtable-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.airtable.com",
@@ -564,6 +568,7 @@ export const PROVIDER_SEED_DATA: Record<
     availableScopes:
       "https://developers.hubspot.com/docs/guides/apps/authentication/scopes",
     loopbackPort: 17330,
+    managedServiceConfigKey: "hubspot-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.hubapi.com",
