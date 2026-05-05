@@ -202,12 +202,22 @@ export async function sweepFailedEvents(
           ? payload.externalChatId
           : undefined;
       if (replyCallbackUrl && externalChatId) {
+        const requesterExternalUserId =
+          trustContext.requesterExternalUserId ??
+          (typeof payload.senderExternalUserId === "string"
+            ? payload.senderExternalUserId
+            : undefined);
+        const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
+          chatId: externalChatId,
+          text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
+          assistantId,
+        };
+        if (sourceChannel === "slack" && requesterExternalUserId) {
+          replyPayload.ephemeral = true;
+          replyPayload.user = requesterExternalUserId;
+        }
         try {
-          await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
-            text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
-            assistantId,
-          });
+          await deliverChannelReply(replyCallbackUrl, replyPayload);
         } catch (err) {
           log.warn(
             { err, eventId: event.id, conversationId: event.conversationId },

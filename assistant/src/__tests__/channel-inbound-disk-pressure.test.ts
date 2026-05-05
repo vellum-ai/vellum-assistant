@@ -59,12 +59,17 @@ import { upsertContact } from "../contacts/contact-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import * as deliveryCrud from "../memory/delivery-crud.js";
-import { channelInboundEvents, messages } from "../memory/schema.js";
+import {
+  canonicalGuardianRequests,
+  channelInboundEvents,
+  messages,
+} from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import {
   handleChannelInbound,
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 initializeDb();
 
@@ -81,7 +86,7 @@ function resetTables(): void {
   db.run("DELETE FROM contacts");
 }
 
-function seedTrustedContact(): void {
+function seedTrustedContact(policy: "allow" | "escalate" = "allow"): void {
   upsertContact({
     displayName: "Example User",
     channels: [
@@ -90,7 +95,7 @@ function seedTrustedContact(): void {
         address: "telegram-user-1",
         externalUserId: "telegram-user-1",
         status: "active",
-        policy: "allow",
+        policy,
       },
     ],
   });
@@ -164,6 +169,47 @@ describe("channel inbound disk pressure gate", () => {
     expect(db.select().from(messages).all()).toHaveLength(0);
   });
 
+  test("blocks escalation-policy trusted-contact ingress before escalation state", async () => {
+    resetTables();
+    createGuardianBinding({
+      channel: "telegram",
+      guardianExternalUserId: "guardian-user-1",
+      guardianDeliveryChatId: "guardian-chat-1",
+      guardianPrincipalId: "guardian-user-1",
+    });
+    seedTrustedContact("escalate");
+    const processMessage = mock(async () => {
+      throw new Error("processMessage should not run");
+    });
+    setAdapterProcessMessage(processMessage);
+
+    const res = await handleChannelInbound(
+      makeInboundRequest({ externalMessageId: "msg-escalate-blocked" }),
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      accepted: true,
+      duplicate: false,
+      diskPressure: "blocked",
+      reason: "trusted-contact",
+    });
+    expect(processMessage).not.toHaveBeenCalled();
+
+    const db = getDb();
+    const event = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.externalMessageId, "msg-escalate-blocked"))
+      .get();
+    expect(event?.processingStatus).toBe("processed");
+    expect(event?.messageId).toBeNull();
+    expect(event?.rawPayload).toBeNull();
+
+    expect(db.select().from(canonicalGuardianRequests).all()).toHaveLength(0);
+    expect(db.select().from(messages).all()).toHaveLength(0);
+  });
+
   test("marks trusted-contact retry-sweep events processed without replaying", async () => {
     const inbound = deliveryCrud.recordInbound(
       "telegram",
@@ -202,6 +248,60 @@ describe("channel inbound disk pressure gate", () => {
       "https://gateway.test/deliver/telegram",
       expect.objectContaining({
         chatId: "chat-retry",
+        text: expect.stringContaining("trusted contacts are paused"),
+      }),
+    );
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    expect(row?.processingStatus).toBe("processed");
+    expect(row?.messageId).toBeNull();
+    expect(row?.rawPayload).toBeNull();
+  });
+
+  test("uses ephemeral Slack retry block replies targeted to the requester", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "slack",
+      "slack-channel-1",
+      "slack-msg-retry",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "retry me",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "slack-channel-1",
+      trustCtx: {
+        trustClass: "trusted_contact",
+        sourceChannel: "slack",
+        requesterExternalUserId: "slack-user-1",
+        requesterChatId: "slack-channel-1",
+      },
+      replyCallbackUrl: "https://gateway.test/deliver/slack",
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    const processMessage = mock(async () => ({ messageId: "msg-should-not" }));
+    await sweepFailedEvents(processMessage);
+
+    expect(processMessage).not.toHaveBeenCalled();
+    expect(deliverChannelReplyMock).toHaveBeenCalledWith(
+      "https://gateway.test/deliver/slack",
+      expect.objectContaining({
+        chatId: "slack-channel-1",
+        ephemeral: true,
+        user: "slack-user-1",
         text: expect.stringContaining("trusted contacts are paused"),
       }),
     );

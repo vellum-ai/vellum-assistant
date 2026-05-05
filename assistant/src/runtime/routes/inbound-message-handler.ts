@@ -529,6 +529,75 @@ export async function handleChannelInbound({
     });
   }
 
+  // ── Actor role resolution ──
+  // Uses shared channel-agnostic resolution so all ingress paths classify
+  // guardian vs non-guardian actors the same way.
+  const trustCtx: TrustContext = resolveTrustContext({
+    assistantId: canonicalAssistantId,
+    sourceChannel,
+    conversationExternalId,
+    actorExternalId: rawSenderId,
+    actorUsername: body.actorUsername,
+    actorDisplayName: body.actorDisplayName,
+  });
+
+  const diskPressureDecision = classifyDiskPressureTurnPolicy(
+    getDiskPressureStatus(),
+    {
+      sourceChannel,
+      sourceInterface,
+      trustContext: {
+        sourceChannel: trustCtx.sourceChannel,
+        trustClass: trustCtx.trustClass,
+      },
+    },
+  );
+  if (diskPressureDecision.action === "block") {
+    clearPayload(result.eventId);
+    markProcessed(result.eventId);
+    log.info(
+      {
+        conversationId: result.conversationId,
+        eventId: result.eventId,
+        reason: diskPressureDecision.reason,
+        trustClass: trustCtx.trustClass,
+      },
+      "Channel inbound blocked during disk pressure cleanup mode",
+    );
+
+    if (replyCallbackUrl && !result.duplicate) {
+      const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: conversationExternalId,
+        text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
+        assistantId: canonicalAssistantId,
+      };
+      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+        replyPayload.ephemeral = true;
+        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+      }
+      try {
+        await deliverChannelReply(replyCallbackUrl, replyPayload);
+      } catch (err) {
+        log.warn(
+          {
+            err,
+            conversationId: result.conversationId,
+            eventId: result.eventId,
+          },
+          "Failed to deliver disk pressure block reply",
+        );
+      }
+    }
+
+    return {
+      accepted: true,
+      duplicate: result.duplicate,
+      eventId: result.eventId,
+      diskPressure: "blocked",
+      reason: diskPressureDecision.reason,
+    };
+  }
+
   // ── Slack reaction handling ──
   // Reactions arrive as regular `SlackInboundEvent`s with `callbackData`
   // prefixed `reaction:` (added) or `reaction_removed:` (removed).
@@ -739,75 +808,6 @@ export async function handleChannelInbound({
   // routing now flows through the canonical router below (routeGuardianReply),
   // which handles request code matching, callback parsing, and NL classification
   // against canonical_guardian_requests.
-
-  // ── Actor role resolution ──
-  // Uses shared channel-agnostic resolution so all ingress paths classify
-  // guardian vs non-guardian actors the same way.
-  const trustCtx: TrustContext = resolveTrustContext({
-    assistantId: canonicalAssistantId,
-    sourceChannel,
-    conversationExternalId,
-    actorExternalId: rawSenderId,
-    actorUsername: body.actorUsername,
-    actorDisplayName: body.actorDisplayName,
-  });
-
-  const diskPressureDecision = classifyDiskPressureTurnPolicy(
-    getDiskPressureStatus(),
-    {
-      sourceChannel,
-      sourceInterface,
-      trustContext: {
-        sourceChannel: trustCtx.sourceChannel,
-        trustClass: trustCtx.trustClass,
-      },
-    },
-  );
-  if (diskPressureDecision.action === "block") {
-    clearPayload(result.eventId);
-    markProcessed(result.eventId);
-    log.info(
-      {
-        conversationId: result.conversationId,
-        eventId: result.eventId,
-        reason: diskPressureDecision.reason,
-        trustClass: trustCtx.trustClass,
-      },
-      "Channel inbound blocked during disk pressure cleanup mode",
-    );
-
-    if (replyCallbackUrl && !result.duplicate) {
-      const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
-        chatId: conversationExternalId,
-        text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
-        assistantId: canonicalAssistantId,
-      };
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
-      }
-      try {
-        await deliverChannelReply(replyCallbackUrl, replyPayload);
-      } catch (err) {
-        log.warn(
-          {
-            err,
-            conversationId: result.conversationId,
-            eventId: result.eventId,
-          },
-          "Failed to deliver disk pressure block reply",
-        );
-      }
-    }
-
-    return {
-      accepted: true,
-      duplicate: result.duplicate,
-      eventId: result.eventId,
-      diskPressure: "blocked",
-      reason: diskPressureDecision.reason,
-    };
-  }
 
   // ── Canonical guardian reply router ──
   const guardianReplyResult = await handleGuardianReplyIntercept({
