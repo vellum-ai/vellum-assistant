@@ -3,11 +3,14 @@ import XCTest
 
 final class AppURLsTests: XCTestCase {
     private var originalEnvValue: String?
+    private var originalWebEnvValue: String?
 
     override func setUp() {
         super.setUp()
         originalEnvValue = ProcessInfo.processInfo.environment["VELLUM_DOCS_BASE_URL"]
         unsetenv("VELLUM_DOCS_BASE_URL")
+        originalWebEnvValue = ProcessInfo.processInfo.environment["VELLUM_WEB_URL"]
+        unsetenv("VELLUM_WEB_URL")
     }
 
     override func tearDown() {
@@ -15,6 +18,11 @@ final class AppURLsTests: XCTestCase {
             setenv("VELLUM_DOCS_BASE_URL", value, 1)
         } else {
             unsetenv("VELLUM_DOCS_BASE_URL")
+        }
+        if let value = originalWebEnvValue {
+            setenv("VELLUM_WEB_URL", value, 1)
+        } else {
+            unsetenv("VELLUM_WEB_URL")
         }
         super.tearDown()
     }
