@@ -53,64 +53,36 @@ afterEach(() => {
 });
 
 describe("assistant skills uninstall", () => {
-  test("removes skill directory without editing SKILLS.md", () => {
-    /**
-     * Tests the happy path for uninstalling a skill.
-     */
-
-    // GIVEN a skill is installed locally
+  test("removes skill directory while leaving a stale SKILLS.md index unchanged", () => {
     installFakeSkill("weather");
     const originalIndex = "- weather\n- vellum-self-knowledge\n";
     writeSkillsIndex(originalIndex);
 
-    // WHEN we uninstall the skill
     uninstallSkillLocally("weather");
 
-    // THEN the skill directory should be removed
     expect(existsSync(join(getSkillsDir(), "weather"))).toBe(false);
 
-    // AND SKILLS.md should be left unchanged
     const index = readFileSync(getSkillsIndexPath(), "utf-8");
     expect(index).toBe(originalIndex);
   });
 
   test("errors when skill is not installed", () => {
-    /**
-     * Tests that uninstalling a non-existent skill throws an error.
-     */
-
-    // GIVEN no skills are installed
-    // WHEN we try to uninstall a nonexistent skill
-    // THEN it should throw an error
     expect(() => uninstallSkillLocally("nonexistent")).toThrow(
       'Skill "nonexistent" is not installed.',
     );
   });
 
-  test("works when SKILLS.md does not exist", () => {
-    /**
-     * Tests that uninstall works even if the SKILLS.md index file is missing.
-     */
-
-    // GIVEN a skill directory exists but no SKILLS.md
+  test("works when no stale SKILLS.md index exists", () => {
     installFakeSkill("weather");
 
-    // WHEN we uninstall the skill
     uninstallSkillLocally("weather");
 
-    // THEN the skill directory should be removed
     expect(existsSync(join(getSkillsDir(), "weather"))).toBe(false);
 
-    // AND no SKILLS.md should have been created
     expect(existsSync(getSkillsIndexPath())).toBe(false);
   });
 
-  test("removes skill with nested files", () => {
-    /**
-     * Tests that uninstall recursively removes skills with nested directories.
-     */
-
-    // GIVEN a skill with nested files is installed
+  test("removes skill with nested files while leaving a stale SKILLS.md index unchanged", () => {
     const skillDir = join(getSkillsDir(), "weather");
     mkdirSync(join(skillDir, "scripts", "lib"), { recursive: true });
     writeFileSync(join(skillDir, "SKILL.md"), "# weather\n");
@@ -119,13 +91,10 @@ describe("assistant skills uninstall", () => {
     const originalIndex = "- weather\n";
     writeSkillsIndex(originalIndex);
 
-    // WHEN we uninstall the skill
     uninstallSkillLocally("weather");
 
-    // THEN the entire skill directory tree should be removed
     expect(existsSync(skillDir)).toBe(false);
 
-    // AND SKILLS.md should be left unchanged
     const index = readFileSync(getSkillsIndexPath(), "utf-8");
     expect(index).toBe(originalIndex);
   });

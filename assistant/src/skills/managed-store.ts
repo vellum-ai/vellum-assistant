@@ -147,8 +147,6 @@ interface CreateManagedSkillParams {
   bodyMarkdown: string;
   emoji?: string;
   overwrite?: boolean;
-  /** @deprecated Managed skills are discovered from SKILL.md files. No-op. */
-  addToIndex?: boolean;
   includes?: string[];
   version?: string;
   contactId?: string;
@@ -157,8 +155,6 @@ interface CreateManagedSkillParams {
 interface CreateManagedSkillResult {
   created: boolean;
   path: string;
-  /** @deprecated Always false; managed skills are discovered from SKILL.md files. */
-  indexUpdated: boolean;
   error?: string;
 }
 
@@ -170,7 +166,6 @@ export function createManagedSkill(
     return {
       created: false,
       path: "",
-      indexUpdated: false,
       error: validationError,
     };
   }
@@ -179,7 +174,6 @@ export function createManagedSkill(
     return {
       created: false,
       path: "",
-      indexUpdated: false,
       error: "name is required",
     };
   }
@@ -187,7 +181,6 @@ export function createManagedSkill(
     return {
       created: false,
       path: "",
-      indexUpdated: false,
       error: "description is required",
     };
   }
@@ -199,7 +192,6 @@ export function createManagedSkill(
     return {
       created: false,
       path: skillFilePath,
-      indexUpdated: false,
       error: `Managed skill "${params.id}" already exists. Set overwrite=true to replace it.`,
     };
   }
@@ -234,30 +226,24 @@ export function createManagedSkill(
     "Created managed skill",
   );
 
-  return { created: true, path: skillFilePath, indexUpdated: false };
+  return { created: true, path: skillFilePath };
 }
 
 interface DeleteManagedSkillResult {
   deleted: boolean;
-  /** @deprecated Always false; managed skills are discovered from SKILL.md files. */
-  indexUpdated: boolean;
   error?: string;
 }
 
-export function deleteManagedSkill(
-  id: string,
-  _removeFromIndex = true,
-): DeleteManagedSkillResult {
+export function deleteManagedSkill(id: string): DeleteManagedSkillResult {
   const validationError = validateManagedSkillId(id);
   if (validationError) {
-    return { deleted: false, indexUpdated: false, error: validationError };
+    return { deleted: false, error: validationError };
   }
 
   const skillDir = getManagedSkillDir(id);
   if (!existsSync(skillDir)) {
     return {
       deleted: false,
-      indexUpdated: false,
       error: `Managed skill "${id}" not found`,
     };
   }
@@ -266,5 +252,5 @@ export function deleteManagedSkill(
   deleteSkillCapabilityNode(id);
   log.info({ id, path: skillDir }, "Deleted managed skill");
 
-  return { deleted: true, indexUpdated: false };
+  return { deleted: true };
 }

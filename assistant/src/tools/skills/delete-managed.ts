@@ -28,7 +28,7 @@ export async function executeDeleteManagedSkill(
     content: JSON.stringify({
       deleted: true,
       skill_id: skillId.trim(),
-      index_updated: result.indexUpdated,
+      index_updated: false,
     }),
     isError: false,
   };

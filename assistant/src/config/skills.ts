@@ -635,10 +635,6 @@ function discoverSkillDirectories(skillsDir: string): string[] {
   return dirs.sort((a, b) => a.localeCompare(b));
 }
 
-function getManagedSkillDirectories(skillsDir: string): string[] {
-  return discoverSkillDirectories(skillsDir);
-}
-
 // ─── Catalog loading ─────────────────────────────────────────────────────────
 
 function skillSummaryFromDefinition(
@@ -779,7 +775,7 @@ export function loadSkillCatalog(
 
   // Load managed (user) skills, which take precedence over bundled skills with the same ID
   const skillsDir = getSkillsDir();
-  const directories = getManagedSkillDirectories(skillsDir);
+  const directories = discoverSkillDirectories(skillsDir);
 
   for (const directory of directories) {
     const skill = readSkillFromDirectory(directory, skillsDir, "managed");

@@ -239,7 +239,6 @@ describe("createManagedSkill", () => {
     });
 
     expect(result.created).toBe(true);
-    expect(result.indexUpdated).toBe(false);
     expect(result.error).toBeUndefined();
     expect(existsSync(result.path)).toBe(true);
 
@@ -335,20 +334,6 @@ describe("createManagedSkill", () => {
     const skill = catalog.find((s) => s.id === "discovered-skill");
     expect(skill).toBeDefined();
     expect(skill!.name).toBe("Discovered");
-  });
-
-  test("accepts deprecated addToIndex without creating SKILLS.md", () => {
-    const result = createManagedSkill({
-      id: "compat-no-index",
-      name: "Compat No Index",
-      description: "Compatibility input is ignored",
-      bodyMarkdown: "Body.",
-      addToIndex: false,
-    });
-
-    expect(result.created).toBe(true);
-    expect(result.indexUpdated).toBe(false);
-    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
   });
 });
 
@@ -454,7 +439,6 @@ describe("deleteManagedSkill", () => {
 
     const result = deleteManagedSkill("to-delete");
     expect(result.deleted).toBe(true);
-    expect(result.indexUpdated).toBe(false);
     expect(existsSync(join(TEST_DIR, "skills", "to-delete"))).toBe(false);
 
     const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
@@ -473,7 +457,7 @@ describe("deleteManagedSkill", () => {
     expect(result.error).toContain("traversal");
   });
 
-  test("accepts deprecated removeFromIndex without editing SKILLS.md", () => {
+  test("delete leaves a stale SKILLS.md index unchanged", () => {
     createManagedSkill({
       id: "keep-index",
       name: "Keep Index",
@@ -485,9 +469,8 @@ describe("deleteManagedSkill", () => {
       "- keep-index\n- survivor\n",
     );
 
-    const result = deleteManagedSkill("keep-index", false);
+    const result = deleteManagedSkill("keep-index");
     expect(result.deleted).toBe(true);
-    expect(result.indexUpdated).toBe(false);
 
     const indexContent = readFileSync(
       join(TEST_DIR, "skills", "SKILLS.md"),
@@ -511,7 +494,6 @@ describe("deleteManagedSkill", () => {
     const skillsDir = join(TEST_DIR, "skills");
     const result = deleteManagedSkill("delete-no-index");
     expect(result.deleted).toBe(true);
-    expect(result.indexUpdated).toBe(false);
     expect(existsSync(join(skillsDir, "delete-no-index"))).toBe(false);
     expect(existsSync(join(skillsDir, "SKILLS.md"))).toBe(false);
   });

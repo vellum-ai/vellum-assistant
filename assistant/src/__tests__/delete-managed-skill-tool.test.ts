@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -40,15 +46,17 @@ afterEach(() => {
 });
 
 describe("delete_managed_skill tool", () => {
-  test("deletes existing skill without updating SKILLS.md", async () => {
+  test("deletes existing skill while leaving a stale SKILLS.md index unchanged", async () => {
     createSkill("doomed");
     createSkill("survivor");
     const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
-    writeFileSync(indexPath, "- doomed\n- survivor\n");
+    const staleIndex = "- doomed\n- survivor\n";
+    writeFileSync(indexPath, staleIndex);
 
     const result = await executeDeleteManagedSkill(
       {
         skill_id: "doomed",
+        remove_from_index: false,
       },
       makeContext(),
     );
@@ -62,6 +70,7 @@ describe("delete_managed_skill tool", () => {
     expect(existsSync(join(TEST_DIR, "skills", "doomed"))).toBe(false);
 
     expect(existsSync(indexPath)).toBe(true);
+    expect(readFileSync(indexPath, "utf-8")).toBe(staleIndex);
   });
 
   test("returns error for non-existent skill", async () => {

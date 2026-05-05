@@ -150,13 +150,11 @@ mock.module("../skills/clawhub-files.js", () => ({
 
 mock.module("../skills/catalog-install.js", () => ({
   installSkillLocally: async () => {},
-  upsertSkillsIndex: () => {},
 }));
 
 mock.module("../skills/managed-store.js", () => ({
   createManagedSkill: () => ({ created: true }),
   deleteManagedSkill: () => ({ deleted: true }),
-  removeSkillsIndexEntry: () => {},
   validateManagedSkillId: () => null,
 }));
 
@@ -187,8 +185,6 @@ import { getSkill } from "../daemon/handlers/skills.js";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-
 
 // ---------------------------------------------------------------------------
 // Tests

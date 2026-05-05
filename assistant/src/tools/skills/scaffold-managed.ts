@@ -106,7 +106,7 @@ export async function executeScaffoldManagedSkill(
       created: true,
       skill_id: skillId.trim(),
       path: result.path,
-      index_updated: result.indexUpdated,
+      index_updated: false,
     }),
     isError: false,
   };

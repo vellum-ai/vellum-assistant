@@ -39,6 +39,7 @@ describe("scaffold_managed_skill tool", () => {
         name: "Test Skill",
         description: "A test skill",
         body_markdown: "Do the thing.",
+        add_to_index: false,
       },
       makeContext(),
     );

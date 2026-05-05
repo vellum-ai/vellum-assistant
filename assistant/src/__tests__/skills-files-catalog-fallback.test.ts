@@ -164,7 +164,6 @@ mock.module("../skills/skill-file-provider.js", () => ({}));
 
 mock.module("../skills/catalog-install.js", () => ({
   installSkillLocally: async () => {},
-  upsertSkillsIndex: () => {},
 }));
 
 mock.module("../skills/catalog-search.js", () => ({
@@ -188,7 +187,6 @@ mock.module("../skills/skillssh-registry.js", () => ({
 mock.module("../skills/managed-store.js", () => ({
   createManagedSkill: () => ({ created: true }),
   deleteManagedSkill: () => ({ deleted: true }),
-  removeSkillsIndexEntry: () => {},
   validateManagedSkillId: () => null,
 }));
 
@@ -237,7 +235,6 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
 
 function makeSummary(overrides: Partial<SkillSummary>): SkillSummary {
   return {
