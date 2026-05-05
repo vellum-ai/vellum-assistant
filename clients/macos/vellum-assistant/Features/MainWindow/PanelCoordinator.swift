@@ -1034,7 +1034,7 @@ struct ActiveChatViewWrapper: View {
                     settingsStore.pendingSettingsTab = .modelsAndServices
                     windowState.selection = .panel(.settings)
                 },
-                diskPressureAlert: AppDelegate.shared?.services.diskPressureMonitor.alert,
+                diskPressureAlert: AppDelegate.shared?.services.diskPressureStatusStore.alert,
                 onReviewDiskUsage: {
                     windowState.showWorkspace()
                 },

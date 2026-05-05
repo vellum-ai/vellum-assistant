@@ -100,16 +100,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     var contactPromptManager: ContactPromptManager { services.contactPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
+    var featureFlagStore: AssistantFeatureFlagStore { services.featureFlagStore }
+    var diskPressureStatusStore: DiskPressureStatusStore { services.diskPressureStatusStore }
 
     let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
     let appsClient: any AppsClientProtocol = AppsClient()
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
-    /// Shared feature flag store — caches resolved flags in memory so that
-    /// hot paths (e.g. `SoundManager.play()`) avoid synchronous file I/O on
-    /// the main thread.
-    let featureFlagStore = AssistantFeatureFlagStore()
-
     lazy var recordingManager: RecordingManager = RecordingManager(connectionManager: connectionManager)
     var recordingPickerWindow: RecordingSourcePickerWindow?
     var recordingHUDWindow: RecordingHUDWindow?
@@ -406,7 +403,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = ChatDiagnosticsStore.shared
 
         MainThreadStallDetector.shared.start()
-        services.diskPressureMonitor.start()
+        services.diskPressureStatusStore.start()
         // Begin observing system memory pressure so subsystems that do
         // periodic main-thread work (e.g. DebugStateWriter) can throttle
         // under warning/critical events instead of compounding the stall.
@@ -847,7 +844,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusTask?.cancel()
-        services.diskPressureMonitor.stop()
+        services.diskPressureStatusStore.stop()
         statusDotLayer?.removeAllAnimations()
         statusDotLayer?.removeFromSuperlayer()
         statusDotLayer = nil
