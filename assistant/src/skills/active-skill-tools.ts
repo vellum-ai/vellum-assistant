@@ -1,6 +1,6 @@
 import type { Message } from "../providers/types.js";
 import { mergeActiveSkillEntry } from "./active-skill-entry-merge.js";
-import { normalizeBundledSkillSelector } from "./system-storage-cleanup-constants.js";
+import { normalizeBundledSystemStorageCleanupSelector } from "./system-storage-cleanup-constants.js";
 
 /** Matches both old (`<loaded_skill id="..." />`) and new versioned
  *  (`<loaded_skill id="..." version="v1:hex" />`) marker formats.
@@ -44,9 +44,12 @@ export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
       if (block.type === "tool_use" && block.name === "skill_load") {
         const rawSelector =
           typeof block.input.skill === "string" ? block.input.skill : undefined;
-        const selector = rawSelector
-          ? (normalizeBundledSkillSelector(rawSelector) ?? undefined)
-          : undefined;
+        let selector: string | undefined;
+        if (rawSelector) {
+          selector =
+            normalizeBundledSystemStorageCleanupSelector(rawSelector) ??
+            undefined;
+        }
         skillLoadSelectorsByUseId.set(block.id, selector);
       }
     }
