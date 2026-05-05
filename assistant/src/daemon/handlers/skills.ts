@@ -1101,10 +1101,7 @@ export async function installSkill(spec: {
     }
 
     // Install from clawhub (community)
-    const expectedSkillId = spec.slug.includes("/")
-      ? spec.slug.split("/").pop()!
-      : spec.slug;
-    let skillId = expectedSkillId;
+    let skillId = spec.slug;
     const clawhubProjectRoot = createSkillInstallStagingDir();
     try {
       const result = await clawhubInstall(spec.slug, {
@@ -1115,11 +1112,9 @@ export async function installSkill(spec: {
       if (!result.success) {
         return { success: false, error: result.error ?? "Unknown error" };
       }
-      const rawId = result.skillName ?? spec.slug;
-      skillId = rawId.includes("/") ? rawId.split("/").pop()! : rawId;
+      skillId = result.skillId;
 
-      const stagedSkillDir =
-        result.skillDir ?? join(clawhubProjectRoot, "skills", skillId);
+      const stagedSkillDir = result.skillDir;
       installSkillDependenciesIfPresent(stagedSkillDir);
       commitStagedSkillInstall(skillId, stagedSkillDir);
     } finally {

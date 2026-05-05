@@ -30,52 +30,52 @@ import type { SkillInstallMeta } from "../skills/install-meta.js";
 // ---------------------------------------------------------------------------
 
 describe("clawhubInstall slug validation", () => {
+  function expectInstallError(
+    result: Awaited<ReturnType<typeof clawhubInstall>>,
+  ): string {
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error("Expected clawhubInstall to fail");
+    return result.error;
+  }
+
   test("rejects empty slug", async () => {
     const result = await clawhubInstall("");
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid skill slug");
+    expect(expectInstallError(result)).toContain("Invalid skill slug");
   });
 
   test("rejects slug starting with a dot", async () => {
     const result = await clawhubInstall(".hidden");
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid skill slug");
+    expect(expectInstallError(result)).toContain("Invalid skill slug");
   });
 
   test("rejects slug starting with a hyphen", async () => {
     const result = await clawhubInstall("-dashed");
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid skill slug");
+    expect(expectInstallError(result)).toContain("Invalid skill slug");
   });
 
   test("rejects slug with path traversal", async () => {
     const result = await clawhubInstall("../escape");
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid skill slug");
+    expect(expectInstallError(result)).toContain("Invalid skill slug");
   });
 
   test("rejects slug with spaces", async () => {
     const result = await clawhubInstall("my skill");
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid skill slug");
+    expect(expectInstallError(result)).toContain("Invalid skill slug");
   });
 
   test("rejects slug with double slash", async () => {
     const result = await clawhubInstall("ns//skill");
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid skill slug");
+    expect(expectInstallError(result)).toContain("Invalid skill slug");
   });
 
   test("rejects slug ending with slash", async () => {
     const result = await clawhubInstall("skill/");
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid skill slug");
+    expect(expectInstallError(result)).toContain("Invalid skill slug");
   });
 
   test("rejects slug with special characters", async () => {
     const result = await clawhubInstall("skill@latest");
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid skill slug");
+    expect(expectInstallError(result)).toContain("Invalid skill slug");
   });
 });
 
@@ -119,8 +119,10 @@ describe("clawhubInstall staging", () => {
       const result = await clawhubInstall("demo-skill", { projectRoot });
 
       expect(result.success).toBe(true);
-      expect(result.skillName).toBe("demo-skill");
-      expect(result.skillDir).toBe(stagedSkillDir);
+      if (result.success) {
+        expect(result.skillId).toBe("demo-skill");
+        expect(result.skillDir).toBe(stagedSkillDir);
+      }
       expect(readFileSync(join(finalSkillDir, "SKILL.md"), "utf-8")).toBe(
         "# Old Skill\n",
       );
