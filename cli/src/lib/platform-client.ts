@@ -584,9 +584,27 @@ export async function fetchAssistantByIdFromPlatform(
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/assistants/${assistantId}/`;
 
-  const response = await fetch(url, {
-    headers: await authHeaders(token, platformUrl),
-  });
+  // authHeaders → fetchOrganizationId can throw with a variety of phrasings
+  // when the session token is bad (e.g. "Failed to fetch organizations from
+  // <url> (401). Try logging in again."). Normalize those to the standard
+  // sentinel so the upgrade command can categorize cleanly as AUTH_FAILED.
+  let headers: Record<string, string>;
+  try {
+    headers = await authHeaders(token, platformUrl);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes("401") ||
+      msg.includes("403") ||
+      msg.includes("logging in again") ||
+      msg.includes("Authentication")
+    ) {
+      throw new Error("Authentication failed. Run 'vellum login' to refresh.");
+    }
+    throw err;
+  }
+
+  const response = await fetch(url, { headers });
 
   if (response.status === 404) {
     return null;

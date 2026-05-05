@@ -213,8 +213,13 @@ export async function resolveTargetAssistant(
       process.exit(1);
     }
 
+    // Use the canonical id from the platform response rather than the raw
+    // user input (which may differ in casing/whitespace). Subsequent code
+    // uses `entry.assistantId` to construct the upgrade POST body's
+    // `assistant_id` field — trusting user input over the server-confirmed
+    // id is a footgun.
     return {
-      assistantId: nameArg,
+      assistantId: platformAssistant.id,
       cloud: "vellum",
       runtimeUrl: getPlatformUrl(),
     };
@@ -1014,6 +1019,19 @@ async function resolveLatestAndMaybeSelfUpdate(
 export async function upgrade(): Promise<void> {
   const { name, version, latest, prepare, finalize } = parseArgs();
   const entry = await resolveTargetAssistant(name);
+
+  // --prepare / --finalize are part of the local Docker / Sparkle update
+  // lifecycle (they call createBackup, broadcastUpgradeEvent, and
+  // commitWorkspaceViaGateway against a local gateway). Running them
+  // against a synthetic platform-managed entry would silently 404 and
+  // leave the macOS app expecting a BACKUP_PATH line that never arrives.
+  if ((prepare || finalize) && resolveCloud(entry) === "vellum") {
+    const flag = prepare ? "--prepare" : "--finalize";
+    const msg = `Error: ${flag} is only supported for local Docker assistants, not platform-managed ones.`;
+    console.error(msg);
+    emitCliError("UNSUPPORTED_TOPOLOGY", msg);
+    process.exit(1);
+  }
 
   if (prepare) {
     await upgradePrepare(entry, version);
