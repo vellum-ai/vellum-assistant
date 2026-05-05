@@ -104,6 +104,7 @@ export function classifyDiskPressureTurnPolicy(
 }
 
 function isBackgroundTurn(metadata: DiskPressureTurnMetadata): boolean {
+  if (isExplicitLocalOwnerCleanupTurn(metadata)) return false;
   if (metadata.isDirectWake) return true;
   if (metadata.callSite != null && metadata.callSite !== "mainAgent") {
     return true;
@@ -141,4 +142,21 @@ function isLocalOwnerTurnWithoutTrust(
   const sourceInterface = metadata.sourceInterface;
   if (channel !== "vellum" || sourceInterface == null) return false;
   return LOCAL_OWNER_INTERFACES.has(sourceInterface);
+}
+
+function isExplicitLocalOwnerCleanupTurn(
+  metadata: DiskPressureTurnMetadata,
+): boolean {
+  const sourceInterface = metadata.sourceInterface;
+  if (
+    metadata.sourceChannel !== "vellum" ||
+    sourceInterface == null ||
+    !LOCAL_OWNER_INTERFACES.has(sourceInterface)
+  ) {
+    return false;
+  }
+  return (
+    metadata.trustContext == null ||
+    metadata.trustContext.trustClass === "guardian"
+  );
 }

@@ -17,11 +17,55 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { DiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
+
 // Stub the DB-backed override-profile read so unit tests don't need a
 // real SQLite database. The wake helper calls this on every invocation
 // to honor the conversation's pinned inference profile.
 mock.module("../../memory/conversation-crud.js", () => ({
   getConversationOverrideProfile: () => undefined,
+}));
+
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({ llm: {} }),
+  loadConfig: () => ({ llm: {} }),
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  getConfigReadOnly: () => ({ llm: {} }),
+  applyNestedDefaults: (config: unknown) => config,
+  deepMergeOverwrite: (base: unknown) => base,
+  mergeDefaultWorkspaceConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  API_KEY_PROVIDERS: [],
+  _appendQuarantineBulletin: () => {},
+  invalidateConfigCache: () => {},
+}));
+
+mock.module("../../config/llm-context-resolution.js", () => ({
+  resolveEffectiveContextWindow: () => ({
+    maxInputTokens: 200_000,
+  }),
+}));
+
+let mockDiskPressureStatus: DiskPressureStatus = {
+  enabled: false,
+  state: "disabled",
+  locked: false,
+  acknowledged: false,
+  overrideActive: false,
+  effectivelyLocked: false,
+  lockId: null,
+  usagePercent: null,
+  thresholdPercent: 95,
+  path: null,
+  lastCheckedAt: null,
+  blockedCapabilities: [],
+  error: null,
+};
+
+mock.module("../../daemon/disk-pressure-guard.js", () => ({
+  getDiskPressureStatus: () => mockDiskPressureStatus,
 }));
 
 import type { AgentEvent } from "../../agent/loop.js";
@@ -37,7 +81,11 @@ import {
 interface MockTarget extends WakeTarget {
   emittedEvents: AgentEvent[];
   pushedMessages: Message[];
-  runCalls: Array<{ input: Message[]; requestId?: string }>;
+  runCalls: Array<{
+    input: Message[];
+    requestId?: string;
+    turnContext?: unknown;
+  }>;
   processingToggles: boolean[];
   /** Tail messages handed to `persistTailMessage`, in call order. */
   persistedTailCalls: Message[];
@@ -70,7 +118,11 @@ function makeTarget(options: {
 }): MockTarget {
   const emittedEvents: AgentEvent[] = [];
   const pushedMessages: Message[] = [];
-  const runCalls: Array<{ input: Message[]; requestId?: string }> = [];
+  const runCalls: Array<{
+    input: Message[];
+    requestId?: string;
+    turnContext?: unknown;
+  }> = [];
   const processingToggles: boolean[] = [];
   const persistedTailCalls: Message[] = [];
   const callSequence: string[] = [];
@@ -97,8 +149,11 @@ function makeTarget(options: {
         onEvent: (event: AgentEvent) => void | Promise<void>,
         _signal?: AbortSignal,
         requestId?: string,
+        _onCheckpoint?: unknown,
+        _callSite?: unknown,
+        turnContext?: unknown,
       ) => {
-        runCalls.push({ input: [...input], requestId });
+        runCalls.push({ input: [...input], requestId, turnContext });
         // Emit any scripted events the test wanted us to produce.
         for (const ev of options.scriptedEvents ?? []) {
           await onEvent(ev);
@@ -165,11 +220,163 @@ function makeTarget(options: {
 
 beforeEach(() => {
   __resetWakeChainForTests();
+  mockDiskPressureStatus = {
+    enabled: false,
+    state: "disabled",
+    locked: false,
+    acknowledged: false,
+    overrideActive: false,
+    effectivelyLocked: false,
+    lockId: null,
+    usagePercent: null,
+    thresholdPercent: 95,
+    path: null,
+    lastCheckedAt: null,
+    blockedCapabilities: [],
+    error: null,
+  };
 });
 
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("wakeAgentForOpportunity", () => {
+  test("disabled disk pressure flag allows background wakes to pass through", async () => {
+    const target = makeTarget({
+      scriptedAssistant: null,
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "background completion",
+        source: "background-tool",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(target.runCalls).toHaveLength(1);
+  });
+
+  test("blocks background wakes during disk pressure before marking processing", async () => {
+    mockDiskPressureStatus = {
+      enabled: true,
+      state: "critical",
+      locked: true,
+      acknowledged: true,
+      overrideActive: false,
+      effectivelyLocked: true,
+      lockId: "disk-pressure-test",
+      usagePercent: 98,
+      thresholdPercent: 95,
+      path: "/",
+      lastCheckedAt: "2026-05-05T00:00:00.000Z",
+      blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
+      error: null,
+    };
+    const target = makeTarget({
+      isProcessing: true,
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "should not run" }],
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "background shell completed",
+        source: "background-tool",
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "disk_pressure",
+    });
+    expect(target.runCalls).toHaveLength(0);
+    expect(target.processingToggles).toEqual([]);
+    expect(target.drainQueueCalls).toBe(0);
+    expect(target.isProcessing()).toBe(true);
+  });
+
+  test("blocks trusted-contact direct wakes during disk pressure", async () => {
+    mockDiskPressureStatus = {
+      enabled: true,
+      state: "critical",
+      locked: true,
+      acknowledged: true,
+      overrideActive: false,
+      effectivelyLocked: true,
+      lockId: "disk-pressure-test",
+      usagePercent: 98,
+      thresholdPercent: 95,
+      path: "/",
+      lastCheckedAt: "2026-05-05T00:00:00.000Z",
+      blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
+      error: null,
+    };
+    const target = makeTarget({ scriptedAssistant: null });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "notify the guardian",
+        source: "notification",
+        trustContext: {
+          sourceChannel: "slack",
+          trustClass: "trusted_contact",
+        },
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result.reason).toBe("disk_pressure");
+    expect(target.runCalls).toHaveLength(0);
+  });
+
+  test("threads cleanup-mode injection context for explicit local-owner wakes", async () => {
+    mockDiskPressureStatus = {
+      enabled: true,
+      state: "critical",
+      locked: true,
+      acknowledged: true,
+      overrideActive: false,
+      effectivelyLocked: true,
+      lockId: "disk-pressure-test",
+      usagePercent: 98,
+      thresholdPercent: 95,
+      path: "/",
+      lastCheckedAt: "2026-05-05T00:00:00.000Z",
+      blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
+      error: null,
+    };
+    const target = makeTarget({ scriptedAssistant: null });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "clean storage",
+        source: "local-cleanup",
+        sourceChannel: "vellum",
+        sourceInterface: "macos",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(target.runCalls).toHaveLength(1);
+    expect(target.runCalls[0]!.turnContext).toMatchObject({
+      conversationId: target.conversationId,
+      injectionInputs: {
+        diskPressureContext: { cleanupModeActive: true },
+      },
+    });
+  });
+
   test("silent no-op when agent produces no tool calls and no text", async () => {
     const target = makeTarget({
       baseline: [
