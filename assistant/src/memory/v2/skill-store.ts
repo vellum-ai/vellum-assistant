@@ -99,17 +99,18 @@ export function seedV2SkillEntries(): Promise<void> {
   const waiter = new Promise<void>((resolve) => {
     seedWaiters.push({ generation, resolve });
   });
-  if (!activeSeedDrain) {
-    activeSeedDrain = drainSeedQueue().finally(() => {
-      activeSeedDrain = null;
-      if (processedSeedGeneration < requestedSeedGeneration) {
-        activeSeedDrain = drainSeedQueue().finally(() => {
-          activeSeedDrain = null;
-        });
-      }
-    });
-  }
+  startSeedDrainIfNeeded();
   return waiter;
+}
+
+function startSeedDrainIfNeeded(): void {
+  if (activeSeedDrain) return;
+  if (processedSeedGeneration >= requestedSeedGeneration) return;
+
+  activeSeedDrain = drainSeedQueue().finally(() => {
+    activeSeedDrain = null;
+    startSeedDrainIfNeeded();
+  });
 }
 
 async function drainSeedQueue(): Promise<void> {

@@ -440,6 +440,64 @@ describe("seedV2SkillEntries", () => {
     expect(getSkillCapability("example-skill-b")?.content).toContain("Skill B");
   });
 
+  test("continues draining when waiter continuations enqueue additional generations", async () => {
+    const skillA = makeSummary({
+      id: "example-skill-a",
+      displayName: "Skill A",
+    });
+    const skillB = makeSummary({
+      id: "example-skill-b",
+      displayName: "Skill B",
+    });
+    const skillC = makeSummary({
+      id: "example-skill-c",
+      displayName: "Skill C",
+    });
+
+    function useSkill(skill: SkillSummary, dense: number[]): void {
+      state.catalog = [skill];
+      state.resolved = [{ summary: skill, state: "enabled" }];
+      state.embedReturn = [dense];
+    }
+
+    useSkill(skillA, [0.1, 0.2, 0.3]);
+    const firstSeed = seedV2SkillEntries();
+    const secondSeed = firstSeed.then(() => {
+      useSkill(skillB, [0.4, 0.5, 0.6]);
+      return seedV2SkillEntries();
+    });
+    const thirdSeed = secondSeed.then(() => {
+      useSkill(skillC, [0.7, 0.8, 0.9]);
+      return seedV2SkillEntries();
+    });
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await expect(
+        Promise.race([
+          Promise.all([firstSeed, secondSeed, thirdSeed]),
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error("seed queue stalled")),
+              500,
+            );
+          }),
+        ]),
+      ).resolves.toBeDefined();
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+
+    expect(state.upsertCalls.map((call) => call.slug)).toEqual([
+      "skills/example-skill-a",
+      "skills/example-skill-b",
+      "skills/example-skill-c",
+    ]);
+    expect(getSkillCapability("example-skill-a")).toBeNull();
+    expect(getSkillCapability("example-skill-b")).toBeNull();
+    expect(getSkillCapability("example-skill-c")?.content).toContain("Skill C");
+  });
+
   test("seeds disk-discovered managed skills omitted from a stale SKILLS.md index", async () => {
     const previousWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
     const workspaceDir = mkdtempSync(join(tmpdir(), "skill-store-index-"));
