@@ -190,10 +190,14 @@ mock.module("../daemon/trust-context.js", () => ({
 }));
 
 // Logger mock
+let logWarnCalls: Array<{ args: unknown[] }> = [];
+
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
-    warn: () => {},
+    warn: (...args: unknown[]) => {
+      logWarnCalls.push({ args });
+    },
     error: () => {},
     debug: () => {},
   }),
@@ -265,6 +269,7 @@ function resetState() {
   emitSignalCalls = [];
   broadcastCalls = [];
   mockConversations = new Map();
+  logWarnCalls = [];
   uuidCounter = 0;
 }
 
@@ -655,6 +660,66 @@ describe("injectAuxAssistantMessage", () => {
     expect(broadcastCalls.some((c) => c.type === "assistant_text_delta")).toBe(
       true,
     );
+  });
+
+  test("processing → timeout: injects anyway with warning after poll timeout", async () => {
+    const messages: unknown[] = [];
+    // Conversation stays processing permanently — never becomes idle
+    const conv: MockConversation = {
+      processing: true,
+      messages,
+      getMessages: () => messages,
+    };
+    mockConversations.set("conv-inject-3", conv);
+
+    // Mock Date.now() to simulate time past the 60s timeout.
+    // First call sets `start`, second call must exceed IDLE_TIMEOUT_MS (60_000).
+    const realDateNow = Date.now;
+    let dateNowCallCount = 0;
+    const baseTime = 1_000_000;
+    Date.now = () => {
+      dateNowCallCount++;
+      // First call: start = baseTime
+      // Second call onward: past the timeout
+      if (dateNowCallCount <= 1) return baseTime;
+      return baseTime + 60_001;
+    };
+
+    try {
+      await injectAuxAssistantMessage({
+        conversationId: "conv-inject-3",
+        text: "Timeout message",
+        broadcastMessage: mockBroadcast,
+      });
+    } finally {
+      Date.now = realDateNow;
+    }
+
+    // Message was still persisted despite timeout
+    expect(addMessageCalls).toHaveLength(1);
+    expect(addMessageCalls[0].conversationId).toBe("conv-inject-3");
+
+    // Warning log was emitted about the timeout
+    expect(logWarnCalls.length).toBeGreaterThanOrEqual(1);
+    const warnMsg = logWarnCalls.find((c) =>
+      c.args.some(
+        (arg) => typeof arg === "string" && arg.includes("Timed out"),
+      ),
+    );
+    expect(warnMsg).toBeDefined();
+
+    // Since conversation is still processing, no delta/complete broadcasts
+    expect(
+      broadcastCalls.filter((c) => c.type === "assistant_text_delta"),
+    ).toHaveLength(0);
+    expect(
+      broadcastCalls.filter((c) => c.type === "message_complete"),
+    ).toHaveLength(0);
+
+    // But list_invalidated IS sent (always sent regardless of processing state)
+    expect(
+      broadcastCalls.filter((c) => c.type === "conversation_list_invalidated"),
+    ).toHaveLength(1);
   });
 
   test("inactive/unloaded conversation: persists + list_invalidated only", async () => {
