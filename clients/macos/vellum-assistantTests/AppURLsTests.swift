@@ -134,4 +134,24 @@ final class AppURLsTests: XCTestCase {
         XCTAssertEqual(AppURLs.docsURL(path: "/pricing").absoluteString, "https://www.vellum.ai/docs/pricing")
         XCTAssertEqual(AppURLs.docsURL(path: "pricing").absoluteString, "https://www.vellum.ai/docs/pricing")
     }
+
+    // MARK: - Billing settings web URL
+
+    func testBillingSettingsHonorsWebURLOverride() {
+        setenv("VELLUM_WEB_URL", "https://staging-assistant.vellum.ai", 1)
+        defer { unsetenv("VELLUM_WEB_URL") }
+        XCTAssertEqual(
+            AppURLs.billingSettings.absoluteString,
+            "https://staging-assistant.vellum.ai/assistant/settings/billing"
+        )
+    }
+
+    func testBillingSettingsStripsTrailingSlash() {
+        setenv("VELLUM_WEB_URL", "https://staging-assistant.vellum.ai/", 1)
+        defer { unsetenv("VELLUM_WEB_URL") }
+        XCTAssertEqual(
+            AppURLs.billingSettings.absoluteString,
+            "https://staging-assistant.vellum.ai/assistant/settings/billing"
+        )
+    }
 }

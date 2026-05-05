@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 
 /// Centralized URLs the macOS app links out to.
 ///
@@ -70,6 +71,18 @@ public enum AppURLs {
     /// AI Data Sharing Policy docs — linked from the onboarding AI data consent checkbox.
     public static var dataSharingDocs: URL {
         docsURL(path: "/data-sharing")
+    }
+
+    // MARK: - Web app URLs
+
+    /// Web app billing settings page — opened from the Settings → Billing tab's
+    /// "Adjust Plan" and "Configure Auto Top Ups" buttons (both gated by the
+    /// `pro-plan-adjust` feature flag). Resolves to the Next.js web app at
+    /// `<webURL>/assistant/settings/billing` for the current build environment.
+    /// Force-unwrap is safe: `VellumEnvironment.resolvedWebURL` is always a valid
+    /// absolute URL string and the path is a literal.
+    public static var billingSettings: URL {
+        URL(string: "\(VellumEnvironment.resolvedWebURL)/assistant/settings/billing")!
     }
 
     // MARK: - Source repository
