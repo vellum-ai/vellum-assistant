@@ -35,7 +35,12 @@ mock.module("../runtime/pending-interactions.js", () => ({
 
 interface ResolveCall {
   requestId: string;
-  result: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean };
+  result: {
+    stdout: string;
+    stderr: string;
+    exitCode: number | null;
+    timedOut: boolean;
+  };
 }
 
 const resolveSpy: ResolveCall[] = [];
@@ -46,7 +51,12 @@ mock.module("../daemon/host-bash-proxy.js", () => ({
       return {
         resolveResult(
           requestId: string,
-          result: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean },
+          result: {
+            stdout: string;
+            stderr: string;
+            exitCode: number | null;
+            timedOut: boolean;
+          },
         ) {
           // resolveResult() internally calls pendingInteractions.resolve() in the real
           // implementation; simulate that here so resolvedIds assertions still hold.
@@ -55,6 +65,16 @@ mock.module("../daemon/host-bash-proxy.js", () => ({
         },
       };
     },
+  },
+}));
+
+// Stored actor-principal-id keyed by clientId, populated by tests.
+const clientActorPrincipals = new Map<string, string>();
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  assistantEventHub: {
+    getActorPrincipalIdForClient: (clientId: string) =>
+      clientActorPrincipals.get(clientId),
   },
 }));
 
@@ -106,6 +126,7 @@ describe("handleHostBashResult", () => {
     pendingStore.clear();
     resolvedIds.length = 0;
     resolveSpy.length = 0;
+    clientActorPrincipals.clear();
   });
 
   // ── Happy paths ────────────────────────────────────────────────────
@@ -143,10 +164,14 @@ describe("handleHostBashResult", () => {
     test("accepts when x-vellum-client-id matches targetClientId", async () => {
       const requestId = "req-targeted-match";
       registerPending(requestId, { targetClientId: "client-abc" });
+      clientActorPrincipals.set("client-abc", "principal-1");
 
       const result = await handleHostBashResult({
         body: bashBody(requestId),
-        headers: { "x-vellum-client-id": "client-abc" },
+        headers: {
+          "x-vellum-client-id": "client-abc",
+          "x-vellum-actor-principal-id": "principal-1",
+        },
       });
 
       expect(result).toEqual({ accepted: true });
@@ -158,13 +183,144 @@ describe("handleHostBashResult", () => {
     test("trims whitespace from x-vellum-client-id before comparing", async () => {
       const requestId = "req-targeted-trim";
       registerPending(requestId, { targetClientId: "client-abc" });
+      clientActorPrincipals.set("client-abc", "principal-1");
 
       const result = await handleHostBashResult({
         body: bashBody(requestId),
-        headers: { "x-vellum-client-id": "  client-abc  " },
+        headers: {
+          "x-vellum-client-id": "  client-abc  ",
+          "x-vellum-actor-principal-id": "principal-1",
+        },
       });
 
       expect(result).toEqual({ accepted: true });
+    });
+  });
+
+  // ── Same-user actor binding (defense-in-depth) ─────────────────────
+
+  describe("targeted request — actor principal binding", () => {
+    test("accepts when submitting actor matches target client's actor", async () => {
+      const requestId = "req-actor-match";
+      registerPending(requestId, { targetClientId: "client-abc" });
+      clientActorPrincipals.set("client-abc", "principal-shared");
+
+      const result = await handleHostBashResult({
+        body: bashBody(requestId),
+        headers: {
+          "x-vellum-client-id": "client-abc",
+          "x-vellum-actor-principal-id": "principal-shared",
+        },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(resolveSpy).toHaveLength(1);
+      expect(resolvedIds).toContain(requestId);
+    });
+
+    test("throws ForbiddenError (403) when submitting actor does not match target client's actor", () => {
+      const requestId = "req-actor-mismatch";
+      registerPending(requestId, { targetClientId: "client-abc" });
+      clientActorPrincipals.set("client-abc", "principal-victim");
+
+      expect(() =>
+        handleHostBashResult({
+          body: bashBody(requestId),
+          headers: {
+            "x-vellum-client-id": "client-abc",
+            "x-vellum-actor-principal-id": "principal-attacker",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("interaction is NOT resolved on cross-actor 403 (still pending)", () => {
+      const requestId = "req-actor-mismatch-stays";
+      registerPending(requestId, { targetClientId: "client-abc" });
+      clientActorPrincipals.set("client-abc", "principal-victim");
+
+      try {
+        handleHostBashResult({
+          body: bashBody(requestId),
+          headers: {
+            "x-vellum-client-id": "client-abc",
+            "x-vellum-actor-principal-id": "principal-attacker",
+          },
+        });
+      } catch {
+        // expected
+      }
+
+      expect(resolvedIds).not.toContain(requestId);
+      expect(pendingStore.has(requestId)).toBe(true);
+    });
+
+    test("throws ForbiddenError (403) when x-vellum-actor-principal-id header is missing entirely", () => {
+      const requestId = "req-actor-missing";
+      registerPending(requestId, { targetClientId: "client-abc" });
+      clientActorPrincipals.set("client-abc", "principal-victim");
+
+      expect(() =>
+        handleHostBashResult({
+          body: bashBody(requestId),
+          headers: { "x-vellum-client-id": "client-abc" },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("interaction is NOT resolved when submitting actor is missing (still pending)", () => {
+      const requestId = "req-actor-missing-stays";
+      registerPending(requestId, { targetClientId: "client-abc" });
+      clientActorPrincipals.set("client-abc", "principal-victim");
+
+      try {
+        handleHostBashResult({
+          body: bashBody(requestId),
+          headers: { "x-vellum-client-id": "client-abc" },
+        });
+      } catch {
+        // expected
+      }
+
+      expect(resolvedIds).not.toContain(requestId);
+      expect(pendingStore.has(requestId)).toBe(true);
+    });
+
+    test("throws ForbiddenError (403) when target client has no stored actor principal", () => {
+      // Target client connected without a verified principal (e.g. legacy
+      // service token) — refuse the submission rather than silently allow
+      // any actor through.
+      const requestId = "req-actor-target-missing";
+      registerPending(requestId, { targetClientId: "client-abc" });
+      // Note: no entry in clientActorPrincipals for "client-abc".
+
+      expect(() =>
+        handleHostBashResult({
+          body: bashBody(requestId),
+          headers: {
+            "x-vellum-client-id": "client-abc",
+            "x-vellum-actor-principal-id": "principal-1",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+  });
+
+  // ── Untargeted-request behavior (regression for new check) ─────────
+
+  describe("untargeted request — actor principal check is skipped", () => {
+    test("accepts even when submitting actor is absent and no target client is set", async () => {
+      const requestId = "req-untargeted-no-actor";
+      registerPending(requestId);
+
+      const result = await handleHostBashResult({
+        body: bashBody(requestId),
+        headers: {},
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(resolveSpy).toHaveLength(1);
+      expect(resolvedIds).toContain(requestId);
     });
   });
 
@@ -175,9 +331,9 @@ describe("handleHostBashResult", () => {
       const requestId = "req-targeted-no-header";
       registerPending(requestId, { targetClientId: "client-abc" });
 
-      expect(() =>
-        handleHostBashResult({ body: bashBody(requestId) }),
-      ).toThrow(BadRequestError);
+      expect(() => handleHostBashResult({ body: bashBody(requestId) })).toThrow(
+        BadRequestError,
+      );
     });
 
     test("throws BadRequestError (400) when header is empty string", () => {
@@ -267,9 +423,9 @@ describe("handleHostBashResult", () => {
   });
 
   test("throws BadRequestError when requestId is missing", () => {
-    expect(() =>
-      handleHostBashResult({ body: { stdout: "x" } }),
-    ).toThrow(BadRequestError);
+    expect(() => handleHostBashResult({ body: { stdout: "x" } })).toThrow(
+      BadRequestError,
+    );
   });
 
   test("throws NotFoundError for unknown requestId", () => {
@@ -287,8 +443,8 @@ describe("handleHostBashResult", () => {
       kind: "confirmation",
     });
 
-    expect(() =>
-      handleHostBashResult({ body: bashBody(requestId) }),
-    ).toThrow(ConflictError);
+    expect(() => handleHostBashResult({ body: bashBody(requestId) })).toThrow(
+      ConflictError,
+    );
   });
 });

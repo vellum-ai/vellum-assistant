@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -37,7 +38,10 @@ function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError("requestId is required");
   }
 
-  const submittingClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const submittingClientId =
+    headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const submittingActorPrincipalId =
+    headers?.["x-vellum-actor-principal-id"]?.trim() || undefined;
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
@@ -60,6 +64,24 @@ function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
     if (submittingClientId !== targetClientId) {
       throw new ForbiddenError(
         `Client "${submittingClientId}" is not the target for this request (expected "${targetClientId}"). The targeted client must submit the result.`,
+      );
+    }
+
+    // Defense-in-depth on top of the client-id header binding above: the
+    // submitting actor's principal must match the actor principal stored
+    // for the target client at SSE subscription time. This prevents a
+    // cross-user submission even when the attacker can guess or spoof the
+    // target's client ID.
+    const targetActorPrincipalId =
+      assistantEventHub.getActorPrincipalIdForClient(targetClientId);
+    if (!targetActorPrincipalId || !submittingActorPrincipalId) {
+      throw new ForbiddenError(
+        "Submitting actor identity is missing; cannot verify same-user binding for this targeted host bash request.",
+      );
+    }
+    if (submittingActorPrincipalId !== targetActorPrincipalId) {
+      throw new ForbiddenError(
+        "Submitting actor does not match the target client's actor for this request. The same authenticated user must submit the result.",
       );
     }
   }
@@ -104,7 +126,7 @@ export const ROUTES: RouteDefinition[] = [
       },
       "403": {
         description:
-          "Submitting client does not match the targeted client for this request.",
+          "Submitting client does not match the targeted client, or the submitting actor's principal does not match the target client's actor.",
       },
       "404": {
         description: "No pending interaction found for the given requestId.",
