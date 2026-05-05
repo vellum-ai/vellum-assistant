@@ -1,7 +1,7 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
-import { loadSkillBySelector, loadSkillCatalog } from "../config/skills.js";
+import { loadSkillBySelector } from "../config/skills.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
@@ -10,11 +10,6 @@ import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import {
-  indexCatalogById,
-  traverseIncludes,
-  validateIncludes,
-} from "../skills/include-graph.js";
 import { getLogger } from "../util/logger.js";
 import { getAllTools, getTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
@@ -212,28 +207,12 @@ function getDiskPressureSkillLoadBlockReason(
     return `Skill "${loaded.skill.id}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load the bundled "${DISK_PRESSURE_CLEANUP_SKILL_ID}" skill.`;
   }
 
-  const catalogIndex = indexCatalogById(loadSkillCatalog());
-  const includeValidation = validateIncludes(loaded.skill.id, catalogIndex);
-  if (!includeValidation.ok) {
-    return `Skill "${loaded.skill.id}" cannot be loaded during disk pressure cleanup mode because its included skills cannot be validated.`;
+  if (loaded.skill.inlineCommandExpansions?.length) {
+    return `Skill "${loaded.skill.id}" cannot be loaded during disk pressure cleanup mode because it contains inline command expansions. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
   }
 
-  const includedSkillIds = traverseIncludes(
-    loaded.skill.id,
-    catalogIndex,
-  ).visited;
-  for (const skillId of includedSkillIds) {
-    const skill =
-      skillId === loaded.skill.id ? loaded.skill : catalogIndex.get(skillId);
-    if (!skill) continue;
-
-    if (skill.inlineCommandExpansions?.length) {
-      return `Skill "${skill.id}" cannot be loaded during disk pressure cleanup mode because it contains inline command expansions. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
-    }
-
-    if (skill.toolManifest?.present) {
-      return `Skill "${skill.id}" cannot be loaded during disk pressure cleanup mode because it declares executable skill tools. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
-    }
+  if (loaded.skill.toolManifest?.present) {
+    return `Skill "${loaded.skill.id}" cannot be loaded during disk pressure cleanup mode because it declares executable skill tools. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
   }
 
   return null;
