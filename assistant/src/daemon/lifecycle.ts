@@ -105,6 +105,11 @@ import {
   cleanupPidFileIfOwner,
   writePid,
 } from "./daemon-control.js";
+import {
+  evaluateDiskPressureNow,
+  startDiskPressureGuard,
+  stopDiskPressureGuard,
+} from "./disk-pressure-guard.js";
 import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
 import {
   createGuardianActionCopyGenerator,
@@ -128,6 +133,30 @@ const log = getLogger("lifecycle");
 
 function loadDotEnv(): void {
   dotenvConfig({ path: getDotEnvPath(), quiet: true });
+}
+
+export function startDiskPressureGuardForLifecycle(): void {
+  try {
+    const startedStatus = startDiskPressureGuard();
+    if (!startedStatus.enabled) return;
+
+    const status = evaluateDiskPressureNow();
+    if (status.error) {
+      log.warn(
+        { error: status.error },
+        "Disk pressure guard sample failed during startup — continuing unlocked",
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Disk pressure guard failed during startup — continuing unlocked",
+    );
+  }
+}
+
+export function stopDiskPressureGuardForLifecycle(): void {
+  stopDiskPressureGuard();
 }
 
 export interface CesStartupResult {
@@ -625,6 +654,7 @@ export async function runDaemon(): Promise<void> {
 
     await server.start();
     log.info("Daemon startup: DaemonServer started");
+    startDiskPressureGuardForLifecycle();
 
     // Kick off the update bulletin background job AFTER `server.start()`
     // resolves. The conversation store must be initialized before wake
@@ -1271,10 +1301,14 @@ export async function runDaemon(): Promise<void> {
       getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,
       telemetryReporter,
-      cleanupPidFile,
+      cleanupPidFile: () => {
+        stopDiskPressureGuardForLifecycle();
+        cleanupPidFile();
+      },
     });
   } catch (err) {
     log.error({ err }, "Daemon startup failed — cleaning up");
+    stopDiskPressureGuardForLifecycle();
     cleanupPidFileIfOwner(process.pid);
     throw err;
   }
