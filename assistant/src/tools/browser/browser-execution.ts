@@ -2251,14 +2251,14 @@ async function checkExtensionModeStatus(
 ): Promise<BrowserStatusModeResult> {
   const proxy = HostBrowserProxy.instance;
 
-  if (!proxy.isAvailable()) {
+  if (!proxy.hasExtensionClient()) {
     return {
       mode: BROWSER_STATUS_MODE.EXTENSION,
       available: false,
       verified: "preflight",
       autoCandidate,
       summary:
-        "Extension mode is unavailable: the extension transport is currently disconnected.",
+        "Extension mode is unavailable: no Chrome Extension is connected.",
       userActions: extensionSetupActions(),
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: { transport: "extension-ws" },

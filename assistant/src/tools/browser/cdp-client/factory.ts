@@ -187,25 +187,25 @@ export function buildPinnedCandidateList(
 
   switch (mode) {
     case "extension": {
-      const hostBrowserProxy = HostBrowserProxy.instance;
-      if (!hostBrowserProxy.isAvailable()) {
-        throw new CdpError(
-          "transport_error",
-          `Pinned mode "extension" unavailable: no active extension connection`,
-          {
-            attemptDiagnostics: [
-              {
-                candidateKind: "extension",
-                inclusionReason: `pinned mode: extension`,
-                stage: "candidate_selection",
-                errorCode: "transport_error",
-                errorMessage: "no active extension connection",
-              },
-            ],
-          },
-        );
-      }
-      return [
+        const hostBrowserProxy = HostBrowserProxy.instance;
+        if (!hostBrowserProxy.hasExtensionClient()) {
+          throw new CdpError(
+            "transport_error",
+            `Pinned mode "extension" unavailable: no Chrome Extension connected`,
+            {
+              attemptDiagnostics: [
+                {
+                  candidateKind: "extension",
+                  inclusionReason: `pinned mode: extension`,
+                  stage: "candidate_selection",
+                  errorCode: "transport_error",
+                  errorMessage: "no Chrome Extension connected",
+                },
+              ],
+            },
+          );
+        }
+        return [
         {
           kind: "extension",
           reason: "pinned mode: extension",
@@ -291,12 +291,11 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
   const candidates: BackendCandidate[] = [];
   const hostBrowserProxy = HostBrowserProxy.instance;
 
-  // 1. Extension -- preferred when the singleton proxy reports an active
-  //    extension connection is available.
-  if (hostBrowserProxy.isAvailable()) {
+  // 1. Extension -- preferred when a Chrome Extension client is connected.
+  if (hostBrowserProxy.hasExtensionClient()) {
     candidates.push({
       kind: "extension",
-      reason: "extension connected via registry singleton",
+      reason: "Chrome Extension connected via registry singleton",
       create() {
         const client = createExtensionCdpClient(
           hostBrowserProxy,
@@ -314,7 +313,7 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
   } else {
     log.debug(
       { conversationId },
-      "CDP factory: no active extension connection, skipping extension candidate",
+      "CDP factory: no Chrome Extension connected, skipping extension candidate",
     );
   }
 
