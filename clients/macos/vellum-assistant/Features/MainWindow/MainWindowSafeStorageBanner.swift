@@ -157,7 +157,7 @@ struct MainWindowSafeStorageBanner: View {
             }
         }
         .padding(VSpacing.xl)
-        .frame(maxWidth: 720, alignment: .leading)
+        .widthCap(720)
         .background(VColor.surfaceLift)
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
