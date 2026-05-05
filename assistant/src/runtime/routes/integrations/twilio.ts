@@ -24,6 +24,7 @@ import type { IngressConfig } from "../../../inbound/public-ingress-urls.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
+  getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../../security/secure-keys.js";
 import {
@@ -58,6 +59,28 @@ function pruneAssistantPhoneNumbers(
       delete twilio.assistantPhoneNumbers;
     }
   }
+}
+
+async function rememberAssignedAssistantPhoneNumber(
+  twilio: Record<string, unknown>,
+  phoneNumber: string,
+): Promise<void> {
+  pruneAssistantPhoneNumbers(twilio, phoneNumber, "keep");
+
+  const assistantId = (
+    await getSecureKeyAsync(credentialKey("vellum", "platform_assistant_id"))
+  )?.trim();
+  if (!assistantId) {
+    return;
+  }
+
+  const existing = twilio.assistantPhoneNumbers;
+  const mappings =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? (existing as Record<string, string>)
+      : {};
+  mappings[assistantId] = phoneNumber;
+  twilio.assistantPhoneNumbers = mappings;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,8 +118,7 @@ export async function handleSetTwilioCredentials({
 
   // Validate credentials against Twilio API
   const authHeader =
-    "Basic " +
-    Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+    "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64");
   try {
     const res = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${accountSid}.json`,
@@ -121,9 +143,7 @@ export async function handleSetTwilioCredentials({
     accountSid,
   );
   if (!sidStored) {
-    throw new InternalError(
-      "Failed to store Account SID in secure storage",
-    );
+    throw new InternalError("Failed to store Account SID in secure storage");
   }
 
   const tokenStored = await setSecureKeyAsync(
@@ -132,9 +152,7 @@ export async function handleSetTwilioCredentials({
   );
   if (!tokenStored) {
     await deleteSecureKeyAsync(credentialKey("twilio", "account_sid"));
-    throw new InternalError(
-      "Failed to store Auth Token in secure storage",
-    );
+    throw new InternalError("Failed to store Auth Token in secure storage");
   }
 
   const raw = loadRawConfig();
@@ -209,9 +227,7 @@ async function handleListTwilioNumbers() {
   return { success: true, hasCredentials: true, numbers };
 }
 
-export async function handleProvisionTwilioNumber({
-  body,
-}: RouteHandlerArgs) {
+export async function handleProvisionTwilioNumber({ body }: RouteHandlerArgs) {
   if (!(await hasTwilioCredentials())) {
     throw new BadRequestError(
       "Twilio credentials not configured. Set credentials first.",
@@ -250,7 +266,7 @@ export async function handleProvisionTwilioNumber({
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   twilio.phoneNumber = purchased.phoneNumber;
-  pruneAssistantPhoneNumbers(twilio, purchased.phoneNumber, "keep");
+  await rememberAssignedAssistantPhoneNumber(twilio, purchased.phoneNumber);
   saveRawConfig({ ...raw, twilio });
 
   // Best-effort webhook configuration
@@ -281,7 +297,7 @@ export async function handleAssignTwilioNumber({
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   twilio.phoneNumber = phoneNumber;
-  pruneAssistantPhoneNumbers(twilio, phoneNumber, "keep");
+  await rememberAssignedAssistantPhoneNumber(twilio, phoneNumber);
   saveRawConfig({ ...raw, twilio });
 
   // Best-effort webhook configuration when credentials are available
@@ -322,8 +338,7 @@ async function handleReleaseTwilioNumber({ body }: RouteHandlerArgs) {
   };
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
-  const phoneNumber =
-    requestedNumber || (twilio.phoneNumber as string) || "";
+  const phoneNumber = requestedNumber || (twilio.phoneNumber as string) || "";
 
   if (!phoneNumber) {
     throw new BadRequestError(

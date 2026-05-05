@@ -176,6 +176,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (key: string) => mockSecureKeyStore[key],
   setSecureKeyAsync: async (key: string, value: string) => {
     mockSecureKeyStore[key] = value;
     return true;
@@ -445,6 +446,7 @@ describe("twilio webhook routes", () => {
     mockSecureKeyStore = {
       [credentialKey("twilio", "account_sid")]: "AC_existing",
       [credentialKey("twilio", "auth_token")]: "test-auth-token",
+      [credentialKey("vellum", "platform_assistant_id")]: "assistant-123",
     };
     mockAvailableNumbers = [{ phoneNumber: "+15556667777" }];
     mockProvisionedNumber = { phoneNumber: "+15556667777" };
@@ -1402,10 +1404,16 @@ describe("twilio webhook routes", () => {
 
     test("provisioning a number syncs Twilio webhooks", async () => {
       mockIngressPublicBaseUrl = "https://numbers.example.com";
-      mockAvailableNumbers = [{ phoneNumber: "+15557778888" }];
-      mockProvisionedNumber = { phoneNumber: "+15557778888" };
+      mockAvailableNumbers = [{ phoneNumber: "+12125550142" }];
+      mockProvisionedNumber = { phoneNumber: "+12125550142" };
       mockRawConfigStore = {
-        twilio: { accountSid: "AC_existing" },
+        twilio: {
+          accountSid: "AC_existing",
+          assistantPhoneNumbers: {
+            "assistant-old": "+12125550140",
+            "assistant-123": "+12125550141",
+          },
+        },
       };
 
       const result = await handleProvisionTwilioNumber({
@@ -1414,7 +1422,11 @@ describe("twilio webhook routes", () => {
 
       expect(result.success).toBe(true);
       expect(result.hasCredentials).toBe(true);
-      expect(result.phoneNumber).toBe("+15557778888");
+      expect(result.phoneNumber).toBe("+12125550142");
+      expect(
+        (mockRawConfigStore.twilio as Record<string, unknown>)
+          .assistantPhoneNumbers,
+      ).toEqual({ "assistant-123": "+12125550142" });
       expect(updatePhoneNumberWebhookCalls).toHaveLength(1);
       expect(updatePhoneNumberWebhookCalls[0]!.urls).toEqual({
         voiceUrl: "https://numbers.example.com/webhooks/twilio/voice",
@@ -1424,14 +1436,28 @@ describe("twilio webhook routes", () => {
 
     test("assigning a number syncs Twilio webhooks", async () => {
       mockIngressPublicBaseUrl = "https://assign.example.com";
+      mockRawConfigStore = {
+        twilio: {
+          accountSid: "AC_existing",
+          phoneNumber: "+12125550143",
+          assistantPhoneNumbers: {
+            "assistant-old": "+12125550140",
+            "assistant-123": "+12125550141",
+          },
+        },
+      };
 
       const result = await handleAssignTwilioNumber({
-        body: { phoneNumber: "+15558889999" },
+        body: { phoneNumber: "+12125550144" },
       });
 
       expect(result.success).toBe(true);
       expect(result.hasCredentials).toBe(true);
-      expect(result.phoneNumber).toBe("+15558889999");
+      expect(result.phoneNumber).toBe("+12125550144");
+      expect(
+        (mockRawConfigStore.twilio as Record<string, unknown>)
+          .assistantPhoneNumbers,
+      ).toEqual({ "assistant-123": "+12125550144" });
       expect(updatePhoneNumberWebhookCalls).toHaveLength(1);
     });
   });
