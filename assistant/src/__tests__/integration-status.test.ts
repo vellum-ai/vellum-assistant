@@ -11,6 +11,10 @@ const platformConnectedProviders = new Set<string>();
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => secureKeyValues.get(account),
+  getSecureKeyResultAsync: async (account: string) => ({
+    value: secureKeyValues.get(account) ?? undefined,
+    unreachable: false,
+  }),
 }));
 
 mock.module("../config/loader.js", () => ({

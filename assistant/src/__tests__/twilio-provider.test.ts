@@ -30,6 +30,13 @@ mock.module("../security/secure-keys.js", () => ({
     if (key === credentialKey("twilio", "account_sid")) return mockAccountSid;
     return undefined;
   },
+  getSecureKeyResultAsync: async (key: string) => {
+    let value: string | undefined;
+    if (key === credentialKey("twilio", "auth_token")) value = mockAuthToken;
+    else if (key === credentialKey("twilio", "account_sid"))
+      value = mockAccountSid;
+    return { value, unreachable: false };
+  },
 }));
 
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
