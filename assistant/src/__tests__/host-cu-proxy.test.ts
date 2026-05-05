@@ -16,6 +16,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       cap === "host_cu" && mockHasClient ? { id: "mock-client" } : null,
     getClientById: (id: string) =>
       mockClients.find((c) => c.clientId === id) ?? undefined,
+    getActorPrincipalIdForClient: (id: string) =>
+      mockClients.find((c) => c.clientId === id)?.actorPrincipalId,
   },
 }));
 
@@ -1100,7 +1102,9 @@ describe("HostCuProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("owned by the same user as the caller");
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -1126,7 +1130,9 @@ describe("HostCuProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("owned by the same user as the caller");
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -1152,7 +1158,9 @@ describe("HostCuProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("owned by the same user as the caller");
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
       expect(sentMessages).toHaveLength(0);
     });
 

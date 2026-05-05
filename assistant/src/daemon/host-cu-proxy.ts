@@ -23,6 +23,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -175,28 +176,16 @@ export class HostCuProxy {
       }
 
       // Same-user enforcement: targeted CU dispatch must be owned by the
-      // same actor on both sides. Reject when either principal is missing
-      // or when they don't match.
-      const targetActorPrincipalId = client.actorPrincipalId;
-      if (
-        sourceActorPrincipalId == null ||
-        targetActorPrincipalId == null ||
-        sourceActorPrincipalId !== targetActorPrincipalId
-      ) {
-        log.warn(
-          {
-            targetClientId,
-            hasSourcePrincipal: sourceActorPrincipalId != null,
-            hasTargetPrincipal: targetActorPrincipalId != null,
-          },
-          "Rejected cross-user host_cu request",
-        );
-        return Promise.resolve({
-          content:
-            "Targeted host_cu requests require the target client to be owned by the same user as the caller.",
-          isError: true,
-        });
-      }
+      // same actor on both sides. This is the authoritative gate — the
+      // dispatch layer (conversation-surfaces.ts) skips its own check
+      // and relies on the proxy.
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId,
+        op: "host_cu",
+      });
+      if (rejection) return Promise.resolve(rejection);
     }
 
     const requestId = uuid();

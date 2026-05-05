@@ -5,6 +5,10 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import {
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { formatShellOutput } from "../tools/shared/shell-output.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -69,9 +73,6 @@ export class HostBashProxy {
       return Promise.resolve(result);
     }
 
-    const capableClients =
-      assistantEventHub.listClientsByCapability("host_bash");
-
     let resolvedTargetClientId: string | undefined;
 
     if (input.targetClientId) {
@@ -83,52 +84,31 @@ export class HostBashProxy {
         });
       }
       resolvedTargetClientId = input.targetClientId;
-    } else if (capableClients.length === 1) {
-      // Auto-resolve when exactly one capable client is connected — but only
-      // when its actor principal matches the caller's. This prevents a
-      // same-daemon attacker from getting cross-user execution by relying on
-      // auto-resolve. If the sole client belongs to a different user, fall
-      // through to the untargeted broadcast path.
-      const onlyClient = capableClients[0];
-      if (
-        sourceActorPrincipalId != null &&
-        onlyClient.actorPrincipalId === sourceActorPrincipalId
-      ) {
-        resolvedTargetClientId = onlyClient.clientId;
-      }
+    } else {
+      // Auto-resolve only to a same-user capable client; falls through to
+      // the untargeted broadcast path when zero or multiple same-user
+      // clients are connected. The zero-client / multi-client cases are
+      // handled by the existing timeout/error path and the tool-executor
+      // layer respectively.
+      resolvedTargetClientId = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_bash",
+        sourceActorPrincipalId,
+      });
     }
-    // capableClients.length === 0 or > 1 without explicit target: resolvedTargetClientId
-    // stays undefined and falls through to untargeted broadcast — the existing timeout/error
-    // path handles the zero-client case, and multi-client ambiguity is enforced at the tool
-    // executor layer (not here) once target_client_id is exposed in the tool schema.
 
     // Targeted requests must be bound to the same authenticated user as the
     // target client. Fail closed at request time — before pendingInteractions
     // registration and before broadcast — so a same-daemon caller cannot
     // execute on another user's connected client.
     if (resolvedTargetClientId != null) {
-      const targetActorPrincipalId =
-        assistantEventHub.getActorPrincipalIdForClient(resolvedTargetClientId);
-      if (
-        sourceActorPrincipalId == null ||
-        targetActorPrincipalId == null ||
-        targetActorPrincipalId !== sourceActorPrincipalId
-      ) {
-        log.warn(
-          {
-            sourceActorPrincipalId,
-            targetClientId: resolvedTargetClientId,
-            targetActorPrincipalId,
-            op: "host_bash",
-          },
-          "Rejecting targeted host_bash request: source actor does not match target client's actor",
-        );
-        return Promise.resolve({
-          content:
-            "Targeted host_bash requests require the target client to be owned by the same user as the caller.",
-          isError: true,
-        });
-      }
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_bash",
+      });
+      if (rejection) return Promise.resolve(rejection);
     }
 
     const requestId = uuid();

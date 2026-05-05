@@ -18,6 +18,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
@@ -1935,10 +1936,12 @@ export async function surfaceProxyResolver(
         ? input.target_client_id
         : undefined;
 
-    // Validate targetClientId before recordAction so an invalid ID does not
-    // burn a step or pollute action history. (HostBashProxy / HostFileProxy
-    // both validate at the tool-resolution layer before incrementing any
-    // state; this mirrors that behaviour for CU.)
+    // Validate targetClientId existence, capability, and same-user binding
+    // before recordAction so an invalid or cross-user ID does not burn a
+    // step or pollute action history. HostBashProxy / HostFileProxy
+    // validate at the tool-resolution layer for the same reason. The proxy
+    // re-checks same-user (single authoritative gate); using the shared
+    // helper keeps log payload and error wording identical at both layers.
     const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
@@ -1954,30 +1957,24 @@ export async function surfaceProxyResolver(
           isError: true,
         };
       }
-
-      // Same-user enforcement: a targeted CU dispatch must be owned by the
-      // same actor on both sides. Surface a friendly tool-input rejection
-      // before invoking the proxy (which performs the same check as a
-      // backstop for direct callers).
-      const targetActorPrincipalId = client.actorPrincipalId;
-      if (
-        sourceActorPrincipalId == null ||
-        targetActorPrincipalId == null ||
-        sourceActorPrincipalId !== targetActorPrincipalId
-      ) {
-        return {
-          content: `Client '${targetClientId}' is not owned by the current user — cross-user computer_use dispatch is not allowed.`,
-          isError: true,
-        };
-      }
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId,
+        op: "host_cu",
+      });
+      if (rejection) return rejection;
     }
 
-    // Guard: require explicit targeting when multiple CU-capable clients are
-    // connected. The tool schemas document target_client_id as "required when
-    // multiple clients support host_cu" but nothing enforced it at runtime
-    // until now. Without this guard, the request would broadcast to all
-    // capable clients simultaneously, causing the same CU action to execute
-    // on multiple machines.
+    // Guard: require explicit targeting when multiple same-user CU-capable
+    // clients are connected. The tool schemas document target_client_id as
+    // "required when multiple clients support host_cu" but nothing enforced
+    // it at runtime until now. Without this guard, the request would
+    // broadcast to all capable clients simultaneously, causing the same CU
+    // action to execute on multiple machines. The filter mirrors
+    // HostFileProxy's auto-resolve: only same-user clients participate, so
+    // a cross-user client connected to the same daemon does not falsely
+    // trigger this ambiguity error.
     //
     // Asymmetry with host_bash / host_file (host-shell.ts): the bash/file
     // guard additionally checks `transportInterface != null &&
@@ -1988,7 +1985,9 @@ export async function surfaceProxyResolver(
     // host_cu-capable transport for which auto-routing-to-self would be
     // appropriate. We therefore fire whenever there is genuine ambiguity.
     if (targetClientId == null) {
-      const cuClients = assistantEventHub.listClientsByCapability("host_cu");
+      const cuClients = assistantEventHub
+        .listClientsByCapability("host_cu")
+        .filter((c) => c.actorPrincipalId === sourceActorPrincipalId);
       if (cuClients.length > 1) {
         return {
           content: `Error: multiple clients support host_cu. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_cu\` to see client IDs and labels.`,

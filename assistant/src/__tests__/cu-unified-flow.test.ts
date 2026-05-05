@@ -34,6 +34,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       cap === "host_cu" ? mockCuClients : [],
     getClientById: (id: string) =>
       mockCuClients.find((c) => c.clientId === id) ?? null,
+    getActorPrincipalIdForClient: (id: string) =>
+      mockCuClients.find((c) => c.clientId === id)?.actorPrincipalId,
   },
 }));
 
@@ -406,11 +408,19 @@ describe("surfaceProxyResolver — CU tool routing", () => {
   // -------------------------------------------------------------------------
 
   describe("multi-client ambiguity guard", () => {
-    test("returns error when multiple CU clients connected and no target_client_id given", async () => {
+    test("returns error when multiple same-user CU clients connected and no target_client_id given", async () => {
       const ctx = setupProxy();
       mockCuClients = [
-        { clientId: "client-a", capabilities: ["host_cu"] },
-        { clientId: "client-b", capabilities: ["host_cu"] },
+        {
+          clientId: "client-a",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+        {
+          clientId: "client-b",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
       ];
 
       const result = await surfaceProxyResolver(ctx, "computer_use_click", {
@@ -585,8 +595,9 @@ describe("surfaceProxyResolver — CU tool routing", () => {
   // Same-user enforcement (dispatch layer)
   //
   // The proxy enforces this internally as well — these tests verify the
-  // dispatch surfaces a friendly tool-input rejection before the proxy is
-  // invoked, and that the rejection happens before any state mutation.
+  // dispatch performs the same-user rejection before the proxy is invoked
+  // (so no step is burned and no action history mutated), and uses the
+  // canonical rejection message.
   // -------------------------------------------------------------------------
 
   describe("same-user enforcement", () => {
@@ -610,8 +621,9 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("cu-client");
-      expect(result.content).toContain("not owned by the current user");
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
       // No state mutation, no dispatch.
       expect(proxy.stepCount).toBe(0);
       expect(proxy.actionHistory).toHaveLength(0);
@@ -638,7 +650,9 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("not owned by the current user");
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
       expect(sentMessages).toHaveLength(0);
     });
   });

@@ -768,7 +768,7 @@ describe("HostBashProxy", () => {
 
   describe("same-user binding (sourceActorPrincipalId)", () => {
     const SAME_USER_REJECTION =
-      "Targeted host_bash requests require the target client to be owned by the same user as the caller.";
+      "Submitting actor does not match the target client's actor for this request. The targeted client's authenticated user must submit the result.";
 
     test("same-user targeted request succeeds", async () => {
       setup();
