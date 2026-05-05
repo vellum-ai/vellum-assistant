@@ -674,7 +674,6 @@ struct MainWindowView: View {
 /// toast is visible.
 struct ErrorToastOverlay: View {
     let errorManager: ChatErrorManager
-    let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
     let onDismissConversationError: () -> Void
