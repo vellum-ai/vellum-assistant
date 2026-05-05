@@ -9,12 +9,17 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
+const mockRefreshSkillCapabilityMemories = mock(() => {});
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+mock.module("../daemon/skill-memory-refresh.js", () => ({
+  refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
 
 import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
@@ -39,6 +44,7 @@ function createSkill(id: string): void {
 
 beforeEach(() => {
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  mockRefreshSkillCapabilityMemories.mockClear();
 });
 
 afterEach(() => {
@@ -92,6 +98,7 @@ describe("delete_managed_skill tool", () => {
 
     expect(existsSync(indexPath)).toBe(true);
     expect(readFileSync(indexPath, "utf-8")).toBe(staleIndex);
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
   });
 
   test("accepts legacy remove_from_index input without returning index metadata", async () => {
@@ -110,6 +117,7 @@ describe("delete_managed_skill tool", () => {
     expect(parsed.deleted).toBe(true);
     expect(parsed).not.toHaveProperty("index_updated");
     expect(existsSync(join(TEST_DIR, "skills", "legacy-delete"))).toBe(false);
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
   });
 
   test("returns error for non-existent skill", async () => {
@@ -122,6 +130,7 @@ describe("delete_managed_skill tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not found");
+    expect(mockRefreshSkillCapabilityMemories).not.toHaveBeenCalled();
   });
 
   test("rejects missing skill_id", async () => {

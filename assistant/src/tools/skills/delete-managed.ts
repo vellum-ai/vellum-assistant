@@ -1,3 +1,4 @@
+import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
 import { deleteManagedSkill } from "../../skills/managed-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -22,6 +23,8 @@ export async function executeDeleteManagedSkill(
   if (!result.deleted) {
     return { content: `Error: ${result.error}`, isError: true };
   }
+
+  refreshSkillCapabilityMemories();
 
   return {
     content: JSON.stringify({

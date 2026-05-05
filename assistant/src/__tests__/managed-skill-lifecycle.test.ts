@@ -76,6 +76,10 @@ mock.module("../memory/v2/qdrant.js", () => ({
   pruneSlugsWithPrefixExcept: async () => {},
 }));
 
+mock.module("../daemon/skill-memory-refresh.js", () => ({
+  refreshSkillCapabilityMemories: mock(() => {}),
+}));
+
 import { loadSkillCatalog } from "../config/skills.js";
 import {
   _resetSkillStoreForTests,

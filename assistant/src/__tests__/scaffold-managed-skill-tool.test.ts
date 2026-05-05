@@ -3,12 +3,17 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
+const mockRefreshSkillCapabilityMemories = mock(() => {});
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+mock.module("../daemon/skill-memory-refresh.js", () => ({
+  refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
 
 import { loadSkillCatalog } from "../config/skills.js";
@@ -25,6 +30,7 @@ function makeContext(): ToolContext {
 
 beforeEach(() => {
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  mockRefreshSkillCapabilityMemories.mockClear();
 });
 
 afterEach(() => {
@@ -82,6 +88,7 @@ describe("scaffold_managed_skill tool", () => {
     const skill = catalog.find((s) => s.id === "test-skill");
     expect(skill).toBeDefined();
     expect(skill!.name).toBe("Test Skill");
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
   });
 
   test("accepts legacy add_to_index input without returning index metadata", async () => {
@@ -101,6 +108,7 @@ describe("scaffold_managed_skill tool", () => {
     expect(parsed.created).toBe(true);
     expect(parsed).not.toHaveProperty("index_updated");
     expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
   });
 
   test("rejects duplicate unless overwrite=true", async () => {
