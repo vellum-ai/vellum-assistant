@@ -151,7 +151,9 @@ public final class AuthManager {
         defer { isSubmitting = false }
 
         do {
-            let stateParam = generateRandomString(length: 32)
+            guard let stateParam = generateRandomString(length: 32) else {
+                throw AuthServiceError.authCallbackFailed("Failed to generate secure random state.")
+            }
 
             // Build /accounts/native/start?state={state}. The server
             // determines the callback scheme from settings.ENVIRONMENT
@@ -284,9 +286,14 @@ public final class AuthManager {
         }
     }
 
-    private func generateRandomString(length: Int) -> String {
+    /// Generate a cryptographically random base64url string.
+    /// Returns `nil` if the system RNG is unavailable — callers must
+    /// treat this as a fatal condition since the state parameter is the
+    /// sole CSRF defense on the auth callback.
+    private func generateRandomString(length: Int) -> String? {
         var bytes = [UInt8](repeating: 0, count: length)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else { return nil }
         return Data(bytes).base64URLEncodedString()
     }
 
