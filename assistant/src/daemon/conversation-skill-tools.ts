@@ -17,13 +17,8 @@ import { skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import { mergeActiveSkillEntry } from "../skills/active-skill-entry-merge.js";
 import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
-import {
-  BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-  SYSTEM_STORAGE_CLEANUP_SKILL_ID,
-} from "../skills/system-storage-cleanup-constants.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import {
@@ -162,12 +157,14 @@ function getCachedActiveSkills(
     const delta = history.slice(cached.messageCount);
     const newEntries = deriveActiveSkills(delta);
 
-    // Merge appended entries while preserving order and upgrading cleanup
-    // provenance if a later bundled selector supersedes an older id-only marker.
+    // Merge: add any entries not already seen.
     let changed = false;
     for (const entry of newEntries) {
-      changed =
-        mergeActiveSkillEntry(cached.entries, cached.seenIds, entry) || changed;
+      if (!cached.seenIds.has(entry.id)) {
+        cached.seenIds.add(entry.id);
+        cached.entries.push(entry);
+        changed = true;
+      }
     }
 
     cached.messageCount = history.length;
@@ -229,10 +226,13 @@ export function projectSkillTools(
   const prevActive =
     options?.previouslyActiveSkillIds ?? new Map<string, string>();
 
-  const markerSelectorById = new Map<string, string>();
+  // Index marker versions by skill ID so we can use them during registration.
+  // When a marker carries a version, it records the hash that was active at
+  // load time — useful for detecting drift without re-hashing the directory.
+  const markerVersionById = new Map<string, string>();
   for (const entry of contextEntries) {
-    if (entry.selector) {
-      markerSelectorById.set(entry.id, entry.selector);
+    if (entry.version) {
+      markerVersionById.set(entry.id, entry.version);
     }
   }
 
@@ -290,22 +290,6 @@ export function projectSkillTools(
     const skill = catalogById.get(skillId);
     if (!skill) {
       log.warn({ skillId }, "Active skill ID not found in catalog");
-      continue;
-    }
-
-    // Cleanup-mode markers are id-only even when loaded through the bundled
-    // selector. If that exact bundled marker later resolves to a non-bundled
-    // catalog shadow, do not project the shadow's tools.
-    if (
-      skillId === SYSTEM_STORAGE_CLEANUP_SKILL_ID &&
-      skill.source !== "bundled" &&
-      markerSelectorById.get(skillId) ===
-        BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR
-    ) {
-      log.info(
-        { skillId, markerSelector: markerSelectorById.get(skillId) },
-        "Skipping storage cleanup skill tool projection because the bundled marker now resolves to a non-bundled catalog skill",
-      );
       continue;
     }
 

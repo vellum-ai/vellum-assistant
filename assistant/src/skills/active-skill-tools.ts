@@ -1,6 +1,4 @@
 import type { Message } from "../providers/types.js";
-import { mergeActiveSkillEntry } from "./active-skill-entry-merge.js";
-import { normalizeBundledSystemStorageCleanupSelector } from "./system-storage-cleanup-constants.js";
 
 /** Matches both old (`<loaded_skill id="..." />`) and new versioned
  *  (`<loaded_skill id="..." version="v1:hex" />`) marker formats.
@@ -14,10 +12,8 @@ const LOADED_SKILL_RE =
 
 export interface ActiveSkillEntry {
   id: string;
-  /** Present only when the marker includes a `version` attribute; retained for versioned marker compatibility. */
+  /** Present only when the marker includes a `version` attribute. */
   version?: string;
-  /** Canonical bundled selector originally passed to skill_load, when available. */
-  selector?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -38,19 +34,11 @@ export interface ActiveSkillEntry {
  */
 export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
   // First pass: collect tool_use IDs that belong to skill_load calls.
-  const skillLoadSelectorsByUseId = new Map<string, string | undefined>();
+  const skillLoadUseIds = new Set<string>();
   for (const msg of messages) {
     for (const block of msg.content) {
       if (block.type === "tool_use" && block.name === "skill_load") {
-        const rawSelector =
-          typeof block.input.skill === "string" ? block.input.skill : undefined;
-        let selector: string | undefined;
-        if (rawSelector) {
-          selector =
-            normalizeBundledSystemStorageCleanupSelector(rawSelector) ??
-            undefined;
-        }
-        skillLoadSelectorsByUseId.set(block.id, selector);
+        skillLoadUseIds.add(block.id);
       }
     }
   }
@@ -62,21 +50,21 @@ export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
   for (const msg of messages) {
     for (const block of msg.content) {
       if (block.type !== "tool_result") continue;
-      if (!skillLoadSelectorsByUseId.has(block.tool_use_id)) continue;
+      if (!skillLoadUseIds.has(block.tool_use_id)) continue;
 
       const text = block.content;
       if (!text) continue;
 
       for (const match of text.matchAll(LOADED_SKILL_RE)) {
-        const entry: ActiveSkillEntry = { id: match[1] };
-        if (match[2]) {
-          entry.version = match[2];
+        const id = match[1];
+        if (!seen.has(id)) {
+          seen.add(id);
+          const entry: ActiveSkillEntry = { id };
+          if (match[2]) {
+            entry.version = match[2];
+          }
+          entries.push(entry);
         }
-        const selector = skillLoadSelectorsByUseId.get(block.tool_use_id);
-        if (selector) {
-          entry.selector = selector;
-        }
-        mergeActiveSkillEntry(entries, seen, entry);
       }
     }
   }

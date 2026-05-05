@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import { loadSkillBySelector, loadSkillCatalog } from "../config/skills.js";
-import { BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR } from "../skills/system-storage-cleanup-constants.js";
 
 describe("system-storage-cleanup bundled skill", () => {
   test("is bundled without tools or inline command expansions", () => {
@@ -17,13 +16,8 @@ describe("system-storage-cleanup bundled skill", () => {
     expect(skill!.inlineCommandExpansions).toBeUndefined();
   });
 
-  test("loads by id and source-qualified selector with the cleanup safety contract", () => {
-    const exactResult = loadSkillBySelector("system-storage-cleanup");
-    expect(exactResult.error).toBeUndefined();
-    expect(exactResult.skill?.id).toBe("system-storage-cleanup");
-    expect(exactResult.skill?.source).toBe("bundled");
-
-    const result = loadSkillBySelector(BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR);
+  test("loads by id with the cleanup safety contract", () => {
+    const result = loadSkillBySelector("system-storage-cleanup");
 
     expect(result.error).toBeUndefined();
     expect(result.skill).toBeDefined();
@@ -58,21 +52,5 @@ describe("system-storage-cleanup bundled skill", () => {
     ]) {
       expect(body).toContain(protectedText);
     }
-  });
-
-  test("only supports the bundled selector for the cleanup skill", () => {
-    const result = loadSkillBySelector("bundled:app-builder");
-
-    expect(result.skill).toBeUndefined();
-    expect(result.errorCode).toBe("invalid_selector");
-    expect(result.error).toContain("bundled:system-storage-cleanup");
-  });
-
-  test("normalizes whitespace in the bundled cleanup selector", () => {
-    const result = loadSkillBySelector("bundled: system-storage-cleanup");
-
-    expect(result.error).toBeUndefined();
-    expect(result.skill?.id).toBe("system-storage-cleanup");
-    expect(result.skill?.source).toBe("bundled");
   });
 });

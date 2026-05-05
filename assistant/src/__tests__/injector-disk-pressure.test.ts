@@ -16,7 +16,6 @@ import {
 } from "../plugins/registry.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
-import { BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR } from "../skills/system-storage-cleanup-constants.js";
 
 function findInjector(name: string): Injector {
   const injector = defaultInjectorsPlugin.injectors?.find(
@@ -78,13 +77,14 @@ Storage is critically low and normal work is suspended until space is freed.
 
 Your first user-visible paragraph must warn the user that storage is critically low and normal work is suspended.
 
-Before taking cleanup actions, call \`skill_load\` with \`skill: "bundled:system-storage-cleanup"\` and follow the bundled cleanup skill. Do not rely on any previously loaded cleanup skill unless it came from that bundled selector.
+Before taking cleanup actions, call \`skill_load\` with \`skill: "system-storage-cleanup"\` and follow the cleanup skill.
 
 Unrelated work remains blocked until disk usage drops below the critical threshold or the guardian explicitly overrides the lock. Background processes and trusted-contact messages remain blocked while this cleanup mode is active.
 </disk_pressure_warning>`);
     expect(DISK_PRESSURE_WARNING_PROMPT).toContain("skill_load");
-    expect(DISK_PRESSURE_WARNING_PROMPT).toContain(
-      BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
+    expect(DISK_PRESSURE_WARNING_PROMPT).toContain("system-storage-cleanup");
+    expect(DISK_PRESSURE_WARNING_PROMPT).not.toContain(
+      "bundled:system-storage-cleanup",
     );
     expect(DISK_PRESSURE_WARNING_PROMPT).not.toContain(
       "Prefer safe inspection steps first",

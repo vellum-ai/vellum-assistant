@@ -2,7 +2,6 @@ import * as realFs from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
-import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
 import { RiskLevel } from "../permissions/types.js";
 import type {
   Message,
@@ -10,7 +9,6 @@ import type {
   ToolResultContent,
   ToolUseContent,
 } from "../providers/types.js";
-import { BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR } from "../skills/system-storage-cleanup-constants.js";
 import type { Tool } from "../tools/types.js";
 import { buildSkillLoadHistory } from "./test-support/browser-skill-harness.js";
 
@@ -35,6 +33,50 @@ let mockVersionHashErrors: Set<string> = new Set();
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
 }));
+
+mock.module("../skills/active-skill-tools.js", () => {
+  // Shared parsing logic for deriveActiveSkills
+  const parseMarkers = (messages: Message[]) => {
+    // Two-pass approach matching real implementation:
+    // 1. Collect tool_use IDs where name === 'skill_load'
+    const skillLoadUseIds = new Set<string>();
+    for (const msg of messages) {
+      for (const block of msg.content) {
+        if (block.type === "tool_use" && block.name === "skill_load") {
+          skillLoadUseIds.add(block.id);
+        }
+      }
+    }
+
+    // 2. Parse markers only from tool_result blocks whose tool_use_id matches
+    const re = /<loaded_skill\s+id="([^"]+)"(?:\s+version="([^"]+)")?\s*\/>/g;
+    const seen = new Set<string>();
+    const entries: Array<{ id: string; version?: string }> = [];
+    for (const msg of messages) {
+      for (const block of msg.content) {
+        if (block.type !== "tool_result") continue;
+        if (!skillLoadUseIds.has(block.tool_use_id)) continue;
+        const text = block.content;
+        if (!text) continue;
+        for (const match of text.matchAll(re)) {
+          if (!seen.has(match[1])) {
+            seen.add(match[1]);
+            const entry: { id: string; version?: string } = { id: match[1] };
+            if (match[2]) {
+              entry.version = match[2];
+            }
+            entries.push(entry);
+          }
+        }
+      }
+    }
+    return entries;
+  };
+
+  return {
+    deriveActiveSkills: (messages: Message[]) => parseMarkers(messages),
+  };
+});
 
 mock.module("../skills/tool-manifest.js", () => ({
   parseToolManifestFile: (filePath: string) => {
@@ -224,19 +266,12 @@ let toolUseCounter = 0;
  * Creates a pair of messages representing a skill_load tool_use followed by
  * its tool_result with the given content (typically a `<loaded_skill>` marker).
  */
-function skillLoadMessages(content: string, selector?: string): Message[] {
+function skillLoadMessages(content: string): Message[] {
   const id = `sl-${++toolUseCounter}`;
   return [
     {
       role: "assistant",
-      content: [
-        {
-          type: "tool_use",
-          id,
-          name: "skill_load",
-          input: selector ? { skill: selector } : {},
-        },
-      ],
+      content: [{ type: "tool_use", id, name: "skill_load", input: {} }],
     },
     {
       role: "user",
@@ -1988,10 +2023,10 @@ describe("resetSkillToolProjection", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Loaded-skill marker integration tests
+// Versioned marker integration tests
 // ---------------------------------------------------------------------------
 
-describe("loaded skill markers through session projection", () => {
+describe("versioned markers through session projection", () => {
   let sessionState: Map<string, string>;
 
   beforeEach(() => {
@@ -2019,150 +2054,6 @@ describe("loaded skill markers through session projection", () => {
 
     expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(new Set(["deploy_run"]));
-  });
-
-  test("bundled cleanup marker does not project managed shadow tools", () => {
-    mockCatalog = [makeSkill("system-storage-cleanup")];
-    mockManifests = {
-      "system-storage-cleanup": makeManifest(["shadow_cleanup_run"]),
-    };
-
-    const history: Message[] = [
-      ...skillLoadMessages(
-        '<loaded_skill id="system-storage-cleanup" />',
-        "bundled: system-storage-cleanup",
-      ),
-    ];
-
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toEqual([]);
-    expect(result.allowedToolNames).toEqual(new Set());
-    expect(sessionState.has("system-storage-cleanup")).toBe(false);
-    expect(mockRegisteredTools.has("system-storage-cleanup")).toBe(false);
-  });
-
-  test("later bundled cleanup marker upgrades plain marker provenance", () => {
-    mockCatalog = [makeSkill("system-storage-cleanup")];
-    mockManifests = {
-      "system-storage-cleanup": makeManifest(["shadow_cleanup_run"]),
-    };
-
-    const history: Message[] = [
-      ...skillLoadMessages('<loaded_skill id="system-storage-cleanup" />'),
-      ...skillLoadMessages(
-        '<loaded_skill id="system-storage-cleanup" />',
-        BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-      ),
-    ];
-
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toEqual([]);
-    expect(result.allowedToolNames).toEqual(new Set());
-    expect(sessionState.has("system-storage-cleanup")).toBe(false);
-    expect(mockRegisteredTools.has("system-storage-cleanup")).toBe(false);
-  });
-
-  test("incremental cache upgrades cleanup provenance from later bundled marker", () => {
-    mockCatalog = [makeSkill("system-storage-cleanup")];
-    mockManifests = {
-      "system-storage-cleanup": makeManifest(["shadow_cleanup_run"]),
-    };
-
-    const cache: SkillProjectionCache = {};
-    const initialHistory: Message[] = [
-      ...skillLoadMessages('<loaded_skill id="system-storage-cleanup" />'),
-    ];
-    const initial = projectSkillTools(initialHistory, {
-      cache,
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(initial.allowedToolNames).toEqual(new Set(["shadow_cleanup_run"]));
-    expect(sessionState.has("system-storage-cleanup")).toBe(true);
-
-    const updatedHistory: Message[] = [
-      ...initialHistory,
-      ...skillLoadMessages(
-        '<loaded_skill id="system-storage-cleanup" />',
-        BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-      ),
-    ];
-    const result = projectSkillTools(updatedHistory, {
-      cache,
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toEqual([]);
-    expect(result.allowedToolNames).toEqual(new Set());
-    expect(sessionState.has("system-storage-cleanup")).toBe(false);
-    expect(mockRegisteredTools.has("system-storage-cleanup")).toBe(false);
-  });
-
-  test("managed storage cleanup marker re-registers tools after normal edits", () => {
-    mockCatalog = [makeSkill("system-storage-cleanup")];
-    mockManifests = {
-      "system-storage-cleanup": makeManifest(["managed_cleanup_run"]),
-    };
-    mockVersionHashes = {
-      "system-storage-cleanup": "v1:managed-before-edit",
-    };
-
-    const history: Message[] = [
-      ...skillLoadMessages(
-        '<loaded_skill id="system-storage-cleanup" version="v1:managed-before-edit" />',
-      ),
-    ];
-
-    projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    mockUnregisteredSkillIds = [];
-    mockVersionHashes = {
-      "system-storage-cleanup": "v1:managed-after-edit",
-    };
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toEqual([]);
-    expect(result.allowedToolNames).toEqual(new Set(["managed_cleanup_run"]));
-    expect(sessionState.get("system-storage-cleanup")).toBe(
-      "v1:managed-after-edit",
-    );
-    expect(mockUnregisteredSkillIds).toContain("system-storage-cleanup");
-  });
-
-  test("managed storage cleanup marker without bundled selector projects catalog tools", () => {
-    mockCatalog = [makeSkill("system-storage-cleanup")];
-    mockManifests = {
-      "system-storage-cleanup": makeManifest(["shadow_cleanup_run"]),
-    };
-    mockVersionHashes = {
-      "system-storage-cleanup": "v1:managed-shadow",
-    };
-
-    const history: Message[] = [
-      ...skillLoadMessages(
-        '<loaded_skill id="system-storage-cleanup" version="v1:managed-shadow" />',
-      ),
-    ];
-
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toEqual([]);
-    expect(result.allowedToolNames).toEqual(new Set(["shadow_cleanup_run"]));
-    expect(sessionState.get("system-storage-cleanup")).toBe(
-      "v1:managed-shadow",
-    );
   });
 
   test("mixed legacy and versioned markers both project tools", () => {

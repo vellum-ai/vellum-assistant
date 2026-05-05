@@ -2,17 +2,18 @@ import { describe, expect, test } from "bun:test";
 
 import type { Message } from "../providers/types.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
-import { BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR } from "../skills/system-storage-cleanup-constants.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /** Build an assistant message with a skill_load tool_use block. */
-function skillLoadUseMsg(id: string, skill = "test"): Message {
+function skillLoadUseMsg(id: string): Message {
   return {
     role: "assistant",
-    content: [{ type: "tool_use", id, name: "skill_load", input: { skill } }],
+    content: [
+      { type: "tool_use", id, name: "skill_load", input: { skill: "test" } },
+    ],
   };
 }
 
@@ -190,80 +191,6 @@ describe("deriveActiveSkills (ID-only)", () => {
       toolResultMsg("orphan", '<loaded_skill id="sneaky" />'),
     ];
     expect(deriveActiveSkills(messages).map((e) => e.id)).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// deriveActiveSkills — selector provenance
-// ---------------------------------------------------------------------------
-
-describe("deriveActiveSkills — selector provenance", () => {
-  test("normalizes bundled cleanup selector provenance from skill_load input", () => {
-    const messages: Message[] = [
-      skillLoadUseMsg("t1", " bundled: system-storage-cleanup "),
-      toolResultMsg("t1", '<loaded_skill id="system-storage-cleanup" />'),
-    ];
-
-    expect(deriveActiveSkills(messages)).toEqual([
-      {
-        id: "system-storage-cleanup",
-        selector: BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-      },
-    ]);
-  });
-
-  test("does not retain plain selector provenance", () => {
-    const messages: Message[] = [
-      skillLoadUseMsg("t1", "system-storage-cleanup"),
-      toolResultMsg("t1", '<loaded_skill id="system-storage-cleanup" />'),
-    ];
-
-    expect(deriveActiveSkills(messages)).toEqual([
-      { id: "system-storage-cleanup" },
-    ]);
-  });
-
-  test("does not retain unrelated bundled selector provenance", () => {
-    const messages: Message[] = [
-      skillLoadUseMsg("t1", "bundled:app-builder"),
-      toolResultMsg("t1", '<loaded_skill id="app-builder" />'),
-    ];
-
-    expect(deriveActiveSkills(messages)).toEqual([{ id: "app-builder" }]);
-  });
-
-  test("retains bundled cleanup selector provenance with versioned markers", () => {
-    const messages: Message[] = [
-      skillLoadUseMsg("t1", "bundled: system-storage-cleanup"),
-      toolResultMsg(
-        "t1",
-        '<loaded_skill id="system-storage-cleanup" version="v1:abc123" />',
-      ),
-    ];
-
-    expect(deriveActiveSkills(messages)).toEqual([
-      {
-        id: "system-storage-cleanup",
-        version: "v1:abc123",
-        selector: BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-      },
-    ]);
-  });
-
-  test("later bundled cleanup marker upgrades plain marker provenance", () => {
-    const messages: Message[] = [
-      skillLoadUseMsg("t1", "system-storage-cleanup"),
-      toolResultMsg("t1", '<loaded_skill id="system-storage-cleanup" />'),
-      skillLoadUseMsg("t2", BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR),
-      toolResultMsg("t2", '<loaded_skill id="system-storage-cleanup" />'),
-    ];
-
-    expect(deriveActiveSkills(messages)).toEqual([
-      {
-        id: "system-storage-cleanup",
-        selector: BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-      },
-    ]);
   });
 });
 

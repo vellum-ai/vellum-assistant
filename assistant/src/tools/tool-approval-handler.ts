@@ -1,7 +1,6 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
-import { resolveSkillSelector } from "../config/skills.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
@@ -10,11 +9,6 @@ import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import {
-  BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-  isBundledSystemStorageCleanupSelector,
-  SYSTEM_STORAGE_CLEANUP_SKILL_ID,
-} from "../skills/system-storage-cleanup-constants.js";
 import { getLogger } from "../util/logger.js";
 import { getAllTools, getTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
@@ -185,49 +179,6 @@ function guardianApprovalDeniedMessage(
   return `Permission denied for "${toolName}": this action requires guardian approval and the current actor is not the guardian.`;
 }
 
-function getDiskPressureSkillLoadBlockReason(
-  input: Record<string, unknown>,
-): string | null {
-  const selector = input.skill;
-  if (
-    typeof selector !== "string" ||
-    !isBundledSystemStorageCleanupSelector(selector)
-  ) {
-    return `Skill "${String(selector ?? "")}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}".`;
-  }
-
-  const resolved = resolveSkillSelector(
-    BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
-  );
-  if (!resolved.skill) {
-    if (
-      resolved.errorCode === "not_found" ||
-      resolved.errorCode === "empty_catalog" ||
-      resolved.errorCode === "invalid_selector"
-    ) {
-      return `Skill "${selector}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}".`;
-    }
-    return null;
-  }
-
-  if (
-    resolved.skill.id !== SYSTEM_STORAGE_CLEANUP_SKILL_ID ||
-    resolved.skill.source !== "bundled"
-  ) {
-    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}".`;
-  }
-
-  if (resolved.skill.inlineCommandExpansions?.length) {
-    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode because it contains inline command expansions. Load an instruction-only cleanup skill such as "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}" instead.`;
-  }
-
-  if (resolved.skill.toolManifest?.present) {
-    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode because it declares executable skill tools. Load an instruction-only cleanup skill such as "${BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR}" instead.`;
-  }
-
-  return null;
-}
-
 export type PreExecutionGateResult =
   | { allowed: true; tool: Tool; grantConsumed?: boolean }
   | { allowed: false; result: ToolExecutionResult };
@@ -381,32 +332,6 @@ export class ToolApprovalHandler {
         errorCategory: "tool_failure",
       });
       return { allowed: false, result: { content: msg, isError: true } };
-    }
-
-    if (
-      context.diskPressureCleanupModeActive === true &&
-      name === "skill_load"
-    ) {
-      const msg = getDiskPressureSkillLoadBlockReason(input);
-      if (msg) {
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent({
-          type: "error",
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          decision: "error",
-          durationMs,
-          errorMessage: msg,
-          isExpected: true,
-          errorCategory: "tool_failure",
-        });
-        return { allowed: false, result: { content: msg, isError: true } };
-      }
     }
 
     // Gate tools not active for the current turn
