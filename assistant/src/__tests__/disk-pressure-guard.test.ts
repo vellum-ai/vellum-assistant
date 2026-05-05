@@ -253,7 +253,7 @@ describe("disk pressure guard", () => {
     expect(__getDiskPressureGuardTimerForTests()).toBeTruthy();
 
     setFeatureFlag(false);
-    const status = getDiskPressureStatus();
+    const status = evaluateDiskPressureNow();
 
     expect(status.enabled).toBe(false);
     expect(status.locked).toBe(false);

@@ -53,10 +53,6 @@ interface DiskPressureGuardState {
   status: DiskPressureStatus;
 }
 
-interface StatusChangeOptions {
-  emitStatusChanged?: boolean;
-}
-
 const log = getLogger("disk-pressure-guard");
 
 const DISABLED_STATUS: DiskPressureStatus = {
@@ -114,15 +110,10 @@ function publishStatusChangedIfNeeded(previous: DiskPressureStatus): void {
     });
 }
 
-function replaceStatus(
-  next: DiskPressureStatus,
-  options: StatusChangeOptions = {},
-): DiskPressureStatus {
+function replaceStatus(next: DiskPressureStatus): DiskPressureStatus {
   const previous = cloneStatus(state.status);
   state.status = cloneStatus(next);
-  if (options.emitStatusChanged !== false) {
-    publishStatusChangedIfNeeded(previous);
-  }
+  publishStatusChangedIfNeeded(previous);
   return cloneStatus(state.status);
 }
 
@@ -130,22 +121,16 @@ function isEnabled(): boolean {
   return isAssistantFeatureFlagEnabled("safe-storage-limits", getConfig());
 }
 
-function resetToDisabled(
-  options: StatusChangeOptions = {},
-): DiskPressureStatus {
+function resetToDisabled(): DiskPressureStatus {
   const previous = cloneStatus(state.status);
   stopDiskPressureGuard();
   state.status = cloneStatus(DISABLED_STATUS);
-  if (options.emitStatusChanged !== false) {
-    publishStatusChangedIfNeeded(previous);
-  }
+  publishStatusChangedIfNeeded(previous);
   return cloneStatus(state.status);
 }
 
-function ensureEnabledStatus(
-  options: StatusChangeOptions = {},
-): DiskPressureStatus | null {
-  if (!isEnabled()) return resetToDisabled(options);
+function ensureEnabledStatus(): DiskPressureStatus | null {
+  if (!isEnabled()) return resetToDisabled();
   if (!state.status.enabled) {
     state.status = cloneStatus(OPEN_STATUS);
   }
@@ -212,24 +197,19 @@ export function stopDiskPressureGuard(): void {
   state.timer = null;
 }
 
-export function evaluateDiskPressureNow(
-  options: StatusChangeOptions = {},
-): DiskPressureStatus {
-  const disabledStatus = ensureEnabledStatus(options);
+export function evaluateDiskPressureNow(): DiskPressureStatus {
+  const disabledStatus = ensureEnabledStatus();
   if (disabledStatus) return disabledStatus;
 
   let usageInfo: ReturnType<typeof getDiskUsageInfo>;
   try {
     usageInfo = getDiskUsageInfo();
   } catch (error) {
-    return replaceStatus(sampleFailureStatus(error), options);
+    return replaceStatus(sampleFailureStatus(error));
   }
 
   if (!usageInfo || usageInfo.totalMb <= 0) {
-    return replaceStatus(
-      sampleFailureStatus("Disk usage sample unavailable"),
-      options,
-    );
+    return replaceStatus(sampleFailureStatus("Disk usage sample unavailable"));
   }
 
   const usagePercent = roundPercent(
@@ -239,43 +219,37 @@ export function evaluateDiskPressureNow(
   const lastCheckedAt = new Date().toISOString();
 
   if (!isCritical) {
-    return replaceStatus(
-      {
-        ...OPEN_STATUS,
-        usagePercent,
-        path: usageInfo.path,
-        lastCheckedAt,
-      },
-      options,
-    );
+    return replaceStatus({
+      ...OPEN_STATUS,
+      usagePercent,
+      path: usageInfo.path,
+      lastCheckedAt,
+    });
   }
 
   const lockId = state.status.locked ? state.status.lockId : nextLockId();
-  return replaceStatus(
-    {
-      enabled: true,
-      state: "critical",
-      locked: true,
-      acknowledged: state.status.locked ? state.status.acknowledged : false,
-      overrideActive: state.status.locked ? state.status.overrideActive : false,
-      effectivelyLocked: state.status.locked
-        ? !state.status.overrideActive
-        : true,
-      lockId,
-      usagePercent,
-      thresholdPercent: DISK_PRESSURE_THRESHOLD_PERCENT,
-      path: usageInfo.path,
-      lastCheckedAt,
-      blockedCapabilities: [...DISK_PRESSURE_BLOCKED_CAPABILITIES],
-      error: null,
-    },
-    options,
-  );
+  return replaceStatus({
+    enabled: true,
+    state: "critical",
+    locked: true,
+    acknowledged: state.status.locked ? state.status.acknowledged : false,
+    overrideActive: state.status.locked ? state.status.overrideActive : false,
+    effectivelyLocked: state.status.locked
+      ? !state.status.overrideActive
+      : true,
+    lockId,
+    usagePercent,
+    thresholdPercent: DISK_PRESSURE_THRESHOLD_PERCENT,
+    path: usageInfo.path,
+    lastCheckedAt,
+    blockedCapabilities: [...DISK_PRESSURE_BLOCKED_CAPABILITIES],
+    error: null,
+  });
 }
 
 export function getDiskPressureStatus(): DiskPressureStatus {
-  const disabledStatus = ensureEnabledStatus({ emitStatusChanged: false });
-  if (disabledStatus) return disabledStatus;
+  if (!isEnabled()) return cloneStatus(DISABLED_STATUS);
+  if (!state.status.enabled) return cloneStatus(OPEN_STATUS);
   return cloneStatus(state.status);
 }
 

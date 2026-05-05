@@ -191,6 +191,7 @@ describe("disk pressure routes", () => {
 
   test("returns the full status shape for an active lock", async () => {
     setDiskUsage(99);
+    evaluateDiskPressureNow();
 
     const result = await callRoute("disk-pressure/status", "GET");
 
@@ -215,7 +216,7 @@ describe("disk pressure routes", () => {
     expect(result.status.error).toBeNull();
   });
 
-  test("refreshes status from disk without emitting a read-path status event", async () => {
+  test("returns cached status without sampling or emitting a read-path status event", async () => {
     const events: unknown[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
@@ -232,9 +233,9 @@ describe("disk pressure routes", () => {
       const result = await callRoute("disk-pressure/status", "GET");
       await flushPublishedEvents();
 
-      expect(result.status.state).toBe("critical");
-      expect(result.status.locked).toBe(true);
-      expect(result.status.usagePercent).toBe(99);
+      expect(result.status.state).toBe("ok");
+      expect(result.status.locked).toBe(false);
+      expect(result.status.usagePercent).toBeNull();
       expect(events).toEqual([]);
     } finally {
       subscription.dispose();

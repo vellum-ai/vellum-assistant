@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   acknowledgeDiskPressureLock,
   DISK_PRESSURE_OVERRIDE_CONFIRMATION,
-  evaluateDiskPressureNow,
+  getDiskPressureStatus,
   overrideDiskPressureLock,
 } from "../../daemon/disk-pressure-guard.js";
 import { RouteError } from "./errors.js";
@@ -36,9 +36,7 @@ const OverrideRequestSchema = z.object({
 });
 
 function statusResponse() {
-  return {
-    status: evaluateDiskPressureNow({ emitStatusChanged: false }),
-  };
+  return { status: getDiskPressureStatus() };
 }
 
 function transitionErrorCode(
