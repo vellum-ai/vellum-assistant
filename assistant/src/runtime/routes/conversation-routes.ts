@@ -1031,9 +1031,6 @@ export function persistOnboardingArtifacts(onboarding: {
 }): void {
   writeOnboardingSidecar(onboarding);
 
-  const normalized = normalizeOnboardingContext(onboarding);
-  writeOnboardingSection(normalized);
-
   const assistantName = onboarding.assistantName?.trim();
   if (assistantName) {
     const identityPath = getWorkspacePromptPath("IDENTITY.md");
@@ -1082,6 +1079,9 @@ export function persistOnboardingArtifacts(onboarding: {
       log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
     }
   }
+
+  const normalized = normalizeOnboardingContext(onboarding);
+  writeOnboardingSection(normalized);
 
   void writeRelationshipState().catch((err) => {
     log.warn(
