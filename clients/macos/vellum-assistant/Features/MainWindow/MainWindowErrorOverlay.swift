@@ -17,10 +17,6 @@ struct MainWindowErrorOverlay: View {
             if let viewModel = activeViewModel {
                 ErrorToastOverlay(
                     errorManager: viewModel.errorManager,
-                    onOpenModelsAndServices: {
-                        settingsStore.pendingSettingsTab = .modelsAndServices
-                        windowState.selection = .panel(.settings)
-                    },
                     onRetryConversationError: { viewModel.retryAfterConversationError() },
                     onCopyDebugInfo: { viewModel.copyConversationErrorDebugDetails() },
                     onDismissConversationError: { viewModel.dismissConversationError() },
