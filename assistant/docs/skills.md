@@ -6,20 +6,22 @@ This document describes the security model for the Vellum Assistant skill system
 
 Skills extend the assistant's capabilities by providing instructions (via `SKILL.md`) and optional custom tools (via `TOOLS.json`). Skills can be **bundled** (shipped with the application), **managed** (user-installed via `scaffold_managed_skill`), **workspace** (project-local), or **extra** (additional directories configured by the user).
 
+For managed skills, the installed source of truth is a valid directory at `~/.vellum/workspace/skills/<id>/` containing a top-level `SKILL.md` with standardized frontmatter. The assistant parses that frontmatter at startup and when skill directories change, then seeds Memory V2 skill entries under `skills/<id>` so the assistant can discover available skills from memory. The legacy `SKILLS.md` index is removed by workspace migration and is no longer created by install or scaffold paths.
+
 Because skills can introduce arbitrary tool behavior, they are subject to stricter permission defaults than core tools.
 
 ## Permission Defaults for Skill Tools
 
 Skill-origin tools follow a stricter default permission policy than core tools:
 
-| Scenario                                          | Core tool behavior            | Skill tool behavior |
-| ------------------------------------------------- | ----------------------------- | ------------------- |
+| Scenario                                          | Core tool behavior                  | Skill tool behavior |
+| ------------------------------------------------- | ----------------------------------- | ------------------- |
 | Low risk, no matching rule                        | Auto-allowed (at default threshold) | **Prompted**        |
-| Medium risk, no matching rule                     | Prompted                      | Prompted            |
-| High risk, no matching rule                       | Prompted                      | Prompted            |
-| Allow rule matches, non-high risk                 | Auto-allowed                  | Auto-allowed        |
-| Allow rule matches, high risk, containerized bash | Auto-allowed (runtime check)  | Auto-allowed        |
-| Allow rule matches, high risk, other              | Prompted                      | Prompted            |
+| Medium risk, no matching rule                     | Prompted                            | Prompted            |
+| High risk, no matching rule                       | Prompted                            | Prompted            |
+| Allow rule matches, non-high risk                 | Auto-allowed                        | Auto-allowed        |
+| Allow rule matches, high risk, containerized bash | Auto-allowed (runtime check)        | Auto-allowed        |
+| Allow rule matches, high risk, other              | Prompted                            | Prompted            |
 
 Even if a skill's `TOOLS.json` declares `"risk": "low"` for one of its tools, the permission checker will prompt the user unless an explicit trust rule in `~/.vellum/protected/trust.json` allows it. This prevents third-party skill tools from silently auto-executing.
 

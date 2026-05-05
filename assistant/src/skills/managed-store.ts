@@ -43,10 +43,6 @@ function getManagedSkillDir(id: string): string {
   return join(getManagedSkillsDir(), id);
 }
 
-function getSkillsIndexPath(): string {
-  return join(getManagedSkillsDir(), "SKILLS.md");
-}
-
 // ─── SKILL.md generation ─────────────────────────────────────────────────────
 
 interface BuildSkillMarkdownInput {
@@ -104,42 +100,6 @@ function atomicWriteFile(filePath: string, content: string): void {
   const tmpPath = join(dir, `.tmp-${randomUUID()}`);
   writeFileSync(tmpPath, content, "utf-8");
   renameSync(tmpPath, filePath);
-}
-
-// ─── SKILLS.md index management ──────────────────────────────────────────────
-
-function readIndexLines(): string[] {
-  const indexPath = getSkillsIndexPath();
-  if (!existsSync(indexPath)) return [];
-  return readFileSync(indexPath, "utf-8").split("\n");
-}
-
-function writeIndexLines(lines: string[]): void {
-  const content = lines.join("\n");
-  atomicWriteFile(
-    getSkillsIndexPath(),
-    content.endsWith("\n") ? content : content + "\n",
-  );
-}
-
-function indexEntryRegex(id: string): RegExp {
-  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Match both - and * bullets, optional backticks, optional markdown link wrapping,
-  // and optional /SKILL.md suffix (inside or outside link parens)
-  return new RegExp(
-    `^[-*]\\s+(?:\`)?(?:\\[.*?\\]\\()?${escaped}(?:/SKILL\\.md)?(?:\\))?(?:\`)?\\s*$`,
-  );
-}
-
-export function removeSkillsIndexEntry(id: string): void {
-  const lines = readIndexLines();
-  const pattern = indexEntryRegex(id);
-  const filtered = lines.filter((line) => !pattern.test(line));
-  if (filtered.length === lines.length) {
-    return; // not found
-  }
-  writeIndexLines(filtered.filter((l) => l.trim()));
-  log.info({ id }, "Removed managed skill from SKILLS.md index");
 }
 
 // ─── Version metadata ─────────────────────────────────────────────────────────

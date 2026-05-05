@@ -35,7 +35,6 @@ import {
   createManagedSkill,
   deleteManagedSkill,
   readSkillVersion,
-  removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../skills/managed-store.js";
 
@@ -227,46 +226,6 @@ describe("buildSkillMarkdown", () => {
     // Backslashes should be preserved literally, not interpreted as escape sequences
     expect(skill!.name).toBe("path\\\\name");
     expect(skill!.description).toBe("has \\n in it");
-  });
-});
-
-describe("legacy SKILLS.md index removal helper", () => {
-  test("remove handles * bullet entries", () => {
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "* doomed\n- survivor\n",
-    );
-    removeSkillsIndexEntry("doomed");
-    const content = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(content).not.toContain("doomed");
-    expect(content).toContain("survivor");
-  });
-
-  test("remove handles markdown link entries", () => {
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- [My Skill](my-skill/SKILL.md)\n- survivor\n",
-    );
-    removeSkillsIndexEntry("my-skill");
-    const content = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(content).not.toContain("my-skill");
-    expect(content).toContain("survivor");
-  });
-
-  test("remove from index handles missing entry gracefully", () => {
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- other-skill\n");
-    removeSkillsIndexEntry("nonexistent");
-    const content = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(content).toContain("other-skill");
   });
 });
 
