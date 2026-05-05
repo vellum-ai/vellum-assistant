@@ -71,7 +71,7 @@ export function normalizeOnboardingContext(
   ctx: OnboardingContext,
 ): NormalizedOnboarding {
   return {
-    preferredName: ctx.userName,
+    preferredName: ctx.userName?.trim() || undefined,
     commonWork: normalizeTasks(ctx.tasks),
     dailyTools: normalizeTools(ctx.tools),
     tone: ctx.tone,
