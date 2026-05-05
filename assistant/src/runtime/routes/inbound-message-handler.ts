@@ -15,6 +15,8 @@ import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
 } from "../../daemon/approval-generators.js";
+import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
+import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
@@ -35,6 +37,7 @@ import {
   getPendingVerificationReply,
 } from "../../memory/delivery-channels.js";
 import {
+  clearPayload,
   findMessageBySourceId,
   linkMessage,
   recordInbound,
@@ -75,6 +78,8 @@ import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio
 import type { RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
+const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
+  "Storage is critically low, so background processes and messages from trusted contacts are paused until the guardian frees enough space.";
 
 // Delete-lookup retry configuration. Delete webhooks can race ahead of
 // the inbound handler's `linkMessage` call when the original message's
@@ -746,6 +751,63 @@ export async function handleChannelInbound({
     actorUsername: body.actorUsername,
     actorDisplayName: body.actorDisplayName,
   });
+
+  const diskPressureDecision = classifyDiskPressureTurnPolicy(
+    getDiskPressureStatus(),
+    {
+      sourceChannel,
+      sourceInterface,
+      trustContext: {
+        sourceChannel: trustCtx.sourceChannel,
+        trustClass: trustCtx.trustClass,
+      },
+    },
+  );
+  if (diskPressureDecision.action === "block") {
+    clearPayload(result.eventId);
+    markProcessed(result.eventId);
+    log.info(
+      {
+        conversationId: result.conversationId,
+        eventId: result.eventId,
+        reason: diskPressureDecision.reason,
+        trustClass: trustCtx.trustClass,
+      },
+      "Channel inbound blocked during disk pressure cleanup mode",
+    );
+
+    if (replyCallbackUrl && !result.duplicate) {
+      const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: conversationExternalId,
+        text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
+        assistantId: canonicalAssistantId,
+      };
+      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+        replyPayload.ephemeral = true;
+        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+      }
+      try {
+        await deliverChannelReply(replyCallbackUrl, replyPayload);
+      } catch (err) {
+        log.warn(
+          {
+            err,
+            conversationId: result.conversationId,
+            eventId: result.eventId,
+          },
+          "Failed to deliver disk pressure block reply",
+        );
+      }
+    }
+
+    return {
+      accepted: true,
+      duplicate: result.duplicate,
+      eventId: result.eventId,
+      diskPressure: "blocked",
+      reason: diskPressureDecision.reason,
+    };
+  }
 
   // ── Canonical guardian reply router ──
   const guardianReplyResult = await handleGuardianReplyIntercept({
