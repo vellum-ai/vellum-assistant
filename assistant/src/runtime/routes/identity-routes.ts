@@ -2,24 +2,20 @@
  * Identity and health endpoint handlers.
  */
 
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statfsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { availableParallelism, cpus, totalmem } from "node:os";
 
 import { z } from "zod";
 
-import {
-  getCpuLimit,
-  getIsPlatform,
-  getMinikubeStorageSize,
-} from "../../config/env-registry.js";
+import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
 import {
-  getWorkspaceDir,
-  getWorkspacePromptPath,
-} from "../../util/platform.js";
+  getDiskUsageInfo,
+  parseK8sMemoryBytes,
+} from "../../util/disk-usage.js";
+import { getWorkspacePromptPath } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
 import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
@@ -28,136 +24,9 @@ import { NotFoundError } from "./errors.js";
 import { getCachedIntro } from "./identity-intro-cache.js";
 import type { RouteDefinition } from "./types.js";
 
-interface DiskSpaceInfo {
-  path: string;
-  totalMb: number;
-  usedMb: number;
-  freeMb: number;
-}
-
-/**
- * Measure the on-disk usage of one or more directory paths using `du -sb`.
- * Returns the sum of all paths in bytes, or null on failure.
- */
-function getDirectorySizeBytes(paths: string[]): number | null {
-  try {
-    const existing = paths.filter((p) => existsSync(p));
-    if (existing.length === 0) return null;
-    const result = spawnSync("du", ["-sb", ...existing], {
-      encoding: "utf-8",
-      timeout: 30_000,
-    });
-    if (result.status !== 0) return null;
-    let total = 0;
-    for (const line of result.stdout.trim().split("\n")) {
-      const size = parseInt(line.split("\t")[0], 10);
-      if (!isNaN(size) && size > 0) total += size;
-    }
-    return total > 0 ? total : null;
-  } catch {
-    return null;
-  }
-}
-
-const DU_CACHE_TTL_MS = 60_000;
-let duCacheValue: number | null = null;
-let duCacheTime = 0;
-let duCachePaths: string | null = null;
-
-function getCachedDirectorySizeBytes(paths: string[]): number | null {
-  const key = paths.join("\0");
-  const now = Date.now();
-  if (duCachePaths === key && now - duCacheTime < DU_CACHE_TTL_MS) {
-    return duCacheValue;
-  }
-  duCacheValue = getDirectorySizeBytes(paths);
-  duCacheTime = now;
-  duCachePaths = key;
-  return duCacheValue;
-}
-
-function getDiskSpaceInfo(): DiskSpaceInfo | null {
-  try {
-    const wsDir = getWorkspaceDir();
-    const diskPath = existsSync(wsDir) ? wsDir : "/";
-    const stats = statfsSync(diskPath);
-    const fsTotalBytes = stats.bsize * stats.blocks;
-    const fsFreeBytes = stats.bsize * stats.bavail;
-    const bytesToMb = (b: number) =>
-      Math.round((b / (1024 * 1024)) * 100) / 100;
-
-    // Minikube mode: the platform passes the PVC storage size so we can
-    // report accurate capacity. On hostPath-backed PVCs statfsSync reports
-    // the host's entire filesystem rather than the PVC. Detect this by
-    // comparing filesystem size against PVC size — if the filesystem is
-    // larger, measure actual directory usage with `du` instead.
-    const storageSizeRaw = getMinikubeStorageSize();
-    if (storageSizeRaw) {
-      const pvcTotalBytes = parseK8sMemoryBytes(storageSizeRaw);
-      if (pvcTotalBytes !== null && fsTotalBytes > pvcTotalBytes * 1.1) {
-        const volumePaths = [diskPath];
-        if (diskPath !== "/data" && existsSync("/data")) {
-          volumePaths.push("/data");
-        }
-        const usedBytes = getCachedDirectorySizeBytes(volumePaths);
-        if (usedBytes !== null) {
-          return {
-            path: diskPath,
-            totalMb: bytesToMb(pvcTotalBytes),
-            usedMb: bytesToMb(usedBytes),
-            freeMb: bytesToMb(Math.max(0, pvcTotalBytes - usedBytes)),
-          };
-        }
-      }
-    }
-
-    return {
-      path: diskPath,
-      totalMb: bytesToMb(fsTotalBytes),
-      usedMb: bytesToMb(fsTotalBytes - fsFreeBytes),
-      freeMb: bytesToMb(fsFreeBytes),
-    };
-  } catch {
-    return null;
-  }
-}
-
 interface MemoryInfo {
   currentMb: number;
   maxMb: number;
-}
-
-/**
- * Parse a Kubernetes-style memory string (e.g. "3Gi", "512Mi", "1G") into bytes.
- * Returns null if the value is not a recognized format.
- */
-function parseK8sMemoryBytes(value: string): number | null {
-  const match = value
-    .trim()
-    .match(/^(\d+(?:\.\d+)?)\s*(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E|m)?$/);
-  if (!match) return null;
-  const num = parseFloat(match[1]);
-  const unit = match[2] ?? "";
-  const multipliers: Record<string, number> = {
-    "": 1,
-    m: 1e-3,
-    k: 1e3,
-    M: 1e6,
-    G: 1e9,
-    T: 1e12,
-    P: 1e15,
-    E: 1e18,
-    Ki: 1024,
-    Mi: 1024 ** 2,
-    Gi: 1024 ** 3,
-    Ti: 1024 ** 4,
-    Pi: 1024 ** 5,
-    Ei: 1024 ** 6,
-  };
-  const mult = multipliers[unit];
-  if (mult === undefined) return null;
-  const bytes = Math.round(num * mult);
-  return bytes > 0 ? bytes : null;
 }
 
 /**
@@ -458,7 +327,7 @@ function getDetailedHealth() {
     status: "healthy",
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
-    disk: getDiskSpaceInfo(),
+    disk: getDiskUsageInfo(),
     memory: getMemoryInfo(),
     cpu: getCpuInfo(),
     migrations: {
