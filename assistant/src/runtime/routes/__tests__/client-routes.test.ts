@@ -61,19 +61,15 @@ function registerClient(args: {
   clientId: string;
   actorPrincipalId?: string;
 }): void {
-  const ac = new AbortController();
-  assistantEventHub.subscribe(
-    {
-      type: "client",
-      clientId: args.clientId,
-      interfaceId: "macos",
-      capabilities: ["host_bash", "host_file", "host_cu"],
-      actorPrincipalId: args.actorPrincipalId,
-      onEvent: () => {},
-      onClose: () => {},
-    },
-    ac.signal,
-  );
+  assistantEventHub.subscribe({
+    type: "client",
+    clientId: args.clientId,
+    interfaceId: "macos",
+    capabilities: ["host_bash", "host_file", "host_cu"],
+    actorPrincipalId: args.actorPrincipalId,
+    onEvent: () => {},
+    onClose: () => {},
+  });
 }
 
 function clearHub(): void {
