@@ -15,7 +15,6 @@ final class BillingServiceSubscriptionTests: XCTestCase {
         {
             "plan_id": "pro",
             "status": "active",
-            "renewal_date": "2026-06-01T00:00:00Z",
             "current_period_end": "2026-06-01T00:00:00Z",
             "cancel_at_period_end": false,
             "cancel_at": null
@@ -26,7 +25,6 @@ final class BillingServiceSubscriptionTests: XCTestCase {
 
         XCTAssertEqual(decoded.plan_id, "pro")
         XCTAssertEqual(decoded.status, "active")
-        XCTAssertEqual(decoded.renewal_date, "2026-06-01T00:00:00Z")
         XCTAssertEqual(decoded.current_period_end, "2026-06-01T00:00:00Z")
         XCTAssertFalse(decoded.cancel_at_period_end)
         XCTAssertNil(decoded.cancel_at)
@@ -37,7 +35,6 @@ final class BillingServiceSubscriptionTests: XCTestCase {
         {
             "plan_id": "base",
             "status": null,
-            "renewal_date": null,
             "current_period_end": null,
             "cancel_at_period_end": false,
             "cancel_at": null
@@ -48,7 +45,6 @@ final class BillingServiceSubscriptionTests: XCTestCase {
 
         XCTAssertEqual(decoded.plan_id, "base")
         XCTAssertNil(decoded.status)
-        XCTAssertNil(decoded.renewal_date)
         XCTAssertNil(decoded.current_period_end)
         XCTAssertFalse(decoded.cancel_at_period_end)
         XCTAssertNil(decoded.cancel_at)

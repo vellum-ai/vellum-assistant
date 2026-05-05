@@ -43,12 +43,12 @@ final class PlanCardTests: XCTestCase {
     private func makeProSubscription(
         cancelAtPeriodEnd: Bool = false,
         cancelAt: String? = nil,
-        currentPeriodEnd: String? = "2026-06-01T00:00:00Z"
+        currentPeriodEnd: String? = "2026-06-01T00:00:00Z",
+        status: String? = "active"
     ) -> SubscriptionResponse {
         SubscriptionResponse(
             plan_id: "pro",
-            status: "active",
-            renewal_date: currentPeriodEnd,
+            status: status,
             current_period_end: currentPeriodEnd,
             cancel_at_period_end: cancelAtPeriodEnd,
             cancel_at: cancelAt
@@ -59,7 +59,6 @@ final class PlanCardTests: XCTestCase {
         SubscriptionResponse(
             plan_id: "base",
             status: nil,
-            renewal_date: nil,
             current_period_end: nil,
             cancel_at_period_end: false,
             cancel_at: nil
@@ -104,7 +103,7 @@ final class PlanCardTests: XCTestCase {
             XCTFail("Expected .loaded state for base subscription, got \(card.displayState)")
             return
         }
-        XCTAssertEqual(planName, "Basic Plan")
+        XCTAssertEqual(planName, "Base Plan")
         XCTAssertEqual(buttonLabel, "Upgrade to Pro")
         XCTAssertFalse(isPro)
         XCTAssertEqual(
@@ -156,10 +155,11 @@ final class PlanCardTests: XCTestCase {
             XCTFail("Expected .cancels for cancelling subscription, got \(String(describing: view.planRenewalLine))")
             return
         }
-        // The exact rendered string depends on the test runner's locale, but we
-        // can verify the year is present (long-style date) and the source ISO
-        // resolved cleanly rather than falling through to the raw string.
-        XCTAssertTrue(formatted.contains("2026"), "Expected long-style date containing 2026, got \(formatted)")
+        // The exact rendered string depends on the test runner's locale (e.g.
+        // Eastern Arabic numerals under `ar`/`fa` flip "2026" → "٢٠٢٦"), so we
+        // only verify the source ISO resolved cleanly rather than falling
+        // through to the raw string.
+        XCTAssertFalse(formatted.isEmpty, "Expected formatted date, got empty string")
         XCTAssertNotEqual(formatted, cancelISO, "Should have parsed and reformatted, not echoed raw ISO")
     }
 
@@ -176,7 +176,10 @@ final class PlanCardTests: XCTestCase {
             XCTFail("Expected .renews for active pro subscription, got \(String(describing: view.planRenewalLine))")
             return
         }
-        XCTAssertTrue(formatted.contains("2026"))
+        // Locale-stable: don't assert on year digits since non-Western locales
+        // render them differently (see testCancellingSubscriptionRendersCancelLine).
+        XCTAssertFalse(formatted.isEmpty)
+        XCTAssertNotEqual(formatted, "2026-06-01T00:00:00Z", "Should have parsed and reformatted, not echoed raw ISO")
     }
 
     func testBaseSubscriptionRendersNoRenewalLine() {
@@ -211,6 +214,26 @@ final class PlanCardTests: XCTestCase {
             XCTFail("Expected .cancels using current_period_end fallback")
             return
         }
-        XCTAssertTrue(formatted.contains("2026"))
+        XCTAssertFalse(formatted.isEmpty)
+        XCTAssertNotEqual(formatted, "2026-06-01T00:00:00Z", "Should have parsed and reformatted, not echoed raw ISO")
+    }
+
+    /// Once Stripe transitions the subscription to `status: "canceled"` (after
+    /// the period elapses), the stored `current_period_end` is stale. Mirror
+    /// the platform web's `isCanceled` gate and hide the subtitle entirely
+    /// rather than rendering "Renews on <stale date>".
+    func testCanceledStatusHidesRenewalLine() {
+        let view = SettingsBillingTab(
+            authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
+            initialSummary: nil,
+            initialSubscription: makeProSubscription(
+                cancelAtPeriodEnd: false,
+                currentPeriodEnd: "2026-06-01T00:00:00Z",
+                status: "canceled"
+            ),
+            initialPlans: makePlanCatalog()
+        )
+        XCTAssertNil(view.planRenewalLine)
     }
 }

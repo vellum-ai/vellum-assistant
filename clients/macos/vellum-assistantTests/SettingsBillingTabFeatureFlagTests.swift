@@ -20,7 +20,7 @@ final class SettingsBillingTabFeatureFlagTests: XCTestCase {
                     scope: .assistant,
                     key: proPlanAdjustKey,
                     label: "Pro Plan Adjust",
-                    description: "Show the Plan card and 'Configure Auto Top Ups' CTAs in the macOS Settings → Billing tab.",
+                    description: "Show the rich Plan card (current plan, features, Manage/Upgrade CTA) at the top of the macOS Settings → Billing tab. The 'Configure Auto Top Ups' CTA is gated separately on `auto-credit-topup`.",
                     defaultEnabled: defaultEnabled
                 ),
                 FeatureFlagDefinition(
