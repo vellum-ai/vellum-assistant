@@ -96,7 +96,7 @@ async function pollOAuthConnectStatus(
       }
     }
     if (!r.ok && r.statusCode !== undefined) {
-      return { status: "error", service: "?", error: r.error ?? "Daemon error during OAuth status poll" };
+      return { status: "error", service: "?", error: r.error ?? "assistant error during OAuth status poll" };
     }
     await new Promise<void>((res) => setTimeout(res, opts.intervalMs));
   }
@@ -502,7 +502,7 @@ Examples:
             // than falling back to in-process (which would re-introduce the heap-split bug for
             // gateway transport).
             if (startResult.ok && !startResult.result?.auth_url) {
-              writeError("Daemon returned unexpected response for OAuth connect start");
+              writeError("assistant returned unexpected response for OAuth connect start");
               return;
             }
 
@@ -510,7 +510,7 @@ Examples:
             // falling back to in-process (which would re-introduce the heap-split bug for
             // gateway transport).
             if (!startResult.ok && startResult.statusCode !== undefined) {
-              writeError(startResult.error ?? "OAuth connect failed (daemon error)");
+              writeError(startResult.error ?? "OAuth connect failed (assistant error)");
               return;
             }
 
