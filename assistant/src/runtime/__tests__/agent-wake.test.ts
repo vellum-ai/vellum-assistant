@@ -982,4 +982,250 @@ describe("wakeAgentForOpportunity", () => {
       expect(target.processingDuringDrain).toEqual([false]);
     },
   );
+
+  test(
+    "checkpoint fires mid-run: events stream live and tail is persisted " +
+      "incrementally so a long-running wake is observable",
+    async () => {
+      // Locks in the streaming-during-run fix. A long-running wake (e.g.
+      // memory consolidation, often 5-30 minutes and 30+ turns) must
+      // emit events and persist tail messages as each turn finalizes —
+      // otherwise opening the conversation mid-flight returns 0 messages
+      // from fetchHistory and the client renders the empty welcome
+      // state instead of the in-progress turns.
+      const turn1Assistant: Message = {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu-1", name: "file_write", input: {} },
+        ],
+      };
+      const turn1ToolResult: Message = {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
+      };
+      const turn2Assistant: Message = {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu-2", name: "remember", input: {} },
+        ],
+      };
+      const turn2ToolResult: Message = {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tu-2", content: "ok" }],
+      };
+      const finalAssistant: Message = {
+        role: "assistant",
+        content: [{ type: "text", text: "All done." }],
+      };
+
+      const emittedEvents: AgentEvent[] = [];
+      const pushedMessages: Message[] = [];
+      const persistedTailCalls: Message[] = [];
+      // Snapshot of how many tail messages had been persisted at each
+      // point a streaming event reached the target. This is the actual
+      // observability invariant: when a turn-2 streaming event arrives,
+      // turn-1's messages must already be persisted so a fetchHistory
+      // call from a client opening the conversation mid-stream returns
+      // turn-1's content.
+      const persistedAtEachEmit: number[] = [];
+      const baseline: Message[] = [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ];
+      const history: Message[] = [...baseline];
+      let processing = false;
+
+      const target: WakeTarget = {
+        conversationId: "conv-stream",
+        agentLoop: {
+          run: async (_input, onEvent, _signal, _requestId, onCheckpoint) => {
+            // Preamble + assistant hint + postamble (mirrors what the
+            // wake injects). The agent-wake helper expects these three
+            // hint messages in the input it hands to run().
+            const runHistory: Message[] = [..._input];
+
+            // Turn 1: stream a text_delta + message_complete, then
+            // fire the checkpoint after the tool_result lands.
+            await onEvent({ type: "text_delta", text: "Working" });
+            runHistory.push(turn1Assistant);
+            await onEvent({
+              type: "message_complete",
+              message: turn1Assistant,
+            });
+            runHistory.push(turn1ToolResult);
+            const dec1 = await onCheckpoint!({
+              turnIndex: 0,
+              toolCount: 1,
+              hasToolUse: true,
+              history: runHistory,
+            });
+            expect(dec1).toBe("continue");
+
+            // Turn 2: another tool turn — must already see the live
+            // streaming because mode flipped after turn 1.
+            await onEvent({ type: "text_delta", text: "Still going" });
+            runHistory.push(turn2Assistant);
+            await onEvent({
+              type: "message_complete",
+              message: turn2Assistant,
+            });
+            runHistory.push(turn2ToolResult);
+            const dec2 = await onCheckpoint!({
+              turnIndex: 1,
+              toolCount: 1,
+              hasToolUse: true,
+              history: runHistory,
+            });
+            expect(dec2).toBe("continue");
+
+            // Final assistant message with no tool calls — loop would
+            // exit. onCheckpoint does NOT fire for the terminal turn,
+            // so the post-run flushPendingTail must catch this one.
+            await onEvent({ type: "text_delta", text: "All done." });
+            runHistory.push(finalAssistant);
+            await onEvent({
+              type: "message_complete",
+              message: finalAssistant,
+            });
+            return runHistory;
+          },
+        },
+        getMessages: () => history,
+        pushMessage: (msg) => {
+          pushedMessages.push(msg);
+          history.push(msg);
+        },
+        emitAgentEvent: (event) => {
+          emittedEvents.push(event);
+          persistedAtEachEmit.push(persistedTailCalls.length);
+        },
+        isProcessing: () => processing,
+        markProcessing: (on) => {
+          processing = on;
+        },
+        persistTailMessage: async (msg) => {
+          persistedTailCalls.push(msg);
+        },
+      };
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: "conv-stream",
+          hint: "consolidate",
+          source: "memory_v2_consolidation",
+        },
+        { resolveTarget: async () => target },
+      );
+
+      expect(result).toEqual({ invoked: true, producedToolCalls: true });
+
+      // All 5 tail messages persisted in order. The first two via
+      // turn-1 checkpoint, the next two via turn-2 checkpoint, and
+      // `finalAssistant` via the post-run flush.
+      expect(persistedTailCalls).toHaveLength(5);
+      expect(persistedTailCalls[0]).toBe(turn1Assistant);
+      expect(persistedTailCalls[1]).toBe(turn1ToolResult);
+      expect(persistedTailCalls[2]).toBe(turn2Assistant);
+      expect(persistedTailCalls[3]).toBe(turn2ToolResult);
+      expect(persistedTailCalls[4]).toBe(finalAssistant);
+
+      // Critical observability invariant: by the time turn-2's
+      // streaming text_delta reached the client, turn-1's messages
+      // were already persisted. A client opening the conversation at
+      // that moment would fetchHistory and see turn-1, plus stream
+      // turn-2 live — instead of seeing an empty welcome view.
+      const turn2DeltaIdx = emittedEvents.findIndex(
+        (e) => e.type === "text_delta" && e.text === "Still going",
+      );
+      expect(turn2DeltaIdx).toBeGreaterThan(-1);
+      expect(persistedAtEachEmit[turn2DeltaIdx]).toBeGreaterThanOrEqual(2);
+    },
+  );
+
+  test(
+    "checkpoint-driven wake injects ui_surface card into the first " +
+      "assistant tail message",
+    async () => {
+      // The wake card ("Conversation Woke") is the visual entry point —
+      // it must land in the first assistant message regardless of
+      // whether the wake produced output via checkpoints or only via
+      // post-run (tool-free) detection. This test covers the
+      // checkpoint path; the existing post-run path is covered by the
+      // tool_use tests above.
+      const firstAssistant: Message = {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu-1", name: "some_tool", input: {} },
+        ],
+      };
+      const toolResult: Message = {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
+      };
+
+      const persistedTailCalls: Message[] = [];
+      const baseline: Message[] = [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ];
+      const history: Message[] = [...baseline];
+      let processing = false;
+      const wakeProducedOutputCalls: string[] = [];
+
+      const target: WakeTarget = {
+        conversationId: "conv-card",
+        agentLoop: {
+          run: async (_input, _onEvent, _signal, _requestId, onCheckpoint) => {
+            const runHistory: Message[] = [..._input];
+            runHistory.push(firstAssistant);
+            runHistory.push(toolResult);
+            await onCheckpoint!({
+              turnIndex: 0,
+              toolCount: 1,
+              hasToolUse: true,
+              history: runHistory,
+            });
+            return runHistory;
+          },
+        },
+        getMessages: () => history,
+        pushMessage: (msg) => {
+          history.push(msg);
+        },
+        emitAgentEvent: () => {},
+        isProcessing: () => processing,
+        markProcessing: (on) => {
+          processing = on;
+        },
+        persistTailMessage: async (msg) => {
+          persistedTailCalls.push(msg);
+        },
+        onWakeProducedOutput: (_source, _hint, surfaceId) => {
+          wakeProducedOutputCalls.push(surfaceId);
+        },
+      };
+
+      await wakeAgentForOpportunity(
+        {
+          conversationId: "conv-card",
+          hint: "do the thing",
+          source: "memory_v2_consolidation",
+        },
+        { resolveTarget: async () => target },
+      );
+
+      // ui_surface fired exactly once (idempotent goLive), and the
+      // surfaceId matches the block prepended into the first
+      // assistant message.
+      expect(wakeProducedOutputCalls).toHaveLength(1);
+      const persistedFirst = persistedTailCalls[0];
+      expect(persistedFirst).toBeDefined();
+      const blocks = Array.isArray(persistedFirst!.content)
+        ? persistedFirst!.content
+        : [];
+      const uiBlock = blocks.find(
+        (b: { type?: string }) => b.type === "ui_surface",
+      ) as { surfaceId?: string } | undefined;
+      expect(uiBlock).toBeDefined();
+      expect(uiBlock!.surfaceId).toBe(wakeProducedOutputCalls[0]);
+    },
+  );
 });
