@@ -490,6 +490,39 @@ describe("loadConfig startup behavior", () => {
     );
   });
 
+  test("re-hatch from openai to anthropic resets stale custom-balanced active profile", () => {
+    // Pre-seed an OpenAI-style workspace: custom-balanced is active, default is
+    // openai. Simulates a workspace that previously hatched against OpenAI.
+    writeConfig({
+      llm: {
+        default: { provider: "openai", model: "gpt-5.4-mini" },
+        profiles: {
+          "custom-balanced": {
+            source: "managed",
+            provider: "openai",
+            model: "gpt-5.4-mini",
+          },
+        },
+        activeProfile: "custom-balanced",
+      },
+    });
+
+    const overlayPath = join(WORKSPACE_DIR, "rehatch-anthropic.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.default.provider).toBe("anthropic");
+    expect(raw.llm.default.model).toBe("claude-sonnet-4-6");
+  });
+
   test("unknown overlay provider falls back to Anthropic seeding", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(

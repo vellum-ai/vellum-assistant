@@ -187,21 +187,20 @@ export function seedInferenceProfiles(
   const shouldPreserveActiveProfile =
     options.preserveActiveProfile === true && requestedActiveExists;
 
-  // Decide whether the existing active profile is still appropriate.
-  // Anthropic-managed names whose on-disk provider is still `anthropic` go
-  // stale when the resolved default flips to a non-Anthropic provider — a
-  // re-hatch should land the user on `custom-balanced` rather than leaving
-  // them on an Anthropic profile they didn't pick.
+  // Decide whether the existing active profile is still appropriate. A managed
+  // profile whose provider no longer matches the resolved default goes stale
+  // (e.g. re-hatching anthropic→openai leaves `balanced` pointing at anthropic;
+  // re-hatching openai→anthropic leaves `custom-balanced` pointing at openai).
+  // Either direction should land the user on the new default's `balanced`
+  // counterpart rather than routing the main agent to a stale provider.
+  // User-created profiles are left alone — those are the user's choice.
   let keepActiveProfile = shouldPreserveActiveProfile;
   if (!keepActiveProfile && requestedActiveExists) {
-    const isAnthropicManagedName =
-      requestedActiveProfile! in ANTHROPIC_PROFILE_TEMPLATES;
+    const isManagedName = MANAGED_PROFILE_NAMES.has(requestedActiveProfile!);
     const activeProvider = readString(requestedActiveEntry?.provider);
-    const activeIsStaleAnthropic =
-      !isAnthropicDefault &&
-      isAnthropicManagedName &&
-      activeProvider === "anthropic";
-    keepActiveProfile = !activeIsStaleAnthropic;
+    const managedActiveProviderMismatch =
+      isManagedName && activeProvider !== resolvedProvider;
+    keepActiveProfile = !managedActiveProviderMismatch;
   }
 
   let activeProfileName: string;
