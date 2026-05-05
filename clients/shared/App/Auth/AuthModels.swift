@@ -342,7 +342,6 @@ public struct ReferralCodeResponse: Codable, Sendable {
 public struct SubscriptionResponse: Codable, Sendable {
     public let plan_id: String           // "base" | "pro"
     public let status: String?           // active | trialing | past_due | canceled | incomplete | incomplete_expired | unpaid | paused | nil
-    public let renewal_date: String?     // ISO 8601, mirrors current_period_end
     public let current_period_end: String?
     public let cancel_at_period_end: Bool
     public let cancel_at: String?        // ISO 8601

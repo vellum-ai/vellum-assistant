@@ -189,6 +189,11 @@ struct SettingsBillingTab: View {
 
     var planRenewalLine: PlanRenewalLine? {
         guard let sub = subscription, sub.plan_id == "pro" else { return nil }
+        // Once Stripe transitions the subscription to `canceled` (e.g. after the
+        // grace period elapses) the stored `current_period_end` is stale, so
+        // hide the line entirely. Mirrors the platform web's `isCanceled` gate
+        // in `web/src/components/app/settings/PlanCard.tsx`.
+        if sub.status == "canceled" { return nil }
         if !sub.cancel_at_period_end, let renewalISO = sub.current_period_end {
             return .renews(formatRenewalDate(renewalISO))
         }
@@ -216,7 +221,7 @@ struct SettingsBillingTab: View {
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentTertiary)
         case let .cancels(date):
-            Text("Cancels on \(date).")
+            Text("Your plan ends on \(date).")
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.systemMidStrong)
         case .none:
@@ -407,15 +412,20 @@ struct SettingsBillingTab: View {
             }
             isLoading = false
 
-            do {
-                let sub = try await subscriptionTask
-                let catalog = try await plansTask
+            // Each fetch is awaited independently so a flaky `/plans/` doesn't
+            // discard a successfully-fetched subscription (and vice versa). On
+            // refresh, the prior `@State` value is retained when a fetch
+            // throws. `planError` is only set when we end up missing data the
+            // card needs — preserving previously-loaded state on transient
+            // refresh failures.
+            if let sub = try? await subscriptionTask {
                 subscription = sub
+            }
+            if let catalog = try? await plansTask {
                 plans = catalog.plans
-            } catch {
-                if subscription == nil {
-                    planError = "Unable to load plan information."
-                }
+            }
+            if subscription == nil || plans == nil {
+                planError = "Unable to load plan information."
             }
         } else {
             do {

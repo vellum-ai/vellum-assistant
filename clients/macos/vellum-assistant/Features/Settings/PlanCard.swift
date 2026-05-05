@@ -40,8 +40,13 @@ struct PlanCard: View {
         }
         if let subscription, let plans, let currentPlan = plans.first(where: { $0.id == subscription.plan_id }) {
             let isPro = subscription.plan_id == "pro"
+            // Drive the display name from the catalog entry. We keep "PRO"
+            // capitalized for the Pro tier to match the platform web; for any
+            // non-Pro tier we surface the catalog `name` directly so future
+            // plans don't need a client-side string addition.
+            let planName: String = isPro ? "PRO Plan" : "\(currentPlan.name) Plan"
             return .loaded(
-                planName: isPro ? "PRO Plan" : "Basic Plan",
+                planName: planName,
                 subtitle: currentPlan.included_features.prefix(3).joined(separator: ", "),
                 buttonLabel: isPro ? "Manage" : "Upgrade to Pro",
                 isPro: isPro
