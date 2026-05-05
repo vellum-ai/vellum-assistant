@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import type { HostProxyCapability } from "../../channels/types.js";
+import { isHttpAuthDisabled } from "../../config/env.js";
 import { datesToISO } from "../../util/json.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { NotFoundError } from "./errors.js";
@@ -33,7 +34,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       clients: z.array(z.object({}).passthrough()),
     }),
-    handler: ({ queryParams }) => {
+    handler: ({ queryParams, headers }) => {
       const capability = queryParams?.capability as
         | HostProxyCapability
         | undefined;
@@ -42,8 +43,25 @@ export const ROUTES: RouteDefinition[] = [
         ? assistantEventHub.listClientsByCapability(capability)
         : assistantEventHub.listClients();
 
+      // Defense-in-depth: filter the listing to clients owned by the calling
+      // actor so users cannot enumerate other users' connected client IDs.
+      // Clients with no stored `actorPrincipalId` (legacy SSE subscribers from
+      // before host-proxy-same-user, service-gateway tokens) are filtered out
+      // — fail-closed is the right default for this security boundary.
+      // Dev-bypass mode (DISABLE_HTTP_AUTH=true, mirroring
+      // require-bound-guardian.ts) preserves the previous "return all" behavior
+      // for platform-managed deployments where the platform handles auth.
+      const callerPrincipalId = headers?.["x-vellum-actor-principal-id"];
+      const filtered = isHttpAuthDisabled()
+        ? clients
+        : clients.filter(
+            (c) =>
+              c.actorPrincipalId !== undefined &&
+              c.actorPrincipalId === callerPrincipalId,
+          );
+
       return {
-        clients: clients.map((c) =>
+        clients: filtered.map((c) =>
           datesToISO({
             clientId: c.clientId,
             interfaceId: c.interfaceId,
