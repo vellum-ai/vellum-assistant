@@ -39,11 +39,18 @@ mock.module("../skills/active-skill-tools.js", () => {
   const parseMarkers = (messages: Message[]) => {
     // Two-pass approach matching real implementation:
     // 1. Collect tool_use IDs where name === 'skill_load'
-    const skillLoadUseIds = new Set<string>();
+    const skillLoadSelectorsByUseId = new Map<string, string | undefined>();
     for (const msg of messages) {
       for (const block of msg.content) {
         if (block.type === "tool_use" && block.name === "skill_load") {
-          skillLoadUseIds.add(block.id);
+          const rawSelector =
+            typeof block.input.skill === "string"
+              ? block.input.skill
+              : undefined;
+          const selector = rawSelector?.startsWith("bundled:")
+            ? rawSelector
+            : undefined;
+          skillLoadSelectorsByUseId.set(block.id, selector);
         }
       }
     }
@@ -51,19 +58,26 @@ mock.module("../skills/active-skill-tools.js", () => {
     // 2. Parse markers only from tool_result blocks whose tool_use_id matches
     const re = /<loaded_skill\s+id="([^"]+)"(?:\s+version="([^"]+)")?\s*\/>/g;
     const seen = new Set<string>();
-    const entries: Array<{ id: string; version?: string }> = [];
+    const entries: Array<{ id: string; version?: string; selector?: string }> =
+      [];
     for (const msg of messages) {
       for (const block of msg.content) {
         if (block.type !== "tool_result") continue;
-        if (!skillLoadUseIds.has(block.tool_use_id)) continue;
+        if (!skillLoadSelectorsByUseId.has(block.tool_use_id)) continue;
         const text = block.content;
         if (!text) continue;
         for (const match of text.matchAll(re)) {
           if (!seen.has(match[1])) {
             seen.add(match[1]);
-            const entry: { id: string; version?: string } = { id: match[1] };
+            const entry: { id: string; version?: string; selector?: string } = {
+              id: match[1],
+            };
             if (match[2]) {
               entry.version = match[2];
+            }
+            const selector = skillLoadSelectorsByUseId.get(block.tool_use_id);
+            if (selector) {
+              entry.selector = selector;
             }
             entries.push(entry);
           }
@@ -266,12 +280,19 @@ let toolUseCounter = 0;
  * Creates a pair of messages representing a skill_load tool_use followed by
  * its tool_result with the given content (typically a `<loaded_skill>` marker).
  */
-function skillLoadMessages(content: string): Message[] {
+function skillLoadMessages(content: string, selector?: string): Message[] {
   const id = `sl-${++toolUseCounter}`;
   return [
     {
       role: "assistant",
-      content: [{ type: "tool_use", id, name: "skill_load", input: {} }],
+      content: [
+        {
+          type: "tool_use",
+          id,
+          name: "skill_load",
+          input: selector ? { skill: selector } : {},
+        },
+      ],
     },
     {
       role: "user",
@@ -2068,6 +2089,7 @@ describe("versioned markers through session projection", () => {
     const history: Message[] = [
       ...skillLoadMessages(
         '<loaded_skill id="system-storage-cleanup" version="v1:bundled-cleanup" />',
+        "bundled:system-storage-cleanup",
       ),
     ];
 
@@ -2079,6 +2101,41 @@ describe("versioned markers through session projection", () => {
     expect(result.allowedToolNames).toEqual(new Set());
     expect(sessionState.has("system-storage-cleanup")).toBe(false);
     expect(mockRegisteredTools.has("system-storage-cleanup")).toBe(false);
+  });
+
+  test("managed storage cleanup marker re-registers tools after normal edits", () => {
+    mockCatalog = [makeSkill("system-storage-cleanup")];
+    mockManifests = {
+      "system-storage-cleanup": makeManifest(["managed_cleanup_run"]),
+    };
+    mockVersionHashes = {
+      "system-storage-cleanup": "v1:managed-before-edit",
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages(
+        '<loaded_skill id="system-storage-cleanup" version="v1:managed-before-edit" />',
+      ),
+    ];
+
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+    });
+
+    mockUnregisteredSkillIds = [];
+    mockVersionHashes = {
+      "system-storage-cleanup": "v1:managed-after-edit",
+    };
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+    });
+
+    expect(result.toolDefinitions).toEqual([]);
+    expect(result.allowedToolNames).toEqual(new Set(["managed_cleanup_run"]));
+    expect(sessionState.get("system-storage-cleanup")).toBe(
+      "v1:managed-after-edit",
+    );
+    expect(mockUnregisteredSkillIds).toContain("system-storage-cleanup");
   });
 
   test("storage cleanup marker projects catalog tools when marker version matches", () => {

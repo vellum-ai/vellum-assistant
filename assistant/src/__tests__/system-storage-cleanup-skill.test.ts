@@ -58,4 +58,12 @@ describe("system-storage-cleanup bundled skill", () => {
       expect(body).toContain(protectedText);
     }
   });
+
+  test("only supports the bundled selector for the cleanup skill", () => {
+    const result = loadSkillBySelector("bundled:app-builder");
+
+    expect(result.skill).toBeUndefined();
+    expect(result.errorCode).toBe("invalid_selector");
+    expect(result.error).toContain("bundled:system-storage-cleanup");
+  });
 });
