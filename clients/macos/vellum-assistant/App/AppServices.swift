@@ -5,7 +5,8 @@ import VellumAssistantShared
 @MainActor
 public final class AppServices {
     public let connectionManager: GatewayConnectionManager
-    let diskPressureMonitor: DiskPressureMonitor
+    let featureFlagStore: AssistantFeatureFlagStore
+    let diskPressureStatusStore: DiskPressureStatusStore
 
     public let authManager = AuthManager()
     public let ambientAgent = AmbientAgent()
@@ -28,8 +29,15 @@ public final class AppServices {
 
     public init() {
         let connectionManager = GatewayConnectionManager()
+        let featureFlagStore = AssistantFeatureFlagStore()
         self.connectionManager = connectionManager
-        diskPressureMonitor = DiskPressureMonitor()
+        self.featureFlagStore = featureFlagStore
+        diskPressureStatusStore = DiskPressureStatusStore(
+            eventStreamClient: connectionManager.eventStreamClient,
+            featureFlagEnabled: { key in
+                featureFlagStore.isEnabled(key)
+            }
+        )
     }
 
     /// Reconfigure the connection for a new assistant.

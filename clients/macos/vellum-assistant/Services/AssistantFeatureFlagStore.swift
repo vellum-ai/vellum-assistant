@@ -70,8 +70,9 @@ final class AssistantFeatureFlagStore {
     /// Fetch the authoritative flag state from the gateway API and update the
     /// local cache.  Falls back to ``reloadFromDisk()`` on network errors so
     /// the UI always reflects the best-known state.
-    func reloadFromGateway() {
-        Task { @MainActor [weak self] in
+    @discardableResult
+    func reloadFromGateway() -> Task<Void, Never> {
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let flags = try await self.featureFlagClient.getFeatureFlags()
@@ -87,5 +88,6 @@ final class AssistantFeatureFlagStore {
                 self.reloadFromDisk()
             }
         }
+        return task
     }
 }
