@@ -7129,6 +7129,35 @@ paths:
               required:
                 - op
               additionalProperties: false
+  /v1/memory/v2/concept-frequency:
+    post:
+      operationId: memory_v2_conceptfrequency_post
+      summary: Aggregate per-concept injection frequency from activation logs
+      description:
+        "Debug-only. Aggregates the existing memory_v2_activation_logs table by (slug, status) and cross-references
+        on-disk concept pages so an operator can see which concepts get injected often, which get scored but rejected,
+        and which on-disk pages never even surface as candidates. Optional filters: conversationId narrows to a single
+        conversation; sinceMs restricts to logs created at-or-after the given epoch ms timestamp."
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                sinceMs:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+              additionalProperties: false
   /v1/memory/v2/concept-page:
     post:
       operationId: memory_v2_conceptpage_post
