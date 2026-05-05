@@ -4,7 +4,6 @@ import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
 import { getWorkspaceSkillsDir } from "../util/platform.js";
-import { upsertSkillsIndex } from "./catalog-install.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 import type {
   AuditResponse,
@@ -424,7 +423,6 @@ export function validateSkillSlug(slug: string): void {
  * 3. Writes them to `<workspace>/skills/<skillSlug>/` with path traversal protection
  * 4. Writes `install-meta.json` with origin metadata
  * 5. Installs npm dependencies (if package.json exists)
- * 6. Updates SKILLS.md index
  *
  * Auto-enable and memory seeding are handled by the caller (e.g.
  * `postInstallSkill()` in the daemon, or left to the user for CLI installs).
@@ -482,9 +480,7 @@ export async function installExternalSkill(
     contentHash: computeSkillHash(skillDir) ?? undefined,
   });
 
-  // Post-install: install dependencies first, then index the skill.
-  // Running bun install before upsertSkillsIndex ensures we don't index a
-  // skill whose dependencies failed to install.
+  // Post-install: install dependencies before reporting success.
   if (existsSync(join(skillDir, "package.json"))) {
     const bunPath = `${homedir()}/.bun/bin`;
     execSync("bun install", {
@@ -493,5 +489,4 @@ export async function installExternalSkill(
       env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
     });
   }
-  upsertSkillsIndex(skillSlug);
 }
