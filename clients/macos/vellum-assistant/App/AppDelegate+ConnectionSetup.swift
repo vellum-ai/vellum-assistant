@@ -194,7 +194,11 @@ extension AppDelegate {
                 refreshAppsCache()
                 refreshSkillsCache()
                 syncPrivacyConfig()
-                featureFlagStore.reloadFromGateway()
+                let flagReloadTask = featureFlagStore.reloadFromGateway()
+                Task { @MainActor [weak self] in
+                    await flagReloadTask.value
+                    self?.diskPressureStatusStore.refreshForCurrentAssistant()
+                }
             }
         }
     }
@@ -362,7 +366,11 @@ extension AppDelegate {
                 case .configChanged:
                     NotificationCenter.default.post(name: .configChanged, object: nil)
                 case .featureFlagsChanged:
-                    self.featureFlagStore.reloadFromGateway()
+                    let flagReloadTask = self.featureFlagStore.reloadFromGateway()
+                    Task { @MainActor [weak self] in
+                        await flagReloadTask.value
+                        self?.diskPressureStatusStore.refreshForCurrentAssistant()
+                    }
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
                     // Accept if the request is explicitly targeted at this client, OR if

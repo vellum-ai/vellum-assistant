@@ -1339,6 +1339,14 @@ public struct DiskPressureStatus: Codable, Sendable {
     }
 }
 
+public struct DiskPressureStatusResponse: Codable, Sendable {
+    public let status: DiskPressureStatus
+
+    public init(status: DiskPressureStatus) {
+        self.status = status
+    }
+}
+
 public struct DiskPressureStatusChanged: Codable, Sendable {
     public let type: String
     public let status: DiskPressureStatus

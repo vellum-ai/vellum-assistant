@@ -10,6 +10,52 @@ import XCTest
 final class MessageTypesTests: XCTestCase {
     private let decoder = JSONDecoder()
 
+    func testDecodes_diskPressureStatusChanged() throws {
+        let json = Data(
+            """
+            {
+              "type": "disk_pressure_status_changed",
+              "status": {
+                "enabled": true,
+                "state": "critical",
+                "locked": true,
+                "acknowledged": false,
+                "overrideActive": false,
+                "effectivelyLocked": true,
+                "lockId": "disk-pressure-test",
+                "usagePercent": 99.25,
+                "thresholdPercent": 95,
+                "path": "/workspace",
+                "lastCheckedAt": "2026-05-05T12:00:00.000Z",
+                "blockedCapabilities": ["agent-turns", "background-work", "remote-ingress"],
+                "error": null
+              }
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .diskPressureStatusChanged(let event) = message else {
+            XCTFail("Expected .diskPressureStatusChanged, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(event.type, "disk_pressure_status_changed")
+        XCTAssertTrue(event.status.enabled)
+        XCTAssertEqual(event.status.state, "critical")
+        XCTAssertTrue(event.status.locked)
+        XCTAssertFalse(event.status.acknowledged)
+        XCTAssertTrue(event.status.effectivelyLocked)
+        XCTAssertEqual(event.status.lockId, "disk-pressure-test")
+        XCTAssertEqual(event.status.usagePercent, 99.25)
+        XCTAssertEqual(event.status.blockedCapabilities, [
+            "agent-turns",
+            "background-work",
+            "remote-ingress",
+        ])
+    }
+
     // MARK: - host_browser_request
 
     func testDecodes_hostBrowserRequest_withAllFields() throws {
