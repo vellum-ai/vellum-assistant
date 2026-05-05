@@ -17,6 +17,7 @@
 // content through when `mode === "full"` (first turn / post-compaction),
 // matching the existing PKB auto-inject pattern.
 
+import type { ChannelId } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { loadConfig } from "../../config/loader.js";
 import { readPromptFile } from "../../prompts/system-prompt.js";
@@ -60,4 +61,25 @@ export function readMemoryV2StaticContent(): string | null {
     sections.push(`${heading}\n\n${content}`);
   }
   return sections.length > 0 ? sections.join("\n\n") : null;
+}
+
+/**
+ * Static memory holds the user's aggregate personal pages
+ * (essentials/threads/recent/buffer). Block injection when a non-guardian
+ * actor reaches the assistant over a remote channel — otherwise the model
+ * can be prompt-injected into reciting private memory. Internal flows
+ * (`sourceChannel: "vellum"`) and turns with no trust context pass through
+ * unchanged; this gate exists only to keep remote untrusted actors out.
+ */
+export function shouldLoadMemoryV2Static(args: {
+  shouldInjectNowAndPkb: boolean;
+  sourceChannel: ChannelId | undefined;
+  isTrustedActor: boolean;
+}): boolean {
+  if (!args.shouldInjectNowAndPkb) return false;
+  const isRemoteUntrustedActor =
+    args.sourceChannel !== undefined &&
+    args.sourceChannel !== "vellum" &&
+    !args.isTrustedActor;
+  return !isRemoteUntrustedActor;
 }

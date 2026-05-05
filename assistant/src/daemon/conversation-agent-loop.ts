@@ -73,7 +73,10 @@ import type { ConversationGraphMemory } from "../memory/graph/conversation-graph
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
-import { readMemoryV2StaticContent } from "../memory/v2/static-context.js";
+import {
+  readMemoryV2StaticContent,
+  shouldLoadMemoryV2Static,
+} from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
@@ -1336,10 +1339,16 @@ export async function runAgentLoopImpl(
     const pkbActive = currentPkbContent !== null;
 
     // V2 static memory block (essentials/threads/recent/buffer). Same
-    // first-turn / post-compaction cadence as PKB — `readMemoryV2StaticContent`
-    // self-gates on the v2 flag + config, returning null when v2 is off.
-    // Skip the file reads entirely on non-injection turns.
-    const currentMemoryV2Static = shouldInjectNowAndPkb
+    // first-turn / post-compaction cadence as PKB. `shouldLoadMemoryV2Static`
+    // also blocks remote-channel non-guardian actors from inducing the
+    // model to recite private memory; `readMemoryV2StaticContent` self-gates
+    // on the v2 flag + config and returns null when v2 is off, so the file
+    // reads are skipped on non-injection turns.
+    const currentMemoryV2Static = shouldLoadMemoryV2Static({
+      shouldInjectNowAndPkb,
+      sourceChannel: ctx.trustContext?.sourceChannel,
+      isTrustedActor,
+    })
       ? readMemoryV2StaticContent()
       : null;
     const memoryV2Static = currentMemoryV2Static;

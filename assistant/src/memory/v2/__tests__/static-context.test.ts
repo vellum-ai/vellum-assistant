@@ -49,7 +49,8 @@ mock.module("../../../config/loader.js", () => ({
 
 const { _setOverridesForTesting } =
   await import("../../../config/assistant-feature-flags.js");
-const { readMemoryV2StaticContent } = await import("../static-context.js");
+const { readMemoryV2StaticContent, shouldLoadMemoryV2Static } =
+  await import("../static-context.js");
 
 const MEMORY_FILES = [
   "essentials.md",
@@ -148,5 +149,79 @@ describe("readMemoryV2StaticContent", () => {
   test("returns null when memory directory is missing entirely", () => {
     cleanupMemoryDir();
     expect(readMemoryV2StaticContent()).toBeNull();
+  });
+});
+
+describe("shouldLoadMemoryV2Static", () => {
+  test("blocks all turns until the cadence gate fires", () => {
+    expect(
+      shouldLoadMemoryV2Static({
+        shouldInjectNowAndPkb: false,
+        sourceChannel: "vellum",
+        isTrustedActor: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("allows guardian-trusted local conversations", () => {
+    expect(
+      shouldLoadMemoryV2Static({
+        shouldInjectNowAndPkb: true,
+        sourceChannel: "vellum",
+        isTrustedActor: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("allows local-channel conversations even when trust class is unknown (analyze runs, dev)", () => {
+    expect(
+      shouldLoadMemoryV2Static({
+        shouldInjectNowAndPkb: true,
+        sourceChannel: "vellum",
+        isTrustedActor: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("allows turns with no trust context (work-item task runs, internal background)", () => {
+    expect(
+      shouldLoadMemoryV2Static({
+        shouldInjectNowAndPkb: true,
+        sourceChannel: undefined,
+        isTrustedActor: false,
+      }),
+    ).toBe(true);
+  });
+
+  const REMOTE_CHANNELS = [
+    "phone",
+    "slack",
+    "telegram",
+    "whatsapp",
+    "email",
+  ] as const;
+
+  test("allows guardian-trusted remote channels (user's own phone/Slack)", () => {
+    for (const channel of REMOTE_CHANNELS) {
+      expect(
+        shouldLoadMemoryV2Static({
+          shouldInjectNowAndPkb: true,
+          sourceChannel: channel,
+          isTrustedActor: true,
+        }),
+      ).toBe(true);
+    }
+  });
+
+  test("blocks non-guardian remote-channel actors (the leak this gate exists to prevent)", () => {
+    for (const channel of REMOTE_CHANNELS) {
+      expect(
+        shouldLoadMemoryV2Static({
+          shouldInjectNowAndPkb: true,
+          sourceChannel: channel,
+          isTrustedActor: false,
+        }),
+      ).toBe(false);
+    }
   });
 });
