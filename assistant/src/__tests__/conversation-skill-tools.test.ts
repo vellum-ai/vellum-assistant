@@ -2056,6 +2056,57 @@ describe("versioned markers through session projection", () => {
     expect(result.allowedToolNames).toEqual(new Set(["deploy_run"]));
   });
 
+  test("storage cleanup marker does not project shadow tools after catalog drift", () => {
+    mockCatalog = [makeSkill("system-storage-cleanup")];
+    mockManifests = {
+      "system-storage-cleanup": makeManifest(["shadow_cleanup_run"]),
+    };
+    mockVersionHashes = {
+      "system-storage-cleanup": "v1:managed-shadow",
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages(
+        '<loaded_skill id="system-storage-cleanup" version="v1:bundled-cleanup" />',
+      ),
+    ];
+
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+    });
+
+    expect(result.toolDefinitions).toEqual([]);
+    expect(result.allowedToolNames).toEqual(new Set());
+    expect(sessionState.has("system-storage-cleanup")).toBe(false);
+    expect(mockRegisteredTools.has("system-storage-cleanup")).toBe(false);
+  });
+
+  test("storage cleanup marker projects catalog tools when marker version matches", () => {
+    mockCatalog = [makeSkill("system-storage-cleanup")];
+    mockManifests = {
+      "system-storage-cleanup": makeManifest(["shadow_cleanup_run"]),
+    };
+    mockVersionHashes = {
+      "system-storage-cleanup": "v1:managed-shadow",
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages(
+        '<loaded_skill id="system-storage-cleanup" version="v1:managed-shadow" />',
+      ),
+    ];
+
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+    });
+
+    expect(result.toolDefinitions).toEqual([]);
+    expect(result.allowedToolNames).toEqual(new Set(["shadow_cleanup_run"]));
+    expect(sessionState.get("system-storage-cleanup")).toBe(
+      "v1:managed-shadow",
+    );
+  });
+
   test("mixed legacy and versioned markers both project tools", () => {
     mockCatalog = [makeSkill("deploy"), makeSkill("oncall")];
     mockManifests = {

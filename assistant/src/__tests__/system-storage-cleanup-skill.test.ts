@@ -16,8 +16,13 @@ describe("system-storage-cleanup bundled skill", () => {
     expect(skill!.inlineCommandExpansions).toBeUndefined();
   });
 
-  test("loads by exact id with the cleanup safety contract", () => {
-    const result = loadSkillBySelector("system-storage-cleanup");
+  test("loads by id and source-qualified selector with the cleanup safety contract", () => {
+    const exactResult = loadSkillBySelector("system-storage-cleanup");
+    expect(exactResult.error).toBeUndefined();
+    expect(exactResult.skill?.id).toBe("system-storage-cleanup");
+    expect(exactResult.skill?.source).toBe("bundled");
+
+    const result = loadSkillBySelector("bundled:system-storage-cleanup");
 
     expect(result.error).toBeUndefined();
     expect(result.skill).toBeDefined();
