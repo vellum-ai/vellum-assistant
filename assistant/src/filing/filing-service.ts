@@ -197,7 +197,7 @@ export class FilingService {
     const config = getConfig().filing;
     if (!force && !config.enabled) return false;
 
-    if (this.shouldSkipForDiskPressure("filing")) {
+    if (!force && this.shouldSkipForDiskPressure("filing")) {
       return false;
     }
 
@@ -251,7 +251,7 @@ export class FilingService {
     const config = getConfig().filing;
     if (!force && !config.compactionEnabled) return false;
 
-    if (this.shouldSkipForDiskPressure("compaction")) {
+    if (!force && this.shouldSkipForDiskPressure("compaction")) {
       return false;
     }
 

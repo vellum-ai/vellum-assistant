@@ -403,7 +403,7 @@ export class HeartbeatService {
   async runOnce({ force = false }: { force?: boolean } = {}): Promise<boolean> {
     const config = getConfig().heartbeat;
 
-    if (isDiskPressureBackgroundLocked("heartbeat")) {
+    if (!force && isDiskPressureBackgroundLocked("heartbeat")) {
       return false;
     }
 

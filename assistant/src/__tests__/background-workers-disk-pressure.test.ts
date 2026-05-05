@@ -244,6 +244,18 @@ describe("background workers disk pressure gate", () => {
     expect(mockProcessMessage).not.toHaveBeenCalled();
   });
 
+  test("filing service allows forced user-initiated runs while locked", async () => {
+    const service = new FilingService();
+
+    const ran = await service.runOnce({ force: true });
+    const compacted = await service.runCompactionOnce({ force: true });
+
+    expect(ran).toBe(true);
+    expect(compacted).toBe(true);
+    expect(createdConversations).toHaveLength(2);
+    expect(mockProcessMessage).toHaveBeenCalledTimes(2);
+  });
+
   test("workspace heartbeat skips auto-commit checks while locked", async () => {
     const getServices = mock(() => new Map());
     const heartbeat = new WorkspaceHeartbeatService({ getServices });

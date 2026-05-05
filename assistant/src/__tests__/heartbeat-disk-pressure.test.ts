@@ -150,6 +150,23 @@ describe("HeartbeatService disk pressure gate", () => {
     expect(mockEmitFeedEvent).not.toHaveBeenCalled();
   });
 
+  test("allows forced user-initiated heartbeat runs while locked", async () => {
+    const service = new HeartbeatService({
+      alerter: () => {},
+    });
+
+    const ran = await service.runOnce({ force: true });
+
+    expect(ran).toBe(true);
+    expect(mockStartHeartbeatRun).toHaveBeenCalled();
+    expect(mockCompleteHeartbeatRun).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ status: "ok" }),
+    );
+    expect(createdConversations).toHaveLength(1);
+    expect(mockProcessMessage).toHaveBeenCalledTimes(1);
+  });
+
   test("start recovery skips missed-run feed events while locked", async () => {
     mockMarkStaleRunsAsMissed.mockImplementationOnce(() => 1);
     const service = new HeartbeatService({

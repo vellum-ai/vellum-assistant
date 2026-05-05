@@ -147,6 +147,7 @@ function isLocalOwnerTurnWithoutTrust(
 function isExplicitLocalOwnerCleanupTurn(
   metadata: DiskPressureTurnMetadata,
 ): boolean {
+  if (metadata.isDirectWake !== true) return false;
   const sourceInterface = metadata.sourceInterface;
   if (
     metadata.sourceChannel !== "vellum" ||

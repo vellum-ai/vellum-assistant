@@ -211,6 +211,16 @@ describe("classifyDiskPressureTurnPolicy", () => {
       expected: { action: "block", reason: "background" },
     },
     {
+      name: "local-owner background turn without direct wake is blocked",
+      status: status(),
+      metadata: {
+        ...localOwnerTurn,
+        conversationType: "background",
+        conversationSource: "heartbeat",
+      },
+      expected: { action: "block", reason: "background" },
+    },
+    {
       name: "explicit local-owner direct wake can enter cleanup mode",
       status: status(),
       metadata: {
