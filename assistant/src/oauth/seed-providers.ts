@@ -403,7 +403,7 @@ export const PROVIDER_SEED_DATA: Record<
       },
     ],
     appType: "App",
-    identityUrl: "https://api.todoist.com/sync/v9/sync",
+    identityUrl: "https://api.todoist.com/api/v1/sync",
     identityMethod: "POST",
     identityHeaders: { "Content-Type": "application/x-www-form-urlencoded" },
     identityBody: "sync_token=*&resource_types=[%22user%22]",
