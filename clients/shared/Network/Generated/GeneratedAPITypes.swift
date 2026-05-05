@@ -1515,14 +1515,23 @@ public struct EnvVarsResponse: Codable, Sendable {
 
 public struct ErrorMessage: Codable, Sendable {
     public let type: String
+    public let conversationId: String?
+    public let requestId: String?
+    public let code: String?
     public let message: String
     /// Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked).
     public let category: String?
+    /// Machine-readable conversation error category for clients that need source-aware recovery UI.
+    public let errorCategory: String?
 
-    public init(type: String, message: String, category: String? = nil) {
+    public init(type: String, conversationId: String? = nil, requestId: String? = nil, code: String? = nil, message: String, category: String? = nil, errorCategory: String? = nil) {
         self.type = type
+        self.conversationId = conversationId
+        self.requestId = requestId
+        self.code = code
         self.message = message
         self.category = category
+        self.errorCategory = errorCategory
     }
 }
 

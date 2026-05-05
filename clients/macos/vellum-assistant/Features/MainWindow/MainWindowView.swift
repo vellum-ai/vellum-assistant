@@ -541,9 +541,7 @@ struct MainWindowView: View {
             .overlay(alignment: .top) {
                 ObservationBoundaryView {
                     MainWindowErrorOverlay(
-                        activeViewModel: conversationManager.activeViewModel,
-                        settingsStore: settingsStore,
-                        windowState: windowState
+                        activeViewModel: conversationManager.activeViewModel
                     )
                 }
             }

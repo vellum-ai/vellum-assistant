@@ -1061,7 +1061,11 @@ final class ChatActionHandler {
         }
         vm.clearCurrentTurnTracking()
         if !wasCancelling {
+            let typedBillingError = billingConversationError(from: err, fallbackConversationId: vm.conversationId)
             vm.errorText = err.message
+            if let typedBillingError {
+                vm.conversationError = typedBillingError
+            }
             // When the backend blocks a message for containing secrets,
             // stash the full send context so "Send Anyway" can reconstruct
             // the original UserMessageMessage with attachments and surface metadata.
@@ -1117,6 +1121,22 @@ final class ChatActionHandler {
             vm.requestIdToMessageId = [:]
             vm.activeRequestIdToMessageId = [:]
         }
+    }
+
+    private func billingConversationError(from err: ErrorMessage, fallbackConversationId: String?) -> ConversationError? {
+        guard let errorCategory = err.errorCategory else { return nil }
+        guard errorCategory.hasSuffix("credits_exhausted") || errorCategory.hasSuffix("provider_billing") else {
+            return nil
+        }
+
+        let code = err.code.flatMap(ConversationErrorCode.init(rawValue:)) ?? .providerBilling
+        return ConversationError(from: ConversationErrorMessage(
+            conversationId: err.conversationId ?? fallbackConversationId ?? "",
+            code: code,
+            userMessage: err.message,
+            retryable: false,
+            errorCategory: errorCategory
+        ))
     }
 
     private func handleConfirmationRequest(_ msg: ConfirmationRequestMessage, vm: ChatViewModel) {

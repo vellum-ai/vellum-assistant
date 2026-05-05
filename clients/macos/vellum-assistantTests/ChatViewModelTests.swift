@@ -306,6 +306,27 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
     }
 
+    func testGenericProviderBillingErrorCreatesTypedBannerState() {
+        viewModel.conversationId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.error(ErrorMessage(
+            conversationId: "sess-1",
+            code: "PROVIDER_BILLING",
+            message: "Your provider key needs credits.",
+            errorCategory: "provider_billing"
+        )))
+
+        XCTAssertEqual(viewModel.errorText, "Your provider key needs credits.")
+        XCTAssertEqual(viewModel.conversationError?.category, .providerBilling)
+        XCTAssertEqual(viewModel.conversationError?.errorCategory, "provider_billing")
+        XCTAssertTrue(viewModel.conversationError?.isProviderBilling == true)
+        XCTAssertEqual(viewModel.conversationError?.presentationSurface, .providerBillingBanner)
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
     func testDismissErrorClearsErrorText() {
         viewModel.errorText = "Some error"
         viewModel.dismissError()
