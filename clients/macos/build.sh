@@ -503,6 +503,17 @@ build_binaries() {
         cli_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
 
+    # Embed VELLUM_ENVIRONMENT at compile time so all binaries know their
+    # runtime context without any filesystem lookup. VELLUM_ENVIRONMENT is
+    # exported by build.sh before calling build_binaries(), so it is always
+    # set here (local|dev|test|staging|production).
+    local env_flags=()
+    if [ -n "${VELLUM_ENVIRONMENT:-}" ]; then
+        env_flags=(--define "process.env.VELLUM_ENVIRONMENT='$VELLUM_ENVIRONMENT'")
+        daemon_flags+=("${env_flags[@]}")
+        cli_flags+=("${env_flags[@]}")
+    fi
+
     # Build binaries in parallel. Each writes to its own output
     # directory so there are no filesystem conflicts. SKIP_BUN_INSTALL=1
     # tells build_bun_binary to skip `bun install` (already done above).
@@ -518,15 +529,15 @@ build_binaries() {
     pids+=($!)
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli" &
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${env_flags[@]}" &
     pids+=($!)
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" &
+        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" "${env_flags[@]}" &
     pids+=($!)
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$CES_SRC_DIR" "$CES_SRC_DIR/src/main.ts" \
-        "$SCRIPT_DIR/ces-bin" "credential-executor" &
+        "$SCRIPT_DIR/ces-bin" "credential-executor" "${env_flags[@]}" &
     pids+=($!)
 
     for pid in "${pids[@]}"; do

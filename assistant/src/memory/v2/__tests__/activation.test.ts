@@ -68,17 +68,6 @@ const state = {
       points: Array<{ score?: number; payload: Record<string, unknown> }>;
     }>,
   },
-  // Separate response queue for the dedicated `memory_v2_skills` collection
-  // so a test asserting on skill activation does not have to interleave
-  // responses with concept-page queries.
-  skillQueryResponses: {
-    dense: [] as Array<{
-      points: Array<{ score?: number; payload: Record<string, unknown> }>;
-    }>,
-    sparse: [] as Array<{
-      points: Array<{ score?: number; payload: Record<string, unknown> }>;
-    }>,
-  },
   queryCalls: [] as Array<{
     collection: string;
     using: string;
@@ -126,11 +115,7 @@ class MockQdrantClient {
       filter: params.filter,
     });
     const channel = params.using as "dense" | "sparse";
-    const queue =
-      name === "memory_v2_skills"
-        ? state.skillQueryResponses[channel]
-        : state.queryResponses[channel];
-    return queue.shift() ?? { points: [] };
+    return state.queryResponses[channel].shift() ?? { points: [] };
   }
 }
 
@@ -140,24 +125,31 @@ mock.module("@qdrant/js-client-rest", () => ({
 
 // Reranker mock — keeps the activation tests hermetic when rerank.enabled is
 // flipped on by an integration case. Tests stage `rerankState.scores` to
-// program the boost outcome.
+// program the boost outcome. The activation pipeline now passes both the
+// user-channel and assistant-channel queries into a single rerank call, so
+// `rerankState.calls` records the full `queries` array per invocation.
 const rerankState = {
   scores: null as Map<string, number> | null,
-  calls: [] as Array<{ query: string; candidates: string[] }>,
+  calls: [] as Array<{ queries: string[]; candidates: string[] }>,
 };
 mock.module("../reranker.js", () => ({
   rerankCandidates: async (
-    query: string,
+    queries: readonly string[],
     candidates: readonly string[],
-  ): Promise<Map<string, number>> => {
-    rerankState.calls.push({ query, candidates: [...candidates] });
-    if (rerankState.scores === null) return new Map();
-    const out = new Map<string, number>();
-    for (const slug of candidates) {
-      const v = rerankState.scores.get(slug);
-      if (v !== undefined) out.set(slug, v);
-    }
-    return out;
+  ): Promise<Array<Map<string, number>>> => {
+    rerankState.calls.push({
+      queries: [...queries],
+      candidates: [...candidates],
+    });
+    return queries.map(() => {
+      if (rerankState.scores === null) return new Map();
+      const out = new Map<string, number>();
+      for (const slug of candidates) {
+        const v = rerankState.scores.get(slug);
+        if (v !== undefined) out.set(slug, v);
+      }
+      return out;
+    });
   },
   _resetRerankCacheForTests: () => {},
 }));
@@ -169,15 +161,11 @@ import type { ActivationState } from "../types.js";
 
 const {
   computeOwnActivation,
-  computeSkillActivation,
   selectCandidates,
   selectInjections,
-  selectSkillInjections,
   spreadActivation,
 } = await import("../activation.js");
 const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
-const { _resetMemoryV2SkillQdrantForTests } =
-  await import("../skill-qdrant.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -190,18 +178,15 @@ function resetState(): void {
   state.sparseReturn = { indices: [1, 2, 3], values: [0.5, 0.5, 0.5] };
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
-  state.skillQueryResponses.dense.length = 0;
-  state.skillQueryResponses.sparse.length = 0;
   state.queryCalls.length = 0;
   rerankState.scores = null;
   rerankState.calls.length = 0;
   // Bun's `mock.module` persists across files in the same process, so the
-  // qdrant modules' `_client` singletons may already hold a MockQdrantClient
-  // instance from a sibling test file (e.g. sim.test.ts). Resetting both the
+  // qdrant module's `_client` singleton may already hold a MockQdrantClient
+  // instance from a sibling test file (e.g. sim.test.ts). Resetting the
   // cache AND any latched readiness forces a fresh `new QdrantClient()` —
   // which under our mock above resolves to *this* file's MockQdrantClient.
   _resetMemoryV2QdrantForTests();
-  _resetMemoryV2SkillQdrantForTests();
 }
 
 /**
@@ -634,8 +619,202 @@ describe("computeOwnActivation", () => {
     expect(out.activation.get("semantic")!).toBeGreaterThan(
       out.activation.get("lexical")!,
     );
-    // Rerank should have been called once per rerank-enabled channel.
-    expect(rerankState.calls).toHaveLength(2);
+    // Both rerank-enabled channels ride in a single batched rerank call.
+    expect(rerankState.calls).toHaveLength(1);
+    expect(rerankState.calls[0].queries).toEqual(["u", "a"]);
+  });
+
+  test("rerank pool is the unified top-K by pre-rerank A_o, not per-channel fused", async () => {
+    // Three candidates. The per-channel fused-sim top-2s would have picked
+    // different sets:
+    //   user channel:      a=0.9, b=0.5, c=0.4  → per-channel top-2 = [a, b]
+    //   assistant channel: a=0.5, b=0.4, c=0.9  → per-channel top-2 = [c, a]
+    // But pre-rerank A_o (c_user=c_assistant=0.5) is:
+    //   a = 0.5·0.9 + 0.5·0.5 = 0.70
+    //   b = 0.5·0.5 + 0.5·0.4 = 0.45
+    //   c = 0.5·0.4 + 0.5·0.9 = 0.65
+    // → unified top-2 = [a, c]. b drops out, even though it would have made
+    //   the user-channel pool under the old per-channel selection.
+    stageHybridResponse([
+      { slug: "a", denseScore: 0.9 },
+      { slug: "b", denseScore: 0.5 },
+      { slug: "c", denseScore: 0.4 },
+    ]); // user
+    stageHybridResponse([
+      { slug: "a", denseScore: 0.5 },
+      { slug: "b", denseScore: 0.4 },
+      { slug: "c", denseScore: 0.9 },
+    ]); // assistant
+    stageHybridResponse([]); // now (no signal)
+    rerankState.scores = new Map([
+      ["a", 0.5],
+      ["b", 0.5],
+      ["c", 0.5],
+    ]);
+
+    const config = {
+      memory: {
+        v2: {
+          d: 0.0,
+          c_user: 0.5,
+          c_assistant: 0.5,
+          c_now: 0.0,
+          dense_weight: 1.0,
+          sparse_weight: 0.0,
+          rerank: {
+            enabled: true,
+            top_k: 2,
+            alpha: 0.3,
+            model: "test-model",
+          },
+        },
+      },
+    } as unknown as AssistantConfig;
+
+    await computeOwnActivation({
+      candidates: new Set(["a", "b", "c"]),
+      priorState: null,
+      userText: "u",
+      assistantText: "a",
+      nowText: "",
+      config,
+    });
+
+    // Single batched rerank call carrying both channel queries against the
+    // unified slug set, sorted by pre-rerank A_o descending.
+    expect(rerankState.calls).toHaveLength(1);
+    expect(rerankState.calls[0].queries).toEqual(["u", "a"]);
+    expect(rerankState.calls[0].candidates).toEqual(["a", "c"]);
+  });
+
+  test("rerank-disabled candidates outside the unified pool get zero boost", async () => {
+    // Two candidates, top_k=1. The lower pre-rerank A_o slug must end up
+    // with simUserRerankBoost=0 / simAssistantRerankBoost=0 in the breakdown.
+    stageHybridResponse([
+      { slug: "winner", denseScore: 0.9 },
+      { slug: "loser", denseScore: 0.2 },
+    ]); // user
+    stageHybridResponse([
+      { slug: "winner", denseScore: 0.9 },
+      { slug: "loser", denseScore: 0.2 },
+    ]); // assistant
+    stageHybridResponse([]); // now
+    // The mocked reranker hands back scores for whatever slugs it's
+    // called with. Stage scores for both; the assertion below is that
+    // the loser still receives 0 because it's never sent to the
+    // reranker — top_k=1 cuts it off.
+    rerankState.scores = new Map([
+      ["winner", 0.5],
+      ["loser", 0.5],
+    ]);
+
+    const config = {
+      memory: {
+        v2: {
+          d: 0.0,
+          c_user: 0.5,
+          c_assistant: 0.5,
+          c_now: 0.0,
+          dense_weight: 1.0,
+          sparse_weight: 0.0,
+          rerank: {
+            enabled: true,
+            top_k: 1,
+            alpha: 0.3,
+            model: "test-model",
+          },
+        },
+      },
+    } as unknown as AssistantConfig;
+
+    const out = await computeOwnActivation({
+      candidates: new Set(["winner", "loser"]),
+      priorState: null,
+      userText: "u",
+      assistantText: "a",
+      nowText: "",
+      config,
+    });
+
+    expect(out.breakdown.get("loser")?.simUserRerankBoost).toBe(0);
+    expect(out.breakdown.get("loser")?.simAssistantRerankBoost).toBe(0);
+    expect(out.breakdown.get("winner")?.simUserRerankBoost).toBeGreaterThan(0);
+    expect(
+      out.breakdown.get("winner")?.simAssistantRerankBoost,
+    ).toBeGreaterThan(0);
+    // inRerankPool tags pool membership independently of the boost value, so
+    // the inspector can keep the rerank rows visible even when the channel
+    // max happened to normalise to 0.
+    expect(out.breakdown.get("winner")?.inRerankPool).toBe(true);
+    expect(out.breakdown.get("loser")?.inRerankPool).toBe(false);
+  });
+
+  test("inRerankPool is false for every slug when rerank is disabled", async () => {
+    stageHybridResponse([{ slug: "alice", denseScore: 0.5 }]);
+    stageHybridResponse([{ slug: "alice", denseScore: 0.4 }]);
+    stageHybridResponse([{ slug: "alice", denseScore: 0.2 }]);
+
+    // No `rerank` block at all → rerankCfg is undefined and the rerank
+    // branch never runs, so no slug is in the pool.
+    const out = await computeOwnActivation({
+      candidates: new Set(["alice"]),
+      priorState: null,
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig(),
+    });
+
+    expect(out.breakdown.get("alice")?.inRerankPool).toBe(false);
+    expect(out.breakdown.get("alice")?.simUserRerankBoost).toBe(0);
+    expect(out.breakdown.get("alice")?.simAssistantRerankBoost).toBe(0);
+  });
+
+  test("rerank boost is additive on A_o and leaves raw simUser / simAssistant untouched", async () => {
+    stageHybridResponse([{ slug: "a", denseScore: 0.5 }]); // user
+    stageHybridResponse([{ slug: "a", denseScore: 0.4 }]); // assistant
+    stageHybridResponse([]); // now
+    rerankState.scores = new Map([["a", 0.8]]);
+
+    const config = {
+      memory: {
+        v2: {
+          d: 0.0,
+          c_user: 0.5,
+          c_assistant: 0.5,
+          c_now: 0.0,
+          dense_weight: 1.0,
+          sparse_weight: 0.0,
+          rerank: {
+            enabled: true,
+            top_k: 50,
+            alpha: 0.4,
+            model: "test-model",
+          },
+        },
+      },
+    } as unknown as AssistantConfig;
+
+    const out = await computeOwnActivation({
+      candidates: new Set(["a"]),
+      priorState: null,
+      userText: "u",
+      assistantText: "a",
+      nowText: "",
+      config,
+    });
+
+    const breakdown = out.breakdown.get("a");
+    // Raw fused similarities are reported untouched by rerank.
+    expect(breakdown?.simUser).toBeCloseTo(0.5, 6);
+    expect(breakdown?.simAssistant).toBeCloseTo(0.4, 6);
+    // Both rerank deltas are alpha · r_norm = 0.4 · 1.0 = 0.4 (single
+    // candidate normalises to 1.0 in each channel).
+    expect(breakdown?.simUserRerankBoost).toBeCloseTo(0.4, 6);
+    expect(breakdown?.simAssistantRerankBoost).toBeCloseTo(0.4, 6);
+    // Final A_o = c_user·simU + c_assistant·simA + c_user·boostU + c_assistant·boostA
+    //           = 0.5·0.5 + 0.5·0.4 + 0.5·0.4 + 0.5·0.4 = 0.25+0.20+0.20+0.20 = 0.85
+    expect(out.activation.get("a")).toBeCloseTo(0.85, 6);
   });
 });
 
@@ -978,48 +1157,26 @@ describe("selectInjections", () => {
 });
 
 // ---------------------------------------------------------------------------
-// computeSkillActivation
+// Skills as concept slugs — the unified pool
 // ---------------------------------------------------------------------------
+//
+// Skills participate in the concept-page pipeline under the slug prefix
+// `skills/<id>`. There is no longer a dedicated skill activation function;
+// the only post-unification behavioral assertion worth preserving here is
+// that a `skills/<id>` slug flows through `computeOwnActivation` exactly
+// like a concept slug — same formula, same clamp, same breakdown shape.
 
-/** Stage a single hybrid response on the skills queues (payload key = `id`). */
-function stageSkillHybridResponse(
-  hits: Array<{ id: string; denseScore?: number; sparseScore?: number }>,
-): void {
-  state.skillQueryResponses.dense.push({
-    points: hits
-      .filter((h) => h.denseScore !== undefined)
-      .map((h) => ({ score: h.denseScore, payload: { id: h.id } })),
-  });
-  state.skillQueryResponses.sparse.push({
-    points: hits
-      .filter((h) => h.sparseScore !== undefined)
-      .map((h) => ({ score: h.sparseScore, payload: { id: h.id } })),
-  });
-}
+describe("skills participate in the unified pipeline", () => {
+  test("computeOwnActivation scores a `skills/<id>` slug like any concept slug", async () => {
+    // Three simBatch responses, one per channel (user/assistant/now), with
+    // a single skill-prefixed slug as the only candidate.
+    stageHybridResponse([{ slug: "skills/example-skill-a", denseScore: 0.5 }]);
+    stageHybridResponse([{ slug: "skills/example-skill-a", denseScore: 0.4 }]);
+    stageHybridResponse([{ slug: "skills/example-skill-a", denseScore: 0.2 }]);
 
-describe("computeSkillActivation", () => {
-  test("empty candidates short-circuits without backend calls", async () => {
-    const out = await computeSkillActivation({
-      candidates: new Set(),
-      userText: "u",
-      assistantText: "a",
-      nowText: "n",
-      config: makeConfig(),
-    });
-    expect(out.activation.size).toBe(0);
-    expect(out.breakdown.size).toBe(0);
-    expect(state.embedCalls).toHaveLength(0);
-    expect(state.queryCalls).toHaveLength(0);
-  });
-
-  test("applies similarity-only formula with no decay term", async () => {
-    // Stage three skill responses — one per `simSkillBatch` call.
-    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.5 }]); // simU
-    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.4 }]); // simA
-    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.2 }]); // simN
-
-    const out = await computeSkillActivation({
-      candidates: new Set(["example-skill-a"]),
+    const out = await computeOwnActivation({
+      candidates: new Set(["skills/example-skill-a"]),
+      priorState: null,
       userText: "u",
       assistantText: "a",
       nowText: "n",
@@ -1030,191 +1187,12 @@ describe("computeSkillActivation", () => {
         c_now: 0.2,
       }),
     });
-    // No `d · prev` term: 0.3*0.5 + 0.2*0.4 + 0.2*0.2 = 0.15 + 0.08 + 0.04 = 0.27
-    expect(out.activation.get("example-skill-a")).toBeCloseTo(0.27, 6);
-  });
 
-  test("output excludes any decay term — d coefficient is unused", async () => {
-    // The skill activation formula is `c_user·simU + c_assistant·simA +
-    // c_now·simN`. Run with d=0.9 and d=0.0 — if the implementation
-    // accidentally included a `d · prev` term, the two would diverge. The
-    // function has no priorState parameter, so prev=0; both runs must equal
-    // the d-free formula exactly. Stage three sim responses per run.
-    const stage = () => {
-      stageSkillHybridResponse([{ id: "alpha", denseScore: 0.4 }]);
-      stageSkillHybridResponse([{ id: "alpha", denseScore: 0.4 }]);
-      stageSkillHybridResponse([{ id: "alpha", denseScore: 0.4 }]);
-    };
-    const baseConfig = { c_user: 0.3, c_assistant: 0.2, c_now: 0.2 };
-
-    stage();
-    const withHighD = await computeSkillActivation({
-      candidates: new Set(["alpha"]),
-      userText: "u",
-      assistantText: "a",
-      nowText: "n",
-      config: makeConfig({ ...baseConfig, d: 0.9 }),
-    });
-    stage();
-    const withZeroD = await computeSkillActivation({
-      candidates: new Set(["alpha"]),
-      userText: "u",
-      assistantText: "a",
-      nowText: "n",
-      config: makeConfig({ ...baseConfig, d: 0.0 }),
-    });
-
-    // Both equal `0.3*0.4 + 0.2*0.4 + 0.2*0.4 = 0.28` — d is ignored.
-    expect(withHighD.activation.get("alpha")).toBeCloseTo(0.28, 6);
-    expect(withZeroD.activation.get("alpha")).toBeCloseTo(0.28, 6);
-  });
-
-  test("clamps over-1.0 results down to [0, 1]", async () => {
-    stageSkillHybridResponse([{ id: "loud-skill", denseScore: 1.0 }]); // simU
-    stageSkillHybridResponse([{ id: "loud-skill", denseScore: 1.0 }]); // simA
-    stageSkillHybridResponse([{ id: "loud-skill", denseScore: 1.0 }]); // simN
-
-    // Coefficients intentionally sum to > 1 so the unclamped result
-    // overshoots — the implementation must still produce <= 1.0.
-    const out = await computeSkillActivation({
-      candidates: new Set(["loud-skill"]),
-      userText: "u",
-      assistantText: "a",
-      nowText: "n",
-      config: makeConfig({
-        c_user: 0.5,
-        c_assistant: 0.5,
-        c_now: 0.5,
-      }),
-    });
-    expect(out.activation.get("loud-skill")).toBe(1);
-  });
-
-  test("candidate with no sim hits resolves to 0", async () => {
-    stageSkillHybridResponse([]);
-    stageSkillHybridResponse([]);
-    stageSkillHybridResponse([]);
-
-    const out = await computeSkillActivation({
-      candidates: new Set(["ghost-skill"]),
-      userText: "u",
-      assistantText: "a",
-      nowText: "n",
-      config: makeConfig(),
-    });
-    expect(out.activation.get("ghost-skill")).toBe(0);
-  });
-
-  test("breakdown captures the raw sims for each candidate", async () => {
-    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.5 }]); // simU
-    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.4 }]); // simA
-    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.2 }]); // simN
-
-    const out = await computeSkillActivation({
-      candidates: new Set(["example-skill-a"]),
-      userText: "u",
-      assistantText: "a",
-      nowText: "n",
-      config: makeConfig({
-        c_user: 0.3,
-        c_assistant: 0.2,
-        c_now: 0.2,
-      }),
-    });
-    const breakdown = out.breakdown.get("example-skill-a");
-    expect(breakdown).toBeDefined();
-    expect(breakdown?.simUser).toBeCloseTo(0.5, 6);
-    expect(breakdown?.simAssistant).toBeCloseTo(0.4, 6);
-    expect(breakdown?.simNow).toBeCloseTo(0.2, 6);
-  });
-
-  test("uses the dedicated skills collection and never queries concept pages", async () => {
-    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.5 }]);
-    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.5 }]);
-    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.5 }]);
-
-    await computeSkillActivation({
-      candidates: new Set(["example-skill-a"]),
-      userText: "u",
-      assistantText: "a",
-      nowText: "n",
-      config: makeConfig(),
-    });
-
-    // Three simSkillBatch calls × 2 channels = 6 total queries, all against
-    // the skills collection. No spread → no extra calls beyond these.
-    expect(state.queryCalls).toHaveLength(6);
-    for (const call of state.queryCalls) {
-      expect(call.collection).toBe("memory_v2_skills");
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// selectSkillInjections
-// ---------------------------------------------------------------------------
-
-describe("selectSkillInjections", () => {
-  test("returns empty when activation is empty", () => {
-    const out = selectSkillInjections({ A: new Map(), topK: 5 });
-    expect(out).toEqual({ topNow: [] });
-  });
-
-  test("returns empty when topK is 0", () => {
-    const out = selectSkillInjections({
-      A: new Map([
-        ["example-skill-a", 0.5],
-        ["example-skill-b", 0.4],
-      ]),
-      topK: 0,
-    });
-    expect(out).toEqual({ topNow: [] });
-  });
-
-  test("ranks by activation descending and trims to topK", () => {
-    const out = selectSkillInjections({
-      A: new Map([
-        ["example-skill-a", 0.1],
-        ["example-skill-b", 0.9],
-        ["example-skill-c", 0.5],
-        ["example-skill-d", 0.3],
-      ]),
-      topK: 2,
-    });
-    expect(out.topNow).toEqual(["example-skill-b", "example-skill-c"]);
-  });
-
-  test("skills are stateless: the same id may be returned on consecutive turns", () => {
-    // No `everInjected` parameter exists — selectSkillInjections takes only
-    // the activation map and topK. So calling it twice with the same A map
-    // returns the same result; there is no dedup against prior turns.
-    const A = new Map([
-      ["example-skill-a", 0.9],
-      ["example-skill-b", 0.5],
-    ]);
-    const turn1 = selectSkillInjections({ A, topK: 5 });
-    const turn2 = selectSkillInjections({ A, topK: 5 });
-    expect(turn1.topNow).toEqual(["example-skill-a", "example-skill-b"]);
-    expect(turn2.topNow).toEqual(turn1.topNow);
-  });
-
-  test("breaks ties by id ascending for deterministic output", () => {
-    const out = selectSkillInjections({
-      A: new Map([
-        ["zeta-skill", 0.5],
-        ["example-skill-a", 0.5],
-        ["mike-skill", 0.5],
-      ]),
-      topK: 5,
-    });
-    expect(out.topNow).toEqual(["example-skill-a", "mike-skill", "zeta-skill"]);
-  });
-
-  test("topK clamps to the available activation entries", () => {
-    const out = selectSkillInjections({
-      A: new Map([["only-skill", 0.7]]),
-      topK: 100,
-    });
-    expect(out.topNow).toEqual(["only-skill"]);
+    // No prior state → priorContribution = 0.
+    // 0.3*0.5 + 0.2*0.4 + 0.2*0.2 = 0.15 + 0.08 + 0.04 = 0.27
+    expect(out.activation.get("skills/example-skill-a")).toBeCloseTo(0.27, 6);
+    expect(out.breakdown.get("skills/example-skill-a")?.priorContribution).toBe(
+      0,
+    );
   });
 });

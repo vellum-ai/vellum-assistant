@@ -17,6 +17,24 @@ const WEIGHT_SUM_TOLERANCE = 0.001;
 const DEFAULT_RERANK_MODEL = "Alibaba-NLP/gte-reranker-modernbert-base";
 
 /**
+ * ONNX weight precision passed to `@huggingface/transformers`. Sourced from
+ * transformers.js's supported `dtype` values; `q8` (int8) is ~3× faster than
+ * `fp32` on CPU with negligible reranker accuracy loss. Single source of
+ * truth for both the schema enum and the `LocalRerankBackend` type.
+ */
+export const RerankDtypeEnum = z.enum([
+  "fp32",
+  "fp16",
+  "q8",
+  "int8",
+  "uint8",
+  "q4",
+  "bnb4",
+  "q4f16",
+]);
+export type RerankDtype = z.infer<typeof RerankDtypeEnum>;
+
+/**
  * Memory v2 (concept-page activation model) configuration.
  *
  * Activation weights (`d`, `c_user`, `c_assistant`, `c_now`) must sum to 1.0
@@ -92,9 +110,9 @@ export const MemoryV2ConfigSchema = z
       .number({ error: "memory.v2.top_k must be a number" })
       .int("memory.v2.top_k must be an integer")
       .positive("memory.v2.top_k must be a positive integer")
-      .default(20)
+      .default(25)
       .describe(
-        "Number of top-activation concept pages considered for injection per turn",
+        "Number of top-activation entries (concept pages and skills combined) considered for injection per turn. Skills are scored alongside concepts in the same pool; this cap covers both.",
       ),
     ann_candidate_limit: z
       .number({ error: "memory.v2.ann_candidate_limit must be a number" })
@@ -104,14 +122,6 @@ export const MemoryV2ConfigSchema = z
       .default(null)
       .describe(
         "Per-channel cap on the unrestricted ANN candidate query (dense and sparse each return up to this many hits before they are unioned and fed into the activation pipeline). `null` = unlimited (every page in the v2 collection is eligible). Increase or null this out to surface more candidates at the cost of higher per-turn embedding/scoring work.",
-      ),
-    top_k_skills: z
-      .number({ error: "memory.v2.top_k_skills must be a number" })
-      .int()
-      .nonnegative()
-      .default(5)
-      .describe(
-        "Cap on the per-turn skill-autoinjection slate rendered in `### Skills You Can Use`. 0 disables skill autoinjection without code changes.",
       ),
     epsilon: z
       .number({ error: "memory.v2.epsilon must be a number" })
@@ -207,7 +217,7 @@ export const MemoryV2ConfigSchema = z
           .boolean()
           .default(false)
           .describe(
-            "Whether to apply cross-encoder reranking as an additive boost to the user + assistant similarity channels. Disabled by default — opt in once measured.",
+            "Whether to apply cross-encoder reranking as an additive A_o boost on the user + assistant channels. Disabled by default — opt in once measured.",
           ),
         top_k: z
           .number()
@@ -216,7 +226,7 @@ export const MemoryV2ConfigSchema = z
           .max(200)
           .default(50)
           .describe(
-            "Number of top-fused candidates per `simBatch` call to send through the reranker. Tail candidates keep their pure fused score.",
+            "Number of candidates from the top of the pre-rerank-A_o pool to send through the reranker. Tail candidates contribute zero rerank boost and keep their pure fused activation.",
           ),
         alpha: z
           .number()
@@ -224,7 +234,7 @@ export const MemoryV2ConfigSchema = z
           .max(1)
           .default(0.3)
           .describe(
-            "Boost weight: `boosted = clamp01(fused + alpha · normalized_rerank)`. Top reranker hit can lift its fused score by up to `alpha`; bottom of top_k stays roughly unchanged.",
+            "Per-channel rerank weight: each top-K slug gets `alpha · normalized_rerank` added to A_o weighted by `c_user` (user channel) or `c_assistant` (assistant channel). Top reranker hit can lift A_o by up to `(c_user + c_assistant) · alpha`; bottom of top_k stays roughly unchanged.",
           ),
         model: z
           .string()
@@ -232,15 +242,19 @@ export const MemoryV2ConfigSchema = z
           .describe(
             "HuggingFace model id for the cross-encoder. Must have an ONNX export reachable from huggingface.co/<model>/resolve/main/onnx/model.onnx.",
           ),
+        dtype: RerankDtypeEnum.default("q8").describe(
+          "ONNX weight precision passed to `@huggingface/transformers`. `q8` (int8) is ~3× faster than `fp32` on CPU with negligible reranker accuracy loss. The worker fails to spawn if the configured model has no matching quantized export — `reranker.ts` then falls back to pure fused scores for the turn.",
+        ),
       })
       .default({
         enabled: false,
         top_k: 50,
         alpha: 0.3,
         model: DEFAULT_RERANK_MODEL,
+        dtype: "q8",
       })
       .describe(
-        "Cross-encoder rerank configuration. When enabled, runs a local cross-encoder over the top-K fused candidates per `simBatch(useRerank: true)` call and adds an alpha-weighted normalized boost to their fused scores.",
+        "Cross-encoder rerank configuration. When enabled, picks the top-K candidates by pre-rerank A_o, runs the cross-encoder once per channel (user, assistant) on that unified set, and adds an alpha-weighted normalized boost to A_o for each scored slug.",
       ),
   })
   .describe(

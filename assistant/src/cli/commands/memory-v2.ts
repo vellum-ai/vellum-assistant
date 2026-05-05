@@ -25,9 +25,9 @@
  *     violation lists). Does not mutate the workspace.
  *
  * Lives alongside the existing v1 `memory` command rather than replacing it
- * because v1 graph + PKB stays write-active until the cutover PR. Until the
- * `memory-v2-enabled` feature flag flips on, the workspace keeps both v1 and
- * v2 state side-by-side.
+ * so flipping `memory-v2-enabled` back to off fully re-engages the v1
+ * pipeline. While the flag is on, v1 graph extraction/maintenance and PKB
+ * filing are suppressed; v1 data stays in place but stops being updated.
  */
 
 import type { Command } from "commander";
@@ -267,9 +267,10 @@ Examples:
       "after",
       `
 Re-runs the v2 skill catalog seed against the current skill set, replacing
-both the in-process skill cache and the memory_v2_skills Qdrant collection.
-Useful after editing a skill's SKILL.md, after a feature-flag flip changes
-the enabled-skill set, or to recover a corrupted skills collection.
+both the in-process skill cache and the skill entries in the unified
+memory_v2_concept_pages Qdrant collection (under the skills/<id> slug
+prefix). Useful after editing a skill's SKILL.md, after a feature-flag flip
+changes the enabled-skill set, or to recover corrupted skill embeddings.
 
 Unlike 'reembed' (concept pages), this runs synchronously inside the
 daemon — the command returns only once the seed completes. Requires both

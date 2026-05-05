@@ -2,12 +2,15 @@
 // Memory v2 — Per-turn activation update
 // ---------------------------------------------------------------------------
 //
-// Implements the activation formula from §4 of the design doc:
+// Implements the activation formula from §4 of the design doc plus an
+// additive cross-encoder rerank boost on the unified top-K-by-A_o pool:
 //
 //   A_o(n, t+1) = d · A(n, t)
 //               + c_user      · sim(User_{t+1},  n)
 //               + c_assistant · sim(Assistant_t, n)
 //               + c_now       · sim(NOW.md,      n)
+//               + c_user      · α · r_norm(User_{t+1},  n)   [n ∈ topK]
+//               + c_assistant · α · r_norm(Assistant_t, n)   [n ∈ topK]
 //
 //   A(n, t+1) = [ A_o(n)
 //               + k  · Σ_{m∈in1(n)} A_o(m)
@@ -40,7 +43,8 @@ import {
 import { clampUnitInterval } from "../validation.js";
 import type { EdgeIndex } from "./edge-index.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
-import { simBatch, simSkillBatch } from "./sim.js";
+import { rerankCandidates } from "./reranker.js";
+import { simBatch } from "./sim.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 /**
@@ -164,12 +168,18 @@ interface ComputeOwnActivationParams {
 interface OwnActivationBreakdown {
   /** `d * prev(slug)` — the decayed prior-turn activation contribution. */
   priorContribution: number;
-  /** Raw `sim(user, slug)` similarity, before `c_user` weighting. */
+  /** Raw fused `sim(user, slug)`, before `c_user` weighting. */
   simUser: number;
-  /** Raw `sim(assistant, slug)` similarity, before `c_assistant` weighting. */
+  /** Raw fused `sim(assistant, slug)`, before `c_assistant` weighting. */
   simAssistant: number;
-  /** Raw `sim(now, slug)` similarity, before `c_now` weighting. */
+  /** Raw fused `sim(now, slug)`, before `c_now` weighting. */
   simNow: number;
+  /** Rerank delta `α · r_norm_u`; 0 outside the top-K pool. Applied to `A_o` weighted by `c_user`. */
+  simUserRerankBoost: number;
+  /** Rerank delta `α · r_norm_a`; 0 outside the top-K pool. Applied to `A_o` weighted by `c_assistant`. NOW skips rerank. */
+  simAssistantRerankBoost: number;
+  /** True when this slug was in the unified top-K rerank pool. Lets the inspector distinguish "cross-encoder normalised to 0" from "rerank skipped this slug." */
+  inRerankPool: boolean;
 }
 
 interface ComputeOwnActivationResult {
@@ -181,15 +191,21 @@ interface ComputeOwnActivationResult {
 
 /**
  * Apply the own-activation formula
- *   A_o(n) = d · prev(n) + c_user · sim_u + c_assistant · sim_a + c_now · sim_n
- * over the candidate set. Returns a sparse map keyed by slug; slugs whose
- * computed value rounds to 0 are still included so callers can see the
- * candidate set explicitly. Also returns a per-slug breakdown of the raw
- * inputs (decayed prior + raw sims) so callers can render contribution
- * diagnostics without re-running the math.
+ *   A_o(n) = d · prev(n)
+ *          + c_user · sim_u + c_assistant · sim_a + c_now · sim_n
+ *          + c_user · α · r_norm_u + c_assistant · α · r_norm_a
+ * over the candidate set, where the rerank terms only fire for slugs that
+ * land in the unified top-K-by-pre-rerank-A_o window. Returns a sparse map
+ * keyed by slug; slugs whose computed value rounds to 0 are still included
+ * so callers can see the candidate set explicitly. Also returns a per-slug
+ * breakdown of the raw inputs (decayed prior + raw sims + rerank deltas) so
+ * callers can render contribution diagnostics without re-running the math.
  *
  * The three `simBatch` calls run concurrently — they hit independent named
- * vectors and embed independent query texts.
+ * vectors and embed independent query texts. Cross-encoder rerank then runs
+ * once on the unified top-K (selected by pre-rerank A_o, not per-channel
+ * fused sim) so an entry strong in both channels can't double-boost itself
+ * past entries that only land in one channel.
  */
 export async function computeOwnActivation(
   params: ComputeOwnActivationParams,
@@ -205,29 +221,111 @@ export async function computeOwnActivation(
   const slugList = [...candidates];
 
   // NOW context is structured (timestamps, current focus) — outside the
-  // cross-encoder's training distribution, so it stays on pure fused fusion.
+  // cross-encoder's training distribution, so it never participates in rerank.
   const [simUser, simAssistant, simNow] = await Promise.all([
-    simBatch(userText, slugList, config, { useRerank: true }),
-    simBatch(assistantText, slugList, config, { useRerank: true }),
+    simBatch(userText, slugList, config),
+    simBatch(assistantText, slugList, config),
     simBatch(nowText, slugList, config),
   ]);
 
-  for (const slug of slugList) {
+  interface SlugInputs {
+    slug: string;
+    priorContribution: number;
+    simU: number;
+    simA: number;
+    simN: number;
+    /** Pre-rerank A_o; ranking signal for the unified rerank pool. */
+    preRerank: number;
+  }
+  const inputs: SlugInputs[] = slugList.map((slug) => {
     const prev = priorState?.state[slug] ?? 0;
     const simU = simUser.get(slug) ?? 0;
     const simA = simAssistant.get(slug) ?? 0;
     const simN = simNow.get(slug) ?? 0;
-    const value = d * prev + c_user * simU + c_assistant * simA + c_now * simN;
-    activation.set(slug, clampUnitInterval(value));
-    breakdown.set(slug, {
-      priorContribution: d * prev,
-      simUser: simU,
-      simAssistant: simA,
-      simNow: simN,
+    const priorContribution = d * prev;
+    return {
+      slug,
+      priorContribution,
+      simU,
+      simA,
+      simN,
+      preRerank:
+        priorContribution + c_user * simU + c_assistant * simA + c_now * simN,
+    };
+  });
+
+  // Unified top-K by pre-rerank A_o. Both channels rerank against the **same**
+  // slug set, so a slug strong on user can't crowd out one strong on assistant
+  // by virtue of appearing in both per-channel top-Ks. Both channel queries
+  // ride in a single `rerankCandidates` call so the worker tokenizes and
+  // forward-passes them together — half the per-call overhead of two
+  // serialised round-trips.
+  let userRerankBoost: ReadonlyMap<string, number> = new Map();
+  let assistantRerankBoost: ReadonlyMap<string, number> = new Map();
+  let inPoolSet: ReadonlySet<string> = new Set();
+  const rerankCfg = config.memory.v2.rerank;
+  if (rerankCfg?.enabled) {
+    const topSlugs = inputs
+      .slice()
+      .sort((a, b) => b.preRerank - a.preRerank)
+      .slice(0, rerankCfg.top_k)
+      .map((e) => e.slug);
+    if (topSlugs.length > 0) {
+      inPoolSet = new Set(topSlugs);
+      const [userScores, assistantScores] = await rerankCandidates(
+        [userText, assistantText],
+        topSlugs,
+        config,
+      );
+      userRerankBoost = normalizeRerankScores(userScores, rerankCfg.alpha);
+      assistantRerankBoost = normalizeRerankScores(
+        assistantScores,
+        rerankCfg.alpha,
+      );
+    }
+  }
+
+  for (const e of inputs) {
+    const boostU = userRerankBoost.get(e.slug) ?? 0;
+    const boostA = assistantRerankBoost.get(e.slug) ?? 0;
+    activation.set(
+      e.slug,
+      clampUnitInterval(e.preRerank + c_user * boostU + c_assistant * boostA),
+    );
+    breakdown.set(e.slug, {
+      priorContribution: e.priorContribution,
+      simUser: e.simU,
+      simAssistant: e.simA,
+      simNow: e.simN,
+      simUserRerankBoost: boostU,
+      simAssistantRerankBoost: boostA,
+      inRerankPool: inPoolSet.has(e.slug),
     });
   }
 
   return { activation, breakdown };
+}
+
+/**
+ * Per-batch normalisation: divide raw cross-encoder scores by the channel's
+ * own max and return `alpha · r_norm` per slug. Empty input or all-zero
+ * scores yield an empty Map so the channel contributes 0 boost.
+ */
+function normalizeRerankScores(
+  rawScores: ReadonlyMap<string, number>,
+  alpha: number,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (rawScores.size === 0) return out;
+  let maxScore = 0;
+  for (const v of rawScores.values()) {
+    if (v > maxScore) maxScore = v;
+  }
+  if (maxScore === 0) return out;
+  for (const [slug, raw] of rawScores) {
+    out.set(slug, alpha * (raw / maxScore));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -412,133 +510,4 @@ export function selectInjections(
   const toInject = topNow.filter((slug) => !everSet.has(slug));
 
   return { topNow, toInject };
-}
-
-// ---------------------------------------------------------------------------
-// Skill autoinjection — candidate / activation / injection selection
-// ---------------------------------------------------------------------------
-//
-// Skills are stateless: there is no decay carry-over (`d · prev`), no
-// spreading activation, and no `everInjected` dedup. The agent re-presents
-// the top-K active skills every turn so it can drop or pick them up freely.
-// The pipeline therefore reduces to:
-//   1. ANN candidate selection against the dedicated skills collection.
-//   2. Pure similarity-only activation: A_skill = c_user·sim_u +
-//      c_assistant·sim_a + c_now·sim_n, clamped to [0, 1].
-//   3. Top-K by activation, lexicographic tie-break, no injection delta.
-//
-// The activation coefficients are reused from `config.memory.v2.{c_user,
-// c_assistant, c_now}` — the design doc (§9) deliberately shares them with
-// concept-page activation rather than introducing parallel knobs.
-
-interface ComputeSkillActivationParams {
-  candidates: ReadonlySet<string>;
-  userText: string;
-  assistantText: string;
-  nowText: string;
-  config: AssistantConfig;
-}
-
-/**
- * Per-skill breakdown of the raw similarity inputs, captured before any
- * coefficient weighting. Skills have no decay term, so the breakdown is just
- * the three raw sims. Surfaced for telemetry / inspector views.
- */
-interface SkillActivationBreakdown {
-  /** Raw `sim(user, skill)` similarity, before `c_user` weighting. */
-  simUser: number;
-  /** Raw `sim(assistant, skill)` similarity, before `c_assistant` weighting. */
-  simAssistant: number;
-  /** Raw `sim(now, skill)` similarity, before `c_now` weighting. */
-  simNow: number;
-}
-
-interface ComputeSkillActivationResult {
-  /** Final clamped skill-activation value per id. */
-  activation: Map<string, number>;
-  /** Per-skill breakdown of the raw sim inputs that fed into `activation`. */
-  breakdown: Map<string, SkillActivationBreakdown>;
-}
-
-/**
- * Apply the skill-side activation formula (no decay carry-over, no spread):
- *   A_skill(s) = clamp01(c_user · sim_u + c_assistant · sim_a + c_now · sim_n)
- *
- * Reuses the activation coefficients from `config.memory.v2`. The three
- * `simSkillBatch` calls run concurrently — they hit independent named
- * vectors and embed independent query texts. Returns a per-skill breakdown
- * of the raw sims alongside the activation map so callers can render
- * contribution diagnostics without re-running the math.
- *
- * Empty candidates short-circuits to an empty map without touching the
- * embedding backend or Qdrant.
- */
-export async function computeSkillActivation(
-  params: ComputeSkillActivationParams,
-): Promise<ComputeSkillActivationResult> {
-  const { candidates, userText, assistantText, nowText, config } = params;
-
-  const activation = new Map<string, number>();
-  const breakdown = new Map<string, SkillActivationBreakdown>();
-  if (candidates.size === 0) return { activation, breakdown };
-
-  const { c_user, c_assistant, c_now } = config.memory.v2;
-  const idList = [...candidates];
-
-  const [simUser, simAssistant, simNow] = await Promise.all([
-    simSkillBatch(userText, idList, config),
-    simSkillBatch(assistantText, idList, config),
-    simSkillBatch(nowText, idList, config),
-  ]);
-
-  for (const id of idList) {
-    const simU = simUser.get(id) ?? 0;
-    const simA = simAssistant.get(id) ?? 0;
-    const simN = simNow.get(id) ?? 0;
-    const value = c_user * simU + c_assistant * simA + c_now * simN;
-    activation.set(id, clampUnitInterval(value));
-    breakdown.set(id, { simUser: simU, simAssistant: simA, simNow: simN });
-  }
-
-  return { activation, breakdown };
-}
-
-interface SelectSkillInjectionsParams {
-  /** Final skill activation map. */
-  A: ReadonlyMap<string, number>;
-  /** Cap on the per-turn skill slate, e.g. `config.memory.v2.skills_top_k`. */
-  topK: number;
-}
-
-interface SelectSkillInjectionsResult {
-  /**
-   * Top-K skill ids by activation (descending), tie-broken lexicographically.
-   * Skills are re-presented every turn — no `toInject` delta — so the caller
-   * uses this list verbatim to render the skill slate.
-   */
-  topNow: string[];
-}
-
-/**
- * Pick the top-K skill ids by activation (descending; stable on ties via id
- * lexicographic order). Skills are stateless — there is no `everInjected`
- * dedup, so the same id can appear on consecutive turns.
- *
- * Returns `{ topNow: [] }` for an empty activation map or `topK <= 0`.
- */
-export function selectSkillInjections(
-  params: SelectSkillInjectionsParams,
-): SelectSkillInjectionsResult {
-  const { A, topK } = params;
-  if (A.size === 0 || topK <= 0) {
-    return { topNow: [] };
-  }
-
-  const ranked = [...A.entries()].sort(([idA, valA], [idB, valB]) => {
-    if (valB !== valA) return valB - valA; // higher activation first
-    return idA < idB ? -1 : idA > idB ? 1 : 0; // stable tie-break
-  });
-
-  const topNow = ranked.slice(0, topK).map(([id]) => id);
-  return { topNow };
 }

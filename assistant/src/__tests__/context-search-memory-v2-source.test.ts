@@ -148,7 +148,6 @@ function makeConfig(): AssistantConfig {
         c_assistant: 0.5,
         c_now: 0.5,
         top_k: 8,
-        top_k_skills: 0,
       },
     },
   } as unknown as AssistantConfig;

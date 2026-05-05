@@ -13,7 +13,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         let k: String
         let hops: String
         let topK: String
-        let topKSkills: String
         let epsilon: String
     }
 
@@ -30,14 +29,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         let simBreakdownRows: [LabeledValue]
     }
 
-    struct SkillRowVM: Identifiable, Equatable {
-        let id: String
-        let status: String
-        let activation: Double
-        let activationLabel: String
-        let simBreakdownRows: [LabeledValue]
-    }
-
     struct LabeledValue: Equatable {
         let label: String
         let value: String
@@ -46,7 +37,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
     let mode: String
     let turn: Int
     let conceptRows: [ConceptRowVM]
-    let skillRows: [SkillRowVM]
     let inContextCount: Int
     let injectedCount: Int
     let notInjectedCount: Int
@@ -70,30 +60,14 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
                         simUser: concept.simUser,
                         simAssistant: concept.simAssistant,
                         simNow: concept.simNow,
+                        simUserRerankBoost: concept.simUserRerankBoost,
+                        simAssistantRerankBoost: concept.simAssistantRerankBoost,
+                        inRerankPool: concept.inRerankPool,
                         config: activation.config
                     )
                 )
             }
 
-        let skillRows = activation.skills
-            .sorted { $0.activation > $1.activation }
-            .map { skill in
-                SkillRowVM(
-                    id: skill.id,
-                    status: skill.status,
-                    activation: skill.activation,
-                    activationLabel: formatActivation(skill.activation),
-                    simBreakdownRows: simBreakdownRows(
-                        simUser: skill.simUser,
-                        simAssistant: skill.simAssistant,
-                        simNow: skill.simNow,
-                        config: activation.config
-                    )
-                )
-            }
-
-        // Concept-only partition: skills lack `in_context`, so summing them in would
-        // make the three chips asymmetric. Skills are surfaced in their own card.
         let inContext = conceptRows.filter { $0.status == "in_context" }.count
         let injected = conceptRows.filter { $0.status == "injected" }.count
         let notInjected = conceptRows.filter { $0.status == "not_injected" }.count
@@ -106,7 +80,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
             k: formatActivation(activation.config.k),
             hops: "\(activation.config.hops)",
             topK: "\(activation.config.topK)",
-            topKSkills: "\(activation.config.topKSkills)",
             epsilon: formatActivation(activation.config.epsilon)
         )
 
@@ -114,7 +87,6 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
             mode: activation.mode,
             turn: activation.turn,
             conceptRows: conceptRows,
-            skillRows: skillRows,
             inContextCount: inContext,
             injectedCount: injected,
             notInjectedCount: notInjected,
@@ -134,9 +106,12 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         simUser: Double,
         simAssistant: Double,
         simNow: Double,
+        simUserRerankBoost: Double = 0,
+        simAssistantRerankBoost: Double = 0,
+        inRerankPool: Bool = false,
         config: MemoryV2Config
     ) -> [LabeledValue] {
-        [
+        var rows: [LabeledValue] = [
             LabeledValue(
                 label: "c_user · sim_u",
                 value: "\(formatScaled(simUser, scale: config.cUser))  (raw \(formatActivation(simUser)))"
@@ -150,6 +125,25 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
                 value: "\(formatScaled(simNow, scale: config.cNow))  (raw \(formatActivation(simNow)))"
             ),
         ]
+        // Rerank contributes additively to A_o weighted by c_user / c_assistant
+        // — render as standalone rows (not nested under c_user · sim_u) so the
+        // sum across all visible rows equals the row's A_o. Render both
+        // channels together whenever the slug was in the rerank pool, so
+        // a "+0.000" boost shows up explicitly as "looked at and chose 0"
+        // rather than vanishing. The boost-value fallback handles older log
+        // rows that pre-date `inRerankPool`.
+        let showRerankRows = inRerankPool || simUserRerankBoost > 0 || simAssistantRerankBoost > 0
+        if showRerankRows {
+            rows.append(LabeledValue(
+                label: "c_user · rerank Δ_u",
+                value: "+\(formatScaled(simUserRerankBoost, scale: config.cUser))  (raw \(formatActivation(simUserRerankBoost)))"
+            ))
+            rows.append(LabeledValue(
+                label: "c_assistant · rerank Δ_a",
+                value: "+\(formatScaled(simAssistantRerankBoost, scale: config.cAssistant))  (raw \(formatActivation(simAssistantRerankBoost)))"
+            ))
+        }
+        return rows
     }
 }
 
@@ -182,7 +176,6 @@ struct MessageInspectorMemoryV2Tab: View {
                 countsRow(model: model)
                 configCard(config: model.config)
                 conceptsCard(rows: model.conceptRows)
-                skillsCard(rows: model.skillRows)
             }
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -254,7 +247,6 @@ struct MessageInspectorMemoryV2Tab: View {
                     metadataRow(label: "k (sharpening)", value: config.k)
                     metadataRow(label: "hops", value: config.hops)
                     metadataRow(label: "top_k", value: config.topK)
-                    metadataRow(label: "top_k_skills", value: config.topKSkills)
                     metadataRow(label: "epsilon", value: config.epsilon)
                 }
                 .padding(.top, VSpacing.sm)
@@ -272,44 +264,17 @@ struct MessageInspectorMemoryV2Tab: View {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 cardHeader(
                     title: "Concept activations (\(rows.count))",
-                    subtitle: "Sorted by final activation. Expand a row for the activation breakdown."
+                    subtitle: "Sorted by final activation. Skill entries appear with the `skills/` slug prefix; expand a row for the activation breakdown."
                 )
 
                 if rows.isEmpty {
-                    Text("No concepts ranked.")
+                    Text("No entries ranked.")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                 } else {
                     LazyVStack(alignment: .leading, spacing: VSpacing.xs) {
                         ForEach(rows) { row in
                             ConceptRowView(row: row)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Skills
-
-    private func skillsCard(
-        rows: [MessageInspectorMemoryV2TabModel.SkillRowVM]
-    ) -> some View {
-        VCard {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                cardHeader(
-                    title: "Skills (\(rows.count))",
-                    subtitle: "Sorted by activation. Green-dotted rows are injected this turn; the rest are scored but not picked."
-                )
-
-                if rows.isEmpty {
-                    Text("No skills ranked.")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentSecondary)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(rows) { row in
-                            SkillRowView(row: row)
                         }
                     }
                 }
@@ -582,24 +547,6 @@ private struct ConceptPageContentView: View {
     }
 }
 
-// MARK: - Skill row
-
-private struct SkillRowView: View {
-    let row: MessageInspectorMemoryV2TabModel.SkillRowVM
-
-    var body: some View {
-        ActivationRowView(config: ActivationRowConfig(
-            id: row.id,
-            activation: row.activation,
-            activationLabel: row.activationLabel,
-            statusColor: statusColor(row.status),
-            sourceBadge: nil,
-            breakdownRows: row.simBreakdownRows,
-            statusLabel: statusLabel(row.status)
-        ))
-    }
-}
-
 // MARK: - Activation bar
 
 private struct ActivationBar: View {
@@ -635,8 +582,22 @@ private struct ActivationBar: View {
                 simUser: 0.610,
                 simAssistant: 0.305,
                 simNow: 0.120,
+                simUserRerankBoost: 0.085,
+                simAssistantRerankBoost: 0.042,
                 spreadContribution: 0.110,
                 source: "both",
+                status: "injected"
+            ),
+            MemoryV2ConceptRow(
+                slug: "skills/meeting-bot",
+                finalActivation: 0.720,
+                ownActivation: 0.720,
+                priorActivation: 0.000,
+                simUser: 0.510,
+                simAssistant: 0.420,
+                simNow: 0.090,
+                spreadContribution: 0.000,
+                source: "ann_top50",
                 status: "injected"
             ),
             MemoryV2ConceptRow(
@@ -647,6 +608,7 @@ private struct ActivationBar: View {
                 simUser: 0.420,
                 simAssistant: 0.260,
                 simNow: 0.080,
+                simUserRerankBoost: 0.030,
                 spreadContribution: 0.060,
                 source: "ann_top50",
                 status: "in_context"
@@ -664,24 +626,6 @@ private struct ActivationBar: View {
                 status: "not_injected"
             ),
         ],
-        skills: [
-            MemoryV2SkillRow(
-                id: "meeting-bot",
-                activation: 0.720,
-                simUser: 0.510,
-                simAssistant: 0.420,
-                simNow: 0.090,
-                status: "injected"
-            ),
-            MemoryV2SkillRow(
-                id: "calendar-search",
-                activation: 0.140,
-                simUser: 0.180,
-                simAssistant: 0.110,
-                simNow: 0.020,
-                status: "not_injected"
-            ),
-        ],
         config: MemoryV2Config(
             d: 0.85,
             cUser: 0.6,
@@ -690,7 +634,6 @@ private struct ActivationBar: View {
             k: 4.0,
             hops: 2,
             topK: 12,
-            topKSkills: 4,
             epsilon: 0.05
         )
     )

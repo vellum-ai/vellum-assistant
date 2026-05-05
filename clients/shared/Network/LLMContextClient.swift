@@ -521,22 +521,35 @@ public struct MemoryRecallData: Codable, Sendable, Equatable {
 public struct MemoryV2ActivationData: Codable, Sendable, Equatable {
     public let turn: Int
     public let mode: String // "context-load" | "per-turn"
+    /// All v2 entries scored for this turn, ranked together. Skill entries
+    /// appear with a `slug` prefixed `skills/`; concept-page entries use
+    /// their on-disk slug directly. Filtering on the prefix yields a
+    /// skills-only or concepts-only view.
     public let concepts: [MemoryV2ConceptRow]
-    public let skills: [MemoryV2SkillRow]
     public let config: MemoryV2Config
 
     public init(
         turn: Int,
         mode: String,
         concepts: [MemoryV2ConceptRow],
-        skills: [MemoryV2SkillRow],
         config: MemoryV2Config
     ) {
         self.turn = turn
         self.mode = mode
         self.concepts = concepts
-        self.skills = skills
         self.config = config
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case turn, mode, concepts, config
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        turn = try container.decode(Int.self, forKey: .turn)
+        mode = try container.decode(String.self, forKey: .mode)
+        concepts = try container.decode([MemoryV2ConceptRow].self, forKey: .concepts)
+        config = try container.decode(MemoryV2Config.self, forKey: .config)
     }
 }
 
@@ -549,6 +562,19 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
     public let simUser: Double
     public let simAssistant: Double
     public let simNow: Double
+    /// Portion of `simUser` contributed by the cross-encoder rerank step.
+    /// Zero when rerank is disabled or the slug fell outside the top-K
+    /// window. Older log rows that pre-date this field decode as 0.
+    public let simUserRerankBoost: Double
+    /// Portion of `simAssistant` contributed by the cross-encoder rerank
+    /// step. Same semantics as `simUserRerankBoost`. NOW channel bypasses
+    /// rerank, so there is no corresponding NOW boost.
+    public let simAssistantRerankBoost: Double
+    /// True when this slug was in the unified top-K rerank pool. Lets the
+    /// inspector keep the rerank rows visible at `+0.000` when the channel
+    /// max normalised to 0, distinguishing "cross-encoder looked and chose
+    /// 0" from "rerank skipped this slug." Older log rows decode as `false`.
+    public let inRerankPool: Bool
     public let spreadContribution: Double
     public let source: String  // "prior_state" | "ann_top50" | "both"
     public let status: String  // "in_context" | "injected" | "not_injected"
@@ -561,6 +587,9 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
         simUser: Double,
         simAssistant: Double,
         simNow: Double,
+        simUserRerankBoost: Double = 0,
+        simAssistantRerankBoost: Double = 0,
+        inRerankPool: Bool = false,
         spreadContribution: Double,
         source: String,
         status: String
@@ -572,34 +601,32 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
         self.simUser = simUser
         self.simAssistant = simAssistant
         self.simNow = simNow
+        self.simUserRerankBoost = simUserRerankBoost
+        self.simAssistantRerankBoost = simAssistantRerankBoost
+        self.inRerankPool = inRerankPool
         self.spreadContribution = spreadContribution
         self.source = source
         self.status = status
     }
-}
 
-public struct MemoryV2SkillRow: Codable, Sendable, Equatable, Identifiable {
-    public let id: String
-    public let activation: Double
-    public let simUser: Double
-    public let simAssistant: Double
-    public let simNow: Double
-    public let status: String  // "injected" | "not_injected"
-
-    public init(
-        id: String,
-        activation: Double,
-        simUser: Double,
-        simAssistant: Double,
-        simNow: Double,
-        status: String
-    ) {
-        self.id = id
-        self.activation = activation
-        self.simUser = simUser
-        self.simAssistant = simAssistant
-        self.simNow = simNow
-        self.status = status
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.slug = try c.decode(String.self, forKey: .slug)
+        self.finalActivation = try c.decode(Double.self, forKey: .finalActivation)
+        self.ownActivation = try c.decode(Double.self, forKey: .ownActivation)
+        self.priorActivation = try c.decode(Double.self, forKey: .priorActivation)
+        self.simUser = try c.decode(Double.self, forKey: .simUser)
+        self.simAssistant = try c.decode(Double.self, forKey: .simAssistant)
+        self.simNow = try c.decode(Double.self, forKey: .simNow)
+        // Default to 0 so log rows written before the rerank-boost fields
+        // were added still decode and render as "no boost" instead of
+        // failing the whole inspector tab.
+        self.simUserRerankBoost = try c.decodeIfPresent(Double.self, forKey: .simUserRerankBoost) ?? 0
+        self.simAssistantRerankBoost = try c.decodeIfPresent(Double.self, forKey: .simAssistantRerankBoost) ?? 0
+        self.inRerankPool = try c.decodeIfPresent(Bool.self, forKey: .inRerankPool) ?? false
+        self.spreadContribution = try c.decode(Double.self, forKey: .spreadContribution)
+        self.source = try c.decode(String.self, forKey: .source)
+        self.status = try c.decode(String.self, forKey: .status)
     }
 }
 
@@ -611,7 +638,6 @@ public struct MemoryV2Config: Codable, Sendable, Equatable {
     public let k: Double
     public let hops: Int
     public let topK: Int
-    public let topKSkills: Int
     public let epsilon: Double
 
     enum CodingKeys: String, CodingKey {
@@ -620,7 +646,6 @@ public struct MemoryV2Config: Codable, Sendable, Equatable {
         case cAssistant = "c_assistant"
         case cNow = "c_now"
         case topK = "top_k"
-        case topKSkills = "top_k_skills"
     }
 
     public init(
@@ -631,7 +656,6 @@ public struct MemoryV2Config: Codable, Sendable, Equatable {
         k: Double,
         hops: Int,
         topK: Int,
-        topKSkills: Int,
         epsilon: Double
     ) {
         self.d = d
@@ -641,7 +665,6 @@ public struct MemoryV2Config: Codable, Sendable, Equatable {
         self.k = k
         self.hops = hops
         self.topK = topK
-        self.topKSkills = topKSkills
         self.epsilon = epsilon
     }
 }

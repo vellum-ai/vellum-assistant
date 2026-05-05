@@ -1,7 +1,6 @@
 import type {
   MemoryV2ConceptRowRecord,
   MemoryV2ConfigSnapshot,
-  MemoryV2SkillRowRecord,
 } from "../../memory-v2-activation-log-store.js";
 
 export const sampleConcepts: MemoryV2ConceptRowRecord[] = [
@@ -13,8 +12,26 @@ export const sampleConcepts: MemoryV2ConceptRowRecord[] = [
     simUser: 0.6,
     simAssistant: 0.4,
     simNow: 0.3,
+    simUserRerankBoost: 0,
+    simAssistantRerankBoost: 0,
+    inRerankPool: false,
     spreadContribution: 0.2,
     source: "both",
+    status: "injected",
+  },
+  {
+    slug: "skills/skill-1",
+    finalActivation: 0.8,
+    ownActivation: 0.8,
+    priorActivation: 0,
+    simUser: 0.5,
+    simAssistant: 0.4,
+    simNow: 0.3,
+    simUserRerankBoost: 0,
+    simAssistantRerankBoost: 0,
+    inRerankPool: false,
+    spreadContribution: 0,
+    source: "ann_top50",
     status: "injected",
   },
   {
@@ -25,20 +42,12 @@ export const sampleConcepts: MemoryV2ConceptRowRecord[] = [
     simUser: 0.2,
     simAssistant: 0.1,
     simNow: 0.05,
+    simUserRerankBoost: 0,
+    simAssistantRerankBoost: 0,
+    inRerankPool: false,
     spreadContribution: 0.0,
     source: "ann_top50",
     status: "not_injected",
-  },
-];
-
-export const sampleSkills: MemoryV2SkillRowRecord[] = [
-  {
-    id: "skill-1",
-    activation: 0.8,
-    simUser: 0.5,
-    simAssistant: 0.4,
-    simNow: 0.3,
-    status: "injected",
   },
 ];
 
@@ -50,6 +59,5 @@ export const sampleConfig: MemoryV2ConfigSnapshot = {
   k: 5,
   hops: 2,
   top_k: 10,
-  top_k_skills: 3,
   epsilon: 0.001,
 };

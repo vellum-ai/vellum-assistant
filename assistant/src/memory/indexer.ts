@@ -9,6 +9,7 @@ import { getLogger } from "../util/logger.js";
 import { enqueueAutoAnalysisIfEnabled } from "./auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+import { isMemoryV2ReadActive } from "./context-search/sources/memory-v2.js";
 import { getDb } from "./db-connection.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import { enqueueMemoryJob, upsertDebouncedJob } from "./jobs-store.js";
@@ -175,39 +176,9 @@ export async function indexMessageNow(
     // Summaries still run — they feed the graph retrieval pipeline and
     // are not recursion-prone.
     if (!isAutoAnalysisSource) {
-      // ── Graph extraction ────────────────────────────────────────────
-      const graphPendingKey = `graph_extract:${input.conversationId}:pending_count`;
-      const graphCurrentVal = getMemoryCheckpoint(graphPendingKey);
-      const graphPendingCount =
-        (graphCurrentVal ? parseInt(graphCurrentVal, 10) : 0) + 1;
-      setMemoryCheckpoint(graphPendingKey, String(graphPendingCount));
-
-      const graphBatchFired = graphPendingCount >= batchSize;
-      if (graphBatchFired) {
-        setMemoryCheckpoint(graphPendingKey, "0");
-      }
-
-      // Single pending `graph_extract` row per conversation. If the
-      // batch threshold just fired, pull `runAfter` back to now so the
-      // job runs immediately; otherwise debounce by the idle timeout.
-      // Routing both paths through `upsertDebouncedJob` ensures the
-      // row's `runAfter` reflects whichever trigger ran last, so a
-      // batch crossing always takes effect immediately.
-      const extractRunAfter = graphBatchFired
-        ? Date.now()
-        : Date.now() + idleTimeoutMs;
-      upsertDebouncedJob(
-        "graph_extract",
-        {
-          conversationId: input.conversationId,
-          scopeId: input.scopeId ?? "default",
-        },
-        extractRunAfter,
-      );
-
-      // Reading config here is best-effort: feature-gated triggers below
-      // (memory v2 sweep, auto-analyze batch) skip when it fails — the
-      // idle-debounced enqueues above are unaffected.
+      // Reading config here is best-effort: when it fails we treat v2 as
+      // inactive (failing-open to v1) so a config error never silently
+      // drops both extraction paths.
       let triggerConfig: ReturnType<typeof getConfig> | null = null;
       try {
         triggerConfig = getConfig();
@@ -218,20 +189,58 @@ export async function indexMessageNow(
         );
       }
 
-      // Memory v2 sweep mirrors graph_extract's debounce: when the v2
-      // flag + config are on AND `sweep_enabled` is set, every extraction
-      // trigger also enqueues a sweep. The sweep itself reads recent
-      // messages globally, so the `conversationId` here is just the dedup
-      // key — one pending row per active conversation. All three gates
-      // (feature flag, v2 master toggle, sweep_enabled) must be true.
+      const v2Config =
+        triggerConfig != null && isMemoryV2ReadActive(triggerConfig)
+          ? triggerConfig
+          : null;
+
+      // ── Graph extraction (v1) ───────────────────────────────────────
+      // Suppressed when v2 is active — v2 reads memory from buffer.md
+      // and concept pages, so the v1 graph would be stale data nobody
+      // consumes. Pending-count tracking is suppressed too; otherwise a
+      // flag flip back to v1 would fire an immediate batch from counts
+      // accumulated during the v2 window.
+      let extractRunAfter: number;
+      if (v2Config == null) {
+        const graphPendingKey = `graph_extract:${input.conversationId}:pending_count`;
+        const graphCurrentVal = getMemoryCheckpoint(graphPendingKey);
+        const graphPendingCount =
+          (graphCurrentVal ? parseInt(graphCurrentVal, 10) : 0) + 1;
+        setMemoryCheckpoint(graphPendingKey, String(graphPendingCount));
+
+        const graphBatchFired = graphPendingCount >= batchSize;
+        if (graphBatchFired) {
+          setMemoryCheckpoint(graphPendingKey, "0");
+        }
+
+        // Single pending `graph_extract` row per conversation. If the
+        // batch threshold just fired, pull `runAfter` back to now so the
+        // job runs immediately; otherwise debounce by the idle timeout.
+        // Routing both paths through `upsertDebouncedJob` ensures the
+        // row's `runAfter` reflects whichever trigger ran last, so a
+        // batch crossing always takes effect immediately.
+        extractRunAfter = graphBatchFired
+          ? Date.now()
+          : Date.now() + idleTimeoutMs;
+        upsertDebouncedJob(
+          "graph_extract",
+          {
+            conversationId: input.conversationId,
+            scopeId: input.scopeId ?? "default",
+          },
+          extractRunAfter,
+        );
+      } else {
+        extractRunAfter = Date.now() + idleTimeoutMs;
+      }
+
+      // Memory v2 sweep: when v2 is on AND `sweep_enabled` is set, every
+      // extraction trigger also enqueues a sweep. The sweep itself reads
+      // recent messages globally, so the `conversationId` here is just
+      // the dedup key — one pending row per active conversation.
       // `sweep_enabled` defaults to false because `remember()` is the
       // primary capture path; the sweep is opt-in.
-      if (
-        triggerConfig != null &&
-        isAssistantFeatureFlagEnabled("memory-v2-enabled", triggerConfig) &&
-        triggerConfig.memory.v2.enabled &&
-        triggerConfig.memory.v2.sweep_enabled
-      ) {
+      if (v2Config != null && v2Config.memory.v2.sweep_enabled) {
         upsertDebouncedJob(
           "memory_v2_sweep",
           { conversationId: input.conversationId },

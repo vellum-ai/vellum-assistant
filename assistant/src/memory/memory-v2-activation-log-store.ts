@@ -12,18 +12,35 @@ export interface MemoryV2ConceptRowRecord {
   simUser: number;
   simAssistant: number;
   simNow: number;
+  /**
+   * Cross-encoder rerank delta in raw rerank space (`alpha · r_norm_u`)
+   * for the user channel. Zero when rerank is disabled or the slug fell
+   * outside the unified top-K-by-pre-rerank-A_o window. Applied
+   * additively to A_o weighted by `c_user` — `simUser` itself is the
+   * raw fused score and never carries the boost. Stored as a JSON field,
+   * so older log rows pre-date this addition and decode with `undefined`;
+   * readers should fall back to 0.
+   */
+  simUserRerankBoost: number;
+  /**
+   * Cross-encoder rerank delta for the assistant channel. Same semantics
+   * as `simUserRerankBoost`, weighted by `c_assistant` when applied to
+   * A_o. The NOW channel intentionally bypasses rerank, so there is no
+   * `simNowRerankBoost`.
+   */
+  simAssistantRerankBoost: number;
+  /**
+   * True when rerank ran and this slug landed in the unified
+   * top-K-by-pre-rerank-A_o pool. Distinguishes "cross-encoder evaluated
+   * this and chose 0" from "rerank skipped this slug" so the inspector
+   * can keep the rerank rows visible at `+0.000` instead of silently
+   * dropping them. Older log rows pre-date this field and decode with
+   * `undefined`; readers should fall back to `false`.
+   */
+  inRerankPool: boolean;
   spreadContribution: number;
   source: "prior_state" | "ann_top50" | "both";
   status: "in_context" | "injected" | "not_injected" | "page_missing";
-}
-
-export interface MemoryV2SkillRowRecord {
-  id: string;
-  activation: number;
-  simUser: number;
-  simAssistant: number;
-  simNow: number;
-  status: "injected" | "not_injected";
 }
 
 export interface MemoryV2ConfigSnapshot {
@@ -34,7 +51,6 @@ export interface MemoryV2ConfigSnapshot {
   k: number;
   hops: number;
   top_k: number;
-  top_k_skills: number;
   epsilon: number;
 }
 
@@ -43,7 +59,6 @@ export interface RecordMemoryV2ActivationLogParams {
   turn: number;
   mode: "context-load" | "per-turn";
   concepts: MemoryV2ConceptRowRecord[];
-  skills: MemoryV2SkillRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
 
@@ -51,6 +66,11 @@ export function recordMemoryV2ActivationLog(
   params: RecordMemoryV2ActivationLogParams,
 ): void {
   const db = getDb();
+  // Skills now live as concept rows under `slug: "skills/<id>"`, so the
+  // separate `skills_json` column is always written empty. The column itself
+  // remains in the schema for backwards-compat with prior log rows; the
+  // reader drops it. A future migration can DROP the column once those rows
+  // age out of relevance.
   db.insert(memoryV2ActivationLogs)
     .values({
       id: uuid(),
@@ -59,7 +79,7 @@ export function recordMemoryV2ActivationLog(
       turn: params.turn,
       mode: params.mode,
       conceptsJson: JSON.stringify(params.concepts),
-      skillsJson: JSON.stringify(params.skills),
+      skillsJson: "[]",
       configJson: JSON.stringify(params.config),
       createdAt: Date.now(),
     })
@@ -87,7 +107,6 @@ export interface MemoryV2ActivationLog {
   turn: number;
   mode: "context-load" | "per-turn";
   concepts: MemoryV2ConceptRowRecord[];
-  skills: MemoryV2SkillRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
 
@@ -109,7 +128,6 @@ export function getMemoryV2ActivationLogByMessageIds(
     turn: row.turn,
     mode: row.mode as "context-load" | "per-turn",
     concepts: JSON.parse(row.conceptsJson) as MemoryV2ConceptRowRecord[],
-    skills: JSON.parse(row.skillsJson) as MemoryV2SkillRowRecord[],
     config: JSON.parse(row.configJson) as MemoryV2ConfigSnapshot,
   };
 }

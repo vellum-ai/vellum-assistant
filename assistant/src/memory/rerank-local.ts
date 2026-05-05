@@ -1,6 +1,7 @@
 /** Local cross-encoder rerank backend — drives the rerank-worker subprocess. */
 import { existsSync } from "node:fs";
 
+import type { RerankDtype } from "../config/schemas/memory-v2.js";
 import { getLogger } from "../util/logger.js";
 import { getEmbeddingModelsDir } from "../util/platform.js";
 import { PromiseGuard } from "../util/promise-guard.js";
@@ -17,6 +18,7 @@ interface WorkerResponse {
 
 export class LocalRerankBackend {
   readonly model: string;
+  readonly dtype: RerankDtype;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private workerProc: any = null;
@@ -35,21 +37,32 @@ export class LocalRerankBackend {
 
   private readonly initGuard = new PromiseGuard<void>();
 
-  constructor(model: string) {
+  constructor(model: string, dtype: RerankDtype) {
     this.model = model;
+    this.dtype = dtype;
   }
 
-  /** Score `(query, passages[i])` pairs in one batched ONNX inference call. */
-  async score(query: string, passages: string[]): Promise<number[]> {
+  /**
+   * Score paired `(queries[i], passages[i])` tuples in one batched ONNX
+   * inference call. Multiple distinct queries can ride in a single batch
+   * so callers can score the user-channel and assistant-channel queries
+   * against a shared candidate set in one tokenizer + forward pass.
+   */
+  async score(queries: string[], passages: string[]): Promise<number[]> {
     if (this.disposeRequested) {
       throw new Error("Local rerank backend is shutting down");
     }
     if (passages.length === 0) return [];
+    if (queries.length !== passages.length) {
+      throw new Error(
+        `Rerank backend got ${queries.length} queries for ${passages.length} passages`,
+      );
+    }
 
     this.activeRequests++;
     try {
       await this.ensureInitialized();
-      const response = await this.sendRequest({ query, passages });
+      const response = await this.sendRequest({ queries, passages });
       if (response.error) {
         throw new Error(`Rerank worker error: ${response.error}`);
       }
@@ -74,7 +87,7 @@ export class LocalRerankBackend {
   }
 
   private sendRequest(payload: {
-    query: string;
+    queries: string[];
     passages: string[];
   }): Promise<WorkerResponse> {
     const id = ++this.requestCounter;
@@ -130,12 +143,19 @@ export class LocalRerankBackend {
     const modelCacheDir = `${embeddingModelsDir}/model-cache`;
 
     log.info(
-      { bunPath, workerPath, model: this.model },
+      { bunPath, workerPath, model: this.model, dtype: this.dtype },
       "Spawning rerank worker process",
     );
 
     const proc = Bun.spawn({
-      cmd: [bunPath, "--smol", workerPath, this.model, modelCacheDir],
+      cmd: [
+        bunPath,
+        "--smol",
+        workerPath,
+        this.model,
+        modelCacheDir,
+        this.dtype,
+      ],
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
@@ -325,8 +345,11 @@ export class LocalRerankBackend {
 
 let _backend: LocalRerankBackend | null = null;
 
-export function getOrCreateRerankBackend(model: string): LocalRerankBackend {
-  if (_backend?.model === model) return _backend;
+export function getOrCreateRerankBackend(
+  model: string,
+  dtype: RerankDtype,
+): LocalRerankBackend {
+  if (_backend?.model === model && _backend.dtype === dtype) return _backend;
   if (_backend) {
     try {
       _backend.dispose();
@@ -334,7 +357,7 @@ export function getOrCreateRerankBackend(model: string): LocalRerankBackend {
       /* best effort */
     }
   }
-  _backend = new LocalRerankBackend(model);
+  _backend = new LocalRerankBackend(model, dtype);
   return _backend;
 }
 

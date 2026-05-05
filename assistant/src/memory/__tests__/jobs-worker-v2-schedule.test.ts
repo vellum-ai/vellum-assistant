@@ -1,23 +1,23 @@
 /**
- * Tests for the v2 consolidation entry in `maybeEnqueueGraphMaintenanceJobs`.
+ * Tests for v1/v2 mutual exclusion in `maybeEnqueueGraphMaintenanceJobs`.
  *
- * Coverage matrix (from PR 24 acceptance criteria):
- *   - Flag off → no `memory_v2_consolidate` row enqueued, even after the
- *     interval has elapsed.
- *   - Flag on + config off → still no row enqueued (both gates required).
- *   - Flag on + config on, no prior checkpoint → row enqueued, checkpoint
- *     stamped to `nowMs`.
- *   - Flag on + config on, recent checkpoint → no row enqueued (interval
- *     not yet elapsed).
- *   - Flag on + config on, stale checkpoint → row enqueued, checkpoint
+ * The schedule is now mutually exclusive: when both the `memory-v2-enabled`
+ * flag and `memory.v2.enabled` config are on, only `memory_v2_consolidate`
+ * is scheduled; otherwise the four v1 entries (decay, consolidate,
+ * pattern_scan, narrative) fire and the v2 entry does not.
+ *
+ * Coverage:
+ *   - Flag off → only v1 entries fire (no `memory_v2_consolidate`).
+ *   - Flag on + config off → only v1 entries fire.
+ *   - Flag on + config on, no prior checkpoint → only the v2 entry fires.
+ *   - Flag on + config on, recent checkpoint → no v2 row (interval not
+ *     yet elapsed).
+ *   - Flag on + config on, stale checkpoint → v2 row enqueued, checkpoint
  *     refreshed.
- *   - The v1 maintenance entries (decay, consolidate, pattern_scan,
- *     narrative) still fire under the v2 path — adding the v2 entry must
- *     not regress v1 scheduling.
  *
- * The sweep job is intentionally NOT scheduled here: PR 24 wires it into
- * the `graph_extract` debounce in `indexer.ts`. Those triggers are covered
- * by the separate trigger-path tests; this file owns only the cron entries.
+ * The sweep job is intentionally NOT scheduled here: it is wired into the
+ * `graph_extract` debounce in `indexer.ts`. Those triggers are covered by
+ * the separate trigger-path tests; this file owns only the cron entries.
  *
  * Tests use a temp workspace pinned via `VELLUM_WORKSPACE_DIR` so the DB
  * lives under `tmpdir()` and `~/.vellum/` is never touched.
@@ -145,6 +145,11 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     maybeEnqueueGraphMaintenanceJobs(config, Date.now());
 
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    // v1 entries are suppressed when v2 is active.
+    expect(countPendingJobs("graph_decay")).toBe(0);
+    expect(countPendingJobs("graph_consolidate")).toBe(0);
+    expect(countPendingJobs("graph_pattern_scan")).toBe(0);
+    expect(countPendingJobs("graph_narrative_refine")).toBe(0);
   });
 
   test("does not enqueue consolidate before the interval has elapsed", () => {
@@ -200,11 +205,30 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
   });
 
-  test("v1 graph maintenance entries still fire alongside the v2 entry", () => {
+  test("v1 maintenance entries are suppressed when v2 is active", () => {
     _setOverridesForTesting({ "memory-v2-enabled": true });
     const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
 
-    // No checkpoints set — every entry should be due.
+    // No checkpoints set — every entry would be due if it were scheduled.
+    deleteMemoryCheckpoint("graph_maintenance:decay:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:consolidate:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:pattern_scan:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:narrative:last_run");
+    deleteMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY);
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    expect(countPendingJobs("graph_decay")).toBe(0);
+    expect(countPendingJobs("graph_consolidate")).toBe(0);
+    expect(countPendingJobs("graph_pattern_scan")).toBe(0);
+    expect(countPendingJobs("graph_narrative_refine")).toBe(0);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("flag-off path fires v1 entries and does not enqueue v2", () => {
+    _setOverridesForTesting({ "memory-v2-enabled": false });
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+
     deleteMemoryCheckpoint("graph_maintenance:decay:last_run");
     deleteMemoryCheckpoint("graph_maintenance:consolidate:last_run");
     deleteMemoryCheckpoint("graph_maintenance:pattern_scan:last_run");
@@ -217,19 +241,25 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("graph_consolidate")).toBe(1);
     expect(countPendingJobs("graph_pattern_scan")).toBe(1);
     expect(countPendingJobs("graph_narrative_refine")).toBe(1);
-    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
   });
 
-  test("flag-off path does not enqueue v2 but still fires the v1 entries", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
-    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+  test("config-gate-off path fires v1 entries and does not enqueue v2", () => {
+    _setOverridesForTesting({ "memory-v2-enabled": true });
+    const config = buildConfig({ v2Enabled: false, intervalHours: 1 });
 
     deleteMemoryCheckpoint("graph_maintenance:decay:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:consolidate:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:pattern_scan:last_run");
+    deleteMemoryCheckpoint("graph_maintenance:narrative:last_run");
     deleteMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY);
 
     maybeEnqueueGraphMaintenanceJobs(config, Date.now());
 
     expect(countPendingJobs("graph_decay")).toBe(1);
+    expect(countPendingJobs("graph_consolidate")).toBe(1);
+    expect(countPendingJobs("graph_pattern_scan")).toBe(1);
+    expect(countPendingJobs("graph_narrative_refine")).toBe(1);
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
   });
 });
