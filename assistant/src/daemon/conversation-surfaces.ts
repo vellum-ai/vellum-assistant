@@ -1939,6 +1939,7 @@ export async function surfaceProxyResolver(
     // burn a step or pollute action history. (HostBashProxy / HostFileProxy
     // both validate at the tool-resolution layer before incrementing any
     // state; this mirrors that behaviour for CU.)
+    const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
       if (!client) {
@@ -1950,6 +1951,22 @@ export async function surfaceProxyResolver(
       if (!client.capabilities.includes("host_cu")) {
         return {
           content: `Client '${targetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          isError: true,
+        };
+      }
+
+      // Same-user enforcement: a targeted CU dispatch must be owned by the
+      // same actor on both sides. Surface a friendly tool-input rejection
+      // before invoking the proxy (which performs the same check as a
+      // backstop for direct callers).
+      const targetActorPrincipalId = client.actorPrincipalId;
+      if (
+        sourceActorPrincipalId == null ||
+        targetActorPrincipalId == null ||
+        sourceActorPrincipalId !== targetActorPrincipalId
+      ) {
+        return {
+          content: `Client '${targetClientId}' is not owned by the current user — cross-user computer_use dispatch is not allowed.`,
           isError: true,
         };
       }
@@ -1989,6 +2006,7 @@ export async function surfaceProxyResolver(
       reasoning,
       signal,
       targetClientId,
+      sourceActorPrincipalId,
     );
   }
 
