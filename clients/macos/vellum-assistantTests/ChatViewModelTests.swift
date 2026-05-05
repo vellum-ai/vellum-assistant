@@ -1537,6 +1537,71 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.conversationError?.isCreditsExhausted == true)
     }
 
+    func testConversationManagerViewModelSuppressesProviderBillingInlineErrorMessage() {
+        let managerViewModel = makeConversationManagerViewModel(conversationId: "sess-provider-billing")
+
+        let errorMsg = ConversationErrorMessage(
+            conversationId: "sess-provider-billing",
+            code: .providerBilling,
+            userMessage: "Your provider API key needs credits.",
+            retryable: false,
+            errorCategory: "provider_billing"
+        )
+        managerViewModel.handleServerMessage(.conversationError(errorMsg))
+
+        XCTAssertEqual(managerViewModel.messages.count, 0)
+        XCTAssertEqual(managerViewModel.errorText, "Your provider API key needs credits.")
+        XCTAssertTrue(managerViewModel.conversationError?.isProviderBilling == true)
+        XCTAssertFalse(managerViewModel.errorManager.isConversationErrorDisplayedInline)
+    }
+
+    func testConversationManagerViewModelSuppressesManagedCreditsInlineErrorMessage() {
+        let managerViewModel = makeConversationManagerViewModel(conversationId: "sess-managed-credits")
+
+        let errorMsg = ConversationErrorMessage(
+            conversationId: "sess-managed-credits",
+            code: .providerBilling,
+            userMessage: "Your Vellum balance has run out.",
+            retryable: false,
+            errorCategory: "credits_exhausted"
+        )
+        managerViewModel.handleServerMessage(.conversationError(errorMsg))
+
+        XCTAssertEqual(managerViewModel.messages.count, 0)
+        XCTAssertEqual(managerViewModel.errorText, "Your Vellum balance has run out.")
+        XCTAssertTrue(managerViewModel.conversationError?.isManagedCreditsExhausted == true)
+        XCTAssertFalse(managerViewModel.errorManager.isConversationErrorDisplayedInline)
+    }
+
+    func testConversationManagerViewModelKeepsGenericErrorsInline() {
+        let managerViewModel = makeConversationManagerViewModel(conversationId: "sess-provider-api")
+
+        let errorMsg = ConversationErrorMessage(
+            conversationId: "sess-provider-api",
+            code: .providerApi,
+            userMessage: "The provider request failed.",
+            retryable: true,
+            errorCategory: "provider_api_error"
+        )
+        managerViewModel.handleServerMessage(.conversationError(errorMsg))
+
+        XCTAssertEqual(managerViewModel.messages.count, 1)
+        XCTAssertEqual(managerViewModel.messages[0].role, .assistant)
+        XCTAssertTrue(managerViewModel.messages[0].isError)
+        XCTAssertEqual(managerViewModel.messages[0].text, "The provider request failed.")
+        XCTAssertTrue(managerViewModel.errorManager.isConversationErrorDisplayedInline)
+    }
+
+    private func makeConversationManagerViewModel(conversationId: String) -> ChatViewModel {
+        let manager = ConversationManager(
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient
+        )
+        let managerViewModel = manager.makeViewModel()
+        managerViewModel.conversationId = conversationId
+        return managerViewModel
+    }
+
     func testConversationErrorSetsRecoverySuggestion() {
         viewModel.conversationId = "sess-1"
 
