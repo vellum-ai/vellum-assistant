@@ -76,7 +76,7 @@ export class VelayTunnelClient {
   private connecting = false;
   private reconnectAttempt = 0;
   private reconnectTimer: unknown = null;
-  private publishedTwilioPublicBaseUrl: string | undefined;
+  private publishedPublicBaseUrl: string | undefined;
   private unsubscribeConfigInvalidation: (() => void) | undefined;
 
   constructor(private readonly options: VelayTunnelClientOptions) {
@@ -101,10 +101,10 @@ export class VelayTunnelClient {
     const connected =
       this.ws !== null &&
       this.ws.readyState === WebSocket.OPEN &&
-      this.publishedTwilioPublicBaseUrl !== undefined;
+      this.publishedPublicBaseUrl !== undefined;
     return {
       connected,
-      publicUrl: this.publishedTwilioPublicBaseUrl ?? null,
+      publicUrl: this.publishedPublicBaseUrl ?? null,
     };
   }
 
@@ -135,7 +135,7 @@ export class VelayTunnelClient {
     const ws = this.ws;
     this.ws = null;
     this.webSocketBridge.closeAll();
-    await this.clearPublishedTwilioPublicBaseUrl();
+    await this.clearPublishedPublicBaseUrl();
     if (ws) {
       closeWebSocket(ws, 1000, "gateway shutdown");
     }
@@ -152,7 +152,7 @@ export class VelayTunnelClient {
 
     if (this.isPublicIngressDisabled()) {
       this.connecting = false;
-      await this.clearPublishedTwilioPublicBaseUrl();
+      await this.clearPublishedPublicBaseUrl();
       log.info("Velay tunnel waiting because public ingress is disabled");
       this.scheduleReconnect();
       return;
@@ -297,7 +297,7 @@ export class VelayTunnelClient {
     if (!publicUrl) {
       log.error(
         { publicUrl: frame.public_url },
-        "Velay registered invalid Twilio public URL",
+        "Velay registered invalid public URL",
       );
       this.disconnectActiveWebSocket(
         originWs,
@@ -310,14 +310,14 @@ export class VelayTunnelClient {
     if (this.isPublicIngressDisabled()) {
       log.info(
         { publicUrl },
-        "Skipping Velay Twilio public URL publish because public ingress is disabled",
+        "Skipping Velay public URL publish because public ingress is disabled",
       );
       this.disconnectActiveWebSocket(originWs, 1000, "public ingress disabled");
       return;
     }
 
     await writeManagedPublicBaseUrl(publicUrl, this.options.configFile);
-    this.publishedTwilioPublicBaseUrl = publicUrl;
+    this.publishedPublicBaseUrl = publicUrl;
     this.reconnectAttempt = 0;
     log.info({ publicUrl }, "Velay tunnel registered");
   }
@@ -343,7 +343,7 @@ export class VelayTunnelClient {
       { code: event.code, reason: event.reason },
       "Velay tunnel disconnected",
     );
-    this.clearPublishedTwilioPublicBaseUrlThenReconnect();
+    this.clearPublishedPublicBaseUrlThenReconnect();
   }
 
   private disconnectActiveWebSocket(
@@ -356,24 +356,24 @@ export class VelayTunnelClient {
     this.connecting = false;
     this.webSocketBridge.closeAll();
     closeWebSocket(ws, code, reason);
-    this.clearPublishedTwilioPublicBaseUrlThenReconnect();
+    this.clearPublishedPublicBaseUrlThenReconnect();
   }
 
-  private async clearPublishedTwilioPublicBaseUrl(): Promise<void> {
-    const publicUrl = this.publishedTwilioPublicBaseUrl;
+  private async clearPublishedPublicBaseUrl(): Promise<void> {
+    const publicUrl = this.publishedPublicBaseUrl;
     if (!publicUrl) return;
-    this.publishedTwilioPublicBaseUrl = undefined;
+    this.publishedPublicBaseUrl = undefined;
     try {
       await clearManagedPublicBaseUrl(this.options.configFile, publicUrl);
     } catch (err) {
-      log.error({ err }, "Failed to clear Velay Twilio public URL");
+      log.error({ err }, "Failed to clear Velay public URL");
     }
   }
 
-  private clearPublishedTwilioPublicBaseUrlThenReconnect(): void {
-    void this.clearPublishedTwilioPublicBaseUrl()
+  private clearPublishedPublicBaseUrlThenReconnect(): void {
+    void this.clearPublishedPublicBaseUrl()
       .catch((err) => {
-        log.error({ err }, "Failed to clear Velay Twilio public URL");
+        log.error({ err }, "Failed to clear Velay public URL");
       })
       .finally(() => {
         this.scheduleReconnect();
@@ -441,7 +441,7 @@ export function createVelayTunnelClient(
       );
     }
     void clearManagedPublicBaseUrl(deps.configFile).catch((err) => {
-      log.error({ err }, "Failed to clear disabled Velay Twilio public URL");
+      log.error({ err }, "Failed to clear disabled Velay public URL");
     });
     return undefined;
   }
