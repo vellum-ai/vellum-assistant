@@ -21,8 +21,8 @@ final class DiskPressureStatusStoreTests: XCTestCase {
             "background-work",
             "remote-ingress",
         ])
-        XCTAssertEqual(store.alert?.displayPercent, 99)
-        XCTAssertEqual(store.alert?.assistantId, "assistant-a")
+        XCTAssertEqual(store.status?.usagePercent, 99)
+        XCTAssertEqual(store.status?.lockId, "disk-pressure-test")
     }
 
     func testSSEUpdateAppliesSameViewStateAsBootstrap() async throws {
@@ -47,7 +47,7 @@ final class DiskPressureStatusStoreTests: XCTestCase {
             "background-work",
             "remote-ingress",
         ])
-        XCTAssertEqual(store.alert?.id, "disk-pressure-test")
+        XCTAssertEqual(store.status?.lockId, "disk-pressure-test")
     }
 
     func testFeatureFlagDisabledMakesStoreInert() async throws {
@@ -68,7 +68,7 @@ final class DiskPressureStatusStoreTests: XCTestCase {
         XCTAssertFalse(store.requiresAcknowledgement)
         XCTAssertFalse(store.isCleanupModeActive)
         XCTAssertEqual(store.blockedCapabilities, [])
-        XCTAssertNil(store.alert)
+        XCTAssertNil(store.status)
     }
 
     func testDisabledStatusClearsViewState() async throws {
@@ -86,7 +86,7 @@ final class DiskPressureStatusStoreTests: XCTestCase {
             status: Self.status(enabled: false, state: "disabled", locked: false, usagePercent: nil, blockedCapabilities: [])
         )))
 
-        try await waitUntil { store.alert == nil }
+        try await waitUntil { store.status == nil }
         XCTAssertFalse(store.requiresAcknowledgement)
         XCTAssertFalse(store.isCleanupModeActive)
         XCTAssertEqual(store.blockedCapabilities, [])
@@ -109,6 +109,35 @@ final class DiskPressureStatusStoreTests: XCTestCase {
         XCTAssertFalse(store.requiresAcknowledgement)
     }
 
+    func testAcknowledgementFailureShowsRetryErrorAndClearsOnStatusUpdate() async throws {
+        let client = MockDiskPressureClient(getStatuses: [
+            Self.status(acknowledged: false),
+        ])
+        let eventStreamClient = EventStreamClient()
+        let store = makeStore(client: client, eventStreamClient: eventStreamClient)
+
+        store.start()
+        try await waitUntil { store.requiresAcknowledgement }
+
+        store.acknowledge()
+
+        try await waitUntil { store.acknowledgementErrorMessage != nil }
+        XCTAssertEqual(client.acknowledgeCallCount, 1)
+        XCTAssertEqual(
+            store.acknowledgementErrorMessage,
+            DiskPressureStatusStore.acknowledgementFailureMessage
+        )
+
+        eventStreamClient.broadcastMessage(.diskPressureStatusChanged(DiskPressureStatusChanged(
+            type: "disk_pressure_status_changed",
+            status: Self.status(acknowledged: true)
+        )))
+
+        try await waitUntil {
+            store.acknowledgementErrorMessage == nil && store.isCleanupModeActive
+        }
+    }
+
     func testActiveAssistantSwitchFetchesNewStatusAndScopesAlert() async throws {
         let client = MockDiskPressureClient(getStatuses: [
             Self.status(lockId: "lock-a", usagePercent: 97),
@@ -125,15 +154,15 @@ final class DiskPressureStatusStoreTests: XCTestCase {
         )
 
         store.start()
-        try await waitUntil { store.alert?.id == "lock-a" }
+        try await waitUntil { store.status?.lockId == "lock-a" }
 
         activeAssistantId = "assistant-b"
         notificationCenter.post(name: LockfileAssistant.activeAssistantDidChange, object: nil)
 
-        try await waitUntil { store.alert?.id == "lock-b" }
+        try await waitUntil { store.status?.lockId == "lock-b" }
         XCTAssertEqual(client.getStatusCallCount, 2)
-        XCTAssertEqual(store.alert?.assistantId, "assistant-b")
-        XCTAssertEqual(store.alert?.displayPercent, 98)
+        XCTAssertEqual(store.status?.lockId, "lock-b")
+        XCTAssertEqual(store.status?.usagePercent, 98)
     }
 
     private func makeStore(
