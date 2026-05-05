@@ -206,7 +206,7 @@ struct SettingsBillingTab: View {
         PlanCard(
             subscription: subscription,
             plans: plans,
-            isLoading: subscription == nil && planError == nil,
+            isLoading: (subscription == nil || plans == nil) && planError == nil,
             error: planError,
             onManage: { NSWorkspace.shared.open(AppURLs.billingSettings) }
         )
@@ -377,40 +377,60 @@ struct SettingsBillingTab: View {
         planError = nil
 
         // Always refresh the billing summary. When `pro-plan-adjust` is on we
-        // also fetch the subscription + plan catalog in parallel; while the flag
-        // is off those endpoints aren't called so users on the legacy billing
-        // tab don't pay for unused requests. Each fetch has its own `do/catch`
-        // so a flaky `/subscription/` call still lets the balance card render
-        // (and vice versa).
-        async let summaryTask = BillingService.shared.getBillingSummary()
+        // also fetch the subscription + plan catalog in parallel; while the
+        // flag is off those endpoints aren't called so users on the legacy
+        // billing tab don't pay for unused requests. Each fetch has its own
+        // `do/catch` so a flaky `/subscription/` call still lets the balance
+        // card render (and vice versa).
+        //
+        // Critically, we resolve the billing summary BEFORE awaiting the plan
+        // metadata so a slow `/subscription/` or `/plans/` call doesn't keep
+        // the balance card in skeleton state. Both `async let`s are still
+        // launched concurrently, so total wall-clock time is unchanged — but
+        // the balance UI flips out of loading as soon as the summary call
+        // returns, independent of plan-metadata latency.
         if isProPlanAdjustEnabled {
+            async let summaryTask = BillingService.shared.getBillingSummary()
             async let subscriptionTask = BillingService.shared.getSubscription()
             async let plansTask = BillingService.shared.getPlanCatalog()
 
             do {
-                subscription = try await subscriptionTask
+                var result = try await summaryTask
+                if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: result) {
+                    result = bootstrapped
+                }
+                summary = result
+            } catch {
+                if summary == nil {
+                    self.error = "Unable to load billing information. Please try again."
+                }
+            }
+            isLoading = false
+
+            do {
+                let sub = try await subscriptionTask
                 let catalog = try await plansTask
+                subscription = sub
                 plans = catalog.plans
             } catch {
                 if subscription == nil {
                     planError = "Unable to load plan information."
                 }
             }
-        }
-
-        do {
-            var result = try await summaryTask
-            if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: result) {
-                result = bootstrapped
+        } else {
+            do {
+                var result = try await BillingService.shared.getBillingSummary()
+                if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: result) {
+                    result = bootstrapped
+                }
+                summary = result
+            } catch {
+                if summary == nil {
+                    self.error = "Unable to load billing information. Please try again."
+                }
             }
-            summary = result
-        } catch {
-            if summary == nil {
-                self.error = "Unable to load billing information. Please try again."
-            }
+            isLoading = false
         }
-
-        isLoading = false
     }
 
     /// Formats an ISO 8601 timestamp as a long-style locale date (e.g.
