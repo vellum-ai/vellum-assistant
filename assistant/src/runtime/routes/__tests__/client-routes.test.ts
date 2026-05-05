@@ -67,8 +67,7 @@ function registerClient(args: {
     interfaceId: "macos",
     capabilities: ["host_bash", "host_file", "host_cu"],
     actorPrincipalId: args.actorPrincipalId,
-    onEvent: () => {},
-    onClose: () => {},
+    callback: () => {},
   });
 }
 
