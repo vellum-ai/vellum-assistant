@@ -242,6 +242,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "safe-storage-limits",
+      "scope": "assistant",
+      "key": "safe-storage-limits",
+      "label": "Safe Storage Limits",
+      "description": "Enable disk pressure protection flows that block background work and remote actors while storage is critically low.",
+      "defaultEnabled": false
+    },
+    {
       "id": "memory-v2-enabled",
       "scope": "assistant",
       "key": "memory-v2-enabled",
