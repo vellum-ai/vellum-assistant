@@ -5,6 +5,11 @@ import VellumAssistantShared
 struct SettingsAppearanceTab: View {
     private static let knownTimezones: [String] = TimeZone.knownTimeZoneIdentifiers.sorted()
 
+    private enum TimezoneMode: String, Hashable {
+        case automatic
+        case manual
+    }
+
     @ObservedObject var store: SettingsStore
     @State private var newAllowlistDomain = ""
     @State private var isVideoDomainsExpanded: Bool = false
@@ -26,6 +31,7 @@ struct SettingsAppearanceTab: View {
     @State private var voiceRecordingMonitors: [Any] = []
     @State private var voiceModifierHoldTimer: Timer? = nil
     @State private var selectedTimezone: String = ""
+    @State private var timezoneMode: TimezoneMode = .automatic
     @State private var timezoneSearchText: String = ""
     @State private var debouncedTimezoneSearchText: String = ""
     @State private var isTimezoneDropdownOpen: Bool = false
@@ -58,100 +64,125 @@ struct SettingsAppearanceTab: View {
 
             // TIMEZONE section
             SettingsCard(title: "Timezone") {
-                // Searchable timezone picker
-                VStack(spacing: 0) {
-                    HStack {
-                        Text("Closest city")
-                            .font(VFont.bodyMediumLighter)
-                            .foregroundStyle(VColor.contentSecondary)
-                        Spacer()
-                        VSearchBar(placeholder: selectedCityPlaceholder, text: $timezoneSearchText)
-                            .focused($isTimezoneSearchFocused)
-                            .frame(width: 280)
-                    }
-                    .onChange(of: timezoneSearchText) { _, newValue in
-                        isTimezoneDropdownOpen = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        timezoneSearchDebounceTask?.cancel()
-                        timezoneSearchDebounceTask = Task { @MainActor in
-                            try? await Task.sleep(nanoseconds: 200_000_000)
-                            guard !Task.isCancelled else { return }
-                            debouncedTimezoneSearchText = newValue
-                        }
-                    }
-                    .onChange(of: isTimezoneSearchFocused) { _, focused in
-                        if focused && timezoneSearchText.isEmpty {
-                            // Show all when focused with empty search
-                            isTimezoneDropdownOpen = true
-                        } else if !focused {
-                            isTimezoneDropdownOpen = false
-                        }
-                    }
-                    .onExitCommand {
-                        isTimezoneDropdownOpen = false
-                        isTimezoneSearchFocused = false
-                        timezoneSearchText = ""
-                    }
-
-                    if isTimezoneDropdownOpen {
-                        let filtered = filteredTimezones
-                        if !filtered.isEmpty {
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: VSpacing.xs) {
-                                    ForEach(filtered, id: \.identifier) { entry in
-                                        TimezoneResultRow(
-                                            entry: entry,
-                                            isSelected: entry.identifier == selectedTimezone,
-                                            onSelect: {
-                                                selectedTimezone = entry.identifier
-                                                timezoneSearchText = ""
-                                                isTimezoneDropdownOpen = false
-                                                isTimezoneSearchFocused = false
-                                            }
-                                        )
-                                    }
-                                }
-                                .padding(VSpacing.sm)
-                                .background { OverlayScrollerStyle() }
-                            }
-                            .scrollContentBackground(.hidden)
-                            .frame(maxHeight: 200)
-                            .background(VColor.surfaceLift)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .vShadow(VShadow.modalNear)
-                            .vShadow(VShadow.modalFar)
-                            .padding(.top, VSpacing.xs)
-                        }
-                    }
-                }
-                .onChange(of: selectedTimezone) { oldValue, newValue in
-                    guard oldValue != newValue else { return }
-                    if newValue.isEmpty {
-                        store.clearUserTimezone()
-                    } else {
-                        store.saveUserTimezone(newValue)
-                    }
-                }
+                VSegmentControl(
+                    items: [
+                        (label: "Automatic", tag: TimezoneMode.automatic),
+                        (label: "Manual", tag: TimezoneMode.manual),
+                    ],
+                    selection: timezoneModeBinding
+                )
+                .frame(width: 248)
 
                 SettingsDivider()
 
-                HStack {
-                    Text("Time zone")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Spacer()
-                    Text(timezoneDisplayName)
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentDefault)
+                if timezoneMode == .automatic {
+                    HStack {
+                        Text("Device timezone")
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentSecondary)
+                        Spacer()
+                        Text(timezoneDisplayName)
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentDefault)
+                    }
+                } else {
+                    // Searchable timezone picker
+                    VStack(spacing: 0) {
+                        HStack {
+                            Text("Closest city")
+                                .font(VFont.bodyMediumLighter)
+                                .foregroundStyle(VColor.contentSecondary)
+                            Spacer()
+                            VSearchBar(placeholder: selectedCityPlaceholder, text: $timezoneSearchText)
+                                .focused($isTimezoneSearchFocused)
+                                .frame(width: 280)
+                        }
+                        .onChange(of: timezoneSearchText) { _, newValue in
+                            isTimezoneDropdownOpen = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            timezoneSearchDebounceTask?.cancel()
+                            timezoneSearchDebounceTask = Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 200_000_000)
+                                guard !Task.isCancelled else { return }
+                                debouncedTimezoneSearchText = newValue
+                            }
+                        }
+                        .onChange(of: isTimezoneSearchFocused) { _, focused in
+                            if focused && timezoneSearchText.isEmpty {
+                                // Show all when focused with empty search
+                                isTimezoneDropdownOpen = true
+                            } else if !focused {
+                                isTimezoneDropdownOpen = false
+                            }
+                        }
+                        .onExitCommand {
+                            isTimezoneDropdownOpen = false
+                            isTimezoneSearchFocused = false
+                            timezoneSearchText = ""
+                        }
+
+                        if isTimezoneDropdownOpen {
+                            let filtered = filteredTimezones
+                            if !filtered.isEmpty {
+                                ScrollView {
+                                    LazyVStack(alignment: .leading, spacing: VSpacing.xs) {
+                                        ForEach(filtered, id: \.identifier) { entry in
+                                            TimezoneResultRow(
+                                                entry: entry,
+                                                isSelected: entry.identifier == selectedTimezone,
+                                                onSelect: {
+                                                    selectedTimezone = entry.identifier
+                                                    timezoneSearchText = ""
+                                                    isTimezoneDropdownOpen = false
+                                                    isTimezoneSearchFocused = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                    .padding(VSpacing.sm)
+                                    .background { OverlayScrollerStyle() }
+                                }
+                                .scrollContentBackground(.hidden)
+                                .frame(maxHeight: 200)
+                                .background(VColor.surfaceLift)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                                .vShadow(VShadow.modalNear)
+                                .vShadow(VShadow.modalFar)
+                                .padding(.top, VSpacing.xs)
+                            }
+                        }
+                    }
+                    .onChange(of: selectedTimezone) { oldValue, newValue in
+                        guard oldValue != newValue, timezoneMode == .manual else { return }
+                        if newValue.isEmpty {
+                            store.clearUserTimezone()
+                        } else {
+                            store.saveUserTimezone(newValue)
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    HStack {
+                        Text("Time zone")
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentSecondary)
+                        Spacer()
+                        Text(timezoneDisplayName)
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentDefault)
+                    }
                 }
             }
             .onAppear {
-                selectedTimezone = store.userTimezone ?? ""
+                saveDetectedDeviceTimezoneIfNeeded()
+                syncTimezoneStateFromStore()
             }
             .onChange(of: store.userTimezone) { _, newStoreValue in
-                let mapped = newStoreValue ?? ""
-                if mapped != selectedTimezone {
-                    selectedTimezone = mapped
-                }
+                syncTimezoneStateFromStore(userTimezone: newStoreValue)
+            }
+            .onChange(of: store.detectedTimezone) { _, _ in
+                guard timezoneMode == .automatic else { return }
+                selectedTimezone = automaticTimezoneIdentifier
             }
 
             // KEYBOARD SHORTCUTS section
@@ -639,6 +670,47 @@ struct SettingsAppearanceTab: View {
         let tz: TimeZone
     }
 
+    private var timezoneModeBinding: Binding<TimezoneMode> {
+        Binding(
+            get: { timezoneMode },
+            set: { newValue in
+                timezoneMode = newValue
+                isTimezoneDropdownOpen = false
+                isTimezoneSearchFocused = false
+                timezoneSearchText = ""
+
+                switch newValue {
+                case .automatic:
+                    saveDetectedDeviceTimezoneIfNeeded()
+                    selectedTimezone = automaticTimezoneIdentifier
+                    store.clearUserTimezone()
+                case .manual:
+                    selectedTimezone = store.userTimezone ?? ""
+                }
+            }
+        )
+    }
+
+    private var automaticTimezoneIdentifier: String {
+        store.detectedTimezone ?? TimeZone.autoupdatingCurrent.identifier
+    }
+
+    private func syncTimezoneStateFromStore(userTimezone: String? = nil) {
+        if let userTimezone = userTimezone ?? store.userTimezone {
+            timezoneMode = .manual
+            selectedTimezone = userTimezone
+        } else {
+            timezoneMode = .automatic
+            selectedTimezone = automaticTimezoneIdentifier
+        }
+    }
+
+    private func saveDetectedDeviceTimezoneIfNeeded() {
+        let deviceTimezone = TimeZone.autoupdatingCurrent.identifier
+        guard store.detectedTimezone != deviceTimezone else { return }
+        store.saveDetectedTimezone(deviceTimezone)
+    }
+
     private var selectedCityPlaceholder: String {
         guard !selectedTimezone.isEmpty,
               TimeZone(identifier: selectedTimezone) != nil else {
@@ -976,4 +1048,3 @@ private struct TimezoneResultRow: View {
         .pointerCursor()
     }
 }
-

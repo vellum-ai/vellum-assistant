@@ -35,17 +35,19 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
     }
 
     func testLoadsValidConfiguredTimezone() {
-        seed(#"{"ui":{"userTimezone":"America/New_York"}}"#)
+        seed(#"{"ui":{"userTimezone":"America/New_York","detectedTimezone":"America/Los_Angeles"}}"#)
         let store = SettingsStore(configPath: configPath)
 
         XCTAssertEqual(store.userTimezone, "America/New_York")
+        XCTAssertEqual(store.detectedTimezone, "America/Los_Angeles")
     }
 
     func testIgnoresInvalidConfiguredTimezone() {
-        seed(#"{"ui":{"userTimezone":"Not/ARealZone"}}"#)
+        seed(#"{"ui":{"userTimezone":"Not/ARealZone","detectedTimezone":"Also/Invalid"}}"#)
         let store = SettingsStore(configPath: configPath)
 
         XCTAssertNil(store.userTimezone)
+        XCTAssertNil(store.detectedTimezone)
     }
 
     func testSaveUserTimezonePersistsCanonicalIdentifier() {
@@ -61,6 +63,19 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
         XCTAssertEqual(ui?["userTimezone"] as? String, "America/New_York")
     }
 
+    func testSaveDetectedTimezonePersistsCanonicalIdentifier() {
+        seed("{}")
+        let store = SettingsStore(configPath: configPath)
+
+        let error = store.saveDetectedTimezone("america/los_angeles")
+        XCTAssertNil(error)
+        XCTAssertEqual(store.detectedTimezone, "America/Los_Angeles")
+
+        let persisted = readConfig()
+        let ui = persisted["ui"] as? [String: Any]
+        XCTAssertEqual(ui?["detectedTimezone"] as? String, "America/Los_Angeles")
+    }
+
     func testSaveUserTimezoneRejectsInvalidValueWithoutOverwritingExisting() {
         seed(#"{"ui":{"userTimezone":"America/Los_Angeles"}}"#)
         let store = SettingsStore(configPath: configPath)
@@ -74,8 +89,21 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
         XCTAssertEqual(ui?["userTimezone"] as? String, "America/Los_Angeles")
     }
 
+    func testSaveDetectedTimezoneRejectsInvalidValueWithoutOverwritingExisting() {
+        seed(#"{"ui":{"detectedTimezone":"America/New_York"}}"#)
+        let store = SettingsStore(configPath: configPath)
+
+        let error = store.saveDetectedTimezone("not/a-timezone")
+        XCTAssertNotNil(error)
+        XCTAssertEqual(store.detectedTimezone, "America/New_York")
+
+        let persisted = readConfig()
+        let ui = persisted["ui"] as? [String: Any]
+        XCTAssertEqual(ui?["detectedTimezone"] as? String, "America/New_York")
+    }
+
     func testClearUserTimezoneRemovesOnlyTimezoneKey() {
-        seed(#"{"ui":{"userTimezone":"America/New_York","mediaEmbeds":{"enabled":true}},"other":"value"}"#)
+        seed(#"{"ui":{"userTimezone":"America/New_York","detectedTimezone":"America/Los_Angeles","mediaEmbeds":{"enabled":true}},"other":"value"}"#)
         let store = SettingsStore(configPath: configPath)
 
         store.clearUserTimezone()
@@ -84,6 +112,23 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
         XCTAssertEqual(persisted["other"] as? String, "value")
         let ui = persisted["ui"] as? [String: Any]
         XCTAssertNil(ui?["userTimezone"])
+        XCTAssertEqual(ui?["detectedTimezone"] as? String, "America/Los_Angeles")
+        XCTAssertNotNil(ui?["mediaEmbeds"])
+    }
+
+    func testAutomaticModeClearingManualOverrideKeepsDetectedTimezone() {
+        seed(#"{"ui":{"userTimezone":"America/New_York","detectedTimezone":"Europe/Berlin","mediaEmbeds":{"enabled":true}}}"#)
+        let store = SettingsStore(configPath: configPath)
+
+        store.clearUserTimezone()
+
+        XCTAssertNil(store.userTimezone)
+        XCTAssertEqual(store.detectedTimezone, "Europe/Berlin")
+
+        let persisted = readConfig()
+        let ui = persisted["ui"] as? [String: Any]
+        XCTAssertNil(ui?["userTimezone"])
+        XCTAssertEqual(ui?["detectedTimezone"] as? String, "Europe/Berlin")
         XCTAssertNotNil(ui?["mediaEmbeds"])
     }
 
@@ -97,7 +142,7 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
     func testUserTimezoneHydratesFromDaemonOnInit() {
         let mock = MockSettingsClient()
         mock.fetchConfigResponse = [
-            "ui": ["userTimezone": "America/New_York"]
+            "ui": ["userTimezone": "America/New_York", "detectedTimezone": "America/Los_Angeles"]
         ]
 
         let store = SettingsStore(settingsClient: mock)
@@ -110,6 +155,7 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
             timeout: 2.0
         )
         XCTAssertGreaterThanOrEqual(mock.fetchConfigCallCount, 1)
+        XCTAssertEqual(store.detectedTimezone, "America/Los_Angeles")
     }
 
     /// Regression: `.daemonDidReconnect` must trigger a config reload
@@ -133,7 +179,7 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
 
         // Daemon comes online with a persisted timezone.
         mock.fetchConfigResponse = [
-            "ui": ["userTimezone": "Europe/Berlin"]
+            "ui": ["userTimezone": "Europe/Berlin", "detectedTimezone": "Europe/Paris"]
         ]
         NotificationCenter.default.post(name: .daemonDidReconnect, object: nil)
 
@@ -144,5 +190,6 @@ final class SettingsStoreUserTimezoneTests: XCTestCase {
             for: [XCTNSPredicateExpectation(predicate: rehydrated, object: nil)],
             timeout: 2.0
         )
+        XCTAssertEqual(store.detectedTimezone, "Europe/Paris")
     }
 }
