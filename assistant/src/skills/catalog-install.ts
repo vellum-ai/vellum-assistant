@@ -126,12 +126,12 @@ export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
 
 // ─── Tar extraction ──────────────────────────────────────────────────────────
 
-export interface SafeSkillInstallPath {
+interface SafeSkillInstallPath {
   normalizedPath: string;
   destPath: string;
 }
 
-export function safeResolveSkillInstallPath(
+function safeResolveSkillInstallPath(
   destRoot: string,
   relativePath: string,
 ): SafeSkillInstallPath | null {
@@ -266,7 +266,7 @@ export function uninstallSkillLocally(skillId: string): void {
   deleteSkillCapabilityNode(skillId);
 }
 
-export function assertInstalledSkillDiscoverable(
+function assertInstalledSkillDiscoverable(
   skillId: string,
   skillDir = join(getWorkspaceSkillsDir(), skillId),
 ): void {
@@ -330,7 +330,7 @@ export function installSkillDependenciesIfPresent(skillDir: string): void {
   }
 }
 
-export function restoreOrRemoveFailedSkillInstall(
+function restoreOrRemoveFailedSkillInstall(
   skillId: string,
   backupDir: string | null,
 ): void {
@@ -341,13 +341,13 @@ export function restoreOrRemoveFailedSkillInstall(
   }
 }
 
-export function discardSkillInstallBackup(backupDir: string | null): void {
+function discardSkillInstallBackup(backupDir: string | null): void {
   if (backupDir) {
     rmSync(backupDir, { recursive: true, force: true });
   }
 }
 
-export function snapshotExistingSkillDir(skillId: string): string | null {
+function snapshotExistingSkillDir(skillId: string): string | null {
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
   if (!existsSync(skillDir)) return null;
 
