@@ -19,6 +19,10 @@ import { loadSkillCatalog } from "../config/skills.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
+import {
+  BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
+  SYSTEM_STORAGE_CLEANUP_SKILL_ID,
+} from "../skills/system-storage-cleanup-constants.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import {
@@ -30,9 +34,6 @@ import { createSkillToolsFromManifest } from "../tools/skills/skill-tool-factory
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("conversation-skill-tools");
-const SYSTEM_STORAGE_CLEANUP_SKILL_ID = "system-storage-cleanup";
-const BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR =
-  "bundled:system-storage-cleanup";
 
 // ---------------------------------------------------------------------------
 // Public types

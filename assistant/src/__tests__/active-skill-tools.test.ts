@@ -2,18 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import type { Message } from "../providers/types.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
+import { BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR } from "../skills/system-storage-cleanup-constants.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /** Build an assistant message with a skill_load tool_use block. */
-function skillLoadUseMsg(id: string): Message {
+function skillLoadUseMsg(id: string, skill = "test"): Message {
   return {
     role: "assistant",
-    content: [
-      { type: "tool_use", id, name: "skill_load", input: { skill: "test" } },
-    ],
+    content: [{ type: "tool_use", id, name: "skill_load", input: { skill } }],
   };
 }
 
@@ -55,6 +54,31 @@ describe("deriveActiveSkills (ID-only)", () => {
       toolResultMsg("t1", 'Skill loaded.\n\n<loaded_skill id="deploy" />'),
     ];
     expect(deriveActiveSkills(messages).map((e) => e.id)).toEqual(["deploy"]);
+  });
+
+  test("normalizes bundled selector provenance from skill_load input", () => {
+    const messages: Message[] = [
+      skillLoadUseMsg("t1", " bundled: system-storage-cleanup "),
+      toolResultMsg("t1", '<loaded_skill id="system-storage-cleanup" />'),
+    ];
+
+    expect(deriveActiveSkills(messages)).toEqual([
+      {
+        id: "system-storage-cleanup",
+        selector: BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
+      },
+    ]);
+  });
+
+  test("does not retain plain selector provenance", () => {
+    const messages: Message[] = [
+      skillLoadUseMsg("t1", "system-storage-cleanup"),
+      toolResultMsg("t1", '<loaded_skill id="system-storage-cleanup" />'),
+    ];
+
+    expect(deriveActiveSkills(messages)).toEqual([
+      { id: "system-storage-cleanup" },
+    ]);
   });
 
   test("multiple markers from different skill_load tool results", () => {

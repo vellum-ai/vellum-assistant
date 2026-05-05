@@ -16,6 +16,7 @@ import {
 } from "../plugins/registry.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
+import { BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR } from "../skills/system-storage-cleanup-constants.js";
 
 function findInjector(name: string): Injector {
   const injector = defaultInjectorsPlugin.injectors?.find(
@@ -83,7 +84,7 @@ Unrelated work remains blocked until disk usage drops below the critical thresho
 </disk_pressure_warning>`);
     expect(DISK_PRESSURE_WARNING_PROMPT).toContain("skill_load");
     expect(DISK_PRESSURE_WARNING_PROMPT).toContain(
-      "bundled:system-storage-cleanup",
+      BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
     );
     expect(DISK_PRESSURE_WARNING_PROMPT).not.toContain(
       "Prefer safe inspection steps first",

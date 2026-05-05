@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
 import type { SkillProjectionContext } from "../daemon/conversation-tool-setup.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR } from "../skills/system-storage-cleanup-constants.js";
 import type { Tool } from "../tools/types.js";
 import type { DiskUsageInfo } from "../util/disk-usage.js";
 
@@ -360,7 +361,7 @@ This skill declares executable tools.
 
     const safeResult = await handler.checkPreExecutionGates(
       "skill_load",
-      { skill: "bundled:system-storage-cleanup" },
+      { skill: BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR },
       baseContext,
       "sandbox",
       "low",
@@ -373,6 +374,40 @@ This skill declares executable tools.
       throw new Error("Expected instruction-only bundled skill_load to pass");
     }
     expect(safeResult.tool.name).toBe("skill_load");
+
+    const whitespaceSelectorResult = await handler.checkPreExecutionGates(
+      "skill_load",
+      { skill: "bundled: system-storage-cleanup" },
+      baseContext,
+      "sandbox",
+      "low",
+      Date.now(),
+      () => undefined,
+    );
+
+    expect(whitespaceSelectorResult.allowed).toBe(true);
+    if (!whitespaceSelectorResult.allowed) {
+      throw new Error("Expected normalized bundled selector to pass");
+    }
+    expect(whitespaceSelectorResult.tool.name).toBe("skill_load");
+
+    const plainCleanupResult = await handler.checkPreExecutionGates(
+      "skill_load",
+      { skill: "system-storage-cleanup" },
+      baseContext,
+      "sandbox",
+      "low",
+      Date.now(),
+      () => undefined,
+    );
+
+    expect(plainCleanupResult.allowed).toBe(false);
+    if (plainCleanupResult.allowed) {
+      throw new Error("Expected plain cleanup skill selector to be rejected");
+    }
+    expect(plainCleanupResult.result.content).toContain(
+      BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
+    );
 
     const dynamicResult = await handler.checkPreExecutionGates(
       "skill_load",
@@ -389,7 +424,7 @@ This skill declares executable tools.
       throw new Error("Expected dynamic skill_load to be rejected");
     }
     expect(dynamicResult.result.content).toContain(
-      'can only load the bundled "system-storage-cleanup" skill',
+      BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
     );
 
     const unrelatedResult = await handler.checkPreExecutionGates(
@@ -409,7 +444,7 @@ This skill declares executable tools.
       );
     }
     expect(unrelatedResult.result.content).toContain(
-      'can only load the bundled "system-storage-cleanup" skill',
+      BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
     );
 
     const toolManifestResult = await handler.checkPreExecutionGates(
@@ -427,7 +462,7 @@ This skill declares executable tools.
       throw new Error("Expected tool-manifest skill_load to be rejected");
     }
     expect(toolManifestResult.result.content).toContain(
-      'can only load the bundled "system-storage-cleanup" skill',
+      BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
     );
 
     writeManagedSkill(
@@ -462,12 +497,12 @@ This managed skill shadows the bundled cleanup skill.
       throw new Error("Expected managed shadow cleanup skill to be rejected");
     }
     expect(shadowResult.result.content).toContain(
-      'can only load the bundled "system-storage-cleanup" skill',
+      BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
     );
 
     const bundledShadowResult = await handler.checkPreExecutionGates(
       "skill_load",
-      { skill: "bundled:system-storage-cleanup" },
+      { skill: BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR },
       baseContext,
       "sandbox",
       "low",
