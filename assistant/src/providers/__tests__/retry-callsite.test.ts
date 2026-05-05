@@ -391,7 +391,14 @@ describe("RetryProvider — callSite resolution", () => {
 
   test("propagates temperature when explicitly set in resolved config", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        // Thinking defaults to enabled in the schema. Disable here so the
+        // thinking/temperature conflict guard doesn't fire — that guard
+        // (Anthropic 400 backstop) has dedicated coverage further down.
+        thinking: { enabled: false },
+      },
       callSites: {
         mainAgent: { temperature: 0.5 },
       },
@@ -463,6 +470,220 @@ describe("RetryProvider — callSite resolution", () => {
 
     const config = seen?.config as Record<string, unknown>;
     expect(config.model).toBe("explicit-override");
+  });
+});
+
+// ── RetryProvider — Anthropic thinking + temperature conflict guard ─────────
+//
+// Anthropic 400s with "temperature may only be set to 1 when thinking is
+// enabled or in adaptive mode" if a request combines extended thinking with
+// `temperature` ≠ 1. We had three call sites ship with hardcoded
+// per-call temperatures that exploded for Opus 4.x effort=high/xhigh
+// profiles (PR #29560 fixed the call sites). This guard is a backstop: if a
+// future call site reintroduces the same pattern, retry.ts drops the
+// offending temperature instead of letting the request fail at the wire.
+
+describe("RetryProvider — thinking/temperature conflict guard", () => {
+  test("drops explicit non-1 temperature when thinking is enabled (Anthropic)", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      // Hardcoded per-call temperature — the pattern that caused the PR
+      // #29560 bug class. Without the guard this would forward to Anthropic
+      // and 400.
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "adaptive" });
+    expect(config.temperature).toBeUndefined();
+    expect("temperature" in config).toBe(false);
+  });
+
+  test("drops explicit temperature: 0 when thinking is enabled (Anthropic)", async () => {
+    // Mirrors the recall-agent / retriever shape: `temperature: 0` for
+    // determinism on a thinking-enabled profile. Same 400 risk, same fix.
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { recall: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "recall", temperature: 0 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "adaptive" });
+    expect(config.temperature).toBeUndefined();
+  });
+
+  test("preserves temperature: 1 when thinking is enabled (Anthropic accepts it)", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent", temperature: 1 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "adaptive" });
+    expect(config.temperature).toBe(1);
+  });
+
+  test("preserves explicit temperature when thinking is disabled (Anthropic)", async () => {
+    // The bug class only exists when thinking resolves enabled. With
+    // thinking disabled, every temperature value is valid — the guard must
+    // not fire.
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: false, streamThinking: false },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "disabled" });
+    expect(config.temperature).toBe(0.7);
+  });
+
+  test("drops temperature for OpenRouter when fronting an `anthropic/*` model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openrouter",
+        model: "anthropic/claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openrouter", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("anthropic/claude-opus-4-7");
+    expect(config.temperature).toBeUndefined();
+  });
+
+  test("preserves temperature for OpenRouter when fronting a non-Anthropic reasoning model", async () => {
+    // OpenRouter's other reasoning models (xAI Grok, etc.) translate
+    // `thinking` into the `reasoning` parameter via `buildExtraCreateParams`
+    // and don't share Anthropic's temperature-must-be-1 constraint. The
+    // guard must not over-reach.
+    setLlmConfig({
+      default: {
+        provider: "openrouter",
+        model: "x-ai/grok-4",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openrouter", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("x-ai/grok-4");
+    expect(config.temperature).toBe(0.7);
+  });
+
+  test("guard does not fire when thinking has already been stripped by forced tool_choice", async () => {
+    // `retry.ts` strips `thinking` when forced `tool_choice: { type: "tool" }`
+    // is set on Anthropic — the guard runs after that step, so by the time
+    // we check, `thinking` is gone and the temperature can stay.
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { trustRuleSuggestion: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: {
+        callSite: "trustRuleSuggestion",
+        temperature: 0.7,
+        tool_choice: { type: "tool", name: "suggest_trust_rule" },
+      },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toBeUndefined();
+    expect(config.temperature).toBe(0.7);
   });
 });
 

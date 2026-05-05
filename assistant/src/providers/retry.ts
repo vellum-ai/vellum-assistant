@@ -273,6 +273,56 @@ function normalizeSendMessageOptions(
     delete nextConfig.thinking;
   }
 
+  // Anthropic (and OpenRouter fronting Anthropic) rejects requests that
+  // combine extended thinking with `temperature` ≠ 1. From the API:
+  //   "`temperature` may only be set to 1 when thinking is enabled or in
+  //   adaptive mode."
+  //
+  // Defense-in-depth: callers that hardcode a non-default temperature in
+  // their per-call config are easy to miss when reviewing — we already had
+  // this bug ship in three places (reply suggestions, recall agent
+  // round, recall fallback finalize). Drop the offending temperature with
+  // a warn log so the request goes through with Anthropic's default
+  // (which is 1 in thinking mode anyway). We keep `thinking` rather than
+  // `temperature` because thinking is the more deliberate, profile-level
+  // choice — silently downgrading reasoning capacity for an unrelated
+  // per-call hint would be the worse failure mode.
+  //
+  // Scope:
+  // - Anthropic: always.
+  // - OpenRouter fronting `anthropic/*`: same wire constraint applies.
+  // - Other providers: not our problem here (e.g. OpenAI reasoning models
+  //   strip `temperature` upstream; non-Anthropic OpenRouter reasoning
+  //   models don't have this exact constraint).
+  const isThinkingTemperatureConflict = (() => {
+    if (nextConfig.thinking == null) return false;
+    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
+    const temp = nextConfig.temperature;
+    if (typeof temp !== "number") return false;
+    if (temp === 1) return false;
+    if (providerName === "anthropic") return true;
+    if (providerName === "openrouter") {
+      const model =
+        typeof nextConfig.model === "string" ? nextConfig.model : "";
+      return model.startsWith("anthropic/");
+    }
+    return false;
+  })();
+  if (isThinkingTemperatureConflict) {
+    log.warn(
+      {
+        providerName,
+        callSite: config.callSite,
+        droppedTemperature: nextConfig.temperature,
+      },
+      "Dropping `temperature` because thinking is enabled — Anthropic only " +
+        "accepts `temperature: 1` (or unset) when thinking/adaptive mode is " +
+        "on. Set `thinking: { type: 'disabled' }` on the call site if you " +
+        "need a specific temperature.",
+    );
+    delete nextConfig.temperature;
+  }
+
   // effort is supported by Anthropic, OpenAI, and OpenAI-compatible providers; strip for others
   if (
     !EFFORT_SUPPORTED_PROVIDERS.has(providerName) &&
