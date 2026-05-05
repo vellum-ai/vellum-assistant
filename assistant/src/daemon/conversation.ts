@@ -118,6 +118,7 @@ import {
   createToolExecutor,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
+import { canonicalizeTimeZone } from "./date-context.js";
 import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import type {
@@ -309,6 +310,7 @@ export class Conversation {
    * @internal
    */
   hostUsername?: string;
+  /** @internal */ clientTimezone?: string;
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
@@ -1128,6 +1130,13 @@ export class Conversation {
     ) {
       this.workspaceTopLevelDirty = true;
     }
+  }
+
+  applyClientTimezoneFromTransport(
+    transport: ConversationTransportMetadata,
+  ): void {
+    this.clientTimezone =
+      canonicalizeTimeZone(transport.clientTimezone) ?? undefined;
   }
 
   setAssistantId(assistantId: string | null): void {
