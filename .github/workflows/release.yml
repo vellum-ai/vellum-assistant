@@ -330,16 +330,30 @@ jobs:
           CLIENT_ID: ${{ vars.CWS_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
         run: |
           # CWS API requires a zip — it handles signing server-side
           UPLOAD_FILE=$(ls /tmp/chrome-extension/*.zip)
           echo "Uploading: $UPLOAD_FILE"
-          chrome-webstore-upload upload \
+          set +e
+          OUTPUT=$(chrome-webstore-upload upload \
             --source "$UPLOAD_FILE" \
             --extension-id "$EXTENSION_ID" \
             --client-id "$CLIENT_ID" \
             --client-secret "$CLIENT_SECRET" \
-            --refresh-token "$REFRESH_TOKEN"
+            --refresh-token "$REFRESH_TOKEN" 2>&1)
+          EXIT=$?
+          set -e
+          echo "$OUTPUT"
+          if [ $EXIT -ne 0 ] && echo "$OUTPUT" | grep -q "ITEM_NOT_UPDATABLE"; then
+            if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
+              echo "::error::CWS rejected upload with ITEM_NOT_UPDATABLE — this version was likely already pushed. e2e tests are gating this release; failing to surface divergence."
+              exit 1
+            fi
+            echo "::notice::CWS already has this version pending/published — skipping upload (e2e is non-blocking, treating as retry)."
+            exit 0
+          fi
+          exit $EXIT
 
       - name: Publish to Chrome Web Store
         env:
@@ -1275,6 +1289,9 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install and publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
         run: |
           PACKAGE="${{ matrix.package }}"
           cd "$PACKAGE"
@@ -1284,9 +1301,17 @@ jobs:
             rm -rf node_modules
             bun install
           fi
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
+              echo "::error::$PKG_NAME@$PKG_VERSION is already published, but e2e tests are gating this release. Bump the version — refusing to silently retry."
+              exit 1
+            fi
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (e2e is non-blocking, treating as retry)."
+            exit 0
+          fi
           npm publish --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ── Staging: pack CLI tarball and dispatch QA to platform repo ──────
   pack-cli:
@@ -1364,11 +1389,22 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Publish meta-package
-        run: |
-          cd meta
-          npm publish --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
+        run: |
+          cd meta
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
+              echo "::error::$PKG_NAME@$PKG_VERSION is already published, but e2e tests are gating this release. Bump the version — refusing to silently retry."
+              exit 1
+            fi
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (e2e is non-blocking, treating as retry)."
+            exit 0
+          fi
+          npm publish --access public --no-provenance
 
   # arm64 macOS build — builds Swift + Bun binaries in a single job,
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
