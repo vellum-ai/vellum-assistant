@@ -36,6 +36,17 @@ describe("oauth-connect-state", () => {
     });
   });
 
+  test("setOAuthConnectComplete with grantedScopes → returns complete with grantedScopes", () => {
+    setOAuthConnectComplete("state-1", "google", "user@example.com", ["scope:read", "scope:write"]);
+    const result = getOAuthConnectState("state-1");
+    expect(result).toMatchObject({
+      status: "complete",
+      service: "google",
+      accountInfo: "user@example.com",
+      grantedScopes: ["scope:read", "scope:write"],
+    });
+  });
+
   test("setOAuthConnectError → returns error with message", () => {
     setOAuthConnectError("state-1", "google", "token exchange failed");
     const result = getOAuthConnectState("state-1");

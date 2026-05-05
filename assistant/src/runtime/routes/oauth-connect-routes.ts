@@ -65,7 +65,7 @@ async function handleOAuthConnectStart({
       onDeferredComplete: (r) => {
         if (!resolvedState) return;
         if (r.success) {
-          setOAuthConnectComplete(resolvedState, r.service, r.accountInfo);
+          setOAuthConnectComplete(resolvedState, r.service, r.accountInfo, r.grantedScopes);
         } else {
           setOAuthConnectError(resolvedState, r.service, r.error ?? "OAuth connect failed");
         }
@@ -96,6 +96,7 @@ function handleOAuthConnectStatus({
   status: "pending" | "complete" | "error";
   service: string;
   account_info?: string;
+  granted_scopes?: string[];
   error?: string;
 } {
   const { state } = pathParams as { state: string };
@@ -111,6 +112,7 @@ function handleOAuthConnectStatus({
       status: "complete",
       service: flowState.service,
       ...(flowState.accountInfo ? { account_info: flowState.accountInfo } : {}),
+      ...(flowState.grantedScopes ? { granted_scopes: flowState.grantedScopes } : {}),
     };
   }
   return { status: "error", service: flowState.service, error: flowState.error };

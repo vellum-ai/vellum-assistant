@@ -76,7 +76,7 @@ function startManagedRedirectServer(provider: string): Promise<{
 
 type OAuthConnectStatusResponse =
   | { status: "pending"; service: string }
-  | { status: "complete"; service: string; account_info?: string }
+  | { status: "complete"; service: string; account_info?: string; granted_scopes?: string[] }
   | { status: "error"; service: string; error?: string };
 
 async function pollOAuthConnectStatus(
@@ -453,7 +453,7 @@ Examples:
                   if (jsonMode) {
                     writeOutput(cmd, {
                       ok: true,
-                      grantedScopes: [],
+                      grantedScopes: final.granted_scopes ?? [],
                       accountInfo: final.account_info,
                     });
                   } else {

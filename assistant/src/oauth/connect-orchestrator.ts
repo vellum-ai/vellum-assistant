@@ -81,6 +81,7 @@ export interface OAuthConnectOptions {
     success: boolean;
     service: string;
     accountInfo?: string;
+    grantedScopes?: string[];
     error?: string;
   }) => void;
 }
@@ -256,6 +257,7 @@ export async function orchestrateOAuthConnect(
               success: true,
               service: options.service,
               accountInfo: stored.accountInfo ?? parsedAccountIdentifier,
+              grantedScopes: result.grantedScopes,
             });
           } catch (err) {
             log.error(

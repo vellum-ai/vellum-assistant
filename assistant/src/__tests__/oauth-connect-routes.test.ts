@@ -13,6 +13,7 @@ type OrchestrateOptions = {
     success: boolean;
     service: string;
     accountInfo?: string;
+    grantedScopes?: string[];
     error?: string;
   }) => void;
 };
@@ -242,6 +243,32 @@ describe("oauth-connect-routes", () => {
           pathParams: { state: "nonexistent-state" },
         }),
       ).toThrow(NotFoundError);
+    });
+
+    test("returns complete with granted_scopes after onDeferredComplete fires with grantedScopes", async () => {
+      await findRoute("internal_oauth_connect_start").handler({
+        body: {
+          service: "google",
+          clientId: "my-client-id",
+          callbackTransport: "gateway",
+        },
+      });
+      // Fire the onDeferredComplete callback with grantedScopes
+      capturedOnDeferredComplete?.({
+        success: true,
+        service: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/gmail.readonly"],
+      });
+      const result = findRoute("internal_oauth_connect_status").handler({
+        pathParams: { state: "test-state-uuid-abc123" },
+      }) as Record<string, unknown>;
+      expect(result).toMatchObject({
+        status: "complete",
+        service: "google",
+        account_info: "user@example.com",
+        granted_scopes: ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/gmail.readonly"],
+      });
     });
 
     test("complete without accountInfo does not include account_info field", async () => {

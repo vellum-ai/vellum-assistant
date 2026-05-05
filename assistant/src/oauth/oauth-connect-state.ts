@@ -6,7 +6,7 @@
  */
 type OAuthConnectState =
   | { status: "pending"; service: string; expiresAt: number }
-  | { status: "complete"; service: string; accountInfo?: string; completedAt: number }
+  | { status: "complete"; service: string; accountInfo?: string; grantedScopes?: string[]; completedAt: number }
   | { status: "error"; service: string; error: string; failedAt: number };
 
 const activeOAuthConnectFlows = new Map<string, OAuthConnectState>();
@@ -26,11 +26,13 @@ export function setOAuthConnectComplete(
   state: string,
   service: string,
   accountInfo?: string,
+  grantedScopes?: string[],
 ): void {
   activeOAuthConnectFlows.set(state, {
     status: "complete",
     service,
     accountInfo,
+    grantedScopes,
     completedAt: Date.now(),
   });
 }
