@@ -247,7 +247,7 @@ describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
     expect(runnerCalls).toBe(1);
     expect(runnerLastArgs).not.toBeNull();
     expect(runnerLastArgs?.jobName).toBe("memory.consolidate");
-    expect(runnerLastArgs?.source).toBe("memory");
+    expect(runnerLastArgs?.source).toBe("memory_v2_consolidation");
     expect(runnerLastArgs?.callSite).toBe("mainAgent");
     expect(runnerLastArgs?.origin).toBe("memory_consolidation");
     // The whole point of this PR: opt out of activity.failed notifications

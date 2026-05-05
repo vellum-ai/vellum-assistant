@@ -77,9 +77,6 @@ import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
 const log = getLogger("memory-v2-consolidate");
 
-/** Source string identifying this background conversation in logs and surfaces. */
-const JOB_SOURCE = "memory";
-
 /** Stable identifier surfaced in `runBackgroundJob` logs and notifications. */
 const JOB_NAME = "memory.consolidate";
 
@@ -170,7 +167,7 @@ export async function memoryV2ConsolidateJob(
     // bytes through the wake hint.
     const runResult = await runBackgroundJob({
       jobName: JOB_NAME,
-      source: JOB_SOURCE,
+      source: MEMORY_V2_CONSOLIDATION_SOURCE,
       prompt: resolveConsolidationPrompt(
         config.memory.v2.consolidation_prompt_path,
         cutoff,

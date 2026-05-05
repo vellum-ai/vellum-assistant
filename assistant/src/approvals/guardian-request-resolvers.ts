@@ -486,6 +486,21 @@ const accessRequestResolver: GuardianRequestResolver = {
     // a verification session. The caller is already on the line and the
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "phone") {
+      try {
+        upsertContactChannel({
+          sourceChannel: "phone",
+          externalUserId: requesterExternalUserId,
+          externalChatId: requesterChatId,
+          status: "active",
+          policy: "allow",
+        });
+      } catch (err) {
+        log.error(
+          { err, requesterExternalUserId },
+          "Access request resolver: failed to activate voice caller as trusted contact",
+        );
+      }
+
       log.info(
         {
           event: "resolver_access_request_voice_approved",

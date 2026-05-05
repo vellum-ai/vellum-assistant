@@ -140,6 +140,20 @@ mock.module("../../credential-health/credential-health-service.js", () => ({
   checkAllCredentials: async () => ({ unhealthy: [] }),
 }));
 
+// Stub the heartbeat-run-store so the tests don't need a populated SQLite
+// schema. Each function is a no-op that returns sensible defaults.
+let heartbeatRunIdCounter = 0;
+mock.module("../heartbeat-run-store.js", () => ({
+  insertPendingHeartbeatRun: () => `heartbeat-run-${++heartbeatRunIdCounter}`,
+  startHeartbeatRun: () => true,
+  completeHeartbeatRun: () => true,
+  skipHeartbeatRun: () => {},
+  supersedePendingRun: () => {},
+  markStaleRunsAsMissed: () => 0,
+  markStaleRunningAsError: () => 0,
+}));
+
+
 const { HeartbeatService } = await import("../heartbeat-service.js");
 
 let origWorkspaceDir: string | undefined;
