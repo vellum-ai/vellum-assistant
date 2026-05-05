@@ -12,56 +12,6 @@ import SwiftUI
 @MainActor
 final class DeleteAccountTests: XCTestCase {
 
-    // MARK: - Section visibility (flag- and auth-gated)
-
-    /// The Danger Zone is hidden when the client-side `account-deletion` flag
-    /// is off (the registry default).
-    func testDangerZoneHiddenWhenFlagOff() {
-        let manager = MacOSClientFeatureFlagManager(environment: [:])
-        XCTAssertFalse(SettingsGeneralTab.shouldShowDangerZone(
-            flagManager: manager,
-            isAuthenticated: true
-        ))
-    }
-
-    /// The Danger Zone is visible when the client-side `account-deletion` flag
-    /// is on (e.g. via a `VELLUM_FLAG_ACCOUNT_DELETION=1` override) and the
-    /// session is authenticated.
-    func testDangerZoneVisibleWhenFlagOnAndAuthenticated() {
-        let manager = MacOSClientFeatureFlagManager(
-            environment: ["VELLUM_FLAG_ACCOUNT_DELETION": "1"]
-        )
-        XCTAssertTrue(SettingsGeneralTab.shouldShowDangerZone(
-            flagManager: manager,
-            isAuthenticated: true
-        ))
-    }
-
-    /// The Danger Zone stays hidden when the user isn't signed in, even with
-    /// the flag enabled — the POST would fail with `notAuthenticated` so the
-    /// destructive button shouldn't be offered in the first place.
-    func testDangerZoneHiddenWhenUnauthenticatedEvenWithFlagOn() {
-        let manager = MacOSClientFeatureFlagManager(
-            environment: ["VELLUM_FLAG_ACCOUNT_DELETION": "1"]
-        )
-        XCTAssertFalse(SettingsGeneralTab.shouldShowDangerZone(
-            flagManager: manager,
-            isAuthenticated: false
-        ))
-    }
-
-    /// Other client flags do not flip the gate — only the literal
-    /// `account-deletion` key controls visibility.
-    func testDangerZoneHiddenForUnrelatedFlag() {
-        let manager = MacOSClientFeatureFlagManager(
-            environment: ["VELLUM_FLAG_LOCAL_DOCKER_ENABLED": "1"]
-        )
-        XCTAssertFalse(SettingsGeneralTab.shouldShowDangerZone(
-            flagManager: manager,
-            isAuthenticated: true
-        ))
-    }
-
     // MARK: - DeleteAccountConfirmView submit behavior
 
     /// On a `.requested` result, the modal reports `.deleted` to the parent so

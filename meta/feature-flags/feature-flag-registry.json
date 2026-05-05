@@ -255,7 +255,7 @@
       "key": "account-deletion",
       "label": "Account Deletion",
       "description": "Surfaces the user-initiated account deletion flow in client settings.",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "app-control",
