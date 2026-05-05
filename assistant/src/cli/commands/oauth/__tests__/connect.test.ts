@@ -770,7 +770,7 @@ describe("assistant oauth connect", () => {
     test("IPC start succeeds + polling returns complete → exits 0 with success output", async () => {
       let pollCallCount = 0;
       mockCliIpcCallFn = async (method) => {
-        if (method === "internal/oauth/connect/start") {
+        if (method === "internal_oauth_connect_start") {
           return {
             ok: true,
             result: {
@@ -779,7 +779,7 @@ describe("assistant oauth connect", () => {
             },
           };
         }
-        if (method.startsWith("internal/oauth/connect/status/")) {
+        if (method === "internal_oauth_connect_status") {
           pollCallCount++;
           return {
             ok: true,
@@ -811,7 +811,7 @@ describe("assistant oauth connect", () => {
 
     test("IPC start succeeds + polling returns error → exits 1 with error message", async () => {
       mockCliIpcCallFn = async (method) => {
-        if (method === "internal/oauth/connect/start") {
+        if (method === "internal_oauth_connect_start") {
           return {
             ok: true,
             result: {
@@ -820,7 +820,7 @@ describe("assistant oauth connect", () => {
             },
           };
         }
-        if (method.startsWith("internal/oauth/connect/status/")) {
+        if (method === "internal_oauth_connect_status") {
           return {
             ok: true,
             result: {
@@ -847,7 +847,7 @@ describe("assistant oauth connect", () => {
     test("IPC start + --no-browser + json → returns deferred JSON without polling status", async () => {
       let statusCallCount = 0;
       mockCliIpcCallFn = async (method) => {
-        if (method === "internal/oauth/connect/start") {
+        if (method === "internal_oauth_connect_start") {
           return {
             ok: true,
             result: {
@@ -856,7 +856,7 @@ describe("assistant oauth connect", () => {
             },
           };
         }
-        if (method.startsWith("internal/oauth/connect/status/")) {
+        if (method === "internal_oauth_connect_status") {
           statusCallCount++;
         }
         return { ok: false, error: "unexpected method" };
@@ -883,7 +883,7 @@ describe("assistant oauth connect", () => {
 
     test("IPC start + --no-browser without json → prints URL to stdout", async () => {
       mockCliIpcCallFn = async (method) => {
-        if (method === "internal/oauth/connect/start") {
+        if (method === "internal_oauth_connect_start") {
           return {
             ok: true,
             result: {

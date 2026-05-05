@@ -86,7 +86,8 @@ async function pollOAuthConnectStatus(
   const deadline = Date.now() + opts.timeoutMs;
   while (Date.now() < deadline) {
     const r = await cliIpcCall<OAuthConnectStatusResponse>(
-      `internal/oauth/connect/status/${encodeURIComponent(state)}`,
+      "internal_oauth_connect_status",
+      { pathParams: { state } },
     );
     if (r.ok && r.result) {
       const { status } = r.result;
@@ -424,13 +425,15 @@ Examples:
 
             // e. Try daemon-orchestrated path first (fixes heap-split for gateway transport).
             const startResult = await cliIpcCall<{ auth_url: string; state: string }>(
-              "internal/oauth/connect/start",
+              "internal_oauth_connect_start",
               {
-                service: provider,
-                clientId,
-                ...(clientSecret !== undefined ? { clientSecret } : {}),
-                callbackTransport: opts.callbackTransport,
-                ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
+                body: {
+                  service: provider,
+                  clientId,
+                  ...(clientSecret !== undefined ? { clientSecret } : {}),
+                  callbackTransport: opts.callbackTransport,
+                  ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
+                },
               },
             );
 
