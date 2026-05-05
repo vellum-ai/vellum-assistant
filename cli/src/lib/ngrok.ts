@@ -229,25 +229,6 @@ function hasWebhookIntegrationsConfigured(workspaceDir: string): boolean {
 }
 
 /**
- * Read the configured public ingress base URL from the workspace config,
- * returning `undefined` if none is set. Safe to call unconditionally — never
- * throws.
- */
-export function readConfiguredPublicBaseUrl(
-  workspaceDir: string = getDefaultWorkspaceDir(),
-): string | undefined {
-  try {
-    const config = loadRawConfig(workspaceDir);
-    const ingress = config.ingress as Record<string, unknown> | undefined;
-    const publicBaseUrl = ingress?.publicBaseUrl;
-    if (!publicBaseUrl || typeof publicBaseUrl !== "string") return undefined;
-    return publicBaseUrl;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Check whether a non-ngrok ingress URL is already configured (e.g. custom
  * domain or cloud deployment), meaning ngrok is not needed.
  */

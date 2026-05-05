@@ -1878,9 +1878,9 @@ describe("platform credential injection", () => {
         "device-id-123",
         "my-local",
         "cli",
-        undefined, // assistantVersion
-        undefined, // platformUrl
-        undefined, // publicBaseUrl (no ingress URL configured in test env)
+        undefined, // assistantVersion (gateway unreachable in test)
+        expect.any(String), // platformUrl from getPlatformUrl()
+        undefined, // ingressUrl (gateway unreachable in test)
       );
       expect(injectCredentialsIntoAssistantMock).toHaveBeenCalledWith({
         gatewayUrl: "http://localhost:7821",

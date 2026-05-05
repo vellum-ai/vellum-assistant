@@ -148,6 +148,38 @@ export async function fetchCurrentVersion(
 }
 
 /**
+ * Best-effort fetch of the assistant's configured public ingress URL from the
+ * gateway `integrations/ingress/config` endpoint.  Returns `undefined` when
+ * the gateway is unreachable, the bearer token is missing, or no public URL
+ * is configured.
+ */
+export async function fetchAssistantIngressUrl(
+  runtimeUrl: string,
+  bearerToken?: string,
+): Promise<string | undefined> {
+  if (!bearerToken) return undefined;
+  try {
+    const resp = await fetch(`${runtimeUrl}/integrations/ingress/config`, {
+      headers: { Authorization: `Bearer ${bearerToken}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (resp.ok) {
+      const body = (await resp.json()) as {
+        publicBaseUrl?: string;
+        managedCallbacks?: boolean;
+      };
+      // Ignore managed-callback URLs — those belong to the platform, not the
+      // self-hosted assistant's own ingress.
+      if (body.managedCallbacks) return undefined;
+      return body.publicBaseUrl || undefined;
+    }
+  } catch {
+    // Best-effort
+  }
+  return undefined;
+}
+
+/**
  * Determine the version that was running before the current one.
  *
  * Checks (in order):
