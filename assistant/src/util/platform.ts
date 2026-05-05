@@ -160,16 +160,26 @@ export function getHistoryPath(): string {
 }
 
 /**
- * Returns the protected directory (~/.vellum/protected). Security-sensitive
- * files — trust rules, encrypted credential store, signing keys, feature-flag
- * overrides, device approval lists — live here.
+ * Returns the protected directory. Security-sensitive files — trust rules,
+ * encrypted credential store, signing keys, feature-flag overrides, device
+ * approval lists — live here.
  *
  * This directory is:
- * - Outside the workspace
  * - Outside the sandbox write boundary (tools cannot modify it)
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
+ *
+ * Resolution order (mirrors workspace/migrations/utils.ts):
+ * 1. Parent of VELLUM_WORKSPACE_DIR + "/protected"
+ *    e.g. /data/.vellum/workspace → /data/.vellum/protected
+ * 2. If that parent is "/" (workspace at top level), fall back to
+ *    ~/.vellum/protected
  */
 export function getProtectedDir(): string {
+  const override = getWorkspaceDirOverride();
+  if (override) {
+    const parent = dirname(override);
+    if (parent !== "/") return join(parent, "protected");
+  }
   return join(VELLUM_ROOT, "protected");
 }
 
