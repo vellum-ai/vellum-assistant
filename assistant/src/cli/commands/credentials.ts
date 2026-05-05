@@ -15,6 +15,7 @@ import {
 import type { CredentialPromptResult } from "../../runtime/routes/credential-prompt-routes.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
+  getActiveBackendInfoAsync,
   getSecureKeyAsync,
   getSecureKeyResultAsync,
 } from "../../security/secure-keys.js";
@@ -384,6 +385,72 @@ Examples:
                 log.info("");
               }
             }
+          }
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeError(cmd, message);
+        process.exitCode = 1;
+      }
+    });
+
+  // -------------------------------------------------------------------------
+  // status
+  // -------------------------------------------------------------------------
+
+  credential
+    .command("status")
+    .description("Show the active credential backend and its configuration")
+    .addHelpText(
+      "after",
+      `
+Shows which credential storage backend this process is using and backend-specific
+path or connection details. Run this to diagnose credential lookup mismatches —
+for example, when the CLI and the daemon are reading from different stores.
+
+Backend types:
+  encrypted-store   Direct file read from keys.enc (standalone CLI, no daemon)
+  ces-rpc           Delegates to the running CES process via stdio RPC (daemon)
+  ces-http          Delegates to CES sidecar over HTTP (containerized/Docker mode)
+
+Also shows the CREDENTIAL_SECURITY_DIR, GATEWAY_SECURITY_DIR, and
+VELLUM_WORKSPACE_DIR env vars so you can confirm which instance directory this
+process is scoped to.
+
+Examples:
+  $ assistant credentials status
+  $ assistant credentials status --json`,
+    )
+    .action(async (_opts: Record<string, unknown>, cmd: Command) => {
+      try {
+        const info = await getActiveBackendInfoAsync();
+        const envContext = {
+          CREDENTIAL_SECURITY_DIR:
+            process.env.CREDENTIAL_SECURITY_DIR ?? null,
+          GATEWAY_SECURITY_DIR: process.env.GATEWAY_SECURITY_DIR ?? null,
+          VELLUM_WORKSPACE_DIR: process.env.VELLUM_WORKSPACE_DIR ?? null,
+        };
+
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { ok: true, ...info, env: envContext });
+        } else {
+          log.info(`Backend: ${info.backend}`);
+          if (info.backend === "encrypted-store") {
+            log.info(
+              `  Store path:  ${info.storePath} [${info.storeExists ? "exists" : "missing"}]`,
+            );
+            log.info(
+              `  Key path:    ${info.storeKeyPath} [${info.storeKeyExists ? "exists" : "missing"}]`,
+            );
+          } else if (info.backend === "ces-rpc") {
+            log.info(`  RPC ready:   ${info.ready}`);
+          } else if (info.backend === "ces-http") {
+            log.info(`  URL:         ${info.url}`);
+          }
+          log.info("");
+          log.info("Environment:");
+          for (const [key, value] of Object.entries(envContext)) {
+            log.info(`  ${key}: ${value ?? "(not set)"}`);
           }
         }
       } catch (err) {

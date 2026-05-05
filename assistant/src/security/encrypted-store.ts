@@ -83,6 +83,11 @@ function getStorePath(): string {
   return storePathOverride ?? join(getProtectedDir(), "keys.enc");
 }
 
+/** Returns the resolved path to the encrypted store file (`keys.enc`). */
+export function getStoreFilePath(): string {
+  return getStorePath();
+}
+
 /** @internal Test-only: override the store file path. Pass `null` to reset. */
 export function _setStorePath(path: string | null): void {
   storePathOverride = path;
@@ -106,6 +111,11 @@ function getStoreKeyPath(): string {
   return (
     storeKeyPathOverride ?? join(dirname(getStorePath()), STORE_KEY_FILENAME)
   );
+}
+
+/** Returns the resolved path to the AES key file (`store.key`). */
+export function getStoreKeyFilePath(): string {
+  return getStoreKeyPath();
 }
 
 /**

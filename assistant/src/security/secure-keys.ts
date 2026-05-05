@@ -18,6 +18,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { existsSync } from "node:fs";
 
 import type {
   SecureKeyBackend,
@@ -37,6 +38,10 @@ import type {
 } from "./credential-backend.js";
 import { createEncryptedStoreBackend } from "./credential-backend.js";
 import { credentialKey } from "./credential-key.js";
+import {
+  getStoreFilePath,
+  getStoreKeyFilePath,
+} from "./encrypted-store.js";
 
 export type {
   CredentialListResult,
@@ -582,6 +587,52 @@ export async function getMaskedProviderKey(
  */
 export function getActiveBackendName(): string {
   return _resolvedBackend?.name ?? "none";
+}
+
+// ---------------------------------------------------------------------------
+// Backend introspection
+// ---------------------------------------------------------------------------
+
+export type BackendInfo =
+  | {
+      backend: "encrypted-store";
+      storePath: string;
+      storeKeyPath: string;
+      storeExists: boolean;
+      storeKeyExists: boolean;
+    }
+  | { backend: "ces-rpc"; ready: boolean }
+  | { backend: "ces-http"; url: string }
+  | { backend: "none" };
+
+/**
+ * Resolve the active credential backend (triggering resolution if not yet
+ * done) and return introspection details specific to that backend.
+ *
+ * Useful for `credentials status` — shows which store this process is talking
+ * to, so path/socket mismatches between the CLI and daemon are immediately
+ * visible.
+ */
+export async function getActiveBackendInfoAsync(): Promise<BackendInfo> {
+  const backend = await resolveBackendAsync();
+  if (backend.name === "encrypted-store") {
+    const storePath = getStoreFilePath();
+    const storeKeyPath = getStoreKeyFilePath();
+    return {
+      backend: "encrypted-store",
+      storePath,
+      storeKeyPath,
+      storeExists: existsSync(storePath),
+      storeKeyExists: existsSync(storeKeyPath),
+    };
+  }
+  if (backend.name === "ces-rpc") {
+    return { backend: "ces-rpc", ready: backend.isAvailable() };
+  }
+  if (backend.name === "ces-http") {
+    return { backend: "ces-http", url: process.env.CES_CREDENTIAL_URL ?? "" };
+  }
+  return { backend: "none" };
 }
 
 /** @internal Test-only: reset the cached backends so they're re-created. */
