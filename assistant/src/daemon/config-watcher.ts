@@ -37,6 +37,27 @@ import { reloadMcpServers } from "./mcp-reload-service.js";
 
 const log = getLogger("config-watcher");
 
+const SKILL_WATCH_SKIPPED_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "__pycache__",
+  ".install-staging",
+  ".cache",
+  ".next",
+  ".turbo",
+  ".venv",
+  "dist",
+  "build",
+  "coverage",
+]);
+
+function isSkippedSkillWatchPath(relativePath: string): boolean {
+  if (relativePath === "(unknown)") return false;
+
+  const segments = relativePath.split(/[\\/]+/).filter(Boolean);
+  return segments.some((segment) => SKILL_WATCH_SKIPPED_DIRS.has(segment));
+}
+
 /**
  * Attach a resilient error handler to an FSWatcher so that async errors
  * (e.g. ENXIO when a Unix socket file like `gateway.sock` appears in a
@@ -395,6 +416,8 @@ export class ConfigWatcher {
     if (!existsSync(skillsDir)) return;
 
     const scheduleSkillsReload = (file: string): void => {
+      if (isSkippedSkillWatchPath(file)) return;
+
       this.debounceTimers.schedule("skills:catalog", () => {
         log.info({ file }, "Skill file changed, reloading");
         onConversationEvict();
@@ -473,6 +496,7 @@ export class ConfigWatcher {
 
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
+        if (SKILL_WATCH_SKIPPED_DIRS.has(entry.name)) continue;
         const childDir = join(dirPath, entry.name);
         acc.add(childDir);
         enumerateSkillSubdirectories(childDir, acc);
@@ -504,7 +528,10 @@ export class ConfigWatcher {
         if (childWatchers.has(childDir)) continue;
 
         const watcher = watchDir(childDir, (filename) => {
-          scheduleSkillsReload(formatSkillChangeLabel(childDir, filename));
+          const file = formatSkillChangeLabel(childDir, filename);
+          if (isSkippedSkillWatchPath(file)) return;
+
+          scheduleSkillsReload(file);
           refreshChildWatchers();
         });
         if (watcher) {
@@ -514,6 +541,8 @@ export class ConfigWatcher {
     };
 
     const rootWatcher = watchDir(skillsDir, (filename) => {
+      if (isSkippedSkillWatchPath(filename)) return;
+
       scheduleSkillsReload(filename);
       refreshChildWatchers();
     });

@@ -32,6 +32,7 @@ interface CapturedWatcher {
 }
 
 const capturedWatchers: CapturedWatcher[] = [];
+let recursiveWatchAvailable = false;
 
 mock.module("node:fs", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -44,7 +45,10 @@ mock.module("node:fs", () => {
       if (typeof args[0] === "function") {
         callback = args[0] as WatchCallback;
       } else {
-        if ((args[0] as { recursive?: boolean } | undefined)?.recursive) {
+        if (
+          (args[0] as { recursive?: boolean } | undefined)?.recursive &&
+          !recursiveWatchAvailable
+        ) {
           throw new Error("recursive watch unavailable");
         }
         callback = args[1] as WatchCallback;
@@ -131,6 +135,7 @@ describe("ConfigWatcher skills watcher reseeding", () => {
 
   beforeEach(() => {
     capturedWatchers.length = 0;
+    recursiveWatchAvailable = false;
     rmSync(SKILLS_DIR, { recursive: true, force: true });
     mkdirSync(SKILLS_DIR, { recursive: true });
     evictCalls = 0;
@@ -163,6 +168,46 @@ describe("ConfigWatcher skills watcher reseeding", () => {
     const skillsWatcher = findWatcher(SKILLS_DIR);
     expect(skillsWatcher).toBeDefined();
     skillsWatcher!.callback("change", "example-skill/SKILL.md");
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(evictCalls).toBe(1);
+    expect(skillsChangedCalls).toBe(1);
+  });
+
+  test("recursive watcher ignores skipped dependency and staging paths", async () => {
+    recursiveWatchAvailable = true;
+
+    watcher.start(
+      () => {
+        evictCalls++;
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        skillsChangedCalls++;
+      },
+    );
+
+    const skillsWatcher = findWatcher(SKILLS_DIR);
+    expect(skillsWatcher).toBeDefined();
+    skillsWatcher!.callback(
+      "change",
+      "example-skill/node_modules/pkg/index.js",
+    );
+    skillsWatcher!.callback(
+      "change",
+      ".install-staging/example-skill/SKILL.md",
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(evictCalls).toBe(0);
+    expect(skillsChangedCalls).toBe(0);
+
+    skillsWatcher!.callback("change", "example-skill/references/foo.md");
 
     await new Promise((resolve) => setTimeout(resolve, 300));
 
@@ -216,6 +261,59 @@ describe("ConfigWatcher skills watcher reseeding", () => {
     const referencesWatcher = findWatcher(referencesDir);
     expect(referencesWatcher).toBeDefined();
     referencesWatcher!.callback("change", "notes.md");
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(evictCalls).toBe(1);
+    expect(skillsChangedCalls).toBe(1);
+  });
+
+  test("fallback skips dependency and staging directories", async () => {
+    const skillDir = join(SKILLS_DIR, "example-skill");
+    const nodeModulesDir = join(skillDir, "node_modules");
+    const dependencyDir = join(nodeModulesDir, "pkg");
+    const stagingDir = join(SKILLS_DIR, ".install-staging");
+    const stagedSkillDir = join(stagingDir, "example-skill");
+    const referencesDir = join(skillDir, "references");
+    mkdirSync(dependencyDir, { recursive: true });
+    mkdirSync(stagedSkillDir, { recursive: true });
+    mkdirSync(referencesDir, { recursive: true });
+
+    watcher.start(
+      () => {
+        evictCalls++;
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        skillsChangedCalls++;
+      },
+    );
+
+    expect(findWatcher(nodeModulesDir)).toBeUndefined();
+    expect(findWatcher(dependencyDir)).toBeUndefined();
+    expect(findWatcher(stagingDir)).toBeUndefined();
+    expect(findWatcher(stagedSkillDir)).toBeUndefined();
+
+    const skillsWatcher = findWatcher(SKILLS_DIR);
+    const skillWatcher = findWatcher(skillDir);
+    expect(skillsWatcher).toBeDefined();
+    expect(skillWatcher).toBeDefined();
+
+    skillsWatcher!.callback("rename", ".install-staging");
+    skillWatcher!.callback("rename", "node_modules");
+    skillWatcher!.callback("change", "node_modules/pkg/index.js");
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(evictCalls).toBe(0);
+    expect(skillsChangedCalls).toBe(0);
+
+    const referencesWatcher = findWatcher(referencesDir);
+    expect(referencesWatcher).toBeDefined();
+    referencesWatcher!.callback("change", "foo.md");
 
     await new Promise((resolve) => setTimeout(resolve, 300));
 
