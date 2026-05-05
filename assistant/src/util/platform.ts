@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -7,11 +7,86 @@ import { getWorkspaceDirOverride } from "../config/env-registry.js";
 /**
  * The daemon's root data directory (`~/.vellum`).
  *
+ * Used as the fallback root when no workspace override is active.
  * Multi-instance path relocation is handled by the CLI when spawning the
- * daemon (via `VELLUM_WORKSPACE_DIR` and `GATEWAY_SECURITY_DIR`); the
- * assistant itself never reads an env var for this.
+ * daemon (via `VELLUM_WORKSPACE_DIR` and `GATEWAY_SECURITY_DIR`), or
+ * auto-discovered from the environment lockfile when the binary is invoked
+ * directly (see `discoverInstanceDir`).
  */
 const VELLUM_ROOT = join(homedir(), ".vellum");
+
+// ---------------------------------------------------------------------------
+// Multi-instance auto-discovery (macOS binary invoked from terminal)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cached result of lockfile-based instance discovery. `null` = not found or
+ * not applicable. `undefined` = not yet attempted.
+ */
+let _discoveredInstanceDir: string | null | undefined;
+
+/** Reset the discovery cache. **Test-only.** */
+export function _resetDiscoveredInstanceDirForTesting(): void {
+  _discoveredInstanceDir = undefined;
+}
+
+/**
+ * Derive the active assistant's instance directory from the environment
+ * lockfile. Only runs on macOS when `VELLUM_WORKSPACE_DIR` is not set — the
+ * common case is a user invoking the binary directly from the terminal rather
+ * than through the macOS app launcher that injects env vars.
+ *
+ * Uses `VELLUM_ENVIRONMENT` (compiled in via --define at build time) to
+ * locate the correct lockfile, reads `activeAssistant`, and constructs the
+ * XDG-scoped instance directory path.
+ *
+ * Returns `null` if discovery is not applicable or fails (graceful fallback
+ * to legacy `~/.vellum/workspace`).
+ */
+function discoverInstanceDir(): string | null {
+  if (_discoveredInstanceDir !== undefined) return _discoveredInstanceDir;
+
+  // Only needed on macOS; containers always set VELLUM_WORKSPACE_DIR.
+  if (process.platform !== "darwin") {
+    _discoveredInstanceDir = null;
+    return null;
+  }
+
+  const home = homedir();
+  const env = process.env["VELLUM_ENVIRONMENT"]?.trim() || "production";
+  const xdgConfig =
+    process.env["XDG_CONFIG_HOME"]?.trim() || join(home, ".config");
+  const xdgData =
+    process.env["XDG_DATA_HOME"]?.trim() || join(home, ".local", "share");
+
+  // Lockfile location mirrors cli/src/lib/environments/paths.ts
+  const lockfilePath =
+    env === "production"
+      ? join(home, ".vellum.lock.json")
+      : join(xdgConfig, `vellum-${env}`, "lockfile.json");
+
+  try {
+    const raw = readFileSync(lockfilePath, "utf-8");
+    const data = JSON.parse(raw) as { activeAssistant?: string };
+    const name = data.activeAssistant?.trim();
+    if (!name) {
+      _discoveredInstanceDir = null;
+      return null;
+    }
+
+    // Multi-instance dir mirrors cli/src/lib/environments/paths.ts
+    const multiInstanceDir =
+      env === "production"
+        ? join(xdgData, "vellum", "assistants")
+        : join(xdgData, `vellum-${env}`, "assistants");
+
+    _discoveredInstanceDir = join(multiInstanceDir, name);
+    return _discoveredInstanceDir;
+  } catch {
+    _discoveredInstanceDir = null;
+    return null;
+  }
+}
 
 /** Returns the daemon's root data directory (`~/.vellum`). */
 export function vellumRoot(): string {
@@ -160,16 +235,26 @@ export function getHistoryPath(): string {
 }
 
 /**
- * Returns the protected directory (~/.vellum/protected). Security-sensitive
- * files — trust rules, encrypted credential store, signing keys, feature-flag
- * overrides, device approval lists — live here.
+ * Returns the protected directory. Security-sensitive files — trust rules,
+ * encrypted credential store, signing keys, feature-flag overrides, device
+ * approval lists — live here.
  *
- * This directory is:
- * - Outside the workspace
- * - Outside the sandbox write boundary (tools cannot modify it)
- * - Skipped in containerized mode (credentials via CES, trust via gateway)
+ * Resolution order:
+ *   1. `CREDENTIAL_SECURITY_DIR` env var (set by CLI launcher / Docker).
+ *   2. `GATEWAY_SECURITY_DIR` env var (legacy alias for the same path).
+ *   3. `<instanceDir>/.vellum/protected` (auto-discovered on macOS when the
+ *      binary is invoked directly from the terminal).
+ *   4. `~/.vellum/protected` (legacy single-instance default).
  */
 export function getProtectedDir(): string {
+  const envOverride =
+    process.env["CREDENTIAL_SECURITY_DIR"]?.trim() ||
+    process.env["GATEWAY_SECURITY_DIR"]?.trim();
+  if (envOverride) return envOverride;
+
+  const instanceDir = discoverInstanceDir();
+  if (instanceDir) return join(instanceDir, ".vellum", "protected");
+
   return join(VELLUM_ROOT, "protected");
 }
 
@@ -215,13 +300,20 @@ export function getEmbedWorkerPidPath(): string {
 /**
  * Returns the workspace root for user-facing state.
  *
- * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in
- * containerized deployments where the workspace is a separate volume).
- * Otherwise falls back to ~/.vellum/workspace.
+ * Resolution order:
+ *   1. `VELLUM_WORKSPACE_DIR` env var (containerised / CLI-launched daemon).
+ *   2. `<instanceDir>/.vellum/workspace` (auto-discovered on macOS when the
+ *      binary is invoked directly from the terminal — reads the active
+ *      assistant from the environment lockfile).
+ *   3. `~/.vellum/workspace` (legacy single-instance default).
  */
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
   if (override) return override;
+
+  const instanceDir = discoverInstanceDir();
+  if (instanceDir) return join(instanceDir, ".vellum", "workspace");
+
   return join(VELLUM_ROOT, "workspace");
 }
 
