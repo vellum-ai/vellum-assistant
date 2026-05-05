@@ -56,6 +56,34 @@ final class MessageTypesTests: XCTestCase {
         ])
     }
 
+    func testDecodesErrorMessagePreservesConversationErrorCategory() throws {
+        let json = Data(
+            """
+            {
+              "type": "error",
+              "conversationId": "conv-billing",
+              "requestId": "req-billing",
+              "code": "PROVIDER_BILLING",
+              "message": "Your provider key needs credits.",
+              "errorCategory": "provider_billing"
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .error(let error) = message else {
+            XCTFail("Expected .error, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(error.conversationId, "conv-billing")
+        XCTAssertEqual(error.requestId, "req-billing")
+        XCTAssertEqual(error.code, "PROVIDER_BILLING")
+        XCTAssertEqual(error.message, "Your provider key needs credits.")
+        XCTAssertEqual(error.errorCategory, "provider_billing")
+    }
+
     // MARK: - host_browser_request
 
     func testDecodes_hostBrowserRequest_withAllFields() throws {
