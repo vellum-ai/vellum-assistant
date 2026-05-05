@@ -24,27 +24,14 @@ process.env.VELLUM_LOCKFILE_DIR = testDir;
 // ---------------------------------------------------------------------------
 
 import * as assistantConfig from "../lib/assistant-config.js";
-import * as platformClient from "../lib/platform-client.js";
 
+// Both tests in this file have findAssistantByName return a vellum entry,
+// causing resolveTargetAssistant to return at the top branch before any
+// other config helpers run — so we only need to mock this one.
 const findAssistantByNameMock = spyOn(
   assistantConfig,
   "findAssistantByName",
 ).mockReturnValue(null);
-
-const loadAllAssistantsMock = spyOn(
-  assistantConfig,
-  "loadAllAssistants",
-).mockReturnValue([]);
-
-const getActiveAssistantMock = spyOn(
-  assistantConfig,
-  "getActiveAssistant",
-).mockReturnValue(null);
-
-const getPlatformUrlMock = spyOn(
-  platformClient,
-  "getPlatformUrl",
-).mockReturnValue("https://platform.test");
 
 import { upgrade } from "../commands/upgrade.js";
 
@@ -54,12 +41,6 @@ describe("upgrade() rejects --prepare/--finalize for platform-managed entries", 
   beforeEach(() => {
     savedArgv = process.argv;
     findAssistantByNameMock.mockReset();
-    loadAllAssistantsMock.mockReset();
-    loadAllAssistantsMock.mockReturnValue([]);
-    getActiveAssistantMock.mockReset();
-    getActiveAssistantMock.mockReturnValue(null);
-    getPlatformUrlMock.mockReset();
-    getPlatformUrlMock.mockReturnValue("https://platform.test");
   });
 
   function runWithArgv(
@@ -148,9 +129,6 @@ describe("upgrade() rejects --prepare/--finalize for platform-managed entries", 
 
 afterAll(() => {
   findAssistantByNameMock.mockRestore();
-  loadAllAssistantsMock.mockRestore();
-  getActiveAssistantMock.mockRestore();
-  getPlatformUrlMock.mockRestore();
   rmSync(testDir, { recursive: true, force: true });
   if (savedLockfileDir === undefined) {
     delete process.env.VELLUM_LOCKFILE_DIR;
