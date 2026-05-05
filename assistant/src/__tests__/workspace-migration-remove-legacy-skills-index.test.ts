@@ -10,15 +10,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { loadSkillBySelector } from "../config/skills.js";
 import { removeLegacySkillsIndexMigration } from "../workspace/migrations/068-remove-legacy-skills-index.js";
 
 let workspaceDir: string;
+let previousWorkspaceDir: string | undefined;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "vellum-migration-068-test-"));
+  previousWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+  process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
 });
 
 afterEach(() => {
+  if (previousWorkspaceDir === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+  } else {
+    process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceDir;
+  }
   if (existsSync(workspaceDir)) {
     rmSync(workspaceDir, { recursive: true, force: true });
   }
@@ -76,6 +85,25 @@ describe("068-remove-legacy-skills-index migration", () => {
     expect(existsSync(join(workspaceDir, "skills", "alpha", "SKILL.md"))).toBe(
       true,
     );
+  });
+
+  test("removing a stale SKILLS.md index preserves loadability for omitted valid skill directories", () => {
+    const skillsDir = join(workspaceDir, "skills");
+    mkdirSync(skillsDir, { recursive: true });
+    const legacyIndexPath = join(skillsDir, "SKILLS.md");
+    writeFileSync(legacyIndexPath, "- indexed-skill\n", "utf-8");
+
+    writeSkill("indexed-skill");
+    writeSkill("omitted-skill");
+
+    removeLegacySkillsIndexMigration.run(workspaceDir);
+
+    expect(existsSync(legacyIndexPath)).toBe(false);
+    const loaded = loadSkillBySelector("omitted-skill");
+    expect(loaded.error).toBeUndefined();
+    expect(loaded.skill).toBeDefined();
+    expect(loaded.skill!.id).toBe("omitted-skill");
+    expect(loaded.skill!.body).toBe("Body.");
   });
 
   test("is safe to re-run", () => {

@@ -662,17 +662,17 @@ describe("injectMemoryV2Block", () => {
   // Unified pool — skills as `skills/<id>` slugs
   // ---------------------------------------------------------------------------
 
-  test("renders a skill-only block via the skills/ slug prefix", async () => {
+  test("renders a retrieved skills/<id> slug under Skills You Can Use", async () => {
     // No concept-page candidates this turn — the only ANN hit is a skill
     // slug. The render path branches on `skills/` prefix: it pulls the
     // entry from the skill-store cache (mocked) and emits the bullet under
     // the `### Skills You Can Use` subsection.
-    stageTurn([{ slug: "skills/example-skill-a", denseScore: 0.9 }]);
+    stageTurn([{ slug: "skills/retrieved-skill", denseScore: 0.9 }]);
     stageSkills([
       {
-        id: "example-skill-a",
+        id: "retrieved-skill",
         content:
-          'The "Example Skill A" skill (example-skill-a) is available. Helps with examples.',
+          'The "Retrieved Skill" skill (retrieved-skill) is available. Helps with retrieved skills.',
       },
     ]);
 
@@ -687,16 +687,18 @@ describe("injectMemoryV2Block", () => {
       config: makeConfig(),
     });
 
-    expect(result.toInject).toEqual(["skills/example-skill-a"]);
+    expect(result.toInject).toEqual(["skills/retrieved-skill"]);
     expect(result.block).not.toBeNull();
     expect(result.block).not.toContain("<memory>");
     expect(result.block).not.toContain("</memory>");
     expect(result.block).not.toContain("## What I Remember Right Now");
     expect(result.block).not.toContain("### alice-vscode");
-    expect(result.block).toContain("### Skills You Can Use");
-    expect(result.block).toContain(
-      '- The "Example Skill A" skill (example-skill-a) is available. Helps with examples. → use skill_load to activate',
+    const headerIdx = result.block!.indexOf("### Skills You Can Use");
+    const skillIdx = result.block!.indexOf(
+      '- The "Retrieved Skill" skill (retrieved-skill) is available. Helps with retrieved skills. → use skill_load to activate',
     );
+    expect(headerIdx).toBeGreaterThan(-1);
+    expect(skillIdx).toBeGreaterThan(headerIdx);
   });
 
   test("renders concept-page sections before the skills subsection in mixed blocks", async () => {
