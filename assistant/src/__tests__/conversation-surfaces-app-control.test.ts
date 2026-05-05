@@ -33,8 +33,11 @@ mock.module("../runtime/pending-interactions.js", () => ({
 
 const { surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
-const { HostAppControlProxy, _resetActiveAppControlConversationId } =
-  await import("../daemon/host-app-control-proxy.js");
+const {
+  HostAppControlProxy,
+  _resetActiveAppControlSession,
+  _setActiveAppControlSession,
+} = await import("../daemon/host-app-control-proxy.js");
 type SurfaceConversationContext =
   import("../daemon/conversation-surfaces.js").SurfaceConversationContext;
 
@@ -83,11 +86,11 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
   beforeEach(() => {
     sentMessages.length = 0;
     mockHasClient = true;
-    _resetActiveAppControlConversationId();
+    _resetActiveAppControlSession();
   });
 
   afterEach(() => {
-    _resetActiveAppControlConversationId();
+    _resetActiveAppControlSession();
   });
 
   // -------------------------------------------------------------------------
@@ -148,6 +151,10 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
     test("app_control_observe routes through proxy and returns observation", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
 
       const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {
         tool: "observe",
@@ -254,6 +261,10 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
     test("injects `tool` derived from toolName when the agent input omits it", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
 
       // Agent inputs do not carry the discriminator — the resolver has to
       // synthesize it from `toolName` ("app_control_observe" → "observe")

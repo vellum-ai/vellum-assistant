@@ -2023,7 +2023,7 @@ export async function surfaceProxyResolver(
     // union on `tool` ("start" | "observe" | "press" | …). The agent's raw
     // tool input only carries the action-specific payload (app, x/y, text,
     // …) — the discriminator is implied by `toolName` (`app_control_<tool>`).
-    // Inject it here so the proxy's singleton-lock guard (`input.tool ===
+    // Inject it here so the proxy's session-lock guard (`input.tool ===
     // "start"`) and the Swift client's discriminated-union decoder both see
     // the field they require.
     const tool = toolName.slice("app_control_".length);
