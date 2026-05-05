@@ -110,7 +110,7 @@ function expectRouteError(
   statusCode: number,
 ): void {
   expect(error).toBeInstanceOf(RouteError);
-  const routeError = error as RouteError;
+  const routeError = error as { code: string; statusCode: number };
   expect(routeError.code).toBe(code);
   expect(routeError.statusCode).toBe(statusCode);
 }
