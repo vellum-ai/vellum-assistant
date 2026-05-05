@@ -48,12 +48,31 @@ type PolicyEntry =
  */
 const POLICY_TABLE: PolicyEntry[] = [
   // Admin / internal
+  //
+  // Every operationId whose daemon-side route policy is gateway-only
+  // (`allowedPrincipalTypes: ["svc_gateway"]` in
+  // `assistant/src/runtime/auth/route-policy.ts`) MUST have a matching
+  // entry here. The gateway IPC proxy default-allows operationIds with
+  // no policy entry, so an authenticated edge JWT could otherwise reach
+  // them by setting `X-Vellum-Proxy-Server: ipc`, bypassing the daemon
+  // HTTP router entirely.
+  //
+  // The `ipc-route-policy-coverage.test.ts` lint enforces this invariant
+  // by walking the daemon route source files at test time.
   ["admin_rollbackmigrations_post", ["internal.write"], ["svc_gateway"]],
+  ["channel_inbound", ["ingress.write"], ["svc_gateway"]],
+  ["emit_event", ["internal.write"], ["svc_gateway"]],
   ["internal_mcp_auth_start", ["internal.write"], ["svc_gateway"]],
   ["internal_mcp_auth_status", ["internal.write"], ["svc_gateway"]],
   ["internal_mcp_reload", ["internal.write"], ["svc_gateway"]],
+  ["internal_oauth_callback", ["internal.write"], ["svc_gateway"]],
   ["internal_oauth_connect_start", ["internal.write"], ["svc_gateway"]],
   ["internal_oauth_connect_status", ["internal.write"], ["svc_gateway"]],
+  ["internal_twilio_connect_action", ["internal.write"], ["svc_gateway"]],
+  ["internal_twilio_status", ["internal.write"], ["svc_gateway"]],
+  ["internal_twilio_voice_webhook", ["internal.write"], ["svc_gateway"]],
+  ["upgrade_broadcast", ["internal.write"], ["svc_gateway"]],
+  ["workspace_commit", ["internal.write"], ["svc_gateway"]],
 
   // Calls
   ["calls_answer", ["calls.write"]],
