@@ -183,10 +183,7 @@ import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
-import {
-  classifyDiskPressureTurnPolicy,
-  type DiskPressureBlockReason,
-} from "./disk-pressure-policy.js";
+import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import { deepRepairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -224,13 +221,8 @@ type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
 
-function formatDiskPressureBlockedMessage(
-  reason: DiskPressureBlockReason,
-): string {
-  if (reason === "background") {
-    return "Storage is critically low, so background processes are paused until the guardian frees enough space.";
-  }
-  return "Storage is critically low, so messages from trusted contacts and other remote contacts are paused until the guardian frees enough space.";
+function formatDiskPressureBlockedMessage(): string {
+  return "Storage is critically low, so background processes are paused and remote messages are ignored until the guardian frees enough space. Remote senders should try again later.";
 }
 
 // ── Compaction circuit-breaker pipeline helpers ─────────────────────
@@ -777,9 +769,7 @@ export async function runAgentLoopImpl(
 
   try {
     if (diskPressureDecision.action === "block") {
-      const message = formatDiskPressureBlockedMessage(
-        diskPressureDecision.reason,
-      );
+      const message = formatDiskPressureBlockedMessage();
       rlog.warn(
         { reason: diskPressureDecision.reason },
         "Blocked turn during disk pressure cleanup mode",

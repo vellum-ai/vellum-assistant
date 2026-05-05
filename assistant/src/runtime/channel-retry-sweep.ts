@@ -7,9 +7,11 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../channels/types.js";
+import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
+import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { updateDeliveredSegmentCount } from "../memory/delivery-channels.js";
-import { linkMessage } from "../memory/delivery-crud.js";
+import { clearPayload, linkMessage } from "../memory/delivery-crud.js";
 import {
   getRetryableEvents,
   markProcessed,
@@ -18,10 +20,13 @@ import {
 } from "../memory/delivery-status.js";
 import { getLogger } from "../util/logger.js";
 import { deliverReplyViaCallback } from "./channel-reply-delivery.js";
+import { deliverChannelReply } from "./gateway-client.js";
 import type { MessageProcessor } from "./http-types.js";
 import { resolveRoutingStateFromRuntime } from "./trust-context-resolver.js";
 
 const log = getLogger("runtime-http");
+const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
+  "Storage is critically low, so remote messages are ignored until the guardian frees enough space. Please try again later.";
 
 function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -162,6 +167,65 @@ export async function sweepFailedEvents(
       sourceChannel,
       trustClass: "unknown",
     };
+
+    const diskPressureDecision = classifyDiskPressureTurnPolicy(
+      getDiskPressureStatus(),
+      {
+        sourceChannel,
+        sourceInterface,
+        trustContext: {
+          sourceChannel: trustContext.sourceChannel,
+          trustClass: trustContext.trustClass,
+        },
+      },
+    );
+    if (diskPressureDecision.action === "block") {
+      clearPayload(event.id);
+      markProcessed(event.id);
+      log.info(
+        {
+          eventId: event.id,
+          conversationId: event.conversationId,
+          reason: diskPressureDecision.reason,
+          trustClass: trustContext.trustClass,
+        },
+        "Skipped channel retry during disk pressure cleanup mode",
+      );
+
+      const replyCallbackUrl =
+        typeof payload.replyCallbackUrl === "string"
+          ? payload.replyCallbackUrl
+          : undefined;
+      const externalChatId =
+        typeof payload.externalChatId === "string"
+          ? payload.externalChatId
+          : undefined;
+      if (replyCallbackUrl && externalChatId) {
+        const requesterExternalUserId =
+          trustContext.requesterExternalUserId ??
+          (typeof payload.senderExternalUserId === "string"
+            ? payload.senderExternalUserId
+            : undefined);
+        const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
+          chatId: externalChatId,
+          text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
+          assistantId,
+        };
+        if (sourceChannel === "slack" && requesterExternalUserId) {
+          replyPayload.ephemeral = true;
+          replyPayload.user = requesterExternalUserId;
+        }
+        try {
+          await deliverChannelReply(replyCallbackUrl, replyPayload);
+        } catch (err) {
+          log.warn(
+            { err, eventId: event.id, conversationId: event.conversationId },
+            "Failed to deliver disk pressure retry block reply",
+          );
+        }
+      }
+      continue;
+    }
 
     const metadataHintsRaw = sourceMetadata?.hints;
     const metadataHints = Array.isArray(metadataHintsRaw)
