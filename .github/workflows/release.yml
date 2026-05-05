@@ -1495,6 +1495,7 @@ jobs:
 
       - name: Build binaries
         run: |
+          VELLUM_ENVIRONMENT="${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}" \
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
           ./build.sh binaries
@@ -1885,6 +1886,13 @@ jobs:
           fi
           DAEMON_FLAGS+=(--define "process.env.COMMIT_SHA='${{ github.sha }}'")
 
+          # Embed VELLUM_ENVIRONMENT at compile time so all binaries know their
+          # runtime context without any filesystem lookup.
+          VELLUM_ENVIRONMENT_VALUE="${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}"
+          ENV_DEFINE=(--define "process.env.VELLUM_ENVIRONMENT='$VELLUM_ENVIRONMENT_VALUE'")
+          DAEMON_FLAGS+=("${ENV_DEFINE[@]}")
+          DAEMON_EXTERNAL_FLAGS+=("${ENV_DEFINE[@]}")
+
           # Daemon
           (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p daemon-bin
@@ -1909,14 +1917,14 @@ jobs:
           # CLI
           (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p cli-bin
-          bun build --compile --target=bun-darwin-x64 \
+          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$CLI_SRC_DIR/src/index.ts" --outfile cli-bin/vellum-cli
           chmod +x cli-bin/vellum-cli
 
           # Gateway
           (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p gateway-bin
-          bun build --compile --target=bun-darwin-x64 \
+          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$GATEWAY_SRC_DIR/src/index.ts" --outfile gateway-bin/vellum-gateway
           chmod +x gateway-bin/vellum-gateway
           cp "$GATEWAY_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" gateway-bin/
@@ -1925,7 +1933,7 @@ jobs:
           # Credential-executor (CES)
           (cd "$CES_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p ces-bin
-          bun build --compile --target=bun-darwin-x64 \
+          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$CES_SRC_DIR/src/main.ts" --outfile ces-bin/credential-executor
           chmod +x ces-bin/credential-executor
 

@@ -13,6 +13,8 @@ describe("ipc-route-policy: gateway-only daemon routes", () => {
     "internal_mcp_auth_start",
     "internal_mcp_auth_status",
     "internal_mcp_reload",
+    "internal_oauth_connect_start",
+    "internal_oauth_connect_status",
   ])("%s requires internal.write and svc_gateway", (operationId) => {
     const policy = getIpcRoutePolicy(operationId);
     expect(policy).toBeDefined();

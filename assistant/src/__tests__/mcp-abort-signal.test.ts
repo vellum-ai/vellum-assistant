@@ -122,6 +122,136 @@ describe("MCP AbortSignal threading", () => {
   });
 
   describe("createMcpTool execute", () => {
+    test("keeps safe MCP tool names unchanged", () => {
+      const fakeManager = { callTool: jest.fn() } as any;
+
+      const tool = createMcpTool(
+        {
+          name: "my-tool",
+          description: "A test tool",
+          inputSchema: { type: "object", properties: {} },
+        },
+        "test-server",
+        {
+          transport: { type: "stdio", command: "echo", args: [] },
+          enabled: true,
+          defaultRiskLevel: "high",
+          maxTools: 100,
+        },
+        fakeManager,
+      );
+
+      expect(tool.name).toBe("mcp__test-server__my-tool");
+      expect(tool.getDefinition().name).toBe("mcp__test-server__my-tool");
+    });
+
+    test("keeps MCP tool names with trailing whitespace distinct", () => {
+      const fakeManager = { callTool: jest.fn() } as any;
+
+      const plain = createMcpTool(
+        {
+          name: "deploy",
+          description: "Deploy",
+          inputSchema: { type: "object", properties: {} },
+        },
+        "test-server",
+        {
+          transport: { type: "stdio", command: "echo", args: [] },
+          enabled: true,
+          defaultRiskLevel: "high",
+          maxTools: 100,
+        },
+        fakeManager,
+      );
+      const padded = createMcpTool(
+        {
+          name: "deploy ",
+          description: "Deploy padded",
+          inputSchema: { type: "object", properties: {} },
+        },
+        "test-server",
+        {
+          transport: { type: "stdio", command: "echo", args: [] },
+          enabled: true,
+          defaultRiskLevel: "high",
+          maxTools: 100,
+        },
+        fakeManager,
+      );
+
+      expect(plain.name).toBe("mcp__test-server__deploy");
+      expect(padded.name).toMatch(/^mcp__test-server__deploy__[a-f0-9]{12}$/);
+      expect(padded.name).not.toBe(plain.name);
+    });
+
+    test("exposes provider-safe MCP names while preserving raw execution names", async () => {
+      const callToolSpy = jest.fn().mockResolvedValue({
+        content: "tool result",
+        isError: false,
+      });
+      const fakeManager = { callTool: callToolSpy } as any;
+
+      const tool = createMcpTool(
+        {
+          name: "create link",
+          description: "Create a Stripe Link CLI resource",
+          inputSchema: { type: "object", properties: {} },
+        },
+        "stripe.link-cli",
+        {
+          transport: { type: "stdio", command: "echo", args: [] },
+          enabled: true,
+          defaultRiskLevel: "high",
+          maxTools: 100,
+        },
+        fakeManager,
+      );
+
+      expect(tool.name).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
+      expect(tool.name.startsWith("mcp__stripe_link-cli__create_link__")).toBe(
+        true,
+      );
+      expect(tool.getDefinition().name).toBe(tool.name);
+
+      await tool.execute(
+        { someArg: "value" },
+        {
+          workingDir: "/tmp",
+          conversationId: "conv-1",
+          trustClass: "guardian",
+        },
+      );
+
+      expect(callToolSpy).toHaveBeenCalledWith(
+        "stripe.link-cli",
+        "create link",
+        { someArg: "value" },
+        undefined,
+      );
+    });
+
+    test("caps long MCP names at the provider limit", () => {
+      const fakeManager = { callTool: jest.fn() } as any;
+      const tool = createMcpTool(
+        {
+          name: "x".repeat(180),
+          description: "A test tool",
+          inputSchema: { type: "object", properties: {} },
+        },
+        "server",
+        {
+          transport: { type: "stdio", command: "echo", args: [] },
+          enabled: true,
+          defaultRiskLevel: "high",
+          maxTools: 100,
+        },
+        fakeManager,
+      );
+
+      expect(tool.name).toHaveLength(64);
+      expect(tool.name).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
+    });
+
     test("threads context.signal through manager.callTool", async () => {
       const callToolSpy = jest.fn().mockResolvedValue({
         content: "tool result",

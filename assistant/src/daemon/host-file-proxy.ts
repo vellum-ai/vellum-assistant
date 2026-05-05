@@ -4,6 +4,11 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { readImageBase64 } from "../tools/shared/filesystem/image-read.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -68,15 +73,18 @@ export class HostFileProxy {
     conversationId: string,
     signal?: AbortSignal,
     targetClientId?: string,
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
     }
 
-    // Resolve targetClientId: explicit → validate; single capable client → auto-resolve.
-    // Callers may embed targetClientId in the input object (tool handlers) or pass it as
-    // the 4th parameter (legacy). Prefer the explicit param; fall back to input field.
-    let resolvedTargetClientId: string | undefined = targetClientId ?? input.targetClientId;
+    // Resolve targetClientId: explicit → validate; single same-user
+    // capable client → auto-resolve. Callers may embed targetClientId in
+    // the input object (tool handlers) or pass it as the 4th parameter
+    // (legacy). Prefer the explicit param; fall back to input field.
+    let resolvedTargetClientId: string | undefined =
+      targetClientId ?? input.targetClientId;
     if (resolvedTargetClientId != null) {
       const client = assistantEventHub.getClientById(resolvedTargetClientId);
       if (!client) {
@@ -92,10 +100,32 @@ export class HostFileProxy {
         });
       }
     } else {
-      const capable = assistantEventHub.listClientsByCapability("host_file");
-      if (capable.length === 1) {
-        resolvedTargetClientId = capable[0].clientId;
+      // Auto-resolve to the unique same-user client. Reject ambiguous
+      // (multi-machine) cases so a single targeted-style request cannot
+      // fan out across the user's machines.
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_file",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_file"));
       }
+      resolvedTargetClientId =
+        resolved.kind === "match" ? resolved.clientId : undefined;
+    }
+
+    // Same-user check: targeted host_file requests must be bound to the same
+    // authenticated user identity that opened the target client's SSE stream.
+    // Prevents cross-user routing through actor token mis-targeting.
+    if (resolvedTargetClientId != null) {
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_file",
+      });
+      if (rejection) return Promise.resolve(rejection);
     }
 
     const requestId = uuid();
@@ -150,6 +180,12 @@ export class HostFileProxy {
         conversationId,
         kind: "host_file",
         targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
         rpcResolve: resolve,
         rpcReject: reject,
         timer,

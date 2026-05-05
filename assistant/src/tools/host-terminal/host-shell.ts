@@ -292,6 +292,7 @@ class HostShellTool implements Tool {
           },
           context.conversationId,
           abortController.signal,
+          context.sourceActorPrincipalId,
         );
 
         proxyPromise
@@ -339,6 +340,7 @@ class HostShellTool implements Tool {
         },
         context.conversationId,
         context.signal,
+        context.sourceActorPrincipalId,
       );
     }
 

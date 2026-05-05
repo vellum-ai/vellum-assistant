@@ -282,6 +282,14 @@ export interface ToolContext {
    * `executeSubagentSpawn` in tools/subagent/spawn.ts.
    */
   overrideProfile?: string;
+  /**
+   * Canonical principal ID of the actor on whose behalf this tool invocation
+   * is running. Sourced from `conversation.trustContext.guardianPrincipalId`.
+   * Used by host proxies to bind cross-client targeted execution to the same
+   * authenticated user identity. May be undefined for legacy/internal flows
+   * with no resolved actor identity.
+   */
+  sourceActorPrincipalId?: string;
 }
 
 export interface Tool {

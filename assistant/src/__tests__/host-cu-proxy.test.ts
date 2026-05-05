@@ -2,12 +2,22 @@ import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 const sentMessages: unknown[] = [];
 let mockHasClient = false;
+type MockClient = {
+  clientId: string;
+  capabilities: string[];
+  actorPrincipalId?: string;
+};
+let mockClients: MockClient[] = [];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: unknown) => sentMessages.push(msg),
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) =>
       cap === "host_cu" && mockHasClient ? { id: "mock-client" } : null,
+    getClientById: (id: string) =>
+      mockClients.find((c) => c.clientId === id) ?? undefined,
+    getActorPrincipalIdForClient: (id: string) =>
+      mockClients.find((c) => c.clientId === id)?.actorPrincipalId,
   },
 }));
 
@@ -21,6 +31,7 @@ describe("HostCuProxy", () => {
   function setup(maxSteps?: number) {
     sentMessages.length = 0;
     mockHasClient = false;
+    mockClients = [];
     pendingInteractions.clear();
     proxy = new HostCuProxy(maxSteps);
   }
@@ -974,7 +985,203 @@ describe("HostCuProxy", () => {
     });
   });
 
-  // targetClientId validation lives at the surfaceProxyResolver layer (so an
-  // invalid ID does not burn a step or pollute action history before being
-  // rejected). See cu-unified-flow.test.ts for those tests.
+  // -------------------------------------------------------------------------
+  // targetClientId validation
+  //
+  // The surfaceProxyResolver layer validates first (so an invalid ID does
+  // not burn a step or pollute action history — see cu-unified-flow.test.ts
+  // for those tests). The proxy ALSO validates internally because it is
+  // exposed as a separately-callable API; these tests exercise that
+  // backstop along with the same-user enforcement.
+  // -------------------------------------------------------------------------
+
+  describe("targetClientId validation", () => {
+    test("rejects when targetClientId does not match any connected client", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "real-client",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "user-1",
+        },
+      ];
+
+      const result = await proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        "ghost-client",
+        "user-1",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("ghost-client");
+      expect(result.content).toContain("host_cu");
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("rejects when target client lacks host_cu capability", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "no-cu-client",
+          capabilities: ["host_bash"],
+          actorPrincipalId: "user-1",
+        },
+      ];
+
+      const result = await proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        "no-cu-client",
+        "user-1",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("does not support host_cu");
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("succeeds when caller and target share the same actor principal", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "cu-client",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "user-1",
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        "cu-client",
+        "user-1",
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_cu_request");
+      expect(sent.targetClientId).toBe("cu-client");
+
+      proxy.processObservation(sent.requestId as string, { axTree: "ok" });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("rejects cross-user targeted request", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "cu-client",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "user-2",
+        },
+      ];
+
+      const result = await proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        "cu-client",
+        "user-1",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("rejects when source actor principal is missing", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "cu-client",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "user-1",
+        },
+      ];
+
+      const result = await proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        "cu-client",
+        // sourceActorPrincipalId omitted
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("rejects when target actor principal is missing", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "cu-client",
+          capabilities: ["host_cu"],
+          // actorPrincipalId omitted
+        },
+      ];
+
+      const result = await proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        "cu-client",
+        "user-1",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("untargeted request bypasses same-user check", async () => {
+      setup();
+      // No targetClientId, no sourceActorPrincipalId — flow proceeds.
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_cu_request");
+      expect(sent.targetClientId).toBeUndefined();
+
+      proxy.processObservation(sent.requestId as string, { axTree: "ok" });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+  });
 });

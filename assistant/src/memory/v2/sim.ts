@@ -146,6 +146,7 @@ export async function simBatch(
   text: string,
   candidateSlugs: readonly string[],
   config: AssistantConfig,
+  signal?: AbortSignal,
 ): Promise<Map<string, number>> {
   if (candidateSlugs.length === 0) {
     return new Map();
@@ -157,7 +158,7 @@ export async function simBatch(
   // Sparse uses BM25: the query side encodes binary occurrences per token,
   // and the stored doc vectors carry the IDF · TF-saturated weights — Qdrant
   // dot product then yields the BM25 score directly.
-  const denseResult = await embedWithBackend(config, [text]);
+  const denseResult = await embedWithBackend(config, [text], { signal });
   const denseVector = await applyCorrectionIfCalibrated(
     denseResult.vectors[0],
     denseResult.provider,

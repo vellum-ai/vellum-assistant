@@ -3,16 +3,36 @@ import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 const sentMessages: unknown[] = [];
 let mockHasClient = false;
 
+interface MockClient {
+  clientId: string;
+  capabilities: string[];
+  actorPrincipalId?: string;
+}
+
+let mockClients: MockClient[] = [];
+
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: unknown) => sentMessages.push(msg),
   assistantEventHub: {
-    getMostRecentClientByCapability: (cap: string) =>
-      cap === "host_file" && mockHasClient ? { id: "mock-client" } : null,
-    listClientsByCapability: (cap: string) =>
-      cap === "host_file" && mockHasClient
+    getMostRecentClientByCapability: (cap: string) => {
+      if (mockClients.length > 0) {
+        return mockClients.find((c) => c.capabilities.includes(cap));
+      }
+      return cap === "host_file" && mockHasClient
+        ? { id: "mock-client" }
+        : null;
+    },
+    listClientsByCapability: (cap: string) => {
+      if (mockClients.length > 0) {
+        return mockClients.filter((c) => c.capabilities.includes(cap));
+      }
+      return cap === "host_file" && mockHasClient
         ? [{ clientId: "mock-client", capabilities: ["host_file"] }]
-        : [],
-    getClientById: (_id: string) => undefined,
+        : [];
+    },
+    getClientById: (id: string) => mockClients.find((c) => c.clientId === id),
+    getActorPrincipalIdForClient: (id: string) =>
+      mockClients.find((c) => c.clientId === id)?.actorPrincipalId,
   },
 }));
 
@@ -32,6 +52,7 @@ describe("HostFileProxy", () => {
   function setup() {
     sentMessages.length = 0;
     mockHasClient = false;
+    mockClients = [];
     pendingInteractions.clear();
     proxy = new (HostFileProxy as any)();
   }
@@ -582,6 +603,247 @@ describe("HostFileProxy", () => {
 
       await resultPromise;
       expect(pendingInteractions.get(requestId)).toBeUndefined();
+    });
+  });
+
+  describe("same-user binding (sourceActorPrincipalId)", () => {
+    test("targeted request from same user reaches pendingInteractions", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        "client-A",
+        "user-A",
+      );
+
+      // Request was registered (made it past the same-user gate).
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+      expect(pendingInteractions.get(requestId)).toBeDefined();
+
+      // Drain to avoid leaks.
+      proxy.resolve(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("targeted request from a different user is rejected", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      const result = await proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        "client-A",
+        "user-B",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      // No host_file_request was broadcast.
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("targeted request to a client with no actor principal is rejected", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          // actorPrincipalId omitted (legacy/service-token client).
+        },
+      ];
+
+      const result = await proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        "client-A",
+        "user-A",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("targeted request without source principal is rejected", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      const result = await proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        "client-A",
+        undefined,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Submitting actor does not match the target client's actor",
+      );
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("untargeted request with no auto-resolve match still broadcasts (legacy path unchanged)", async () => {
+      setup();
+      // No matching same-user clients available.
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        undefined,
+        "user-B", // No same-user match → no auto-resolve, broadcast untargeted.
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBeUndefined();
+      const requestId = sent.requestId as string;
+
+      proxy.resolve(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("auto-resolve picks the same-user client when there's exactly one", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+        {
+          clientId: "client-B",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-B",
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        undefined,
+        "user-A",
+      );
+
+      // Auto-resolved to client-A and broadcast targeted at it.
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("client-A");
+      const requestId = sent.requestId as string;
+
+      proxy.resolve(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("auto-resolve falls through when no client matches the source user", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { operation: "read", path: "/tmp/test.txt" },
+        "session-1",
+        undefined,
+        undefined,
+        "user-C",
+      );
+
+      // No same-user client → no auto-resolve, broadcast untargeted.
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBeUndefined();
+      const requestId = sent.requestId as string;
+
+      proxy.resolve(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("legacy embedded targetClientId in input still goes through the same-user gate", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "client-A",
+          capabilities: ["host_file"],
+          actorPrincipalId: "user-A",
+        },
+      ];
+
+      // Same-user via embedded input.targetClientId — should succeed.
+      const okPromise = proxy.request(
+        {
+          operation: "read",
+          path: "/tmp/ok.txt",
+          targetClientId: "client-A",
+        },
+        "session-1",
+        undefined,
+        undefined,
+        "user-A",
+      );
+      expect(sentMessages).toHaveLength(1);
+      const okRequestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(okRequestId, { content: "ok", isError: false });
+      await okPromise;
+
+      // Cross-user via embedded input.targetClientId — should be rejected.
+      sentMessages.length = 0;
+      const rejectResult = await proxy.request(
+        {
+          operation: "read",
+          path: "/tmp/bad.txt",
+          targetClientId: "client-A",
+        },
+        "session-1",
+        undefined,
+        undefined,
+        "user-B",
+      );
+      expect(rejectResult.isError).toBe(true);
+      expect(sentMessages).toHaveLength(0);
     });
   });
 });

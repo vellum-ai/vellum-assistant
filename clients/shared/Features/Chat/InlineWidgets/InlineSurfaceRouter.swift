@@ -56,6 +56,11 @@ public struct InlineSurfaceRouter: View {
         return false
     }
 
+    private var isCallSummarySurface: Bool {
+        if case .callSummary = surface.data { return true }
+        return false
+    }
+
     private var isTableSurface: Bool {
         if case .table = surface.data { return true }
         return false
@@ -98,7 +103,7 @@ public struct InlineSurfaceRouter: View {
         } else {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Template cards and dynamic page previews handle their own header
-            if !isTemplateCard, !isDynamicPreview, !isDocumentPreview, let title = surface.title {
+            if !isTemplateCard, !isDynamicPreview, !isDocumentPreview, !isCallSummarySurface, let title = surface.title {
                 Text(title)
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
@@ -110,7 +115,7 @@ public struct InlineSurfaceRouter: View {
                 actionButtons
             }
         }
-        .inlineWidgetCard(interactive: isDynamicPreview || isDocumentPreview)
+        .inlineWidgetCard(interactive: isDynamicPreview || isDocumentPreview || isCallSummarySurface)
         .overlay(alignment: .topTrailing) {
             if isDynamicPreview && !isAppCreated {
                 Button {
@@ -355,6 +360,8 @@ public struct InlineSurfaceRouter: View {
                 }
             )
         #endif
+        case .callSummary(let data):
+            InlineCallSummaryWidget(data: data)
         default:
             InlineFallbackChip(surfaceType: surface.surfaceType)
         }

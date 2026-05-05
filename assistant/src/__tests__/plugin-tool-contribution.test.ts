@@ -236,6 +236,53 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     expect(retrieved?.ownerPluginId).toBe("my-plugin");
   });
 
+  test("registerPluginTools exposes provider-safe aliases for unsafe plugin tool names", async () => {
+    const execute = mock(
+      async (
+        _input: Record<string, unknown>,
+        _context: ToolContext,
+      ): Promise<ToolExecutionResult> => ({ content: "ok", isError: false }),
+    );
+    const accepted = registerPluginTools("stripe-plugin", [
+      makeFakeTool("Stripe Link CLI", { execute }),
+    ]);
+
+    expect(accepted).toHaveLength(1);
+    const alias = accepted[0]!.name;
+    expect(alias).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
+    expect(alias.startsWith("Stripe_Link_CLI__")).toBe(true);
+    expect(getTool(alias)).toBeDefined();
+    expect(accepted[0]!.getDefinition().name).toBe(alias);
+
+    await accepted[0]!.execute(
+      {},
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-1",
+        trustClass: "guardian",
+      },
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  test("registerPluginTools keeps edge-whitespace tool names distinct", () => {
+    const accepted = registerPluginTools("deploy-plugin", [
+      makeFakeTool("deploy"),
+      makeFakeTool(" deploy "),
+    ]);
+
+    expect(accepted).toHaveLength(2);
+    const aliases = accepted.map((tool) => tool.name);
+    expect(new Set(aliases).size).toBe(2);
+    expect(aliases).toContain("deploy");
+
+    const paddedAlias = aliases.find((name) => name !== "deploy");
+    expect(paddedAlias).toMatch(/^deploy__[a-f0-9]{12}$/);
+    expect(getTool("deploy")).toBeDefined();
+    expect(getTool(paddedAlias!)).toBeDefined();
+  });
+
   test("registerPluginTools overwrites any pre-existing ownership metadata", () => {
     // A plugin author could (maliciously or mistakenly) hand in a tool
     // pre-tagged with another skill's or plugin's ID. The helper must

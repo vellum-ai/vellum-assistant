@@ -5,6 +5,11 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { formatShellOutput } from "../tools/shared/shell-output.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -12,7 +17,6 @@ import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("host-bash-proxy");
-
 
 export class HostBashProxy {
   private static _instance: HostBashProxy | null = null;
@@ -62,13 +66,13 @@ export class HostBashProxy {
     },
     conversationId: string,
     signal?: AbortSignal,
+    // Principal ID of the actor on whose behalf this request is initiated.
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       const result = formatShellOutput("", "Aborted", null, false, 0);
       return Promise.resolve(result);
     }
-
-    const capableClients = assistantEventHub.listClientsByCapability("host_bash");
 
     let resolvedTargetClientId: string | undefined;
 
@@ -81,14 +85,37 @@ export class HostBashProxy {
         });
       }
       resolvedTargetClientId = input.targetClientId;
-    } else if (capableClients.length === 1) {
-      // Auto-resolve when exactly one capable client is connected.
-      resolvedTargetClientId = capableClients[0].clientId;
+    } else {
+      // Auto-resolve to the unique same-user client. Reject (rather than
+      // broadcast) when multiple same-user clients are connected so that
+      // a single targeted-style request cannot fan out across every one
+      // of the user's machines. Zero same-user matches falls through to
+      // the existing untargeted code path.
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_bash",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_bash"));
+      }
+      resolvedTargetClientId =
+        resolved.kind === "match" ? resolved.clientId : undefined;
     }
-    // capableClients.length === 0 or > 1 without explicit target: resolvedTargetClientId
-    // stays undefined and falls through to untargeted broadcast — the existing timeout/error
-    // path handles the zero-client case, and multi-client ambiguity is enforced at the tool
-    // executor layer (not here) once target_client_id is exposed in the tool schema.
+
+    // Targeted requests must be bound to the same authenticated user as the
+    // target client. Fail closed at request time — before pendingInteractions
+    // registration and before broadcast — so a same-daemon caller cannot
+    // execute on another user's connected client.
+    if (resolvedTargetClientId != null) {
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_bash",
+      });
+      if (rejection) return Promise.resolve(rejection);
+    }
 
     const requestId = uuid();
 
@@ -108,15 +135,7 @@ export class HostBashProxy {
         const timeoutMessage = resolvedTargetClientId
           ? `Host bash proxy timed out waiting for response from client ${resolvedTargetClientId}`
           : "Host bash proxy timed out waiting for client response";
-        resolve(
-          formatShellOutput(
-            "",
-            timeoutMessage,
-            null,
-            true,
-            timeoutSec,
-          ),
-        );
+        resolve(formatShellOutput("", timeoutMessage, null, true, timeoutSec));
       }, proxyTimeoutSec * 1000);
 
       if (signal) {
@@ -152,6 +171,12 @@ export class HostBashProxy {
         timer,
         detachAbort,
         targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
         metadata: { timeoutSec },
       });
 
@@ -166,8 +191,8 @@ export class HostBashProxy {
             timeout_seconds: input.timeout_seconds,
             targetClientId: resolvedTargetClientId,
             ...(input.env && Object.keys(input.env).length > 0
-                ? { env: input.env }
-                : {}),
+              ? { env: input.env }
+              : {}),
           },
           conversationId,
           { targetClientId: resolvedTargetClientId },

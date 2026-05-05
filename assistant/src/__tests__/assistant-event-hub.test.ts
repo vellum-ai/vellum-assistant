@@ -356,6 +356,54 @@ describe("AssistantEventHub — re-entrancy / snapshot isolation", () => {
   });
 });
 
+// ── ClientEntry actorPrincipalId capture ────────────────────────────────────
+
+describe("AssistantEventHub — actorPrincipalId on ClientEntry", () => {
+  test("stores actorPrincipalId provided at subscribe time", () => {
+    const hub = new AssistantEventHub();
+
+    hub.subscribe({
+      type: "client" as const,
+      clientId: "client-with-principal",
+      interfaceId: "macos",
+      capabilities: ["host_bash"],
+      actorPrincipalId: "user-A",
+      callback: () => {},
+    });
+
+    expect(hub.getClientById("client-with-principal")?.actorPrincipalId).toBe(
+      "user-A",
+    );
+    expect(hub.getActorPrincipalIdForClient("client-with-principal")).toBe(
+      "user-A",
+    );
+  });
+
+  test("actorPrincipalId is undefined when omitted at subscribe time", () => {
+    const hub = new AssistantEventHub();
+
+    hub.subscribe({
+      type: "client" as const,
+      clientId: "client-no-principal",
+      interfaceId: "macos",
+      capabilities: ["host_bash"],
+      callback: () => {},
+    });
+
+    expect(
+      hub.getClientById("client-no-principal")?.actorPrincipalId,
+    ).toBeUndefined();
+    expect(
+      hub.getActorPrincipalIdForClient("client-no-principal"),
+    ).toBeUndefined();
+  });
+
+  test("getActorPrincipalIdForClient returns undefined for unknown clientId", () => {
+    const hub = new AssistantEventHub();
+    expect(hub.getActorPrincipalIdForClient("does-not-exist")).toBeUndefined();
+  });
+});
+
 // ── capabilityForMessageType — host-prefix routing ───────────────────────────
 
 describe("capabilityForMessageType — host-prefix routing", () => {

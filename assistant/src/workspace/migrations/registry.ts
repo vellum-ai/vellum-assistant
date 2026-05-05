@@ -63,7 +63,8 @@ import { dropMemoryV2EdgesJsonMigration } from "./062-drop-memory-v2-edges-json.
 import { releaseNotesDynamicModelContextMigration } from "./063-release-notes-dynamic-model-context.js";
 import { unwindMainAgentOpusSeedMigration } from "./064-unwind-main-agent-opus-seed.js";
 import { bumpStaleHeartbeatIntervalMigration } from "./065-bump-stale-heartbeat-interval.js";
-import { releaseNotesSafeStorageLimitsMigration } from "./066-release-notes-safe-storage-limits.js";
+import { seedHeartbeatCallsiteCostDefaultMigration } from "./066-seed-heartbeat-callsite-cost-default.js";
+import { releaseNotesSafeStorageLimitsMigration } from "./067-release-notes-safe-storage-limits.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -138,5 +139,6 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   releaseNotesDynamicModelContextMigration,
   unwindMainAgentOpusSeedMigration,
   bumpStaleHeartbeatIntervalMigration,
+  seedHeartbeatCallsiteCostDefaultMigration,
   releaseNotesSafeStorageLimitsMigration,
 ];

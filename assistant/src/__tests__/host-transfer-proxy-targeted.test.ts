@@ -20,11 +20,24 @@ const sentMessages: unknown[] = [];
 const sentMessageOptions: unknown[] = [];
 const resolvedInteractionIds: string[] = [];
 let mockHasClient = false;
-let mockCapableClients: Array<{ clientId: string; capabilities: string[] }> = [];
-let mockClientRegistry: Map<string, { clientId: string; capabilities: string[] }> = new Map();
+type MockClient = {
+  clientId: string;
+  capabilities: string[];
+  actorPrincipalId?: string;
+};
+let mockCapableClients: Array<MockClient> = [];
+let mockClientRegistry: Map<string, MockClient> = new Map();
+
+// Pre-existing Phase 1 routing tests use a single user identity. The same-user
+// check added in the host_transfer fix is exercised separately below.
+const TEST_PRINCIPAL = "test-user";
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: unknown, _conversationId?: string, options?: unknown) => {
+  broadcastMessage: (
+    msg: unknown,
+    _conversationId?: string,
+    options?: unknown,
+  ) => {
     sentMessages.push(msg);
     sentMessageOptions.push(options);
   },
@@ -33,6 +46,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       cap === "host_file" && mockHasClient ? { id: "mock-client" } : null,
     listClientsByCapability: (_cap: string) => mockCapableClients,
     getClientById: (clientId: string) => mockClientRegistry.get(clientId),
+    getActorPrincipalIdForClient: (clientId: string) =>
+      mockClientRegistry.get(clientId)?.actorPrincipalId,
   },
 }));
 
@@ -95,7 +110,11 @@ describe("HostTransferProxy — targetClientId", () => {
   }
 
   function setupSingleClient(clientId = "client-1") {
-    const entry = { clientId, capabilities: ["host_file"] };
+    const entry: MockClient = {
+      clientId,
+      capabilities: ["host_file"],
+      actorPrincipalId: TEST_PRINCIPAL,
+    };
     mockCapableClients = [entry];
     mockClientRegistry.set(clientId, entry);
   }
@@ -117,13 +136,17 @@ describe("HostTransferProxy — targetClientId", () => {
       const srcPath = `/tmp/htp-targeted-${Date.now()}.txt`;
       await globalThis.Bun.write(srcPath, fileContent);
 
-      const resultPromise = proxy.requestToHost({
-        sourcePath: srcPath,
-        destPath: "/host/dest.txt",
-        overwrite: false,
-        conversationId: "conv-1",
-        targetClientId: "client-mac",
-      });
+      const resultPromise = proxy.requestToHost(
+        {
+          sourcePath: srcPath,
+          destPath: "/host/dest.txt",
+          overwrite: false,
+          conversationId: "conv-1",
+          targetClientId: "client-mac",
+        },
+        undefined,
+        TEST_PRINCIPAL,
+      );
 
       await waitForMessages(sentMessages, 1);
 
@@ -135,7 +158,10 @@ describe("HostTransferProxy — targetClientId", () => {
       expect(opts?.targetClientId).toBe("client-mac");
 
       const requestId = sent.requestId as string;
-      proxy.resolveTransferResult(requestId, { isError: false, bytesWritten: 5 });
+      proxy.resolveTransferResult(requestId, {
+        isError: false,
+        bytesWritten: 5,
+      });
 
       const result = await resultPromise;
       expect(result.isError).toBe(false);
@@ -152,12 +178,16 @@ describe("HostTransferProxy — targetClientId", () => {
       const srcPath = `/tmp/htp-targeted-solo-${Date.now()}.txt`;
       await globalThis.Bun.write(srcPath, "content");
 
-      const resultPromise = proxy.requestToHost({
-        sourcePath: srcPath,
-        destPath: "/host/dest.txt",
-        overwrite: false,
-        conversationId: "conv-2",
-      });
+      const resultPromise = proxy.requestToHost(
+        {
+          sourcePath: srcPath,
+          destPath: "/host/dest.txt",
+          overwrite: false,
+          conversationId: "conv-2",
+        },
+        undefined,
+        TEST_PRINCIPAL,
+      );
 
       await waitForMessages(sentMessages, 1);
 
@@ -191,7 +221,9 @@ describe("HostTransferProxy — targetClientId", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("client-ghost");
-      expect(result.content).toContain("assistant clients list --capability host_file");
+      expect(result.content).toContain(
+        "assistant clients list --capability host_file",
+      );
       expect(sentMessages).toHaveLength(0);
     });
   });
@@ -228,12 +260,16 @@ describe("HostTransferProxy — targetClientId", () => {
       setup();
       setupSingleClient("client-mac");
 
-      const resultPromise = proxy.requestToSandbox({
-        sourcePath: "/host/source.txt",
-        destPath: "/sandbox/dest.txt",
-        conversationId: "conv-5",
-        targetClientId: "client-mac",
-      });
+      const resultPromise = proxy.requestToSandbox(
+        {
+          sourcePath: "/host/source.txt",
+          destPath: "/sandbox/dest.txt",
+          conversationId: "conv-5",
+          targetClientId: "client-mac",
+        },
+        undefined,
+        TEST_PRINCIPAL,
+      );
 
       expect(sentMessages).toHaveLength(1);
       const sent = sentMessages[0] as Record<string, unknown>;
@@ -256,11 +292,15 @@ describe("HostTransferProxy — targetClientId", () => {
       setup();
       setupSingleClient("client-solo");
 
-      const resultPromise = proxy.requestToSandbox({
-        sourcePath: "/host/source.txt",
-        destPath: "/sandbox/dest.txt",
-        conversationId: "conv-6",
-      });
+      const resultPromise = proxy.requestToSandbox(
+        {
+          sourcePath: "/host/source.txt",
+          destPath: "/sandbox/dest.txt",
+          conversationId: "conv-6",
+        },
+        undefined,
+        TEST_PRINCIPAL,
+      );
 
       expect(sentMessages).toHaveLength(1);
       const sent = sentMessages[0] as Record<string, unknown>;
@@ -333,6 +373,7 @@ describe("HostTransferProxy — targetClientId", () => {
           targetClientId: "client-abc",
         },
         controller.signal,
+        TEST_PRINCIPAL,
       );
 
       await waitForMessages(sentMessages, 1);
@@ -350,7 +391,9 @@ describe("HostTransferProxy — targetClientId", () => {
       expect(cancelMsg.type).toBe("host_transfer_cancel");
       expect(cancelMsg.targetClientId).toBe("client-abc");
 
-      const cancelOpts = sentMessageOptions[1] as Record<string, unknown> | undefined;
+      const cancelOpts = sentMessageOptions[1] as
+        | Record<string, unknown>
+        | undefined;
       expect(cancelOpts?.targetClientId).toBe("client-abc");
     });
   });
@@ -362,12 +405,16 @@ describe("HostTransferProxy — targetClientId", () => {
       setup();
       setupSingleClient("client-xyz");
 
-      const resultPromise = proxy.requestToSandbox({
-        sourcePath: "/host/source.txt",
-        destPath: "/sandbox/dest.txt",
-        conversationId: "conv-10",
-        targetClientId: "client-xyz",
-      });
+      const resultPromise = proxy.requestToSandbox(
+        {
+          sourcePath: "/host/source.txt",
+          destPath: "/sandbox/dest.txt",
+          conversationId: "conv-10",
+          targetClientId: "client-xyz",
+        },
+        undefined,
+        TEST_PRINCIPAL,
+      );
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
@@ -384,7 +431,9 @@ describe("HostTransferProxy — targetClientId", () => {
       expect(cancelMsg.type).toBe("host_transfer_cancel");
       expect(cancelMsg.targetClientId).toBe("client-xyz");
 
-      const cancelOpts = sentMessageOptions[1] as Record<string, unknown> | undefined;
+      const cancelOpts = sentMessageOptions[1] as
+        | Record<string, unknown>
+        | undefined;
       expect(cancelOpts?.targetClientId).toBe("client-xyz");
     });
   });
@@ -396,12 +445,16 @@ describe("HostTransferProxy — targetClientId", () => {
       setup();
       setupSingleClient("client-dispose");
 
-      const p = proxy.requestToSandbox({
-        sourcePath: "/host/source.txt",
-        destPath: "/sandbox/dest.txt",
-        conversationId: "conv-11",
-        targetClientId: "client-dispose",
-      });
+      const p = proxy.requestToSandbox(
+        {
+          sourcePath: "/host/source.txt",
+          destPath: "/sandbox/dest.txt",
+          conversationId: "conv-11",
+          targetClientId: "client-dispose",
+        },
+        undefined,
+        TEST_PRINCIPAL,
+      );
       p.catch(() => {}); // expected rejection on dispose
 
       const sent = sentMessages[0] as Record<string, unknown>;
@@ -431,20 +484,26 @@ describe("HostTransferProxy — targetClientId", () => {
       const srcPath = `/tmp/htp-targeted-peek-${Date.now()}.txt`;
       await globalThis.Bun.write(srcPath, "content");
 
-      const resultPromise = proxy.requestToHost({
-        sourcePath: srcPath,
-        destPath: "/host/dest.txt",
-        overwrite: false,
-        conversationId: "conv-12",
-        targetClientId: "client-peek",
-      });
+      const resultPromise = proxy.requestToHost(
+        {
+          sourcePath: srcPath,
+          destPath: "/host/dest.txt",
+          overwrite: false,
+          conversationId: "conv-12",
+          targetClientId: "client-peek",
+        },
+        undefined,
+        TEST_PRINCIPAL,
+      );
 
       await waitForMessages(sentMessages, 1);
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const transferId = sent.transferId as string;
 
-      expect(proxy.getTargetClientIdForTransfer(transferId)).toBe("client-peek");
+      expect(proxy.getTargetClientIdForTransfer(transferId)).toBe(
+        "client-peek",
+      );
 
       // Clean up
       const requestId = sent.requestId as string;
@@ -493,12 +552,16 @@ describe("HostTransferProxy — targetClientId", () => {
 
       jest.useFakeTimers();
       try {
-        const resultPromise = proxy.requestToSandbox({
-          sourcePath: "/host/source.txt",
-          destPath: "/sandbox/dest.txt",
-          conversationId: "conv-14",
-          targetClientId: "client-timeout",
-        });
+        const resultPromise = proxy.requestToSandbox(
+          {
+            sourcePath: "/host/source.txt",
+            destPath: "/sandbox/dest.txt",
+            conversationId: "conv-14",
+            targetClientId: "client-timeout",
+          },
+          undefined,
+          TEST_PRINCIPAL,
+        );
 
         const sent = sentMessages[0] as Record<string, unknown>;
         expect(sent.targetClientId).toBe("client-timeout");
@@ -546,7 +609,10 @@ describe("HostTransferProxy — targetClientId", () => {
       expect(opts?.targetClientId).toBeUndefined();
 
       const requestId = sent.requestId as string;
-      proxy.resolveTransferResult(requestId, { isError: false, bytesWritten: 18 });
+      proxy.resolveTransferResult(requestId, {
+        isError: false,
+        bytesWritten: 18,
+      });
 
       const result = await resultPromise;
       expect(result.isError).toBe(false);
@@ -578,6 +644,289 @@ describe("HostTransferProxy — targetClientId", () => {
       const result = await resultPromise;
       expect(result.isError).toBe(true);
       expect(result.content).toBe("Transfer cancelled");
+    });
+  });
+
+  // ── Same-user binding (sourceActorPrincipalId) ───────────────────────
+
+  describe("same-user binding (sourceActorPrincipalId)", () => {
+    test("requestToHost: targeted request from same user reaches pendingInteractions", async () => {
+      setup();
+      mockClientRegistry.set("client-A", {
+        clientId: "client-A",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-A",
+      });
+      mockCapableClients = [mockClientRegistry.get("client-A")!];
+
+      const srcPath = `/tmp/htp-same-user-ok-${Date.now()}.txt`;
+      await globalThis.Bun.write(srcPath, "ok");
+
+      const resultPromise = proxy.requestToHost(
+        {
+          sourcePath: srcPath,
+          destPath: "/host/dest.txt",
+          overwrite: false,
+          conversationId: "conv-same-1",
+          targetClientId: "client-A",
+        },
+        undefined,
+        "user-A",
+      );
+
+      await waitForMessages(sentMessages, 1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_transfer_request");
+      expect(sent.targetClientId).toBe("client-A");
+
+      const requestId = sent.requestId as string;
+      proxy.resolveTransferResult(requestId, { isError: false });
+      await resultPromise;
+    });
+
+    test("requestToHost: targeted request from a different user is rejected", async () => {
+      setup();
+      mockClientRegistry.set("client-A", {
+        clientId: "client-A",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-A",
+      });
+      mockCapableClients = [mockClientRegistry.get("client-A")!];
+
+      const srcPath = `/tmp/htp-cross-user-${Date.now()}.txt`;
+      await globalThis.Bun.write(srcPath, "data");
+
+      const result = await proxy.requestToHost(
+        {
+          sourcePath: srcPath,
+          destPath: "/host/dest.txt",
+          overwrite: false,
+          conversationId: "conv-same-2",
+          targetClientId: "client-A",
+        },
+        undefined,
+        "user-B",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("does not match");
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("requestToHost: targeted request without source principal is rejected", async () => {
+      setup();
+      mockClientRegistry.set("client-A", {
+        clientId: "client-A",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-A",
+      });
+      mockCapableClients = [mockClientRegistry.get("client-A")!];
+
+      const srcPath = `/tmp/htp-no-principal-${Date.now()}.txt`;
+      await globalThis.Bun.write(srcPath, "data");
+
+      const result = await proxy.requestToHost(
+        {
+          sourcePath: srcPath,
+          destPath: "/host/dest.txt",
+          overwrite: false,
+          conversationId: "conv-same-3",
+          targetClientId: "client-A",
+        },
+        undefined,
+        undefined,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("does not match");
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("requestToHost: targeted request to a client with no actor principal is rejected", async () => {
+      setup();
+      mockClientRegistry.set("client-A", {
+        clientId: "client-A",
+        capabilities: ["host_file"],
+        // actorPrincipalId omitted (legacy/service-token client).
+      });
+      mockCapableClients = [mockClientRegistry.get("client-A")!];
+
+      const srcPath = `/tmp/htp-target-no-principal-${Date.now()}.txt`;
+      await globalThis.Bun.write(srcPath, "data");
+
+      const result = await proxy.requestToHost(
+        {
+          sourcePath: srcPath,
+          destPath: "/host/dest.txt",
+          overwrite: false,
+          conversationId: "conv-same-4",
+          targetClientId: "client-A",
+        },
+        undefined,
+        "user-A",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("does not match");
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("requestToHost: auto-resolve picks the same-user client when there's exactly one", async () => {
+      setup();
+      const a: MockClient = {
+        clientId: "client-A",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-A",
+      };
+      const b: MockClient = {
+        clientId: "client-B",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-B",
+      };
+      mockCapableClients = [a, b];
+      mockClientRegistry.set("client-A", a);
+      mockClientRegistry.set("client-B", b);
+
+      const srcPath = `/tmp/htp-auto-same-user-${Date.now()}.txt`;
+      await globalThis.Bun.write(srcPath, "data");
+
+      const resultPromise = proxy.requestToHost(
+        {
+          sourcePath: srcPath,
+          destPath: "/host/dest.txt",
+          overwrite: false,
+          conversationId: "conv-same-5",
+        },
+        undefined,
+        "user-A",
+      );
+
+      await waitForMessages(sentMessages, 1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("client-A");
+
+      const requestId = sent.requestId as string;
+      proxy.resolveTransferResult(requestId, { isError: false });
+      await resultPromise;
+    });
+
+    test("requestToHost: auto-resolve falls through when no client matches the source user", async () => {
+      setup();
+      mockClientRegistry.set("client-A", {
+        clientId: "client-A",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-A",
+      });
+      mockCapableClients = [mockClientRegistry.get("client-A")!];
+
+      const srcPath = `/tmp/htp-auto-no-match-${Date.now()}.txt`;
+      await globalThis.Bun.write(srcPath, "data");
+
+      const resultPromise = proxy.requestToHost(
+        {
+          sourcePath: srcPath,
+          destPath: "/host/dest.txt",
+          overwrite: false,
+          conversationId: "conv-same-6",
+        },
+        undefined,
+        "user-C",
+      );
+
+      await waitForMessages(sentMessages, 1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBeUndefined();
+
+      const requestId = sent.requestId as string;
+      proxy.resolveTransferResult(requestId, { isError: false });
+      await resultPromise;
+    });
+
+    test("requestToSandbox: targeted request from a different user is rejected", async () => {
+      setup();
+      mockClientRegistry.set("client-A", {
+        clientId: "client-A",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-A",
+      });
+      mockCapableClients = [mockClientRegistry.get("client-A")!];
+
+      const result = await proxy.requestToSandbox(
+        {
+          sourcePath: "/host/source.txt",
+          destPath: "/sandbox/dest.txt",
+          conversationId: "conv-same-7",
+          targetClientId: "client-A",
+        },
+        undefined,
+        "user-B",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("does not match");
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("requestToSandbox: targeted request from same user proceeds", async () => {
+      setup();
+      mockClientRegistry.set("client-A", {
+        clientId: "client-A",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-A",
+      });
+      mockCapableClients = [mockClientRegistry.get("client-A")!];
+
+      const resultPromise = proxy.requestToSandbox(
+        {
+          sourcePath: "/host/source.txt",
+          destPath: "/sandbox/dest.txt",
+          conversationId: "conv-same-8",
+          targetClientId: "client-A",
+        },
+        undefined,
+        "user-A",
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("client-A");
+
+      proxy.cancel(sent.requestId as string);
+      await resultPromise;
+    });
+
+    test("requestToSandbox: auto-resolve picks the same-user client when there's exactly one", async () => {
+      setup();
+      const a: MockClient = {
+        clientId: "client-A",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-A",
+      };
+      const b: MockClient = {
+        clientId: "client-B",
+        capabilities: ["host_file"],
+        actorPrincipalId: "user-B",
+      };
+      mockCapableClients = [a, b];
+      mockClientRegistry.set("client-A", a);
+      mockClientRegistry.set("client-B", b);
+
+      const resultPromise = proxy.requestToSandbox(
+        {
+          sourcePath: "/host/source.txt",
+          destPath: "/sandbox/dest.txt",
+          conversationId: "conv-same-9",
+        },
+        undefined,
+        "user-A",
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("client-A");
+
+      proxy.cancel(sent.requestId as string);
+      await resultPromise;
     });
   });
 });

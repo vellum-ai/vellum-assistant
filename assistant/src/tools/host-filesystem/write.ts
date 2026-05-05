@@ -62,7 +62,8 @@ class HostFileWriteTool implements Tool {
     }
 
     const targetClientId =
-      typeof input.target_client_id === "string" && input.target_client_id !== ""
+      typeof input.target_client_id === "string" &&
+      input.target_client_id !== ""
         ? input.target_client_id
         : undefined;
 
@@ -79,6 +80,45 @@ class HostFileWriteTool implements Tool {
       };
     }
 
+    // Guard: non-host-proxy interfaces with no capable clients connected.
+    // Without this guard, the request would fall through to local
+    // FileSystemOps below and read the daemon container's filesystem
+    // instead of the user's host machine.
+    if (
+      targetClientId == null &&
+      transportInterface != null &&
+      !supportsHostProxy(transportInterface) &&
+      !HostFileProxy.instance.isAvailable()
+    ) {
+      return {
+        content:
+          "Error: no client with host_file capability is connected. Connect a macOS client to use host_file from a non-desktop interface.",
+        isError: true,
+      };
+    }
+
+    // Guard: explicit targetClientId provided but proxy is unavailable.
+    // Fires on non-host-proxy transports (web, ios) AND on legacy callers
+    // without transport metadata, where falling through to local fs would
+    // silently target the daemon container's filesystem instead of the
+    // intended host client. Skips only when transport is explicitly
+    // host-proxy-capable (macos), where local-fs fallback IS the intended
+    // offline behavior — a stale target_client_id auto-filled from a prior
+    // cross-client turn is silently ignored on those turns.
+    // Note: this scoping deliberately differs from host_bash
+    // (host-shell.ts:239-247), which rejects unconditionally for any
+    // stale target_client_id regardless of transport.
+    if (
+      targetClientId != null &&
+      !HostFileProxy.instance.isAvailable() &&
+      (transportInterface == null || !supportsHostProxy(transportInterface))
+    ) {
+      return {
+        content: `Error: target client "${targetClientId}" is no longer connected. The specified client may have disconnected since the tool was called. Run \`assistant clients list --capability host_file\` to see currently connected clients.`,
+        isError: true,
+      };
+    }
+
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
     if (HostFileProxy.instance.isAvailable()) {
@@ -91,6 +131,8 @@ class HostFileWriteTool implements Tool {
         },
         context.conversationId,
         context.signal,
+        targetClientId,
+        context.sourceActorPrincipalId,
       );
     }
 

@@ -6363,7 +6363,9 @@ paths:
         "400":
           description: x-vellum-client-id header is missing for a targeted host bash request.
         "403":
-          description: Submitting client does not match the targeted client for this request.
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
         "404":
           description: No pending interaction found for the given requestId.
         "409":
@@ -6521,7 +6523,9 @@ paths:
         "400":
           description: x-vellum-client-id header is missing for a targeted host CU request.
         "403":
-          description: Submitting client does not match the targeted client for this request.
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
         "404":
           description: No pending interaction found for the given requestId, or the conversation/proxy no longer exists.
         "409":
@@ -6587,7 +6591,9 @@ paths:
         "400":
           description: x-vellum-client-id header is missing for a targeted host file request.
         "403":
-          description: Submitting client does not match the targeted client for this request.
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
         "404":
           description: No pending interaction found for the given requestId.
         "409":
@@ -6637,7 +6643,9 @@ paths:
         "400":
           description: x-vellum-client-id header is missing for a targeted host transfer request.
         "403":
-          description: Submitting client does not match the targeted client for this transfer.
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
       requestBody:
         required: true
         content:
@@ -7064,6 +7072,61 @@ paths:
               required:
                 - state
               additionalProperties: false
+  /v1/internal/oauth/connect/start:
+    post:
+      operationId: internal_oauth_connect_start_post
+      summary: Start daemon-owned OAuth connect flow
+      description: Starts an OAuth connect flow in the daemon and returns the authorization URL for the CLI to open in the browser.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                clientId:
+                  type: string
+                clientSecret:
+                  type: string
+                callbackTransport:
+                  type: string
+                  enum:
+                    - loopback
+                    - gateway
+                requestedScopes:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - service
+                - clientId
+                - callbackTransport
+              additionalProperties: false
+  /v1/internal/oauth/connect/status/{state}:
+    get:
+      operationId: internal_oauth_connect_status_by_state_get
+      summary: Poll daemon OAuth connect flow status
+      description: Returns the current status of an in-flight daemon-owned OAuth connect flow (pending/complete/error).
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+        "404":
+          description: No active OAuth connect flow for the given state token
+      parameters:
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/internal/twilio/connect-action:
     post:
       operationId: internal_twilio_connectaction_post
@@ -11712,7 +11775,9 @@ paths:
         "400":
           description: x-vellum-client-id header is missing for a targeted transfer.
         "403":
-          description: Submitting client does not match the targeted client for this transfer.
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
       parameters:
         - name: transferId
           in: path
@@ -11731,7 +11796,9 @@ paths:
         "400":
           description: x-vellum-client-id header is missing for a targeted transfer.
         "403":
-          description: Submitting client does not match the targeted client for this transfer.
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
       parameters:
         - name: transferId
           in: path

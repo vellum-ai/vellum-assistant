@@ -35,6 +35,7 @@ import {
   AssistantEventHub,
   assistantEventHub,
 } from "../assistant-event-hub.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -81,10 +82,18 @@ export function handleSubscribeAssistantEvents(
   const rawClientId = headers?.["x-vellum-client-id"];
   const rawInterfaceId = headers?.["x-vellum-interface-id"];
   const rawMachineName = headers?.["x-vellum-machine-name"];
+  const rawActorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const clientId = rawClientId?.trim() || null;
   const interfaceId = clientId
     ? parseInterfaceId(rawInterfaceId?.trim())
     : null;
+  // Verified by RuntimeHttpServer and forwarded by the http-adapter from the
+  // bearer token's AuthContext. May be absent for legacy / service-token
+  // connections that have no principal. See `resolveActorPrincipalId` for the
+  // dev-bypass translation rationale.
+  const actorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+    rawActorPrincipalId?.trim() || undefined,
+  );
 
   if (clientId && !interfaceId) {
     log.error(
@@ -171,6 +180,7 @@ export function handleSubscribeAssistantEvents(
               supportsHostProxy(interfaceId, cap),
             ),
             machineName: rawMachineName?.trim() || undefined,
+            actorPrincipalId,
           })
         : hub.subscribe({
             ...subscriberBase,

@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { releaseNotesSafeStorageLimitsMigration } from "../workspace/migrations/066-release-notes-safe-storage-limits.js";
+import { releaseNotesSafeStorageLimitsMigration } from "../workspace/migrations/067-release-notes-safe-storage-limits.js";
 
-const MIGRATION_ID = "066-release-notes-safe-storage-limits";
+const MIGRATION_ID = "067-release-notes-safe-storage-limits";
 const MARKER = `<!-- release-note-id:${MIGRATION_ID} -->`;
 
 let workspaceDir: string;
@@ -19,7 +19,7 @@ let workspaceDir: string;
 function freshWorkspace(): void {
   workspaceDir = join(
     tmpdir(),
-    `vellum-migration-066-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `vellum-migration-067-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(workspaceDir, { recursive: true });
 }
@@ -42,7 +42,7 @@ afterEach(() => {
   }
 });
 
-describe("workspace migration 066-release-notes-safe-storage-limits", () => {
+describe("workspace migration 067-release-notes-safe-storage-limits", () => {
   test("has the correct id", () => {
     expect(releaseNotesSafeStorageLimitsMigration.id).toBe(MIGRATION_ID);
   });

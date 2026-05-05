@@ -14,11 +14,24 @@ const sentMessages: unknown[] = [];
 const sentMessageOptions: unknown[] = [];
 const resolvedInteractionIds: string[] = [];
 let mockHasClient = false;
-let mockCapableClients: Array<{ clientId: string; capabilities: string[] }> = [];
-let mockClientRegistry: Map<string, { clientId: string; capabilities: string[] }> = new Map();
+type MockClient = {
+  clientId: string;
+  capabilities: string[];
+  actorPrincipalId?: string;
+};
+let mockCapableClients: Array<MockClient> = [];
+let mockClientRegistry: Map<string, MockClient> = new Map();
+
+// Pre-existing Phase 2 routing tests use a single user identity. The same-user
+// check added in PR 3 is exercised separately in `host-file-proxy.test.ts`.
+const TEST_PRINCIPAL = "test-user";
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: unknown, _conversationId?: string, options?: unknown) => {
+  broadcastMessage: (
+    msg: unknown,
+    _conversationId?: string,
+    options?: unknown,
+  ) => {
     sentMessages.push(msg);
     sentMessageOptions.push(options);
   },
@@ -27,6 +40,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       cap === "host_file" && mockHasClient ? { id: "mock-client" } : null,
     listClientsByCapability: (_cap: string) => mockCapableClients,
     getClientById: (clientId: string) => mockClientRegistry.get(clientId),
+    getActorPrincipalIdForClient: (clientId: string) =>
+      mockClientRegistry.get(clientId)?.actorPrincipalId,
   },
 }));
 
@@ -42,9 +57,10 @@ mock.module("../runtime/pending-interactions.js", () => ({
     return interaction;
   },
   get: (requestId: string) => pendingInteractionMap.get(requestId),
-  getByKind: (_kind: string) => Array.from(pendingInteractionMap.entries())
-    .filter(([, v]) => v.kind === _kind)
-    .map(([requestId, v]) => ({ requestId, ...v })),
+  getByKind: (_kind: string) =>
+    Array.from(pendingInteractionMap.entries())
+      .filter(([, v]) => v.kind === _kind)
+      .map(([requestId, v]) => ({ requestId, ...v })),
   getByConversation: () => [],
   removeByConversation: () => {},
 }));
@@ -66,7 +82,11 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
   }
 
   function setupSingleClient(clientId = "client-1") {
-    const entry = { clientId, capabilities: ["host_file"] };
+    const entry: MockClient = {
+      clientId,
+      capabilities: ["host_file"],
+      actorPrincipalId: TEST_PRINCIPAL,
+    };
     mockCapableClients = [entry];
     mockClientRegistry.set(clientId, entry);
   }
@@ -75,6 +95,7 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
     mockCapableClients = clientIds.map((id) => ({
       clientId: id,
       capabilities: ["host_file"],
+      actorPrincipalId: TEST_PRINCIPAL,
     }));
     for (const entry of mockCapableClients) {
       mockClientRegistry.set(entry.clientId, entry);
@@ -104,6 +125,9 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
           targetClientId: "client-mac",
         },
         "session-1",
+        undefined,
+        undefined,
+        TEST_PRINCIPAL,
       );
 
       expect(sentMessages).toHaveLength(1);
@@ -140,7 +164,9 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("client-unknown");
-      expect(result.content).toContain("assistant clients list --capability host_file");
+      expect(result.content).toContain(
+        "assistant clients list --capability host_file",
+      );
       // No pending entry should have been created
       expect(sentMessages).toHaveLength(0);
     });
@@ -200,6 +226,9 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
       const resultPromise = proxy.request(
         { operation: "read", path: "/tmp/file.txt" },
         "session-1",
+        undefined,
+        undefined,
+        TEST_PRINCIPAL,
       );
 
       expect(sentMessages).toHaveLength(1);
@@ -257,6 +286,8 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
         { operation: "read", path: "/tmp/file.txt" },
         "session-1",
         controller.signal,
+        undefined,
+        TEST_PRINCIPAL,
       );
 
       const sent = sentMessages[0] as Record<string, unknown>;
@@ -273,7 +304,9 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
       expect(cancelMsg.requestId).toBe(requestId);
       expect(cancelMsg.targetClientId).toBe("client-abc");
 
-      const cancelOpts = sentMessageOptions[1] as Record<string, unknown> | undefined;
+      const cancelOpts = sentMessageOptions[1] as
+        | Record<string, unknown>
+        | undefined;
       expect(cancelOpts?.targetClientId).toBe("client-abc");
     });
   });
@@ -288,6 +321,9 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
       const p = proxy.request(
         { operation: "read", path: "/tmp/file.txt" },
         "session-1",
+        undefined,
+        undefined,
+        TEST_PRINCIPAL,
       );
       p.catch(() => {}); // expected rejection on dispose
 
@@ -320,6 +356,9 @@ describe("HostFileProxy — targetClientId (Phase 2)", () => {
         const resultPromise = proxy.request(
           { operation: "read", path: "/tmp/slow.txt" },
           "session-1",
+          undefined,
+          undefined,
+          TEST_PRINCIPAL,
         );
 
         const sent = sentMessages[0] as Record<string, unknown>;

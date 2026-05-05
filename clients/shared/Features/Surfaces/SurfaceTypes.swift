@@ -11,6 +11,7 @@ public enum SurfaceType: String, Codable, Sendable {
     case dynamicPage = "dynamic_page"
     case fileUpload = "file_upload"
     case documentPreview = "document_preview"
+    case callSummary = "call_summary"
 }
 
 public enum SurfaceActionStyle: String, Codable, Sendable {
@@ -387,6 +388,60 @@ public struct DocumentPreviewSurfaceData: Sendable, Equatable {
     }
 }
 
+/// A single recorded event within a completed call session.
+public struct CallSummaryEvent: Sendable, Equatable {
+    /// Snake-case event type (e.g. "call_started", "caller_spoke").
+    public let eventType: String
+    /// Raw JSON payload stored with the event.
+    public let payloadJson: String
+    /// Timestamp in milliseconds since epoch (from Date.now()).
+    public let createdAt: Double
+
+    public init(eventType: String, payloadJson: String, createdAt: Double) {
+        self.eventType = eventType
+        self.payloadJson = payloadJson
+        self.createdAt = createdAt
+    }
+
+    /// Human-readable display name — "call_started" → "Call Started".
+    public var displayName: String {
+        eventType
+            .split(separator: "_")
+            .map { $0.capitalized }
+            .joined(separator: " ")
+    }
+
+    /// Date representation of the createdAt timestamp.
+    public var date: Date {
+        Date(timeIntervalSince1970: createdAt / 1000.0)
+    }
+}
+
+public struct CallSummaryData: Sendable, Equatable {
+    /// Human-readable summary (e.g. "Call completed. 3 event(s) recorded.").
+    public let summaryText: String
+    /// Call session status string (e.g. "completed", "no_answer").
+    public let status: String
+    /// Duration in seconds. Nil if the call never connected.
+    public let duration: Int?
+    public let events: [CallSummaryEvent]
+
+    public init(summaryText: String, status: String, duration: Int?, events: [CallSummaryEvent]) {
+        self.summaryText = summaryText
+        self.status = status
+        self.duration = duration
+        self.events = events
+    }
+
+    /// Formatted duration string (e.g. "1:23").
+    public var formattedDuration: String? {
+        guard let d = duration else { return nil }
+        let minutes = d / 60
+        let seconds = d % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
 public struct TableColumn: Identifiable, Sendable, Equatable {
     public let id: String
     public let label: String
@@ -448,6 +503,7 @@ public enum SurfaceData: Sendable, Equatable {
     case dynamicPage(DynamicPageSurfaceData)
     case fileUpload(FileUploadSurfaceData)
     case documentPreview(DocumentPreviewSurfaceData)
+    case callSummary(CallSummaryData)
     /// Placeholder for data that was cleared during memory compaction.
     /// The surface can be re-fetched from the daemon if the user scrolls back.
     case stripped
@@ -632,6 +688,8 @@ public extension Surface {
             return parseFileUploadData(dict).map { .fileUpload($0) }
         case .documentPreview:
             return parseDocumentPreviewData(dict).map { .documentPreview($0) }
+        case .callSummary:
+            return parseCallSummaryData(dict).map { .callSummary($0) }
         }
     }
 
@@ -658,6 +716,8 @@ public extension Surface {
             return .fileUpload(mergeFileUploadData(existing: fu, update: update))
         case .documentPreview(let dp):
             return .documentPreview(dp)
+        case .callSummary(let cs):
+            return .callSummary(cs)
         case .stripped:
             return .stripped
         case .strippedFailed:
@@ -1117,6 +1177,37 @@ public extension Surface {
         guard let title = dict["title"] as? String,
               let surfaceId = dict["surfaceId"] as? String else { return nil }
         return DocumentPreviewSurfaceData(title: title, surfaceId: surfaceId, subtitle: dict["subtitle"] as? String)
+    }
+
+    private static func parseCallSummaryData(_ dict: [String: Any?]) -> CallSummaryData? {
+        guard let summaryText = dict["summaryText"] as? String,
+              let status = dict["status"] as? String else { return nil }
+
+        let duration: Int?
+        if let d = dict["duration"] as? Int {
+            duration = d
+        } else if let d = dict["duration"] as? Double {
+            duration = Int(d)
+        } else {
+            duration = nil
+        }
+
+        let events: [CallSummaryEvent]
+        if let rawEvents = dict["events"] as? [[String: Any]] {
+            events = rawEvents.compactMap { e in
+                guard let eventType = e["eventType"] as? String,
+                      let payloadJson = e["payloadJson"] as? String else { return nil }
+                let createdAt: Double
+                if let ts = e["createdAt"] as? Double { createdAt = ts }
+                else if let ts = e["createdAt"] as? Int { createdAt = Double(ts) }
+                else { createdAt = 0 }
+                return CallSummaryEvent(eventType: eventType, payloadJson: payloadJson, createdAt: createdAt)
+            }
+        } else {
+            events = []
+        }
+
+        return CallSummaryData(summaryText: summaryText, status: status, duration: duration, events: events)
     }
 
 }

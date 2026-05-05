@@ -10,10 +10,10 @@ import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 
 const log = getLogger(
-  "workspace-migration-066-release-notes-safe-storage-limits",
+  "workspace-migration-067-release-notes-safe-storage-limits",
 );
 
-const MIGRATION_ID = "066-release-notes-safe-storage-limits";
+const MIGRATION_ID = "067-release-notes-safe-storage-limits";
 const MARKER = `<!-- release-note-id:${MIGRATION_ID} -->`;
 
 const RELEASE_NOTE = `${MARKER}

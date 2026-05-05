@@ -86,6 +86,8 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
+import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
@@ -999,7 +1001,7 @@ function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 /**
  * Persist the pre-chat onboarding payload to disk.
  *
- * Runs only on the very first message of a fresh conversation. Three
+ * Runs only on the very first message of a fresh conversation. Four
  * artifacts are produced:
  *
  *   1. `data/onboarding-context.json` — sidecar read by the
@@ -1007,12 +1009,15 @@ function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
  *      the pure-recomputation write cycle (every turn boundary rebuilds
  *      facts from markdown; the sidecar is the durable source for the
  *      tool/task/tone chips).
- *   2. `IDENTITY.md` / `USER.md` — persona seed files, only written
- *      when missing so we never clobber existing content. These feed
- *      the system prompt and the relationship-state writer's
- *      `parseIdentity` / `parseUserName` helpers after a daemon
- *      restart when the in-memory onboarding context is gone.
- *   3. `data/relationship-state.json` — kicked off fire-and-forget so
+ *   2. `IDENTITY.md` — assistant persona seed file, only written when
+ *      missing so we never clobber existing content. Feeds the system
+ *      prompt and the relationship-state writer's `parseIdentity`
+ *      helper after a daemon restart when the in-memory onboarding
+ *      context is gone.
+ *   3. Onboarding section in the guardian persona file — written via
+ *      `writeOnboardingSection`, which handles the user's preferred
+ *      name (with fallback to root `USER.md`).
+ *   4. `data/relationship-state.json` — kicked off fire-and-forget so
  *      the Home page can populate immediately on first visit instead
  *      of waiting for the first agent-turn boundary.
  *
@@ -1057,25 +1062,11 @@ export function persistOnboardingArtifacts(onboarding: {
     }
   }
 
-  const userName = onboarding.userName?.trim();
-  if (userName) {
-    const userPath = getWorkspacePromptPath("USER.md");
-    try {
-      if (existsSync(userPath)) {
-        const content = readFileSync(userPath, "utf-8");
-        const updated = content.replace(
-          /^- (?:\*\*)?Name:(?:\*\*)?\s*.*$/m,
-          () => `- **Name:** ${userName}`,
-        );
-        if (updated !== content) {
-          writeFileSync(userPath, updated, "utf-8");
-        }
-      } else {
-        writeFileSync(userPath, `# User\n\n- **Name:** ${userName}\n`, "utf-8");
-      }
-    } catch (err) {
-      log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
-    }
+  try {
+    const normalized = normalizeOnboardingContext(onboarding);
+    writeOnboardingSection(normalized);
+  } catch (err) {
+    log.warn({ err }, "Failed to write onboarding section to persona file");
   }
 
   void writeRelationshipState().catch((err) => {

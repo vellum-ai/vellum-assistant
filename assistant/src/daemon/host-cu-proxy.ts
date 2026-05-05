@@ -23,6 +23,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -121,6 +122,16 @@ export class HostCuProxy {
   // Request / resolve lifecycle
   // ---------------------------------------------------------------------------
 
+  /**
+   * Send a CU request to the connected desktop client.
+   *
+   * When `targetClientId` is supplied, the proxy validates that the target
+   * exists and advertises the `host_cu` capability, mirroring HostFileProxy's
+   * resolver-side checks so that the proxy is safe to call as a standalone
+   * API. It additionally enforces that the caller (`sourceActorPrincipalId`)
+   * and the target client share the same actor principal — cross-user
+   * targeted dispatch is rejected.
+   */
   request(
     toolName: string,
     input: Record<string, unknown>,
@@ -129,6 +140,7 @@ export class HostCuProxy {
     reasoning?: string,
     signal?: AbortSignal,
     targetClientId?: string,
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({
@@ -142,6 +154,38 @@ export class HostCuProxy {
         content: `Step limit (${this._maxSteps}) exceeded. Call computer_use_done to finish.`,
         isError: true,
       });
+    }
+
+    // Existence + capability validation for explicit targets. Mirrors
+    // HostFileProxy's resolver-side guard so that the proxy is safe even
+    // when called outside the conversation-surfaces dispatch (which has
+    // its own validation layer).
+    if (targetClientId != null) {
+      const client = assistantEventHub.getClientById(targetClientId);
+      if (!client) {
+        return Promise.resolve({
+          content: `No connected client with id '${targetClientId}' supports host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          isError: true,
+        });
+      }
+      if (!client.capabilities.includes("host_cu")) {
+        return Promise.resolve({
+          content: `Client '${targetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
+          isError: true,
+        });
+      }
+
+      // Same-user enforcement: targeted CU dispatch must be owned by the
+      // same actor on both sides. This is the authoritative gate — the
+      // dispatch layer (conversation-surfaces.ts) skips its own check
+      // and relies on the proxy.
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId,
+        op: "host_cu",
+      });
+      if (rejection) return Promise.resolve(rejection);
     }
 
     const requestId = uuid();
@@ -170,9 +214,7 @@ export class HostCuProxy {
                   type: "host_cu_cancel",
                   requestId,
                   conversationId,
-                  ...(targetClientId != null
-                    ? { targetClientId }
-                    : {}),
+                  ...(targetClientId != null ? { targetClientId } : {}),
                 },
                 conversationId,
                 { targetClientId },
@@ -193,6 +235,10 @@ export class HostCuProxy {
         conversationId,
         kind: "host_cu",
         targetClientId,
+        targetActorPrincipalId:
+          targetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(targetClientId)
+            : undefined,
         rpcResolve: resolve,
         rpcReject: reject,
         timer,

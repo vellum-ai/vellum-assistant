@@ -93,7 +93,8 @@ class HostFileTransferTool implements Tool {
     const overwrite = input.overwrite === true;
 
     const targetClientId =
-      typeof input.target_client_id === "string" && input.target_client_id !== ""
+      typeof input.target_client_id === "string" &&
+      input.target_client_id !== ""
         ? input.target_client_id
         : undefined;
 
@@ -103,7 +104,51 @@ class HostFileTransferTool implements Tool {
       !supportsHostProxy(context.transportInterface) &&
       assistantEventHub.listClientsByCapability("host_file").length > 1
     ) {
-      return { content: `Error: multiple clients support host_file. Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_file\` to see client IDs and labels.`, isError: true };
+      return {
+        content: `Error: multiple clients support host_file. Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_file\` to see client IDs and labels.`,
+        isError: true,
+      };
+    }
+
+    // Guard: non-host-proxy interfaces with no capable clients connected.
+    // Without this guard, a web/ios turn whose host_file client has
+    // disconnected since projection would fall through to executeLocal
+    // below and act on the daemon container's filesystem instead of
+    // the user's host machine.
+    if (
+      targetClientId == null &&
+      context.transportInterface != null &&
+      !supportsHostProxy(context.transportInterface) &&
+      !HostTransferProxy.instance.isAvailable()
+    ) {
+      return {
+        content:
+          "Error: no client with host_file capability is connected. Connect a macOS client to use host_file from a non-desktop interface.",
+        isError: true,
+      };
+    }
+
+    // Guard: explicit targetClientId provided but proxy is unavailable.
+    // Fires on non-host-proxy transports (web, ios) AND on legacy callers
+    // without transport metadata, where falling through to executeLocal
+    // would silently target the daemon container's filesystem instead of
+    // the intended host client. Skips only when transport is explicitly
+    // host-proxy-capable (macos), where local-fs fallback IS the intended
+    // offline behavior — a stale target_client_id auto-filled from a prior
+    // cross-client turn is silently ignored on those turns.
+    // Note: this scoping deliberately differs from host_bash
+    // (host-shell.ts:239-247), which rejects unconditionally for any
+    // stale target_client_id regardless of transport.
+    if (
+      targetClientId != null &&
+      !HostTransferProxy.instance.isAvailable() &&
+      (context.transportInterface == null ||
+        !supportsHostProxy(context.transportInterface))
+    ) {
+      return {
+        content: `Error: target client "${targetClientId}" is no longer connected. The specified client may have disconnected since the tool was called. Run \`assistant clients list --capability host_file\` to see currently connected clients.`,
+        isError: true,
+      };
     }
 
     // Validate that host-side paths are absolute.
@@ -136,7 +181,9 @@ class HostFileTransferTool implements Tool {
 
     let resolvedDestPath = destPath;
     if (direction === "to_sandbox") {
-      const pathCheck = sandboxPolicy(destPath, context.workingDir, { mustExist: false });
+      const pathCheck = sandboxPolicy(destPath, context.workingDir, {
+        mustExist: false,
+      });
       if (!pathCheck.ok) {
         return {
           content: `Invalid destination path: ${pathCheck.error}`,
@@ -158,6 +205,7 @@ class HostFileTransferTool implements Tool {
             targetClientId,
           },
           context.signal,
+          context.sourceActorPrincipalId,
         );
       }
       return HostTransferProxy.instance.requestToSandbox(
@@ -169,17 +217,14 @@ class HostFileTransferTool implements Tool {
           targetClientId,
         },
         context.signal,
+        context.sourceActorPrincipalId,
       );
     }
 
-    if (targetClientId != null) {
-      return {
-        content: `Error: target_client_id '${targetClientId}' was specified but no host client is available. Ensure the client is connected.`,
-        isError: true,
-      };
-    }
-
-    // Local mode: direct filesystem copy.
+    // Local mode: direct filesystem copy. The non-host-proxy + stale
+    // target_client_id case is caught by the scoped guard at the top of
+    // execute(); on macos a stale target_client_id is silently ignored
+    // here, matching the read/write/edit pattern.
     return this.executeLocal(resolvedSourcePath, resolvedDestPath, overwrite);
   }
 

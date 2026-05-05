@@ -3,11 +3,14 @@ import XCTest
 
 final class AppURLsTests: XCTestCase {
     private var originalEnvValue: String?
+    private var originalWebEnvValue: String?
 
     override func setUp() {
         super.setUp()
         originalEnvValue = ProcessInfo.processInfo.environment["VELLUM_DOCS_BASE_URL"]
         unsetenv("VELLUM_DOCS_BASE_URL")
+        originalWebEnvValue = ProcessInfo.processInfo.environment["VELLUM_WEB_URL"]
+        unsetenv("VELLUM_WEB_URL")
     }
 
     override func tearDown() {
@@ -15,6 +18,11 @@ final class AppURLsTests: XCTestCase {
             setenv("VELLUM_DOCS_BASE_URL", value, 1)
         } else {
             unsetenv("VELLUM_DOCS_BASE_URL")
+        }
+        if let value = originalWebEnvValue {
+            setenv("VELLUM_WEB_URL", value, 1)
+        } else {
+            unsetenv("VELLUM_WEB_URL")
         }
         super.tearDown()
     }
@@ -133,5 +141,52 @@ final class AppURLsTests: XCTestCase {
     func testDocsURLHelperNormalizesLeadingSlash() {
         XCTAssertEqual(AppURLs.docsURL(path: "/pricing").absoluteString, "https://www.vellum.ai/docs/pricing")
         XCTAssertEqual(AppURLs.docsURL(path: "pricing").absoluteString, "https://www.vellum.ai/docs/pricing")
+    }
+
+    // MARK: - Billing settings web URL
+
+    func testBillingSettingsHonorsWebURLOverride() {
+        setenv("VELLUM_WEB_URL", "https://staging-assistant.vellum.ai", 1)
+        XCTAssertEqual(
+            AppURLs.billingSettings.absoluteString,
+            "https://staging-assistant.vellum.ai/assistant/settings/billing"
+        )
+    }
+
+    func testBillingSettingsStripsTrailingSlash() {
+        setenv("VELLUM_WEB_URL", "https://staging-assistant.vellum.ai/", 1)
+        XCTAssertEqual(
+            AppURLs.billingSettings.absoluteString,
+            "https://staging-assistant.vellum.ai/assistant/settings/billing"
+        )
+    }
+
+    func testBillingSettingsFallsBackWhenWebURLOverrideMalformed() {
+        setenv("VELLUM_WEB_URL", "not a url with spaces", 1)
+        // Should fall back to the env-default web URL rather than crash.
+        let result = AppURLs.billingSettings.absoluteString
+        XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
+        XCTAssertFalse(result.contains("not a url with spaces"))
+    }
+
+    func testBillingSettingsFallsBackWhenWebURLOverrideHasNoScheme() {
+        setenv("VELLUM_WEB_URL", "example.com/path", 1)
+        let result = AppURLs.billingSettings.absoluteString
+        XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
+        XCTAssertFalse(result.contains("example.com"))
+    }
+
+    func testBillingSettingsFallsBackWhenWebURLOverrideHasQuery() {
+        setenv("VELLUM_WEB_URL", "https://example.com?foo=bar", 1)
+        let result = AppURLs.billingSettings.absoluteString
+        XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
+        XCTAssertFalse(result.contains("?foo=bar"))
+    }
+
+    func testBillingSettingsFallsBackWhenWebURLOverrideHasFragment() {
+        setenv("VELLUM_WEB_URL", "https://example.com#section", 1)
+        let result = AppURLs.billingSettings.absoluteString
+        XCTAssertTrue(result.hasSuffix("/assistant/settings/billing"))
+        XCTAssertFalse(result.contains("#section"))
     }
 }

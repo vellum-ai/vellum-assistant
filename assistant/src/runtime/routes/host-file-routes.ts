@@ -7,8 +7,18 @@
 import { z } from "zod";
 
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
+import {
+  enforceSameActorOrThrow,
+  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+} from "../auth/same-actor.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -44,16 +54,33 @@ function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
 
   // Validate submitting client matches the targeted client (if any).
   if (peeked.targetClientId != null) {
-    const rawClientId = (headers as Record<string, string | undefined>)?.["x-vellum-client-id"];
-    const submittingClientId = rawClientId?.trim() || undefined;
+    const headerMap = (headers as Record<string, string | undefined>) ?? {};
+    const submittingClientId =
+      headerMap["x-vellum-client-id"]?.trim() || undefined;
     if (!submittingClientId) {
-      throw new BadRequestError("x-vellum-client-id header is missing for a targeted host file request.");
+      throw new BadRequestError(
+        "x-vellum-client-id header is missing for a targeted host file request.",
+      );
     }
     if (submittingClientId !== peeked.targetClientId) {
       throw new ForbiddenError(
         `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
       );
     }
+
+    // Defense-in-depth: also require the submitting actor's principal id to
+    // match the actor that opened the target client's SSE stream. This blocks
+    // cross-user submissions even if a different user somehow obtains the
+    // target client id.
+    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+    );
+    enforceSameActorOrThrow({
+      sourceActorPrincipalId: submittingActorPrincipalId,
+      targetActorPrincipalId: peeked.targetActorPrincipalId,
+      targetClientId: peeked.targetClientId,
+      op: "host_file",
+    });
   }
 
   HostFileProxy.instance.resolve(requestId, {
@@ -102,8 +129,7 @@ export const ROUTES: RouteDefinition[] = [
           "x-vellum-client-id header is missing for a targeted host file request.",
       },
       "403": {
-        description:
-          "Submitting client does not match the targeted client for this request.",
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
       },
       "404": {
         description: "No pending interaction found for the given requestId.",

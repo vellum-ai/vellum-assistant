@@ -54,10 +54,16 @@ function getLatestAssistantText(conversationId: string): string {
   const parsed = JSON.parse(latest.content) as Array<{
     type: string;
     text?: string;
+    surfaceType?: string;
+    data?: { summaryText?: string };
   }>;
   return parsed
-    .filter((b) => b.type === "text")
-    .map((b) => b.text ?? "")
+    .map((b) => {
+      if (b.type === "text") return b.text ?? "";
+      if (b.type === "ui_surface" && b.surfaceType === "call_summary")
+        return b.data?.summaryText ?? "";
+      return "";
+    })
     .join("");
 }
 

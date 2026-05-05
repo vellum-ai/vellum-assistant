@@ -42,6 +42,20 @@ let mockPlatformFetchCallIndex = 0;
 
 let mockIsManagedMode: (key: string) => boolean = () => false;
 
+// Configurable logger mock: by default no-ops; individual tests can override
+// mockLogInfo to write to process.stdout so the JSON-mode suppression guard is
+// exercised (the real CLI logger writes log lines to stdout).
+let mockLogInfo: (msg: string) => void = () => {};
+
+let mockCliIpcCallFn: (
+  method: string,
+  params?: Record<string, unknown>,
+  opts?: { timeoutMs?: number },
+) => Promise<{ ok: boolean; result?: unknown; error?: string; statusCode?: number }> = async () => ({
+  ok: false,
+  error: "IPC unavailable (default mock — forces fallback)",
+});
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -101,7 +115,7 @@ mock.module("../../../../util/logger.js", () => ({
     debug: () => {},
   }),
   getCliLogger: () => ({
-    info: () => {},
+    info: (msg: string) => mockLogInfo(msg),
     warn: () => {},
     error: () => {},
     debug: () => {},
@@ -125,6 +139,14 @@ mock.module("../../../../security/secure-keys.js", () => ({
   setCesReconnect: () => {},
   getActiveBackendName: () => "file",
   _resetBackend: () => {},
+}));
+
+mock.module("../../../../ipc/cli-client.js", () => ({
+  cliIpcCall: (
+    method: string,
+    params?: Record<string, unknown>,
+    opts?: { timeoutMs?: number },
+  ) => mockCliIpcCallFn(method, params, opts),
 }));
 
 mock.module("../../../lib/daemon-credential-client.js", () => ({
@@ -254,6 +276,8 @@ describe("assistant oauth connect", () => {
     mockPlatformFetchResults = [];
     mockPlatformFetchCallIndex = 0;
     mockIsManagedMode = () => false;
+    mockCliIpcCallFn = async () => ({ ok: false, error: "IPC unavailable" });
+    mockLogInfo = () => {};
     process.exitCode = 0;
   });
 
@@ -722,6 +746,418 @@ describe("assistant oauth connect", () => {
     expect(parsed.error).toContain("assistant credentials set");
     expect(parsed.error).toContain("--service");
     expect(parsed.error).toContain("--field");
+  });
+
+  // -------------------------------------------------------------------------
+  // IPC-first path (daemon-orchestrated)
+  // -------------------------------------------------------------------------
+
+  describe("IPC-first path (BYO mode via daemon)", () => {
+    beforeEach(() => {
+      // Set up a valid BYO provider and app for all IPC tests
+      mockGetProvider = () => ({
+        provider: "google",
+        authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+        tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+        tokenExchangeBodyFormat: "form",
+        managedServiceConfigKey: null,
+      });
+      mockIsManagedMode = () => false;
+      mockGetMostRecentAppByProvider = () => ({
+        id: "app-1",
+        clientId: "ipc-client-id",
+        clientSecretCredentialPath: "oauth_app/app-1/client_secret",
+        provider: "google",
+        createdAt: 0,
+        updatedAt: 0,
+      });
+    });
+
+    test("IPC start succeeds + polling returns complete → exits 0 with success output", async () => {
+      let pollCallCount = 0;
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              state: "ipc-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          pollCallCount++;
+          return {
+            ok: true,
+            result: {
+              status: "complete",
+              service: "google",
+              account_info: "user@example.com",
+            },
+          };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.accountInfo).toBe("user@example.com");
+      expect(mockOpenInBrowserCalls.length).toBe(1);
+      expect(mockOpenInBrowserCalls[0]).toBe(
+        "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+      );
+      expect(pollCallCount).toBeGreaterThanOrEqual(1);
+    });
+
+    test("IPC start succeeds + polling returns error → exits 1 with error message", async () => {
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              state: "ipc-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          return {
+            ok: true,
+            result: {
+              status: "error",
+              service: "google",
+              error: "exchange failed",
+            },
+          };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(1);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toBe("exchange failed");
+    });
+
+    test("IPC start + --no-browser + json → returns deferred JSON without polling status", async () => {
+      let statusCallCount = 0;
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              state: "ipc-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          statusCallCount++;
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--no-browser",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.deferred).toBe(true);
+      expect(parsed.authUrl).toBe("https://accounts.google.com/o/oauth2/auth?state=ipc-state");
+      expect(parsed.state).toBe("ipc-state");
+      expect(parsed.service).toBe("google");
+      // Should NOT poll status when --no-browser is set
+      expect(statusCallCount).toBe(0);
+      // Should NOT open browser
+      expect(mockOpenInBrowserCalls.length).toBe(0);
+    });
+
+    test("IPC start + --no-browser without json → prints URL to stdout", async () => {
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              state: "ipc-state",
+            },
+          };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--no-browser",
+      ]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("https://accounts.google.com/o/oauth2/auth?state=ipc-state");
+      expect(mockOpenInBrowserCalls.length).toBe(0);
+    });
+
+    test("IPC returns ok:false → falls back to in-process orchestrateOAuthConnect", async () => {
+      // Default mockCliIpcCallFn already returns ok: false
+      let orchestratorCalled = false;
+      mockOrchestrateOAuthConnect = async () => {
+        orchestratorCalled = true;
+        return {
+          success: true,
+          deferred: false,
+          grantedScopes: ["email"],
+          accountInfo: "fallback@example.com",
+        };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      expect(orchestratorCalled).toBe(true);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.accountInfo).toBe("fallback@example.com");
+    });
+
+    test("IPC returns ok:false with statusCode → surfaces daemon error, does NOT fall back", async () => {
+      // Daemon was reachable but returned an error (e.g. 500)
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return { ok: false, statusCode: 500, error: "internal server error" };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+      let orchestratorCalled = false;
+      mockOrchestrateOAuthConnect = async () => {
+        orchestratorCalled = true;
+        return { success: true, deferred: false, grantedScopes: [] };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(1);
+      // Must NOT fall back to the in-process orchestrator
+      expect(orchestratorCalled).toBe(false);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toBe("internal server error");
+    });
+
+    test("IPC poll returns ok:false with statusCode → breaks early with error, does NOT wait for timeout", async () => {
+      // Fix 1: daemon was reachable during status poll but errored — should surface the
+      // error immediately instead of waiting out the full 5-minute timeout.
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=poll-err-state",
+              state: "poll-err-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          return { ok: false, statusCode: 500, error: "poll error" };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(1);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(false);
+      // The daemon error should be surfaced, not a timeout sentinel
+      expect(parsed.error).toBe("poll error");
+    });
+
+    test("IPC start returns ok:true with no auth_url → surfaces error, does NOT call in-process orchestrator", async () => {
+      // Fix 2: daemon returns { ok: true } but without an auth_url — malformed response
+      // should be an error, not a silent fallback to in-process (which has heap-split bug).
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return { ok: true, result: {} };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+      let orchestratorCalled = false;
+      mockOrchestrateOAuthConnect = async () => {
+        orchestratorCalled = true;
+        return { success: true, deferred: false, grantedScopes: [] };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(1);
+      // Must NOT fall back to the in-process orchestrator
+      expect(orchestratorCalled).toBe(false);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("assistant returned unexpected response");
+    });
+
+    test("IPC poll: transient ok:false with no statusCode does not abort the flow (continues to next poll)", async () => {
+      // Verifies intentional behavior: a single IPC status call returning { ok: false }
+      // with NO statusCode (socket error / timeout) is treated as a transient failure and
+      // silently retried. Only ok:false WITH a statusCode (i.e., the daemon was reachable
+      // and returned an HTTP error) causes an early abort.
+      let statusCallCount = 0;
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=transient-state",
+              state: "transient-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          statusCallCount++;
+          if (statusCallCount === 1) {
+            // First poll: transient IPC failure (no statusCode — socket error/timeout)
+            return { ok: false };
+          }
+          // Second poll: succeeds
+          return {
+            ok: true,
+            result: {
+              status: "complete",
+              service: "google",
+              account_info: "user@example.com",
+            },
+          };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.accountInfo).toBe("user@example.com");
+      // Both poll calls were made — the transient failure did not abort the loop
+      expect(statusCallCount).toBeGreaterThanOrEqual(2);
+    });
+
+    test("IPC success path with --json: stdout does NOT contain 'Waiting for authorization' text", async () => {
+      // Regression guard for P1: the browser-wait log.info must be suppressed in JSON mode
+      // so that machine consumers parsing stdout as JSON don't see corrupted non-JSON output.
+      //
+      // We configure the logger mock to write to process.stdout (matching the real CLI logger's
+      // behavior) so this test would FAIL if the `if (!jsonMode)` guard were removed from connect.ts.
+      mockLogInfo = (msg: string) => {
+        process.stdout.write(msg + "\n");
+      };
+
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=json-mode-state",
+              state: "json-mode-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          return {
+            ok: true,
+            result: {
+              status: "complete",
+              service: "google",
+              account_info: "user@example.com",
+            },
+          };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      // The suppressed log line must not appear anywhere in stdout
+      expect(stdout).not.toContain("Waiting for authorization");
+      // stdout must be valid JSON — no plain-text lines mixed in
+      expect(() => JSON.parse(stdout)).not.toThrow();
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+    });
+
+    test("IPC start with --callback-transport=gateway passes callbackTransport in body", async () => {
+      let capturedParams: Record<string, unknown> | undefined;
+      mockCliIpcCallFn = async (method, params) => {
+        if (method === "internal_oauth_connect_start") {
+          capturedParams = params;
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=gw-state",
+              state: "gw-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          return {
+            ok: true,
+            result: {
+              status: "complete",
+              service: "google",
+              account_info: "gw-user@example.com",
+            },
+          };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--callback-transport",
+        "gateway",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      // Verify callbackTransport was forwarded in the IPC body
+      expect(capturedParams).toBeDefined();
+      expect((capturedParams!.body as Record<string, unknown>).callbackTransport).toBe("gateway");
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.accountInfo).toBe("gw-user@example.com");
+    });
   });
 
   // -------------------------------------------------------------------------

@@ -9,6 +9,11 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import {
+  ambiguousSameUserError,
+  enforceSameActorOrErrorResult,
+  pickSameUserAutoResolve,
+} from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -31,6 +36,13 @@ interface TransferEntry {
   sha256?: string;
   fileBuffer?: Buffer;
   targetClientId?: string;
+  /**
+   * Snapshot of `targetClientId`'s `actorPrincipalId` taken at registration
+   * time. Persisted so the GET/PUT content routes compare against a stable
+   * value rather than the live hub — the target client's SSE subscription
+   * may briefly disconnect between dispatch and content fetch/upload.
+   */
+  targetActorPrincipalId?: string;
 }
 
 /**
@@ -124,6 +136,8 @@ export class HostTransferProxy {
       targetClientId?: string;
     },
     signal?: AbortSignal,
+    // Principal ID of the actor on whose behalf this request is initiated.
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
@@ -145,8 +159,29 @@ export class HostTransferProxy {
         });
       }
     } else {
-      const capable = assistantEventHub.listClientsByCapability("host_file");
-      if (capable.length === 1) resolvedTargetClientId = capable[0].clientId;
+      // Auto-resolve to the unique same-user client; reject ambiguous
+      // (multi-machine) cases so a single targeted-style transfer cannot
+      // fan out across the user's machines.
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_file",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_file"));
+      }
+      resolvedTargetClientId =
+        resolved.kind === "match" ? resolved.clientId : undefined;
+    }
+
+    if (resolvedTargetClientId != null) {
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_transfer",
+      });
+      if (rejection != null) return Promise.resolve(rejection);
     }
 
     const requestId = uuid();
@@ -220,12 +255,24 @@ export class HostTransferProxy {
             sha256,
             fileBuffer,
             targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId:
+              resolvedTargetClientId != null
+                ? assistantEventHub.getActorPrincipalIdForClient(
+                    resolvedTargetClientId,
+                  )
+                : undefined,
           });
 
           pendingInteractions.register(requestId, {
             conversationId: input.conversationId,
             kind: "host_transfer",
             targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId:
+              resolvedTargetClientId != null
+                ? assistantEventHub.getActorPrincipalIdForClient(
+                    resolvedTargetClientId,
+                  )
+                : undefined,
             rpcResolve: resolve,
             rpcReject: reject,
             timer,
@@ -291,6 +338,8 @@ export class HostTransferProxy {
       targetClientId?: string;
     },
     signal?: AbortSignal,
+    // Principal ID of the actor on whose behalf this request is initiated.
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
@@ -312,8 +361,29 @@ export class HostTransferProxy {
         });
       }
     } else {
-      const capable = assistantEventHub.listClientsByCapability("host_file");
-      if (capable.length === 1) resolvedTargetClientId = capable[0].clientId;
+      // Auto-resolve to the unique same-user client; reject ambiguous
+      // (multi-machine) cases so a single targeted-style transfer cannot
+      // fan out across the user's machines.
+      const resolved = pickSameUserAutoResolve({
+        hub: assistantEventHub,
+        capability: "host_file",
+        sourceActorPrincipalId,
+      });
+      if (resolved.kind === "ambiguous") {
+        return Promise.resolve(ambiguousSameUserError("host_file"));
+      }
+      resolvedTargetClientId =
+        resolved.kind === "match" ? resolved.clientId : undefined;
+    }
+
+    if (resolvedTargetClientId != null) {
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: resolvedTargetClientId,
+        op: "host_transfer",
+      });
+      if (rejection != null) return Promise.resolve(rejection);
     }
 
     const requestId = uuid();
@@ -374,12 +444,24 @@ export class HostTransferProxy {
         filePath: input.destPath,
         overwrite: input.overwrite,
         targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
       });
 
       pendingInteractions.register(requestId, {
         conversationId: input.conversationId,
         kind: "host_transfer",
         targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
         rpcResolve: resolve,
         rpcReject: reject,
         timer,
@@ -621,6 +703,15 @@ export class HostTransferProxy {
    */
   getTargetClientIdForTransfer(transferId: string): string | null {
     return this.transfers.get(transferId)?.targetClientId ?? null;
+  }
+
+  /**
+   * Look up the persisted `targetActorPrincipalId` for a given transferId
+   * without consuming the entry. Routes call this for the same-actor
+   * binding check so it's stable across brief SSE reconnects.
+   */
+  getTargetActorPrincipalIdForTransfer(transferId: string): string | undefined {
+    return this.transfers.get(transferId)?.targetActorPrincipalId;
   }
 
   dispose(): void {
