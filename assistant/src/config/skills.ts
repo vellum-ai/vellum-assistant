@@ -730,6 +730,9 @@ function discoverSkillDirectories(skillsDir: string): string[] {
 function getManagedSkillDirectories(skillsDir: string): string[] {
   const discoveredDirectories = discoverSkillDirectories(skillsDir);
   const indexedDirectories = getIndexedSkillDirectories(skillsDir) ?? [];
+  const discoveredCanonicalDirectories = new Set(
+    discoveredDirectories.map((directory) => getCanonicalPath(directory)),
+  );
   const directories: string[] = [];
   const seenCanonicalDirectories = new Set<string>();
 
@@ -744,6 +747,9 @@ function getManagedSkillDirectories(skillsDir: string): string[] {
   };
 
   for (const directory of indexedDirectories) {
+    if (!discoveredCanonicalDirectories.has(getCanonicalPath(directory))) {
+      continue;
+    }
     addDirectory(directory);
   }
 

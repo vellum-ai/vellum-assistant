@@ -170,6 +170,17 @@ describe("skills catalog loading", () => {
       "geo-article-writer",
     ]);
   });
+
+  test("SKILLS.md nested stale entries do not replace top-level discoveries", () => {
+    writeSkill("foo", "Top-Level Skill", "Valid top-level skill");
+    writeSkill("archive/foo", "Archived Skill", "Stale nested copy");
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- archive/foo\n");
+
+    const catalog = loadUserSkillCatalog();
+    expect(catalog.map((skill) => skill.id)).toEqual(["foo"]);
+    expect(catalog[0].name).toBe("Top-Level Skill");
+    expect(catalog[0].directoryPath).toBe(join(TEST_DIR, "skills", "foo"));
+  });
 });
 
 describe("workspace skills", () => {
