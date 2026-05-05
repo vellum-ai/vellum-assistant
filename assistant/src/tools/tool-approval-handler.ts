@@ -1,6 +1,7 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
+import { loadSkillBySelector, loadSkillCatalog } from "../config/skills.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
@@ -9,6 +10,11 @@ import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import {
+  indexCatalogById,
+  traverseIncludes,
+  validateIncludes,
+} from "../skills/include-graph.js";
 import { getLogger } from "../util/logger.js";
 import { getAllTools, getTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
@@ -150,6 +156,7 @@ export async function waitForInlineGrant(
 }
 
 const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
+const DISK_PRESSURE_CLEANUP_SKILL_ID = "system-storage-cleanup";
 
 function requiresGuardianApprovalForActor(
   toolName: string,
@@ -177,6 +184,59 @@ function guardianApprovalDeniedMessage(
     return `Permission denied for "${toolName}": this action requires guardian approval from a verified channel identity.`;
   }
   return `Permission denied for "${toolName}": this action requires guardian approval and the current actor is not the guardian.`;
+}
+
+function getDiskPressureSkillLoadBlockReason(
+  input: Record<string, unknown>,
+): string | null {
+  const selector = input.skill;
+  if (typeof selector !== "string" || selector.trim().length === 0) {
+    return null;
+  }
+
+  const loaded = loadSkillBySelector(selector);
+  if (!loaded.skill) {
+    if (
+      loaded.errorCode === "not_found" ||
+      loaded.errorCode === "empty_catalog"
+    ) {
+      return `Skill "${selector}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load the bundled "${DISK_PRESSURE_CLEANUP_SKILL_ID}" skill.`;
+    }
+    return null;
+  }
+
+  if (
+    loaded.skill.id !== DISK_PRESSURE_CLEANUP_SKILL_ID ||
+    loaded.skill.source !== "bundled"
+  ) {
+    return `Skill "${loaded.skill.id}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load the bundled "${DISK_PRESSURE_CLEANUP_SKILL_ID}" skill.`;
+  }
+
+  const catalogIndex = indexCatalogById(loadSkillCatalog());
+  const includeValidation = validateIncludes(loaded.skill.id, catalogIndex);
+  if (!includeValidation.ok) {
+    return `Skill "${loaded.skill.id}" cannot be loaded during disk pressure cleanup mode because its included skills cannot be validated.`;
+  }
+
+  const includedSkillIds = traverseIncludes(
+    loaded.skill.id,
+    catalogIndex,
+  ).visited;
+  for (const skillId of includedSkillIds) {
+    const skill =
+      skillId === loaded.skill.id ? loaded.skill : catalogIndex.get(skillId);
+    if (!skill) continue;
+
+    if (skill.inlineCommandExpansions?.length) {
+      return `Skill "${skill.id}" cannot be loaded during disk pressure cleanup mode because it contains inline command expansions. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
+    }
+
+    if (skill.toolManifest?.present) {
+      return `Skill "${skill.id}" cannot be loaded during disk pressure cleanup mode because it declares executable skill tools. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
+    }
+  }
+
+  return null;
 }
 
 export type PreExecutionGateResult =
@@ -332,6 +392,32 @@ export class ToolApprovalHandler {
         errorCategory: "tool_failure",
       });
       return { allowed: false, result: { content: msg, isError: true } };
+    }
+
+    if (
+      context.diskPressureCleanupModeActive === true &&
+      name === "skill_load"
+    ) {
+      const msg = getDiskPressureSkillLoadBlockReason(input);
+      if (msg) {
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent({
+          type: "error",
+          toolName: name,
+          executionTarget,
+          input,
+          workingDir: context.workingDir,
+          conversationId: context.conversationId,
+          requestId: context.requestId,
+          riskLevel,
+          decision: "error",
+          durationMs,
+          errorMessage: msg,
+          isExpected: true,
+          errorCategory: "tool_failure",
+        });
+        return { allowed: false, result: { content: msg, isError: true } };
+      }
     }
 
     // Gate tools not active for the current turn
