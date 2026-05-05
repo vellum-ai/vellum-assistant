@@ -12,8 +12,10 @@ const LOADED_SKILL_RE =
 
 export interface ActiveSkillEntry {
   id: string;
-  /** Present only when the marker includes a `version` attribute. */
+  /** Present only when the marker includes a `version` attribute; retained for versioned marker compatibility. */
   version?: string;
+  /** The selector originally passed to skill_load, when available. */
+  selector?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -34,11 +36,16 @@ export interface ActiveSkillEntry {
  */
 export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
   // First pass: collect tool_use IDs that belong to skill_load calls.
-  const skillLoadUseIds = new Set<string>();
+  const skillLoadSelectorsByUseId = new Map<string, string | undefined>();
   for (const msg of messages) {
     for (const block of msg.content) {
       if (block.type === "tool_use" && block.name === "skill_load") {
-        skillLoadUseIds.add(block.id);
+        const rawSelector =
+          typeof block.input.skill === "string" ? block.input.skill : undefined;
+        const selector = rawSelector?.startsWith("bundled:")
+          ? rawSelector
+          : undefined;
+        skillLoadSelectorsByUseId.set(block.id, selector);
       }
     }
   }
@@ -50,7 +57,7 @@ export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
   for (const msg of messages) {
     for (const block of msg.content) {
       if (block.type !== "tool_result") continue;
-      if (!skillLoadUseIds.has(block.tool_use_id)) continue;
+      if (!skillLoadSelectorsByUseId.has(block.tool_use_id)) continue;
 
       const text = block.content;
       if (!text) continue;
@@ -62,6 +69,10 @@ export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
           const entry: ActiveSkillEntry = { id };
           if (match[2]) {
             entry.version = match[2];
+          }
+          const selector = skillLoadSelectorsByUseId.get(block.tool_use_id);
+          if (selector) {
+            entry.selector = selector;
           }
           entries.push(entry);
         }

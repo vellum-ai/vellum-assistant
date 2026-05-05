@@ -1,7 +1,7 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
-import { loadSkillBySelector } from "../config/skills.js";
+import { resolveSkillSelector } from "../config/skills.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
@@ -189,11 +189,12 @@ function getDiskPressureSkillLoadBlockReason(
     return null;
   }
 
-  const loaded = loadSkillBySelector(selector);
-  if (!loaded.skill) {
+  const resolved = resolveSkillSelector(selector);
+  if (!resolved.skill) {
     if (
-      loaded.errorCode === "not_found" ||
-      loaded.errorCode === "empty_catalog"
+      resolved.errorCode === "not_found" ||
+      resolved.errorCode === "empty_catalog" ||
+      resolved.errorCode === "invalid_selector"
     ) {
       return `Skill "${selector}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load the bundled "${DISK_PRESSURE_CLEANUP_SKILL_ID}" skill.`;
     }
@@ -201,18 +202,18 @@ function getDiskPressureSkillLoadBlockReason(
   }
 
   if (
-    loaded.skill.id !== DISK_PRESSURE_CLEANUP_SKILL_ID ||
-    loaded.skill.source !== "bundled"
+    resolved.skill.id !== DISK_PRESSURE_CLEANUP_SKILL_ID ||
+    resolved.skill.source !== "bundled"
   ) {
-    return `Skill "${loaded.skill.id}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load the bundled "${DISK_PRESSURE_CLEANUP_SKILL_ID}" skill.`;
+    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode. Cleanup mode can only load the bundled "${DISK_PRESSURE_CLEANUP_SKILL_ID}" skill.`;
   }
 
-  if (loaded.skill.inlineCommandExpansions?.length) {
-    return `Skill "${loaded.skill.id}" cannot be loaded during disk pressure cleanup mode because it contains inline command expansions. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
+  if (resolved.skill.inlineCommandExpansions?.length) {
+    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode because it contains inline command expansions. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
   }
 
-  if (loaded.skill.toolManifest?.present) {
-    return `Skill "${loaded.skill.id}" cannot be loaded during disk pressure cleanup mode because it declares executable skill tools. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
+  if (resolved.skill.toolManifest?.present) {
+    return `Skill "${resolved.skill.id}" cannot be loaded during disk pressure cleanup mode because it declares executable skill tools. Load an instruction-only cleanup skill such as "system-storage-cleanup" instead.`;
   }
 
   return null;
