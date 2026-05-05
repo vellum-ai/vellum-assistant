@@ -57,6 +57,7 @@ export async function persistCallCompletionMessage(
         surfaceId: crypto.randomUUID(),
         completed: true,
         data: {
+          summaryText,
           status: callSession?.status ?? "completed",
           duration,
           events: events.map((e) => ({

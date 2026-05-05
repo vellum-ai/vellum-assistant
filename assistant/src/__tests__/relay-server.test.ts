@@ -362,11 +362,22 @@ function getLatestAssistantText(conversationId: string): string | null {
     if (Array.isArray(parsed)) {
       return parsed
         .filter(
-          (block): block is { type: string; text?: string } =>
-            typeof block === "object" && block != null,
+          (block): block is {
+            type: string;
+            text?: string;
+            surfaceType?: string;
+            data?: { summaryText?: string };
+          } => typeof block === "object" && block != null,
         )
-        .filter((block) => block.type === "text")
-        .map((block) => block.text ?? "")
+        .map((block) => {
+          if (block.type === "text") return block.text ?? "";
+          if (
+            block.type === "ui_surface" &&
+            block.surfaceType === "call_summary"
+          )
+            return block.data?.summaryText ?? "";
+          return "";
+        })
         .join("");
     }
     if (typeof parsed === "string") return parsed;
