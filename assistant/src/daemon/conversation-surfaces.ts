@@ -18,6 +18,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
@@ -1935,12 +1936,12 @@ export async function surfaceProxyResolver(
         ? input.target_client_id
         : undefined;
 
-    // Validate targetClientId existence + capability before recordAction so
-    // an invalid ID does not burn a step or pollute action history.
-    // HostBashProxy / HostFileProxy validate at the tool-resolution layer
-    // for the same reason. The same-user binding check itself is owned by
-    // the proxy (host-cu-proxy.ts) — that is the single authoritative gate;
-    // duplicating it here would diverge log payloads and error wording.
+    // Validate targetClientId existence, capability, and same-user binding
+    // before recordAction so an invalid or cross-user ID does not burn a
+    // step or pollute action history. HostBashProxy / HostFileProxy
+    // validate at the tool-resolution layer for the same reason. The proxy
+    // re-checks same-user (single authoritative gate); using the shared
+    // helper keeps log payload and error wording identical at both layers.
     const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
@@ -1956,6 +1957,13 @@ export async function surfaceProxyResolver(
           isError: true,
         };
       }
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId,
+        op: "host_cu",
+      });
+      if (rejection) return rejection;
     }
 
     // Guard: require explicit targeting when multiple same-user CU-capable
