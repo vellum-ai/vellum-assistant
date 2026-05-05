@@ -672,14 +672,13 @@
     {
       "id": "twilio-setup",
       "name": "twilio-setup",
-      "description": "Configure Twilio credentials, phone numbers, webhooks, and call voice setup",
+      "description": "Configure Twilio credentials, phone numbers, webhooks, and TTS service setup for calls",
       "metadata": {
         "emoji": "📱",
         "vellum": {
           "display-name": "Twilio Setup",
           "includes": [
-            "public-ingress",
-            "elevenlabs-voice"
+            "public-ingress"
           ]
         }
       },

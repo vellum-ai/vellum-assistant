@@ -1,12 +1,12 @@
 ---
 name: twilio-setup
-description: Configure Twilio credentials, phone numbers, webhooks, and call voice setup
+description: Configure Twilio credentials, phone numbers, webhooks, and TTS service setup for calls
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📱"
   vellum:
     display-name: "Twilio Setup"
-    includes: ["public-ingress", "elevenlabs-voice"]
+    includes: ["public-ingress"]
 ---
 
 You are helping your user configure Twilio for voice calls. Walk through each step below.
@@ -20,11 +20,13 @@ Before you begin, understand how each Twilio value is stored:
 | Account SID  | Config     | `assistant config set twilio.accountSid`                        | No      |
 | Auth Token   | Credential | `assistant credentials set --service twilio --field auth_token` | **Yes** |
 | Phone Number | Config     | `assistant config set twilio.phoneNumber`                       | No      |
-| TTS Voice    | Config     | `voice_config_update setting="tts_voice_id"`                    | No      |
+| TTS Provider | Config     | `voice_config_update setting="tts_provider"`                    | No      |
+| TTS API Key  | Credential | Provider-specific `credential_store` prompt                     | **Yes** |
+| TTS Voice    | Config     | Provider-specific voice/reference setting                       | No      |
 
 - **Config values** (Account SID, Phone Number) are non-sensitive identifiers. Collect them via normal conversation -- the user can paste them in chat or you can use `AskUserQuestion`.
   **Auth Token** is a secret. Collect it securely via `credential_store` prompt -- never accept it pasted in plaintext chat.
-- **TTS Voice** is not a Twilio credential, but phone calls use it for the assistant's spoken voice. Prompt for it during setup if the user has not explicitly configured one yet.
+- **TTS setup** is not a Twilio credential, but phone calls need a usable TTS provider. Prompt for a provider, its API key, and any required provider-specific voice/reference config if TTS has not already been set up.
 
 ## Retrieving Twilio Credentials
 
@@ -48,25 +50,52 @@ assistant config get twilio.phoneNumber
 - If all three Twilio values are non-empty -- Twilio credentials and phone number are configured, but still check the TTS voice before declaring setup complete.
 - Otherwise, continue to the missing steps.
 
-## Checking Current TTS Voice Configuration
+## Checking Current TTS Service Configuration
 
-TTS has runtime defaults, so do not treat a default voice as explicitly configured. Check the raw config values:
+TTS has runtime defaults, so do not treat defaults alone as a usable voice service. Check the raw config values and provider credentials:
 
 ```bash
 assistant config get services.tts.provider
+assistant credentials inspect --service elevenlabs --field api_key --json
+assistant credentials inspect --service fish-audio --field api_key --json
+assistant credentials inspect --service deepgram --field api_key --json
+assistant credentials inspect --service xai --field api_key --json
 assistant config get services.tts.providers.elevenlabs.voiceId
 assistant config get services.tts.providers.fish-audio.referenceId
 assistant config get services.tts.providers.xai.voiceId
 ```
 
-Treat the TTS voice as already configured when the active provider has a non-empty raw voice value:
+Treat TTS as already configured only when the effective provider has its required credentials/config:
 
-- Provider `(not set)` or `elevenlabs`: `services.tts.providers.elevenlabs.voiceId` is set.
-- Provider `fish-audio`: `services.tts.providers.fish-audio.referenceId` is set.
-- Provider `xai`: `services.tts.providers.xai.voiceId` is set.
-- Provider `deepgram`: no voice-selection prompt is needed.
+- `elevenlabs` or provider `(not set)`: `elevenlabs/api_key` is stored. A custom `services.tts.providers.elevenlabs.voiceId` is optional; if missing, ask whether they want to choose a voice.
+- `fish-audio`: `fish-audio/api_key` is stored and `services.tts.providers.fish-audio.referenceId` is non-empty.
+- `deepgram`: `deepgram/api_key` is stored. No voice selection is required.
+- `xai`: `xai/api_key` is stored. `services.tts.providers.xai.voiceId` is optional because xAI has a default voice.
 
-If no TTS voice has been explicitly configured, prompt the user to choose one before finishing setup. For the default ElevenLabs flow, follow the included `elevenlabs-voice` skill and use `voice_config_update setting="tts_voice_id" value="<selected-voice-id>"`.
+If the effective provider is missing its API key or required voice/reference config, prompt the user to set up a TTS provider before finishing Twilio setup. If `services.tts.provider` is `(not set)` and a non-ElevenLabs provider is already configured with credentials, ask whether to switch to it with `voice_config_update setting="tts_provider" value="<provider-id>"`.
+
+### TTS Provider Setup Flow
+
+Ask which TTS provider they want to use for phone-call speech:
+
+- **ElevenLabs** -- low-latency Twilio-native path; requires an ElevenLabs API key. Voice selection is optional but recommended.
+- **Fish Audio** -- expressive synthesized-play path; requires a Fish Audio API key and voice reference ID.
+- **Deepgram** -- synthesized-play path; uses the Deepgram API key and default model, with no separate voice selection.
+- **xAI** -- synthesized-play path; requires an xAI API key and can use the default `eve` voice or another supported xAI voice.
+
+After they choose a provider:
+
+1. Set it with `voice_config_update setting="tts_provider" value="<provider-id>"`.
+2. Collect the provider API key securely. Never ask the user to paste an API key in chat.
+   - ElevenLabs: `credential_store action="prompt" service="elevenlabs" field="api_key" label="ElevenLabs API Key" description="Enter your ElevenLabs API key" placeholder="sk_..."`
+   - Fish Audio: `credential_store action="prompt" service="fish-audio" field="api_key" label="Fish Audio API Key" description="Enter your Fish Audio API key" placeholder="sk-..."`
+   - Deepgram: `credential_store action="prompt" service="deepgram" field="api_key" label="Deepgram API Key" description="Enter your Deepgram API key" placeholder="dg_..."`
+   - xAI: `credential_store action="prompt" service="xai" field="api_key" label="xAI API Key" description="Enter your xAI API key" placeholder="xai-..."`
+3. Configure provider-specific voice settings when needed:
+   - ElevenLabs: offer to load `elevenlabs-voice` so the user can pick a curated voice; set it with `voice_config_update setting="tts_voice_id" value="<selected-voice-id>"`.
+   - Fish Audio: ask for the voice reference ID and set it with `voice_config_update setting="fish_audio_reference_id" value="<reference-id>"`.
+   - Deepgram: no additional voice setting is required.
+   - xAI: optional voices are `eve`, `ara`, `rex`, `sal`, and `leo`; set one only if requested with `assistant config set services.tts.providers.xai.voiceId "<voice-id>"`.
 
 # Twilio Setup Steps
 
@@ -74,7 +103,7 @@ Follow the steps below in order to fully configure Twilio in preparation to make
 
 ## Step 1: Check Current Configuration
 
-Refer to "Checking Current Configuration" above to see the current state of the user's Twilio setup. If Twilio credentials and phone number are configured, skip to the TTS voice check before declaring setup complete. Otherwise, continue to the missing steps below.
+Refer to "Checking Current Configuration" above to see the current state of the user's Twilio setup. If Twilio credentials and phone number are configured, skip to the TTS service check before declaring setup complete. Otherwise, continue to the missing steps below.
 
 ## Step 2: Collect and Store Credentials
 
@@ -205,13 +234,13 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status"
 ```
 
-## Step 5: Configure TTS Voice If Missing
+## Step 5: Configure TTS Service If Missing
 
-Refer to "Checking Current TTS Voice Configuration" above. If a TTS voice has already been explicitly configured, do not prompt again.
+Refer to "Checking Current TTS Service Configuration" above. If a usable TTS provider is already configured with its required credentials and provider-specific voice/reference settings, do not prompt again.
 
-If no TTS voice is configured, tell the user: **"One more thing before calls are ready: choose the voice I should use on phone calls. I can pick a good default from the curated voices, or you can choose one."**
+If TTS is not set up, tell the user: **"One more thing before calls are ready: choose the text-to-speech provider I should use for phone calls. I'll collect the provider API key securely and set any required voice options."**
 
-Then follow the included `elevenlabs-voice` skill to select and set a voice. Do not skip this prompt just because the runtime has an ElevenLabs default -- the goal is to get an explicit user preference before calls go live.
+Then follow the TTS provider setup flow above. Do not skip this prompt just because the runtime has a default provider or default voice -- the goal is to ensure a provider with credentials is actually usable before calls go live.
 
 ## Clearing Credentials
 

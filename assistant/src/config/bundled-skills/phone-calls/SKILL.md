@@ -9,7 +9,6 @@ metadata:
     includes:
       - "twilio-setup"
       - "public-ingress"
-      - "elevenlabs-voice"
     activation-hints:
       - "Phone calling setup, Twilio config, placing/receiving calls"
       - "Do NOT improvise Twilio setup from general knowledge"
@@ -25,7 +24,7 @@ When speaking on behalf of your user during calls, refer to yourself as an "assi
 
 # Overview
 
-The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls. The text-to-speech voice is provided by the globally configured TTS provider (set via `services.tts.provider`, default: ElevenLabs). The Twilio setup flow checks whether the user has explicitly configured a TTS voice and prompts them to choose one if not.
+The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls. The spoken voice is provided by the globally configured TTS provider (`services.tts.provider`). The Twilio setup flow checks whether a usable TTS provider is explicitly configured with its required credentials and voice/reference settings, and prompts the user to set one up if not.
 
 # Initial Setup
 
@@ -51,7 +50,7 @@ assistant config get calls.enabled
 
 ## Step 3: Choose a Voice
 
-If the Twilio setup flow already prompted for and configured a TTS voice, skip this step. Otherwise, voice selection and tuning are handled by the `elevenlabs-voice` skill. Follow the instructions there to pick a curated voice, optionally set up an ElevenLabs API key for advanced selection, or tune voice parameters.
+If the Twilio setup flow already prompted for and configured a usable TTS provider, skip this step. Otherwise, return to the TTS provider setup flow in `twilio-setup` so the user can choose any supported provider, store the provider API key securely, and set any required voice/reference options.
 
 ## Step 4: Verify Setup (Test Call)
 
@@ -74,7 +73,7 @@ You can check their verification status with:
 assistant channel-verification-sessions status --channel phone --json
 ```
 
-After they are verified, ask them what they think of your voice and offer to let them change it. Load up the `elevenlabs-voice` skill and follow the instructions there to see what voices are available and how to update your configured voice. Say something like:
+After they are verified, ask them what they think of your voice and offer to let them change it. If they want a different provider or voice, return to the TTS provider setup flow in `twilio-setup`; for ElevenLabs voice selection specifically, load `elevenlabs-voice`. Say something like:
 
 > Great, you're verified! What did you think of my voice? We can update it if you'd like.
 
