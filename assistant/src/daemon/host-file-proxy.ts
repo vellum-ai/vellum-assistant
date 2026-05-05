@@ -68,6 +68,7 @@ export class HostFileProxy {
     conversationId: string,
     signal?: AbortSignal,
     targetClientId?: string,
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
@@ -76,7 +77,8 @@ export class HostFileProxy {
     // Resolve targetClientId: explicit → validate; single capable client → auto-resolve.
     // Callers may embed targetClientId in the input object (tool handlers) or pass it as
     // the 4th parameter (legacy). Prefer the explicit param; fall back to input field.
-    let resolvedTargetClientId: string | undefined = targetClientId ?? input.targetClientId;
+    let resolvedTargetClientId: string | undefined =
+      targetClientId ?? input.targetClientId;
     if (resolvedTargetClientId != null) {
       const client = assistantEventHub.getClientById(resolvedTargetClientId);
       if (!client) {
@@ -92,9 +94,45 @@ export class HostFileProxy {
         });
       }
     } else {
-      const capable = assistantEventHub.listClientsByCapability("host_file");
-      if (capable.length === 1) {
-        resolvedTargetClientId = capable[0].clientId;
+      // Auto-resolve only to a capable client whose actorPrincipalId matches
+      // the source caller's. Skips auto-resolve when the caller has no
+      // identity, since same-user binding cannot be enforced.
+      if (sourceActorPrincipalId != null) {
+        const capable = assistantEventHub.listClientsByCapability("host_file");
+        const sameUser = capable.filter(
+          (c) => c.actorPrincipalId === sourceActorPrincipalId,
+        );
+        if (sameUser.length === 1) {
+          resolvedTargetClientId = sameUser[0].clientId;
+        }
+      }
+    }
+
+    // Same-user check: targeted host_file requests must be bound to the same
+    // authenticated user identity that opened the target client's SSE stream.
+    // Prevents cross-user routing through actor token mis-targeting.
+    if (resolvedTargetClientId != null) {
+      const targetActorPrincipalId =
+        assistantEventHub.getActorPrincipalIdForClient(resolvedTargetClientId);
+      if (
+        sourceActorPrincipalId == null ||
+        targetActorPrincipalId == null ||
+        sourceActorPrincipalId !== targetActorPrincipalId
+      ) {
+        log.warn(
+          {
+            sourceActorPrincipalId,
+            targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId,
+            op: "host_file",
+          },
+          "Rejected cross-user targeted host_file request",
+        );
+        return Promise.resolve({
+          content:
+            "Targeted host_file requests require the target client to be owned by the same user as the caller.",
+          isError: true,
+        });
       }
     }
 

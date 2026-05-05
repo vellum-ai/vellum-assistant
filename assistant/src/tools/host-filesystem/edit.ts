@@ -92,7 +92,8 @@ class HostFileEditTool implements Tool {
     const replaceAll = input.replace_all === true;
 
     const targetClientId =
-      typeof input.target_client_id === "string" && input.target_client_id !== ""
+      typeof input.target_client_id === "string" &&
+      input.target_client_id !== ""
         ? input.target_client_id
         : undefined;
 
@@ -123,6 +124,8 @@ class HostFileEditTool implements Tool {
         },
         context.conversationId,
         context.signal,
+        targetClientId,
+        context.sourceActorPrincipalId,
       );
     }
 
