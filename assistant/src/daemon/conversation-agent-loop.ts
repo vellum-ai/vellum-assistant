@@ -184,7 +184,10 @@ import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
-import { formatTurnTimestamp } from "./date-context.js";
+import {
+  formatTurnTimestamp,
+  resolveTurnTimezoneContext,
+} from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import { deepRepairHistory } from "./history-repair.js";
@@ -511,6 +514,7 @@ export interface AgentLoopConversationContext {
   voiceCallControlPrompt?: string;
   transportHints?: string[];
   slackRuntimeContextNotice?: string;
+  clientTimezone?: string;
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
@@ -1320,14 +1324,16 @@ export async function runAgentLoopImpl(
 
     // Compute fresh turn timestamp for date grounding.
     // Absolute "now" is always anchored to assistant host clock, while local
-    // date semantics prefer configured user timezone, then recalled memory.
+    // date semantics prefer configured user timezone, then device timezones.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
-    const recalledUserTimeZone = null;
-    const timestamp = formatTurnTimestamp({
+    const timezoneContext = resolveTurnTimezoneContext({
+      configuredUserTimeZone: config.ui.userTimezone ?? null,
+      clientTimezone: ctx.clientTimezone ?? null,
+      detectedTimezone: config.ui.detectedTimezone ?? null,
       hostTimeZone,
-      configuredUserTimeZone,
-      userTimeZone: recalledUserTimeZone,
+    });
+    const timestamp = formatTurnTimestamp({
+      timeZone: timezoneContext.effectiveTimezone,
     });
 
     // Resolve the inbound actor context for the unified <turn_context> block.
@@ -1381,15 +1387,21 @@ export async function runAgentLoopImpl(
       }
     }
 
+    const baseTurnContext = {
+      timestamp,
+      interfaceName,
+      channelName,
+      configuredUserTimezone: timezoneContext.configuredUserTimezone,
+      clientTimezone: timezoneContext.clientTimezone,
+      detectedTimezone: timezoneContext.detectedTimezone,
+      timeSinceLastMessage,
+    };
     const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
       isGuardian
-        ? { timestamp, interfaceName, channelName, timeSinceLastMessage }
+        ? baseTurnContext
         : {
-            timestamp,
-            interfaceName,
-            channelName,
+            ...baseTurnContext,
             actorContext: resolvedInboundActorContext,
-            timeSinceLastMessage,
           },
     );
 
