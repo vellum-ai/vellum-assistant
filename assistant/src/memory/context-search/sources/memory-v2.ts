@@ -55,7 +55,7 @@ import type {
 export function isMemoryV2ReadActive(config: AssistantConfig): boolean {
   return (
     isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
-    config.memory.v2.enabled
+    config.memory?.v2?.enabled === true
   );
 }
 
