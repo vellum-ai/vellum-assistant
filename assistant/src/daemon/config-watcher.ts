@@ -56,6 +56,7 @@ export class ConfigWatcher {
   });
   private suppressReload = false;
   lastFingerprint = "";
+  private lastConfig: ReturnType<typeof getConfig> | null = null;
   private lastRefreshTime = 0;
 
   static readonly REFRESH_INTERVAL_MS = 30_000;
@@ -88,12 +89,15 @@ export class ConfigWatcher {
 
   /** Initialize the config fingerprint (call after first config load). */
   initFingerprint(config: ReturnType<typeof getConfig>): void {
+    this.lastConfig = config;
     this.lastFingerprint = this.configFingerprint(config);
   }
 
   /** Update the fingerprint to match the current config. */
   updateFingerprint(): void {
-    this.lastFingerprint = this.configFingerprint(getConfig());
+    const config = getConfig();
+    this.lastConfig = config;
+    this.lastFingerprint = this.configFingerprint(config);
     this.lastRefreshTime = Date.now();
   }
 
@@ -103,7 +107,7 @@ export class ConfigWatcher {
    * Returns true if config actually changed.
    */
   async refreshConfigFromSources(): Promise<boolean> {
-    const prevCleanup = safeGetCleanupConfig();
+    const prevCleanup = this.lastConfig?.memory?.cleanup;
     invalidateConfigCache();
     const config = getConfig();
     const fingerprint = this.configFingerprint(config);
@@ -120,6 +124,7 @@ export class ConfigWatcher {
     }
     const isFirstInit = this.lastFingerprint === "";
     await initializeProviders(config);
+    this.lastConfig = config;
     this.lastFingerprint = fingerprint;
     return !isFirstInit;
   }
@@ -142,13 +147,12 @@ export class ConfigWatcher {
       "config.json": async () => {
         if (this.suppressReload) return;
         try {
-          const prevConfig = getConfig();
-          const prevMcpFingerprint = JSON.stringify(prevConfig.mcp ?? {});
+          const prevMcpFingerprint = JSON.stringify(this.lastConfig?.mcp ?? {});
           const changed = await this.refreshConfigFromSources();
           if (changed) {
             onConversationEvict();
             onConfigChanged?.();
-            const newConfig = getConfig();
+            const newConfig = this.lastConfig ?? getConfig();
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
             if (newMcpFingerprint !== prevMcpFingerprint) {
               reloadMcpServers().catch((err: unknown) => {
@@ -483,20 +487,6 @@ export class ConfigWatcher {
       { dir: skillsDir },
       "Watching skills directory with non-recursive fallback",
     );
-  }
-}
-
-/**
- * Snapshot the current cleanup config so we can compare it against the
- * post-reload value. Tolerant of config-load failures — if the config can't
- * be read (e.g. first-load), returns undefined so the comparison below
- * treats it as "no previous value".
- */
-function safeGetCleanupConfig(): MemoryCleanupConfig | undefined {
-  try {
-    return getConfig().memory?.cleanup;
-  } catch {
-    return undefined;
   }
 }
 
