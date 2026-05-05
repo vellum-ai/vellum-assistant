@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -146,6 +146,7 @@ interface OnDiskItem {
 }
 
 function readFeedItems(): OnDiskItem[] {
+  if (!existsSync(getHomeFeedPath())) return [];
   const raw = JSON.parse(readFileSync(getHomeFeedPath(), "utf-8"));
   return raw.items as OnDiskItem[];
 }
@@ -174,7 +175,7 @@ afterEach(() => {
 });
 
 describe("heartbeat feed events", () => {
-  test("successful heartbeat emits feed event with priority 30 and no urgency", async () => {
+  test("successful heartbeat without an alert does not emit a feed event", async () => {
     _testProcessMessage = async () => ({ messageId: "msg-1" });
     const service = new HeartbeatService({
       alerter: () => {},
@@ -182,18 +183,12 @@ describe("heartbeat feed events", () => {
 
     await service.runOnce({ force: true });
 
-    // Give the fire-and-forget emitFeedEvent time to flush.
+    // Give any fire-and-forget surfacing work time to flush.
     await new Promise((r) => setTimeout(r, 100));
 
     const items = readFeedItems();
     const heartbeatItem = items.find((i) => i.title === "Heartbeat");
-    expect(heartbeatItem).toBeDefined();
-    expect(heartbeatItem!.summary).toBe(
-      "Periodic check completed. Tap to see details.",
-    );
-    expect(heartbeatItem!.priority).toBe(30);
-    expect(heartbeatItem!.urgency).toBeUndefined();
-    expect(heartbeatItem!.source).toBe("assistant");
+    expect(heartbeatItem).toBeUndefined();
   });
 
   test("failed heartbeat emits feed event with priority 55 and urgency medium", async () => {
@@ -218,13 +213,13 @@ describe("heartbeat feed events", () => {
     expect(heartbeatItem!.source).toBe("assistant");
   });
 
-  test("dedupKey uses date for daily dedup", async () => {
+  test("repeated successful heartbeats without alerts stay silent", async () => {
     _testProcessMessage = async () => ({ messageId: "msg-1" });
     const service = new HeartbeatService({
       alerter: () => {},
     });
 
-    // Run twice — same day should dedup to one item.
+    // Run twice — neither should create a generic success item.
     await service.runOnce({ force: true });
     await new Promise((r) => setTimeout(r, 100));
     await service.runOnce({ force: true });
@@ -232,9 +227,6 @@ describe("heartbeat feed events", () => {
 
     const items = readFeedItems();
     const heartbeatItems = items.filter((i) => i.title === "Heartbeat");
-    expect(heartbeatItems).toHaveLength(1);
-
-    const today = new Date().toISOString().split("T")[0];
-    expect(heartbeatItems[0]!.id).toBe(`emit:assistant:heartbeat:ok:${today}`);
+    expect(heartbeatItems).toHaveLength(0);
   });
 });
