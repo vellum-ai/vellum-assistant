@@ -1,5 +1,8 @@
 import SwiftUI
 import VellumAssistantShared
+import os
+
+private let settingsGeneralLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "SettingsGeneralTab")
 
 /// General settings tab — account/platform login card followed by appearance settings.
 @MainActor
@@ -25,6 +28,11 @@ struct SettingsGeneralTab: View {
     @State private var updateStatusMessage: String?
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
+    @State private var assistantSwitcherItems: [AssistantPickerItem] = []
+    @State private var platformAssistantsById: [String: PlatformAssistant] = [:]
+    @State private var isLoadingAssistantSwitcher = false
+    @State private var switchingAssistantId: String?
+    @State private var assistantSwitcherError: String?
     @State private var dockerOperationTimedOut = false
     @State private var dockerOperationTimeoutTask: Task<Void, Never>?
     @State private var healthzLoaded = false
@@ -61,7 +69,18 @@ struct SettingsGeneralTab: View {
                     isServiceGroupUpdateInProgress: isServiceGroupUpdateInProgress,
                     updateStatusMessage: updateStatusMessage,
                     healthzLoaded: healthzLoaded,
-                    updateManager: updateManager
+                    updateManager: updateManager,
+                    assistantSwitcherItems: assistantSwitcherItems,
+                    selectedAssistantId: selectedAssistantId.isEmpty ? nil : selectedAssistantId,
+                    switchingAssistantId: switchingAssistantId,
+                    isAssistantSwitcherLoading: isLoadingAssistantSwitcher,
+                    assistantSwitcherError: assistantSwitcherError,
+                    onSwitchAssistant: { assistantId in
+                        Task { await switchAssistantFromVersionCard(assistantId: assistantId) }
+                    },
+                    onRefreshAssistants: {
+                        Task { await refreshAssistantSwitcherItems() }
+                    }
                 )
             }
             if shouldShowSystemResourcesSection {
@@ -82,7 +101,10 @@ struct SettingsGeneralTab: View {
             }
         }
         .onAppear {
-            Task { await authManager.checkSession() }
+            Task {
+                await authManager.checkSession()
+                await refreshAssistantSwitcherItems()
+            }
             selectedAssistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
@@ -93,11 +115,14 @@ struct SettingsGeneralTab: View {
             Task {
                 // Load lockfile on a background thread — the underlying
                 // Data(contentsOf:) file I/O can block the main thread.
-                let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
-                lockfileAssistants = assistants
+                await refreshLockfileAssistants()
                 await fetchHealthz()
+                await refreshAssistantSwitcherItems()
             }
             recordSystemResourcesDeepLinkIfNeeded(store.pendingSettingsGeneralSection)
+        }
+        .onChange(of: authManager.isAuthenticated) { _, _ in
+            Task { await refreshAssistantSwitcherItems() }
         }
         .onChange(of: store.pendingSettingsGeneralSection) { _, section in
             recordSystemResourcesDeepLinkIfNeeded(section)
@@ -111,6 +136,13 @@ struct SettingsGeneralTab: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
+        }
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: LockfileAssistant.activeAssistantDidChange) {
+                await refreshLockfileAssistants()
+                await fetchHealthz()
+                await refreshAssistantSwitcherItems()
+            }
         }
         .sheet(isPresented: $isDockerOperationInProgress) {
             VStack(spacing: VSpacing.lg) {
@@ -209,6 +241,86 @@ struct SettingsGeneralTab: View {
     }
 
     // MARK: - Software Update
+
+    private func refreshLockfileAssistants() async {
+        let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
+        lockfileAssistants = assistants
+        selectedAssistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
+
+        if assistantSwitcherItems.isEmpty {
+            let landscape = ReturningUserRouter.AssistantLandscape(
+                lockfileAssistants: assistants,
+                platformAssistants: [],
+                platformWasConsulted: false
+            )
+            assistantSwitcherItems = AssistantPickerItem.from(landscape: landscape)
+        }
+    }
+
+    private func refreshAssistantSwitcherItems() async {
+        isLoadingAssistantSwitcher = true
+        assistantSwitcherError = nil
+        defer { isLoadingAssistantSwitcher = false }
+
+        do {
+            let landscape = try await ReturningUserRouter().fetchLandscape()
+            lockfileAssistants = landscape.lockfileAssistants
+            selectedAssistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
+            platformAssistantsById = Dictionary(
+                landscape.platformAssistants.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            assistantSwitcherItems = AssistantPickerItem.from(landscape: landscape)
+        } catch is CancellationError {
+            return
+        } catch {
+            settingsGeneralLog.warning("Failed to refresh assistant switcher: \(error.localizedDescription, privacy: .public)")
+            assistantSwitcherError = "Could not load assistants."
+        }
+    }
+
+    private func switchAssistantFromVersionCard(assistantId: String) async {
+        guard switchingAssistantId == nil else { return }
+        guard assistantId != selectedAssistantId else { return }
+
+        switchingAssistantId = assistantId
+        assistantSwitcherError = nil
+        defer {
+            if switchingAssistantId == assistantId {
+                switchingAssistantId = nil
+            }
+        }
+
+        guard let target = AssistantPickerSelectionResolver.resolveLockfileAssistant(
+            assistantId: assistantId,
+            platformAssistants: platformAssistantsById
+        ) else {
+            assistantSwitcherError = "Could not switch assistants."
+            return
+        }
+
+        if target.isManaged,
+           let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+            do {
+                try await AuthService.shared.activateAssistant(
+                    id: target.assistantId,
+                    organizationId: orgId
+                )
+            } catch {
+                settingsGeneralLog.warning("Failed to activate assistant on platform: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
+        selectedAssistantId = target.assistantId
+        if !lockfileAssistants.contains(where: { $0.assistantId == target.assistantId }) {
+            lockfileAssistants.append(target)
+        }
+
+        AppDelegate.shared?.performSwitchAssistant(
+            to: target,
+            managedAuthenticationAlreadyVerified: target.isManaged && authManager.isAuthenticated
+        )
+    }
 
     private func fetchHealthz() async {
         guard !selectedAssistantId.isEmpty else { return }
