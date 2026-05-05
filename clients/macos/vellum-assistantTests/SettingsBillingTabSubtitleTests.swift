@@ -33,13 +33,21 @@ final class SettingsBillingTabSubtitleTests: XCTestCase {
     // MARK: - Tests
 
     func testSubtitleNilWhenSummaryNotLoaded() {
-        let view = SettingsBillingTab(authManager: AuthManager(), initialSummary: nil)
+        let view = SettingsBillingTab(
+            authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
+            initialSummary: nil
+        )
         XCTAssertNil(view.addCreditsSubtitleAttributed)
     }
 
     func testSubtitleContainsPricingLink() {
         let summary = makeSummary(maximumBalance: "1000")
-        let view = SettingsBillingTab(authManager: AuthManager(), initialSummary: summary)
+        let view = SettingsBillingTab(
+            authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
+            initialSummary: summary
+        )
 
         let attributed = view.addCreditsSubtitleAttributed
         XCTAssertNotNil(attributed)
@@ -62,7 +70,11 @@ final class SettingsBillingTabSubtitleTests: XCTestCase {
         defer { unsetenv("VELLUM_DOCS_BASE_URL") }
 
         let summary = makeSummary(maximumBalance: "1000")
-        let view = SettingsBillingTab(authManager: AuthManager(), initialSummary: summary)
+        let view = SettingsBillingTab(
+            authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
+            initialSummary: summary
+        )
 
         let attributed = view.addCreditsSubtitleAttributed
         let linkRun = attributed?.runs.first { $0.link != nil }

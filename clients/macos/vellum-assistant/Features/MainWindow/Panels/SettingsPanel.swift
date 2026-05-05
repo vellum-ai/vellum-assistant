@@ -460,7 +460,10 @@ struct SettingsPanel: View {
         case .permissionsAndPrivacy:
             permissionsAndPrivacyContent
         case .billing:
-            SettingsBillingTab(authManager: authManager)
+            SettingsBillingTab(
+                authManager: authManager,
+                assistantFeatureFlagStore: assistantFeatureFlagStore
+            )
         case .archivedConversations:
             SettingsArchivedConversationsTab(conversationManager: conversationManager)
         case .schedules:
