@@ -159,16 +159,18 @@ public final class AuthManager {
                 throw AuthServiceError.authCallbackFailed("Missing callback URL components.")
             }
 
-            guard let returnedState = queryItems.first(where: { $0.name == "state" })?.value else {
+            let returnedState = queryItems.first(where: { $0.name == "state" })?.value
+
+            if let authError = queryItems.first(where: { $0.name == "error" })?.value, !authError.isEmpty {
+                throw AuthServiceError.authCallbackFailed("Auth error: \(authError)")
+            }
+
+            guard let returnedState else {
                 throw AuthServiceError.authCallbackFailed("Callback missing state.")
             }
 
             guard returnedState == stateParam else {
                 throw AuthServiceError.authCallbackFailed("State mismatch — possible CSRF.")
-            }
-
-            if let authError = queryItems.first(where: { $0.name == "error" })?.value, !authError.isEmpty {
-                throw AuthServiceError.authCallbackFailed("Auth error: \(authError)")
             }
 
             guard let code = queryItems.first(where: { $0.name == "code" })?.value, !code.isEmpty else {
