@@ -568,7 +568,7 @@ export async function handleChannelInbound({
       "Channel inbound blocked during disk pressure cleanup mode",
     );
 
-    if (replyCallbackUrl) {
+    if (replyCallbackUrl && !result.duplicate) {
       const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
         chatId: conversationExternalId,
         text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,

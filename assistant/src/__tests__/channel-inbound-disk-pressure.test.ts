@@ -52,9 +52,11 @@ const disabledDiskPressureStatus: DiskPressureStatus = {
   error: null,
 };
 let diskPressureStatus = lockedDiskPressureStatus;
+let diskPressureStatusSequence: DiskPressureStatus[] | undefined;
 
 mock.module("../daemon/disk-pressure-guard.js", () => ({
-  getDiskPressureStatus: () => diskPressureStatus,
+  getDiskPressureStatus: () =>
+    diskPressureStatusSequence?.shift() ?? diskPressureStatus,
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
@@ -131,7 +133,11 @@ describe("channel inbound disk pressure gate", () => {
     seedTrustedContact();
     setAdapterProcessMessage(undefined);
     deliverChannelReplyMock.mockClear();
+    deliverChannelReplyMock.mockImplementation(
+      async (_callbackUrl: string, _payload: Record<string, unknown>) => {},
+    );
     diskPressureStatus = lockedDiskPressureStatus;
+    diskPressureStatusSequence = undefined;
   });
 
   afterAll(() => {
@@ -171,7 +177,7 @@ describe("channel inbound disk pressure gate", () => {
     expect(db.select().from(messages).all()).toHaveLength(0);
   });
 
-  test("notifies duplicate blocked ingress without consuming a retryable event", async () => {
+  test("preserves retryable duplicate ingress without re-sending block replies", async () => {
     const inbound = deliveryCrud.recordInbound(
       "telegram",
       "chat-123",
@@ -218,16 +224,7 @@ describe("channel inbound disk pressure gate", () => {
       reason: "trusted-contact",
     });
     expect(processMessage).not.toHaveBeenCalled();
-    expect(deliverChannelReplyMock.mock.calls).toEqual([
-      [
-        "https://gateway.test/deliver/telegram",
-        {
-          chatId: "chat-123",
-          text: expectedRemoteBlockReply,
-          assistantId: "self",
-        },
-      ],
-    ]);
+    expect(deliverChannelReplyMock).not.toHaveBeenCalled();
 
     const event = db
       .select()
@@ -455,5 +452,86 @@ describe("channel inbound disk pressure gate", () => {
     expect(row?.processingStatus).toBe("processed");
     expect(row?.messageId).toBeNull();
     expect(row?.rawPayload).toBeNull();
+  });
+
+  test("rechecks disk pressure between retry-sweep events", async () => {
+    const blocked = deliveryCrud.recordInbound(
+      "telegram",
+      "chat-retry-blocked",
+      "msg-retry-blocked",
+    );
+    deliveryCrud.storePayload(blocked.eventId, {
+      content: "retry while locked",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      externalChatId: "chat-retry-blocked",
+      trustCtx: {
+        trustClass: "trusted_contact",
+        sourceChannel: "telegram",
+        requesterExternalUserId: "telegram-user-1",
+        requesterChatId: "chat-retry-blocked",
+      },
+      replyCallbackUrl: "https://gateway.test/deliver/telegram",
+    });
+
+    const replayed = deliveryCrud.recordInbound(
+      "telegram",
+      "chat-retry-replayed",
+      "msg-retry-replayed",
+    );
+    deliveryCrud.storePayload(replayed.eventId, {
+      content: "retry after unlock",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      externalChatId: "chat-retry-replayed",
+      trustCtx: {
+        trustClass: "trusted_contact",
+        sourceChannel: "telegram",
+        requesterExternalUserId: "telegram-user-1",
+        requesterChatId: "chat-retry-replayed",
+      },
+      replyCallbackUrl: "https://gateway.test/deliver/telegram",
+    });
+
+    const db = getDb();
+    for (const eventId of [blocked.eventId, replayed.eventId]) {
+      db.update(channelInboundEvents)
+        .set({
+          processingStatus: "failed",
+          processingAttempts: 1,
+          retryAfter: Date.now() - 1,
+        })
+        .where(eq(channelInboundEvents.id, eventId))
+        .run();
+    }
+
+    diskPressureStatusSequence = [
+      lockedDiskPressureStatus,
+      disabledDiskPressureStatus,
+    ];
+    const processMessage = mock(
+      async (conversationId: string, content: string) => {
+        db.insert(messages)
+          .values({
+            id: "msg-replayed",
+            conversationId,
+            role: "user",
+            content: JSON.stringify([{ type: "text", text: content }]),
+            createdAt: Date.now(),
+          })
+          .run();
+        return { messageId: "msg-replayed" };
+      },
+    );
+
+    await sweepFailedEvents(processMessage);
+
+    expect(processMessage).toHaveBeenCalledTimes(1);
+    expect(deliverChannelReplyMock).toHaveBeenCalledTimes(1);
+    const rows = db.select().from(channelInboundEvents).all();
+    expect(rows.filter((row) => row.rawPayload === null)).toHaveLength(1);
+    expect(rows.filter((row) => row.messageId === "msg-replayed")).toHaveLength(
+      1,
+    );
   });
 });

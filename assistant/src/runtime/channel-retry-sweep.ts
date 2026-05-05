@@ -92,7 +92,6 @@ export async function sweepFailedEvents(
 ): Promise<void> {
   const events = getRetryableEvents();
   if (events.length === 0) return;
-  const diskPressureStatus = getDiskPressureStatus();
 
   log.info({ count: events.length }, "Retrying failed channel inbound events");
 
@@ -170,7 +169,7 @@ export async function sweepFailedEvents(
     };
 
     const diskPressureDecision = classifyDiskPressureTurnPolicy(
-      diskPressureStatus,
+      getDiskPressureStatus(),
       {
         sourceChannel,
         sourceInterface,
