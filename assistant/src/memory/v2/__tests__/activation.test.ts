@@ -138,6 +138,30 @@ mock.module("@qdrant/js-client-rest", () => ({
   QdrantClient: MockQdrantClient,
 }));
 
+// Reranker mock — keeps the activation tests hermetic when rerank.enabled is
+// flipped on by an integration case. Tests stage `rerankState.scores` to
+// program the boost outcome.
+const rerankState = {
+  scores: null as Map<string, number> | null,
+  calls: [] as Array<{ query: string; candidates: string[] }>,
+};
+mock.module("../reranker.js", () => ({
+  rerankCandidates: async (
+    query: string,
+    candidates: readonly string[],
+  ): Promise<Map<string, number>> => {
+    rerankState.calls.push({ query, candidates: [...candidates] });
+    if (rerankState.scores === null) return new Map();
+    const out = new Map<string, number>();
+    for (const slug of candidates) {
+      const v = rerankState.scores.get(slug);
+      if (v !== undefined) out.set(slug, v);
+    }
+    return out;
+  },
+  _resetRerankCacheForTests: () => {},
+}));
+
 // Static `import type` is fine — types erase, so they don't run module-init
 // code that would race the mocks above.
 import type { EdgeIndex } from "../edge-index.js";
@@ -169,6 +193,8 @@ function resetState(): void {
   state.skillQueryResponses.dense.length = 0;
   state.skillQueryResponses.sparse.length = 0;
   state.queryCalls.length = 0;
+  rerankState.scores = null;
+  rerankState.calls.length = 0;
   // Bun's `mock.module` persists across files in the same process, so the
   // qdrant modules' `_client` singletons may already hold a MockQdrantClient
   // instance from a sibling test file (e.g. sim.test.ts). Resetting both the
@@ -553,6 +579,63 @@ describe("computeOwnActivation", () => {
     });
     // No prior state → prev=0 → priorContribution=0 regardless of `d`.
     expect(out.breakdown.get("fresh")?.priorContribution).toBe(0);
+  });
+
+  test("rerank boost on user/assistant flips top-1 when fused had it second", async () => {
+    // Three Qdrant queries fire in parallel inside computeOwnActivation:
+    // user, assistant, now. Stage identical hits for each so the only signal
+    // separating slugs is the rerank boost on the user + assistant channels.
+    const stagedHits = [
+      { slug: "lexical", denseScore: 0.6, sparseScore: 0 },
+      { slug: "semantic", denseScore: 0.5, sparseScore: 0 },
+    ];
+    stageHybridResponse(stagedHits); // user channel
+    stageHybridResponse(stagedHits); // assistant channel
+    stageHybridResponse(stagedHits); // now channel
+    rerankState.scores = new Map([
+      ["lexical", 0.05],
+      ["semantic", 0.95],
+    ]);
+
+    const config = {
+      memory: {
+        v2: {
+          d: 0.0,
+          c_user: 0.5,
+          c_assistant: 0.5,
+          c_now: 0.0,
+          dense_weight: 1.0,
+          sparse_weight: 0.0,
+          rerank: {
+            enabled: true,
+            top_k: 50,
+            alpha: 0.5,
+            model: "test-model",
+          },
+        },
+      },
+    } as unknown as AssistantConfig;
+
+    const out = await computeOwnActivation({
+      candidates: new Set(["lexical", "semantic"]),
+      priorState: null,
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config,
+    });
+
+    // Without rerank: lexical (0.6) would beat semantic (0.5) on both
+    // user and assistant channels.
+    // With rerank (alpha=0.5):
+    //   lexical:  0.6 + 0.5 · (0.05/0.95) ≈ 0.626
+    //   semantic: 0.5 + 0.5 · 1.0 = 1.0
+    // The semantic candidate now wins on both rerank-boosted channels.
+    expect(out.activation.get("semantic")!).toBeGreaterThan(
+      out.activation.get("lexical")!,
+    );
+    // Rerank should have been called once per rerank-enabled channel.
+    expect(rerankState.calls).toHaveLength(2);
   });
 });
 

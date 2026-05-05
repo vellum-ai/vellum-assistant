@@ -8,6 +8,13 @@ import { z } from "zod";
 const WEIGHT_SUM_TOLERANCE = 0.001;
 
 /**
+ * Default cross-encoder model for memory v2 reranking. `BAAI/bge-reranker-v2-m3`
+ * is the long-term target but currently lacks a public ONNX export; the
+ * `Xenova/bge-reranker-base` (278M, MIT, ONNX-converted) is the working pick.
+ */
+const DEFAULT_RERANK_MODEL = "Xenova/bge-reranker-base";
+
+/**
  * Memory v2 (concept-page activation model) configuration.
  *
  * Activation weights (`d`, `c_user`, `c_assistant`, `c_now`) must sum to 1.0
@@ -191,6 +198,47 @@ export const MemoryV2ConfigSchema = z
       .default(null)
       .describe(
         "Optional path to a file whose contents replace the bundled consolidation prompt. Absolute paths are used as-is, a leading `~/` is expanded to the home directory, otherwise the path is resolved under the workspace root. The loaded contents may include `{{CUTOFF}}`, which is substituted with the run's ISO-8601 cutoff timestamp. If the file is missing, unreadable, or empty, the bundled prompt is used and a warning is logged.",
+      ),
+    rerank: z
+      .object({
+        enabled: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Whether to apply cross-encoder reranking as an additive boost to the user + assistant similarity channels. Disabled by default — opt in once measured.",
+          ),
+        top_k: z
+          .number()
+          .int()
+          .positive()
+          .max(200)
+          .default(50)
+          .describe(
+            "Number of top-fused candidates per `simBatch` call to send through the reranker. Tail candidates keep their pure fused score.",
+          ),
+        alpha: z
+          .number()
+          .min(0)
+          .max(1)
+          .default(0.3)
+          .describe(
+            "Boost weight: `boosted = clamp01(fused + alpha · normalized_rerank)`. Top reranker hit can lift its fused score by up to `alpha`; bottom of top_k stays roughly unchanged.",
+          ),
+        model: z
+          .string()
+          .default(DEFAULT_RERANK_MODEL)
+          .describe(
+            "HuggingFace model id for the cross-encoder. Must have an ONNX export reachable from huggingface.co/<model>/resolve/main/onnx/model.onnx.",
+          ),
+      })
+      .default({
+        enabled: false,
+        top_k: 50,
+        alpha: 0.3,
+        model: DEFAULT_RERANK_MODEL,
+      })
+      .describe(
+        "Cross-encoder rerank configuration. When enabled, runs a local cross-encoder over the top-K fused candidates per `simBatch(useRerank: true)` call and adds an alpha-weighted normalized boost to their fused scores.",
       ),
   })
   .describe(

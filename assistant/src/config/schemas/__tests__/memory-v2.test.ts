@@ -26,6 +26,12 @@ describe("MemoryV2ConfigSchema", () => {
       consolidation_interval_hours: 4,
       max_page_chars: 5000,
       consolidation_prompt_path: null,
+      rerank: {
+        enabled: false,
+        top_k: 50,
+        alpha: 0.3,
+        model: "Xenova/bge-reranker-base",
+      },
     });
   });
 

@@ -204,9 +204,11 @@ export async function computeOwnActivation(
   const { d, c_user, c_assistant, c_now } = config.memory.v2;
   const slugList = [...candidates];
 
+  // NOW context is structured (timestamps, current focus) — outside the
+  // cross-encoder's training distribution, so it stays on pure fused fusion.
   const [simUser, simAssistant, simNow] = await Promise.all([
-    simBatch(userText, slugList, config),
-    simBatch(assistantText, slugList, config),
+    simBatch(userText, slugList, config, { useRerank: true }),
+    simBatch(assistantText, slugList, config, { useRerank: true }),
     simBatch(nowText, slugList, config),
   ]);
 
