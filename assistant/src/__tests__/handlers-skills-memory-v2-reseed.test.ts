@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Programmable test state
 // ---------------------------------------------------------------------------
 
-const flagsState = { flagEnabled: true, configV2Enabled: true };
+const configState = { v2Enabled: true };
 
 const mockRefreshSkillCapabilityMemories = mock(
   (_config: { memory: { v2: { enabled: boolean } } }) => {},
@@ -41,13 +41,6 @@ mock.module("../config/skills.js", () => ({
   ],
 }));
 
-mock.module("../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === "memory-v2-enabled") return flagsState.flagEnabled;
-    return true;
-  },
-}));
-
 // Stub both `getConfig` and `loadConfig`. `loadConfig` is reached by code
 // paths transitively imported during teardown (e.g. dynamic imports inside
 // `oauth2.ts`); leaving it undefined here would break sibling test files
@@ -59,13 +52,13 @@ mock.module("../config/loader.js", () => ({
   deepMergeOverwrite: (a: unknown) => a,
   mergeDefaultWorkspaceConfig: () => {},
   getConfig: () => ({
-    memory: { v2: { enabled: flagsState.configV2Enabled } },
+    memory: { v2: { enabled: configState.v2Enabled } },
   }),
   getConfigReadOnly: () => ({
-    memory: { v2: { enabled: flagsState.configV2Enabled } },
+    memory: { v2: { enabled: configState.v2Enabled } },
   }),
   loadConfig: () => ({
-    memory: { v2: { enabled: flagsState.configV2Enabled } },
+    memory: { v2: { enabled: configState.v2Enabled } },
   }),
   invalidateConfigCache: () => {},
   loadRawConfig: () => ({}),
@@ -138,15 +131,11 @@ mock.module("../skills/catalog-cache.js", () => ({
 }));
 
 mock.module("../skills/catalog-install.js", () => ({
-  assertInstalledSkillDiscoverable: () => {},
   commitStagedSkillInstall: () => {},
   createSkillInstallStagingDir: () => "/tmp/test-skills/.install-staging/test",
-  discardSkillInstallBackup: () => {},
+  getRepoSkillsDir: () => undefined,
   installSkillDependenciesIfPresent: () => {},
   installSkillLocally: async () => {},
-  getRepoSkillsDir: () => undefined,
-  restoreOrRemoveFailedSkillInstall: () => {},
-  snapshotExistingSkillDir: () => null,
 }));
 
 mock.module("../skills/catalog-search.js", () => ({
@@ -161,13 +150,6 @@ mock.module("../skills/managed-store.js", () => ({
 
 mock.module("../memory/graph/capability-seed.js", () => ({
   deleteSkillCapabilityNode: () => {},
-  seedSkillGraphNodes: () => {},
-  seedUninstalledCatalogSkillMemories: async () => {},
-}));
-
-mock.module("../memory/v2/skill-store.js", () => ({
-  seedV2SkillEntries: mock(async () => {}),
-  getSkillCapability: () => null,
 }));
 
 mock.module("../daemon/skill-memory-refresh.js", () => ({
@@ -203,21 +185,16 @@ mock.module("../daemon/config-watcher.js", () => ({
 const { installSkill } = await import("../daemon/handlers/skills.js");
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("v2 skill re-seed gating in skill handlers", () => {
+describe("v2 skill refresh delegation in skill handlers", () => {
   beforeEach(() => {
-    flagsState.flagEnabled = true;
-    flagsState.configV2Enabled = true;
+    configState.v2Enabled = true;
     mockRefreshSkillCapabilityMemories.mockClear();
   });
 
-  test("flag + config both on → refresh helper invoked with live config", async () => {
+  test("enabled config → refresh helper invoked with live config", async () => {
     const result = await installSkill({ slug: "bundled-skill" });
 
     expect(result.success).toBe(true);
@@ -227,17 +204,8 @@ describe("v2 skill re-seed gating in skill handlers", () => {
     });
   });
 
-  test("flag off → handler still delegates to refresh helper", async () => {
-    flagsState.flagEnabled = false;
-
-    const result = await installSkill({ slug: "bundled-skill" });
-
-    expect(result.success).toBe(true);
-    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
-  });
-
   test("config.memory.v2.enabled off → helper receives disabled config", async () => {
-    flagsState.configV2Enabled = false;
+    configState.v2Enabled = false;
 
     const result = await installSkill({ slug: "bundled-skill" });
 
