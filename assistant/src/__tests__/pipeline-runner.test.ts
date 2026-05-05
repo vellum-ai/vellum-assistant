@@ -549,7 +549,7 @@ describe("DEFAULT_TIMEOUTS", () => {
       turn: null,
       llmCall: null,
       toolExecute: null,
-      memoryRetrieval: null,
+      memoryRetrieval: 5_000,
       historyRepair: null,
       tokenEstimate: null,
       compaction: null,

@@ -81,6 +81,7 @@ interface SelectCandidatesParams {
   /** NOW context string (essentials/threads/recent or NOW.md). */
   nowText: string;
   config: AssistantConfig;
+  signal?: AbortSignal;
 }
 
 interface SelectCandidatesResult {
@@ -108,7 +109,8 @@ interface SelectCandidatesResult {
 export async function selectCandidates(
   params: SelectCandidatesParams,
 ): Promise<SelectCandidatesResult> {
-  const { priorState, userText, assistantText, nowText, config } = params;
+  const { priorState, userText, assistantText, nowText, config, signal } =
+    params;
 
   const fromPrior = new Set<string>();
   const fromAnn = new Set<string>();
@@ -129,7 +131,9 @@ export async function selectCandidates(
     .join("\n");
 
   if (annQueryText.length > 0) {
-    const denseResult = await embedWithBackend(config, [annQueryText]);
+    const denseResult = await embedWithBackend(config, [annQueryText], {
+      signal,
+    });
     const dense = await applyCorrectionIfCalibrated(
       denseResult.vectors[0],
       denseResult.provider,
@@ -158,6 +162,7 @@ interface ComputeOwnActivationParams {
   assistantText: string;
   nowText: string;
   config: AssistantConfig;
+  signal?: AbortSignal;
 }
 
 /**
@@ -210,8 +215,15 @@ interface ComputeOwnActivationResult {
 export async function computeOwnActivation(
   params: ComputeOwnActivationParams,
 ): Promise<ComputeOwnActivationResult> {
-  const { candidates, priorState, userText, assistantText, nowText, config } =
-    params;
+  const {
+    candidates,
+    priorState,
+    userText,
+    assistantText,
+    nowText,
+    config,
+    signal,
+  } = params;
 
   const activation = new Map<string, number>();
   const breakdown = new Map<string, OwnActivationBreakdown>();
@@ -223,9 +235,9 @@ export async function computeOwnActivation(
   // NOW context is structured (timestamps, current focus) — outside the
   // cross-encoder's training distribution, so it never participates in rerank.
   const [simUser, simAssistant, simNow] = await Promise.all([
-    simBatch(userText, slugList, config),
-    simBatch(assistantText, slugList, config),
-    simBatch(nowText, slugList, config),
+    simBatch(userText, slugList, config, signal),
+    simBatch(assistantText, slugList, config, signal),
+    simBatch(nowText, slugList, config, signal),
   ]);
 
   interface SlugInputs {

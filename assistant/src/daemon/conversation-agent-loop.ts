@@ -84,6 +84,7 @@ import {
   asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
   type GraphMemoryPayload,
+  readStaticMemoryResult,
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval.js";
 import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
@@ -1088,14 +1089,27 @@ export async function runAgentLoopImpl(
       onEvent,
       isTrustedActor,
     };
-    const memoryResult: MemoryResult = await runPipeline(
-      "memoryRetrieval",
-      getMiddlewaresFor("memoryRetrieval"),
-      (args) => runDefaultMemoryRetrieval(args, memoryDeps),
-      memoryArgs,
-      memoryPluginTurnCtx,
-      DEFAULT_TIMEOUTS.memoryRetrieval,
-    );
+    let memoryResult: MemoryResult;
+    try {
+      memoryResult = await runPipeline(
+        "memoryRetrieval",
+        getMiddlewaresFor("memoryRetrieval"),
+        (args) => runDefaultMemoryRetrieval(args, memoryDeps),
+        memoryArgs,
+        memoryPluginTurnCtx,
+        DEFAULT_TIMEOUTS.memoryRetrieval,
+      );
+    } catch (err) {
+      if (err instanceof PluginTimeoutError) {
+        rlog.warn(
+          { err, phase: "memory-retrieval" },
+          "memoryRetrieval pipeline timed out — proceeding without graph memory",
+        );
+        memoryResult = readStaticMemoryResult();
+      } else {
+        throw err;
+      }
+    }
 
     // Consume the memory-graph block when the default retriever emitted
     // one. Custom plugins that substitute their own blocks without the
