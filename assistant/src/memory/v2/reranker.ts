@@ -54,7 +54,7 @@ function buildPassage(slug: string, body: string): string {
  * Run the cross-encoder over each candidate's first-paragraph preview.
  * Returns raw sigmoid scores; failures (worker down, page read error) yield
  * an empty Map so callers can fall back to pure fused scores. Per-batch
- * normalisation and boost math live in `simBatch.applyRerankBoost`.
+ * normalisation and boost math live in `computeOwnActivation`.
  */
 export async function rerankCandidates(
   query: string,

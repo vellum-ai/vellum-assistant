@@ -13,16 +13,20 @@ export interface MemoryV2ConceptRowRecord {
   simAssistant: number;
   simNow: number;
   /**
-   * Portion of `simUser` contributed by the cross-encoder rerank step.
-   * Zero when rerank is disabled or the slug fell outside the top-K
-   * window. Stored as a JSON field, so older log rows that pre-date
-   * this addition decode with `undefined`; readers should fall back to 0.
+   * Cross-encoder rerank delta in raw rerank space (`alpha · r_norm_u`)
+   * for the user channel. Zero when rerank is disabled or the slug fell
+   * outside the unified top-K-by-pre-rerank-A_o window. Applied
+   * additively to A_o weighted by `c_user` — `simUser` itself is the
+   * raw fused score and never carries the boost. Stored as a JSON field,
+   * so older log rows pre-date this addition and decode with `undefined`;
+   * readers should fall back to 0.
    */
   simUserRerankBoost: number;
   /**
-   * Portion of `simAssistant` contributed by the cross-encoder rerank
-   * step. Same semantics as `simUserRerankBoost`. The NOW channel
-   * intentionally bypasses rerank, so there is no `simNowRerankBoost`.
+   * Cross-encoder rerank delta for the assistant channel. Same semantics
+   * as `simUserRerankBoost`, weighted by `c_assistant` when applied to
+   * A_o. The NOW channel intentionally bypasses rerank, so there is no
+   * `simNowRerankBoost`.
    */
   simAssistantRerankBoost: number;
   spreadContribution: number;

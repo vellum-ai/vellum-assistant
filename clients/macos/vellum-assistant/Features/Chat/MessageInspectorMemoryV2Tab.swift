@@ -114,32 +114,33 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
                 label: "c_user · sim_u",
                 value: "\(formatScaled(simUser, scale: config.cUser))  (raw \(formatActivation(simUser)))"
             ),
+            LabeledValue(
+                label: "c_assistant · sim_a",
+                value: "\(formatScaled(simAssistant, scale: config.cAssistant))  (raw \(formatActivation(simAssistant)))"
+            ),
+            LabeledValue(
+                label: "c_now · sim_n",
+                value: "\(formatScaled(simNow, scale: config.cNow))  (raw \(formatActivation(simNow)))"
+            ),
         ]
-        // Surface the rerank delta only when the cross-encoder actually
-        // contributed. We can't tell "outside top-K" from "in top-K but
-        // contributed 0" since the activation log stores the realized
-        // delta only; rendering "+0.000" everywhere when rerank is
-        // enabled would just be noise.
+        // Rerank contributes additively to A_o weighted by c_user / c_assistant
+        // — render as standalone rows (not nested under c_user · sim_u) so the
+        // sum across all visible rows equals the row's A_o. Only show when the
+        // cross-encoder actually contributed: the activation log stores the
+        // realized delta only, so "+0.000" everywhere with rerank enabled
+        // would just be noise.
         if simUserRerankBoost > 0 {
             rows.append(LabeledValue(
-                label: "  └ rerank Δ_u",
-                value: "+\(formatActivation(simUserRerankBoost))"
+                label: "c_user · rerank Δ_u",
+                value: "+\(formatScaled(simUserRerankBoost, scale: config.cUser))  (raw \(formatActivation(simUserRerankBoost)))"
             ))
         }
-        rows.append(LabeledValue(
-            label: "c_assistant · sim_a",
-            value: "\(formatScaled(simAssistant, scale: config.cAssistant))  (raw \(formatActivation(simAssistant)))"
-        ))
         if simAssistantRerankBoost > 0 {
             rows.append(LabeledValue(
-                label: "  └ rerank Δ_a",
-                value: "+\(formatActivation(simAssistantRerankBoost))"
+                label: "c_assistant · rerank Δ_a",
+                value: "+\(formatScaled(simAssistantRerankBoost, scale: config.cAssistant))  (raw \(formatActivation(simAssistantRerankBoost)))"
             ))
         }
-        rows.append(LabeledValue(
-            label: "c_now · sim_n",
-            value: "\(formatScaled(simNow, scale: config.cNow))  (raw \(formatActivation(simNow)))"
-        ))
         return rows
     }
 }

@@ -199,7 +199,7 @@ export const MemoryV2ConfigSchema = z
           .boolean()
           .default(false)
           .describe(
-            "Whether to apply cross-encoder reranking as an additive boost to the user + assistant similarity channels. Disabled by default — opt in once measured.",
+            "Whether to apply cross-encoder reranking as an additive A_o boost on the user + assistant channels. Disabled by default — opt in once measured.",
           ),
         top_k: z
           .number()
@@ -208,7 +208,7 @@ export const MemoryV2ConfigSchema = z
           .max(200)
           .default(50)
           .describe(
-            "Number of top-fused candidates per `simBatch` call to send through the reranker. Tail candidates keep their pure fused score.",
+            "Number of candidates from the top of the pre-rerank-A_o pool to send through the reranker. Tail candidates contribute zero rerank boost and keep their pure fused activation.",
           ),
         alpha: z
           .number()
@@ -216,7 +216,7 @@ export const MemoryV2ConfigSchema = z
           .max(1)
           .default(0.3)
           .describe(
-            "Boost weight: `boosted = clamp01(fused + alpha · normalized_rerank)`. Top reranker hit can lift its fused score by up to `alpha`; bottom of top_k stays roughly unchanged.",
+            "Per-channel rerank weight: each top-K slug gets `alpha · normalized_rerank` added to A_o weighted by `c_user` (user channel) or `c_assistant` (assistant channel). Top reranker hit can lift A_o by up to `(c_user + c_assistant) · alpha`; bottom of top_k stays roughly unchanged.",
           ),
         model: z
           .string()
@@ -232,7 +232,7 @@ export const MemoryV2ConfigSchema = z
         model: DEFAULT_RERANK_MODEL,
       })
       .describe(
-        "Cross-encoder rerank configuration. When enabled, runs a local cross-encoder over the top-K fused candidates per `simBatch(useRerank: true)` call and adds an alpha-weighted normalized boost to their fused scores.",
+        "Cross-encoder rerank configuration. When enabled, picks the top-K candidates by pre-rerank A_o, runs the cross-encoder once per channel (user, assistant) on that unified set, and adds an alpha-weighted normalized boost to A_o for each scored slug.",
       ),
   })
   .describe(

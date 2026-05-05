@@ -30,7 +30,6 @@ import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embedding-backend.js";
 import { clampUnitInterval } from "../validation.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
-import { rerankCandidates } from "./reranker.js";
 import { generateBm25QueryEmbedding } from "./sparse-bm25.js";
 
 /**
@@ -147,18 +146,6 @@ export async function simBatch(
   text: string,
   candidateSlugs: readonly string[],
   config: AssistantConfig,
-  options?: {
-    useRerank?: boolean;
-    /**
-     * When provided alongside `useRerank: true`, the rerank step writes the
-     * per-slug boost delta (`boosted_fused - pre_rerank_fused`) into this map
-     * for slugs that fell inside the top-K window. Slugs outside top-K (or
-     * absent on the rerank-disabled path) leave no entry — callers should
-     * treat absence as 0. Used by the activation inspector to surface the
-     * cross-encoder contribution separately from the fused similarity.
-     */
-    rerankBoost?: Map<string, number>;
-  },
 ): Promise<Map<string, number>> {
   if (candidateSlugs.length === 0) {
     return new Map();
@@ -205,48 +192,7 @@ export async function simBatch(
     scores.set(hit.slug, fuseHit(hit, maxSparse, denseWeight, sparseWeight));
   }
 
-  // Cross-encoder boost on top of the fused score for the top-K candidates.
-  // Optional-chain on `rerank` so test configs that omit it still type-check.
-  if (options?.useRerank === true && config.memory.v2.rerank?.enabled) {
-    return applyRerankBoost(text, scores, config, options.rerankBoost);
-  }
-
   return scores;
-}
-
-async function applyRerankBoost(
-  query: string,
-  fused: Map<string, number>,
-  config: AssistantConfig,
-  boostOut?: Map<string, number>,
-): Promise<Map<string, number>> {
-  const rerankCfg = config.memory.v2.rerank;
-  const sortedSlugs = [...fused.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([slug]) => slug);
-  const topSlugs = sortedSlugs.slice(0, rerankCfg.top_k);
-  if (topSlugs.length === 0) return fused;
-
-  const rerank = await rerankCandidates(query, topSlugs, config);
-  if (rerank.size === 0) return fused;
-
-  let maxRerank = 0;
-  for (const v of rerank.values()) {
-    if (v > maxRerank) maxRerank = v;
-  }
-  if (maxRerank === 0) return fused;
-
-  const out = new Map(fused);
-  for (const [slug, raw] of rerank) {
-    const r_norm = raw / maxRerank;
-    const base = fused.get(slug) ?? 0;
-    const boosted = clampUnitInterval(base + rerankCfg.alpha * r_norm);
-    out.set(slug, boosted);
-    // Capture the realized delta (post-clamp) so callers can render the
-    // cross-encoder contribution separately from the fused-only score.
-    boostOut?.set(slug, boosted - base);
-  }
-  return out;
 }
 
 /**

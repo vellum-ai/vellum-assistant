@@ -2,12 +2,15 @@
 // Memory v2 — Per-turn activation update
 // ---------------------------------------------------------------------------
 //
-// Implements the activation formula from §4 of the design doc:
+// Implements the activation formula from §4 of the design doc plus an
+// additive cross-encoder rerank boost on the unified top-K-by-A_o pool:
 //
 //   A_o(n, t+1) = d · A(n, t)
 //               + c_user      · sim(User_{t+1},  n)
 //               + c_assistant · sim(Assistant_t, n)
 //               + c_now       · sim(NOW.md,      n)
+//               + c_user      · α · r_norm(User_{t+1},  n)   [n ∈ topK]
+//               + c_assistant · α · r_norm(Assistant_t, n)   [n ∈ topK]
 //
 //   A(n, t+1) = [ A_o(n)
 //               + k  · Σ_{m∈in1(n)} A_o(m)
@@ -40,6 +43,7 @@ import {
 import { clampUnitInterval } from "../validation.js";
 import type { EdgeIndex } from "./edge-index.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
+import { rerankCandidates } from "./reranker.js";
 import { simBatch } from "./sim.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
@@ -164,15 +168,15 @@ interface ComputeOwnActivationParams {
 interface OwnActivationBreakdown {
   /** `d * prev(slug)` — the decayed prior-turn activation contribution. */
   priorContribution: number;
-  /** Raw `sim(user, slug)` similarity, before `c_user` weighting. */
+  /** Raw fused `sim(user, slug)`, before `c_user` weighting. */
   simUser: number;
-  /** Raw `sim(assistant, slug)` similarity, before `c_assistant` weighting. */
+  /** Raw fused `sim(assistant, slug)`, before `c_assistant` weighting. */
   simAssistant: number;
-  /** Raw `sim(now, slug)` similarity, before `c_now` weighting. */
+  /** Raw fused `sim(now, slug)`, before `c_now` weighting. */
   simNow: number;
-  /** Cross-encoder boost folded into `simUser`. `simUser - simUserRerankBoost` recovers the pre-rerank fused score. */
+  /** Rerank delta `α · r_norm_u`; 0 outside the top-K pool. Applied to `A_o` weighted by `c_user`. */
   simUserRerankBoost: number;
-  /** Cross-encoder boost folded into `simAssistant`. NOW channel skips rerank, so there is no `simNowRerankBoost`. */
+  /** Rerank delta `α · r_norm_a`; 0 outside the top-K pool. Applied to `A_o` weighted by `c_assistant`. NOW skips rerank. */
   simAssistantRerankBoost: number;
 }
 
@@ -185,15 +189,21 @@ interface ComputeOwnActivationResult {
 
 /**
  * Apply the own-activation formula
- *   A_o(n) = d · prev(n) + c_user · sim_u + c_assistant · sim_a + c_now · sim_n
- * over the candidate set. Returns a sparse map keyed by slug; slugs whose
- * computed value rounds to 0 are still included so callers can see the
- * candidate set explicitly. Also returns a per-slug breakdown of the raw
- * inputs (decayed prior + raw sims) so callers can render contribution
- * diagnostics without re-running the math.
+ *   A_o(n) = d · prev(n)
+ *          + c_user · sim_u + c_assistant · sim_a + c_now · sim_n
+ *          + c_user · α · r_norm_u + c_assistant · α · r_norm_a
+ * over the candidate set, where the rerank terms only fire for slugs that
+ * land in the unified top-K-by-pre-rerank-A_o window. Returns a sparse map
+ * keyed by slug; slugs whose computed value rounds to 0 are still included
+ * so callers can see the candidate set explicitly. Also returns a per-slug
+ * breakdown of the raw inputs (decayed prior + raw sims + rerank deltas) so
+ * callers can render contribution diagnostics without re-running the math.
  *
  * The three `simBatch` calls run concurrently — they hit independent named
- * vectors and embed independent query texts.
+ * vectors and embed independent query texts. Cross-encoder rerank then runs
+ * once on the unified top-K (selected by pre-rerank A_o, not per-channel
+ * fused sim) so an entry strong in both channels can't double-boost itself
+ * past entries that only land in one channel.
  */
 export async function computeOwnActivation(
   params: ComputeOwnActivationParams,
@@ -209,39 +219,104 @@ export async function computeOwnActivation(
   const slugList = [...candidates];
 
   // NOW context is structured (timestamps, current focus) — outside the
-  // cross-encoder's training distribution, so it stays on pure fused fusion.
-  const userRerankBoost = new Map<string, number>();
-  const assistantRerankBoost = new Map<string, number>();
+  // cross-encoder's training distribution, so it never participates in rerank.
   const [simUser, simAssistant, simNow] = await Promise.all([
-    simBatch(userText, slugList, config, {
-      useRerank: true,
-      rerankBoost: userRerankBoost,
-    }),
-    simBatch(assistantText, slugList, config, {
-      useRerank: true,
-      rerankBoost: assistantRerankBoost,
-    }),
+    simBatch(userText, slugList, config),
+    simBatch(assistantText, slugList, config),
     simBatch(nowText, slugList, config),
   ]);
 
-  for (const slug of slugList) {
+  interface SlugInputs {
+    slug: string;
+    priorContribution: number;
+    simU: number;
+    simA: number;
+    simN: number;
+    /** Pre-rerank A_o; ranking signal for the unified rerank pool. */
+    preRerank: number;
+  }
+  const inputs: SlugInputs[] = slugList.map((slug) => {
     const prev = priorState?.state[slug] ?? 0;
     const simU = simUser.get(slug) ?? 0;
     const simA = simAssistant.get(slug) ?? 0;
     const simN = simNow.get(slug) ?? 0;
-    const value = d * prev + c_user * simU + c_assistant * simA + c_now * simN;
-    activation.set(slug, clampUnitInterval(value));
-    breakdown.set(slug, {
-      priorContribution: d * prev,
-      simUser: simU,
-      simAssistant: simA,
-      simNow: simN,
-      simUserRerankBoost: userRerankBoost.get(slug) ?? 0,
-      simAssistantRerankBoost: assistantRerankBoost.get(slug) ?? 0,
+    const priorContribution = d * prev;
+    return {
+      slug,
+      priorContribution,
+      simU,
+      simA,
+      simN,
+      preRerank:
+        priorContribution + c_user * simU + c_assistant * simA + c_now * simN,
+    };
+  });
+
+  // Unified top-K by pre-rerank A_o. Both channels rerank against the **same**
+  // slug set, so a slug strong on user can't crowd out one strong on assistant
+  // by virtue of appearing in both per-channel top-Ks.
+  let userRerankBoost: ReadonlyMap<string, number> = new Map();
+  let assistantRerankBoost: ReadonlyMap<string, number> = new Map();
+  const rerankCfg = config.memory.v2.rerank;
+  if (rerankCfg?.enabled) {
+    const topSlugs = inputs
+      .slice()
+      .sort((a, b) => b.preRerank - a.preRerank)
+      .slice(0, rerankCfg.top_k)
+      .map((e) => e.slug);
+    if (topSlugs.length > 0) {
+      const [userScores, assistantScores] = await Promise.all([
+        rerankCandidates(userText, topSlugs, config),
+        rerankCandidates(assistantText, topSlugs, config),
+      ]);
+      userRerankBoost = normalizeRerankScores(userScores, rerankCfg.alpha);
+      assistantRerankBoost = normalizeRerankScores(
+        assistantScores,
+        rerankCfg.alpha,
+      );
+    }
+  }
+
+  for (const e of inputs) {
+    const boostU = userRerankBoost.get(e.slug) ?? 0;
+    const boostA = assistantRerankBoost.get(e.slug) ?? 0;
+    activation.set(
+      e.slug,
+      clampUnitInterval(e.preRerank + c_user * boostU + c_assistant * boostA),
+    );
+    breakdown.set(e.slug, {
+      priorContribution: e.priorContribution,
+      simUser: e.simU,
+      simAssistant: e.simA,
+      simNow: e.simN,
+      simUserRerankBoost: boostU,
+      simAssistantRerankBoost: boostA,
     });
   }
 
   return { activation, breakdown };
+}
+
+/**
+ * Per-batch normalisation: divide raw cross-encoder scores by the channel's
+ * own max and return `alpha · r_norm` per slug. Empty input or all-zero
+ * scores yield an empty Map so the channel contributes 0 boost.
+ */
+function normalizeRerankScores(
+  rawScores: ReadonlyMap<string, number>,
+  alpha: number,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (rawScores.size === 0) return out;
+  let maxScore = 0;
+  for (const v of rawScores.values()) {
+    if (v > maxScore) maxScore = v;
+  }
+  if (maxScore === 0) return out;
+  for (const [slug, raw] of rawScores) {
+    out.set(slug, alpha * (raw / maxScore));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

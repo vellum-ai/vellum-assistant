@@ -145,31 +145,6 @@ mock.module("@qdrant/js-client-rest", () => ({
   QdrantClient: MockQdrantClient,
 }));
 
-// Reranker mock — allows boost-mode tests to programmatically supply scores
-// without spinning up the cross-encoder subprocess.
-const rerankState = {
-  scores: null as Map<string, number> | null,
-  shouldThrow: false,
-  calls: [] as Array<{ query: string; candidates: string[] }>,
-};
-mock.module("../reranker.js", () => ({
-  rerankCandidates: async (
-    query: string,
-    candidates: readonly string[],
-  ): Promise<Map<string, number>> => {
-    rerankState.calls.push({ query, candidates: [...candidates] });
-    if (rerankState.shouldThrow) throw new Error("rerank disabled in test");
-    if (rerankState.scores === null) return new Map();
-    const out = new Map<string, number>();
-    for (const slug of candidates) {
-      const v = rerankState.scores.get(slug);
-      if (v !== undefined) out.set(slug, v);
-    }
-    return out;
-  },
-  _resetRerankCacheForTests: () => {},
-}));
-
 const { simBatch, clamp01, effectiveWeights } = await import("../sim.js");
 const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
 
@@ -184,9 +159,6 @@ function resetState(): void {
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
   state.queryCalls.length = 0;
-  rerankState.scores = null;
-  rerankState.shouldThrow = false;
-  rerankState.calls.length = 0;
   // Bun's `mock.module` persists across files in the same process, so the
   // qdrant module's singleton may already hold a MockQdrantClient instance
   // from a sibling test file. Reset readiness so each test in this file
@@ -539,153 +511,5 @@ describe("simBatch", () => {
       expect(score).toBeGreaterThanOrEqual(0);
       expect(score).toBeLessThanOrEqual(1);
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// simBatch — cross-encoder rerank boost
-// ---------------------------------------------------------------------------
-
-describe("simBatch with rerank boost", () => {
-  // dense_weight=1.0 / sparse_weight=0 so the fused score equals the dense
-  // input directly — keeps the boost-math arithmetic readable in assertions.
-  // The validator that requires the weights to sum to 1.0 only runs when the
-  // schema is parsed; tests cast partial objects so it never fires.
-  function configWithRerank(overrides: {
-    enabled: boolean;
-    top_k?: number;
-    alpha?: number;
-  }): AssistantConfig {
-    return {
-      memory: {
-        v2: {
-          dense_weight: 1.0,
-          sparse_weight: 0.0,
-          rerank: {
-            enabled: overrides.enabled,
-            top_k: overrides.top_k ?? 50,
-            alpha: overrides.alpha ?? 0.3,
-            model: "test-model",
-          },
-        },
-      },
-    } as unknown as AssistantConfig;
-  }
-
-  test("boosts top-K fused scores by alpha · normalized rerank", async () => {
-    const config = configWithRerank({ enabled: true, top_k: 50, alpha: 0.4 });
-    stageHybridResponse([
-      { slug: "a", denseScore: 0.5 },
-      { slug: "b", denseScore: 0.4 },
-      { slug: "c", denseScore: 0.3 },
-    ]);
-    rerankState.scores = new Map([
-      ["a", 0.2], // normalised → 0.2 / 0.8 = 0.25
-      ["b", 0.8], // normalised → 1.0 (max)
-      ["c", 0.4], // normalised → 0.5
-    ]);
-
-    const out = await simBatch("query", ["a", "b", "c"], config, {
-      useRerank: true,
-    });
-
-    // a: clamp01(0.5 + 0.4·0.25)  = 0.6
-    // b: clamp01(0.4 + 0.4·1.0)   = 0.8
-    // c: clamp01(0.3 + 0.4·0.5)   = 0.5
-    expect(out.get("a")).toBeCloseTo(0.6);
-    expect(out.get("b")).toBeCloseTo(0.8);
-    expect(out.get("c")).toBeCloseTo(0.5);
-  });
-
-  test("rerank flips ranking when its top hit was dense's #2", async () => {
-    const config = configWithRerank({ enabled: true, alpha: 0.5 });
-    stageHybridResponse([
-      { slug: "lexical-match", denseScore: 0.55 },
-      { slug: "semantic-match", denseScore: 0.45 },
-    ]);
-    rerankState.scores = new Map([
-      ["lexical-match", 0.05],
-      ["semantic-match", 0.9],
-    ]);
-
-    const out = await simBatch(
-      "query",
-      ["lexical-match", "semantic-match"],
-      config,
-      { useRerank: true },
-    );
-
-    // lexical-match: 0.55 + 0.5 · (0.05/0.9) ≈ 0.578
-    // semantic-match: 0.45 + 0.5 · 1.0 = 0.95
-    expect(out.get("semantic-match")!).toBeGreaterThan(
-      out.get("lexical-match")!,
-    );
-  });
-
-  test("only top-K candidates get reranked; tail keeps pure fused", async () => {
-    const config = configWithRerank({ enabled: true, top_k: 2, alpha: 0.5 });
-    stageHybridResponse([
-      { slug: "a", denseScore: 0.9 },
-      { slug: "b", denseScore: 0.7 },
-      { slug: "c", denseScore: 0.3 }, // tail — outside top_k=2
-    ]);
-    rerankState.scores = new Map([
-      ["a", 0.5],
-      ["b", 1.0],
-      ["c", 1.0], // would lift but reranker is never called for it
-    ]);
-
-    const out = await simBatch("query", ["a", "b", "c"], config, {
-      useRerank: true,
-    });
-
-    expect(rerankState.calls).toHaveLength(1);
-    expect(rerankState.calls[0].candidates).toEqual(["a", "b"]);
-    expect(out.get("c")).toBeCloseTo(0.3); // unchanged
-  });
-
-  test("returns pure fused when useRerank: true but rerank.enabled: false", async () => {
-    const config = configWithRerank({ enabled: false });
-    stageHybridResponse([{ slug: "a", denseScore: 0.5 }]);
-    rerankState.scores = new Map([["a", 1.0]]);
-
-    const out = await simBatch("query", ["a"], config, { useRerank: true });
-
-    expect(rerankState.calls).toHaveLength(0);
-    expect(out.get("a")).toBeCloseTo(0.5); // no boost applied
-  });
-
-  test("returns pure fused when reranker returns empty (fail-open)", async () => {
-    const config = configWithRerank({ enabled: true });
-    stageHybridResponse([{ slug: "a", denseScore: 0.5 }]);
-    // The real `rerankCandidates` swallows worker errors and returns an
-    // empty Map — `applyRerankBoost` short-circuits on empty.
-    rerankState.scores = new Map();
-
-    const out = await simBatch("query", ["a"], config, { useRerank: true });
-
-    expect(out.get("a")).toBeCloseTo(0.5); // no boost
-  });
-
-  test("useRerank not passed — boost path doesn't run even when enabled", async () => {
-    const config = configWithRerank({ enabled: true });
-    stageHybridResponse([{ slug: "a", denseScore: 0.5 }]);
-    rerankState.scores = new Map([["a", 1.0]]);
-
-    const out = await simBatch("query", ["a"], config);
-
-    expect(rerankState.calls).toHaveLength(0);
-    expect(out.get("a")).toBeCloseTo(0.5);
-  });
-
-  test("clamps boosted score to <= 1", async () => {
-    const config = configWithRerank({ enabled: true, alpha: 1.0 });
-    stageHybridResponse([{ slug: "a", denseScore: 0.95 }]);
-    rerankState.scores = new Map([["a", 0.8]]);
-
-    const out = await simBatch("query", ["a"], config, { useRerank: true });
-
-    // 0.95 + 1.0 · 1.0 = 1.95 → clamped to 1.0
-    expect(out.get("a")).toBe(1);
   });
 });

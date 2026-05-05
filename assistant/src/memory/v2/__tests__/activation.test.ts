@@ -615,6 +615,173 @@ describe("computeOwnActivation", () => {
     // Rerank should have been called once per rerank-enabled channel.
     expect(rerankState.calls).toHaveLength(2);
   });
+
+  test("rerank pool is the unified top-K by pre-rerank A_o, not per-channel fused", async () => {
+    // Three candidates. The per-channel fused-sim top-2s would have picked
+    // different sets:
+    //   user channel:      a=0.9, b=0.5, c=0.4  → per-channel top-2 = [a, b]
+    //   assistant channel: a=0.5, b=0.4, c=0.9  → per-channel top-2 = [c, a]
+    // But pre-rerank A_o (c_user=c_assistant=0.5) is:
+    //   a = 0.5·0.9 + 0.5·0.5 = 0.70
+    //   b = 0.5·0.5 + 0.5·0.4 = 0.45
+    //   c = 0.5·0.4 + 0.5·0.9 = 0.65
+    // → unified top-2 = [a, c]. b drops out, even though it would have made
+    //   the user-channel pool under the old per-channel selection.
+    stageHybridResponse([
+      { slug: "a", denseScore: 0.9 },
+      { slug: "b", denseScore: 0.5 },
+      { slug: "c", denseScore: 0.4 },
+    ]); // user
+    stageHybridResponse([
+      { slug: "a", denseScore: 0.5 },
+      { slug: "b", denseScore: 0.4 },
+      { slug: "c", denseScore: 0.9 },
+    ]); // assistant
+    stageHybridResponse([]); // now (no signal)
+    rerankState.scores = new Map([
+      ["a", 0.5],
+      ["b", 0.5],
+      ["c", 0.5],
+    ]);
+
+    const config = {
+      memory: {
+        v2: {
+          d: 0.0,
+          c_user: 0.5,
+          c_assistant: 0.5,
+          c_now: 0.0,
+          dense_weight: 1.0,
+          sparse_weight: 0.0,
+          rerank: {
+            enabled: true,
+            top_k: 2,
+            alpha: 0.3,
+            model: "test-model",
+          },
+        },
+      },
+    } as unknown as AssistantConfig;
+
+    await computeOwnActivation({
+      candidates: new Set(["a", "b", "c"]),
+      priorState: null,
+      userText: "u",
+      assistantText: "a",
+      nowText: "",
+      config,
+    });
+
+    expect(rerankState.calls).toHaveLength(2);
+    // Both channels rerank against the same unified slug set, sorted by
+    // pre-rerank A_o descending.
+    expect(rerankState.calls[0].candidates).toEqual(["a", "c"]);
+    expect(rerankState.calls[1].candidates).toEqual(["a", "c"]);
+  });
+
+  test("rerank-disabled candidates outside the unified pool get zero boost", async () => {
+    // Two candidates, top_k=1. The lower pre-rerank A_o slug must end up
+    // with simUserRerankBoost=0 / simAssistantRerankBoost=0 in the breakdown.
+    stageHybridResponse([
+      { slug: "winner", denseScore: 0.9 },
+      { slug: "loser", denseScore: 0.2 },
+    ]); // user
+    stageHybridResponse([
+      { slug: "winner", denseScore: 0.9 },
+      { slug: "loser", denseScore: 0.2 },
+    ]); // assistant
+    stageHybridResponse([]); // now
+    // The mocked reranker hands back scores for whatever slugs it's
+    // called with. Stage scores for both; the assertion below is that
+    // the loser still receives 0 because it's never sent to the
+    // reranker — top_k=1 cuts it off.
+    rerankState.scores = new Map([
+      ["winner", 0.5],
+      ["loser", 0.5],
+    ]);
+
+    const config = {
+      memory: {
+        v2: {
+          d: 0.0,
+          c_user: 0.5,
+          c_assistant: 0.5,
+          c_now: 0.0,
+          dense_weight: 1.0,
+          sparse_weight: 0.0,
+          rerank: {
+            enabled: true,
+            top_k: 1,
+            alpha: 0.3,
+            model: "test-model",
+          },
+        },
+      },
+    } as unknown as AssistantConfig;
+
+    const out = await computeOwnActivation({
+      candidates: new Set(["winner", "loser"]),
+      priorState: null,
+      userText: "u",
+      assistantText: "a",
+      nowText: "",
+      config,
+    });
+
+    expect(out.breakdown.get("loser")?.simUserRerankBoost).toBe(0);
+    expect(out.breakdown.get("loser")?.simAssistantRerankBoost).toBe(0);
+    expect(out.breakdown.get("winner")?.simUserRerankBoost).toBeGreaterThan(0);
+    expect(
+      out.breakdown.get("winner")?.simAssistantRerankBoost,
+    ).toBeGreaterThan(0);
+  });
+
+  test("rerank boost is additive on A_o and leaves raw simUser / simAssistant untouched", async () => {
+    stageHybridResponse([{ slug: "a", denseScore: 0.5 }]); // user
+    stageHybridResponse([{ slug: "a", denseScore: 0.4 }]); // assistant
+    stageHybridResponse([]); // now
+    rerankState.scores = new Map([["a", 0.8]]);
+
+    const config = {
+      memory: {
+        v2: {
+          d: 0.0,
+          c_user: 0.5,
+          c_assistant: 0.5,
+          c_now: 0.0,
+          dense_weight: 1.0,
+          sparse_weight: 0.0,
+          rerank: {
+            enabled: true,
+            top_k: 50,
+            alpha: 0.4,
+            model: "test-model",
+          },
+        },
+      },
+    } as unknown as AssistantConfig;
+
+    const out = await computeOwnActivation({
+      candidates: new Set(["a"]),
+      priorState: null,
+      userText: "u",
+      assistantText: "a",
+      nowText: "",
+      config,
+    });
+
+    const breakdown = out.breakdown.get("a");
+    // Raw fused similarities are reported untouched by rerank.
+    expect(breakdown?.simUser).toBeCloseTo(0.5, 6);
+    expect(breakdown?.simAssistant).toBeCloseTo(0.4, 6);
+    // Both rerank deltas are alpha · r_norm = 0.4 · 1.0 = 0.4 (single
+    // candidate normalises to 1.0 in each channel).
+    expect(breakdown?.simUserRerankBoost).toBeCloseTo(0.4, 6);
+    expect(breakdown?.simAssistantRerankBoost).toBeCloseTo(0.4, 6);
+    // Final A_o = c_user·simU + c_assistant·simA + c_user·boostU + c_assistant·boostA
+    //           = 0.5·0.5 + 0.5·0.4 + 0.5·0.4 + 0.5·0.4 = 0.25+0.20+0.20+0.20 = 0.85
+    expect(out.activation.get("a")).toBeCloseTo(0.85, 6);
+  });
 });
 
 // ---------------------------------------------------------------------------
