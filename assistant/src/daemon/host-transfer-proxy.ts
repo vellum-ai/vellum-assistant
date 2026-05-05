@@ -124,6 +124,8 @@ export class HostTransferProxy {
       targetClientId?: string;
     },
     signal?: AbortSignal,
+    // Principal ID of the actor on whose behalf this request is initiated.
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
@@ -145,8 +147,47 @@ export class HostTransferProxy {
         });
       }
     } else {
-      const capable = assistantEventHub.listClientsByCapability("host_file");
-      if (capable.length === 1) resolvedTargetClientId = capable[0].clientId;
+      // Auto-resolve only to a capable client whose actorPrincipalId matches
+      // the source caller's. Skips auto-resolve when the caller has no
+      // identity, since same-user binding cannot be enforced.
+      if (sourceActorPrincipalId != null) {
+        const capable = assistantEventHub.listClientsByCapability("host_file");
+        const sameUser = capable.filter(
+          (c) => c.actorPrincipalId === sourceActorPrincipalId,
+        );
+        if (sameUser.length === 1) {
+          resolvedTargetClientId = sameUser[0].clientId;
+        }
+      }
+    }
+
+    // Same-user check: targeted host_transfer requests must be bound to the
+    // same authenticated user identity that opened the target client's SSE
+    // stream. Prevents cross-user routing through actor token mis-targeting.
+    if (resolvedTargetClientId != null) {
+      const targetActorPrincipalId =
+        assistantEventHub.getActorPrincipalIdForClient(resolvedTargetClientId);
+      if (
+        sourceActorPrincipalId == null ||
+        targetActorPrincipalId == null ||
+        sourceActorPrincipalId !== targetActorPrincipalId
+      ) {
+        log.warn(
+          {
+            sourceActorPrincipalId,
+            targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId,
+            op: "host_transfer",
+            direction: "to_host",
+          },
+          "Rejected cross-user targeted host_transfer request",
+        );
+        return Promise.resolve({
+          content:
+            "Targeted host_transfer requests require the target client to be owned by the same user as the caller.",
+          isError: true,
+        });
+      }
     }
 
     const requestId = uuid();
@@ -291,6 +332,8 @@ export class HostTransferProxy {
       targetClientId?: string;
     },
     signal?: AbortSignal,
+    // Principal ID of the actor on whose behalf this request is initiated.
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
@@ -312,8 +355,47 @@ export class HostTransferProxy {
         });
       }
     } else {
-      const capable = assistantEventHub.listClientsByCapability("host_file");
-      if (capable.length === 1) resolvedTargetClientId = capable[0].clientId;
+      // Auto-resolve only to a capable client whose actorPrincipalId matches
+      // the source caller's. Skips auto-resolve when the caller has no
+      // identity, since same-user binding cannot be enforced.
+      if (sourceActorPrincipalId != null) {
+        const capable = assistantEventHub.listClientsByCapability("host_file");
+        const sameUser = capable.filter(
+          (c) => c.actorPrincipalId === sourceActorPrincipalId,
+        );
+        if (sameUser.length === 1) {
+          resolvedTargetClientId = sameUser[0].clientId;
+        }
+      }
+    }
+
+    // Same-user check: targeted host_transfer requests must be bound to the
+    // same authenticated user identity that opened the target client's SSE
+    // stream. Prevents cross-user routing through actor token mis-targeting.
+    if (resolvedTargetClientId != null) {
+      const targetActorPrincipalId =
+        assistantEventHub.getActorPrincipalIdForClient(resolvedTargetClientId);
+      if (
+        sourceActorPrincipalId == null ||
+        targetActorPrincipalId == null ||
+        sourceActorPrincipalId !== targetActorPrincipalId
+      ) {
+        log.warn(
+          {
+            sourceActorPrincipalId,
+            targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId,
+            op: "host_transfer",
+            direction: "to_sandbox",
+          },
+          "Rejected cross-user targeted host_transfer request",
+        );
+        return Promise.resolve({
+          content:
+            "Targeted host_transfer requests require the target client to be owned by the same user as the caller.",
+          isError: true,
+        });
+      }
     }
 
     const requestId = uuid();

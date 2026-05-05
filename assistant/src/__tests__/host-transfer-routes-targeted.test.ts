@@ -49,9 +49,17 @@ mock.module("../daemon/host-transfer-proxy.js", () => ({
         },
         getTransferContent(transferId: string) {
           getTransferContentCalls.push(transferId);
-          return { buffer: Buffer.from("data"), sizeBytes: 4, sha256: "abc123" };
+          return {
+            buffer: Buffer.from("data"),
+            sizeBytes: 4,
+            sha256: "abc123",
+          };
         },
-        async receiveTransferContent(transferId: string, _data: Buffer, _sha256: string) {
+        async receiveTransferContent(
+          transferId: string,
+          _data: Buffer,
+          _sha256: string,
+        ) {
           receiveTransferContentCalls.push(transferId);
           return { accepted: true };
         },
@@ -63,12 +71,20 @@ mock.module("../daemon/host-transfer-proxy.js", () => ({
   },
 }));
 
+// Stub event hub so tests control what actorPrincipalId is associated with
+// each connected client.
+const clientActors = new Map<string, string>();
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  assistantEventHub: {
+    getActorPrincipalIdForClient: (clientId: string) =>
+      clientActors.get(clientId),
+  },
+}));
+
 // ── Real imports (after mocks) ──────────────────────────────────────────────
 
-import {
-  BadRequestError,
-  ForbiddenError,
-} from "../runtime/routes/errors.js";
+import { BadRequestError, ForbiddenError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/host-transfer-routes.js";
 
 afterAll(() => {
@@ -107,6 +123,7 @@ describe("handleTransferContentGet — Phase 3 targetClientId guard", () => {
     pendingStore.clear();
     stubTargetClientId = null;
     getTransferContentCalls.length = 0;
+    clientActors.clear();
   });
 
   // ── 1. Targeted + correct header → success ────────────────────────────────
@@ -114,9 +131,13 @@ describe("handleTransferContentGet — Phase 3 targetClientId guard", () => {
   describe("targeted + correct x-vellum-client-id header", () => {
     test("returns Uint8Array and calls getTransferContent", async () => {
       stubTargetClientId = "client-A";
+      clientActors.set("client-A", "actor-1");
       const result = await handleTransferContentGet({
         pathParams: { transferId: TEST_TRANSFER_ID },
-        headers: { "x-vellum-client-id": "client-A" },
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "actor-1",
+        },
       });
 
       expect(result).toBeInstanceOf(Uint8Array);
@@ -125,9 +146,13 @@ describe("handleTransferContentGet — Phase 3 targetClientId guard", () => {
 
     test("trims whitespace from header before comparing", async () => {
       stubTargetClientId = "client-A";
+      clientActors.set("client-A", "actor-1");
       const result = await handleTransferContentGet({
         pathParams: { transferId: TEST_TRANSFER_ID },
-        headers: { "x-vellum-client-id": "  client-A  " },
+        headers: {
+          "x-vellum-client-id": "  client-A  ",
+          "x-vellum-actor-principal-id": "  actor-1  ",
+        },
       });
 
       expect(result).toBeInstanceOf(Uint8Array);
@@ -199,6 +224,52 @@ describe("handleTransferContentGet — Phase 3 targetClientId guard", () => {
       expect(getTransferContentCalls).toContain(TEST_TRANSFER_ID);
     });
   });
+
+  // ── 5. Same-user actor binding (defense-in-depth) ─────────────────────────
+
+  describe("targeted + actor principal binding", () => {
+    test("throws ForbiddenError when submitting actor does not match target client's actor", () => {
+      stubTargetClientId = "client-A";
+      clientActors.set("client-A", "actor-victim");
+      expect(() =>
+        handleTransferContentGet({
+          pathParams: { transferId: TEST_TRANSFER_ID },
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "actor-attacker",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+      expect(getTransferContentCalls).toHaveLength(0);
+    });
+
+    test("throws ForbiddenError when actor principal header is missing", () => {
+      stubTargetClientId = "client-A";
+      clientActors.set("client-A", "actor-victim");
+      expect(() =>
+        handleTransferContentGet({
+          pathParams: { transferId: TEST_TRANSFER_ID },
+          headers: { "x-vellum-client-id": "client-A" },
+        }),
+      ).toThrow(ForbiddenError);
+      expect(getTransferContentCalls).toHaveLength(0);
+    });
+
+    test("throws ForbiddenError when target client has no stored actor", () => {
+      stubTargetClientId = "client-A";
+      // No entry in clientActors for "client-A"
+      expect(() =>
+        handleTransferContentGet({
+          pathParams: { transferId: TEST_TRANSFER_ID },
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "actor-1",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+      expect(getTransferContentCalls).toHaveLength(0);
+    });
+  });
 });
 
 describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
@@ -206,6 +277,7 @@ describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
     pendingStore.clear();
     stubTargetClientId = null;
     receiveTransferContentCalls.length = 0;
+    clientActors.clear();
   });
 
   // ── 1. Targeted + correct header → success ────────────────────────────────
@@ -213,9 +285,14 @@ describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
   describe("targeted + correct x-vellum-client-id header", () => {
     test("returns { accepted: true } and calls receiveTransferContent", async () => {
       stubTargetClientId = "client-A";
+      clientActors.set("client-A", "actor-1");
       const result = await handleTransferContentPut({
         pathParams: { transferId: TEST_TRANSFER_ID },
-        headers: { "x-vellum-client-id": "client-A", "x-transfer-sha256": "abc" },
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "actor-1",
+          "x-transfer-sha256": "abc",
+        },
         rawBody: new Uint8Array(Buffer.from("data")),
       });
 
@@ -225,9 +302,14 @@ describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
 
     test("trims whitespace from header before comparing", async () => {
       stubTargetClientId = "client-A";
+      clientActors.set("client-A", "actor-1");
       const result = await handleTransferContentPut({
         pathParams: { transferId: TEST_TRANSFER_ID },
-        headers: { "x-vellum-client-id": "  client-A  ", "x-transfer-sha256": "abc" },
+        headers: {
+          "x-vellum-client-id": "  client-A  ",
+          "x-vellum-actor-principal-id": "  actor-1  ",
+          "x-transfer-sha256": "abc",
+        },
         rawBody: new Uint8Array(Buffer.from("data")),
       });
 
@@ -272,7 +354,10 @@ describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
       await expect(
         handleTransferContentPut({
           pathParams: { transferId: TEST_TRANSFER_ID },
-          headers: { "x-vellum-client-id": "client-B", "x-transfer-sha256": "abc" },
+          headers: {
+            "x-vellum-client-id": "client-B",
+            "x-transfer-sha256": "abc",
+          },
           rawBody: new Uint8Array(Buffer.from("data")),
         }),
       ).rejects.toBeInstanceOf(ForbiddenError);
@@ -283,7 +368,10 @@ describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
       try {
         await handleTransferContentPut({
           pathParams: { transferId: TEST_TRANSFER_ID },
-          headers: { "x-vellum-client-id": "client-B", "x-transfer-sha256": "abc" },
+          headers: {
+            "x-vellum-client-id": "client-B",
+            "x-transfer-sha256": "abc",
+          },
           rawBody: new Uint8Array(Buffer.from("data")),
         });
       } catch {
@@ -308,6 +396,60 @@ describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
       expect(receiveTransferContentCalls).toContain(TEST_TRANSFER_ID);
     });
   });
+
+  // ── 5. Same-user actor binding (defense-in-depth) ─────────────────────────
+
+  describe("targeted + actor principal binding", () => {
+    test("rejects when submitting actor does not match target client's actor", async () => {
+      stubTargetClientId = "client-A";
+      clientActors.set("client-A", "actor-victim");
+      await expect(
+        handleTransferContentPut({
+          pathParams: { transferId: TEST_TRANSFER_ID },
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "actor-attacker",
+            "x-transfer-sha256": "abc",
+          },
+          rawBody: new Uint8Array(Buffer.from("data")),
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(receiveTransferContentCalls).toHaveLength(0);
+    });
+
+    test("rejects when actor principal header is missing", async () => {
+      stubTargetClientId = "client-A";
+      clientActors.set("client-A", "actor-victim");
+      await expect(
+        handleTransferContentPut({
+          pathParams: { transferId: TEST_TRANSFER_ID },
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-transfer-sha256": "abc",
+          },
+          rawBody: new Uint8Array(Buffer.from("data")),
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(receiveTransferContentCalls).toHaveLength(0);
+    });
+
+    test("rejects when target client has no stored actor", async () => {
+      stubTargetClientId = "client-A";
+      // No entry in clientActors for "client-A"
+      await expect(
+        handleTransferContentPut({
+          pathParams: { transferId: TEST_TRANSFER_ID },
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "actor-1",
+            "x-transfer-sha256": "abc",
+          },
+          rawBody: new Uint8Array(Buffer.from("data")),
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(receiveTransferContentCalls).toHaveLength(0);
+    });
+  });
 });
 
 describe("handleTransferResult — Phase 3 targetClientId guard", () => {
@@ -315,6 +457,7 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
     pendingStore.clear();
     stubTargetClientId = null;
     resolveTransferResultCalls.length = 0;
+    clientActors.clear();
   });
 
   function registerHostTransferPending(targetClientId?: string): void {
@@ -330,9 +473,13 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
   describe("targeted + correct x-vellum-client-id header", () => {
     test("returns { accepted: true } and calls resolveTransferResult", async () => {
       registerHostTransferPending("client-A");
+      clientActors.set("client-A", "actor-1");
       const result = await handleTransferResult({
         body: resultBody(),
-        headers: { "x-vellum-client-id": "client-A" },
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "actor-1",
+        },
       });
 
       expect(result).toEqual({ accepted: true });
@@ -341,9 +488,13 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
 
     test("trims whitespace from header before comparing", async () => {
       registerHostTransferPending("client-A");
+      clientActors.set("client-A", "actor-1");
       const result = await handleTransferResult({
         body: resultBody(),
-        headers: { "x-vellum-client-id": "  client-A  " },
+        headers: {
+          "x-vellum-client-id": "  client-A  ",
+          "x-vellum-actor-principal-id": "  actor-1  ",
+        },
       });
 
       expect(result).toEqual({ accepted: true });
@@ -355,9 +506,9 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
   describe("targeted + missing x-vellum-client-id header", () => {
     test("throws BadRequestError when header is absent", () => {
       registerHostTransferPending("client-A");
-      expect(() =>
-        handleTransferResult({ body: resultBody() }),
-      ).toThrow(BadRequestError);
+      expect(() => handleTransferResult({ body: resultBody() })).toThrow(
+        BadRequestError,
+      );
     });
 
     test("resolveTransferResult NOT called on 400", () => {
@@ -442,6 +593,56 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
       });
 
       expect(result).toEqual({ accepted: true });
+    });
+  });
+
+  // ── 5. Same-user actor binding (defense-in-depth) ─────────────────────────
+
+  describe("targeted + actor principal binding", () => {
+    test("throws ForbiddenError when submitting actor does not match target client's actor", () => {
+      registerHostTransferPending("client-A");
+      clientActors.set("client-A", "actor-victim");
+      expect(() =>
+        handleTransferResult({
+          body: resultBody(),
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "actor-attacker",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+      expect(resolveTransferResultCalls).toHaveLength(0);
+      // Pending interaction should still be present (not consumed on 403).
+      expect(pendingStore.has(TEST_REQUEST_ID)).toBe(true);
+    });
+
+    test("throws ForbiddenError when actor principal header is missing", () => {
+      registerHostTransferPending("client-A");
+      clientActors.set("client-A", "actor-victim");
+      expect(() =>
+        handleTransferResult({
+          body: resultBody(),
+          headers: { "x-vellum-client-id": "client-A" },
+        }),
+      ).toThrow(ForbiddenError);
+      expect(resolveTransferResultCalls).toHaveLength(0);
+      expect(pendingStore.has(TEST_REQUEST_ID)).toBe(true);
+    });
+
+    test("throws ForbiddenError when target client has no stored actor", () => {
+      registerHostTransferPending("client-A");
+      // No entry in clientActors for "client-A"
+      expect(() =>
+        handleTransferResult({
+          body: resultBody(),
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "actor-1",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+      expect(resolveTransferResultCalls).toHaveLength(0);
+      expect(pendingStore.has(TEST_REQUEST_ID)).toBe(true);
     });
   });
 });
