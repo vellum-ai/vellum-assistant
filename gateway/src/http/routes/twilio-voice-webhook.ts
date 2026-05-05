@@ -144,11 +144,14 @@ export function createTwilioVoiceWebhookHandler(
           const callerRecord = new ContactStore().getContactByPhoneNumber(
             params.From,
           );
-          if (
-            callerRecord &&
-            callerRecord.channel.status !== "verified" &&
-            callerRecord.channel.status !== "active"
-          ) {
+          // Only intercept genuinely unverified channels — not blocked ones.
+          // A blocked caller should fall through to the runtime's deny path
+          // rather than hearing a helpful verification script (which would
+          // both leak the contact name and weaken block semantics).
+          // The display name is intentionally included: the caller registered
+          // this number themselves, so disclosing their own name is expected.
+          const unverifiedStatuses = new Set(["unverified", "pending"]);
+          if (callerRecord && unverifiedStatuses.has(callerRecord.channel.status)) {
             log.info(
               {
                 callSid: params.CallSid,
