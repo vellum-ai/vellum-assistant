@@ -196,9 +196,14 @@ export async function resolveTargetAssistant(
         detail.includes("Authentication failed") ||
         detail.includes("vellum login")
       ) {
-        const msg = `Authentication failed while looking up assistant '${nameArg}'. Run 'vellum login' to refresh.`;
-        console.error(msg);
-        emitCliError("AUTH_FAILED", msg, detail);
+        // authHeaders already printed the user-facing
+        // "Authentication failed…" line to stderr before re-throwing; emit
+        // only the structured CLI_ERROR here to avoid a duplicate log.
+        emitCliError(
+          "AUTH_FAILED",
+          `Authentication failed while looking up assistant '${nameArg}'. Run 'vellum login' to refresh.`,
+          detail,
+        );
       } else {
         const msg = `Failed to look up assistant '${nameArg}' on the platform: ${detail}`;
         console.error(msg);
@@ -210,6 +215,17 @@ export async function resolveTargetAssistant(
       const msg = `No local or platform assistant found with name '${nameArg}'. Make sure you are logged in and this assistant belongs to your account.`;
       console.error(msg);
       emitCliError("ASSISTANT_NOT_FOUND", msg);
+      process.exit(1);
+    }
+
+    // Defensive: the platform helper casts JSON without runtime validation,
+    // so a 200 with a malformed body could yield an object whose `id` is
+    // `undefined`. Reject that explicitly rather than letting `undefined`
+    // flow into the upgrade POST body's `assistant_id` field.
+    if (!platformAssistant.id) {
+      const msg = `Platform returned a malformed response for assistant '${nameArg}'.`;
+      console.error(msg);
+      emitCliError("PLATFORM_API_ERROR", msg);
       process.exit(1);
     }
 

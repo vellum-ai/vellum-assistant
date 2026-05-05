@@ -58,6 +58,43 @@ const fetchAssistantByIdFromPlatformMock = spyOn(
 
 import { resolveTargetAssistant } from "../commands/upgrade.js";
 
+/**
+ * Run `fn` expecting it to call `process.exit(1)` and emit a `CLI_ERROR:`
+ * line on stderr. Returns the parsed payload so callers can make extra
+ * assertions on its fields.
+ */
+async function expectExitsWithCliError(
+  fn: () => Promise<unknown>,
+  expectedCategory: string,
+): Promise<{ payload: { error: string; message: string; detail?: string } }> {
+  const stderrWrites: string[] = [];
+  const stderrWriteMock = spyOn(process.stderr, "write").mockImplementation(
+    (chunk: unknown) => {
+      stderrWrites.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    },
+  );
+  const mockExit = mock((_code?: number) => {
+    throw new Error("process.exit called");
+  });
+  const origExit = process.exit;
+  process.exit = mockExit as unknown as typeof process.exit;
+  try {
+    await expect(fn()).rejects.toThrow("process.exit called");
+    expect(mockExit).toHaveBeenCalledWith(1);
+  } finally {
+    process.exit = origExit;
+    stderrWriteMock.mockRestore();
+  }
+  const cliErrorLine = stderrWrites.find((s) => s.startsWith("CLI_ERROR:"));
+  expect(cliErrorLine).toBeDefined();
+  const payload = JSON.parse(
+    (cliErrorLine ?? "").slice("CLI_ERROR:".length).trim(),
+  );
+  expect(payload.error).toBe(expectedCategory);
+  return { payload };
+}
+
 describe("resolveTargetAssistant platform fallback", () => {
   beforeEach(() => {
     findAssistantByNameMock.mockReset();
@@ -102,34 +139,10 @@ describe("resolveTargetAssistant platform fallback", () => {
     readPlatformTokenMock.mockReturnValue("platform-token");
     fetchAssistantByIdFromPlatformMock.mockResolvedValueOnce(null);
 
-    const stderrWrites: string[] = [];
-    const stderrWriteMock = spyOn(process.stderr, "write").mockImplementation(
-      (chunk: unknown) => {
-        stderrWrites.push(typeof chunk === "string" ? chunk : String(chunk));
-        return true;
-      },
+    await expectExitsWithCliError(
+      () => resolveTargetAssistant("uuid-2"),
+      "ASSISTANT_NOT_FOUND",
     );
-
-    const mockExit = mock((_code?: number) => {
-      throw new Error("process.exit called");
-    });
-    const origExit = process.exit;
-    process.exit = mockExit as unknown as typeof process.exit;
-    try {
-      await expect(resolveTargetAssistant("uuid-2")).rejects.toThrow(
-        "process.exit called",
-      );
-      expect(mockExit).toHaveBeenCalledWith(1);
-      const cliErrorLine = stderrWrites.find((s) => s.startsWith("CLI_ERROR:"));
-      expect(cliErrorLine).toBeDefined();
-      const payload = JSON.parse(
-        (cliErrorLine ?? "").slice("CLI_ERROR:".length).trim(),
-      );
-      expect(payload.error).toBe("ASSISTANT_NOT_FOUND");
-    } finally {
-      process.exit = origExit;
-      stderrWriteMock.mockRestore();
-    }
   });
 
   test("platform fetch throws auth error → exits AUTH_FAILED", async () => {
@@ -138,34 +151,10 @@ describe("resolveTargetAssistant platform fallback", () => {
       new Error("Authentication failed. Run 'vellum login' to refresh."),
     );
 
-    const stderrWrites: string[] = [];
-    const stderrWriteMock = spyOn(process.stderr, "write").mockImplementation(
-      (chunk: unknown) => {
-        stderrWrites.push(typeof chunk === "string" ? chunk : String(chunk));
-        return true;
-      },
+    await expectExitsWithCliError(
+      () => resolveTargetAssistant("uuid-auth"),
+      "AUTH_FAILED",
     );
-
-    const mockExit = mock((_code?: number) => {
-      throw new Error("process.exit called");
-    });
-    const origExit = process.exit;
-    process.exit = mockExit as unknown as typeof process.exit;
-    try {
-      await expect(resolveTargetAssistant("uuid-auth")).rejects.toThrow(
-        "process.exit called",
-      );
-      expect(mockExit).toHaveBeenCalledWith(1);
-      const cliErrorLine = stderrWrites.find((s) => s.startsWith("CLI_ERROR:"));
-      expect(cliErrorLine).toBeDefined();
-      const payload = JSON.parse(
-        (cliErrorLine ?? "").slice("CLI_ERROR:".length).trim(),
-      );
-      expect(payload.error).toBe("AUTH_FAILED");
-    } finally {
-      process.exit = origExit;
-      stderrWriteMock.mockRestore();
-    }
   });
 
   test("platform fetch throws other error → exits PLATFORM_API_ERROR", async () => {
@@ -174,53 +163,20 @@ describe("resolveTargetAssistant platform fallback", () => {
       new Error("Failed to fetch assistant uuid-1: 500 Internal Server Error"),
     );
 
-    const stderrWrites: string[] = [];
-    const stderrWriteMock = spyOn(process.stderr, "write").mockImplementation(
-      (chunk: unknown) => {
-        stderrWrites.push(typeof chunk === "string" ? chunk : String(chunk));
-        return true;
-      },
+    await expectExitsWithCliError(
+      () => resolveTargetAssistant("uuid-500"),
+      "PLATFORM_API_ERROR",
     );
-
-    const mockExit = mock((_code?: number) => {
-      throw new Error("process.exit called");
-    });
-    const origExit = process.exit;
-    process.exit = mockExit as unknown as typeof process.exit;
-    try {
-      await expect(resolveTargetAssistant("uuid-500")).rejects.toThrow(
-        "process.exit called",
-      );
-      expect(mockExit).toHaveBeenCalledWith(1);
-      const cliErrorLine = stderrWrites.find((s) => s.startsWith("CLI_ERROR:"));
-      expect(cliErrorLine).toBeDefined();
-      const payload = JSON.parse(
-        (cliErrorLine ?? "").slice("CLI_ERROR:".length).trim(),
-      );
-      expect(payload.error).toBe("PLATFORM_API_ERROR");
-    } finally {
-      process.exit = origExit;
-      stderrWriteMock.mockRestore();
-    }
   });
 
   test("name not in lockfile + no platform token → exits ASSISTANT_NOT_FOUND, no platform call", async () => {
     readPlatformTokenMock.mockReturnValue(null);
 
-    const mockExit = mock((_code?: number) => {
-      throw new Error("process.exit called");
-    });
-    const origExit = process.exit;
-    process.exit = mockExit as unknown as typeof process.exit;
-    try {
-      await expect(resolveTargetAssistant("uuid-3")).rejects.toThrow(
-        "process.exit called",
-      );
-      expect(mockExit).toHaveBeenCalledWith(1);
-      expect(fetchAssistantByIdFromPlatformMock).not.toHaveBeenCalled();
-    } finally {
-      process.exit = origExit;
-    }
+    await expectExitsWithCliError(
+      () => resolveTargetAssistant("uuid-3"),
+      "ASSISTANT_NOT_FOUND",
+    );
+    expect(fetchAssistantByIdFromPlatformMock).not.toHaveBeenCalled();
   });
 });
 
