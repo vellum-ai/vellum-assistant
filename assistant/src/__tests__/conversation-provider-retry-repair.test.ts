@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { UserMessageAttachment } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
+
+// This test exercises v1 conversation routing. The `memory-v2-enabled` flag
+// (registry default `true`) flips memory routing to v2 — disable it here so
+// the v1 paths under test stay active.
+_setOverridesForTesting({ "memory-v2-enabled": false });
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>

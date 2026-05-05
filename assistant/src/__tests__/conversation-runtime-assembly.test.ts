@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+
+// This test exercises v1 conversation routing. The `memory-v2-enabled` flag
+// (registry default `true`) flips memory routing to v2 — disable it here so
+// the v1 paths under test stay active.
+_setOverridesForTesting({ "memory-v2-enabled": false });
+
 // PKB search is mocked so the reminder-hints tests can assert behavior
 // without standing up Qdrant. The mock returns whatever is staged in
 // `pkbSearchResults` / `pkbSearchThrows` for the enclosing test.

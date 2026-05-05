@@ -25,6 +25,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import {
   applyRuntimeInjections,
   composeInjectorChain,
@@ -33,6 +34,11 @@ import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectorsPlugin,
 } from "../plugins/defaults/injectors.js";
+
+// This test exercises v1 PKB injection. The `memory-v2-enabled` flag
+// (registry default `true`) makes the PKB injector go silent — disable it
+// here so the v1 injection chain assertions stay meaningful.
+_setOverridesForTesting({ "memory-v2-enabled": false });
 import {
   getInjectors,
   registerPlugin,
