@@ -607,6 +607,11 @@ export async function fetchAssistantByIdFromPlatform(
   }
 
   if (response.status === 401 || response.status === 403) {
+    // Direct-response auth failure (authHeaders succeeded, but the assistant
+    // endpoint itself rejected the token). authHeaders has its own internal
+    // log path; this one doesn't, so print here so interactive CLI users see
+    // a human-readable message and don't have to parse JSON stderr.
+    console.error("Authentication failed. Run 'vellum login' to refresh.");
     throw new Error("Authentication failed. Run 'vellum login' to refresh.");
   }
 

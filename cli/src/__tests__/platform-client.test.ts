@@ -307,19 +307,29 @@ describe("fetchAssistantByIdFromPlatform", () => {
     expect(result).toBeNull();
   });
 
-  test("401 → throws", async () => {
+  test("401 → throws and logs human-readable line", async () => {
     const { fetchMock } = captureFetch(() => {
       return new Response("", { status: 401 });
     });
     globalThis.fetch = fetchMock;
 
-    await expect(
-      fetchAssistantByIdFromPlatform(
-        "vak_test_abc",
-        "uuid-123",
-        "https://platform.test",
-      ),
-    ).rejects.toThrow(/Run 'vellum login'/);
+    const errSpy = mock(() => {});
+    const origErr = console.error;
+    console.error = errSpy as unknown as typeof console.error;
+    try {
+      await expect(
+        fetchAssistantByIdFromPlatform(
+          "vak_test_abc",
+          "uuid-123",
+          "https://platform.test",
+        ),
+      ).rejects.toThrow(/Run 'vellum login'/);
+      // Direct-response 401 path must print a human-readable line so
+      // interactive CLI users don't see only the structured CLI_ERROR JSON.
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      console.error = origErr;
+    }
   });
 
   test("auth-shaped error from authHeaders is normalized to standard sentinel", async () => {
