@@ -237,6 +237,10 @@ public final class AuthManager {
                     continuation.resume(throwing: AuthServiceError.authCallbackFailed("No callback URL received."))
                 }
             }
+            // Use an ephemeral (private) session so each auth attempt starts
+            // with a clean cookie jar. Without this, stale WorkOS cookies
+            // from a failed attempt (e.g. signup_closed) persist and cause
+            // an infinite error loop on retry.
             session.prefersEphemeralWebBrowserSession = true
             session.presentationContextProvider = WebAuthPresentationContext.shared
             self.webAuthSession = session
