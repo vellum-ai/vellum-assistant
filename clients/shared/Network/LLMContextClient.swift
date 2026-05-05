@@ -570,6 +570,11 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
     /// step. Same semantics as `simUserRerankBoost`. NOW channel bypasses
     /// rerank, so there is no corresponding NOW boost.
     public let simAssistantRerankBoost: Double
+    /// True when this slug was in the unified top-K rerank pool. Lets the
+    /// inspector keep the rerank rows visible at `+0.000` when the channel
+    /// max normalised to 0, distinguishing "cross-encoder looked and chose
+    /// 0" from "rerank skipped this slug." Older log rows decode as `false`.
+    public let inRerankPool: Bool
     public let spreadContribution: Double
     public let source: String  // "prior_state" | "ann_top50" | "both"
     public let status: String  // "in_context" | "injected" | "not_injected"
@@ -584,6 +589,7 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
         simNow: Double,
         simUserRerankBoost: Double = 0,
         simAssistantRerankBoost: Double = 0,
+        inRerankPool: Bool = false,
         spreadContribution: Double,
         source: String,
         status: String
@@ -597,6 +603,7 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
         self.simNow = simNow
         self.simUserRerankBoost = simUserRerankBoost
         self.simAssistantRerankBoost = simAssistantRerankBoost
+        self.inRerankPool = inRerankPool
         self.spreadContribution = spreadContribution
         self.source = source
         self.status = status
@@ -616,6 +623,7 @@ public struct MemoryV2ConceptRow: Codable, Sendable, Equatable, Identifiable {
         // failing the whole inspector tab.
         self.simUserRerankBoost = try c.decodeIfPresent(Double.self, forKey: .simUserRerankBoost) ?? 0
         self.simAssistantRerankBoost = try c.decodeIfPresent(Double.self, forKey: .simAssistantRerankBoost) ?? 0
+        self.inRerankPool = try c.decodeIfPresent(Bool.self, forKey: .inRerankPool) ?? false
         self.spreadContribution = try c.decode(Double.self, forKey: .spreadContribution)
         self.source = try c.decode(String.self, forKey: .source)
         self.status = try c.decode(String.self, forKey: .status)

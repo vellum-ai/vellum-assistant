@@ -62,6 +62,7 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
                         simNow: concept.simNow,
                         simUserRerankBoost: concept.simUserRerankBoost,
                         simAssistantRerankBoost: concept.simAssistantRerankBoost,
+                        inRerankPool: concept.inRerankPool,
                         config: activation.config
                     )
                 )
@@ -107,6 +108,7 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         simNow: Double,
         simUserRerankBoost: Double = 0,
         simAssistantRerankBoost: Double = 0,
+        inRerankPool: Bool = false,
         config: MemoryV2Config
     ) -> [LabeledValue] {
         var rows: [LabeledValue] = [
@@ -125,17 +127,17 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         ]
         // Rerank contributes additively to A_o weighted by c_user / c_assistant
         // — render as standalone rows (not nested under c_user · sim_u) so the
-        // sum across all visible rows equals the row's A_o. Only show when the
-        // cross-encoder actually contributed: the activation log stores the
-        // realized delta only, so "+0.000" everywhere with rerank enabled
-        // would just be noise.
-        if simUserRerankBoost > 0 {
+        // sum across all visible rows equals the row's A_o. Render both
+        // channels together whenever the slug was in the rerank pool, so
+        // a "+0.000" boost shows up explicitly as "looked at and chose 0"
+        // rather than vanishing. The boost-value fallback handles older log
+        // rows that pre-date `inRerankPool`.
+        let showRerankRows = inRerankPool || simUserRerankBoost > 0 || simAssistantRerankBoost > 0
+        if showRerankRows {
             rows.append(LabeledValue(
                 label: "c_user · rerank Δ_u",
                 value: "+\(formatScaled(simUserRerankBoost, scale: config.cUser))  (raw \(formatActivation(simUserRerankBoost)))"
             ))
-        }
-        if simAssistantRerankBoost > 0 {
             rows.append(LabeledValue(
                 label: "c_assistant · rerank Δ_a",
                 value: "+\(formatScaled(simAssistantRerankBoost, scale: config.cAssistant))  (raw \(formatActivation(simAssistantRerankBoost)))"

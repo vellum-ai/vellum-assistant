@@ -29,6 +29,15 @@ export interface MemoryV2ConceptRowRecord {
    * `simNowRerankBoost`.
    */
   simAssistantRerankBoost: number;
+  /**
+   * True when rerank ran and this slug landed in the unified
+   * top-K-by-pre-rerank-A_o pool. Distinguishes "cross-encoder evaluated
+   * this and chose 0" from "rerank skipped this slug" so the inspector
+   * can keep the rerank rows visible at `+0.000` instead of silently
+   * dropping them. Older log rows pre-date this field and decode with
+   * `undefined`; readers should fall back to `false`.
+   */
+  inRerankPool: boolean;
   spreadContribution: number;
   source: "prior_state" | "ann_top50" | "both";
   status: "in_context" | "injected" | "not_injected" | "page_missing";

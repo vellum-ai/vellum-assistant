@@ -52,6 +52,7 @@ function makeConcept(
     simNow: 0.1,
     simUserRerankBoost: 0,
     simAssistantRerankBoost: 0,
+    inRerankPool: false,
     spreadContribution: 0.1,
     source: "ann_top50",
     status,

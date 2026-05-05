@@ -178,6 +178,8 @@ interface OwnActivationBreakdown {
   simUserRerankBoost: number;
   /** Rerank delta `α · r_norm_a`; 0 outside the top-K pool. Applied to `A_o` weighted by `c_assistant`. NOW skips rerank. */
   simAssistantRerankBoost: number;
+  /** True when this slug was in the unified top-K rerank pool. Lets the inspector distinguish "cross-encoder normalised to 0" from "rerank skipped this slug." */
+  inRerankPool: boolean;
 }
 
 interface ComputeOwnActivationResult {
@@ -260,6 +262,7 @@ export async function computeOwnActivation(
   // serialised round-trips.
   let userRerankBoost: ReadonlyMap<string, number> = new Map();
   let assistantRerankBoost: ReadonlyMap<string, number> = new Map();
+  let inPoolSet: ReadonlySet<string> = new Set();
   const rerankCfg = config.memory.v2.rerank;
   if (rerankCfg?.enabled) {
     const topSlugs = inputs
@@ -268,6 +271,7 @@ export async function computeOwnActivation(
       .slice(0, rerankCfg.top_k)
       .map((e) => e.slug);
     if (topSlugs.length > 0) {
+      inPoolSet = new Set(topSlugs);
       const [userScores, assistantScores] = await rerankCandidates(
         [userText, assistantText],
         topSlugs,
@@ -295,6 +299,7 @@ export async function computeOwnActivation(
       simNow: e.simN,
       simUserRerankBoost: boostU,
       simAssistantRerankBoost: boostA,
+      inRerankPool: inPoolSet.has(e.slug),
     });
   }
 

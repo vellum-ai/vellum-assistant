@@ -742,6 +742,32 @@ describe("computeOwnActivation", () => {
     expect(
       out.breakdown.get("winner")?.simAssistantRerankBoost,
     ).toBeGreaterThan(0);
+    // inRerankPool tags pool membership independently of the boost value, so
+    // the inspector can keep the rerank rows visible even when the channel
+    // max happened to normalise to 0.
+    expect(out.breakdown.get("winner")?.inRerankPool).toBe(true);
+    expect(out.breakdown.get("loser")?.inRerankPool).toBe(false);
+  });
+
+  test("inRerankPool is false for every slug when rerank is disabled", async () => {
+    stageHybridResponse([{ slug: "alice", denseScore: 0.5 }]);
+    stageHybridResponse([{ slug: "alice", denseScore: 0.4 }]);
+    stageHybridResponse([{ slug: "alice", denseScore: 0.2 }]);
+
+    // No `rerank` block at all → rerankCfg is undefined and the rerank
+    // branch never runs, so no slug is in the pool.
+    const out = await computeOwnActivation({
+      candidates: new Set(["alice"]),
+      priorState: null,
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig(),
+    });
+
+    expect(out.breakdown.get("alice")?.inRerankPool).toBe(false);
+    expect(out.breakdown.get("alice")?.simUserRerankBoost).toBe(0);
+    expect(out.breakdown.get("alice")?.simAssistantRerankBoost).toBe(0);
   });
 
   test("rerank boost is additive on A_o and leaves raw simUser / simAssistant untouched", async () => {
