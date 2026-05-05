@@ -493,6 +493,14 @@ Examples:
               }
             }
 
+            // If the daemon was reachable but returned an error, surface it rather than
+            // falling back to in-process (which would re-introduce the heap-split bug for
+            // gateway transport).
+            if (!startResult.ok && startResult.statusCode !== undefined) {
+              writeError(startResult.error ?? "OAuth connect failed (daemon error)");
+              return;
+            }
+
             // IPC unavailable (daemon unreachable, older daemon without this route, socket missing).
             // Fall through to the existing in-process flow. This still carries the heap-split bug
             // for gateway transport, but if the daemon is unreachable we have a worse problem;

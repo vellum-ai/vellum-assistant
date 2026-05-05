@@ -46,7 +46,7 @@ let mockCliIpcCallFn: (
   method: string,
   params?: Record<string, unknown>,
   opts?: { timeoutMs?: number },
-) => Promise<{ ok: boolean; result?: unknown; error?: string }> = async () => ({
+) => Promise<{ ok: boolean; result?: unknown; error?: string; statusCode?: number }> = async () => ({
   ok: false,
   error: "IPC unavailable (default mock — forces fallback)",
 });
@@ -928,6 +928,75 @@ describe("assistant oauth connect", () => {
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
       expect(parsed.accountInfo).toBe("fallback@example.com");
+    });
+
+    test("IPC returns ok:false with statusCode → surfaces daemon error, does NOT fall back", async () => {
+      // Daemon was reachable but returned an error (e.g. 500)
+      mockCliIpcCallFn = async (method) => {
+        if (method === "internal_oauth_connect_start") {
+          return { ok: false, statusCode: 500, error: "internal server error" };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+      let orchestratorCalled = false;
+      mockOrchestrateOAuthConnect = async () => {
+        orchestratorCalled = true;
+        return { success: true, deferred: false, grantedScopes: [] };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--json",
+      ]);
+      expect(exitCode).toBe(1);
+      // Must NOT fall back to the in-process orchestrator
+      expect(orchestratorCalled).toBe(false);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toBe("internal server error");
+    });
+
+    test("IPC start with --callback-transport=gateway passes callbackTransport in body", async () => {
+      let capturedParams: Record<string, unknown> | undefined;
+      mockCliIpcCallFn = async (method, params) => {
+        if (method === "internal_oauth_connect_start") {
+          capturedParams = params;
+          return {
+            ok: true,
+            result: {
+              auth_url: "https://accounts.google.com/o/oauth2/auth?state=gw-state",
+              state: "gw-state",
+            },
+          };
+        }
+        if (method === "internal_oauth_connect_status") {
+          return {
+            ok: true,
+            result: {
+              status: "complete",
+              service: "google",
+              account_info: "gw-user@example.com",
+            },
+          };
+        }
+        return { ok: false, error: "unexpected method" };
+      };
+
+      const { exitCode, stdout } = await runCommand([
+        "connect",
+        "google",
+        "--callback-transport",
+        "gateway",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      // Verify callbackTransport was forwarded in the IPC body
+      expect(capturedParams).toBeDefined();
+      expect((capturedParams!.body as Record<string, unknown>).callbackTransport).toBe("gateway");
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.accountInfo).toBe("gw-user@example.com");
     });
   });
 
