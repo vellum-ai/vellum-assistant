@@ -61,7 +61,7 @@ const ANTHROPIC_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
 const CUSTOM_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   "custom-balanced": {
     intent: "balanced",
-    source: "managed",
+    source: "user",
     label: "Balanced (Custom Provider)",
     description: "Good balance of quality, cost, and speed",
     maxTokens: 16000,
@@ -71,7 +71,7 @@ const CUSTOM_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
   "custom-quality-optimized": {
     intent: "quality-optimized",
-    source: "managed",
+    source: "user",
     label: "Quality (Custom Provider)",
     description: "Best results with the most capable model",
     maxTokens: 32000,
@@ -81,7 +81,7 @@ const CUSTOM_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
   "custom-cost-optimized": {
     intent: "latency-optimized",
-    source: "managed",
+    source: "user",
     label: "Speed (Custom Provider)",
     description: "Fastest responses at lower cost",
     maxTokens: 8192,
@@ -91,7 +91,11 @@ const CUSTOM_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
 };
 
-export const MANAGED_PROFILE_NAMES = new Set([
+export const MANAGED_PROFILE_NAMES = new Set(
+  Object.keys(ANTHROPIC_PROFILE_TEMPLATES),
+);
+
+const SEEDED_PROFILE_NAMES = new Set([
   ...Object.keys(ANTHROPIC_PROFILE_TEMPLATES),
   ...Object.keys(CUSTOM_PROFILE_TEMPLATES),
 ]);
@@ -185,8 +189,7 @@ export function seedInferenceProfiles(
   if (!isAnthropicDefault) {
     for (const [name, template] of Object.entries(CUSTOM_PROFILE_TEMPLATES)) {
       if (preservedProfileNames.has(name)) continue;
-      const existing = readObject(profiles[name]);
-      if (existing !== null && readString(existing.source) === "user") continue;
+      if (readObject(profiles[name]) !== null) continue;
       profiles[name] = materializeProfile(template, resolvedProvider);
     }
   }
@@ -209,10 +212,10 @@ export function seedInferenceProfiles(
   // User-created profiles are left alone — those are the user's choice.
   let keepActiveProfile = shouldPreserveActiveProfile;
   if (!keepActiveProfile && requestedActiveExists) {
-    const isManagedName = MANAGED_PROFILE_NAMES.has(requestedActiveProfile!);
+    const isSeededName = SEEDED_PROFILE_NAMES.has(requestedActiveProfile!);
     const activeProvider = readString(requestedActiveEntry?.provider);
     const managedActiveProviderMismatch =
-      isManagedName && activeProvider !== resolvedProvider;
+      isSeededName && activeProvider !== resolvedProvider;
     keepActiveProfile = !managedActiveProviderMismatch;
   }
 
