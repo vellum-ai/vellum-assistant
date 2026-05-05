@@ -28,7 +28,6 @@ import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
 import {
   type MemoryV2ConceptRowRecord,
-  type MemoryV2SkillRowRecord,
   recordMemoryV2ActivationLog,
 } from "../memory-v2-activation-log-store.js";
 import { getConceptFrequencySummary } from "../memory-v2-concept-frequency.js";
@@ -38,7 +37,6 @@ import { sampleConfig } from "./fixtures/memory-v2-activation-fixtures.js";
 initializeDb();
 
 const WORKSPACE = "/tmp/memory-v2-concept-frequency-test";
-const NO_SKILLS: MemoryV2SkillRowRecord[] = [];
 
 function makeConcept(
   slug: string,
@@ -80,7 +78,6 @@ describe("memory-v2-concept-frequency", () => {
         makeConcept("alice", "injected"),
         makeConcept("bob", "not_injected"),
       ],
-      skills: NO_SKILLS,
       config: sampleConfig,
     });
     recordMemoryV2ActivationLog({
@@ -91,7 +88,6 @@ describe("memory-v2-concept-frequency", () => {
         makeConcept("alice", "in_context"),
         makeConcept("bob", "injected"),
       ],
-      skills: NO_SKILLS,
       config: sampleConfig,
     });
     recordMemoryV2ActivationLog({
@@ -102,7 +98,6 @@ describe("memory-v2-concept-frequency", () => {
         makeConcept("alice", "injected"),
         makeConcept("charlie", "page_missing"),
       ],
-      skills: NO_SKILLS,
       config: sampleConfig,
     });
 
@@ -161,7 +156,6 @@ describe("memory-v2-concept-frequency", () => {
       turn: 1,
       mode: "per-turn",
       concepts: [makeConcept("alice", "injected")],
-      skills: NO_SKILLS,
       config: sampleConfig,
     });
     recordMemoryV2ActivationLog({
@@ -172,7 +166,6 @@ describe("memory-v2-concept-frequency", () => {
         makeConcept("alice", "injected"),
         makeConcept("alice", "injected"),
       ],
-      skills: NO_SKILLS,
       config: sampleConfig,
     });
 
@@ -203,7 +196,6 @@ describe("memory-v2-concept-frequency", () => {
       turn: 1,
       mode: "per-turn",
       concepts: [makeConcept("alice", "injected")],
-      skills: NO_SKILLS,
       config: sampleConfig,
     });
     // Backdate the just-written row — recordMemoryV2ActivationLog uses Date.now().
@@ -214,7 +206,6 @@ describe("memory-v2-concept-frequency", () => {
       turn: 2,
       mode: "per-turn",
       concepts: [makeConcept("alice", "injected")],
-      skills: NO_SKILLS,
       config: sampleConfig,
     });
 
@@ -242,7 +233,6 @@ describe("memory-v2-concept-frequency", () => {
         makeConcept("bob", "not_injected"),
         makeConcept("charlie", "page_missing"),
       ],
-      skills: NO_SKILLS,
       config: sampleConfig,
     });
 
@@ -268,7 +258,6 @@ describe("memory-v2-concept-frequency", () => {
       turn: 1,
       mode: "per-turn",
       concepts: [makeConcept("ghost", "injected")],
-      skills: NO_SKILLS,
       config: sampleConfig,
     });
 
