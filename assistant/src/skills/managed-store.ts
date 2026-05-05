@@ -197,7 +197,7 @@ interface CreateManagedSkillParams {
 interface CreateManagedSkillResult {
   created: boolean;
   path: string;
-  /** @deprecated Managed skills no longer update SKILLS.md; always false. */
+  /** @deprecated Always false; managed skills are discovered from SKILL.md files. */
   indexUpdated: boolean;
   error?: string;
 }
@@ -279,7 +279,7 @@ export function createManagedSkill(
 
 interface DeleteManagedSkillResult {
   deleted: boolean;
-  /** @deprecated Managed skills no longer update SKILLS.md; always false. */
+  /** @deprecated Always false; managed skills are discovered from SKILL.md files. */
   indexUpdated: boolean;
   error?: string;
 }

@@ -17,7 +17,7 @@ export async function executeDeleteManagedSkill(
     };
   }
 
-  // remove_from_index is accepted for compatibility but no longer changes behavior.
+  // remove_from_index is accepted for compatibility; it has no effect.
   const result = deleteManagedSkill(skillId.trim());
 
   if (!result.deleted) {

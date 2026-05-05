@@ -83,7 +83,7 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
-  // add_to_index is accepted for compatibility but no longer changes behavior.
+  // add_to_index is accepted for compatibility; it has no effect.
   const result = createManagedSkill({
     id: skillId.trim(),
     name: sanitizeFrontmatterValue(name),
