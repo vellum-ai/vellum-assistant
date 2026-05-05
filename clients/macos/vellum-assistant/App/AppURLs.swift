@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 
 /// Centralized URLs the macOS app links out to.
 ///
@@ -70,6 +71,38 @@ public enum AppURLs {
     /// AI Data Sharing Policy docs — linked from the onboarding AI data consent checkbox.
     public static var dataSharingDocs: URL {
         docsURL(path: "/data-sharing")
+    }
+
+    // MARK: - Web app URLs
+
+    /// Web app billing settings page — opened from the Settings → Billing tab's
+    /// "Adjust Plan" and "Configure Auto Top Ups" buttons (both gated by the
+    /// `pro-plan-adjust` feature flag). Resolves to the Next.js web app at
+    /// `<webURL>/assistant/settings/billing` for the current build environment.
+    ///
+    /// If `VELLUM_WEB_URL` is set but malformed (no scheme/host, non-http(s),
+    /// or contains a query/fragment), falls back to the canonical environment
+    /// URL via `VellumEnvironment.current.webURL`. Query/fragment are rejected
+    /// because string-concatenating a literal path onto `https://host?foo=bar`
+    /// would produce `https://host?foo=bar/assistant/settings/billing` — the
+    /// path gets absorbed into the query string. Mirrors the validation in
+    /// `docsBaseURL` above. Force-unwrap on the final `URL(string:)` is safe
+    /// because both candidate base strings are validated/known-good and the
+    /// path is a literal.
+    public static var billingSettings: URL {
+        let candidate = VellumEnvironment.resolvedWebURL
+        let base: String
+        if let url = URL(string: candidate),
+           let scheme = url.scheme?.lowercased(),
+           (scheme == "http" || scheme == "https"),
+           url.host != nil,
+           url.query == nil,
+           url.fragment == nil {
+            base = candidate
+        } else {
+            base = VellumEnvironment.current.webURL
+        }
+        return URL(string: "\(base)/assistant/settings/billing")!
     }
 
     // MARK: - Source repository
