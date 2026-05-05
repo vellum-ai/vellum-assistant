@@ -588,6 +588,13 @@ export const PROVIDER_SEED_DATA: Record<
     tokenExchangeUrl: "https://login.salesforce.com/services/oauth2/token",
     refreshUrl: "https://login.salesforce.com/services/oauth2/token",
     pingUrl: "https://login.salesforce.com/services/oauth2/userinfo",
+    // baseUrl points at the login domain — correct for the OAuth handshake
+    // and for ``/services/oauth2/userinfo``/``revoke`` calls. REST API calls
+    // to ``/services/data/...`` go to the per-org instance host returned in
+    // the token response as ``instance_url`` and stored on
+    // ``oauth_connection.metadata``. ``connection-resolver.ts`` substitutes
+    // that instance URL when constructing the BYO connection so callers
+    // don't need to override ``baseUrl`` per request.
     baseUrl: "https://login.salesforce.com",
     displayLabel: "Salesforce",
     description: "CRM contacts, leads, and opportunities",
