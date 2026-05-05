@@ -1,7 +1,4 @@
-import {
-  isModelInCatalog,
-  PROVIDER_CATALOG,
-} from "../providers/model-catalog.js";
+import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
 import type { ModelIntent } from "../providers/types.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
@@ -145,26 +142,40 @@ export function seedInferenceProfiles(
 
   const requestedProvider =
     readString(readObject(llm.default)?.provider) ?? "anthropic";
+  const isKnownProvider = KNOWN_PROVIDERS.has(requestedProvider);
   const resolvedProvider: NonNullable<ProfileEntry["provider"]> =
-    KNOWN_PROVIDERS.has(requestedProvider)
+    isKnownProvider
       ? (requestedProvider as NonNullable<ProfileEntry["provider"]>)
       : "anthropic";
   const isAnthropicDefault = resolvedProvider === "anthropic";
 
+  // Persist the resolved provider when the overlay supplied an unrecognized
+  // value, so the on-disk config doesn't keep emitting Zod warnings for
+  // `unknownprov` on every load.
+  if (!isKnownProvider) {
+    const defaultBlock = (readObject(llm.default) ?? {}) as Record<
+      string,
+      unknown
+    >;
+    defaultBlock.provider = resolvedProvider;
+    llm.default = defaultBlock;
+  }
+
   for (const [name, template] of Object.entries(ANTHROPIC_PROFILE_TEMPLATES)) {
     if (preservedProfileNames.has(name)) continue;
-    // Preserve a previously overlay-supplied non-Anthropic version of an
-    // Anthropic-managed name (e.g. platform-managed `balanced` with provider
-    // `openai`). The overlay file is consumed and archived after first use,
-    // so `preservedProfileNames` is only populated on the boot where the
-    // overlay is merged — on subsequent boots the on-disk shape is the only
-    // signal that the profile was platform-supplied.
+    // Preserve a previously overlay-supplied profile whose provider matches
+    // the resolved default — that's the platform-managed case where the
+    // overlay file has already been consumed and archived. Only valid for
+    // non-Anthropic resolutions; when the default is Anthropic the daemon
+    // owns these names and re-seeds with Anthropic data so a stale openai
+    // `balanced` doesn't keep routing through the wrong provider after a
+    // re-hatch back to Anthropic.
     const existing = readObject(profiles[name]);
     const existingProvider = readString(existing?.provider);
     if (
       existing !== null &&
-      existingProvider !== undefined &&
-      existingProvider !== "anthropic"
+      !isAnthropicDefault &&
+      existingProvider === resolvedProvider
     ) {
       continue;
     }
@@ -213,9 +224,13 @@ export function seedInferenceProfiles(
 
   // Sync `llm.default.model` to the active profile's model so the providers
   // registry sees a coherent provider/model pair. Only writes when the on-disk
-  // default model is missing or belongs to a different provider's catalog —
-  // a user-supplied model that's valid for the resolved provider is preserved.
-  // Skipped when the overlay owns the active profile (platform mode).
+  // default model is missing or unambiguously belongs to a *different*
+  // provider's catalog (e.g. `claude-opus-4-7` paired with `provider: openai`).
+  // A user-supplied model not listed in any provider's catalog is preserved —
+  // ollama and openrouter expose far more models than `PROVIDER_CATALOG` lists,
+  // and silently overwriting `codellama`/`phi3`/etc. on every restart would
+  // break those users' configs. Skipped when the overlay owns the active
+  // profile (platform mode).
   if (!shouldPreserveActiveProfile) {
     const activeEntry = readObject(profiles[activeProfileName]);
     const activeModel = readString(activeEntry?.model);
@@ -225,10 +240,16 @@ export function seedInferenceProfiles(
         unknown
       >;
       const currentModel = readString(defaultBlock.model);
-      const currentModelMatchesProvider =
+      const modelBelongsToOtherProvider =
         currentModel !== undefined &&
-        isModelInCatalog(resolvedProvider, currentModel);
-      if (!currentModelMatchesProvider) {
+        PROVIDER_CATALOG.some(
+          (p) =>
+            p.id !== resolvedProvider &&
+            p.models.some((m) => m.id === currentModel),
+        );
+      const shouldOverwriteDefaultModel =
+        currentModel === undefined || modelBelongsToOtherProvider;
+      if (shouldOverwriteDefaultModel) {
         defaultBlock.model = activeModel;
         llm.default = defaultBlock;
       }

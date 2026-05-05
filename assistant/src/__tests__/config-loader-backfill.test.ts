@@ -550,6 +550,26 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles["custom-balanced"]).toBeUndefined();
     expect(raw.llm.profiles["custom-quality-optimized"]).toBeUndefined();
     expect(raw.llm.profiles["custom-cost-optimized"]).toBeUndefined();
+    // The unrecognized provider should be rewritten on disk so subsequent
+    // loads don't trip Zod's enum validation warning.
+    expect(raw.llm.default.provider).toBe("anthropic");
+  });
+
+  test("preserves user-supplied non-catalog model on every restart (ollama custom model)", () => {
+    // Models the ollama case: catalog lists only `llama3.2` but the user has
+    // pulled `codellama`. The seeder must NOT silently overwrite their pick.
+    writeConfig({
+      llm: { default: { provider: "ollama", model: "codellama" } },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    let raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default.model).toBe("codellama");
+
+    // Re-run to confirm idempotency — the user's model survives every restart.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default.model).toBe("codellama");
   });
 
   test("syncs llm.default.model to active profile when missing or inconsistent, respects explicit user values", () => {
