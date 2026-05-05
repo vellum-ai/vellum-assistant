@@ -118,6 +118,24 @@ export async function tryIpcProxy(
     }
   });
 
+  // Override caller-supplied identity headers with values derived from the
+  // verified JWT claims. The daemon's IPC adapter (`injectLocalActorHeader`)
+  // preserves any inbound `x-vellum-actor-principal-id`, so without this
+  // step a malicious client could spoof another user's principal id by
+  // setting the header explicitly. Mirrors the HTTP adapter's behavior in
+  // `assistant/src/runtime/routes/http-adapter.ts`.
+  delete headers["x-vellum-actor-principal-id"];
+  delete headers["x-vellum-principal-type"];
+  if (claims) {
+    const sub = parseSub(claims.sub);
+    if (sub.ok) {
+      headers["x-vellum-principal-type"] = sub.principalType;
+      if (sub.actorPrincipalId) {
+        headers["x-vellum-actor-principal-id"] = sub.actorPrincipalId;
+      }
+    }
+  }
+
   let body: Record<string, unknown> | undefined;
   if (req.method !== "GET" && req.method !== "HEAD") {
     const contentType = req.headers.get("content-type") ?? "";
