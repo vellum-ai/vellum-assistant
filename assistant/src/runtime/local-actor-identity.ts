@@ -44,6 +44,17 @@ export function buildLocalAuthContext(conversationId: string): AuthContext {
 }
 
 /**
+ * Look up the local vellum guardian's principalId from the contacts table.
+ *
+ * Returns `undefined` when no vellum guardian binding exists (e.g. fresh
+ * install before bootstrap). Callers should treat that case as
+ * "not yet available" and either fall back or proceed without a principalId.
+ */
+export function findLocalGuardianPrincipalId(): string | undefined {
+  return findGuardianForChannel("vellum")?.contact.principalId ?? undefined;
+}
+
+/**
  * Resolve the guardian runtime context for a local connection.
  *
  * Looks up the vellum guardian binding to obtain the `guardianPrincipalId`,
@@ -60,10 +71,8 @@ export function resolveLocalTrustContext(
 ): TrustContext {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
-  // Try contacts-first for the vellum guardian channel
-  const guardianResult = findGuardianForChannel("vellum");
-  if (guardianResult && guardianResult.contact.principalId) {
-    const guardianPrincipalId = guardianResult.contact.principalId;
+  const guardianPrincipalId = findLocalGuardianPrincipalId();
+  if (guardianPrincipalId) {
     const trustCtx = resolveTrustContext({
       assistantId,
       sourceChannel: "vellum",
@@ -86,22 +95,6 @@ export function resolveLocalTrustContext(
 }
 
 /**
- * Resolve the local guardian's `actorPrincipalId` from the vellum channel
- * binding, when available.
- *
- * Returns `undefined` when no vellum guardian binding exists (e.g. fresh
- * install before bootstrap). Callers that need an `AuthContext` shape
- * should use `resolveLocalAuthContext`; callers that only need the
- * principal id (e.g. the IPC adapter populating the
- * `x-vellum-actor-principal-id` header for shared route handlers) can
- * use this directly.
- */
-export function resolveLocalActorPrincipalId(): string | undefined {
-  const guardianResult = findGuardianForChannel("vellum");
-  return guardianResult?.contact.principalId ?? undefined;
-}
-
-/**
  * Build an AuthContext for a local connection.
  *
  * Produces the same AuthContext shape that HTTP routes receive from JWT
@@ -113,9 +106,9 @@ export function resolveLocalActorPrincipalId(): string | undefined {
 export function resolveLocalAuthContext(conversationId: string): AuthContext {
   const authContext = buildLocalAuthContext(conversationId);
 
-  const actorPrincipalId = resolveLocalActorPrincipalId();
-  if (actorPrincipalId) {
-    return { ...authContext, actorPrincipalId };
+  const guardianPrincipalId = findLocalGuardianPrincipalId();
+  if (guardianPrincipalId) {
+    return { ...authContext, actorPrincipalId: guardianPrincipalId };
   }
 
   log.warn(

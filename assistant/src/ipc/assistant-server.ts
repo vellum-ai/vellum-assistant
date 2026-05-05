@@ -32,7 +32,7 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
-import { resolveLocalActorPrincipalId } from "../runtime/local-actor-identity.js";
+import { findLocalGuardianPrincipalId } from "../runtime/local-actor-identity.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/index.js";
 import type {
@@ -490,7 +490,7 @@ function injectLocalActorHeader(
   // that require the header will fail-closed on their own.
   let localActor: string | undefined;
   try {
-    localActor = resolveLocalActorPrincipalId();
+    localActor = findLocalGuardianPrincipalId();
   } catch (err) {
     log.debug(
       { err },
