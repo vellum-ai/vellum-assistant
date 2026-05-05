@@ -1,5 +1,41 @@
 import { z } from "zod";
 
+const IANA_TIMEZONE_IDENTIFIER_RE =
+  /^(?:UTC|[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+)$/;
+
+function canonicalizeIanaTimezone(timezone: string): string | null {
+  const trimmed = timezone.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  if (!IANA_TIMEZONE_IDENTIFIER_RE.test(trimmed)) {
+    return null;
+  }
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: trimmed,
+    }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
+function timezoneConfigField(path: string) {
+  return z
+    .string({ error: `${path} must be a string` })
+    .transform((value, ctx) => {
+      const canonical = canonicalizeIanaTimezone(value);
+      if (canonical === null) {
+        ctx.addIssue({
+          code: "custom",
+          message: `${path} must be a valid IANA timezone identifier or an empty string`,
+        });
+        return z.NEVER;
+      }
+      return canonical;
+    });
+}
+
 export const PlatformConfigSchema = z
   .object({
     baseUrl: z
@@ -56,11 +92,15 @@ export const DaemonConfigSchema = z
 
 export const UiConfigSchema = z
   .object({
-    userTimezone: z
-      .string({ error: "ui.userTimezone must be a string" })
+    userTimezone: timezoneConfigField("ui.userTimezone")
       .optional()
       .describe(
-        "IANA timezone identifier for displaying dates and times (e.g. 'America/New_York')",
+        "Manual IANA timezone override used for assistant temporal grounding and date/time display (e.g. 'America/New_York'). Use an empty string to clear the setting.",
+      ),
+    detectedTimezone: timezoneConfigField("ui.detectedTimezone")
+      .optional()
+      .describe(
+        "IANA timezone identifier detected from the client environment for assistant temporal grounding when no manual override is configured (e.g. 'America/New_York'). Use an empty string to clear the setting.",
       ),
   })
   .describe(
