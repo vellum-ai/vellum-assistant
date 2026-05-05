@@ -23,6 +23,7 @@ import {
 } from "../lib/platform-releases";
 import {
   authHeaders,
+  fetchAssistantByIdFromPlatform,
   getPlatformUrl,
   readPlatformToken,
 } from "../lib/platform-client";
@@ -164,10 +165,20 @@ function resolveCloud(entry: AssistantEntry): string {
  * 2. Active assistant set via `vellum use`
  * 3. Sole assistant (when exactly one exists)
  */
-function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
+export async function resolveTargetAssistant(
+  nameArg: string | null,
+): Promise<AssistantEntry> {
   if (nameArg) {
     const entry = findAssistantByName(nameArg);
-    if (!entry) {
+    if (entry) return entry;
+
+    // Local lockfile miss. The macOS app stores its lockfile in a
+    // sandboxed container the CLI can't read, so a platform-managed
+    // assistant identified by UUID won't be found locally even though
+    // it exists. If we have a platform token, try resolving the name
+    // against the platform API and synthesize an in-memory entry.
+    const token = readPlatformToken();
+    if (!token) {
       console.error(`No assistant found with name '${nameArg}'.`);
       emitCliError(
         "ASSISTANT_NOT_FOUND",
@@ -175,7 +186,38 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
       );
       process.exit(1);
     }
-    return entry;
+
+    let platformAssistant;
+    try {
+      platformAssistant = await fetchAssistantByIdFromPlatform(token, nameArg);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (
+        detail.includes("Authentication failed") ||
+        detail.includes("vellum login")
+      ) {
+        const msg = `Authentication failed while looking up assistant '${nameArg}'. Run 'vellum login' to refresh.`;
+        console.error(msg);
+        emitCliError("AUTH_FAILED", msg, detail);
+      } else {
+        const msg = `Failed to look up assistant '${nameArg}' on the platform: ${detail}`;
+        console.error(msg);
+        emitCliError("PLATFORM_API_ERROR", msg, detail);
+      }
+      process.exit(1);
+    }
+    if (!platformAssistant) {
+      const msg = `No local or platform assistant found with name '${nameArg}'. Make sure you are logged in and this assistant belongs to your account.`;
+      console.error(msg);
+      emitCliError("ASSISTANT_NOT_FOUND", msg);
+      process.exit(1);
+    }
+
+    return {
+      assistantId: nameArg,
+      cloud: "vellum",
+      runtimeUrl: getPlatformUrl(),
+    };
   }
 
   const active = getActiveAssistant();
@@ -512,7 +554,10 @@ async function upgradeDocker(
   } else {
     console.error(`\n❌ Containers failed to become ready within the timeout.`);
 
-    const logDir = await captureUpgradeFailureLogs(res, `${instanceName}-upgrade-failure`);
+    const logDir = await captureUpgradeFailureLogs(
+      res,
+      `${instanceName}-upgrade-failure`,
+    );
     if (logDir) {
       console.log(`📋 Container logs saved to: ${logDir}`);
     }
@@ -938,7 +983,8 @@ async function resolveLatestAndMaybeSelfUpdate(
     );
     if (installResult.error || installResult.status !== 0) {
       const detail =
-        installResult.error?.message ?? `exited with code ${installResult.status}`;
+        installResult.error?.message ??
+        `exited with code ${installResult.status}`;
       console.error(`\n❌ CLI self-update failed: ${detail}`);
       emitCliError("CLI_UPDATE_FAILED", "CLI self-update failed", detail);
       process.exit(1);
@@ -967,7 +1013,7 @@ async function resolveLatestAndMaybeSelfUpdate(
 
 export async function upgrade(): Promise<void> {
   const { name, version, latest, prepare, finalize } = parseArgs();
-  const entry = resolveTargetAssistant(name);
+  const entry = await resolveTargetAssistant(name);
 
   if (prepare) {
     await upgradePrepare(entry, version);
