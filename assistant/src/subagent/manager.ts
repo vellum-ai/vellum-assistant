@@ -11,10 +11,7 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
-import {
-  Conversation,
-  type ConversationMemoryPolicy,
-} from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 import { findConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
@@ -231,16 +228,6 @@ export class SubagentManager {
     const maxTokens = appConfig.llm.default.maxTokens;
     const workingDir = getSandboxWorkingDir();
 
-    const memoryPolicy: ConversationMemoryPolicy = isFork
-      ? {
-          scopeId: "default",
-          includeDefaultFallback: false,
-        }
-      : {
-          scopeId: `subagent:${subagentId}`,
-          includeDefaultFallback: true,
-        };
-
     // ── Initialise state ────────────────────────────────────────────
     const now = Date.now();
     // For forks, default sendResultToUser to false (silent) unless explicitly true.
@@ -289,7 +276,6 @@ export class SubagentManager {
       maxTokens,
       wrappedSendToClient,
       workingDir,
-      memoryPolicy,
       undefined, // sharedCesClient
       undefined, // speedOverride
       "5m", // cacheTtl — subagents run tight tool-use loops, 5m is always hot

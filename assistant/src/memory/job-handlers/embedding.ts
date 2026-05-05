@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
-import { getConversationMemoryScopeId } from "../conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import type { EmbeddingInput } from "../embedding-types.js";
 import { asString, embedAndUpsert } from "../job-utils.js";
@@ -18,7 +17,7 @@ import {
 
 export async function embedSegmentJob(
   job: MemoryJob,
-  config: AssistantConfig
+  config: AssistantConfig,
 ): Promise<void> {
   const segmentId = asString(job.payload.segmentId);
   if (!segmentId) return;
@@ -39,7 +38,7 @@ export async function embedSegmentJob(
 
 export async function embedSummaryJob(
   job: MemoryJob,
-  config: AssistantConfig
+  config: AssistantConfig,
 ): Promise<void> {
   const summaryId = asString(job.payload.summaryId);
   if (!summaryId) return;
@@ -60,13 +59,13 @@ export async function embedSummaryJob(
       created_at: summary.startAt,
       last_seen_at: summary.endAt,
       memory_scope_id: summary.scopeId,
-    }
+    },
   );
 }
 
 export async function embedMediaJob(
   job: MemoryJob,
-  config: AssistantConfig
+  config: AssistantConfig,
 ): Promise<void> {
   const assetId = asString(job.payload.assetId);
   if (!assetId) return;
@@ -99,7 +98,7 @@ export async function embedMediaJob(
 
 export async function embedAttachmentJob(
   job: MemoryJob,
-  config: AssistantConfig
+  config: AssistantConfig,
 ): Promise<void> {
   const messageId = asString(job.payload.messageId);
   const blockIndex = job.payload.blockIndex as number;
@@ -125,11 +124,10 @@ export async function embedAttachmentJob(
 
   // Use messageId + blockIndex as targetId for uniqueness
   const targetId = `${messageId}:${blockIndex}`;
-  const memoryScopeId = getConversationMemoryScopeId(message.conversationId);
   await embedAndUpsert(config, "media", targetId, input, {
     created_at: message.createdAt,
     message_id: messageId,
     conversation_id: message.conversationId,
-    memory_scope_id: memoryScopeId,
+    memory_scope_id: "default",
   });
 }

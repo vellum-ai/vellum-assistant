@@ -137,17 +137,6 @@ import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
 
-export interface ConversationMemoryPolicy {
-  scopeId: string;
-  includeDefaultFallback: boolean;
-}
-
-export const DEFAULT_MEMORY_POLICY: Readonly<ConversationMemoryPolicy> =
-  Object.freeze({
-    scopeId: "default",
-    includeDefaultFallback: false,
-  });
-
 export { findLastUndoableUserMessageIndex } from "./conversation-history.js";
 export type {
   QueueDrainReason,
@@ -321,10 +310,8 @@ export class Conversation {
   hostUsername?: string;
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
-  public memoryPolicy: ConversationMemoryPolicy;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ activeContextNodeIds?: string[];
-  /** @internal */ memoryScopeId?: string;
   /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
@@ -359,7 +346,6 @@ export class Conversation {
     maxTokens: number | undefined,
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
-    memoryPolicy?: ConversationMemoryPolicy,
     sharedCesClient?: CesClient,
     speedOverride?: Speed,
     cacheTtl?: "5m" | "1h",
@@ -370,13 +356,7 @@ export class Conversation {
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
-    this.memoryPolicy = memoryPolicy
-      ? { ...memoryPolicy }
-      : { ...DEFAULT_MEMORY_POLICY };
-    this.graphMemory = new ConversationGraphMemory(
-      this.memoryPolicy.scopeId,
-      conversationId,
-    );
+    this.graphMemory = new ConversationGraphMemory(conversationId);
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
@@ -780,7 +760,6 @@ export class Conversation {
     // Do NOT close it here; the server manages the CES lifecycle.
     this.cesClient = undefined;
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
-    this.memoryScopeId = this.memoryPolicy.scopeId;
     this.graphMemory.persistState();
     disposeConversation(this);
   }

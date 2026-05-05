@@ -95,7 +95,6 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     getQueueDepth: () => 0,
     processMessage: async () => "",
     withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
-    memoryPolicy: { scopeId: "default" },
     ...overrides,
   };
 }
@@ -383,7 +382,7 @@ describe("session-tool-setup app refresh side effects", () => {
       // Simulate calling app_refresh by name (as the agent loop does)
       for (const toolName of ["app_refresh"]) {
         refreshSpy.mockClear();
-    broadcastSpy.mockClear();
+        broadcastSpy.mockClear();
         broadcastSpy.mockClear();
         updatePublishedSpy.mockClear();
 
@@ -423,7 +422,7 @@ describe("session-tool-setup app refresh side effects", () => {
         "app_file_write",
       ]) {
         refreshSpy.mockClear();
-    broadcastSpy.mockClear();
+        broadcastSpy.mockClear();
         broadcastSpy.mockClear();
         updatePublishedSpy.mockClear();
 
@@ -435,6 +434,4 @@ describe("session-tool-setup app refresh side effects", () => {
       }
     });
   });
-
-
 });

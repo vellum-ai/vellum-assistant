@@ -7,7 +7,7 @@ import type {
 
 export async function executePlaybookDelete(
   input: Record<string, unknown>,
-  context: ToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const playbookId = input.playbook_id as string;
   if (!playbookId || typeof playbookId !== "string") {
@@ -17,7 +17,7 @@ export async function executePlaybookDelete(
     };
   }
 
-  const scopeId = context.memoryScopeId ?? "default";
+  const scopeId = "default";
 
   try {
     const existing = getNode(playbookId);

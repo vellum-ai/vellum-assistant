@@ -444,7 +444,6 @@ export interface AgentLoopConversationContext {
   /** Timestamp (ms since epoch) until which the circuit breaker is open. */
   compactionCircuitOpenUntil: number | null;
 
-  readonly memoryPolicy: { scopeId: string; includeDefaultFallback: boolean };
   readonly graphMemory: ConversationGraphMemory;
 
   currentActiveSurfaceId?: string;
@@ -1355,8 +1354,8 @@ export async function runAgentLoopImpl(
     // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
     // so post-compaction re-injects see the updated history.
     const pkbConversation = pkbActive ? ctx : undefined;
-    // PKB points live under a single workspace sentinel scope, not the
-    // conversation's memoryPolicy.scopeId. See `PKB_WORKSPACE_SCOPE` for why.
+    // PKB points live under a single workspace sentinel scope.
+    // See `PKB_WORKSPACE_SCOPE` for why.
     const pkbScopeId = pkbActive ? PKB_WORKSPACE_SCOPE : undefined;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.

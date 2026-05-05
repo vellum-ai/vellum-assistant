@@ -444,11 +444,6 @@ export function getConversationSource(conversationId: string): string | null {
   return row?.source ?? null;
 }
 
-export function getConversationMemoryScopeId(conversationId: string): string {
-  const conv = getConversation(conversationId);
-  return conv?.memoryScopeId ?? "default";
-}
-
 /**
  * Fetch group_id for a conversation via raw SQL. group_id is NOT in the
  * Drizzle schema (raw-query-only pattern), so ConversationRow doesn't
@@ -912,7 +907,6 @@ export async function addMessage(
   if (!opts?.skipIndexing) {
     try {
       const config = getConfig();
-      const scopeId = getConversationMemoryScopeId(conversationId);
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)
         : null;
@@ -927,7 +921,7 @@ export async function addMessage(
           role: message.role,
           content: message.content,
           createdAt: message.createdAt,
-          scopeId,
+          scopeId: "default",
           provenanceTrustClass,
           automated,
         },

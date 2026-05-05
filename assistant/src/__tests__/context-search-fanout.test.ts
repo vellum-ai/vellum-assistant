@@ -14,7 +14,6 @@ import type {
 function makeContext(): RecallSearchContext {
   return {
     workingDir: "/workspace",
-    memoryScopeId: "scope-123",
     conversationId: "conv-xyz",
     config: {} as AssistantConfig,
   };

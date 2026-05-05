@@ -9,7 +9,7 @@ import type {
   QdrantSparseVector,
 } from "../qdrant-client.js";
 import { getQdrantClient } from "../qdrant-client.js";
-import { conversations, memorySegments, memorySummaries } from "../schema.js";
+import { memorySegments, memorySummaries } from "../schema.js";
 // ── Types (inlined from deleted types.ts) ──────────────────────────
 
 type CandidateType = "segment" | "item" | "summary" | "media";
@@ -52,7 +52,6 @@ export async function semanticSearch(
   _model: string,
   limit: number,
   excludedMessageIds: string[] = [],
-  scopeIds?: string[],
   sparseVector?: QdrantSparseVector,
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
@@ -75,7 +74,7 @@ export async function semanticSearch(
   let isHybrid = false;
   if (sparseVector && sparseVector.indices.length > 0) {
     isHybrid = true;
-    const filter = buildHybridFilter(excludedMessageIds, scopeIds);
+    const filter = buildHybridFilter(excludedMessageIds);
     results = await withQdrantBreaker(() =>
       qdrant.hybridSearch({
         denseVector: queryVector,
@@ -92,7 +91,6 @@ export async function semanticSearch(
         fetchLimit,
         ["summary", "segment", "media"],
         excludedMessageIds,
-        scopeIds,
       ),
     );
   }
@@ -102,18 +100,15 @@ export async function semanticSearch(
   // Batch-fetch all backing records upfront to avoid N+1 queries per result
   const summaryTargetIds: string[] = [];
   const segmentTargetIds: string[] = [];
-  const mediaConversationIds: string[] = [];
   for (const r of results) {
     if (r.payload.target_type === "summary")
       summaryTargetIds.push(r.payload.target_id);
     else if (r.payload.target_type === "segment")
       segmentTargetIds.push(r.payload.target_id);
-    else if (r.payload.target_type === "media" && r.payload.conversation_id)
-      mediaConversationIds.push(r.payload.conversation_id);
   }
 
   const summariesMap = new Map<string, typeof memorySummaries.$inferSelect>();
-  if (scopeIds && summaryTargetIds.length > 0) {
+  if (summaryTargetIds.length > 0) {
     const allSummaries = db
       .select()
       .from(memorySummaries)
@@ -123,30 +118,13 @@ export async function semanticSearch(
   }
 
   const segmentsMap = new Map<string, typeof memorySegments.$inferSelect>();
-  if (scopeIds && segmentTargetIds.length > 0) {
+  if (segmentTargetIds.length > 0) {
     const allSegments = db
       .select()
       .from(memorySegments)
       .where(inArray(memorySegments.id, segmentTargetIds))
       .all();
     for (const seg of allSegments) segmentsMap.set(seg.id, seg);
-  }
-
-  // Batch-fetch conversation scope IDs for media results to avoid N+1 queries.
-  // When a conversation is not found (deleted), its media is excluded rather than
-  // falling back to "default" scope, which would leak private media.
-  const mediaScopeMap = new Map<string, string>();
-  if (scopeIds && mediaConversationIds.length > 0) {
-    const unique = [...new Set(mediaConversationIds)];
-    const rows = db
-      .select({
-        id: conversations.id,
-        memoryScopeId: conversations.memoryScopeId,
-      })
-      .from(conversations)
-      .where(inArray(conversations.id, unique))
-      .all();
-    for (const row of rows) mediaScopeMap.set(row.id, row.memoryScopeId);
   }
 
   const candidates: Candidate[] = [];
@@ -160,10 +138,7 @@ export async function semanticSearch(
       // Legacy item vectors — skip (table dropped, Qdrant cleanup pending)
       continue;
     } else if (payload.target_type === "summary") {
-      if (scopeIds) {
-        const summary = summariesMap.get(payload.target_id);
-        if (!summary || !scopeIds.includes(summary.scopeId)) continue;
-      }
+      if (!summariesMap.has(payload.target_id)) continue;
       candidates.push({
         key: `summary:${payload.target_id}`,
         type: "summary",
@@ -180,22 +155,6 @@ export async function semanticSearch(
         finalScore: 0,
       });
     } else if (payload.target_type === "media") {
-      // Use stored memory_scope_id when available; fall back to deriving
-      // scope from conversation_id for legacy media points.
-      // If the conversation was deleted, skip the media to avoid leaking
-      // private media into the default scope.
-      if (scopeIds) {
-        let mediaScopeId: string | undefined;
-        if (payload.memory_scope_id) {
-          mediaScopeId = payload.memory_scope_id;
-        } else if (payload.conversation_id) {
-          mediaScopeId = mediaScopeMap.get(payload.conversation_id);
-          if (!mediaScopeId) continue; // conversation deleted — skip
-        } else {
-          mediaScopeId = "default";
-        }
-        if (!scopeIds.includes(mediaScopeId)) continue;
-      }
       candidates.push({
         key: `media:${payload.target_id}`,
         type: "media",
@@ -212,10 +171,7 @@ export async function semanticSearch(
         finalScore: 0,
       });
     } else {
-      if (scopeIds) {
-        const segment = segmentsMap.get(payload.target_id);
-        if (!segment || !scopeIds.includes(segment.scopeId)) continue;
-      }
+      if (!segmentsMap.has(payload.target_id)) continue;
       candidates.push({
         key: `segment:${payload.target_id}`,
         type: "segment",
@@ -254,14 +210,9 @@ export async function semanticSearch(
 /**
  * Build a Qdrant filter for hybrid search. Mirrors the logic in
  * `searchWithFilter` but as a standalone object for the query API.
- *
- * Scope filtering: points with a `memory_scope_id` payload field are
- * filtered at the Qdrant level. Legacy points without the field pass
- * through and are caught by post-query DB filtering.
  */
 function buildHybridFilter(
   excludeMessageIds: string[],
-  scopeIds?: string[],
 ): Record<string, unknown> {
   const mustConditions: Array<Record<string, unknown>> = [
     {
@@ -269,18 +220,6 @@ function buildHybridFilter(
       match: { any: ["summary", "segment", "media"] },
     },
   ];
-
-  // Scope filtering: accept points whose memory_scope_id matches one of the
-  // allowed scopes, OR points that lack the field entirely (legacy data).
-  // Post-query DB filtering remains as defense-in-depth for legacy points.
-  if (scopeIds && scopeIds.length > 0) {
-    mustConditions.push({
-      should: [
-        { key: "memory_scope_id", match: { any: scopeIds } },
-        { is_empty: { key: "memory_scope_id" } },
-      ],
-    });
-  }
 
   const mustNotConditions: Array<Record<string, unknown>> = [
     { key: "_meta", match: { value: true } },

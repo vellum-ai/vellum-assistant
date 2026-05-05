@@ -15,7 +15,6 @@ interface CapturedSearch {
 
 const capturedSearches: CapturedSearch[] = [];
 const getConfiguredProviderCalls: string[] = [];
-const scopeByConversation = new Map<string, string | undefined>();
 const testConfig = {} as AssistantConfig;
 
 mock.module("../config/loader.js", () => ({
@@ -56,13 +55,11 @@ mock.module("../memory/embedding-backend.js", () => ({
 
 mock.module("../memory/conversation-crud.js", () => ({
   addMessage: () => ({ id: "msg-1" }),
-  createConversation: () => ({ id: "conv-1", memoryScopeId: "default" }),
+  createConversation: () => ({ id: "conv-1" }),
   deleteConversation: () => true,
   getAssistantMessageIdsInTurn: () => [],
   getConversation: () => null,
   getConversationHostAccess: () => false,
-  getConversationMemoryScopeId: (conversationId: string) =>
-    scopeByConversation.get(conversationId),
   getConversationOverrideProfile: () => undefined,
   getConversationSource: () => null,
   getMessageById: () => null,
@@ -165,12 +162,9 @@ describe("memory admin recall", () => {
   beforeEach(() => {
     capturedSearches.length = 0;
     getConfiguredProviderCalls.length = 0;
-    scopeByConversation.clear();
   });
 
-  test("uses the conversation memory scope and safe admin sources", async () => {
-    scopeByConversation.set("conv-admin", "scope-admin");
-
+  test("uses safe admin sources", async () => {
     const result = await queryMemory("launch notes", "conv-admin");
 
     expect(capturedSearches).toHaveLength(1);
@@ -180,7 +174,6 @@ describe("memory admin recall", () => {
     });
     expect(capturedSearches[0].context).toMatchObject({
       workingDir: getWorkspaceDir(),
-      memoryScopeId: "scope-admin",
       conversationId: "conv-admin",
       config: testConfig,
     });
@@ -202,13 +195,12 @@ describe("memory admin recall", () => {
     });
   });
 
-  test("falls back to default scope without invoking a provider", async () => {
+  test("does not invoke a provider for deterministic recall", async () => {
     await queryMemory("offline recall", "missing-conversation");
 
     expect(capturedSearches).toHaveLength(1);
     expect(capturedSearches[0].context).toMatchObject({
       workingDir: getWorkspaceDir(),
-      memoryScopeId: "default",
       conversationId: "missing-conversation",
     });
     expect(capturedSearches[0].input.sources).toEqual([

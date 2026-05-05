@@ -7,10 +7,7 @@ import {
   resetMessageCursorCheckpoint,
   writeMessageCursorCheckpoint,
 } from "../checkpoints.js";
-import {
-  getConversationMemoryScopeId,
-  messageMetadataSchema,
-} from "../conversation-crud.js";
+import { messageMetadataSchema } from "../conversation-crud.js";
 import { getDb } from "../db-connection.js";
 import { indexMessageNow } from "../indexer.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
@@ -72,13 +69,7 @@ export async function backfillJob(
     .all();
 
   if (batch.length > 0) {
-    const scopeCache = new Map<string, string>();
     for (const message of batch) {
-      let scopeId = scopeCache.get(message.conversationId);
-      if (scopeId === undefined) {
-        scopeId = getConversationMemoryScopeId(message.conversationId);
-        scopeCache.set(message.conversationId, scopeId);
-      }
       const { provenanceTrustClass, automated } = parseMessageMetadata(
         message.metadata ?? null,
       );
@@ -89,7 +80,7 @@ export async function backfillJob(
           role: message.role,
           content: message.content,
           createdAt: message.createdAt,
-          scopeId,
+          scopeId: "default",
           provenanceTrustClass,
           automated,
         },

@@ -157,7 +157,6 @@ function makeConfig(): AssistantConfig {
 function makeContext(workingDir: string): RecallSearchContext {
   return {
     workingDir,
-    memoryScopeId: "scope-default",
     conversationId: "conv-test",
     config: makeConfig(),
   };

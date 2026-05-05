@@ -109,7 +109,6 @@ const SERIALIZABLE_TOOL_CONTEXT_KEYS = [
   "callSessionId",
   "principal",
   "toolUseId",
-  "memoryScopeId",
   "requesterExternalUserId",
   "requesterChatId",
   "requesterIdentifier",

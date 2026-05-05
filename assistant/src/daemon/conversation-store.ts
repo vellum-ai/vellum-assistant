@@ -22,7 +22,7 @@ import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider } from "../providers/registry.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
-import { Conversation, DEFAULT_MEMORY_POLICY } from "./conversation.js";
+import { Conversation } from "./conversation.js";
 import type { ConversationEvictor } from "./conversation-evictor.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { buildTransportHints } from "./transport-hints.js";
@@ -253,7 +253,6 @@ export async function getOrCreateConversation(
         maxTokens,
         sendToClient,
         workingDir,
-        DEFAULT_MEMORY_POLICY,
         sharedCesClient,
         storedOptions?.speed,
         undefined,

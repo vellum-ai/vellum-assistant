@@ -47,7 +47,6 @@ export async function searchMemorySource(
     const searchResults = await searchGraphNodes(
       queryVector,
       normalizedLimit,
-      [context.memoryScopeId],
       sparseVector,
     );
 
