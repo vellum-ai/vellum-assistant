@@ -1,4 +1,5 @@
 import type { Message } from "../providers/types.js";
+import { mergeActiveSkillEntry } from "./active-skill-entry-merge.js";
 import { normalizeBundledSkillSelector } from "./system-storage-cleanup-constants.js";
 
 /** Matches both old (`<loaded_skill id="..." />`) and new versioned
@@ -64,19 +65,15 @@ export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
       if (!text) continue;
 
       for (const match of text.matchAll(LOADED_SKILL_RE)) {
-        const id = match[1];
-        if (!seen.has(id)) {
-          seen.add(id);
-          const entry: ActiveSkillEntry = { id };
-          if (match[2]) {
-            entry.version = match[2];
-          }
-          const selector = skillLoadSelectorsByUseId.get(block.tool_use_id);
-          if (selector) {
-            entry.selector = selector;
-          }
-          entries.push(entry);
+        const entry: ActiveSkillEntry = { id: match[1] };
+        if (match[2]) {
+          entry.version = match[2];
         }
+        const selector = skillLoadSelectorsByUseId.get(block.tool_use_id);
+        if (selector) {
+          entry.selector = selector;
+        }
+        mergeActiveSkillEntry(entries, seen, entry);
       }
     }
   }

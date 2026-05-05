@@ -2,6 +2,7 @@ import * as realFs from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
+import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
 import { RiskLevel } from "../permissions/types.js";
 import type {
   Message,
@@ -9,6 +10,7 @@ import type {
   ToolResultContent,
   ToolUseContent,
 } from "../providers/types.js";
+import { BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR } from "../skills/system-storage-cleanup-constants.js";
 import type { Tool } from "../tools/types.js";
 import { buildSkillLoadHistory } from "./test-support/browser-skill-harness.js";
 
@@ -1986,10 +1988,10 @@ describe("resetSkillToolProjection", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Versioned marker integration tests
+// Loaded-skill marker integration tests
 // ---------------------------------------------------------------------------
 
-describe("versioned markers through session projection", () => {
+describe("loaded skill markers through session projection", () => {
   let sessionState: Map<string, string>;
 
   beforeEach(() => {
@@ -2019,23 +2021,80 @@ describe("versioned markers through session projection", () => {
     expect(result.allowedToolNames).toEqual(new Set(["deploy_run"]));
   });
 
-  test("storage cleanup marker does not project shadow tools after catalog drift", () => {
+  test("bundled cleanup marker does not project managed shadow tools", () => {
     mockCatalog = [makeSkill("system-storage-cleanup")];
     mockManifests = {
       "system-storage-cleanup": makeManifest(["shadow_cleanup_run"]),
     };
-    mockVersionHashes = {
-      "system-storage-cleanup": "v1:managed-shadow",
-    };
 
     const history: Message[] = [
       ...skillLoadMessages(
-        '<loaded_skill id="system-storage-cleanup" version="v1:bundled-cleanup" />',
+        '<loaded_skill id="system-storage-cleanup" />',
         "bundled: system-storage-cleanup",
       ),
     ];
 
     const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+    });
+
+    expect(result.toolDefinitions).toEqual([]);
+    expect(result.allowedToolNames).toEqual(new Set());
+    expect(sessionState.has("system-storage-cleanup")).toBe(false);
+    expect(mockRegisteredTools.has("system-storage-cleanup")).toBe(false);
+  });
+
+  test("later bundled cleanup marker upgrades plain marker provenance", () => {
+    mockCatalog = [makeSkill("system-storage-cleanup")];
+    mockManifests = {
+      "system-storage-cleanup": makeManifest(["shadow_cleanup_run"]),
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="system-storage-cleanup" />'),
+      ...skillLoadMessages(
+        '<loaded_skill id="system-storage-cleanup" />',
+        BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
+      ),
+    ];
+
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+    });
+
+    expect(result.toolDefinitions).toEqual([]);
+    expect(result.allowedToolNames).toEqual(new Set());
+    expect(sessionState.has("system-storage-cleanup")).toBe(false);
+    expect(mockRegisteredTools.has("system-storage-cleanup")).toBe(false);
+  });
+
+  test("incremental cache upgrades cleanup provenance from later bundled marker", () => {
+    mockCatalog = [makeSkill("system-storage-cleanup")];
+    mockManifests = {
+      "system-storage-cleanup": makeManifest(["shadow_cleanup_run"]),
+    };
+
+    const cache: SkillProjectionCache = {};
+    const initialHistory: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="system-storage-cleanup" />'),
+    ];
+    const initial = projectSkillTools(initialHistory, {
+      cache,
+      previouslyActiveSkillIds: sessionState,
+    });
+
+    expect(initial.allowedToolNames).toEqual(new Set(["shadow_cleanup_run"]));
+    expect(sessionState.has("system-storage-cleanup")).toBe(true);
+
+    const updatedHistory: Message[] = [
+      ...initialHistory,
+      ...skillLoadMessages(
+        '<loaded_skill id="system-storage-cleanup" />',
+        BUNDLED_SYSTEM_STORAGE_CLEANUP_SELECTOR,
+      ),
+    ];
+    const result = projectSkillTools(updatedHistory, {
+      cache,
       previouslyActiveSkillIds: sessionState,
     });
 
