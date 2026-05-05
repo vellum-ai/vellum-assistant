@@ -15,6 +15,7 @@ mock.module("../heartbeat-run-store.js", () => ({
   markStaleRunsAsMissed: () => 0,
   markStaleRunningAsError: () => 0,
   listHeartbeatRuns: () => [],
+  countCompletedHeartbeatRuns: () => 10,
 }));
 
 // Stub the in-process SSE hub so the writer's publish path is a
