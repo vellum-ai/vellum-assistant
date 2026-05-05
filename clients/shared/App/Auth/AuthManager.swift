@@ -138,40 +138,57 @@ public final class AuthManager {
 
         do {
             let stateParam = generateRandomString(length: 32)
-            let returnTo = "/accounts/native/callback?state=\(stateParam)"
-            var allowedReturnToChars = CharacterSet.urlQueryAllowed
-            allowedReturnToChars.remove(charactersIn: "?=&+")
-            guard let encodedReturnTo = returnTo.addingPercentEncoding(withAllowedCharacters: allowedReturnToChars) else {
+
+            // Build /accounts/native/start?state={state}. The server
+            // determines the callback scheme from settings.ENVIRONMENT
+            // — the client no longer sends it (ATL-454).
+            guard var startComponents = URLComponents(string: VellumEnvironment.resolvedWebURL) else {
                 throw AuthServiceError.invalidURL
             }
-            let loginURLString = "\(VellumEnvironment.resolvedWebURL)/account/login?returnTo=\(encodedReturnTo)"
-            guard let loginURL = URL(string: loginURLString) else {
+            startComponents.path = "/accounts/native/start"
+            startComponents.queryItems = [URLQueryItem(name: "state", value: stateParam)]
+
+            guard let loginURL = startComponents.url else {
                 throw AuthServiceError.invalidURL
             }
 
             let callbackURL = try await performWebAuth(url: loginURL, callbackScheme: Self.callbackScheme)
 
             guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-                  let sessionToken = components.queryItems?.first(where: { $0.name == "session_token" })?.value,
-                  let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value else {
-                throw AuthServiceError.authCallbackFailed("Missing session token or state in callback.")
+                  let queryItems = components.queryItems else {
+                throw AuthServiceError.authCallbackFailed("Missing callback URL components.")
+            }
+
+            guard let returnedState = queryItems.first(where: { $0.name == "state" })?.value else {
+                throw AuthServiceError.authCallbackFailed("Callback missing state.")
             }
 
             guard returnedState == stateParam else {
-                throw AuthServiceError.authCallbackFailed("Invalid state parameter.")
+                throw AuthServiceError.authCallbackFailed("State mismatch — possible CSRF.")
             }
+
+            if let authError = queryItems.first(where: { $0.name == "error" })?.value, !authError.isEmpty {
+                throw AuthServiceError.authCallbackFailed("Auth error: \(authError)")
+            }
+
+            guard let code = queryItems.first(where: { $0.name == "code" })?.value, !code.isEmpty else {
+                throw AuthServiceError.authCallbackFailed("Callback missing authorization code.")
+            }
+
+            // Exchange the one-time code for a session token via POST.
+            // The code is short-lived (30 s) and single-use (ATL-454).
+            let sessionToken = try await exchangeCodeForSession(code: code)
 
             await SessionTokenManager.setTokenAsync(sessionToken)
 
-            // Validate the session and populate user state
             let session = try await authService.getSession()
             if session.status == 200, session.meta?.is_authenticated != false, let user = session.data?.user {
                 state = .authenticated(user)
-                log.info("Login completed via Django auth flow for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
+                log.info("Login completed via native auth flow for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
                 await resolveOrganizationIdAfterAuth()
                 await postAuthenticationHook?()
             } else {
-                log.error("Session validation after Django auth flow did not return authenticated user. status=\(session.status, privacy: .public)")
+                log.error("Session validation after native auth flow did not return authenticated user. status=\(session.status, privacy: .public)")
                 errorMessage = "Authentication was not completed. Please try again."
             }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
@@ -180,6 +197,38 @@ public final class AuthManager {
             log.error("Login failed: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             errorMessage = "Unable to sign in. Please try again."
         }
+    }
+
+    /// Exchange a one-time authorization code for a session token.
+    private func exchangeCodeForSession(code: String) async throws -> String {
+        guard var exchangeComponents = URLComponents(string: VellumEnvironment.resolvedWebURL) else {
+            throw AuthServiceError.invalidURL
+        }
+        exchangeComponents.path = "/accounts/native/exchange"
+
+        guard let exchangeURL = exchangeComponents.url else {
+            throw AuthServiceError.invalidURL
+        }
+
+        var request = URLRequest(url: exchangeURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw AuthServiceError.authCallbackFailed("Code exchange failed with status \(statusCode).")
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sessionToken = json["session_token"] as? String,
+              !sessionToken.isEmpty else {
+            throw AuthServiceError.authCallbackFailed("Code exchange returned invalid response.")
+        }
+
+        return sessionToken
     }
 
     /// Logs out by deleting the server session, clearing local tokens and
