@@ -28,6 +28,11 @@
  *     scheduler needing to touch the event hub.
  */
 
+import {
+  checkDiskPressureBackgroundGate,
+  diskPressureBackgroundSkipLogFields,
+  shouldLogDiskPressureBackgroundSkip,
+} from "../daemon/disk-pressure-background-gate.js";
 import { getLogger } from "../util/logger.js";
 import type { FeedItem } from "./feed-types.js";
 import {
@@ -119,6 +124,19 @@ export function startFeedScheduler(
       rollupRan: false,
     };
     if (stopped || tickRunning) return summary;
+    const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+    if (diskPressureGate.action === "skip") {
+      if (shouldLogDiskPressureBackgroundSkip("home-feed-scheduler")) {
+        log.warn(
+          {
+            source: "feed-scheduler",
+            ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+          },
+          "Home feed scheduler skipped during disk pressure cleanup mode",
+        );
+      }
+      return summary;
+    }
     tickRunning = true;
     const nowMs = now.getTime();
     try {

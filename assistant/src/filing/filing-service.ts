@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import {
+  checkDiskPressureBackgroundGate,
+  diskPressureBackgroundSkipLogFields,
+  shouldLogDiskPressureBackgroundSkip,
+} from "../daemon/disk-pressure-background-gate.js";
 import { processMessage } from "../daemon/process-message.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getLogger } from "../util/logger.js";
@@ -192,6 +197,10 @@ export class FilingService {
     const config = getConfig().filing;
     if (!force && !config.enabled) return false;
 
+    if (!force && this.shouldSkipForDiskPressure("filing")) {
+      return false;
+    }
+
     if (
       !force &&
       !this.isWithinActiveHoursNow(
@@ -241,6 +250,10 @@ export class FilingService {
   }: { force?: boolean } = {}): Promise<boolean> {
     const config = getConfig().filing;
     if (!force && !config.compactionEnabled) return false;
+
+    if (!force && this.shouldSkipForDiskPressure("compaction")) {
+      return false;
+    }
 
     if (
       !force &&
@@ -294,6 +307,21 @@ export class FilingService {
 
   private scheduleNextCompactionRun(intervalMs: number): void {
     this._nextCompactionAt = Date.now() + intervalMs;
+  }
+
+  private shouldSkipForDiskPressure(source: "filing" | "compaction"): boolean {
+    const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+    if (diskPressureGate.action === "allow") return false;
+    if (shouldLogDiskPressureBackgroundSkip(`filing-service:${source}`)) {
+      log.warn(
+        {
+          source,
+          ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+        },
+        "Filing service skipped during disk pressure cleanup mode",
+      );
+    }
+    return true;
   }
 
   private hasBufferContent(): boolean {

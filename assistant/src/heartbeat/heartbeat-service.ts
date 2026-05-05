@@ -3,6 +3,11 @@ import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
+import {
+  checkDiskPressureBackgroundGate,
+  diskPressureBackgroundSkipLogFields,
+  shouldLogDiskPressureBackgroundSkip,
+} from "../daemon/disk-pressure-background-gate.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { processMessage } from "../daemon/process-message.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
@@ -234,18 +239,22 @@ export class HeartbeatService {
           "Recovered stale heartbeat runs on startup",
         );
 
-        const total = this._startupMissedCount + this._startupCrashedCount;
-        const today = new Date().toISOString().split("T")[0];
-        void emitFeedEvent({
-          source: "assistant",
-          title: "Heartbeat Runs Missed",
-          summary: `${total} heartbeat run${total > 1 ? "s were" : " was"} missed while the assistant was offline.`,
-          dedupKey: `heartbeat:missed:${today}`,
-          priority: 55,
-          urgency: "high",
-        }).catch((err) => {
-          log.warn({ err }, "Failed to emit missed heartbeat feed event");
-        });
+        if (!isDiskPressureBackgroundLocked("heartbeat-startup")) {
+          const total = this._startupMissedCount + this._startupCrashedCount;
+          const today = new Date().toISOString().split("T")[0];
+          void emitFeedEvent({
+            source: "assistant",
+            title: "Heartbeat Runs Missed",
+            summary: `${total} heartbeat run${
+              total > 1 ? "s were" : " was"
+            } missed while the assistant was offline.`,
+            dedupKey: `heartbeat:missed:${today}`,
+            priority: 55,
+            urgency: "high",
+          }).catch((err) => {
+            log.warn({ err }, "Failed to emit missed heartbeat feed event");
+          });
+        }
       }
     }
 
@@ -393,6 +402,10 @@ export class HeartbeatService {
    *  When `force` is true (e.g. manual "Run Now"), skip enabled & active-hours guards. */
   async runOnce({ force = false }: { force?: boolean } = {}): Promise<boolean> {
     const config = getConfig().heartbeat;
+
+    if (!force && isDiskPressureBackgroundLocked("heartbeat")) {
+      return false;
+    }
 
     let runId: string | null;
     let scheduledFor: number;
@@ -878,6 +891,21 @@ After completing your review, end your response with one of:
 
     return { prompt, includedReengagement };
   }
+}
+
+function isDiskPressureBackgroundLocked(logKey: string): boolean {
+  const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+  if (diskPressureGate.action === "allow") return false;
+  if (shouldLogDiskPressureBackgroundSkip(logKey)) {
+    log.warn(
+      {
+        source: "heartbeat",
+        ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+      },
+      "Heartbeat skipped during disk pressure cleanup mode",
+    );
+  }
+  return true;
 }
 
 /**

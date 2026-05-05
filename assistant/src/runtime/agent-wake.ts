@@ -46,10 +46,17 @@ import type {
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
+import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
+import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
+import {
+  classifyDiskPressureTurnPolicy,
+  type DiskPressureTurnPolicyDecision,
+} from "../daemon/disk-pressure-policy.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
+import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -169,6 +176,13 @@ export interface WakeOptions {
    * assistant-self-maintenance jobs.
    */
   trustContext?: TrustContext;
+  /**
+   * Explicit local-owner metadata for rare direct wakes that are allowed to run
+   * in cleanup mode. Omit for background jobs; they are paused under disk
+   * pressure even when they otherwise carry internal guardian trust.
+   */
+  sourceChannel?: TrustContext["sourceChannel"];
+  sourceInterface?: InterfaceId | "vellum";
 }
 
 /**
@@ -181,7 +195,8 @@ export type WakeSkipReason =
   | "not_found"
   | "archived"
   | "timeout"
-  | "no_resolver";
+  | "no_resolver"
+  | "disk_pressure";
 
 export interface WakeResult {
   invoked: boolean;
@@ -299,6 +314,48 @@ async function waitUntilIdle(
   return !target.isProcessing();
 }
 
+function classifyWakeDiskPressurePolicy(opts: WakeOptions): {
+  decision: DiskPressureTurnPolicyDecision;
+  status: ReturnType<typeof getDiskPressureStatus>;
+} {
+  const status = getDiskPressureStatus();
+  const decision = classifyDiskPressureTurnPolicy(status, {
+    conversationSource: opts.source,
+    callSite: "mainAgent",
+    isDirectWake: true,
+    sourceChannel: opts.sourceChannel ?? opts.trustContext?.sourceChannel,
+    sourceInterface: opts.sourceInterface,
+    trustContext: opts.trustContext
+      ? {
+          sourceChannel: opts.trustContext.sourceChannel,
+          trustClass: opts.trustContext.trustClass,
+        }
+      : null,
+  });
+  return { decision, status };
+}
+
+function buildWakeTurnContext(
+  opts: WakeOptions,
+  decision: DiskPressureTurnPolicyDecision,
+): TurnContext | undefined {
+  if (decision.action !== "allow-cleanup-mode") return undefined;
+  return {
+    requestId: `wake:${opts.source}`,
+    conversationId: opts.conversationId,
+    turnIndex: 0,
+    trust:
+      opts.trustContext ??
+      ({
+        sourceChannel: opts.sourceChannel ?? "vellum",
+        trustClass: "guardian",
+      } satisfies TrustContext),
+    injectionInputs: {
+      diskPressureContext: { cleanupModeActive: true },
+    },
+  };
+}
+
 /**
  * Inspect the post-run history slice to decide whether the wake produced
  * output worth persisting/emitting, and collect any tool-use names from
@@ -387,6 +444,30 @@ export async function wakeAgentForOpportunity(
     }
     const target = resolved;
 
+    const { decision: diskPressureDecision, status: diskPressureStatus } =
+      classifyWakeDiskPressurePolicy(opts);
+    if (diskPressureDecision.action === "block") {
+      log.warn(
+        {
+          conversationId,
+          source,
+          reason: "disk_pressure",
+          diskPressureReason: diskPressureDecision.reason,
+          thresholdPercent: diskPressureStatus.thresholdPercent,
+          usagePercent: diskPressureStatus.usagePercent,
+          blockedCapability: "background-work",
+          lockId: diskPressureStatus.lockId,
+          path: diskPressureStatus.path,
+        },
+        "agent-wake: blocked by disk pressure cleanup mode",
+      );
+      return {
+        invoked: false,
+        producedToolCalls: false,
+        reason: "disk_pressure" as const,
+      };
+    }
+
     const idle = await waitUntilIdle(target, nowFn);
     if (!idle) {
       log.warn(
@@ -410,6 +491,7 @@ export async function wakeAgentForOpportunity(
     // post-run would therefore include the tail we just pushed and the
     // tail-slice math would skip every message.
     const baselineLength = baseline.length;
+    const wakeTurnContext = buildWakeTurnContext(opts, diskPressureDecision);
     const hintContent = `[opportunity:${source}] ${hint}`;
     // Sandwich the hint as an assistant message between two hardcoded
     // user messages. The assistant role prevents prompt injection — LLMs
@@ -600,7 +682,7 @@ export async function wakeAgentForOpportunity(
           // short-circuit and silently drop both `llm.callSites.mainAgent`
           // config and the pinned `overrideProfile` below.
           "mainAgent",
-          undefined, // turnContext
+          wakeTurnContext,
           overrideProfile,
           effectiveContextWindow.maxInputTokens,
         );

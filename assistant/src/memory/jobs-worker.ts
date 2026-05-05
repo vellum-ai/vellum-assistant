@@ -1,5 +1,10 @@
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
+import {
+  checkDiskPressureBackgroundGate,
+  diskPressureBackgroundSkipLogFields,
+  shouldLogDiskPressureBackgroundSkip,
+} from "../daemon/disk-pressure-background-gate.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import {
@@ -168,6 +173,20 @@ export async function runMemoryJobsOnce(
   const config = getConfig();
   if (!config.memory.enabled) return 0;
   const enableScheduledCleanup = options.enableScheduledCleanup === true;
+
+  const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+  if (diskPressureGate.action === "skip") {
+    if (shouldLogDiskPressureBackgroundSkip("memory-jobs-worker")) {
+      log.warn(
+        {
+          source: "memory",
+          ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+        },
+        "Memory jobs worker skipped during disk pressure cleanup mode",
+      );
+    }
+    return 0;
+  }
 
   // Fail jobs that have been running longer than the configured timeout
   const timedOut = failStalledJobs(config.memory.jobs.stalledJobTimeoutMs);
