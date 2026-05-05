@@ -86,6 +86,8 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
+import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
@@ -1077,6 +1079,9 @@ export function persistOnboardingArtifacts(onboarding: {
       log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
     }
   }
+
+  const normalized = normalizeOnboardingContext(onboarding);
+  writeOnboardingSection(normalized);
 
   void writeRelationshipState().catch((err) => {
     log.warn(

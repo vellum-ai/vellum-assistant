@@ -27,6 +27,31 @@ mock.module("../util/logger.js", () => ({
 
 let writeRelationshipStateCalled = false;
 let sidecarPayload: unknown = null;
+let writeOnboardingSectionPayload: unknown = null;
+
+mock.module("../prompts/normalize-onboarding.js", () => ({
+  normalizeOnboardingContext: (ctx: unknown) => ctx,
+}));
+
+mock.module("../prompts/persona-resolver.js", () => ({
+  writeOnboardingSection: (payload: unknown) => {
+    writeOnboardingSectionPayload = payload;
+  },
+  resolveGuardianPersonaPath: () => join(TEST_DIR, "users", "guardian.md"),
+  resolveGuardianPersona: () => null,
+  resolveGuardianPersonaStrict: () => null,
+  resolveUserPersona: () => null,
+  resolveChannelPersona: () => null,
+  resolvePersonaContext: () => ({
+    userPersona: null,
+    userSlug: null,
+    channelPersona: null,
+  }),
+  resolveUserSlug: () => null,
+  ensureGuardianPersonaFile: () => {},
+  isGuardianPersonaCustomized: () => false,
+  GUARDIAN_PERSONA_TEMPLATE: "",
+}));
 
 mock.module("../home/relationship-state-writer.js", () => ({
   RELATIONSHIP_STATE_FILENAME: "relationship-state.json",
@@ -59,6 +84,7 @@ describe("persistOnboardingArtifacts", () => {
     mkdirSync(TEST_DIR, { recursive: true });
     writeRelationshipStateCalled = false;
     sidecarPayload = null;
+    writeOnboardingSectionPayload = null;
   });
 
   afterEach(() => {
@@ -262,5 +288,19 @@ describe("persistOnboardingArtifacts", () => {
     });
 
     expect(writeRelationshipStateCalled).toBe(true);
+  });
+
+  test("calls writeOnboardingSection with normalized data", () => {
+    const payload = {
+      tools: ["slack", "linear"],
+      tasks: ["code-building", "writing"],
+      tone: "professional",
+      userName: "Alex",
+      assistantName: "Nova",
+    };
+
+    persistOnboardingArtifacts(payload);
+
+    expect(writeOnboardingSectionPayload).toEqual(payload);
   });
 });

@@ -1,9 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import {
@@ -14,8 +9,9 @@ import {
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import type { NormalizedOnboarding } from "./normalize-onboarding.js";
 
 const log = getLogger("persona-resolver");
 
@@ -110,7 +106,11 @@ function resolveUserFilename(
 
   // Validate basename to prevent path traversal
   if (filename) {
-    if (basename(filename) !== filename || filename === ".." || filename === ".") {
+    if (
+      basename(filename) !== filename ||
+      filename === ".." ||
+      filename === "."
+    ) {
       log.warn(
         { userFile: filename },
         "Contact userFile contains path traversal; ignoring",
@@ -268,7 +268,11 @@ export function resolveGuardianPersonaStrict(): string | null {
  * Creates the parent `users/` directory if missing.
  */
 export function ensureGuardianPersonaFile(userFile: string): void {
-  if (basename(userFile) !== userFile || userFile === ".." || userFile === ".") {
+  if (
+    basename(userFile) !== userFile ||
+    userFile === ".." ||
+    userFile === "."
+  ) {
     log.warn(
       { userFile },
       "Guardian persona userFile contains path traversal; refusing to write",
@@ -313,4 +317,92 @@ export function isGuardianPersonaCustomized(filePath: string): boolean {
 
   const templateStripped = stripCommentLines(GUARDIAN_PERSONA_TEMPLATE);
   return stripped !== templateStripped;
+}
+
+// ── Onboarding section writer ────────────────────────────────────
+
+const ONBOARDING_HEADING = "## Onboarding Context";
+
+/**
+ * Build the markdown section content for the onboarding context.
+ * Omits bullet lines where the value is empty/absent.
+ */
+function buildOnboardingSection(normalized: NormalizedOnboarding): string {
+  const lines: string[] = [ONBOARDING_HEADING, ""];
+
+  if (normalized.preferredName) {
+    lines.push(`- **Preferred name:** ${normalized.preferredName}`);
+  }
+  if (normalized.commonWork.length > 0) {
+    lines.push(`- **Common work:** ${normalized.commonWork.join("; ")}`);
+  }
+  if (normalized.dailyTools.length > 0) {
+    lines.push(`- **Daily tools:** ${normalized.dailyTools.join(", ")}`);
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
+/**
+ * Resolve the write target for the onboarding section using the
+ * fallback chain: guardian persona → `users/default.md` → `USER.md`.
+ */
+function resolveOnboardingWriteTarget(): string {
+  const guardianPath = resolveGuardianPersonaPath();
+  if (guardianPath) return guardianPath;
+
+  const defaultUserPath = join(getWorkspaceDir(), "users", "default.md");
+  if (existsSync(defaultUserPath)) return defaultUserPath;
+
+  return getWorkspacePromptPath("USER.md");
+}
+
+/**
+ * Write a managed `## Onboarding Context` section to the guardian persona
+ * file (or fallback target). Idempotent: replaces the section in-place if
+ * it already exists, appends if not, and creates the file when missing.
+ *
+ * Never throws — logs a warning on failure (fire-and-forget pattern).
+ */
+export function writeOnboardingSection(normalized: NormalizedOnboarding): void {
+  try {
+    const targetPath = resolveOnboardingWriteTarget();
+    const section = buildOnboardingSection(normalized);
+
+    let content: string;
+    if (existsSync(targetPath)) {
+      content = readFileSync(targetPath, "utf-8");
+    } else {
+      // Create parent directories and start with a header
+      mkdirSync(dirname(targetPath), { recursive: true });
+      content = "# User Profile\n\n";
+    }
+
+    // Replace existing section or append
+    const headingIndex = content.indexOf(ONBOARDING_HEADING);
+    if (headingIndex !== -1) {
+      // Find the end of the section: next `## ` heading or EOF
+      const afterHeading = content.indexOf("\n", headingIndex);
+      const rest = afterHeading !== -1 ? content.slice(afterHeading + 1) : "";
+      const nextHeadingMatch = rest.match(/^## /m);
+      const before = content.slice(0, headingIndex);
+      const after = nextHeadingMatch ? rest.slice(nextHeadingMatch.index!) : "";
+      content = before + section + after;
+    } else {
+      // Append after a blank line (ensure trailing newline first)
+      if (!content.endsWith("\n")) {
+        content += "\n";
+      }
+      if (!content.endsWith("\n\n")) {
+        content += "\n";
+      }
+      content += section;
+    }
+
+    writeFileSync(targetPath, content, "utf-8");
+    log.debug({ path: targetPath }, "Wrote onboarding section to persona file");
+  } catch (err) {
+    log.warn({ err }, "Failed to write onboarding section to persona file");
+  }
 }
