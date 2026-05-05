@@ -330,7 +330,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "clients", scopes: ["settings.read"] },
   { endpoint: "clients/disconnect", scopes: ["settings.write"] },
   { endpoint: "debug", scopes: ["settings.read"] },
-  { endpoint: "debug/bash", scopes: ["settings.read"] },
+  { endpoint: "debug/bash", scopes: ["settings.write"] },
 
   // Workspace file browsing
   { endpoint: "workspace/tree", scopes: ["settings.read"] },

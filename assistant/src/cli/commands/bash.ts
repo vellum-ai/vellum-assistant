@@ -63,7 +63,7 @@ Examples:
       );
 
       if (!result.ok) {
-        log.error(result.error ?? "Failed to reach assistant daemon.");
+        log.error(result.error ?? "Failed to reach the assistant.");
         process.exitCode = 1;
         return;
       }

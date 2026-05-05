@@ -1,9 +1,8 @@
 /**
  * IPC route for executing shell commands through the assistant process.
  *
- * Replaces the file-based signals/bash.ts mechanism. The CLI sends the
- * command over the IPC socket and waits for a single response containing
- * stdout, stderr, and the exit code — no polling required.
+ * The CLI sends the command over the IPC socket and receives a single
+ * response containing stdout, stderr, and the exit code.
  *
  * **Security**: Gated behind VELLUM_DEBUG=1. When debug mode is off (the
  * default), the handler returns an error immediately so the CLI surfaces a
