@@ -82,7 +82,6 @@ final class OnboardingState {
     var sshHost: String = ""
     var sshUser: String = ""
     var sshPrivateKey: String = ""
-    var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
     var selectedProvider: String = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
     /// When true, the onboarding flow was launched from the developer tab's
     /// "Hatch New Assistant" button. This prevents auto-completing when the user
@@ -239,7 +238,6 @@ final class OnboardingState {
         }
 
         selectedProvider = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
-        selectedModel = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
 
         // Reset hosting selection and cloud credentials
         selectedHostingMode = .vellumCloud

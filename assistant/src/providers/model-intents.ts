@@ -11,31 +11,37 @@ const PROVIDER_DEFAULT_MODELS: Record<string, string> = Object.fromEntries(
 
 const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   anthropic: {
+    balanced: "claude-sonnet-4-6",
     "latency-optimized": "claude-haiku-4-5-20251001",
     "quality-optimized": "claude-opus-4-7",
     "vision-optimized": "claude-opus-4-6",
   },
   openai: {
+    balanced: "gpt-5.4-mini",
     "latency-optimized": "gpt-5.4-nano",
     "quality-optimized": "gpt-5.4",
     "vision-optimized": "gpt-5.4",
   },
   gemini: {
+    balanced: "gemini-3-flash-preview",
     "latency-optimized": "gemini-3.1-flash-lite-preview",
     "quality-optimized": "gemini-3.1-pro-preview",
     "vision-optimized": "gemini-3-flash-preview",
   },
   ollama: {
+    balanced: "llama3.2",
     "latency-optimized": "llama3.2",
     "quality-optimized": "llama3.2",
     "vision-optimized": "llama3.2",
   },
   fireworks: {
+    balanced: "accounts/fireworks/models/kimi-k2p5",
     "latency-optimized": "accounts/fireworks/models/kimi-k2p5",
     "quality-optimized": "accounts/fireworks/models/kimi-k2p5",
     "vision-optimized": "accounts/fireworks/models/kimi-k2p5",
   },
   openrouter: {
+    balanced: "anthropic/claude-sonnet-4.6",
     "latency-optimized": "anthropic/claude-haiku-4.5",
     "quality-optimized": "anthropic/claude-opus-4.7",
     "vision-optimized": "anthropic/claude-opus-4.6",
@@ -45,6 +51,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
 const FALLBACK_DEFAULT_MODEL = "claude-opus-4-7";
 
 const MODEL_INTENTS = new Set<ModelIntent>([
+  "balanced",
   "latency-optimized",
   "quality-optimized",
   "vision-optimized",

@@ -499,12 +499,22 @@ export async function runDaemon(): Promise<void> {
       }
     } // end if (dbReady)
 
+    // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
+    // into the workspace config file before profile seeding and the first
+    // loadConfig() call so onboarding/platform preferences are visible to the
+    // seeder and persisted alongside schema defaults.
+    const defaultConfigMerge = mergeDefaultWorkspaceConfig();
+
     // Seed managed inference profiles into the workspace config. Runs after
-    // workspace migrations and before mergeDefaultWorkspaceConfig / loadConfig
-    // so fresh hatches have profiles on disk before the first config load; the
-    // hatch overlay still merges afterward and can override seeded fields.
+    // workspace migrations and default-config merge, but before loadConfig() so
+    // fresh hatches have profiles on disk before the first config load. Any
+    // profile fields explicitly supplied by the default overlay stay
+    // authoritative for this startup.
     try {
-      seedInferenceProfiles();
+      seedInferenceProfiles({
+        preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
+        preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+      });
       log.info("Inference profile seeding complete");
     } catch (err) {
       log.warn(
@@ -512,11 +522,6 @@ export async function runDaemon(): Promise<void> {
         "Inference profile seeding failed — continuing startup",
       );
     }
-
-    // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
-    // into the workspace config file before the first loadConfig() call so
-    // onboarding preferences are persisted alongside schema defaults.
-    mergeDefaultWorkspaceConfig();
 
     log.info("Daemon startup: loading config");
     const config = loadConfig();

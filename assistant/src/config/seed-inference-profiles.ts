@@ -1,5 +1,9 @@
-import { readFileSync } from "node:fs";
-
+import {
+  isModelInCatalog,
+  PROVIDER_CATALOG,
+} from "../providers/model-catalog.js";
+import { resolveModelIntent } from "../providers/model-intents.js";
+import type { ModelIntent } from "../providers/types.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
@@ -7,41 +11,44 @@ import {
 } from "./schemas/llm.js";
 
 /**
- * Declarative seed data for daemon-managed inference profiles.
- *
- * These profiles are overwritten on every startup so upstream model
- * updates propagate automatically. User-created profiles (keyed by
- * different names) are never touched.
+ * Template for a daemon-managed inference profile. The profile's model is
+ * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
+ * single source of truth for "which model does this intent map to?".
  */
-const MANAGED_PROFILE_SEED_DATA: Record<string, ProfileEntry> = {
+type ManagedProfileTemplate = Omit<ProfileEntry, "provider" | "model"> & {
+  intent: ModelIntent;
+};
+
+/**
+ * Anthropic-managed profiles. Always seeded so users can target Anthropic via
+ * their own key, even when the resolved default provider is something else.
+ */
+const ANTHROPIC_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   balanced: {
+    intent: "balanced",
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
-    provider: "anthropic",
-    model: "claude-sonnet-4-6",
     maxTokens: 16000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
   "quality-optimized": {
+    intent: "quality-optimized",
     source: "managed",
     label: "Quality",
     description: "Best results with the most capable model",
-    provider: "anthropic",
-    model: "claude-opus-4-7",
     maxTokens: 32000,
     effort: "max",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
   "cost-optimized": {
+    intent: "latency-optimized",
     source: "managed",
     label: "Speed",
     description: "Fastest responses at lower cost",
-    provider: "anthropic",
-    model: "claude-haiku-4-5-20251001",
     maxTokens: 8192,
     effort: "low",
     thinking: { enabled: false, streamThinking: false },
@@ -49,28 +56,82 @@ const MANAGED_PROFILE_SEED_DATA: Record<string, ProfileEntry> = {
   },
 };
 
-export const MANAGED_PROFILE_NAMES = new Set(
-  Object.keys(MANAGED_PROFILE_SEED_DATA),
-);
+/**
+ * Custom-provider profile templates. Materialized at seed time when the
+ * resolved default provider is non-Anthropic, using `resolveModelIntent` to
+ * pick the model.
+ */
+const CUSTOM_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
+  "custom-balanced": {
+    intent: "balanced",
+    source: "managed",
+    label: "Balanced (Custom Provider)",
+    description: "Good balance of quality, cost, and speed",
+    maxTokens: 16000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  "custom-quality-optimized": {
+    intent: "quality-optimized",
+    source: "managed",
+    label: "Quality (Custom Provider)",
+    description: "Best results with the most capable model",
+    maxTokens: 32000,
+    effort: "max",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  "custom-cost-optimized": {
+    intent: "latency-optimized",
+    source: "managed",
+    label: "Speed (Custom Provider)",
+    description: "Fastest responses at lower cost",
+    maxTokens: 8192,
+    effort: "low",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+};
+
+export const MANAGED_PROFILE_NAMES = new Set([
+  ...Object.keys(ANTHROPIC_PROFILE_TEMPLATES),
+  ...Object.keys(CUSTOM_PROFILE_TEMPLATES),
+]);
+
+const KNOWN_PROVIDERS = new Set(PROVIDER_CATALOG.map((entry) => entry.id));
+
+export type SeedInferenceProfilesOptions = {
+  /**
+   * Managed profile names supplied by the platform/default overlay for this
+   * startup. Those entries are already on disk by the time seeding runs and
+   * should remain authoritative for this boot.
+   */
+  preserveProfileNames?: Iterable<string>;
+  preserveActiveProfile?: boolean;
+};
 
 /**
  * Seed managed inference profiles into the workspace config.
  *
- * Called on every daemon startup after workspace migrations and before
- * the first `loadConfig()`. Managed profiles are overwritten entirely
- * (replace, not merge) so upstream model/effort changes propagate.
- * User-created profiles are never touched; pre-existing profiles
- * without a `source` field get `source: "user"` backfilled.
+ * Called on every daemon startup after workspace migrations and default-config
+ * overlay merge, but before the first `loadConfig()`. The 3 Anthropic-managed
+ * profiles (`balanced`, `quality-optimized`, `cost-optimized`) are always
+ * written so users can target Anthropic via their own key. When the resolved
+ * default provider is non-Anthropic, the 3 `custom-*` profiles are also
+ * materialized using `resolveModelIntent` against that provider, and
+ * `custom-balanced` becomes the active profile for fresh hatches.
  *
- * Still runs when `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH` is set. Lifecycle
- * calls this before merging the hatch overlay so managed profiles exist for the
- * first config load, while the overlay can still override profile/default
- * fields immediately afterward. When that overlay declares a non-Anthropic
- * default provider, seed placeholder profile slots but do not force the
- * Anthropic `balanced` profile active.
+ * Default-config overlays can provide their own profile fragments and active
+ * profile. Lifecycle passes those explicit fields in `options`, letting local
+ * hatches still receive managed defaults while platform-owned profile choices
+ * remain authoritative.
  */
-export function seedInferenceProfiles(): void {
+export function seedInferenceProfiles(
+  options: SeedInferenceProfilesOptions = {},
+): void {
   const config = loadRawConfig();
+  const preservedProfileNames = new Set(options.preserveProfileNames ?? []);
 
   if (config.llm == null || typeof config.llm !== "object") {
     config.llm = {};
@@ -81,36 +142,112 @@ export function seedInferenceProfiles(): void {
     llm.profiles = {};
   }
   const profiles = llm.profiles as Record<string, Record<string, unknown>>;
-  const isAnthropicDefault =
-    resolveEffectiveDefaultProvider(llm) === "anthropic";
 
-  for (const [name, seed] of Object.entries(MANAGED_PROFILE_SEED_DATA)) {
-    profiles[name] = isAnthropicDefault ? { ...seed } : {};
+  const requestedProvider =
+    readString(readObject(llm.default)?.provider) ?? "anthropic";
+  const resolvedProvider: NonNullable<ProfileEntry["provider"]> =
+    KNOWN_PROVIDERS.has(requestedProvider)
+      ? (requestedProvider as NonNullable<ProfileEntry["provider"]>)
+      : "anthropic";
+  const isAnthropicDefault = resolvedProvider === "anthropic";
+
+  for (const [name, template] of Object.entries(ANTHROPIC_PROFILE_TEMPLATES)) {
+    if (preservedProfileNames.has(name)) continue;
+    // Preserve a previously overlay-supplied non-Anthropic version of an
+    // Anthropic-managed name (e.g. platform-managed `balanced` with provider
+    // `openai`). The overlay file is consumed and archived after first use,
+    // so `preservedProfileNames` is only populated on the boot where the
+    // overlay is merged — on subsequent boots the on-disk shape is the only
+    // signal that the profile was platform-supplied.
+    const existing = readObject(profiles[name]);
+    const existingProvider = readString(existing?.provider);
+    if (
+      existing !== null &&
+      existingProvider !== undefined &&
+      existingProvider !== "anthropic"
+    ) {
+      continue;
+    }
+    profiles[name] = materializeProfile(template, "anthropic");
   }
 
-  if (isAnthropicDefault) {
-    // Reset to the default managed profile when the current value is missing.
-    if (
-      typeof llm.activeProfile !== "string" ||
-      !(llm.activeProfile in profiles)
-    ) {
-      llm.activeProfile = "balanced";
+  if (!isAnthropicDefault) {
+    for (const [name, template] of Object.entries(CUSTOM_PROFILE_TEMPLATES)) {
+      if (preservedProfileNames.has(name)) continue;
+      profiles[name] = materializeProfile(template, resolvedProvider);
     }
-  } else if (
-    typeof llm.activeProfile !== "string" ||
-    !(llm.activeProfile in profiles) ||
-    MANAGED_PROFILE_NAMES.has(llm.activeProfile)
-  ) {
-    delete llm.activeProfile;
+  }
+
+  const requestedActiveProfile = readString(llm.activeProfile);
+  const requestedActiveEntry =
+    requestedActiveProfile !== undefined
+      ? readObject(profiles[requestedActiveProfile])
+      : null;
+  const requestedActiveExists = requestedActiveEntry !== null;
+  const shouldPreserveActiveProfile =
+    options.preserveActiveProfile === true && requestedActiveExists;
+
+  // Decide whether the existing active profile is still appropriate.
+  // Anthropic-managed names whose on-disk provider is still `anthropic` go
+  // stale when the resolved default flips to a non-Anthropic provider — a
+  // re-hatch should land the user on `custom-balanced` rather than leaving
+  // them on an Anthropic profile they didn't pick.
+  let keepActiveProfile = shouldPreserveActiveProfile;
+  if (!keepActiveProfile && requestedActiveExists) {
+    const isAnthropicManagedName =
+      requestedActiveProfile! in ANTHROPIC_PROFILE_TEMPLATES;
+    const activeProvider = readString(requestedActiveEntry?.provider);
+    const activeIsStaleAnthropic =
+      !isAnthropicDefault &&
+      isAnthropicManagedName &&
+      activeProvider === "anthropic";
+    keepActiveProfile = !activeIsStaleAnthropic;
+  }
+
+  let activeProfileName: string;
+  if (keepActiveProfile) {
+    activeProfileName = requestedActiveProfile!;
+  } else {
+    activeProfileName = isAnthropicDefault ? "balanced" : "custom-balanced";
+    llm.activeProfile = activeProfileName;
+  }
+
+  // Sync `llm.default.model` to the active profile's model so the providers
+  // registry sees a coherent provider/model pair. Only writes when the on-disk
+  // default model is missing or belongs to a different provider's catalog —
+  // a user-supplied model that's valid for the resolved provider is preserved.
+  // Skipped when the overlay owns the active profile (platform mode).
+  if (!shouldPreserveActiveProfile) {
+    const activeEntry = readObject(profiles[activeProfileName]);
+    const activeModel = readString(activeEntry?.model);
+    if (activeModel !== undefined) {
+      const defaultBlock = (readObject(llm.default) ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const currentModel = readString(defaultBlock.model);
+      const currentModelMatchesProvider =
+        currentModel !== undefined &&
+        isModelInCatalog(resolvedProvider, currentModel);
+      if (!currentModelMatchesProvider) {
+        defaultBlock.model = activeModel;
+        llm.default = defaultBlock;
+      }
+    }
   }
 
   const profileOrder = Array.isArray(llm.profileOrder)
     ? (llm.profileOrder as string[])
     : [];
   const orderSet = new Set(profileOrder);
-  for (const name of MANAGED_PROFILE_NAMES) {
+  const seededOrder = [
+    ...Object.keys(ANTHROPIC_PROFILE_TEMPLATES),
+    ...(isAnthropicDefault ? [] : Object.keys(CUSTOM_PROFILE_TEMPLATES)),
+  ];
+  for (const name of seededOrder) {
     if (!orderSet.has(name)) {
       profileOrder.push(name);
+      orderSet.add(name);
     }
   }
   llm.profileOrder = profileOrder;
@@ -129,26 +266,16 @@ export function seedInferenceProfiles(): void {
   saveRawConfig(config);
 }
 
-function resolveEffectiveDefaultProvider(llm: Record<string, unknown>): string {
-  return (
-    readDefaultProviderFromOverlay() ??
-    readString(readObject(llm.default)?.provider) ??
-    "anthropic"
-  );
-}
-
-function readDefaultProviderFromOverlay(): string | undefined {
-  const defaultConfigPath = process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
-  if (!defaultConfigPath) return undefined;
-
-  try {
-    const raw = JSON.parse(readFileSync(defaultConfigPath, "utf-8"));
-    const llm = readObject(raw)?.llm;
-    const defaultBlock = readObject(readObject(llm)?.default);
-    return readString(defaultBlock?.provider);
-  } catch {
-    return undefined;
-  }
+function materializeProfile(
+  template: ManagedProfileTemplate,
+  provider: NonNullable<ProfileEntry["provider"]>,
+): ProfileEntry {
+  const { intent, ...rest } = template;
+  return {
+    ...rest,
+    provider,
+    model: resolveModelIntent(provider, intent),
+  };
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {
