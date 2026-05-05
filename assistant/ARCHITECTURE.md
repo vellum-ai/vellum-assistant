@@ -21,6 +21,20 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
+### Safe Storage Limits
+
+Safe storage limits are gated by the assistant feature flag `safe-storage-limits`, default off. When the flag is off, the disk pressure guard reports a disabled status and no runtime path blocks work, injects cleanup guidance, or changes tool access.
+
+**Disk pressure state:** `src/daemon/disk-pressure-guard.ts` samples workspace storage usage every 60 seconds through `src/util/disk-usage.ts`. At or above the 95% critical threshold it creates an in-memory lock with `lockId`, usage snapshot, `acknowledged`, `overrideActive`, `effectivelyLocked`, and the blocked capabilities `agent-turns`, `background-work`, and `remote-ingress`. The lock clears when usage drops below the threshold or the process restarts. `acknowledgeDiskPressureLock()` only lets the guardian enter cleanup mode; `overrideDiskPressureLock()` requires the exact phrase `I understand the risks` and disables the effective lock while usage remains critical.
+
+**Runtime API and events:** `src/runtime/routes/disk-pressure-routes.ts` exposes `GET /v1/disk-pressure/status`, `POST /v1/disk-pressure/acknowledge`, and `POST /v1/disk-pressure/override`. Route auth policies require normal runtime protection, and `disk_pressure_status_changed` events are emitted when the status changes so clients can update live.
+
+**Turn policy:** `src/daemon/disk-pressure-policy.ts` classifies turns before the main agent loop. Local guardian/owner turns are allowed in cleanup mode; trusted contacts, non-guardian actors, unknown remote senders, background conversations, direct wakes, and non-main LLM call sites are blocked while `effectivelyLocked` is true. Blocked turns emit terminal conversation errors rather than reaching the provider.
+
+**Background work:** Heartbeats, scheduled tasks, filing work, retry sweeps, and background tool completions call `src/daemon/disk-pressure-background-gate.ts` before starting work. While effectively locked they skip the wake or job and log throttled disk-pressure fields.
+
+**Prompt and tools:** Cleanup-mode turns carry `diskPressureContext` through runtime assembly and receive the `<disk_pressure_warning>` injector in `src/plugins/defaults/injectors.ts`. The instruction tells the assistant to warn first, focus only on freeing storage, inspect before deleting, ask for deletion approval, and explain that background processes and trusted-contact messages are blocked. Tool setup marks the turn as cleanup mode; `src/tools/tool-approval-handler.ts` rejects non-cleanup-safe tools, and foreground shell inspection remains available while background `bash` and `host_bash` modes are rejected. When a new lock is created, active background terminal tools are cancelled with reason `disk_pressure`.
+
 ### Single-Header JWT Auth Model
 
 All HTTP API requests use a single `Authorization: Bearer <jwt>` header for authentication. The JWT carries identity, permissions, and policy versioning in a unified token.
