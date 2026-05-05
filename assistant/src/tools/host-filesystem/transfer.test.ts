@@ -31,6 +31,15 @@ mock.module("../../daemon/host-transfer-proxy.js", () => ({
   },
 }));
 
+// Mirror read/write/edit test files: stub the event hub so the multi-client
+// guard at line ~100 of transfer.ts is exercised against an isolated stub
+// rather than the live process-wide singleton.
+mock.module("../../runtime/assistant-event-hub.js", () => ({
+  assistantEventHub: {
+    listClientsByCapability: () => [],
+  },
+}));
+
 const { hostFileTransferTool } = await import("./transfer.js");
 
 const testDirs: string[] = [];

@@ -352,7 +352,7 @@ export const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
 export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
 /**
  * Capabilities eligible for cross-client exposure on non-host-proxy
- * transports (e.g. web, iphone routing to a connected macOS client).
+ * transports (e.g. web, ios routing to a connected macOS client).
  * Adding a capability here exposes ALL tools that map to it (per
  * HOST_TOOL_TO_CAPABILITY) on non-host-proxy transports — the daemon then
  * routes the actual invocation to the connected capable client via the
@@ -409,7 +409,7 @@ export function isToolActiveForContext(
     if (transport && capability && !supportsHostProxy(transport, capability)) {
       // Cross-client exception: allow host tools whose capabilities have
       // cross-client routing infrastructure (Phases 1–3) to be exposed for
-      // non-host-proxy transports (e.g. "web", "iphone") when at least one
+      // non-host-proxy transports (e.g. "web", "ios") when at least one
       // capable client is connected via the event hub. Members of
       // CROSS_CLIENT_EXPOSED_CAPABILITIES (host_bash, host_file) qualify;
       // host_browser is intentionally excluded (chrome-extension is its
