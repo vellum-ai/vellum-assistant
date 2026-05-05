@@ -697,16 +697,15 @@ struct TeleportSection: View {
         transferProgress = nil
 
         // Step 7 — Resolve or hatch a local assistant.
+        // `LockfileAssistant.loadAll()` already sorts newest-first by hatchedAt,
+        // so `first(where:)` picks the most recently hatched local — the one
+        // the user is most likely to consider "their" local assistant.
         phase = .transferring(step: "Preparing local assistant...")
-        var localAssistant = LockfileAssistant.loadAll()
-            .filter { !$0.isRemote }
-            .min(by: { $0.assistantId < $1.assistantId })
+        var localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote })
         if localAssistant == nil {
             let config = VellumCli.RemoteHatchConfig(remote: "local")
             try await AppDelegate.shared?.vellumCli.runRemoteHatch(config: config) { _ in }
-            localAssistant = LockfileAssistant.loadAll()
-                .filter { !$0.isRemote }
-                .min(by: { $0.assistantId < $1.assistantId })
+            localAssistant = LockfileAssistant.loadAll().first(where: { !$0.isRemote })
         } else {
             // Wake existing local assistant in case it's sleeping
             try await AppDelegate.shared?.vellumCli.wake(name: localAssistant!.assistantId)
