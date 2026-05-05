@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   afterEach,
@@ -44,6 +44,7 @@ const capturedWatchers: CapturedWatcher[] = [];
 
 const fakeWatcher = {
   close: () => {},
+  on: (_event: string, _handler: (...args: unknown[]) => void) => fakeWatcher,
 };
 
 mock.module("node:fs", () => {
@@ -115,16 +116,29 @@ const { ConfigWatcher } = await import("../daemon/config-watcher.js");
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Find the watcher for a given directory path. */
-function findWatcher(dir: string): CapturedWatcher | undefined {
-  return capturedWatchers.find((w) => w.dir === dir);
+const TEST_POLL_INTERVAL_MS = 50;
+const POLL_THEN_DEBOUNCE_MS = TEST_POLL_INTERVAL_MS + 200 + 50;
+
+function findWatcher(path: string): CapturedWatcher | undefined {
+  return capturedWatchers.find((w) => w.dir === path);
 }
 
-/** Simulate a file change event and flush the debounce timer. */
+// Workspace files use watchFile (real fs); other dirs use the captured fs.watch callback.
+const WORKSPACE_FILES = new Set(["config.json", "SOUL.md", "IDENTITY.md"]);
+
 function simulateFileChange(dir: string, filename: string): void {
-  const watcher = findWatcher(dir);
-  if (!watcher) throw new Error(`No watcher found for ${dir}`);
-  watcher.callback("change", filename);
+  if (dir === WORKSPACE_DIR && WORKSPACE_FILES.has(filename)) {
+    const target = join(dir, filename);
+    const tmp = `${target}.simulate.tmp`;
+    writeFileSync(tmp, `simulated change @ ${Date.now()}.${Math.random()}`);
+    renameSync(tmp, target);
+    return;
+  }
+  const dirWatcher = findWatcher(dir);
+  if (!dirWatcher) {
+    throw new Error(`No watcher found for directory ${dir}`);
+  }
+  dirWatcher.callback("change", filename);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +158,10 @@ const onConversationEvict = () => {
 beforeEach(() => {
   capturedWatchers.length = 0;
   evictCallCount = 0;
-  watcher = new ConfigWatcher();
+  watcher = new ConfigWatcher(TEST_POLL_INTERVAL_MS);
+  writeFileSync(join(WORKSPACE_DIR, "config.json"), "{}");
+  writeFileSync(join(WORKSPACE_DIR, "SOUL.md"), "");
+  writeFileSync(join(WORKSPACE_DIR, "IDENTITY.md"), "");
 });
 
 afterEach(() => {
@@ -155,51 +172,44 @@ describe("ConfigWatcher workspace file handlers", () => {
   test("SOUL.md change triggers onConversationEvict", async () => {
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
-
-    // Wait for the debounce timer to fire (default 200ms)
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
     expect(evictCallCount).toBe(1);
   });
 
   test("IDENTITY.md change triggers onConversationEvict", async () => {
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
-
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
     expect(evictCallCount).toBe(1);
   });
 
-  test("UPDATES.md change does NOT trigger onConversationEvict", async () => {
+  test("UPDATES.md is not polled (only the registered handler set is)", async () => {
     watcher.start(onConversationEvict);
-    simulateFileChange(WORKSPACE_DIR, "UPDATES.md");
-
-    await new Promise((r) => setTimeout(r, 300));
+    const target = join(WORKSPACE_DIR, "UPDATES.md");
+    writeFileSync(target, "irrelevant");
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
     expect(evictCallCount).toBe(0);
+    expect(findWatcher(WORKSPACE_DIR)).toBeUndefined();
   });
 
   test("config.json change calls refreshConfigFromSources", async () => {
     let refreshCalled = false;
     watcher.refreshConfigFromSources = async () => {
       refreshCalled = true;
-      return false; // no change, so onConversationEvict should NOT be called
+      return false;
     };
-
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
-
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
     expect(refreshCalled).toBe(true);
-    // Config didn't change (returned false), so no eviction
     expect(evictCallCount).toBe(0);
   });
 
   test("config.json change triggers onConversationEvict when config actually changed", async () => {
     watcher.refreshConfigFromSources = async () => true;
-
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
-
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
     expect(evictCallCount).toBe(1);
   });
 
@@ -209,73 +219,46 @@ describe("ConfigWatcher workspace file handlers", () => {
       refreshCalled = true;
       return true;
     };
-
     watcher.suppressConfigReload = true;
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "config.json");
-
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
     expect(refreshCalled).toBe(false);
-    expect(evictCallCount).toBe(0);
-  });
-
-  test("unknown file does not trigger any handler", async () => {
-    watcher.start(onConversationEvict);
-    simulateFileChange(WORKSPACE_DIR, "UNKNOWN.md");
-
-    await new Promise((r) => setTimeout(r, 300));
-    expect(evictCallCount).toBe(0);
-  });
-
-  test("null filename does not trigger any handler", async () => {
-    watcher.start(onConversationEvict);
-    const wsWatcher = findWatcher(WORKSPACE_DIR);
-    expect(wsWatcher).toBeDefined();
-    wsWatcher!.callback("change", null);
-
-    await new Promise((r) => setTimeout(r, 300));
     expect(evictCallCount).toBe(0);
   });
 });
 
 describe("ConfigWatcher watcher lifecycle", () => {
-  test("start registers workspace and signals watchers", () => {
+  test("start does NOT subscribe to /workspace as a directory (regression: ENXIO on Unix sockets)", () => {
     watcher.start(onConversationEvict);
-    const wsWatcher = findWatcher(WORKSPACE_DIR);
-    expect(wsWatcher).toBeDefined();
+    expect(findWatcher(WORKSPACE_DIR)).toBeUndefined();
+    expect(findWatcher(join(WORKSPACE_DIR, "config.json"))).toBeUndefined();
+    expect(findWatcher(join(WORKSPACE_DIR, "SOUL.md"))).toBeUndefined();
+    expect(findWatcher(join(WORKSPACE_DIR, "IDENTITY.md"))).toBeUndefined();
   });
 
-  test("stop cancels all debounce timers and clears watchers", () => {
+  test("stop cancels pending debounce + poll work, no eviction fires after", async () => {
     watcher.start(onConversationEvict);
-    // Trigger a file change but don't wait for the debounce
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     watcher.stop();
-
-    // The debounce should have been cancelled, so no eviction
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
     expect(evictCallCount).toBe(0);
   });
 
-  test("multiple prompt file changes are debounced", async () => {
+  test("multiple rapid changes to the same workspace file are coalesced to one eviction", async () => {
     watcher.start(onConversationEvict);
-
-    // Rapid fire multiple changes to the same file
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
-
-    await new Promise((r) => setTimeout(r, 300));
-    // Despite 3 events, debouncing should collapse them to 1 call
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
     expect(evictCallCount).toBe(1);
   });
 
   test("changes to different files each trigger their own handler", async () => {
     watcher.start(onConversationEvict);
-
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
-
-    await new Promise((r) => setTimeout(r, 300));
-    // Each file has its own debounce key, so both should fire
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
     expect(evictCallCount).toBe(2);
   });
 });
@@ -318,6 +301,34 @@ describe("ConfigWatcher users directory watcher", () => {
     simulateFileChange(USERS_DIR, "bob.md");
 
     await new Promise((r) => setTimeout(r, 300));
+    expect(evictCallCount).toBe(1);
+  });
+});
+
+describe("ConfigWatcher per-file polling", () => {
+  test("atomic-rename writes are detected (gateway mutateConfigFile shape)", async () => {
+    watcher.refreshConfigFromSources = async () => true;
+    watcher.start(onConversationEvict);
+
+    const cfgPath = join(WORKSPACE_DIR, "config.json");
+    const tmpPath = join(WORKSPACE_DIR, "config.json.replace.tmp");
+    writeFileSync(tmpPath, '{"changed": true}');
+    renameSync(tmpPath, cfgPath);
+
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
+    expect(evictCallCount).toBe(1);
+  });
+
+  test("in-place writes are also detected (mtime change)", async () => {
+    watcher.refreshConfigFromSources = async () => true;
+    watcher.start(onConversationEvict);
+
+    const cfgPath = join(WORKSPACE_DIR, "config.json");
+    // Ensure mtime resolution captures the change (ext4 has sub-ms, APFS doesn't).
+    await new Promise((r) => setTimeout(r, 10));
+    writeFileSync(cfgPath, '{"appended": true}');
+
+    await new Promise((r) => setTimeout(r, POLL_THEN_DEBOUNCE_MS));
     expect(evictCallCount).toBe(1);
   });
 });
