@@ -3,7 +3,7 @@
  * revoked channels or touch channels that belong to guardian contacts.
  */
 
-import { describe, test, expect, beforeEach, mock, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 
 import "./test-preload.js";
 
