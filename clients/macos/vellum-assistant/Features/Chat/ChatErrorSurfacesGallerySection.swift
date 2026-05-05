@@ -12,6 +12,8 @@ import VellumAssistantShared
 ///   • `ChatConversationErrorToast` — both init paths (typed
 ///     `ConversationError` and unstructured message).
 ///   • `CreditsExhaustedBanner` — surface-colored "Add Funds" panel.
+///   • `ProviderBillingBanner` — surface-colored "Open Settings" panel
+///     for API-provider billing issues.
 ///   • `CompactionCircuitOpenBanner` — solid-accent "auto-compaction
 ///     paused" warning.
 ///   • `MissingApiKeyBanner` — surface-colored "Open Settings" panel with
@@ -204,6 +206,23 @@ struct ChatErrorSurfacesGallerySection: View {
                 }
             }
 
+            // MARK: - ProviderBillingBanner
+
+            if filter == nil || filter == "providerBillingBanner" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "ProviderBillingBanner",
+                    description: "Above-composer surface panel shown when the configured API provider reports account or API-key billing trouble. Uses provider-focused copy and opens Models & Services instead of Billing/Add Funds."
+                )
+
+                VCard {
+                    ProviderBillingBanner(onOpenSettings: {})
+                }
+            }
+
             // MARK: - CompactionCircuitOpenBanner
 
             if filter == nil || filter == "compactionCircuitOpenBanner" {
@@ -274,6 +293,8 @@ extension ChatErrorSurfacesGallerySection {
             ChatErrorSurfacesGallerySection(filter: "chatConversationErrorToast")
         case "creditsExhaustedBanner":
             ChatErrorSurfacesGallerySection(filter: "creditsExhaustedBanner")
+        case "providerBillingBanner":
+            ChatErrorSurfacesGallerySection(filter: "providerBillingBanner")
         case "compactionCircuitOpenBanner":
             ChatErrorSurfacesGallerySection(filter: "compactionCircuitOpenBanner")
         case "missingApiKeyBanner":
