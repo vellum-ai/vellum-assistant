@@ -171,7 +171,7 @@ describe("channel inbound disk pressure gate", () => {
     expect(db.select().from(messages).all()).toHaveLength(0);
   });
 
-  test("notifies duplicate blocked ingress before consuming a retryable event", async () => {
+  test("notifies duplicate blocked ingress without consuming a retryable event", async () => {
     const inbound = deliveryCrud.recordInbound(
       "telegram",
       "chat-123",
@@ -233,6 +233,72 @@ describe("channel inbound disk pressure gate", () => {
       .select()
       .from(channelInboundEvents)
       .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    expect(event?.processingStatus).toBe("failed");
+    expect(event?.messageId).toBeNull();
+    expect(event?.rawPayload).not.toBeNull();
+    expect(db.select().from(messages).all()).toHaveLength(0);
+  });
+
+  test("blocks non-guardian Slack reactions before persistence while locked", async () => {
+    upsertContact({
+      displayName: "Example Slack User",
+      channels: [
+        {
+          type: "slack",
+          address: "slack-user-1",
+          externalUserId: "slack-user-1",
+          status: "active",
+          policy: "allow",
+        },
+      ],
+    });
+    const processMessage = mock(async () => {
+      throw new Error("processMessage should not run");
+    });
+    setAdapterProcessMessage(processMessage);
+
+    const res = await handleChannelInbound(
+      makeInboundRequest({
+        sourceChannel: "slack",
+        interface: "slack",
+        conversationExternalId: "slack-channel-1",
+        externalMessageId: "slack-reaction-blocked",
+        content: "reaction:thumbsup",
+        actorExternalId: "slack-user-1",
+        callbackData: "reaction:thumbsup",
+        replyCallbackUrl: "https://gateway.test/deliver/slack",
+      }),
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      accepted: true,
+      duplicate: false,
+      diskPressure: "blocked",
+      reason: "trusted-contact",
+    });
+    expect(processMessage).not.toHaveBeenCalled();
+    expect(deliverChannelReplyMock.mock.calls).toEqual([
+      [
+        "https://gateway.test/deliver/slack",
+        {
+          chatId: "slack-channel-1",
+          text: expectedRemoteBlockReply,
+          assistantId: "self",
+          ephemeral: true,
+          user: "slack-user-1",
+        },
+      ],
+    ]);
+
+    const db = getDb();
+    const event = db
+      .select()
+      .from(channelInboundEvents)
+      .where(
+        eq(channelInboundEvents.externalMessageId, "slack-reaction-blocked"),
+      )
       .get();
     expect(event?.processingStatus).toBe("processed");
     expect(event?.messageId).toBeNull();

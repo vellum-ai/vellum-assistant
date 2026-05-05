@@ -553,12 +553,15 @@ export async function handleChannelInbound({
     },
   );
   if (diskPressureDecision.action === "block") {
-    clearPayload(result.eventId);
-    markProcessed(result.eventId);
+    if (!result.duplicate) {
+      clearPayload(result.eventId);
+      markProcessed(result.eventId);
+    }
     log.info(
       {
         conversationId: result.conversationId,
         eventId: result.eventId,
+        duplicate: result.duplicate,
         reason: diskPressureDecision.reason,
         trustClass: trustCtx.trustClass,
       },
