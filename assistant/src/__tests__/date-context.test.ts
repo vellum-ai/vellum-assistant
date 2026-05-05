@@ -93,14 +93,14 @@ describe("extractUserTimeZoneFromRecall", () => {
 // ---------------------------------------------------------------------------
 
 describe("UiConfigSchema timezone fields", () => {
-  test("accepts IANA canonical identifiers and aliases", () => {
+  test("accepts canonicalizable IANA timezone identifiers", () => {
     const result = UiConfigSchema.parse({
       userTimezone: "america/new_york",
-      detectedTimezone: "US/Eastern",
+      detectedTimezone: "america/los_angeles",
     });
 
     expect(result.userTimezone).toBe("America/New_York");
-    expect(result.detectedTimezone).toBe("US/Eastern");
+    expect(result.detectedTimezone).toBe("America/Los_Angeles");
     expect(UiConfigSchema.parse({ userTimezone: "UTC" }).userTimezone).toBe(
       "UTC",
     );
