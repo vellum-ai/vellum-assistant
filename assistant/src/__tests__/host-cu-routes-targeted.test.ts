@@ -112,10 +112,16 @@ function registerPending(
   requestId: string,
   overrides: Partial<PendingInteraction> = {},
 ): void {
+  const targetActorPrincipalId =
+    overrides.targetActorPrincipalId ??
+    (overrides.targetClientId
+      ? actorPrincipalByClient.get(overrides.targetClientId)
+      : undefined);
   const entry: PendingInteraction = {
     conversationId: "conv-cu-1",
     kind: "host_cu",
     ...overrides,
+    targetActorPrincipalId,
   };
   pendingStore.set(requestId, entry);
 }
@@ -162,8 +168,8 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
   describe("targeted + correct x-vellum-client-id header", () => {
     test("returns { accepted: true } and resolves the interaction", async () => {
       const requestId = "req-cu-targeted-match";
-      registerPending(requestId, { targetClientId: "client-A" });
       actorPrincipalByClient.set("client-A", "user-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       const result = await handleHostCuResult({
         body: cuBody(requestId),
@@ -181,8 +187,8 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
 
     test("trims whitespace from header before comparing", async () => {
       const requestId = "req-cu-targeted-trim";
-      registerPending(requestId, { targetClientId: "client-A" });
       actorPrincipalByClient.set("client-A", "user-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       const result = await handleHostCuResult({
         body: cuBody(requestId),
@@ -293,8 +299,8 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
   describe("targeted + actor-principal-id binding", () => {
     test("accepts when submitting actor matches target client's stored actor", async () => {
       const requestId = "req-cu-actor-match";
-      registerPending(requestId, { targetClientId: "client-A" });
       actorPrincipalByClient.set("client-A", "user-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       const result = await handleHostCuResult({
         body: cuBody(requestId),
@@ -311,8 +317,8 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
 
     test("throws ForbiddenError (403) when submitting actor does not match target client's actor", () => {
       const requestId = "req-cu-actor-mismatch";
-      registerPending(requestId, { targetClientId: "client-A" });
       actorPrincipalByClient.set("client-A", "user-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       expect(() =>
         handleHostCuResult({
@@ -327,8 +333,8 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
 
     test("interaction NOT consumed on 403 actor mismatch", () => {
       const requestId = "req-cu-actor-mismatch-stays";
-      registerPending(requestId, { targetClientId: "client-A" });
       actorPrincipalByClient.set("client-A", "user-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       try {
         handleHostCuResult({
@@ -348,8 +354,8 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
 
     test("throws ForbiddenError (403) when submitting actor header is missing", () => {
       const requestId = "req-cu-actor-missing";
-      registerPending(requestId, { targetClientId: "client-A" });
       actorPrincipalByClient.set("client-A", "user-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       expect(() =>
         handleHostCuResult({
@@ -377,8 +383,8 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
 
     test("throws ForbiddenError (403) when submitting actor header is whitespace only", () => {
       const requestId = "req-cu-actor-whitespace";
-      registerPending(requestId, { targetClientId: "client-A" });
       actorPrincipalByClient.set("client-A", "user-1");
+      registerPending(requestId, { targetClientId: "client-A" });
 
       expect(() =>
         handleHostCuResult({

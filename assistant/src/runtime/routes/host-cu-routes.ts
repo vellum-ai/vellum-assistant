@@ -7,7 +7,6 @@
 import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-store.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -99,8 +98,8 @@ function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
       headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
     );
     enforceSameActorOrThrow({
-      hub: assistantEventHub,
       sourceActorPrincipalId: submittingActorPrincipalId,
+      targetActorPrincipalId: peeked.targetActorPrincipalId,
       targetClientId: peeked.targetClientId,
       op: "host_cu",
     });

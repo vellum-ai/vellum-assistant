@@ -171,6 +171,12 @@ export class HostBashProxy {
         timer,
         detachAbort,
         targetClientId: resolvedTargetClientId,
+        targetActorPrincipalId:
+          resolvedTargetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(
+                resolvedTargetClientId,
+              )
+            : undefined,
         metadata: { timeoutSec },
       });
 

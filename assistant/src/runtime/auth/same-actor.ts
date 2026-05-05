@@ -47,24 +47,54 @@ export type SameActorOp =
   | "host_cu"
   | "host_transfer";
 
-export interface SameActorArgs {
+/**
+ * Args for the live-lookup variant: caller supplies the hub + target client
+ * id, and the helper looks up the target's actor principal in real time.
+ * Used at proxy request time (registration), where the SSE subscription is
+ * present by definition.
+ */
+export interface SameActorLiveArgs {
   hub: Pick<AssistantEventHub, "getActorPrincipalIdForClient">;
   sourceActorPrincipalId: string | undefined;
   targetClientId: string;
   op: SameActorOp;
 }
 
+/**
+ * Args for the persisted-value variant: caller supplies a target actor
+ * principal id captured at registration time. Used at result-submission
+ * time, where the SSE subscription may have briefly disconnected and the
+ * live hub lookup would falsely 403 a legitimate result.
+ */
+export interface SameActorPersistedArgs {
+  sourceActorPrincipalId: string | undefined;
+  targetActorPrincipalId: string | undefined;
+  targetClientId: string;
+  op: SameActorOp;
+}
+
+export type SameActorArgs = SameActorLiveArgs;
+
 type RejectionReason = "missing_source" | "missing_target" | "mismatch";
+
+function isLive(
+  args: SameActorLiveArgs | SameActorPersistedArgs,
+): args is SameActorLiveArgs {
+  return (args as SameActorLiveArgs).hub != null;
+}
 
 /**
  * Internal: returns the rejection reason or `undefined` when the source
  * matches the target. Always logs on rejection so all callers share the
  * same audit shape.
  */
-function detectRejection(args: SameActorArgs): RejectionReason | undefined {
-  const { hub, sourceActorPrincipalId, targetClientId, op } = args;
-  const targetActorPrincipalId =
-    hub.getActorPrincipalIdForClient(targetClientId);
+function detectRejection(
+  args: SameActorLiveArgs | SameActorPersistedArgs,
+): RejectionReason | undefined {
+  const { sourceActorPrincipalId, targetClientId, op } = args;
+  const targetActorPrincipalId = isLive(args)
+    ? args.hub.getActorPrincipalIdForClient(targetClientId)
+    : args.targetActorPrincipalId;
 
   let reason: RejectionReason | undefined;
   if (sourceActorPrincipalId == null) {
@@ -93,8 +123,15 @@ function detectRejection(args: SameActorArgs): RejectionReason | undefined {
  * Route-flavored variant: throws {@link ForbiddenError} on rejection so
  * the existing route adapter maps it to HTTP 403. Returns void on
  * success.
+ *
+ * Accepts EITHER {@link SameActorLiveArgs} (live hub lookup, used at
+ * proxy registration time) OR {@link SameActorPersistedArgs} (compare
+ * against a value captured earlier, used at result-submission time so a
+ * brief SSE reconnect doesn't 403 a legitimate result).
  */
-export function enforceSameActorOrThrow(args: SameActorArgs): void {
+export function enforceSameActorOrThrow(
+  args: SameActorLiveArgs | SameActorPersistedArgs,
+): void {
   if (detectRejection(args) != null) {
     throw new ForbiddenError(REJECTION_MESSAGE);
   }
@@ -103,10 +140,11 @@ export function enforceSameActorOrThrow(args: SameActorArgs): void {
 /**
  * Proxy-flavored variant: returns a tool-execution-shaped error result
  * on rejection (so the proxy can pass it directly back to the agent),
- * or `null` on success.
+ * or `null` on success. Always uses the live hub lookup — proxy
+ * registration runs while the target SSE subscription is active.
  */
 export function enforceSameActorOrErrorResult(
-  args: SameActorArgs,
+  args: SameActorLiveArgs,
 ): { content: string; isError: true } | null {
   if (detectRejection(args) == null) return null;
   return { content: REJECTION_MESSAGE, isError: true };

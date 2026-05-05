@@ -8,7 +8,10 @@
 import { z } from "zod";
 
 import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import {
+  enforceSameActorOrThrow,
+  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+} from "../auth/same-actor.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
@@ -63,24 +66,19 @@ function handleTransferContentGet({
         `Client "${submittingClientId}" is not the owner of this transfer`,
       );
 
-    // Defense-in-depth: also require the submitting actor's principal id to
-    // match the actor that opened the target client's SSE stream. This blocks
-    // cross-user submissions even if a different user obtains the target
-    // client id.
-    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-    );
-    const targetActorPrincipalId =
-      assistantEventHub.getActorPrincipalIdForClient(targetClientId);
-    if (
-      !submittingActorPrincipalId ||
-      !targetActorPrincipalId ||
-      submittingActorPrincipalId !== targetActorPrincipalId
-    ) {
-      throw new ForbiddenError(
-        "Submitting actor does not match the target client's actor for this transfer.",
-      );
-    }
+    // Defense-in-depth: the submitting actor's principal must match the
+    // actor that opened the target client's SSE stream. Compare against
+    // the value persisted at registration time so a brief reconnect does
+    // not 403 a legitimate fetch.
+    enforceSameActorOrThrow({
+      sourceActorPrincipalId: resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      ),
+      targetActorPrincipalId:
+        match.proxy.getTargetActorPrincipalIdForTransfer(transferId),
+      targetClientId,
+      op: "host_transfer",
+    });
   }
 
   const content = match.proxy.getTransferContent(transferId);
@@ -151,24 +149,15 @@ async function handleTransferContentPut({
         `Client "${submittingClientId}" is not the owner of this transfer`,
       );
 
-    // Defense-in-depth: also require the submitting actor's principal id to
-    // match the actor that opened the target client's SSE stream. This blocks
-    // cross-user submissions even if a different user obtains the target
-    // client id.
-    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-    );
-    const targetActorPrincipalId =
-      assistantEventHub.getActorPrincipalIdForClient(targetClientId);
-    if (
-      !submittingActorPrincipalId ||
-      !targetActorPrincipalId ||
-      submittingActorPrincipalId !== targetActorPrincipalId
-    ) {
-      throw new ForbiddenError(
-        "Submitting actor does not match the target client's actor for this transfer.",
-      );
-    }
+    enforceSameActorOrThrow({
+      sourceActorPrincipalId: resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      ),
+      targetActorPrincipalId:
+        match.proxy.getTargetActorPrincipalIdForTransfer(transferId),
+      targetClientId,
+      op: "host_transfer",
+    });
   }
 
   const data = rawBody ? Buffer.from(rawBody) : Buffer.alloc(0);
@@ -231,24 +220,14 @@ function handleTransferResult({ body, headers }: RouteHandlerArgs) {
         `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}").`,
       );
 
-    // Defense-in-depth: also require the submitting actor's principal id to
-    // match the actor that opened the target client's SSE stream. Blocks
-    // cross-user submissions even if a different user obtains the target
-    // client id.
-    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-    );
-    const targetActorPrincipalId =
-      assistantEventHub.getActorPrincipalIdForClient(peeked.targetClientId);
-    if (
-      !submittingActorPrincipalId ||
-      !targetActorPrincipalId ||
-      submittingActorPrincipalId !== targetActorPrincipalId
-    ) {
-      throw new ForbiddenError(
-        "Submitting actor does not match the target client's actor for this request.",
-      );
-    }
+    enforceSameActorOrThrow({
+      sourceActorPrincipalId: resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      ),
+      targetActorPrincipalId: peeked.targetActorPrincipalId,
+      targetClientId: peeked.targetClientId,
+      op: "host_transfer",
+    });
   }
 
   HostTransferProxy.instance.resolveTransferResult(requestId, {
@@ -282,8 +261,7 @@ export const ROUTES: RouteDefinition[] = [
           "x-vellum-client-id header is missing for a targeted transfer.",
       },
       "403": {
-        description:
-          "Submitting client does not match the targeted client, or the submitting actor's principal does not match the target client's actor.",
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
       },
     },
     handler: handleTransferContentGet,
@@ -304,8 +282,7 @@ export const ROUTES: RouteDefinition[] = [
           "x-vellum-client-id header is missing for a targeted transfer.",
       },
       "403": {
-        description:
-          "Submitting client does not match the targeted client, or the submitting actor's principal does not match the target client's actor.",
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
       },
     },
     handler: handleTransferContentPut,
@@ -334,8 +311,7 @@ export const ROUTES: RouteDefinition[] = [
           "x-vellum-client-id header is missing for a targeted host transfer request.",
       },
       "403": {
-        description:
-          "Submitting client does not match the targeted client, or the submitting actor's principal does not match the target client's actor.",
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
       },
     },
     handler: handleTransferResult,

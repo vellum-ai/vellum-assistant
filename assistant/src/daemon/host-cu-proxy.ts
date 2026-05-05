@@ -235,6 +235,10 @@ export class HostCuProxy {
         conversationId,
         kind: "host_cu",
         targetClientId,
+        targetActorPrincipalId:
+          targetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(targetClientId)
+            : undefined,
         rpcResolve: resolve,
         rpcReject: reject,
         timer,

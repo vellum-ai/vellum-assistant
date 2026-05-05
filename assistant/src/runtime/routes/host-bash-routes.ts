@@ -7,7 +7,6 @@
 import { z } from "zod";
 
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -79,8 +78,8 @@ function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
     // cross-user submission even when the attacker can guess or spoof the
     // target's client ID.
     enforceSameActorOrThrow({
-      hub: assistantEventHub,
       sourceActorPrincipalId: submittingActorPrincipalId,
+      targetActorPrincipalId: peeked.targetActorPrincipalId,
       targetClientId,
       op: "host_bash",
     });
