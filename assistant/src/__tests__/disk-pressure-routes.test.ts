@@ -191,7 +191,6 @@ describe("disk pressure routes", () => {
 
   test("returns the full status shape for an active lock", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
 
     const result = await callRoute("disk-pressure/status", "GET");
 
@@ -214,6 +213,32 @@ describe("disk pressure routes", () => {
       "remote-ingress",
     ]);
     expect(result.status.error).toBeNull();
+  });
+
+  test("refreshes status from disk without emitting a read-path status event", async () => {
+    const events: unknown[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        if (event.message.type === "disk_pressure_status_changed") {
+          events.push(event.message);
+        }
+      },
+    });
+
+    try {
+      setDiskUsage(99);
+
+      const result = await callRoute("disk-pressure/status", "GET");
+      await flushPublishedEvents();
+
+      expect(result.status.state).toBe("critical");
+      expect(result.status.locked).toBe(true);
+      expect(result.status.usagePercent).toBe(99);
+      expect(events).toEqual([]);
+    } finally {
+      subscription.dispose();
+    }
   });
 
   test("acknowledges an active lock without overriding it", async () => {
@@ -335,7 +360,6 @@ describe("disk pressure routes", () => {
         (message as { status: DiskPressureRouteResult["status"] }).status,
     );
     expect(statuses.map((status) => status.state)).toEqual([
-      "ok",
       "critical",
       "critical",
       "critical",
@@ -343,12 +367,12 @@ describe("disk pressure routes", () => {
       "ok",
     ]);
     expect(statuses[0].enabled).toBe(true);
-    expect(statuses[2].acknowledged).toBe(true);
-    expect(statuses[2].overrideActive).toBe(false);
-    expect(statuses[3].overrideActive).toBe(true);
-    expect(statuses[3].effectivelyLocked).toBe(false);
-    expect(statuses[4].usagePercent).toBe(98);
-    expect(statuses[5].locked).toBe(false);
-    expect(statuses[5].lockId).toBeNull();
+    expect(statuses[1].acknowledged).toBe(true);
+    expect(statuses[1].overrideActive).toBe(false);
+    expect(statuses[2].overrideActive).toBe(true);
+    expect(statuses[2].effectivelyLocked).toBe(false);
+    expect(statuses[3].usagePercent).toBe(98);
+    expect(statuses[4].locked).toBe(false);
+    expect(statuses[4].lockId).toBeNull();
   });
 });
