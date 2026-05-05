@@ -29,19 +29,17 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module-level mocks ─────────────────────────────────────────────
 
-// Control how many host_bash-capable clients the hub reports.
-let mockHostBashClientCount = 0;
+// Control how many capable clients the hub reports per capability.
+const mockClientCountByCapability = new Map<string, number>();
 
 mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     listClientsByCapability: (cap: string) => {
-      if (cap === "host_bash") {
-        return Array.from({ length: mockHostBashClientCount }, (_, i) => ({
-          clientId: `mock-client-${i}`,
-          capabilities: ["host_bash"],
-        }));
-      }
-      return [];
+      const count = mockClientCountByCapability.get(cap) ?? 0;
+      return Array.from({ length: count }, (_, i) => ({
+        clientId: `mock-${cap}-client-${i}`,
+        capabilities: [cap],
+      }));
     },
   },
   broadcastMessage: () => {},
@@ -72,7 +70,7 @@ function makeCtx(
 }
 
 beforeEach(() => {
-  mockHostBashClientCount = 0;
+  mockClientCountByCapability.clear();
 });
 
 describe("isToolActiveForContext — host tool capability gating", () => {
@@ -213,7 +211,7 @@ describe("isToolActiveForContext — cross-client exception (Phase 1: host_bash)
   test("host_bash is active for web transport when a host_bash-capable client is connected", () => {
     // Cross-client path: a web turn should see host_bash when a macOS client
     // with host_bash capability is connected via the event hub.
-    mockHostBashClientCount = 1;
+    mockClientCountByCapability.set("host_bash", 1);
     expect(
       isToolActiveForContext(
         "host_bash",
@@ -224,7 +222,7 @@ describe("isToolActiveForContext — cross-client exception (Phase 1: host_bash)
 
   test("host_bash is NOT active for web transport when no capable client is connected", () => {
     // No cross-client fallback: hub has no host_bash-capable subscribers.
-    mockHostBashClientCount = 0;
+    mockClientCountByCapability.set("host_bash", 0);
     expect(
       isToolActiveForContext(
         "host_bash",
@@ -237,7 +235,7 @@ describe("isToolActiveForContext — cross-client exception (Phase 1: host_bash)
     // The cross-client exception is scoped to host_bash only.
     // host_file_* remain filtered for non-host-proxy interfaces regardless
     // of connected clients until Phase 2 lands.
-    mockHostBashClientCount = 1;
+    mockClientCountByCapability.set("host_bash", 1);
     expect(
       isToolActiveForContext(
         "host_file_read",
@@ -249,7 +247,7 @@ describe("isToolActiveForContext — cross-client exception (Phase 1: host_bash)
   test("host_bash for macos transport is unaffected by the cross-client exception", () => {
     // macos natively supports host_bash via host proxy — the supportsHostProxy
     // check passes, so the cross-client branch is never reached.
-    mockHostBashClientCount = 0;
+    mockClientCountByCapability.set("host_bash", 0);
     expect(
       isToolActiveForContext(
         "host_bash",
@@ -262,7 +260,7 @@ describe("isToolActiveForContext — cross-client exception (Phase 1: host_bash)
     // Even with a capable client in the hub, the macos SSE path takes
     // precedence — it passes the supportsHostProxy check, bypasses the
     // cross-client branch, and reaches the hasNoClient gate.
-    mockHostBashClientCount = 1;
+    mockClientCountByCapability.set("host_bash", 1);
     expect(
       isToolActiveForContext(
         "host_bash",
@@ -275,7 +273,7 @@ describe("isToolActiveForContext — cross-client exception (Phase 1: host_bash)
     // Security boundary: chrome-extension only gets host_browser. The
     // cross-client exception explicitly excludes chrome-extension transport
     // regardless of how many host_bash-capable clients are in the hub.
-    mockHostBashClientCount = 1;
+    mockClientCountByCapability.set("host_bash", 1);
     expect(
       isToolActiveForContext(
         "host_bash",
@@ -287,13 +285,75 @@ describe("isToolActiveForContext — cross-client exception (Phase 1: host_bash)
   test("host_bash is NOT active for web transport when hasNoClient is true (no approval UI)", () => {
     // hasNoClient gate: no interactive approval UI available for this turn.
     // Cross-client exception must not bypass this gate.
-    mockHostBashClientCount = 1;
+    mockClientCountByCapability.set("host_bash", 1);
     expect(
       isToolActiveForContext(
         "host_bash",
         makeCtx({ hasNoClient: true, transportInterface: "web" }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("isToolActiveForContext — cross-client exposure for host_file_*", () => {
+  const HOST_FILE_TOOLS = [
+    "host_file_read",
+    "host_file_write",
+    "host_file_edit",
+    "host_file_transfer",
+  ] as const;
+
+  for (const tool of HOST_FILE_TOOLS) {
+    test(`${tool} is exposed for web transport when a host_file client is connected`, () => {
+      mockClientCountByCapability.set("host_file", 1);
+      expect(
+        isToolActiveForContext(
+          tool,
+          makeCtx({ hasNoClient: false, transportInterface: "web" }),
+        ),
+      ).toBe(true);
+    });
+
+    test(`${tool} is NOT exposed for web when no host_file client is connected`, () => {
+      mockClientCountByCapability.set("host_file", 0);
+      expect(
+        isToolActiveForContext(
+          tool,
+          makeCtx({ hasNoClient: false, transportInterface: "web" }),
+        ),
+      ).toBe(false);
+    });
+
+    test(`${tool} is NOT exposed for chrome-extension (security boundary)`, () => {
+      mockClientCountByCapability.set("host_file", 1);
+      expect(
+        isToolActiveForContext(
+          tool,
+          makeCtx({ hasNoClient: true, transportInterface: "chrome-extension" }),
+        ),
+      ).toBe(false);
+    });
+
+    test(`${tool} is NOT exposed when hasNoClient is true (no approval UI)`, () => {
+      mockClientCountByCapability.set("host_file", 1);
+      expect(
+        isToolActiveForContext(
+          tool,
+          makeCtx({ hasNoClient: true, transportInterface: "web" }),
+        ),
+      ).toBe(false);
+    });
+  }
+
+  test("listClientsByCapability is queried with the actual capability, not host_bash (regression guard for D5 latent bug)", () => {
+    mockClientCountByCapability.set("host_bash", 0);
+    mockClientCountByCapability.set("host_file", 1);
+    expect(
+      isToolActiveForContext(
+        "host_file_transfer",
+        makeCtx({ hasNoClient: false, transportInterface: "web" }),
+      ),
+    ).toBe(true);
   });
 });
 
