@@ -774,7 +774,7 @@ async function main() {
           );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
-        return channelVerificationSessionProxy.handleGuardianRefresh(req);
+        return channelVerificationSessionProxy.handleGuardianRefresh(req, result.claims);
       },
     },
 

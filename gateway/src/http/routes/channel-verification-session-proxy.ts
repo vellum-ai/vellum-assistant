@@ -10,9 +10,11 @@ import { join } from "node:path";
 
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
-import { bootstrapGuardian } from "../../auth/guardian-bootstrap.js";
+import { bootstrapGuardian, hashToken } from "../../auth/guardian-bootstrap.js";
 import { rotateCredentials } from "../../auth/guardian-refresh.js";
+import { parseSub } from "../../auth/subject.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
+import type { TokenClaims } from "../../auth/types.js";
 import type { GatewayConfig } from "../../config.js";
 import { getGatewaySecurityDir } from "../../paths.js";
 import { fetchImpl } from "../../fetch.js";
@@ -352,25 +354,47 @@ export function createChannelVerificationSessionProxyHandler(
       }
     },
 
-    async handleGuardianRefresh(req: Request): Promise<Response> {
+    async handleGuardianRefresh(
+      req: Request,
+      claims: TokenClaims,
+    ): Promise<Response> {
       try {
         const body = (await req.json()) as Record<string, unknown>;
         const refreshToken =
           typeof body.refreshToken === "string" ? body.refreshToken : "";
+        const deviceId =
+          typeof body.deviceId === "string" ? body.deviceId.trim() : "";
 
-        if (!refreshToken) {
+        if (!refreshToken || !deviceId) {
           return Response.json(
             {
               error: {
                 code: "BAD_REQUEST",
-                message: "Missing required field: refreshToken",
+                message: "Missing required fields: refreshToken, deviceId",
               },
             },
             { status: 400 },
           );
         }
 
-        const result = rotateCredentials({ refreshToken });
+        // Extract guardianPrincipalId from the validated JWT sub.
+        // The sub is actor:<assistantId>:<actorPrincipalId>; we require an
+        // actor token — service/local tokens cannot rotate guardian credentials.
+        const parsed = parseSub(claims.sub);
+        if (!parsed.ok || parsed.principalType !== "actor" || !parsed.actorPrincipalId) {
+          log.warn(
+            { sub: claims.sub },
+            "Guardian refresh rejected: JWT sub is not an actor token",
+          );
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        const hashedDeviceId = hashToken(deviceId);
+        const result = rotateCredentials({
+          refreshToken,
+          guardianPrincipalId: parsed.actorPrincipalId,
+          hashedDeviceId,
+        });
 
         if (!result.ok) {
           const statusCode =

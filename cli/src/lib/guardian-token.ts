@@ -185,7 +185,10 @@ export async function refreshGuardianToken(
         "Content-Type": "application/json",
         Authorization: `Bearer ${tokenData.accessToken}`,
       },
-      body: JSON.stringify({ refreshToken: tokenData.refreshToken }),
+      body: JSON.stringify({
+        refreshToken: tokenData.refreshToken,
+        deviceId: tokenData.deviceId,
+      }),
     });
     if (!response.ok) return null;
 

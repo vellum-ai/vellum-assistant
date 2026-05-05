@@ -198,9 +198,19 @@ function mintRefreshTokenInFamily(params: {
  * Rotate credentials: validate refresh token, revoke old, mint new pair.
  *
  * All token operations run against the gateway's SQLite database.
+ *
+ * `guardianPrincipalId` must match the refresh token record's subject —
+ * derived from the validated JWT so the caller cannot rotate a token that
+ * belongs to a different principal.
+ *
+ * `hashedDeviceId` must match the record's device binding. This prevents
+ * a stolen refresh token from being used on an unrecognised device: the
+ * caller must prove knowledge of the original device identifier.
  */
 export function rotateCredentials(params: {
   refreshToken: string;
+  guardianPrincipalId: string;
+  hashedDeviceId: string;
 }):
   | { ok: true; result: RotateResult }
   | { ok: false; error: RefreshErrorCode } {
@@ -209,6 +219,26 @@ export function rotateCredentials(params: {
   const record = findRefreshByHash(refreshTokenHash);
 
   if (!record) {
+    return { ok: false, error: "refresh_invalid" };
+  }
+
+  // Bind the refresh token to the JWT principal and originating device.
+  // A mismatch here means either a token from a different principal or a
+  // different device is being used — treat both as invalid to avoid leaking
+  // information about which check failed.
+  if (record.guardianPrincipalId !== params.guardianPrincipalId) {
+    log.warn(
+      { familyId: record.familyId },
+      "Refresh token principal mismatch — rejecting rotation",
+    );
+    return { ok: false, error: "refresh_invalid" };
+  }
+
+  if (record.hashedDeviceId !== params.hashedDeviceId) {
+    log.warn(
+      { familyId: record.familyId, guardianPrincipalId: record.guardianPrincipalId },
+      "Refresh token device mismatch — rejecting rotation",
+    );
     return { ok: false, error: "refresh_invalid" };
   }
 
