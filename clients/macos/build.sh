@@ -2142,6 +2142,7 @@ else
     cp "$SCRIPT_DIR/app-entitlements.plist" "$APP_ENTITLEMENTS_PATH"
     cp "$SCRIPT_DIR/daemon-entitlements.plist" "$DAEMON_ENTITLEMENTS_PATH"
     /usr/libexec/PlistBuddy -c "Add :com.apple.security.get-task-allow bool true" "$APP_ENTITLEMENTS_PATH"
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.disable-library-validation bool true" "$APP_ENTITLEMENTS_PATH"
     /usr/libexec/PlistBuddy -c "Add :com.apple.security.get-task-allow bool true" "$DAEMON_ENTITLEMENTS_PATH"
 fi
 
