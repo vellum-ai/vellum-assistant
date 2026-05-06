@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { saveDocument } from "../../documents/document-store.js";
+import {
+  saveDocument,
+  updateDocumentContent,
+} from "../../documents/document-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 // ── Exported execute functions ──────────────────────────────────────
@@ -81,6 +84,8 @@ export function executeDocumentUpdate(
   const surfaceId = input.surface_id as string;
   const content = input.content as string;
   const mode = (input.mode as string | undefined) || "append";
+
+  updateDocumentContent(surfaceId, content, mode);
 
   // Send document_editor_update message to update the built-in RTE
   if (context.sendToClient) {
