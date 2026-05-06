@@ -264,6 +264,82 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
     }
 
+    func testExplicitMainMessageCompleteWithoutMessageIdClearsWakeToolTurn() {
+        viewModel.conversationId = "sess-wake"
+
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(
+            type: "tool_use_start",
+            toolName: "recall",
+            input: ["query": AnyCodable("Google account connection")],
+            conversationId: "sess-wake",
+            toolUseId: "tu-wake"
+        )))
+        XCTAssertTrue(viewModel.isAssistantBusy)
+
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(
+            type: "tool_result",
+            toolName: "recall",
+            result: "Found evidence",
+            isError: nil,
+            diff: nil,
+            status: nil,
+            conversationId: "sess-wake",
+            toolUseId: "tu-wake"
+        )))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(
+            text: "Google account is now connected.",
+            conversationId: "sess-wake"
+        )))
+
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(
+            conversationId: "sess-wake",
+            source: "main"
+        )))
+
+        XCTAssertNil(viewModel.currentAssistantMessageId)
+        XCTAssertFalse(viewModel.isAssistantBusy)
+    }
+
+    func testLegacyMessageCompleteWithoutMessageIdDoesNotClearActiveToolTurn() {
+        viewModel.conversationId = "sess-wake"
+
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(
+            type: "tool_use_start",
+            toolName: "recall",
+            input: ["query": AnyCodable("Google account connection")],
+            conversationId: "sess-wake",
+            toolUseId: "tu-wake"
+        )))
+
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(
+            conversationId: "sess-wake"
+        )))
+
+        XCTAssertNotNil(viewModel.currentAssistantMessageId)
+        XCTAssertTrue(viewModel.isAssistantBusy)
+    }
+
+    func testAuxMessageCompleteWithMessageIdDoesNotClearActiveToolTurn() {
+        viewModel.conversationId = "sess-wake"
+
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(
+            type: "tool_use_start",
+            toolName: "recall",
+            input: ["query": AnyCodable("Google account connection")],
+            conversationId: "sess-wake",
+            toolUseId: "tu-wake"
+        )))
+
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(
+            conversationId: "sess-wake",
+            messageId: "aux-message",
+            source: "aux"
+        )))
+
+        XCTAssertNotNil(viewModel.currentAssistantMessageId)
+        XCTAssertTrue(viewModel.isAssistantBusy)
+    }
+
     // MARK: - Generation Cancelled
 
     func testGenerationCancelledClearsLoadingState() {

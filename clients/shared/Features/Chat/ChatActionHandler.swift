@@ -493,7 +493,9 @@ final class ChatActionHandler {
         // is set) OR still in the thinking phase (isThinking is true but
         // currentAssistantMessageId hasn't been set yet by the first streaming flush).
         // This allows slash commands and other non-auxiliary completions to process normally.
-        if (complete.messageId == nil || complete.source == "aux") && (vm.currentAssistantMessageId != nil || vm.isThinking) {
+        let isActiveTurn = vm.currentAssistantMessageId != nil || vm.isThinking
+        let isLegacyNilMessageIdComplete = complete.messageId == nil && complete.source == nil
+        if (complete.source == "aux" || isLegacyNilMessageIdComplete) && isActiveTurn {
             return
         }
         vm.idleFallbackTask?.cancel()

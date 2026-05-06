@@ -130,6 +130,7 @@ function translateAgentEventToServerMessage(
       return {
         type: "message_complete",
         conversationId,
+        source: "main",
       };
     case "input_json_delta":
     case "usage":
