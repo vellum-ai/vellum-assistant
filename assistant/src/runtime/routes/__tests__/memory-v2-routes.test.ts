@@ -3,7 +3,7 @@
  *
  * Currently focused on `memory_v2_list_concept_pages`:
  *   - empty workspace → returns no pages
- *   - populated workspace → surfaces slug, bodyChars, edgeCount, updatedAtMs
+ *   - populated workspace → surfaces slug, bodyBytes, edgeCount, updatedAtMs
  *   - corrupt page on disk → logged-and-skipped, does not poison listing
  */
 
@@ -58,10 +58,10 @@ describe("memory_v2_list_concept_pages handler", () => {
       body: {},
     })) as MemoryV2ListConceptPagesResult;
 
-    expect(result).toEqual({ pages: [], total: 0 });
+    expect(result).toEqual({ pages: [] });
   });
 
-  test("returns slugs, body chars, edge counts, and mtimes for populated workspace", async () => {
+  test("returns slugs, body bytes, edge counts, and mtimes for populated workspace", async () => {
     const before = Date.now();
 
     const pages: ConceptPage[] = [
@@ -90,26 +90,25 @@ describe("memory_v2_list_concept_pages handler", () => {
       body: {},
     })) as MemoryV2ListConceptPagesResult;
 
-    expect(result.total).toBe(3);
     expect(result.pages).toHaveLength(3);
 
     const bySlug = new Map(result.pages.map((p) => [p.slug, p]));
 
     const alice = bySlug.get("alice");
     expect(alice).toBeDefined();
-    expect(alice!.bodyChars).toBe(Buffer.byteLength(pages[0]!.body, "utf8"));
+    expect(alice!.bodyBytes).toBe(Buffer.byteLength(pages[0]!.body, "utf8"));
     expect(alice!.edgeCount).toBe(2);
     expect(alice!.updatedAtMs).toBeGreaterThanOrEqual(before);
 
     const bob = bySlug.get("bob");
     expect(bob).toBeDefined();
-    expect(bob!.bodyChars).toBe(Buffer.byteLength(pages[1]!.body, "utf8"));
+    expect(bob!.bodyBytes).toBe(Buffer.byteLength(pages[1]!.body, "utf8"));
     expect(bob!.edgeCount).toBe(0);
     expect(bob!.updatedAtMs).toBeGreaterThanOrEqual(before);
 
     const carol = bySlug.get("people/carol");
     expect(carol).toBeDefined();
-    expect(carol!.bodyChars).toBe(Buffer.byteLength(pages[2]!.body, "utf8"));
+    expect(carol!.bodyBytes).toBe(Buffer.byteLength(pages[2]!.body, "utf8"));
     expect(carol!.edgeCount).toBe(1);
     expect(carol!.updatedAtMs).toBeGreaterThanOrEqual(before);
   });
@@ -136,7 +135,7 @@ describe("memory_v2_list_concept_pages handler", () => {
       body: {},
     })) as MemoryV2ListConceptPagesResult;
 
-    expect(result.total).toBe(1);
+    expect(result.pages).toHaveLength(1);
     expect(result.pages.map((p) => p.slug)).toEqual(["valid-page"]);
   });
 });

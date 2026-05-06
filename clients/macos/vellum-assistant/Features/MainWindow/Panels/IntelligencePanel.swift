@@ -150,8 +150,8 @@ struct IntelligencePanel: View {
 
         case .memories:
             Group {
-                if assistantFeatureFlagStore?.isEnabled("memory-v2-enabled") == true {
-                    MemoriesV2Panel(connectionManager: connectionManager)
+                if assistantFeatureFlagStore?.isEnabled("memory-v2-enabled") ?? true {
+                    MemoriesV2Panel()
                 } else {
                     MemoriesPanel(
                         connectionManager: connectionManager,

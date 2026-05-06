@@ -7,13 +7,13 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Memor
 public struct MemoryV2ConceptPageSummary: Codable, Sendable, Equatable, Identifiable {
     public var id: String { slug }
     public let slug: String
-    public let bodyChars: Int
+    public let bodyBytes: Int
     public let edgeCount: Int
     public let updatedAtMs: Int64
 
-    public init(slug: String, bodyChars: Int, edgeCount: Int, updatedAtMs: Int64) {
+    public init(slug: String, bodyBytes: Int, edgeCount: Int, updatedAtMs: Int64) {
         self.slug = slug
-        self.bodyChars = bodyChars
+        self.bodyBytes = bodyBytes
         self.edgeCount = edgeCount
         self.updatedAtMs = updatedAtMs
     }
@@ -22,11 +22,9 @@ public struct MemoryV2ConceptPageSummary: Codable, Sendable, Equatable, Identifi
 /// Response wrapper for the memory v2 concept-page list endpoint.
 public struct MemoryV2ListConceptPagesResponse: Codable, Sendable, Equatable {
     public let pages: [MemoryV2ConceptPageSummary]
-    public let total: Int
 
-    public init(pages: [MemoryV2ConceptPageSummary], total: Int) {
+    public init(pages: [MemoryV2ConceptPageSummary]) {
         self.pages = pages
-        self.total = total
     }
 }
 

@@ -194,11 +194,10 @@ const MemoryV2ListConceptPagesParams = z.object({}).strict();
 export type MemoryV2ListConceptPagesResult = {
   pages: Array<{
     slug: string;
-    bodyChars: number;
+    bodyBytes: number;
     edgeCount: number;
     updatedAtMs: number;
   }>;
-  total: number;
 };
 
 async function handleListConceptPages({
@@ -218,7 +217,7 @@ async function handleListConceptPages({
         const stats = await stat(join(conceptsDir, `${slug}.md`));
         return {
           slug,
-          bodyChars: Buffer.byteLength(page.body, "utf8"),
+          bodyBytes: Buffer.byteLength(page.body, "utf8"),
           edgeCount: page.frontmatter.edges.length,
           updatedAtMs: stats.mtimeMs,
         };
@@ -237,7 +236,7 @@ async function handleListConceptPages({
     (p): p is MemoryV2ListConceptPagesResult["pages"][number] => p !== null,
   );
 
-  return { pages, total: pages.length };
+  return { pages };
 }
 
 // ── Rebuild BM25 corpus stats ───────────────────────────────────────────

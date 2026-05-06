@@ -26,11 +26,8 @@ private enum MemoryV2SortOption: String, CaseIterable {
 /// `memory-v2-enabled` is on — wired in by the IntelligencePanel flag-gate
 /// (PR 6 of the plan).
 struct MemoriesV2Panel: View {
-    let connectionManager: GatewayConnectionManager
-
     @State private var pages: [MemoryV2ConceptPageSummary] = []
     @State private var isLoading: Bool = true
-    @State private var loadError: String?
     @State private var selectedSlug: String?
     @State private var searchText: String = ""
     @State private var debouncedSearchText: String = ""
@@ -39,8 +36,7 @@ struct MemoriesV2Panel: View {
 
     private let client: MemoryV2ClientProtocol
 
-    init(connectionManager: GatewayConnectionManager, client: MemoryV2ClientProtocol = MemoryV2Client()) {
-        self.connectionManager = connectionManager
+    init(client: MemoryV2ClientProtocol = MemoryV2Client()) {
         self.client = client
     }
 
@@ -127,12 +123,6 @@ struct MemoriesV2Panel: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let loadError {
-            VEmptyState(
-                title: "Couldn't load concept pages",
-                subtitle: loadError,
-                icon: VIcon.brain.rawValue
-            )
         } else if pages.isEmpty {
             VEmptyState(
                 title: "No concept pages yet",
@@ -172,7 +162,7 @@ struct MemoriesV2Panel: View {
 
                 Spacer(minLength: VSpacing.sm)
 
-                Text("\(page.bodyChars) chars · \(page.edgeCount) edges")
+                Text("\(page.bodyBytes) bytes · \(page.edgeCount) edges")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
@@ -194,9 +184,6 @@ struct MemoriesV2Panel: View {
         defer { isLoading = false }
         if let response = await client.listConceptPages() {
             pages = response.pages
-            loadError = nil
-        } else {
-            loadError = "Failed to load concept pages."
         }
     }
 }

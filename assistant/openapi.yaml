@@ -7635,6 +7635,26 @@ paths:
                 - k
                 - sample
               additionalProperties: false
+  /v1/memory/v2/list-concept-pages:
+    post:
+      operationId: memory_v2_listconceptpages_post
+      summary: List all memory v2 concept pages with metadata
+      description:
+        Returns slugs, body sizes, edge counts, and last-modified timestamps for every concept page on disk.
+        Read-only; used by the desktop About → Memories surface to render a browse-able list.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
   /v1/memory/v2/rebuild-corpus-stats:
     post:
       operationId: memory_v2_rebuildcorpusstats_post
