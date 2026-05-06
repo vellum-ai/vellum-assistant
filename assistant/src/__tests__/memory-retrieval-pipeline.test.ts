@@ -158,38 +158,25 @@ describe("runDefaultMemoryRetrieval", () => {
     expect(result.nowContent).toBe("now-default");
   });
 
-  test("soft-times out graph retrieval and keeps PKB/NOW", async () => {
-    let capturedSignal: AbortSignal | undefined;
-    const hangingPrepare = mock(
+  test("propagates errors from prepareMemory rather than swallowing them", async () => {
+    // Memory is critical — failures must surface to the caller (the agent
+    // loop) rather than silently degrading to an empty memory block.
+    const failingPrepare = mock(
       (
         _msgs: Message[],
         _cfg: AssistantConfig,
-        signal: AbortSignal,
+        _signal: AbortSignal,
         _onEvent: (msg: ServerMessage) => void,
-      ) => {
-        capturedSignal = signal;
-        return new Promise((_resolve, reject) => {
-          signal.addEventListener("abort", () =>
-            reject(new DOMException("Aborted", "AbortError")),
-          );
-        });
-      },
+      ) => Promise.reject(new Error("retrieval failed")),
     );
     const graphMemory = {
-      prepareMemory: hangingPrepare,
+      prepareMemory: failingPrepare,
     } as unknown as ConversationGraphMemory;
-    const deps = makeDeps({
-      graphMemory,
-      isTrustedActor: true,
-      graphRetrievalBudgetMs: 20,
-    });
+    const deps = makeDeps({ graphMemory, isTrustedActor: true });
 
-    const result = await runDefaultMemoryRetrieval(makeMemoryArgs(), deps);
-
-    expect(result.pkbContent).toBe("pkb-default");
-    expect(result.nowContent).toBe("now-default");
-    expect(result.memoryGraphBlocks).toEqual([]);
-    expect(capturedSignal?.aborted).toBe(true);
+    await expect(
+      runDefaultMemoryRetrieval(makeMemoryArgs(), deps),
+    ).rejects.toThrow("retrieval failed");
   });
 
   test("passes through null PKB and NOW when the files are absent", async () => {
