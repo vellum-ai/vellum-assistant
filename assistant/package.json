@@ -79,6 +79,7 @@
     "@vellumai/service-contracts",
     "@vellumai/egress-proxy",
     "@vellumai/gateway-client",
+    "@vellumai/ipc-server-utils",
     "@vellumai/skill-host-contracts",
     "@vellumai/slack-text",
     "@vellumai/twilio-client"
