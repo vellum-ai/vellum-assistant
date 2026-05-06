@@ -430,11 +430,19 @@ struct HatchingStepView: View {
 
         log.info("Hatch success detected — starting completion transition")
 
+        // Import the guardian token immediately so any gateway requests made
+        // during the completion transition (identity, secrets, etc.) have valid
+        // credentials. Without this, calls fire before setupGatewayConnectionManager
+        // runs and 401 because the credential store is empty.
+        if let assistantId = LockfileAssistant.loadActiveAssistantId(),
+           !ActorTokenManager.hasToken {
+            _ = GuardianTokenFileReader.importIfAvailable(assistantId: assistantId)
+        }
+
         // Save the randomly-generated avatar as the user's avatar, but only if
         // one hasn't already been uploaded/generated (preserves existing avatars
         // when replaying onboarding during development).
-        // skipWorkspaceSync: the guardian token hasn't been imported yet so gateway
-        // requests would 401. The workspace sync happens later in
+        // skipWorkspaceSync: the workspace sync happens later in
         // syncOnboardingAvatarIfNeeded() after the daemon connection is authenticated.
         if AvatarAppearanceManager.shared.customAvatarImage == nil,
            let image = hatchAvatarImage {
