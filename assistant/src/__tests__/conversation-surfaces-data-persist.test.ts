@@ -45,7 +45,6 @@ const {
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type {
   CardSurfaceData,
-  ServerMessage,
   SurfaceData,
   SurfaceType,
 } from "../daemon/message-protocol.js";
