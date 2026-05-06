@@ -44,9 +44,9 @@ struct ContactTypeBadge: View {
 
     private var color: Color {
         switch kind {
-        case .guardian: return VColor.primaryBase
+        case .guardian: return VColor.systemPositiveStrong
         case .assistant: return VColor.systemNegativeStrong
-        case .human: return VColor.systemPositiveStrong
+        case .human: return VColor.systemMidStrong
         }
     }
 

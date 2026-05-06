@@ -421,7 +421,9 @@ async function main() {
 
   const audioProxy = createAudioProxyHandler(config);
 
-  const backupDeps = { assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl };
+  const backupDeps = {
+    assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
+  };
   const handleListBackups = createListBackupsHandler(backupDeps);
   const handleCreateBackup = createBackupSnapshotHandler(backupDeps);
 
@@ -675,7 +677,15 @@ async function main() {
     {
       // Keep DELETE on the invite collection unsupported; only /invites/:id
       // should revoke an invite.
-      path: /^\/v1\/contacts\/(?!invites$)([^/]+)$/,
+      path: /^\/v1\/contacts\/(?!invites$)([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (_req, params) =>
+        contactsControlPlaneProxy.handleDeleteContact(params[0]),
+    },
+    {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contacts\/(?!invites$)([^/]+)\/?$/,
       method: "DELETE",
       auth: "edge",
       handler: (_req, params) =>
@@ -1548,7 +1558,8 @@ async function main() {
             headers: { "Retry-After": String(err.retryAfterSecs) },
           },
         );
-        if (extensionOrigin) return withExtensionCorsHeaders(body, extensionOrigin);
+        if (extensionOrigin)
+          return withExtensionCorsHeaders(body, extensionOrigin);
         return withCorsHeaders(body, webviewOrigin!);
       }
       log.error({ err }, "Unhandled gateway error");
@@ -1556,7 +1567,8 @@ async function main() {
         { error: "Internal server error" },
         { status: 500 },
       );
-      if (extensionOrigin) return withExtensionCorsHeaders(errBody, extensionOrigin);
+      if (extensionOrigin)
+        return withExtensionCorsHeaders(errBody, extensionOrigin);
       return withCorsHeaders(errBody, webviewOrigin!);
     }
 
@@ -1564,7 +1576,8 @@ async function main() {
       { error: "Not found", source: "gateway" },
       { status: 404 },
     );
-    if (extensionOrigin) return withExtensionCorsHeaders(notFound, extensionOrigin);
+    if (extensionOrigin)
+      return withExtensionCorsHeaders(notFound, extensionOrigin);
     if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
     return notFound;
   }
@@ -1713,7 +1726,10 @@ async function main() {
               sourceChannel: "slack",
               externalUserId: normalized.event.actor.actorExternalId,
               ...(normalized.event.source.chatType === "im"
-                ? { externalChatId: normalized.event.message.conversationExternalId }
+                ? {
+                    externalChatId:
+                      normalized.event.message.conversationExternalId,
+                  }
                 : {}),
               displayName: normalized.event.actor.displayName,
               username: normalized.event.actor.username,

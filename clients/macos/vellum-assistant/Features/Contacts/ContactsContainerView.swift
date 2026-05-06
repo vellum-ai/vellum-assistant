@@ -46,7 +46,7 @@ struct ContactsContainerView: View {
                 }
             }
             .padding(VSpacing.lg)
-            .frame(width: 320)
+            .frame(width: 360)
             .frame(maxHeight: .infinity, alignment: .top)
 
             // Thin vertical separator with shadow
@@ -55,7 +55,7 @@ struct ContactsContainerView: View {
                 .frame(maxHeight: .infinity)
                 .shadow(color: VColor.auxBlack.opacity(0.08), radius: 2, x: 1, y: 0)
 
-            // Right pane: detail, loading, or placeholder (max 700pt, left-aligned)
+            // Right pane: detail, loading, or placeholder
             VStack(alignment: .leading, spacing: 0) {
             if viewModel.isLoading && viewModel.contacts.isEmpty {
                 // Skeleton loading state for detail pane
@@ -154,7 +154,6 @@ struct ContactsContainerView: View {
                 }
             }
             }
-            .frame(maxWidth: 700, maxHeight: .infinity, alignment: .leading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
         .onChange(of: viewModel.contacts, initial: true) { _, newContacts in
