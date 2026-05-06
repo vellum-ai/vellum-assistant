@@ -6498,6 +6498,16 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host browser request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
+        "404":
+          description: No pending browser request for the given requestId.
+        "409":
+          description: Pending interaction kind is not host_browser (mismatched proxy ID space).
       requestBody:
         required: true
         content:
