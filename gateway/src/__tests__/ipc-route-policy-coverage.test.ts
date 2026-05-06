@@ -279,8 +279,10 @@ describe("ipc-route-policy: gateway-only coverage lint", () => {
       // exactly (as a set). Otherwise the IPC path could be reached with
       // a broader/different scope than the daemon HTTP path requires,
       // recreating the scope-bypass class this lint exists to prevent.
-      const ipcScopes = [...policy!.requiredScopes].sort();
-      const daemonScopes = [...route.daemonScopes].sort();
+      // Compare as plain string[] — Scope is a string union, but the daemon
+      // scopes come from text-parsed source so they're already string[].
+      const ipcScopes: string[] = [...policy!.requiredScopes].sort();
+      const daemonScopes: string[] = [...route.daemonScopes].sort();
       expect(
         ipcScopes,
         `${route.operationId} has IPC requiredScopes=${JSON.stringify(ipcScopes)} ` +
