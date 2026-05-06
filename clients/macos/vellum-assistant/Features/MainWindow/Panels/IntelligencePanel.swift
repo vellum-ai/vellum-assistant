@@ -149,8 +149,19 @@ struct IntelligencePanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .memories:
-            MemoriesPanel(connectionManager: connectionManager, assistantName: cachedAssistantName, onImportMemory: onImportMemory, focusedMemoryId: $pendingMemoryId)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            Group {
+                if assistantFeatureFlagStore?.isEnabled("memory-v2-enabled") == true {
+                    MemoriesV2Panel(connectionManager: connectionManager)
+                } else {
+                    MemoriesPanel(
+                        connectionManager: connectionManager,
+                        assistantName: cachedAssistantName,
+                        onImportMemory: onImportMemory,
+                        focusedMemoryId: $pendingMemoryId
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }
