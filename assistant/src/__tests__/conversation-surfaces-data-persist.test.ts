@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { ServerMessage } from "../daemon/message-protocol.js";
+
+const realEventHub = await import("../runtime/assistant-event-hub.js");
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  ...realEventHub,
+  broadcastMessage: (_msg: ServerMessage) => {},
+}));
+
 // Mock the persistence layer the surface helpers reach into so we can
 // observe writes without touching SQLite. We swap this out per test by
 // re-assigning the spies recorded on the closure below.
@@ -29,15 +38,16 @@ const {
   flushPendingSurfaceDataPersists,
   createSurfaceMutex,
   flushSurfaceDataPersist,
+  handleSurfaceAction,
   markSurfaceCompleted,
   scheduleSurfaceDataPersist,
+  showStandaloneSurface,
   surfaceProxyResolver,
 } = await import("../daemon/conversation-surfaces.js");
 
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type {
   CardSurfaceData,
-  ServerMessage,
   SurfaceData,
   SurfaceType,
 } from "../daemon/message-protocol.js";
@@ -60,6 +70,8 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
+    pendingStandaloneSurfaces: new Map(),
+    recentlyCompletedStandaloneSurfaces: new Map(),
     isProcessing: () => false,
     enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
     getQueueDepth: () => 0,
@@ -400,5 +412,65 @@ describe("ui_surface_update persistence", () => {
 
     // Cleanup the other conversation's timer.
     cancelPendingSurfaceDataPersists("conv-other");
+  });
+});
+
+describe("standalone surface DB persistence", () => {
+  let writes: Array<{ id: string; content: unknown }> = [];
+
+  beforeEach(() => {
+    writes = [];
+    updateMessageContentSpy = (id: string, content: string) => {
+      writes.push({ id, content: JSON.parse(content) });
+    };
+    getMessagesImpl = () => [];
+    cancelPendingSurfaceDataPersists();
+  });
+
+  afterEach(() => {
+    cancelPendingSurfaceDataPersists();
+  });
+
+  test("standalone surface action persists completed state to DB", async () => {
+    const ctx = makeContext();
+    const surfaceId = "standalone-persist-1";
+
+    seedRows([
+      {
+        id: "msg-standalone",
+        content: [
+          { type: "text", text: "confirm this" },
+          {
+            type: "ui_surface",
+            surfaceId,
+            surfaceType: "confirmation",
+            data: { message: "Proceed?" },
+          },
+        ],
+      },
+    ]);
+
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "conv-persist-1",
+        surfaceType: "confirmation",
+        data: { message: "Proceed?" },
+        timeoutMs: 60_000,
+      },
+      surfaceId,
+    );
+
+    await handleSurfaceAction(ctx, surfaceId, "confirm", {});
+    const result = await resultPromise;
+    expect(result.status).toBe("submitted");
+
+    expect(writes.length).toBeGreaterThanOrEqual(1);
+    const finalBlocks = writes[writes.length - 1].content as Array<
+      Record<string, unknown>
+    >;
+    const surfaceBlock = finalBlocks.find((b) => b.type === "ui_surface")!;
+    expect(surfaceBlock.completed).toBe(true);
+    expect(surfaceBlock.completionSummary).toBe("Confirmed");
   });
 });
