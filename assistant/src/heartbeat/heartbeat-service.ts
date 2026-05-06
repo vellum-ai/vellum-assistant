@@ -716,10 +716,12 @@ export class HeartbeatService {
     // timeout, and emits `activity.failed` on any failure path. Never
     // re-throws — failures come back as a structured result.
     //
-    // `onConversationCreated` fires synchronously inside the runner, right
-    // after bootstrap and before processMessage starts. That way the
-    // macOS sidebar gets the new conversation immediately rather than
-    // waiting up to HEARTBEAT_TIMEOUT_MS for the run to finish.
+    // We capture the conversationId from the runner's bootstrap callback
+    // for use on the failure path, but intentionally do NOT pass it
+    // through to `deps.onConversationCreated`. Most heartbeats end with
+    // HEARTBEAT_OK and should stay invisible to the sidebar — only the
+    // alert disposition or the failure surfacing below should expose the
+    // conversation to the user.
     let conversationId: string | undefined;
     const result = await runBackgroundJob({
       jobName: "heartbeat",
@@ -734,10 +736,6 @@ export class HeartbeatService {
       origin: "heartbeat",
       onConversationCreated: (newConversationId) => {
         conversationId = newConversationId;
-        this.deps.onConversationCreated?.({
-          conversationId: newConversationId,
-          title: "Heartbeat",
-        });
       },
     });
 
@@ -820,20 +818,28 @@ export class HeartbeatService {
     // The runner has already emitted `activity.failed` for the failure;
     // we still record the run-level error and broadcast the in-app
     // heartbeat alert so the existing surfacing keeps working.
-    completeHeartbeatRun(runId, {
-      status: "error",
+    // Map the runner's error classification onto the run-store's status
+    // enum so the run history preserves the timeout / error distinction.
+    const runStatus = result.errorKind === "timeout" ? "timeout" : "error";
+    const transitioned = completeHeartbeatRun(runId, {
+      status: runStatus,
       conversationId: conversationId ?? result.conversationId,
       error: result.error?.message ?? "Unknown error",
     });
 
-    try {
-      this.deps.alerter({
-        type: "heartbeat_alert",
-        title: "Heartbeat Failed",
-        body: result.error?.message ?? "Unknown error",
-      });
-    } catch (alertErr) {
-      log.error({ alertErr }, "Failed to broadcast heartbeat alert");
+    // Only fire the in-app alerter when our completion is the one that
+    // actually wrote — otherwise a parallel finalizer (e.g. a startup
+    // recovery sweep) already alerted for this run.
+    if (transitioned) {
+      try {
+        this.deps.alerter({
+          type: "heartbeat_alert",
+          title: "Heartbeat Failed",
+          body: result.error?.message ?? "Unknown error",
+        });
+      } catch (alertErr) {
+        log.error({ alertErr }, "Failed to broadcast heartbeat alert");
+      }
     }
   }
 

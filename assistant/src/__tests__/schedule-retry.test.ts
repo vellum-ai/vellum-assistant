@@ -8,9 +8,39 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-const mockEmitFeedEvent = mock(() => Promise.resolve());
-mock.module("../home/emit-feed-event.js", () => ({
-  emitFeedEvent: mockEmitFeedEvent,
+// The scheduler's fresh-bootstrap path routes through `runBackgroundJob`,
+// which invokes the real `processMessage` from `daemon/process-message.ts`
+// instead of the test-injected callback. To keep these tests focused on
+// the scheduler's retry policy (not on the runner's plumbing or on having
+// a real provider configured), redirect every `runBackgroundJob` call back
+// to the injected `processMessage` so a single test scenario controls
+// success-vs-failure deterministically.
+let injectedProcessMessageForRunner:
+  | ((conversationId: string, message: string) => Promise<unknown>)
+  | null = null;
+mock.module("../runtime/background-job-runner.js", () => ({
+  runBackgroundJob: async (opts: {
+    jobName: string;
+    prompt: string;
+    onConversationCreated?: (conversationId: string) => void;
+  }) => {
+    const conversationId = `mock-conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    opts.onConversationCreated?.(conversationId);
+    try {
+      if (injectedProcessMessageForRunner) {
+        await injectedProcessMessageForRunner(conversationId, opts.prompt);
+      }
+      return { conversationId, ok: true };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      return {
+        conversationId,
+        ok: false,
+        error,
+        errorKind: "exception" as const,
+      };
+    }
+  },
 }));
 
 import { getDb } from "../memory/db-connection.js";
@@ -28,7 +58,29 @@ import {
   scheduleRetry,
 } from "../schedule/schedule-store.js";
 import type { SchedulerHandle } from "../schedule/scheduler.js";
-import { startScheduler } from "../schedule/scheduler.js";
+import { startScheduler as startSchedulerReal } from "../schedule/scheduler.js";
+import type { ScheduleMessageProcessor } from "../schedule/scheduler-types.js";
+
+/**
+ * Wrap `startScheduler` so the same `processMessage` the scheduler holds for
+ * its conversation-reuse path is also handed to the mocked
+ * `runBackgroundJob` for the fresh-bootstrap path. The two paths in scheduler
+ * production code dispatch through different mechanisms; tests exercise both
+ * deterministically through this single callback.
+ */
+function startScheduler(
+  processMessage: ScheduleMessageProcessor,
+  notifyScheduleOneShot: Parameters<typeof startSchedulerReal>[1],
+  options?: Parameters<typeof startSchedulerReal>[2],
+): SchedulerHandle {
+  injectedProcessMessageForRunner = async (
+    conversationId: string,
+    message: string,
+  ) => {
+    await processMessage(conversationId, message, { trustClass: "guardian" });
+  };
+  return startSchedulerReal(processMessage, notifyScheduleOneShot, options);
+}
 
 initializeDb();
 
