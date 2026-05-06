@@ -202,6 +202,9 @@ struct ChatView: View {
             }
         }
         .onAppear {
+            if let existing = shiftMonitor {
+                NSEvent.removeMonitor(existing)
+            }
             shiftMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
                 isShiftHeld = event.modifierFlags.contains(.shift)
                 return event
@@ -660,11 +663,11 @@ struct ChatView: View {
             isDraggingInternalImage: $isDraggingInternalImage,
             onInternalDragRejected: { self.removeDragEndMonitors() },
             onDropPathsAsText: { urls in
-                let paths = urls.map(\.path).joined(separator: " ")
+                let paths = urls.map(\.path).joined(separator: "\n")
                 if viewModel.inputText.isEmpty {
                     viewModel.inputText = paths
                 } else {
-                    viewModel.inputText += " " + paths
+                    viewModel.inputText += "\n" + paths
                 }
             }
         )
