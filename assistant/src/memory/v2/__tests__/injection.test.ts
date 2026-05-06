@@ -114,8 +114,11 @@ class MockQdrantClient {
     _name: string,
     params: { using: string; limit: number; filter?: unknown },
   ) {
-    const queue = state.queryResponses[params.using as "dense" | "sparse"];
-    return queue.shift() ?? { points: [] };
+    // The four-channel hybrid query fires body-dense, body-sparse,
+    // summary-dense, summary-sparse in order; both dense channels share
+    // the dense queue and both sparse channels share the sparse queue.
+    const channel = params.using.endsWith("sparse") ? "sparse" : "dense";
+    return state.queryResponses[channel].shift() ?? { points: [] };
   }
 }
 
@@ -229,6 +232,18 @@ ref_files:
 ---
 Demo body content.`,
   );
+  // A page WITH a `summary` in its frontmatter — exercises the summary-only
+  // injection path. Body is intentionally longer than the summary so tests
+  // can assert that the body is *not* injected when the summary is present.
+  writeFileSync(
+    join(tmpWorkspace, "memory", "concepts", "summarized-page.md"),
+    `---
+edges: []
+ref_files: []
+summary: A short prose description of the summarized page that retrieval injects in place of the full body.
+---
+Long-form body content that should NOT appear in the injection block when the page has a summary in frontmatter — the agent reads the file on demand instead.`,
+  );
 });
 
 afterAll(() => {
@@ -308,14 +323,26 @@ function makeConfig(
 /**
  * Stage one set of dense/sparse hits, used uniformly by every `simBatch`
  * channel call (user/assistant/now) AND by the un-restricted ANN candidate
- * query. The candidate query runs first, then three simBatch calls, so we
- * push 4 dense + 4 sparse responses per turn.
+ * query. The candidate query runs first, then three simBatch calls — that's
+ * `channels` (= 4) logical hybrid queries. Each logical hybrid query now
+ * fires a four-channel fan-out (body dense, body sparse, summary dense,
+ * summary sparse), so we push 2 dense + 2 sparse responses per logical
+ * call to match the post-summary-vector wire pattern.
  *
  * Each entry is mapped to a hit per channel; pass `denseScore`/`sparseScore`
- * undefined to omit a slug from that channel.
+ * undefined to omit a slug from that channel. `summaryDenseScore` /
+ * `summarySparseScore` route to the summary-side channels — tests that
+ * don't care about summary scoring leave them undefined and the summary
+ * channel falls back to body-only behavior.
  */
 function stageTurn(
-  hits: Array<{ slug: string; denseScore?: number; sparseScore?: number }>,
+  hits: Array<{
+    slug: string;
+    denseScore?: number;
+    sparseScore?: number;
+    summaryDenseScore?: number;
+    summarySparseScore?: number;
+  }>,
   channels = 4,
 ): void {
   // Clear any leftovers from a prior turn before staging this one so unused
@@ -335,6 +362,22 @@ function stageTurn(
       points: hits
         .filter((h) => h.sparseScore !== undefined)
         .map((h) => ({ score: h.sparseScore, payload: { slug: h.slug } })),
+    });
+    state.queryResponses.dense.push({
+      points: hits
+        .filter((h) => h.summaryDenseScore !== undefined)
+        .map((h) => ({
+          score: h.summaryDenseScore,
+          payload: { slug: h.slug },
+        })),
+    });
+    state.queryResponses.sparse.push({
+      points: hits
+        .filter((h) => h.summarySparseScore !== undefined)
+        .map((h) => ({
+          score: h.summarySparseScore,
+          payload: { slug: h.slug },
+        })),
     });
   }
 }
@@ -395,7 +438,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).not.toContain("<memory>");
     expect(result.block).not.toContain("</memory>");
     expect(result.block).not.toContain("## What I Remember Right Now");
-    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
     expect(result.block).toContain("VS Code");
 
     // State persisted: alice's activation is above epsilon and recorded;
@@ -484,10 +527,10 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.toInject).toEqual(["carol-jazz"]);
-    expect(result.block).toContain("### carol-jazz");
+    expect(result.block).toContain("# memory/concepts/carol-jazz.md");
     // The block only shows the new slug — alice's attachment lives on the
     // previous turn's user message.
-    expect(result.block).not.toContain("### alice-vscode");
+    expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
 
     const persisted = await hydrate(db, "conv-1");
     expect(persisted!.everInjected).toEqual([
@@ -532,12 +575,80 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.toInject).toEqual(["alice-vscode"]);
-    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
 
     const persisted = await hydrate(db, "conv-1");
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 2 },
     ]);
+  });
+
+  test("page with summary renders as path + summary, no body, with the CRITICAL header", async () => {
+    // Pages whose frontmatter carries a `summary` should inject only the
+    // summary text behind the path header — the agent reads the full file
+    // on demand. The leading `**CRITICAL:**` line tells the agent how to
+    // read the block.
+    stageTurn([{ slug: "summarized-page", denseScore: 0.9 }]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "tell me about the summarized page",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain(
+      "**CRITICAL:** These are page summaries. Read the page file if it looks relevant.",
+    );
+    expect(result.block).toContain(
+      "# memory/concepts/summarized-page.md\nA short prose description",
+    );
+    // Body is NOT in the block — the agent must follow up with a read tool.
+    expect(result.block).not.toContain("Long-form body content");
+    // Frontmatter is also omitted; the path header carries the identifying
+    // information by itself, and edges flow through the activation graph.
+    expect(result.block).not.toContain("---\nedges:");
+  });
+
+  test("mixed batch — summary page renders short, fallback page renders full", async () => {
+    // Both pages rank into top-K. summarized-page has a summary → short
+    // form. frontmatter-demo has no summary → full-page fallback. The
+    // single CRITICAL header sits at the top regardless.
+    stageTurn([
+      { slug: "summarized-page", denseScore: 0.95 },
+      { slug: "frontmatter-demo", denseScore: 0.85 },
+    ]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "show me everything",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.block).not.toBeNull();
+    // CRITICAL header appears exactly once.
+    const criticalCount = (
+      result.block!.match(/\*\*CRITICAL:\*\* These are page summaries\./g) ?? []
+    ).length;
+    expect(criticalCount).toBe(1);
+    // summarized-page → short form (path + summary, no body, no frontmatter).
+    expect(result.block).toContain("# memory/concepts/summarized-page.md\nA");
+    expect(result.block).not.toContain("Long-form body content");
+    // frontmatter-demo → full-page fallback (path + frontmatter + body).
+    expect(result.block).toContain(
+      "# memory/concepts/frontmatter-demo.md\n---\n",
+    );
+    expect(result.block).toContain("Demo body content.");
   });
 
   test("includes the page frontmatter (edges, ref_files) in each rendered section", async () => {
@@ -560,8 +671,12 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.block).not.toBeNull();
-    // Slug header is immediately followed by the frontmatter open delimiter.
-    expect(result.block).toContain("### frontmatter-demo\n---\n");
+    // Path header is immediately followed by the frontmatter open delimiter.
+    // The fallback path renders the full page (frontmatter + body) when the
+    // page has no `summary` field — `frontmatter-demo` predates the field.
+    expect(result.block).toContain(
+      "# memory/concepts/frontmatter-demo.md\n---\n",
+    );
     // Both fields render in YAML block style with their populated values.
     expect(result.block).toContain("edges:\n  - alice-vscode");
     expect(result.block).toContain("ref_files:\n  - images/demo.jpg");
@@ -589,8 +704,8 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.toInject).toEqual(["carol-jazz", "alice-vscode"]);
-    const carolIdx = result.block!.indexOf("### carol-jazz");
-    const aliceIdx = result.block!.indexOf("### alice-vscode");
+    const carolIdx = result.block!.indexOf("# memory/concepts/carol-jazz.md");
+    const aliceIdx = result.block!.indexOf("# memory/concepts/alice-vscode.md");
     expect(carolIdx).toBeGreaterThan(-1);
     expect(aliceIdx).toBeGreaterThan(-1);
     expect(carolIdx).toBeLessThan(aliceIdx);
@@ -692,7 +807,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).not.toContain("<memory>");
     expect(result.block).not.toContain("</memory>");
     expect(result.block).not.toContain("## What I Remember Right Now");
-    expect(result.block).not.toContain("### alice-vscode");
+    expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
     expect(result.block).toContain("### Skills You Can Use");
     expect(result.block).toContain(
       '- The "Example Skill A" skill (example-skill-a) is available. Helps with examples. → use skill_load to activate',
@@ -731,11 +846,13 @@ describe("injectMemoryV2Block", () => {
     );
     expect(result.block).not.toBeNull();
 
-    const aliceIdx = result.block!.indexOf("### alice-vscode");
+    const aliceHeaderIdx = result.block!.indexOf(
+      "# memory/concepts/alice-vscode.md",
+    );
     const skillsIdx = result.block!.indexOf("### Skills You Can Use");
-    expect(aliceIdx).toBeGreaterThan(-1);
+    expect(aliceHeaderIdx).toBeGreaterThan(-1);
     expect(skillsIdx).toBeGreaterThan(-1);
-    expect(aliceIdx).toBeLessThan(skillsIdx);
+    expect(aliceHeaderIdx).toBeLessThan(skillsIdx);
 
     expect(result.block).toContain(
       '- The "Example Skill A" skill (example-skill-a) is available. Helps with examples. → use skill_load to activate',
@@ -864,7 +981,7 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.block).not.toBeNull();
-    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
     // No newly-injected slug — alice was already in everInjected.
     expect(result.toInject).toEqual([]);
 
@@ -900,9 +1017,9 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.block).not.toBeNull();
-    expect(result.block).toContain("### alice-vscode");
-    expect(result.block).toContain("### bob-coffee");
-    expect(result.block).toContain("### carol-jazz");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
+    expect(result.block).toContain("# memory/concepts/bob-coffee.md");
+    expect(result.block).toContain("# memory/concepts/carol-jazz.md");
     // The seeded directed edges (alice→bob, bob→alice, frontmatter-demo→alice)
     // mean alice has two incoming predecessors and bob has one, so directed
     // spread normalizes alice's activation more aggressively than bob's. The
@@ -1163,7 +1280,7 @@ describe("injectMemoryV2Block", () => {
     expect(telemetryState.recordCalls.length).toBe(0);
     expect(result.toInject).toEqual(["alice-vscode"]);
     expect(result.block).not.toBeNull();
-    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
 
     const persisted = await hydrate(db, "conv-1");
     expect(persisted!.everInjected).toEqual([

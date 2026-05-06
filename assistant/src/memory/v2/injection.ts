@@ -361,6 +361,16 @@ interface RenderInjectionBlockResult {
 }
 
 /**
+ * Leading instruction line emitted at the top of every non-empty injection
+ * block. Tells the agent that what follows are page summaries and that it
+ * should read the underlying file when a summary looks relevant. Pages
+ * without a `summary` field render in full instead — the agent treats
+ * those as inline content and doesn't need to follow up.
+ */
+const INJECTION_HEADER =
+  "**CRITICAL:** These are page summaries. Read the page file if it looks relevant.";
+
+/**
  * Render the inner content of the `<memory>` block for a list of slugs.
  * The caller wraps the result in `<memory>...</memory>` exactly once at
  * injection time.
@@ -383,22 +393,23 @@ interface RenderInjectionBlockResult {
  * skill is an expected catalog-level outcome rather than a stale-index
  * bug.
  *
- * The block shape mirrors the §5 layout — concept-page sections first,
- * skills subsection last — preserving the prompt format the agent sees:
+ * Each concept-page section is rendered as a path header followed by either
+ * the page's `summary` (when present in frontmatter) or the full page (the
+ * fallback for pages predating the summary field). Skills sit at the end
+ * under `### Skills You Can Use`, unchanged. The leading `**CRITICAL:**`
+ * line tells the agent how to read the block.
  *
- *   ### <concept-slug-1>
+ *   **CRITICAL:** These are page summaries. Read the page file if it looks relevant.
+ *
+ *   # memory/concepts/<concept-slug-1>.md
+ *   <summary-1>
+ *
+ *   # memory/concepts/<concept-slug-2>.md
  *   ---
  *   edges:
  *     - <neighbor-slug>
  *   ref_files:
  *     - <path/to/asset>
- *   ---
- *   <body-1>
- *
- *   ### <concept-slug-2>
- *   ---
- *   edges: []
- *   ref_files: []
  *   ---
  *   <body-2>
  *
@@ -427,9 +438,18 @@ async function renderInjectionBlock(
       missingSlugs.push(slug);
       continue;
     }
+    const summary = page.frontmatter.summary?.trim();
+    const path = `memory/concepts/${slug}.md`;
+    if (summary && summary.length > 0) {
+      sections.push(`# ${path}\n${summary}`);
+      continue;
+    }
+    // Fallback: page predates the `summary` field (or the field was set to
+    // empty). Render the full page — frontmatter + body — so retrieval
+    // still surfaces the same content the agent saw before this change.
     const content = renderPageContent(page).trim();
     if (content.length === 0) continue;
-    sections.push(`### ${slug}\n${content}`);
+    sections.push(`# ${path}\n${content}`);
   }
 
   const skillLines: string[] = [];
@@ -445,7 +465,7 @@ async function renderInjectionBlock(
   if (sections.length === 0) return { block: null, missingSlugs };
 
   return {
-    block: sections.join("\n\n"),
+    block: `${INJECTION_HEADER}\n\n${sections.join("\n\n")}`,
     missingSlugs,
   };
 }

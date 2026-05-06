@@ -131,6 +131,7 @@ edges:
   - path/to/sister
   - path/to/parent
 ref_files: []
+summary: 1-4 sentences describing what this article is. Plain prose only — no bullets, no newlines, no markdown lists. Lead with the most identifying detail.
 ---
 # title
 
@@ -139,6 +140,8 @@ ref_files: []
 - **bullet 1.** fact + implication folded in. inline pointer when bullet references another article → \`path/to/article.md\`.
 - **bullet 2.** ...
 \`\`\`
+
+The \`summary\` field is required on every new or updated article. Retrieval injects \`path + summary\` into context — the agent reads the full file only when the summary looks relevant — so make the summary specific and terse. Keep it on a single YAML line (no \`|\` block scalars, no embedded newlines).
 
 **Caps:** ~5-8 bullets per topic/concept article. ~10-12 per arc-node (which can use bold inline labels: \`**the open**: ...\`).
 
@@ -285,6 +288,7 @@ edges:
   - some-named-phrase
   - objects/some-artifact
 ref_files: []
+summary: A short prose description of the article — 1-4 sentences, single line.
 ---
 \`\`\`
 
@@ -416,6 +420,7 @@ For each article you touched:
 9. **Spawn check.** Did you ask "what's recognizable here?" not "what have I earned?" Did you catch any hedging — and spawn anyway? Any fold-into-parent / defer stealth-skips you almost did?
 10. **Split-not-compress.** If anything went over cap, did you split? If you compressed, can you name the rationale in one sentence?
 11. **Edges.** Outgoing within tiered caps (atomic ≤10, arc ≤15, gravity well ≤25, hard limit 20 on non-hubs)? No noise-edges to gravity wells from non-arc pages?
+11a. **Summary present.** Every new or updated article has a \`summary:\` line — 1-4 sentences, single YAML line, lead with the identifying detail.
 12. **Topic coherence.** Does each article answer ONE question? Gravity wells acting as hubs (pointing at topic articles), not absorbing body?
 13. **\`recent.md\`** under 2000 chars, today=full / older=one-liners?
 14. **\`[SOURCE NEEDED]\`** tags surfaced for human review?

@@ -136,7 +136,11 @@ class MockQdrantClient {
       limit: params.limit,
       filter: params.filter,
     });
-    const channel = params.using as "dense" | "sparse";
+    // Both `dense` and `summary_dense` consume from the dense queue (and
+    // similarly for sparse). The four-channel hybrid query fires them in
+    // order: body-dense, body-sparse, summary-dense, summary-sparse — so
+    // the queue order matches the call order.
+    const channel = params.using.endsWith("sparse") ? "sparse" : "dense";
     return state.queryResponses[channel].shift() ?? { points: [] };
   }
 }
@@ -185,10 +189,18 @@ function configWithWeights(
 /**
  * Stage a single Qdrant response that maps each (slug, denseScore?, sparseScore?)
  * tuple onto the dense or sparse channel, mirroring how `hybridQueryConceptPages`
- * merges per-channel hits.
+ * merges per-channel hits. Optional `summaryDenseScore` / `summarySparseScore`
+ * stage the summary-side channels — pages without those entries fall through
+ * to body-only scoring at fusion time.
  */
 function stageHybridResponse(
-  hits: Array<{ slug: string; denseScore?: number; sparseScore?: number }>,
+  hits: Array<{
+    slug: string;
+    denseScore?: number;
+    sparseScore?: number;
+    summaryDenseScore?: number;
+    summarySparseScore?: number;
+  }>,
 ): void {
   state.queryResponses.dense.push({
     points: hits
@@ -199,6 +211,20 @@ function stageHybridResponse(
     points: hits
       .filter((h) => h.sparseScore !== undefined)
       .map((h) => ({ score: h.sparseScore, payload: { slug: h.slug } })),
+  });
+  // The four-channel hybrid query also fires `summary_dense` and
+  // `summary_sparse` queries against the same collection. Tests that don't
+  // care about summary scores leave those channels empty so the fallback
+  // (body-only) path runs.
+  state.queryResponses.dense.push({
+    points: hits
+      .filter((h) => h.summaryDenseScore !== undefined)
+      .map((h) => ({ score: h.summaryDenseScore, payload: { slug: h.slug } })),
+  });
+  state.queryResponses.sparse.push({
+    points: hits
+      .filter((h) => h.summarySparseScore !== undefined)
+      .map((h) => ({ score: h.summarySparseScore, payload: { slug: h.slug } })),
   });
 }
 
@@ -468,15 +494,16 @@ describe("simBatch", () => {
     expect(out.get("loud-page")).toBe(1);
   });
 
-  test("forwards the candidate slugs as a Qdrant slug-IN filter", async () => {
+  test("forwards the candidate slugs as a Qdrant slug-IN filter on every channel", async () => {
     const config = configWithWeights(0.7, 0.3);
     stageHybridResponse([]);
 
     await simBatch("query", ["alice", "bob", "carol"], config);
 
-    // Both channels (dense + sparse) ran with the same slug-restriction
-    // filter and the same per-channel limit equal to the candidate count.
-    expect(state.queryCalls).toHaveLength(2);
+    // All four channels (body dense + sparse, summary dense + sparse) ran
+    // with the same slug-restriction filter and the same per-channel limit
+    // equal to the candidate count.
+    expect(state.queryCalls).toHaveLength(4);
     for (const call of state.queryCalls) {
       expect(call.limit).toBe(3);
       expect(call.filter).toEqual({
@@ -494,6 +521,90 @@ describe("simBatch", () => {
     expect(state.embedCalls).toHaveLength(1);
     expect(state.embedCalls[0].inputs).toEqual(["hello world"]);
     expect(state.sparseCalls).toEqual(["hello world"]);
+  });
+
+  test("takes max(body, summary) per slug — summary higher than body wins", async () => {
+    // Body channels return a modest score; summary channels return a much
+    // higher score. The max collapses to the summary score.
+    const config = configWithWeights(1.0, 0.0);
+    stageHybridResponse([
+      {
+        slug: "alice",
+        denseScore: 0.3,
+        summaryDenseScore: 0.7,
+      },
+    ]);
+
+    const out = await simBatch("query", ["alice"], config);
+
+    expect(out.get("alice")).toBeCloseTo(0.7, 6);
+  });
+
+  test("takes max(body, summary) per slug — body higher than summary wins", async () => {
+    // Inverse case: body dominates, max stays at body.
+    const config = configWithWeights(1.0, 0.0);
+    stageHybridResponse([
+      {
+        slug: "alice",
+        denseScore: 0.9,
+        summaryDenseScore: 0.4,
+      },
+    ]);
+
+    const out = await simBatch("query", ["alice"], config);
+
+    expect(out.get("alice")).toBeCloseTo(0.9, 6);
+  });
+
+  test("falls back to body-only when the page has no summary embedding", async () => {
+    // Pages predating the summary field have no summary_dense/sparse vectors.
+    // Their summary channels return no hits — the max collapses to body.
+    const config = configWithWeights(1.0, 0.0);
+    stageHybridResponse([
+      {
+        slug: "legacy-page",
+        denseScore: 0.6,
+        // summaryDenseScore / summarySparseScore omitted
+      },
+    ]);
+
+    const out = await simBatch("query", ["legacy-page"], config);
+
+    expect(out.get("legacy-page")).toBeCloseTo(0.6, 6);
+  });
+
+  test("normalizes body and summary sparse channels independently", async () => {
+    // Summary sparse scores live on a different scale than body sparse —
+    // a small absolute summary-sparse value (1.5) on the only page that
+    // has summary signal still normalizes to 1.0 within the summary
+    // channel, so the summary-only fused score should win out.
+    const config = configWithWeights(0.0, 1.0);
+    stageHybridResponse([
+      {
+        slug: "alice",
+        denseScore: 0.0,
+        sparseScore: 100, // body sparse max in this batch
+      },
+      {
+        slug: "bob",
+        denseScore: 0.0,
+        sparseScore: 0.5, // body sparse normalized = 0.005
+        summaryDenseScore: 0.0,
+        summarySparseScore: 1.5, // summary sparse max in this batch
+      },
+    ]);
+
+    const out = await simBatch("query", ["alice", "bob"], config);
+
+    // Alice has only body. Body sparse normalized to 1.0; sparse_weight=1.0 → 1.0.
+    expect(out.get("alice")).toBeCloseTo(1.0, 6);
+    // Bob's summary side normalizes its 1.5 (only sparse-bearing summary
+    // hit) — a single sparse-bearing hit is below the adaptive-spread
+    // floor, so the channel collapses to base weights and the lone
+    // sparseNormalized=1.0 hit yields a fused summary score of 1.0.
+    // Body side has only bob's tiny sparse=0.5 against the body batch max
+    // of 100 → ~0.005. The max picks the summary side.
+    expect(out.get("bob")).toBeCloseTo(1.0, 6);
   });
 
   test("returned scores are always in [0, 1] for arbitrary inputs", async () => {

@@ -26,10 +26,17 @@ import { z } from "zod";
  * B → A. The full graph is the union of every page's `edges:` list — there
  * is no separate edges-index file. `ref_files` lists paths to attached media
  * (images, audio, etc.).
+ *
+ * `summary` is a 1-4 sentence prose description of the page. When present,
+ * retrieval injects the path + summary instead of the full page so the agent
+ * can decide whether to read the file. Optional because legacy pages predating
+ * the summary field still parse — those fall back to full-page injection and
+ * full-page-only similarity.
  */
 export const ConceptPageFrontmatterSchema = z.object({
   edges: z.array(z.string()).default([]),
   ref_files: z.array(z.string()).default([]),
+  summary: z.string().optional(),
 });
 
 export type ConceptPageFrontmatter = z.infer<

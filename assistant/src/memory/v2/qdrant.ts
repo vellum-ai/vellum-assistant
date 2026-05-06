@@ -48,16 +48,30 @@ export interface ConceptPagePayload {
 export interface ConceptPageQueryResult {
   slug: string;
   /**
-   * Dense cosine similarity, when the slug appeared in the dense top-`limit`.
-   * `undefined` if the slug only appeared in the sparse channel.
+   * Dense cosine similarity against the page body, when the slug appeared in
+   * the body dense top-`limit`. `undefined` if the slug only appeared in the
+   * sparse channel — or in a summary-side channel.
    */
   denseScore?: number;
   /**
-   * Sparse score, when the slug appeared in the sparse top-`limit`.
-   * `undefined` if the slug only appeared in the dense channel. Lives on a
-   * different scale than `denseScore` — callers must normalize before fusing.
+   * Sparse score against the page body, when the slug appeared in the body
+   * sparse top-`limit`. `undefined` if the slug only appeared in the dense
+   * channel. Lives on a different scale than `denseScore` — callers must
+   * normalize before fusing.
    */
   sparseScore?: number;
+  /**
+   * Dense cosine similarity against the page's frontmatter `summary`, when
+   * the page has a summary embedded and the slug appeared in the summary
+   * dense top-`limit`. `undefined` for pages without a summary embedding —
+   * those fall back to body-only scoring.
+   */
+  summaryDenseScore?: number;
+  /**
+   * Sparse score against the page's frontmatter `summary`, paired with
+   * `summaryDenseScore`. `undefined` for pages without a summary embedding.
+   */
+  summarySparseScore?: number;
 }
 
 let _client: QdrantRestClient | null = null;
@@ -124,9 +138,19 @@ async function ensureConceptPageCollectionOnce(): Promise<void> {
           distance: "Cosine",
           on_disk: onDisk,
         },
+        // Optional second dense vector covering the page's frontmatter
+        // `summary`. Pages without a summary store nothing under this name —
+        // Qdrant supports per-point named-vector subsets — so the named-vector
+        // index stays cheap until summaries are populated.
+        summary_dense: {
+          size: vectorSize,
+          distance: "Cosine",
+          on_disk: onDisk,
+        },
       },
       sparse_vectors: {
         sparse: {}, // Qdrant auto-infers sparse vector params
+        summary_sparse: {}, // BM25 sparse vector for the summary
       },
       hnsw_config: {
         on_disk: onDisk,
@@ -162,18 +186,35 @@ async function ensureConceptPageCollectionOnce(): Promise<void> {
  * Upsert a concept page's dense + sparse embedding. The point ID is derived
  * deterministically from the slug so subsequent calls for the same slug
  * replace the prior point in place rather than accumulating duplicates.
+ *
+ * `summary` is optional — supplied when the page's frontmatter carries a
+ * `summary`, omitted otherwise. Pages without a summary store only the body
+ * vectors and fall back to body-only scoring at query time. The grouped
+ * shape enforces at the type level that summary dense and sparse are
+ * always written together.
  */
 export async function upsertConceptPageEmbedding(params: {
   slug: string;
   dense: number[];
   sparse: SparseEmbedding;
+  summary?: { dense: number[]; sparse: SparseEmbedding };
   updatedAt: number;
 }): Promise<void> {
   await ensureConceptPageCollection();
 
-  const { slug, dense, sparse, updatedAt } = params;
+  const { slug, dense, sparse, summary, updatedAt } = params;
   const client = getClient();
   const pointId = pointIdForSlug(slug);
+
+  // Qdrant lets us upsert any subset of named vectors per point. The summary
+  // entries appear only when the caller passed a `summary` block — pairing
+  // them at the type level keeps query-time fusion symmetric with the body
+  // channels.
+  const vector: Record<string, number[] | SparseEmbedding> = { dense, sparse };
+  if (summary) {
+    vector.summary_dense = summary.dense;
+    vector.summary_sparse = summary.sparse;
+  }
 
   const upsertOnce = () =>
     client.upsert(MEMORY_V2_COLLECTION, {
@@ -181,7 +222,7 @@ export async function upsertConceptPageEmbedding(params: {
       points: [
         {
           id: pointId,
-          vector: { dense, sparse },
+          vector,
           payload: { slug, updated_at: updatedAt },
         },
       ],
@@ -319,9 +360,15 @@ export async function dropLegacySkillsCollection(): Promise<void> {
  * a normalized weighted-sum — because RRF would discard the score magnitudes
  * the activation formula needs.
  *
+ * Four channels are queried concurrently: body dense, body sparse, summary
+ * dense, summary sparse. The summary channels only return hits for pages whose
+ * frontmatter carries a `summary` (and therefore stored `summary_dense` /
+ * `summary_sparse` named vectors at upsert time). Pages without a summary
+ * surface body-only scores; callers fall back to body-only fusion for those.
+ *
  * Each channel returns up to `limit` hits. A slug is included in the result
- * if it appears in either channel; the missing channel's score is left
- * `undefined` so callers can detect single-channel matches.
+ * if it appears in any channel; missing channel scores stay `undefined` so
+ * callers can distinguish "no match in this channel" from "match with score 0".
  *
  * `restrictToSlugs`, when provided, filters the search server-side to only
  * those slugs (Qdrant `slug IN [...]` filter). Used by `simBatch` when the
@@ -355,42 +402,51 @@ export async function hybridQueryConceptPages(
   // Qdrant 1.13.x sparse-index crash that we've reproduced in the wild.
   const skipSparse = options?.skipSparse ?? false;
 
-  const denseQuery = () =>
+  const queryDense = (using: string) =>
     client.query(MEMORY_V2_COLLECTION, {
       query: dense,
-      using: "dense",
+      using,
       limit,
       with_payload: true,
       filter,
     });
-  const sparseQuery = () =>
+  const querySparse = (using: string) =>
     client.query(MEMORY_V2_COLLECTION, {
       query: sparse,
-      using: "sparse",
+      using,
       limit,
       with_payload: true,
       filter,
     });
 
-  // Run both queries concurrently — they hit independent named vectors.
-  // When sparse is gated off we still resolve a Promise so the destructuring
-  // below stays uniform; the empty `points: []` matches the shape of a
-  // no-hit Qdrant response.
+  // Run all four channels concurrently — they hit independent named vectors.
+  // When sparse is gated off the sparse channels still resolve a Promise so
+  // the destructuring below stays uniform; the empty `points: []` matches
+  // the shape of a no-hit Qdrant response.
   const emptyResult = {
     points: [] as Array<{ payload?: unknown; score?: number }>,
   };
   const runQueries = async () =>
-    Promise.all([denseQuery(), skipSparse ? emptyResult : sparseQuery()]);
+    Promise.all([
+      queryDense("dense"),
+      skipSparse ? emptyResult : querySparse("sparse"),
+      queryDense("summary_dense"),
+      skipSparse ? emptyResult : querySparse("summary_sparse"),
+    ]);
 
   let denseResults;
   let sparseResults;
+  let summaryDenseResults;
+  let summarySparseResults;
   try {
-    [denseResults, sparseResults] = await runQueries();
+    [denseResults, sparseResults, summaryDenseResults, summarySparseResults] =
+      await runQueries();
   } catch (err) {
     if (isCollectionMissing(err)) {
       _collectionReady = false;
       await ensureConceptPageCollection();
-      [denseResults, sparseResults] = await runQueries();
+      [denseResults, sparseResults, summaryDenseResults, summarySparseResults] =
+        await runQueries();
     } else {
       throw err;
     }
@@ -399,21 +455,22 @@ export async function hybridQueryConceptPages(
   // Merge by slug. Missing-side scores stay undefined so the fuser can tell
   // "no match in this channel" apart from "match with score 0".
   const merged = new Map<string, ConceptPageQueryResult>();
-  for (const point of denseResults.points ?? []) {
-    const slug = (point.payload as { slug?: unknown } | null)?.slug;
-    if (typeof slug !== "string") continue;
-    merged.set(slug, { slug, denseScore: point.score ?? 0 });
-  }
-  for (const point of sparseResults.points ?? []) {
-    const slug = (point.payload as { slug?: unknown } | null)?.slug;
-    if (typeof slug !== "string") continue;
-    const existing = merged.get(slug);
-    if (existing) {
-      existing.sparseScore = point.score ?? 0;
-    } else {
-      merged.set(slug, { slug, sparseScore: point.score ?? 0 });
+  const recordHit = (
+    points: Array<{ payload?: unknown; score?: number }> | undefined,
+    set: (entry: ConceptPageQueryResult, score: number) => void,
+  ): void => {
+    for (const point of points ?? []) {
+      const slug = (point.payload as { slug?: unknown } | null)?.slug;
+      if (typeof slug !== "string") continue;
+      const existing = merged.get(slug) ?? { slug };
+      set(existing, point.score ?? 0);
+      merged.set(slug, existing);
     }
-  }
+  };
+  recordHit(denseResults.points, (e, s) => (e.denseScore = s));
+  recordHit(sparseResults.points, (e, s) => (e.sparseScore = s));
+  recordHit(summaryDenseResults.points, (e, s) => (e.summaryDenseScore = s));
+  recordHit(summarySparseResults.points, (e, s) => (e.summarySparseScore = s));
 
   return Array.from(merged.values());
 }

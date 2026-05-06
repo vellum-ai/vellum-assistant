@@ -114,7 +114,10 @@ class MockQdrantClient {
       limit: params.limit,
       filter: params.filter,
     });
-    const channel = params.using as "dense" | "sparse";
+    // The four-channel hybrid query fires body-dense, body-sparse,
+    // summary-dense, summary-sparse in order; both dense channels share
+    // the dense queue and both sparse channels share the sparse queue.
+    const channel = params.using.endsWith("sparse") ? "sparse" : "dense";
     return state.queryResponses[channel].shift() ?? { points: [] };
   }
 }
@@ -223,9 +226,20 @@ function makeConfig(
   } as unknown as AssistantConfig;
 }
 
-/** Stage a single dense + sparse pair on the response queues. */
+/**
+ * Stage a single hybrid-query response — body channels first, then summary
+ * channels (which default to empty). The four-channel hybrid query fires
+ * body-dense, body-sparse, summary-dense, summary-sparse in that order, so
+ * each logical call consumes 2 dense + 2 sparse queue entries.
+ */
 function stageHybridResponse(
-  hits: Array<{ slug: string; denseScore?: number; sparseScore?: number }>,
+  hits: Array<{
+    slug: string;
+    denseScore?: number;
+    sparseScore?: number;
+    summaryDenseScore?: number;
+    summarySparseScore?: number;
+  }>,
 ): void {
   state.queryResponses.dense.push({
     points: hits
@@ -236,6 +250,22 @@ function stageHybridResponse(
     points: hits
       .filter((h) => h.sparseScore !== undefined)
       .map((h) => ({ score: h.sparseScore, payload: { slug: h.slug } })),
+  });
+  state.queryResponses.dense.push({
+    points: hits
+      .filter((h) => h.summaryDenseScore !== undefined)
+      .map((h) => ({
+        score: h.summaryDenseScore,
+        payload: { slug: h.slug },
+      })),
+  });
+  state.queryResponses.sparse.push({
+    points: hits
+      .filter((h) => h.summarySparseScore !== undefined)
+      .map((h) => ({
+        score: h.summarySparseScore,
+        payload: { slug: h.slug },
+      })),
   });
 }
 
@@ -369,7 +399,7 @@ describe("selectCandidates", () => {
       nowText: "",
       config: makeConfig(),
     });
-    expect(state.queryCalls).toHaveLength(2);
+    expect(state.queryCalls).toHaveLength(4);
     for (const call of state.queryCalls) {
       expect(call.limit).toBe(1_000_000);
       expect(call.filter).toBeUndefined();
@@ -385,7 +415,7 @@ describe("selectCandidates", () => {
       nowText: "",
       config: makeConfig({ ann_candidate_limit: 25 }),
     });
-    expect(state.queryCalls).toHaveLength(2);
+    expect(state.queryCalls).toHaveLength(4);
     for (const call of state.queryCalls) {
       expect(call.limit).toBe(25);
       expect(call.filter).toBeUndefined();

@@ -98,17 +98,184 @@ export async function embedConceptPageJob(
     );
   }
 
-  const contentHash = embeddingInputContentHash({ type: "text", text });
   const expectedDim = config.memory.qdrant.vectorSize;
-  let provider = status.provider;
-  let model = status.model!;
+  // The status provider is the cache lookup key for any prior row; the
+  // *actual* provider/model come back on the embedded result. They usually
+  // match, but a backend swap mid-run would surface here — body and summary
+  // are then re-embedded together so both rows write under the same identity.
+  const cacheProvider = status.provider;
+  const cacheModel = status.model!;
+
+  const db = getDb();
 
   // Cache lookup: same (targetType, targetId, provider, model) row gets
   // reused across runs as long as `contentHash` matches. The dim mismatch
   // check guards against a config change (vectorSize bumped) since the last
-  // write — in that case we treat the row as stale and re-embed.
-  const db = getDb();
-  let cachedRow = db
+  // write — in that case we treat the row as stale and re-embed. The body
+  // and (optional) summary share the same provider/model — but each gets
+  // its own cache row keyed by a distinct targetId so summary edits don't
+  // invalidate the body cache and vice versa.
+  const bodyContentHash = embeddingInputContentHash({ type: "text", text });
+  const bodyCache = readEmbeddingCache(
+    db,
+    slug,
+    cacheProvider,
+    cacheModel,
+    expectedDim,
+  );
+  const bodyCacheHit = bodyCache?.contentHash === bodyContentHash;
+
+  // Optional summary embedding — only when the page has a `summary` in its
+  // frontmatter. Pages without one fall back to body-only retrieval at
+  // query time (the activation pipeline reads the summary score as
+  // undefined and uses the body score directly).
+  const summaryText = page.frontmatter.summary?.trim() ?? "";
+  const hasSummary = summaryText.length > 0;
+  const summaryCacheId = `${slug}#summary`;
+  const summaryContentHash = hasSummary
+    ? embeddingInputContentHash({ type: "text", text: summaryText })
+    : undefined;
+  const summaryCache = hasSummary
+    ? readEmbeddingCache(
+        db,
+        summaryCacheId,
+        cacheProvider,
+        cacheModel,
+        expectedDim,
+      )
+    : null;
+  const summaryCacheHit =
+    hasSummary && summaryCache?.contentHash === summaryContentHash;
+
+  // Batch all cache misses into one `embedWithBackend` call. Each backend
+  // round-trip is the dominant cost — fresh body + fresh summary in a
+  // single batch saves a round-trip vs serial calls and gives both vectors
+  // the same provider/model regardless of any backend rotation mid-run.
+  type Slot = "body" | "summary";
+  const toEmbed: Array<{ type: "text"; text: string }> = [];
+  const slots: Slot[] = [];
+  if (!bodyCacheHit) {
+    toEmbed.push({ type: "text", text });
+    slots.push("body");
+  }
+  if (hasSummary && !summaryCacheHit) {
+    toEmbed.push({ type: "text", text: summaryText });
+    slots.push("summary");
+  }
+
+  let bodyDense: number[] | undefined = bodyCacheHit ? bodyCache!.dense : undefined;
+  let summaryDense: number[] | undefined = summaryCacheHit
+    ? summaryCache!.dense
+    : undefined;
+  let writeProvider = cacheProvider;
+  let writeModel = cacheModel;
+  if (toEmbed.length > 0) {
+    const embedded = await embedWithBackend(config, toEmbed);
+    writeProvider = embedded.provider;
+    writeModel = embedded.model;
+    for (let i = 0; i < slots.length; i++) {
+      const vector = embedded.vectors[i];
+      if (!vector) continue;
+      if (slots[i] === "body") bodyDense = vector;
+      else summaryDense = vector;
+    }
+  }
+  // Body embedding is the ground truth — without it the page can't surface.
+  // (Cache hit paths populate `bodyDense` above; a fresh embed that returned
+  // no vectors short-circuits here too.)
+  if (!bodyDense) return;
+
+  // Sparse is cheap (in-process tokenization) and changes any time the body
+  // changes, so we always recompute it rather than caching alongside dense.
+  // BM25 weights live on the doc side; queries embed binary occurrence in
+  // sim.ts. When corpus stats aren't built yet (cold daemon, walking the
+  // corpus for the first time), fall back to the legacy TF-only encoding —
+  // the next reembed pass overwrites the page once stats are available.
+  const corpusStats = getConceptPageCorpusStats();
+  const encodeSparse = (input: string) =>
+    corpusStats
+      ? generateBm25DocEmbedding(input, corpusStats, {
+          k1: config.memory.v2.bm25_k1,
+          b: config.memory.v2.bm25_b,
+        })
+      : generateSparseEmbedding(input);
+  const sparse = encodeSparse(text);
+  const summarySparse = hasSummary ? encodeSparse(summaryText) : undefined;
+
+  const now = Date.now();
+  // Persist freshly embedded vectors for cross-restart reuse. On cache hit
+  // the existing row already has identical content + hash, so the write
+  // would be a no-op — skip it. Best-effort: write failure is not fatal,
+  // we still want the Qdrant upsert below to fire.
+  if (!bodyCacheHit) {
+    writeEmbeddingCache(db, {
+      slug,
+      cacheId: slug,
+      dense: bodyDense,
+      contentHash: bodyContentHash,
+      provider: writeProvider,
+      model: writeModel,
+      now,
+    });
+  }
+  if (hasSummary && !summaryCacheHit && summaryDense && summaryContentHash) {
+    writeEmbeddingCache(db, {
+      slug,
+      cacheId: summaryCacheId,
+      dense: summaryDense,
+      contentHash: summaryContentHash,
+      provider: writeProvider,
+      model: writeModel,
+      now,
+    });
+  }
+
+  // Apply anisotropy correction at the boundary between the (raw) cached
+  // dense vector and the Qdrant collection. Storing raw in SQLite and
+  // corrected in Qdrant means a recalibration just needs a reembed pass —
+  // the cache survives and the (cheap) correction math reruns over each
+  // cached vector. Pass-through when no calibration is fit yet.
+  const correctedDense = await applyCorrectionIfCalibrated(
+    bodyDense,
+    writeProvider,
+    writeModel,
+  );
+  const correctedSummaryDense = summaryDense
+    ? await applyCorrectionIfCalibrated(summaryDense, writeProvider, writeModel)
+    : undefined;
+
+  await upsertConceptPageEmbedding({
+    slug,
+    dense: correctedDense,
+    sparse,
+    summary:
+      correctedSummaryDense && summarySparse
+        ? { dense: correctedSummaryDense, sparse: summarySparse }
+        : undefined,
+    updatedAt: now,
+  });
+}
+
+/** SQLite cache row shape returned by `readEmbeddingCache`. */
+interface EmbeddingCacheEntry {
+  dense: number[];
+  contentHash: string;
+}
+
+/**
+ * Look up a cached dense vector keyed on `(targetType, targetId, provider,
+ * model)`. Returns the row only when the persisted dimensions match the
+ * configured expectation — a stale row from a previous `vectorSize` is
+ * treated as a cache miss so the caller re-embeds.
+ */
+function readEmbeddingCache(
+  db: ReturnType<typeof getDb>,
+  cacheId: string,
+  provider: string,
+  model: string,
+  expectedDim: number,
+): EmbeddingCacheEntry | null {
+  const row = db
     .select({
       vectorBlob: memoryEmbeddings.vectorBlob,
       vectorJson: memoryEmbeddings.vectorJson,
@@ -119,108 +286,77 @@ export async function embedConceptPageJob(
     .where(
       and(
         eq(memoryEmbeddings.targetType, CONCEPT_PAGE_TARGET_TYPE),
-        eq(memoryEmbeddings.targetId, slug),
+        eq(memoryEmbeddings.targetId, cacheId),
         eq(memoryEmbeddings.provider, provider),
         eq(memoryEmbeddings.model, model),
       ),
     )
     .get();
-  if (cachedRow && cachedRow.dimensions !== expectedDim) cachedRow = undefined;
-  if (cachedRow && cachedRow.contentHash !== contentHash) cachedRow = undefined;
+  if (!row || row.dimensions !== expectedDim) return null;
+  // A row without a contentHash is a legacy/corrupt entry — treat as a miss
+  // and force a re-embed rather than misalign the cache key.
+  if (row.contentHash === null) return null;
+  const dense = row.vectorBlob
+    ? blobToVector(row.vectorBlob as Buffer)
+    : (JSON.parse(row.vectorJson!) as number[]);
+  return { dense, contentHash: row.contentHash };
+}
 
-  let dense: number[];
-  let cacheHit = false;
-  if (cachedRow) {
-    dense = cachedRow.vectorBlob
-      ? blobToVector(cachedRow.vectorBlob as Buffer)
-      : (JSON.parse(cachedRow.vectorJson!) as number[]);
-    cacheHit = true;
-  } else {
-    const embedded = await embedWithBackend(config, [{ type: "text", text }]);
-    const vector = embedded.vectors[0];
-    if (!vector) return;
-    dense = vector;
-    provider = embedded.provider;
-    model = embedded.model;
-  }
-
-  // Sparse is cheap (in-process tokenization) and changes any time the body
-  // changes, so we always recompute it rather than caching alongside dense.
-  // BM25 weights live on the doc side; queries embed binary occurrence in
-  // sim.ts. When corpus stats aren't built yet (cold daemon, walking the
-  // corpus for the first time), fall back to the legacy TF-only encoding —
-  // the next reembed pass overwrites the page once stats are available.
-  const corpusStats = getConceptPageCorpusStats();
-  const sparse = corpusStats
-    ? generateBm25DocEmbedding(text, corpusStats, {
-        k1: config.memory.v2.bm25_k1,
-        b: config.memory.v2.bm25_b,
+/**
+ * Persist a freshly embedded dense vector in the SQLite cache. Best-effort:
+ * a write failure is logged and swallowed so the Qdrant upsert still runs.
+ */
+function writeEmbeddingCache(
+  db: ReturnType<typeof getDb>,
+  params: {
+    slug: string;
+    cacheId: string;
+    dense: number[];
+    contentHash: string;
+    provider: string;
+    model: string;
+    now: number;
+  },
+): void {
+  const { slug, cacheId, dense, contentHash, provider, model, now } = params;
+  try {
+    const blobValue = vectorToBlob(dense);
+    db.insert(memoryEmbeddings)
+      .values({
+        id: randomUUID(),
+        targetType: CONCEPT_PAGE_TARGET_TYPE,
+        targetId: cacheId,
+        provider,
+        model,
+        dimensions: dense.length,
+        vectorBlob: blobValue,
+        vectorJson: null,
+        contentHash,
+        createdAt: now,
+        updatedAt: now,
       })
-    : generateSparseEmbedding(text);
-
-  const now = Date.now();
-  // Persist freshly embedded vectors for cross-restart reuse. On cache hit
-  // the existing row already has identical content + hash, so the write
-  // would be a no-op — skip it. Best-effort: write failure is not fatal,
-  // we still want the Qdrant upsert below to fire.
-  if (!cacheHit) {
-    try {
-      const blobValue = vectorToBlob(dense);
-      db.insert(memoryEmbeddings)
-        .values({
-          id: randomUUID(),
-          targetType: CONCEPT_PAGE_TARGET_TYPE,
-          targetId: slug,
-          provider,
-          model,
-          dimensions: dense.length,
+      .onConflictDoUpdate({
+        target: [
+          memoryEmbeddings.targetType,
+          memoryEmbeddings.targetId,
+          memoryEmbeddings.provider,
+          memoryEmbeddings.model,
+        ],
+        set: {
           vectorBlob: blobValue,
           vectorJson: null,
+          dimensions: dense.length,
           contentHash,
-          createdAt: now,
           updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [
-            memoryEmbeddings.targetType,
-            memoryEmbeddings.targetId,
-            memoryEmbeddings.provider,
-            memoryEmbeddings.model,
-          ],
-          set: {
-            vectorBlob: blobValue,
-            vectorJson: null,
-            dimensions: dense.length,
-            contentHash,
-            updatedAt: now,
-          },
-        })
-        .run();
-    } catch (err) {
-      log.warn(
-        { err, slug },
-        "Failed to write concept-page embedding cache row",
-      );
-    }
+        },
+      })
+      .run();
+  } catch (err) {
+    log.warn(
+      { err, slug, cacheId },
+      "Failed to write concept-page embedding cache row",
+    );
   }
-
-  // Apply anisotropy correction at the boundary between the (raw) cached
-  // dense vector and the Qdrant collection. Storing raw in SQLite and
-  // corrected in Qdrant means a recalibration just needs a reembed pass —
-  // the cache survives and the (cheap) correction math reruns over each
-  // cached vector. Pass-through when no calibration is fit yet.
-  const correctedDense = await applyCorrectionIfCalibrated(
-    dense,
-    provider,
-    model,
-  );
-
-  await upsertConceptPageEmbedding({
-    slug,
-    dense: correctedDense,
-    sparse,
-    updatedAt: now,
-  });
 }
 
 /**
