@@ -251,6 +251,10 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 
 Release notes for user/assistant-facing changes ship via **workspace migrations**. There is no bundled template to edit and no checkpoint state to clear — the notes are just a migration that writes to `<workspace>/UPDATES.md`.
 
+**Do not ship release notes for feature-flagged or rollout-only features.** `UPDATES.md` is processed by the assistant without checking the feature flag that may guard the underlying feature, so release-note copy for disabled features can still leak into user-facing prompts. If a feature is still controlled by a default-disabled assistant flag or rollout flag, skip the release-note migration. When the feature actually GAs, add a new append-only release-note migration with a new marker; never change an already-shipped migration id from no-op back to writing release notes.
+
+The guard test `assistant/src/__tests__/workspace-release-notes-feature-flag-guard.test.ts` blocks new release-note migrations that mention flag/rollout launch language or default-disabled assistant feature flag keys. Prefer removing that copy and waiting for GA. Only extend the legacy allowlist for a bulletin that already shipped before the guard existed.
+
 **To ship release notes:**
 
 1. Add a new migration file at `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts`. Use the next available sequence number (migrations are append-only). Put the release-note text inline as a string literal inside the migration and append it to `UPDATES.md` in the migration's `run()`.
