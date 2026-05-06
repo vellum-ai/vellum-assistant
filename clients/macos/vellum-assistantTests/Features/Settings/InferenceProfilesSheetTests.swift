@@ -73,6 +73,18 @@ final class InferenceProfilesSheetTests: XCTestCase {
         XCTAssertNotNil(sheet.body)
     }
 
+    func testSheetBuildsWhenConfiguredToStartInCreateMode() {
+        seedBuiltInsAndCustom(includeCustom: true)
+        let isPresented = Binding<Bool>(get: { true }, set: { _ in })
+        let sheet = InferenceProfilesSheet(
+            store: store,
+            isPresented: isPresented,
+            startInCreateMode: true,
+            onCreatedProfileSaved: { _ in }
+        )
+        XCTAssertNotNil(sheet.body)
+    }
+
     // MARK: - Managed detection
 
     /// Managed profiles (source == "managed") show a "Managed" badge;
