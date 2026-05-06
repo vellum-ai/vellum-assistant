@@ -1412,6 +1412,7 @@ describe("twilio webhook routes", () => {
           assistantPhoneNumbers: {
             "assistant-old": "+12125550140",
             "assistant-123": "+12125550141",
+            "assistant-duplicate": "+12125550142",
           },
         },
       };
@@ -1426,7 +1427,10 @@ describe("twilio webhook routes", () => {
       expect(
         (mockRawConfigStore.twilio as Record<string, unknown>)
           .assistantPhoneNumbers,
-      ).toEqual({ "assistant-123": "+12125550142" });
+      ).toEqual({
+        "assistant-old": "+12125550140",
+        "assistant-123": "+12125550142",
+      });
       expect(updatePhoneNumberWebhookCalls).toHaveLength(1);
       expect(updatePhoneNumberWebhookCalls[0]!.urls).toEqual({
         voiceUrl: "https://numbers.example.com/webhooks/twilio/voice",
@@ -1443,6 +1447,7 @@ describe("twilio webhook routes", () => {
           assistantPhoneNumbers: {
             "assistant-old": "+12125550140",
             "assistant-123": "+12125550141",
+            "assistant-duplicate": "+12125550144",
           },
         },
       };
@@ -1457,7 +1462,10 @@ describe("twilio webhook routes", () => {
       expect(
         (mockRawConfigStore.twilio as Record<string, unknown>)
           .assistantPhoneNumbers,
-      ).toEqual({ "assistant-123": "+12125550144" });
+      ).toEqual({
+        "assistant-old": "+12125550140",
+        "assistant-123": "+12125550144",
+      });
       expect(updatePhoneNumberWebhookCalls).toHaveLength(1);
     });
   });

@@ -65,8 +65,6 @@ async function rememberAssignedAssistantPhoneNumber(
   twilio: Record<string, unknown>,
   phoneNumber: string,
 ): Promise<void> {
-  pruneAssistantPhoneNumbers(twilio, phoneNumber, "keep");
-
   const assistantId = (
     await getSecureKeyAsync(credentialKey("vellum", "platform_assistant_id"))
   )?.trim();
@@ -79,6 +77,13 @@ async function rememberAssignedAssistantPhoneNumber(
     existing && typeof existing === "object" && !Array.isArray(existing)
       ? (existing as Record<string, string>)
       : {};
+
+  for (const [key, value] of Object.entries(mappings)) {
+    if (key !== assistantId && value === phoneNumber) {
+      delete mappings[key];
+    }
+  }
+
   mappings[assistantId] = phoneNumber;
   twilio.assistantPhoneNumbers = mappings;
 }
