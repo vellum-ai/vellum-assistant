@@ -1,12 +1,17 @@
 /**
  * Lint test: every daemon route whose HTTP-side policy is gateway-only
- * MUST have a matching IPC policy entry.
+ * MUST have a matching IPC policy entry, with matching required scopes.
  *
  * Background: the gateway's IPC proxy default-allows operationIds that
  * have no policy entry. Routes restricted to the `svc_gateway` principal
  * on the daemon HTTP path must also be locked down on IPC — otherwise an
  * authenticated edge JWT can reach them by setting
  * `X-Vellum-Proxy-Server: ipc`, bypassing the daemon HTTP router entirely.
+ *
+ * Symmetrically, the IPC entry's `requiredScopes` must match the daemon's
+ * `requiredScopes`. If IPC permits a broader scope than the daemon HTTP
+ * path requires, the IPC path is more permissive than the HTTP path —
+ * the same scope-bypass class this guard is designed to prevent.
  *
  * This bug class has bitten us multiple times:
  *   - PR #29571 (MCP OAuth routes — Codex finding)
@@ -24,6 +29,12 @@
  *   - Regexes are intentionally loose. False positives (matching too
  *     much) only result in extra coverage; false negatives (missing
  *     real gateway-only routes) defeat the lint.
+ *   - Daemon route endpoints may include parameter segments
+ *     (e.g. `internal/oauth/connect/status/:state`) while the
+ *     daemon's route-policy keys drop those segments
+ *     (e.g. `internal/oauth/connect/status`). We normalize by
+ *     stripping `/:param` segments before matching so parameterized
+ *     gateway-only routes are not silently excluded.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -109,25 +120,57 @@ function collectAllRoutePairs(): RoutePair[] {
   return out;
 }
 
+/**
+ * Strip `/:param` segments so a route's `endpoint` matches the policy
+ * key registered in route-policy.ts. The daemon's HTTP router uses the
+ * non-parameterized form as the canonical policy key.
+ *
+ * Examples:
+ *   "internal/oauth/connect/status/:state" → "internal/oauth/connect/status"
+ *   "internal/mcp/auth/status/:serverId"   → "internal/mcp/auth/status"
+ *   "profiler/runs/:runId"                 → "profiler/runs"
+ */
+function normalizeEndpoint(endpoint: string): string {
+  return endpoint.replace(/\/:[^/]+/g, "");
+}
+
 // ---------------------------------------------------------------------------
-// Step 2 — Extract gateway-only endpoints from daemon's route-policy.ts.
+// Step 2 — Extract gateway-only endpoints (with required scopes) from
+// daemon's route-policy.ts.
 // ---------------------------------------------------------------------------
 
 /**
  * Parse the daemon's route-policy.ts source to find every endpoint
- * registered with `allowedPrincipalTypes: ["svc_gateway"]`.
+ * registered with `allowedPrincipalTypes: ["svc_gateway"]`. For each,
+ * record the `requiredScopes` array so the IPC policy can be cross-checked
+ * for scope parity (not just principal parity).
  *
  * Two patterns are supported:
- *   1. Direct: `registerPolicy("endpoint", { ... ["svc_gateway"] ... })`
- *   2. Loop:   `const X_ENDPOINTS = ["a", "b", ...]; for (const e of X_ENDPOINTS) { registerPolicy(e, { ... ["svc_gateway"] ... }) }`
+ *   1. Direct: `registerPolicy("endpoint", { requiredScopes: [...], ["svc_gateway"] ... })`
+ *   2. Loop:   `const X_ENDPOINTS = ["a", "b", ...]; for (const e of X_ENDPOINTS) { registerPolicy(e, { requiredScopes: [...], ["svc_gateway"] ... }) }`
  *
  * Pattern 2 is detected heuristically: when a `const ARRAY = [...]` is
  * followed by a `for...of ARRAY` containing `registerPolicy(...)` and
- * `["svc_gateway"]`, every string in the array is treated as gateway-only.
+ * `["svc_gateway"]`, every string in the array is treated as gateway-only
+ * and shares the loop body's `requiredScopes`.
  */
-function extractGatewayOnlyEndpoints(): Set<string> {
+function extractScopes(block: string): string[] | null {
+  const m = block.match(/requiredScopes:\s*\[([^\]]*)\]/);
+  if (!m) return null;
+  const scopes: string[] = [];
+  for (const lit of m[1]!.matchAll(/["']([^"']+)["']/g)) {
+    scopes.push(lit[1]!);
+  }
+  return scopes;
+}
+
+interface GatewayOnlyEntry {
+  requiredScopes: string[];
+}
+
+function extractGatewayOnlyEndpoints(): Map<string, GatewayOnlyEntry> {
   const text = readFileSync(ROUTE_POLICY_FILE, "utf-8");
-  const out = new Set<string>();
+  const out = new Map<string, GatewayOnlyEntry>();
 
   // Pattern 1: explicit registerPolicy calls.
   //
@@ -143,10 +186,12 @@ function extractGatewayOnlyEndpoints(): Set<string> {
     // Within this single registerPolicy block, require allowedPrincipalTypes
     // to be EXACTLY ["svc_gateway"] — no other principals.
     if (
-      /allowedPrincipalTypes:\s*\[\s*["']svc_gateway["']\s*\]/.test(block)
-    ) {
-      out.add(endpoint);
-    }
+      !/allowedPrincipalTypes:\s*\[\s*["']svc_gateway["']\s*\]/.test(block)
+    )
+      continue;
+    const scopes = extractScopes(block);
+    if (!scopes) continue;
+    out.set(endpoint, { requiredScopes: scopes });
   }
 
   // Pattern 2: const ARRAY = [...] followed by a for-of loop that
@@ -154,7 +199,8 @@ function extractGatewayOnlyEndpoints(): Set<string> {
   // heuristically: when a `const ARRAY = [...]` is followed somewhere
   // in the file by a for-of loop over that array containing both a
   // `registerPolicy(` and a literal `["svc_gateway"]`, every string in
-  // the array is treated as gateway-only.
+  // the array is treated as gateway-only and shares the loop body's
+  // `requiredScopes`.
   const arrayDeclRegex =
     /const\s+([A-Z_][A-Z0-9_]*)\s*=\s*\[([\s\S]*?)\]\s*;/g;
   for (const m of text.matchAll(arrayDeclRegex)) {
@@ -172,9 +218,11 @@ function extractGatewayOnlyEndpoints(): Set<string> {
     const loopBody = loopMatch[0];
     if (!loopBody.includes("registerPolicy")) continue;
     if (!/\[\s*["']svc_gateway["']\s*\]/.test(loopBody)) continue;
+    const scopes = extractScopes(loopBody);
+    if (!scopes) continue;
     // Extract every string literal from the array body.
     for (const lit of arrayBody.matchAll(/["']([^"']+)["']/g)) {
-      out.add(lit[1]!);
+      out.set(lit[1]!, { requiredScopes: scopes });
     }
   }
 
@@ -189,10 +237,20 @@ describe("ipc-route-policy: gateway-only coverage lint", () => {
   const gatewayOnlyEndpoints = extractGatewayOnlyEndpoints();
   const routePairs = collectAllRoutePairs();
 
-  // Build the gateway-only operationId set by intersecting routes ∩ policy.
-  const gatewayOnlyRoutes = routePairs.filter((r) =>
-    gatewayOnlyEndpoints.has(r.endpoint),
-  );
+  // Build the gateway-only operationId set by intersecting
+  // (normalized routes) ∩ (policy keys). Preserve the daemon's
+  // requiredScopes so the IPC policy can be checked for scope parity.
+  const gatewayOnlyRoutes = routePairs
+    .map((r) => {
+      const normalized = normalizeEndpoint(r.endpoint);
+      const entry = gatewayOnlyEndpoints.get(normalized);
+      if (!entry) return null;
+      return { ...r, normalizedEndpoint: normalized, daemonScopes: entry.requiredScopes };
+    })
+    .filter(
+      (r): r is RoutePair & { normalizedEndpoint: string; daemonScopes: string[] } =>
+        r !== null,
+    );
 
   test("discovery sanity: found gateway-only daemon routes", () => {
     // If the discovery returns zero, we'd silently pass every check
@@ -213,10 +271,25 @@ describe("ipc-route-policy: gateway-only coverage lint", () => {
           `route (endpoint=${route.endpoint}, defined in assistant/src/${relPath}) ` +
           `but is missing from gateway/src/auth/ipc-route-policy.ts. ` +
           `Add an entry: ` +
-          `["${route.operationId}", ["internal.write"], ["svc_gateway"]] ` +
-          `(or use the appropriate scope from the daemon's route-policy.ts).`,
+          `["${route.operationId}", ${JSON.stringify(route.daemonScopes)}, ["svc_gateway"]] ` +
+          `to match the daemon HTTP policy.`,
       ).toBeDefined();
       expect(policy!.allowedPrincipalTypes).toEqual(["svc_gateway"]);
+      // Scope parity: IPC requiredScopes must match daemon requiredScopes
+      // exactly (as a set). Otherwise the IPC path could be reached with
+      // a broader/different scope than the daemon HTTP path requires,
+      // recreating the scope-bypass class this lint exists to prevent.
+      const ipcScopes = [...policy!.requiredScopes].sort();
+      const daemonScopes = [...route.daemonScopes].sort();
+      expect(
+        ipcScopes,
+        `${route.operationId} has IPC requiredScopes=${JSON.stringify(ipcScopes)} ` +
+          `but daemon HTTP requires ${JSON.stringify(daemonScopes)}. ` +
+          `Scope mismatch makes the IPC path more permissive than the HTTP ` +
+          `path, recreating the scope-bypass class this lint prevents. ` +
+          `Update the entry in gateway/src/auth/ipc-route-policy.ts to use ` +
+          `${JSON.stringify(daemonScopes)}.`,
+      ).toEqual(daemonScopes);
     });
   }
 });
