@@ -99,8 +99,9 @@ export function updateDocumentContent(
       log.info({ surfaceId }, "No persisted document to update");
       return;
     }
+    const sep = mode === "append" && existing.content.length > 0 ? "\n\n" : "";
     const newContent =
-      mode === "append" ? existing.content + markdown : markdown;
+      mode === "append" ? existing.content + sep + markdown : markdown;
     const wordCount = newContent
       .split(/\s+/)
       .filter((w) => w.length > 0).length;
