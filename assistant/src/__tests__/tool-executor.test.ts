@@ -73,6 +73,11 @@ let cachedAssessmentOverride:
       riskLevel: string;
       reason: string;
       scopeOptions: Array<{ pattern: string; label: string }>;
+      allowlistOptions?: Array<{
+        label: string;
+        description: string;
+        pattern: string;
+      }>;
       directoryScopeOptions?: Array<{ scope: string; label: string }>;
       matchType: string;
     }
@@ -1121,6 +1126,130 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     ]);
     expect(result.riskDirectoryScopeOptions).toEqual([
       { scope: "/tmp", label: "Anywhere in tmp/" },
+    ]);
+  });
+
+  test("auto-approved tool result includes riskAllowlistOptions when classifier emits them (Minimatch-glob shape for save path)", async () => {
+    cachedAssessmentOverride = {
+      riskLevel: "medium",
+      reason: "Reads workspace files",
+      // Display ladder (regex shape — not for save).
+      scopeOptions: [
+        { pattern: "^echo\\b.*hello$", label: "echo hello" },
+        { pattern: "^echo\\b", label: "echo *" },
+      ],
+      // Save ladder (Minimatch-glob shape — what gateway matches against).
+      allowlistOptions: [
+        {
+          label: "echo hello",
+          description: "This exact command",
+          pattern: "echo hello",
+        },
+        {
+          label: "echo *",
+          description: "Any echo command",
+          pattern: "action:echo",
+        },
+      ],
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext({ requireFreshApproval: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // Both shapes flow through independently — same labels, different patterns.
+    expect(result.riskScopeOptions).toEqual([
+      { pattern: "^echo\\b.*hello$", label: "echo hello" },
+      { pattern: "^echo\\b", label: "echo *" },
+    ]);
+    expect(result.riskAllowlistOptions).toEqual([
+      {
+        label: "echo hello",
+        description: "This exact command",
+        pattern: "echo hello",
+      },
+      {
+        label: "echo *",
+        description: "Any echo command",
+        pattern: "action:echo",
+      },
+    ]);
+  });
+
+  test("riskAllowlistOptions is undefined when classifier did not produce allowlist (e.g. web-risk classifier)", async () => {
+    cachedAssessmentOverride = {
+      riskLevel: "low",
+      reason: "GET request to public URL",
+      scopeOptions: [{ pattern: "https://example.com/.*", label: "example.com" }],
+      // allowlistOptions intentionally omitted — some classifiers don't emit them.
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext({ requireFreshApproval: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // Display ladder still flows; save ladder is absent so the client must
+    // fall back to a synthesized option (or omit save).
+    expect(result.riskScopeOptions).toEqual([
+      { pattern: "https://example.com/.*", label: "example.com" },
+    ]);
+    expect(result.riskAllowlistOptions).toBeUndefined();
+  });
+
+  test("riskAllowlistOptions is undefined when no classifier ran (MCP tools)", async () => {
+    // cachedAssessmentOverride is undefined — no classifier ran.
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.riskScopeOptions).toBeUndefined();
+    expect(result.riskAllowlistOptions).toBeUndefined();
+  });
+
+  test("denied tool result still carries riskAllowlistOptions for the rule editor save path", async () => {
+    checkResultOverride = { decision: "deny", reason: "Blocked by deny rule" };
+    cachedAssessmentOverride = {
+      riskLevel: "high",
+      reason: "Recursive force delete",
+      scopeOptions: [{ pattern: "^rm\\s+-rf", label: "rm -rf *" }],
+      allowlistOptions: [
+        {
+          label: "rm -rf *",
+          description: "Any rm -rf command",
+          pattern: "action:rm",
+        },
+      ],
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "anything" },
+      makeContext({ requireFreshApproval: true }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.riskAllowlistOptions).toEqual([
+      {
+        label: "rm -rf *",
+        description: "Any rm -rf command",
+        pattern: "action:rm",
+      },
     ]);
   });
 });

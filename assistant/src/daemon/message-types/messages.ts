@@ -147,8 +147,26 @@ export interface ToolResult {
   matchedTrustRuleId?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
-  /** Scope options ladder for the rule editor modal (narrowest to broadest). */
+  /**
+   * Display-only ladder of scope option labels for the rule editor
+   * (narrowest to broadest). The `pattern` here is regex-style and is
+   * NOT a valid trust rule pattern. Clients must use
+   * `riskAllowlistOptions` for the pattern that gets saved.
+   */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  /**
+   * Allowlist options for the rule editor save path (narrowest to
+   * broadest). Each `pattern` is a Minimatch-glob compatible string —
+   * what the gateway actually matches against. Mirrors the
+   * `allowlistOptions` field on `ConfirmationRequest`. May be absent
+   * for tools whose classifier does not produce an allowlist (e.g.
+   * web-risk classifier, MCP tools without classifier coverage).
+   */
+  riskAllowlistOptions?: Array<{
+    label: string;
+    description: string;
+    pattern: string;
+  }>;
   /** Directory scope ladder for the rule editor modal (narrowest to broadest). */
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
   /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */

@@ -633,6 +633,7 @@ export function handleToolResult(
     matchedTrustRuleId: event.matchedTrustRuleId,
     isContainerized: event.isContainerized,
     riskScopeOptions: event.riskScopeOptions,
+    riskAllowlistOptions: event.riskAllowlistOptions,
     riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
     approvalMode: event.approvalMode,
     approvalReason: event.approvalReason,

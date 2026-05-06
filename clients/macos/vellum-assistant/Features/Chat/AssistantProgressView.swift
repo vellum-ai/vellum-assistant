@@ -1200,30 +1200,50 @@ struct ToolCallStepDetailRow: View {
 
     // MARK: - Scope Options
 
-    /// Constructs scope option items from the tool call's risk scope options.
-    /// Falls back to a wildcard when no server-provided options exist, since
-    /// `inputSummary` may be a natural-language activity description (e.g. for
-    /// `remember`) rather than a matchable command pattern.
+    /// Constructs scope option items from the tool call's risk options for the
+    /// Rule Editor modal "Apply to" chip ladder.
+    ///
+    /// Priority order (narrowest correct shape wins):
+    ///   1. `riskAllowlistOptions` — Minimatch-glob patterns produced by the
+    ///      classifier. This is the **save-correct** shape: the gateway
+    ///      matches saved trust rules as Minimatch globs, so chips built from
+    ///      this field actually fire on subsequent invocations.
+    ///   2. `riskScopeOptions` — display-shape regex patterns (legacy).
+    ///      Useful as a UI fallback only; saving these patterns produces
+    ///      ghost rules that look saved but never match. Kept here so we
+    ///      don't lose the chip ladder for tools whose classifiers haven't
+    ///      yet been migrated to emit allowlistOptions.
+    ///   3. Synthesized "*" wildcard when neither field is populated (e.g.
+    ///      for unclassified MCP tools or natural-language activity strings
+    ///      like `remember`).
     static func scopeOptions(from toolCall: ToolCallData) -> [ScopeOptionItem] {
-        guard let options = toolCall.riskScopeOptions, !options.isEmpty else {
-            // Determine whether inputRawValue is a real command or just the
-            // activity description. Priority-key tools (bash → `command`) give
-            // a structured value; others fall through alphabetically and end up
-            // with the natural-language activity text.
-            let raw = toolCall.inputRawValue
-            let isNaturalLanguage = !raw.isEmpty && raw == (toolCall.reasonDescription ?? "")
-            let pattern = (isNaturalLanguage || raw.isEmpty) ? "*" : raw
-            let label = pattern == "*"
-                ? "Any \(toolCall.toolName) call"
-                : pattern
-            return [ScopeOptionItem(label: label, pattern: pattern)]
+        if let allowlist = toolCall.riskAllowlistOptions, !allowlist.isEmpty {
+            return allowlist.map { option in
+                ScopeOptionItem(
+                    label: option.label,
+                    pattern: option.pattern
+                )
+            }
         }
-        return options.map { option in
-            ScopeOptionItem(
-                label: option.label,
-                pattern: option.pattern
-            )
+        if let options = toolCall.riskScopeOptions, !options.isEmpty {
+            return options.map { option in
+                ScopeOptionItem(
+                    label: option.label,
+                    pattern: option.pattern
+                )
+            }
         }
+        // Determine whether inputRawValue is a real command or just the
+        // activity description. Priority-key tools (bash → `command`) give
+        // a structured value; others fall through alphabetically and end up
+        // with the natural-language activity text.
+        let raw = toolCall.inputRawValue
+        let isNaturalLanguage = !raw.isEmpty && raw == (toolCall.reasonDescription ?? "")
+        let pattern = (isNaturalLanguage || raw.isEmpty) ? "*" : raw
+        let label = pattern == "*"
+            ? "Any \(toolCall.toolName) call"
+            : pattern
+        return [ScopeOptionItem(label: label, pattern: pattern)]
     }
 
     /// Returns the best structured text to display in the "Command" header of

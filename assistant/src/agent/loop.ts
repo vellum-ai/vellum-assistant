@@ -96,6 +96,11 @@ export type AgentEvent =
       matchedTrustRuleId?: string;
       isContainerized?: boolean;
       riskScopeOptions?: Array<{ pattern: string; label: string }>;
+      riskAllowlistOptions?: Array<{
+        label: string;
+        description: string;
+        pattern: string;
+      }>;
       riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
       approvalMode?: string;
       approvalReason?: string;
@@ -282,6 +287,11 @@ export type LoopToolExecutor = (
   matchedTrustRuleId?: string;
   isContainerized?: boolean;
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  riskAllowlistOptions?: Array<{
+    label: string;
+    description: string;
+    pattern: string;
+  }>;
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
   approvalMode?: string;
   approvalReason?: string;
@@ -1001,6 +1011,7 @@ export class AgentLoop {
             matchedTrustRuleId: result.matchedTrustRuleId,
             isContainerized: result.isContainerized,
             riskScopeOptions: result.riskScopeOptions,
+            riskAllowlistOptions: result.riskAllowlistOptions,
             riskDirectoryScopeOptions: result.riskDirectoryScopeOptions,
             approvalMode: result.approvalMode,
             approvalReason: result.approvalReason,

@@ -4909,11 +4909,19 @@ public struct ToolResult: Codable, Sendable {
     public let riskThreshold: String?
     /// Whether the daemon is running in a containerized (Docker) environment.
     public let isContainerized: Bool?
-    /// Scope options ladder for the rule editor modal (narrowest to broadest).
+    /// Display-only scope options ladder for the rule editor modal (regex
+    /// patterns from the classifier — narrowest to broadest). NOT safe to use
+    /// as the saved trust-rule pattern; the gateway matches saved patterns as
+    /// Minimatch globs, not regex. For save use `riskAllowlistOptions`.
     public let riskScopeOptions: [ToolResultRiskScopeOption]?
+    /// Save-shape allowlist options ladder for the rule editor modal
+    /// (Minimatch-glob patterns from the classifier — narrowest to broadest).
+    /// This is the field whose `pattern` should be used when persisting a
+    /// trust rule from the chip-ladder UI.
+    public let riskAllowlistOptions: [ConfirmationRequestAllowlistOption]?
     public let riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedTrustRuleId: String? = nil, approvalMode: String? = nil, approvalReason: String? = nil, riskThreshold: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedTrustRuleId: String? = nil, approvalMode: String? = nil, approvalReason: String? = nil, riskThreshold: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskAllowlistOptions: [ConfirmationRequestAllowlistOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4931,6 +4939,7 @@ public struct ToolResult: Codable, Sendable {
         self.riskThreshold = riskThreshold
         self.isContainerized = isContainerized
         self.riskScopeOptions = riskScopeOptions
+        self.riskAllowlistOptions = riskAllowlistOptions
         self.riskDirectoryScopeOptions = riskDirectoryScopeOptions
     }
 }

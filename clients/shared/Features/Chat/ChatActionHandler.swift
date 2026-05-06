@@ -1193,14 +1193,20 @@ final class ChatActionHandler {
             if !dirOpts.isEmpty {
                 vm.messages[msgIdx].toolCalls[tcIdx].riskDirectoryScopeOptions = dirOpts
             }
-            // Populate riskScopeOptions from the confirmation's allowlistOptions so the
-            // Rule Editor modal has real classifier-produced patterns available when
-            // "Allow and Create Rule" is clicked (before the tool result arrives).
-            let scopeOptsFromConfirmation = confirmation.allowlistOptions.map {
-                ToolResultRiskScopeOption(pattern: $0.pattern, label: $0.label)
-            }
-            if !scopeOptsFromConfirmation.isEmpty {
-                vm.messages[msgIdx].toolCalls[tcIdx].riskScopeOptions = scopeOptsFromConfirmation
+            // Pre-populate riskAllowlistOptions from the confirmation's allowlistOptions
+            // so the Rule Editor modal has real classifier-produced save-shape patterns
+            // available when "Allow and Create Rule" is clicked before the tool result
+            // arrives. Once the tool_result SSE event lands, StreamingHelpers will
+            // overwrite both `riskScopeOptions` (display ladder) and
+            // `riskAllowlistOptions` (save ladder) from the daemon's payload.
+            //
+            // We populate `riskAllowlistOptions` directly (preserving the full
+            // `{pattern, label, description}` shape) instead of remapping into
+            // `riskScopeOptions`, which has a narrower regex-shaped contract and
+            // would silently lose the description plus mis-tag glob patterns as
+            // regex. See the riskScopeOptions JSDoc for the shape distinction.
+            if !confirmation.allowlistOptions.isEmpty {
+                vm.messages[msgIdx].toolCalls[tcIdx].riskAllowlistOptions = confirmation.allowlistOptions
             }
         }
         let confirmMsg = ChatMessage(

@@ -811,8 +811,16 @@ public struct ToolCallData: Identifiable, Equatable {
     public var approvalReason: String?
     /// Snapshot of the auto-approve threshold at execution time.
     public var riskThreshold: String?
-    /// Scope options ladder for the rule editor (pattern + label pairs, narrowest to broadest).
+    /// Display-only scope options ladder for the rule editor (regex patterns from
+    /// the classifier — narrowest to broadest). NOT safe to use as the saved
+    /// trust-rule pattern (gateway matches as Minimatch glob). For save use
+    /// `riskAllowlistOptions`.
     public var riskScopeOptions: [ToolResultRiskScopeOption]?
+    /// Save-shape allowlist options ladder for the rule editor (Minimatch-glob
+    /// patterns + descriptions from the classifier — narrowest to broadest).
+    /// This is the field whose `pattern` is persisted when the user picks a
+    /// chip and saves the trust rule.
+    public var riskAllowlistOptions: [ConfirmationRequestAllowlistOption]?
     /// Directory scope options ladder for the rule editor (scope + label pairs, narrowest to broadest).
     public var riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
     /// Working directory for this tool call (extracted from confirmation scope options).

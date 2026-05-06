@@ -32,6 +32,11 @@ export type PermissionDecision =
         riskLevel: string;
         riskReason: string;
         riskScopeOptions: Array<{ pattern: string; label: string }>;
+        riskAllowlistOptions?: Array<{
+          label: string;
+          description: string;
+          pattern: string;
+        }>;
         riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
         isContainerized?: boolean;
       };
@@ -51,6 +56,11 @@ export type PermissionDecision =
         riskLevel: string;
         riskReason: string;
         riskScopeOptions: Array<{ pattern: string; label: string }>;
+        riskAllowlistOptions?: Array<{
+          label: string;
+          description: string;
+          pattern: string;
+        }>;
         riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
         isContainerized?: boolean;
       };
@@ -111,7 +121,12 @@ export class PermissionChecker {
       ? {
           riskLevel: cachedAssessment.riskLevel,
           riskReason: cachedAssessment.reason,
+          // Display ladder (regex patterns — internal only, not for save).
           riskScopeOptions: cachedAssessment.scopeOptions,
+          // Save ladder (Minimatch globs — what the gateway matches against).
+          // Populated for classifiers that produce allowlist options
+          // (bash, file, skill); undefined otherwise.
+          riskAllowlistOptions: cachedAssessment.allowlistOptions,
           riskDirectoryScopeOptions: cachedAssessment.directoryScopeOptions,
           isContainerized: getIsContainerized(),
         }
