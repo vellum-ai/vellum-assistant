@@ -126,6 +126,7 @@ function createMockVoiceTurn(tokens: string[]) {
     content: string;
     assistantId?: string;
     onTextDelta: (text: string) => void;
+    onToolUse?: (toolName: string, input: Record<string, unknown>) => void;
     onComplete: () => void;
     onError: (message: string) => void;
     signal?: AbortSignal;
@@ -495,6 +496,38 @@ describe("call-controller", () => {
     // The last token should have last=true (empty string token signaling end)
     const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
     expect(lastToken.last).toBe(true);
+
+    controller.destroy();
+  });
+
+  test("handleCallerUtterance: speaks fallback prelude before silent tool use", async () => {
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        onToolUse?: (toolName: string, input: Record<string, unknown>) => void;
+        onComplete: () => void;
+        signal?: AbortSignal;
+      }) => {
+        if (opts.signal?.aborted) {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          throw err;
+        }
+        opts.onToolUse?.("web_search", { query: "store hours" });
+        opts.onComplete();
+        return {
+          turnId: "silent-tool-run",
+          abort: () => {},
+        };
+      },
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Can you check their hours?");
+
+    expect(relay.sentTokens).toContainEqual({
+      token: "I'm going to look that up now.",
+      last: true,
+    });
 
     controller.destroy();
   });

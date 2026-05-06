@@ -32,6 +32,7 @@ import {
   getUserConsultationTimeoutMs,
 } from "./call-constants.js";
 import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import { speakSystemPrompt } from "./call-speech-output.js";
 import {
   fireCallQuestionNotifier,
   fireCallTranscriptNotifier,
@@ -71,6 +72,25 @@ import {
 const log = getLogger("call-controller");
 
 type ControllerState = "idle" | "processing" | "speaking";
+
+const VOICE_TOOL_PRELUDE_ACTIONS: Record<string, string> = {
+  web_search: "look that up",
+  web_fetch: "open that page",
+  file_read: "check the file",
+  skill_load: "load the relevant skill",
+  skill_execute: "run the skill",
+  recall: "check what I remember",
+  remember: "make a note of that",
+  call_status: "check the call status",
+  call_end: "end the call",
+};
+
+function formatVoiceToolPrelude(toolName: string): string {
+  const action =
+    VOICE_TOOL_PRELUDE_ACTIONS[toolName] ??
+    `use ${toolName.replace(/_/g, " ")}`;
+  return `I'm going to ${action} now.`;
+}
 
 /**
  * Tracks a pending guardian input request independently of the controller's
@@ -601,6 +621,8 @@ export class CallController {
     // could be the start of a control marker.
     let ttsBuffer = "";
     let fullResponseText = "";
+    let assistantSpeechQueued = false;
+    let fallbackToolPreludeSpoken = false;
 
     // When using the synthesized path, we accumulate all text and synthesize
     // the complete response at the end of the turn (better prosody).
@@ -610,6 +632,7 @@ export class CallController {
     const emitSafeChunk = (safeText: string): void => {
       const cleaned = sanitizeForTts(safeText);
       if (cleaned.length === 0) return;
+      assistantSpeechQueued = true;
       if (useSynthesizedPath) {
         synthesizedTextBuffer += cleaned;
       } else {
@@ -671,6 +694,16 @@ export class CallController {
         reject(new Error(message));
       };
 
+      const onToolUse = (toolName: string): void => {
+        if (!this.isCurrentRun(runVersion)) return;
+        if (assistantSpeechQueued || fallbackToolPreludeSpoken) return;
+        fallbackToolPreludeSpoken = true;
+        void speakSystemPrompt(
+          this.transport,
+          formatVoiceToolPrelude(toolName),
+        );
+      };
+
       // Start the voice turn through the session bridge
       startVoiceTurn({
         conversationId: this.conversationId,
@@ -682,6 +715,7 @@ export class CallController {
         task: this.task,
         skipDisclosure: this.skipDisclosure,
         onTextDelta,
+        onToolUse,
         onComplete,
         onError,
         signal: runSignal,

@@ -232,6 +232,43 @@ describe("voice-session-bridge", () => {
     expect(typeof handle.abort).toBe("function");
   });
 
+  test("startVoiceTurn forwards tool-use starts to onToolUse callback", async () => {
+    const conversation = createConversation("voice bridge tool-use test");
+    const events: ServerMessage[] = [
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "store hours" },
+        conversationId: conversation.id,
+        toolUseId: "tool-1",
+      },
+      { type: "message_complete", conversationId: conversation.id },
+    ];
+    const session = makeStreamingSession(events);
+    injectDeps(() => session);
+
+    const toolUses: Array<{
+      toolName: string;
+      input: Record<string, unknown>;
+    }> = [];
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: "Hello from caller",
+      isInbound: true,
+      onTextDelta: () => {},
+      onToolUse: (toolName, input) => toolUses.push({ toolName, input }),
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(toolUses).toEqual([
+      { toolName: "web_search", input: { query: "store hours" } },
+    ]);
+  });
+
   test("startVoiceTurn forwards error events to onError callback", async () => {
     const conversation = createConversation("voice bridge error test");
     const events: ServerMessage[] = [
