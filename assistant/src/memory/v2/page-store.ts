@@ -339,6 +339,45 @@ export async function listPages(workspaceDir: string): Promise<string[]> {
 }
 
 /**
+ * Cheap "do any concept pages exist?" probe — walks the concepts/ tree only
+ * far enough to find one `.md` file and returns immediately. Used by the
+ * daemon-startup rebuild gate so the empty-after-create recovery path skips
+ * a full enumeration of all 1000+ pages just to ask a yes/no question.
+ */
+export async function hasConceptPages(workspaceDir: string): Promise<boolean> {
+  const root = getConceptsDir(workspaceDir);
+  const queue: string[] = [root];
+
+  while (queue.length > 0) {
+    const dir = queue.shift()!;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        if (dir === root) return false;
+        continue;
+      }
+      throw err;
+    }
+
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      if (entry.isDirectory()) {
+        queue.push(join(dir, entry.name));
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!entry.name.endsWith(PAGE_EXTENSION)) continue;
+      if (entry.name.includes(".tmp.")) continue;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Delete a concept page. Idempotent — missing files are not an error.
  *
  * Any other failure (permission denied, etc.) throws so the caller can react.

@@ -36,6 +36,30 @@ type MockPoint = {
   payload: { slug: string; updated_at: number };
 };
 
+type MockCollectionInfo = {
+  config: {
+    params: {
+      vectors?: Record<string, { size: number }> | { size: number };
+      sparse_vectors?: Record<string, unknown>;
+    };
+  };
+};
+
+const FULL_SCHEMA_INFO: MockCollectionInfo = {
+  config: {
+    params: {
+      vectors: {
+        dense: { size: 384 },
+        summary_dense: { size: 384 },
+      },
+      sparse_vectors: {
+        sparse: {},
+        summary_sparse: {},
+      },
+    },
+  },
+};
+
 const state = {
   collectionExistsBeforeCreate: false,
   collectionExistsCalls: 0,
@@ -44,6 +68,10 @@ const state = {
   createIndexCalls: [] as Array<{ field_name: string; field_schema: string }>,
   upsertCalls: [] as Array<{ wait: boolean; points: MockPoint[] }>,
   deleteCalls: [] as Array<{ wait: boolean; points: string[] }>,
+  // Tracks `client.deleteCollection(name)` calls (distinct from `delete()`,
+  // which targets points). The schema-drift recreate path drops the
+  // collection entirely and we want to assert it ran exactly once.
+  deleteCollectionCalls: [] as string[],
   queryCalls: [] as Array<{
     using: string;
     query: unknown;
@@ -60,6 +88,17 @@ const state = {
     }>,
   },
   createCollectionThrows: null as Error | null,
+  // Schema returned by `client.getCollection`. Tests that exercise the
+  // drift path point this at a partial schema; the default mirrors a fully
+  // migrated collection so the no-drift path is the silent default.
+  getCollectionInfo: FULL_SCHEMA_INFO as MockCollectionInfo,
+  getCollectionThrows: null as Error | null,
+  getCollectionCalls: 0,
+  // Point count returned by `client.count`. Used by `countConceptPagePoints`
+  // which the lifecycle hook reads for the empty-after-create recovery path.
+  countResult: 0,
+  countThrows: null as Error | null,
+  countCalls: 0,
   // Throw queue for upsert: first call shifts and throws if non-null;
   // subsequent calls succeed once the queue is exhausted.
   upsertThrowQueue: [] as Array<Error | null>,
@@ -71,12 +110,28 @@ class MockQdrantClient {
     state.collectionExistsCalls++;
     return { exists: state.collectionExistsBeforeCreate };
   }
+  async getCollection(_name: string) {
+    state.getCollectionCalls++;
+    if (state.getCollectionThrows) throw state.getCollectionThrows;
+    return state.getCollectionInfo;
+  }
   async createCollection(_name: string, params: unknown) {
     state.createCollectionCalls++;
     state.createCollectionParams = params;
     if (state.createCollectionThrows) throw state.createCollectionThrows;
     state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = FULL_SCHEMA_INFO;
     return {};
+  }
+  async deleteCollection(name: string) {
+    state.deleteCollectionCalls.push(name);
+    state.collectionExistsBeforeCreate = false;
+    return {};
+  }
+  async count(_name: string, _opts: { exact: boolean }) {
+    state.countCalls++;
+    if (state.countThrows) throw state.countThrows;
+    return { count: state.countResult };
   }
   async createPayloadIndex(
     _name: string,
@@ -128,6 +183,7 @@ const {
   upsertConceptPageEmbedding,
   deleteConceptPageEmbedding,
   hybridQueryConceptPages,
+  countConceptPagePoints,
   MEMORY_V2_COLLECTION,
   _resetMemoryV2QdrantForTests,
 } = await import("../qdrant.js");
@@ -140,10 +196,17 @@ function resetState(): void {
   state.createIndexCalls.length = 0;
   state.upsertCalls.length = 0;
   state.deleteCalls.length = 0;
+  state.deleteCollectionCalls.length = 0;
   state.queryCalls.length = 0;
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
   state.createCollectionThrows = null;
+  state.getCollectionInfo = FULL_SCHEMA_INFO;
+  state.getCollectionThrows = null;
+  state.getCollectionCalls = 0;
+  state.countResult = 0;
+  state.countThrows = null;
+  state.countCalls = 0;
   state.upsertThrowQueue.length = 0;
   _resetMemoryV2QdrantForTests();
 }
@@ -241,6 +304,115 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     // Index creation is skipped on the 409 path because the racing peer is
     // expected to have created it (it ran the same code).
     expect(state.createIndexCalls).toEqual([]);
+  });
+
+  test("detects missing summary_dense / summary_sparse on an existing collection and recreates", async () => {
+    // Pre-#29823 schema: only body channels, no summary_*.
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: { dense: { size: 384 } },
+          sparse_vectors: { sparse: {} },
+        },
+      },
+    };
+
+    const result = await ensureConceptPageCollection();
+
+    // Drift path probed once, dropped the collection once, and recreated
+    // with the full four-vector schema (the create-success branch resets
+    // `getCollectionInfo` to FULL_SCHEMA_INFO so a follow-up probe agrees).
+    expect(state.getCollectionCalls).toBe(1);
+    expect(state.deleteCollectionCalls).toEqual([MEMORY_V2_COLLECTION]);
+    expect(state.createCollectionCalls).toBe(1);
+    expect(result).toEqual({ migrated: true });
+
+    // Recreated schema carries summary_dense + summary_sparse.
+    const params = state.createCollectionParams as {
+      vectors: Record<string, unknown>;
+      sparse_vectors: Record<string, unknown>;
+    };
+    expect(params.vectors.summary_dense).toBeDefined();
+    expect(params.sparse_vectors.summary_sparse).toBeDefined();
+  });
+
+  test("leaves a fully migrated collection untouched", async () => {
+    // Default `getCollectionInfo` is FULL_SCHEMA_INFO — already migrated.
+    state.collectionExistsBeforeCreate = true;
+
+    const result = await ensureConceptPageCollection();
+
+    expect(state.getCollectionCalls).toBe(1);
+    expect(state.deleteCollectionCalls).toEqual([]);
+    expect(state.createCollectionCalls).toBe(0);
+    expect(result).toEqual({ migrated: false });
+  });
+
+  test("getCollection failure is treated as compatible (no destructive recreate)", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionThrows = new Error("transient REST error");
+
+    const result = await ensureConceptPageCollection();
+
+    expect(state.getCollectionCalls).toBe(1);
+    expect(state.deleteCollectionCalls).toEqual([]);
+    expect(state.createCollectionCalls).toBe(0);
+    expect(result).toEqual({ migrated: false });
+  });
+
+  test("concurrent ensure during a schema rebuild only deletes/creates once", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: { dense: { size: 384 } },
+          sparse_vectors: { sparse: {} },
+        },
+      },
+    };
+
+    const results = await Promise.all([
+      ensureConceptPageCollection(),
+      ensureConceptPageCollection(),
+      ensureConceptPageCollection(),
+    ]);
+
+    expect(state.deleteCollectionCalls).toEqual([MEMORY_V2_COLLECTION]);
+    expect(state.createCollectionCalls).toBe(1);
+    // All three concurrent callers see the same migrated signal so any one
+    // of them is safe to enqueue the reembed (the lifecycle hook is the
+    // single producer in practice).
+    expect(results).toEqual([
+      { migrated: true },
+      { migrated: true },
+      { migrated: true },
+    ]);
+  });
+});
+
+describe("memory v2 qdrant — point count", () => {
+  beforeEach(resetState);
+  afterEach(resetState);
+
+  test("returns the approximate Qdrant count for the v2 collection", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.countResult = 1185;
+
+    const count = await countConceptPagePoints();
+
+    expect(count).toBe(1185);
+    expect(state.countCalls).toBe(1);
+  });
+
+  test("returns 0 when the count call fails (treated as needs-reembed)", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.countThrows = new Error("Qdrant unreachable");
+
+    const count = await countConceptPagePoints();
+
+    expect(count).toBe(0);
+    expect(state.countCalls).toBe(1);
   });
 });
 

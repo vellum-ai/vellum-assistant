@@ -117,7 +117,10 @@ import {
 } from "./guardian-action-generators.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
-import { maybeSeedMemoryV2Skills } from "./memory-v2-startup.js";
+import {
+  maybeRebuildMemoryV2Concepts,
+  maybeSeedMemoryV2Skills,
+} from "./memory-v2-startup.js";
 import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -775,6 +778,21 @@ export async function runDaemon(): Promise<void> {
           log.warn(
             { err },
             "Qdrant client initialization failed — memory features will be degraded",
+          );
+        }
+
+        // Detect schema drift on the v2 concept-page collection (e.g.
+        // pre-#29823 collections lacking summary_dense / summary_sparse) and
+        // recreate + enqueue a reembed when needed. Awaited inline so the
+        // reembed enqueue happens before the memory worker drains its first
+        // batch; the call's own try/catch keeps any v2-side failure from
+        // blocking the v1 PKB reconcile or BM25 build below.
+        try {
+          await maybeRebuildMemoryV2Concepts(config);
+        } catch (err) {
+          log.warn(
+            { err },
+            "Memory v2 collection schema check threw — continuing startup",
           );
         }
 
