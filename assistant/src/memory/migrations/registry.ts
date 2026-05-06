@@ -48,6 +48,7 @@ import { downMemoryV2ActivationLogs } from "./234-memory-v2-activation-logs.js";
 import { downSlackCompactionWatermark } from "./235-slack-compaction-watermark.js";
 import { downToolInvocationsMatchedRuleId } from "./236-tool-invocations-matched-rule-id.js";
 import { downHeartbeatRuns } from "./237-heartbeat-runs.js";
+import { downSyncChanges } from "./240-sync-changes.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -411,6 +412,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Create heartbeat_runs table for tracking heartbeat execution lifecycle with CAS state transitions",
     down: downHeartbeatRuns,
+  },
+  {
+    key: "migration_sync_changes_v1",
+    version: 48,
+    description:
+      "Create durable sync_changes table for multi-client cache invalidation cursors",
+    down: downSyncChanges,
   },
 ];
 

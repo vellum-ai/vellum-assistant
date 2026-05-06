@@ -254,3 +254,22 @@ export const traceEvents = sqliteTable(
     ),
   ],
 );
+
+export const syncChanges = sqliteTable(
+  "sync_changes",
+  {
+    cursor: integer("cursor").primaryKey({ autoIncrement: true }),
+    createdAt: integer("created_at").notNull(),
+    resource: text("resource").notNull(),
+    resourceId: text("resource_id").notNull(),
+    op: text("op").notNull(),
+    version: integer("version"),
+    invalidatedTagsJson: text("invalidated_tags_json").notNull(),
+    originClientId: text("origin_client_id"),
+    metadataJson: text("metadata_json"),
+  },
+  (table) => [
+    index("idx_sync_changes_created_at").on(table.createdAt),
+    index("idx_sync_changes_resource").on(table.resource, table.resourceId),
+  ],
+);

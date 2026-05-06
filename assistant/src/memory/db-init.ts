@@ -164,6 +164,7 @@ import {
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateStripPlaceholderSentinelsFromMessages,
   migrateStripThinkingFromConsolidated,
+  migrateSyncChanges,
   migrateToolInvocationsMatchedRuleId,
   migrateTraceEventsCreatedAtIndex,
   migrateUsageDashboardIndexes,
@@ -410,6 +411,7 @@ export function initializeDb(): void {
     },
     migrateScheduleRetryPolicy,
     migrateTraceEventsCreatedAtIndex,
+    migrateSyncChanges,
   ];
 
   // Run each migration step, catching and logging individual failures so one
