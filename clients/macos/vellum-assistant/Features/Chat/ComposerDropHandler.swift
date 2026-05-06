@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -24,6 +25,9 @@ struct DropActions {
     /// cleanup (e.g. removing drag-end monitors) that would otherwise be skipped
     /// by the early return.
     var onInternalDragRejected: (() -> Void)?
+    /// Called with resolved file URLs when the user holds Shift during drop,
+    /// inserting the file paths as text instead of attaching them.
+    var onDropPathsAsText: (([URL]) -> Void)?
 
     /// A no-op default suitable for use as an EnvironmentKey default value.
     static let noop = DropActions(
@@ -33,7 +37,8 @@ struct DropActions {
         onDropEnded: nil,
         isDropTargeted: .constant(false),
         isDraggingInternalImage: .constant(false),
-        onInternalDragRejected: nil
+        onInternalDragRejected: nil,
+        onDropPathsAsText: nil
     )
 }
 
@@ -71,6 +76,31 @@ enum ComposerDropHandler {
             actions.isDraggingInternalImage.wrappedValue = false
             actions.onInternalDragRejected?()
             return false
+        }
+
+        // When Shift is held, resolve file URLs and insert their paths as text
+        // instead of going through the attachment flow.
+        let isShiftHeld = NSEvent.modifierFlags.contains(.shift)
+        if isShiftHeld, let onDropPathsAsText = actions.onDropPathsAsText {
+            var resolvedURLs: [URL] = []
+            let group = DispatchGroup()
+            for provider in providers {
+                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                    group.enter()
+                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                        DispatchQueue.main.async {
+                            if let url { resolvedURLs.append(url) }
+                            group.leave()
+                        }
+                    }
+                }
+            }
+            group.notify(queue: .main) {
+                if !resolvedURLs.isEmpty {
+                    onDropPathsAsText(resolvedURLs)
+                }
+            }
+            return true
         }
 
         // Signal loading immediately so the "Processing…" chip appears without
