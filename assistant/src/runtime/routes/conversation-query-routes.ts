@@ -22,7 +22,9 @@ import { z } from "zod";
 
 import {
   deepMergeOverwrite,
+  fillContextDefaultsForMissingKeys,
   getConfig,
+  getDeploymentContextDefaults,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
@@ -312,9 +314,50 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
   }
 }
 
+/**
+ * Apply deployment-context defaults to a raw config payload before it goes
+ * out over the wire from `GET /v1/config`. The in-memory `loadConfig()`
+ * already layers these defaults for daemon-internal consumers; the GET
+ * response needs the same treatment so external clients (macOS, web, CLI)
+ * see the effective value rather than `undefined` when the daemon hasn't
+ * persisted an explicit choice yet. Without this, macOS's
+ * `loadServiceModes(config:)` short-circuits when `services.inference.mode`
+ * is missing and falls back to the SwiftUI `@Published` default of
+ * "your-own", which renders the wrong segment selection on freshly-hatched
+ * platform-managed assistants.
+ *
+ * Guards against `loadRawConfig()` handing us a value that is technically
+ * valid JSON but not a plain object (e.g. literal `null`, a number, or an
+ * array). `loadRawConfig` is typed `Record<string, unknown>` but `JSON.parse`
+ * itself doesn't enforce that — a malformed-but-parseable `config.json`
+ * would blow up `fillContextDefaultsForMissingKeys` on its `target[key]` /
+ * `fileConfig[key]` accesses, turning `GET /v1/config` into a 500 where it
+ * used to succeed (returning the malformed payload as-is). When `raw` is
+ * not a plain object, we return it unchanged.
+ *
+ * Exported for direct unit testing.
+ */
+export function applyContextDefaultsToRawConfig(raw: unknown): unknown {
+  const contextDefaults = getDeploymentContextDefaults();
+  if (
+    Object.keys(contextDefaults).length === 0 ||
+    raw === null ||
+    typeof raw !== "object" ||
+    Array.isArray(raw)
+  ) {
+    return raw;
+  }
+  fillContextDefaultsForMissingKeys(
+    raw as Record<string, unknown>,
+    raw as Record<string, unknown>,
+    contextDefaults,
+  );
+  return raw;
+}
+
 function handleGetConfig() {
   try {
-    return loadRawConfig();
+    return applyContextDefaultsToRawConfig(loadRawConfig());
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to read config: ${message}`);
