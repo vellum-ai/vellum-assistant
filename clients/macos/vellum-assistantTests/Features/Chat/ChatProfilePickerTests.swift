@@ -186,18 +186,16 @@ final class ChatProfilePickerTests: XCTestCase {
             profile: "custom-profile"
         )
 
-        let onCreatedProfileSaved: (String) -> Void = { savedName in
-            Task { @MainActor in
-                await env.manager.setConversationInferenceProfile(
-                    id: env.localId,
-                    profile: savedName
-                )
-            }
+        let onCreatedProfileSaved: (String) async -> Bool = { savedName in
+            await env.manager.setConversationInferenceProfile(
+                id: env.localId,
+                profile: savedName
+            )
         }
 
-        onCreatedProfileSaved("custom-profile")
-        await env.drainPendingTasks()
+        let didSelect = await onCreatedProfileSaved("custom-profile")
 
+        XCTAssertTrue(didSelect)
         XCTAssertEqual(
             env.mockClient.setCalls,
             [MockChatProfilePickerClient.SetCall(conversationId: "conv-1", profile: "custom-profile")]
@@ -210,6 +208,45 @@ final class ChatProfilePickerTests: XCTestCase {
                 return llm.keys.contains("activeProfile")
             },
             "Chat-owned create-profile save must not patch llm.activeProfile"
+        )
+    }
+
+    func testCreatedProfileSaveReportsConversationSelectionFailureWithoutChangingActiveProfile() async {
+        let fixture = SettingsTestFixture.make()
+        fixture.store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "balanced",
+                "profiles": [
+                    "balanced": ["provider": "anthropic", "model": "claude-sonnet-4-6"],
+                    "custom-profile": ["provider": "openai", "model": "gpt-5"],
+                ],
+            ]
+        ])
+        let env = makeManagerEnvironment(initialProfile: nil)
+        env.mockClient.setResponse = nil
+
+        let onCreatedProfileSaved: (String) async -> Bool = { savedName in
+            await env.manager.setConversationInferenceProfile(
+                id: env.localId,
+                profile: savedName
+            )
+        }
+
+        let didSelect = await onCreatedProfileSaved("custom-profile")
+
+        XCTAssertFalse(didSelect)
+        XCTAssertEqual(
+            env.mockClient.setCalls,
+            [MockChatProfilePickerClient.SetCall(conversationId: "conv-1", profile: "custom-profile")]
+        )
+        XCTAssertNil(env.manager.conversations[0].inferenceProfile)
+        XCTAssertEqual(fixture.store.activeProfile, "balanced")
+        XCTAssertFalse(
+            fixture.mockClient.patchConfigCalls.contains { payload in
+                guard let llm = payload["llm"] as? [String: Any] else { return false }
+                return llm.keys.contains("activeProfile")
+            },
+            "Failed chat-owned selection must not fall back to llm.activeProfile"
         )
     }
 

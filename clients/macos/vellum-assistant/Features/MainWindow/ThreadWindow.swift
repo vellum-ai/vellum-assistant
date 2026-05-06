@@ -278,12 +278,10 @@ private struct ThreadWindowContentView: View {
                         isPresented: $showCreateProfileSheet,
                         startInCreateMode: true,
                         onCreatedProfileSaved: { savedName in
-                            Task { @MainActor in
-                                await conversationManager.setConversationInferenceProfile(
-                                    id: conversationLocalId,
-                                    profile: savedName
-                                )
-                            }
+                            await conversationManager.setConversationInferenceProfile(
+                                id: conversationLocalId,
+                                profile: savedName
+                            )
                         }
                     )
                 }
