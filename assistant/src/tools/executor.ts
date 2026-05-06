@@ -27,6 +27,7 @@ import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
+import { resolveToolNameAlias } from "./tool-name-aliases.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -76,7 +77,12 @@ export class ToolExecutor {
     };
 
     const middlewares = getMiddlewaresFor("toolExecute");
-    const pipelineArgs: ToolExecuteArgs = { name, input, context };
+    const executionName = resolveToolNameAlias(name, context.allowedToolNames);
+    const pipelineArgs: ToolExecuteArgs = {
+      name: executionName,
+      input,
+      context,
+    };
 
     // No pipeline-level timeout: `executeInternal` already wraps the real
     // tool invocation in `executeWithTimeout`, which is the sole enforcer
@@ -427,7 +433,10 @@ export class ToolExecutor {
         };
       }
       if (permMatchedTrustRuleId) {
-        execResult = { ...execResult, matchedTrustRuleId: permMatchedTrustRuleId };
+        execResult = {
+          ...execResult,
+          matchedTrustRuleId: permMatchedTrustRuleId,
+        };
       }
       if (permApprovalMode) {
         execResult = { ...execResult, approvalMode: permApprovalMode };

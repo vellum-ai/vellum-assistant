@@ -30,6 +30,7 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
+import { resolveToolNameAlias } from "../tools/tool-name-aliases.js";
 import {
   isDiskPressureCleanupToolName,
   type ProxyApprovalCallback,
@@ -122,7 +123,9 @@ export function createToolExecutor(
     toolUseId?: string,
     turnContext?: import("../plugins/types.js").TurnContext,
   ) => {
-    if (isDoordashCommand(name, input)) {
+    const executionName = resolveToolNameAlias(name, ctx.allowedToolNames);
+
+    if (isDoordashCommand(executionName, input)) {
       markDoordashStepInProgress(ctx, input);
     }
 
@@ -208,8 +211,9 @@ export function createToolExecutor(
     // route through the full executor pipeline so the underlying tool's
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
-    if (name === "skill_execute") {
-      const toolName = typeof input.tool === "string" ? input.tool : "";
+    if (executionName === "skill_execute") {
+      const rawToolName = typeof input.tool === "string" ? input.tool : "";
+      const toolName = resolveToolNameAlias(rawToolName, ctx.allowedToolNames);
       const rawToolInput =
         input.input != null && typeof input.input === "object"
           ? (input.input as Record<string, unknown>)
@@ -242,7 +246,7 @@ export function createToolExecutor(
     }
 
     const result = await executor.execute(
-      name,
+      executionName,
       input,
       toolContext,
       turnContext,
@@ -251,7 +255,7 @@ export function createToolExecutor(
       ctx.approvedViaPromptThisTurn = true;
     }
 
-    runPostExecutionSideEffects(name, input, result, { ctx });
+    runPostExecutionSideEffects(executionName, input, result, { ctx });
 
     return result;
   };
