@@ -7,8 +7,7 @@ export const releaseNotesSafeStorageLimitsMigration: WorkspaceMigration = {
   description: "Reserved migration slot for safe storage limits release notes",
 
   run(_workspaceDir: string): void {
-    // Tombstoned: this migration id must remain registered for checkpoint
-    // compatibility, but it no longer writes a release bulletin.
+    // Registered no-op slot retained for workspace migration checkpoint compatibility.
   },
 
   down(_workspaceDir: string): void {
