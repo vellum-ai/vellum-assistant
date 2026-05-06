@@ -42,7 +42,8 @@ struct ProComputeUpgradeSection: View {
                 upgradeCard
             }
         }
-        .task {
+        .task(id: "\(assistantId):\(subscription?.plan_id ?? "")") {
+            isLoadingMachineSize = true
             guard isPro else {
                 isLoadingMachineSize = false
                 return

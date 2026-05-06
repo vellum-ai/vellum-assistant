@@ -102,4 +102,30 @@ final class ProComputeUpgradeSectionTests: XCTestCase {
         )
         XCTAssertFalse(section.shouldShowCard)
     }
+
+    /// When `subscription` transitions from base/nil to Pro after the view
+    /// has mounted, the view's `.task(id:)` re-runs and resets
+    /// `isLoadingMachineSize = true` before fetching `machine_size`. While
+    /// that fetch is in flight, `shouldShowCard` must remain false so we
+    /// don't flash an upgrade CTA for an assistant that may already be on
+    /// medium/large. This documents the invariant enforced by keying the
+    /// task on `assistantId + subscription.plan_id` and resetting the
+    /// loading flag at the top of the task body.
+    func testTransitionFromBaseToProDoesNotShowStaleCardWhileLoading() {
+        let baseSection = ProComputeUpgradeSection(
+            assistantId: "asst-1",
+            subscription: makeBaseSubscription(),
+            initialMachineSize: nil,
+            initialIsLoading: false
+        )
+        XCTAssertFalse(baseSection.shouldShowCard)
+
+        let proLoadingSection = ProComputeUpgradeSection(
+            assistantId: "asst-1",
+            subscription: makeProSubscription(),
+            initialMachineSize: nil,
+            initialIsLoading: true
+        )
+        XCTAssertFalse(proLoadingSection.shouldShowCard)
+    }
 }
