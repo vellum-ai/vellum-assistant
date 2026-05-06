@@ -20,10 +20,11 @@
  * hasNoClient flag.
  *
  * Cross-client exception: tools whose capabilities are in
- * CROSS_CLIENT_EXPOSED_CAPABILITIES (host_bash, host_file) are allowed for
- * non-host-proxy interfaces (e.g. "web") when at least one capable client
- * is connected via the event hub. host_browser is excluded (chrome-extension
- * is its own executor; web turns have no CDP target model).
+ * CROSS_CLIENT_EXPOSED_CAPABILITIES (host_bash, host_file, host_browser)
+ * are allowed for non-host-proxy interactive interfaces ("web", "ios")
+ * when at least one capable client is connected via the event hub.
+ * chrome-extension is excluded as a security boundary, regardless of
+ * whether the capability is technically supported elsewhere.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -355,6 +356,110 @@ describe("isToolActiveForContext — cross-client exposure for host_file_*", () 
         makeCtx({ hasNoClient: false, transportInterface: "web" }),
       ),
     ).toBe(true);
+  });
+});
+
+describe("isToolActiveForContext — cross-client exposure for host_browser", () => {
+  // host_browser cross-client routing was shipped in PR #27489 (host-
+  // browser-via-macos-host-proxy); LLM-exposure for non-host-proxy
+  // transports is added by including "host_browser" in
+  // CROSS_CLIENT_EXPOSED_CAPABILITIES. Web and iOS turns can now drive a
+  // connected macOS or chrome-extension client via the event hub.
+  test("host_browser is exposed for web transport when a host_browser client is connected", () => {
+    mockClientCountByCapability.set("host_browser", 1);
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({ hasNoClient: false, transportInterface: "web" }),
+      ),
+    ).toBe(true);
+  });
+
+  test("host_browser is exposed for ios transport when a host_browser client is connected", () => {
+    // INTERACTIVE_INTERFACES = {macos, ios, web}; ios goes through the same
+    // cross-client branch as web because supportsHostProxy("ios", *) is
+    // false. This pins the parity guarantee.
+    mockClientCountByCapability.set("host_browser", 1);
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({ hasNoClient: false, transportInterface: "ios" }),
+      ),
+    ).toBe(true);
+  });
+
+  test("host_browser is NOT exposed for web when no host_browser client is connected", () => {
+    mockClientCountByCapability.set("host_browser", 0);
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({ hasNoClient: false, transportInterface: "web" }),
+      ),
+    ).toBe(false);
+  });
+
+  test("host_browser is NOT exposed for ios when no host_browser client is connected", () => {
+    mockClientCountByCapability.set("host_browser", 0);
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({ hasNoClient: false, transportInterface: "ios" }),
+      ),
+    ).toBe(false);
+  });
+
+  test("host_browser is NOT exposed when hasNoClient is true (no approval UI)", () => {
+    // hasNoClient gate: cross-client exception must not bypass this.
+    mockClientCountByCapability.set("host_browser", 1);
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({ hasNoClient: true, transportInterface: "web" }),
+      ),
+    ).toBe(false);
+  });
+
+  test("host_browser for macos transport is unaffected by the cross-client exception", () => {
+    // macos natively supports host_browser via host proxy — the
+    // supportsHostProxy check passes, so the cross-client branch is never
+    // reached.
+    mockClientCountByCapability.set("host_browser", 0);
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({ hasNoClient: false, transportInterface: "macos" }),
+      ),
+    ).toBe(true);
+  });
+
+  test("host_browser for chrome-extension transport is unaffected by the cross-client exception", () => {
+    // chrome-extension natively supports host_browser via its own
+    // executor (supportsHostProxy("chrome-extension", "host_browser")
+    // returns true), so the cross-client branch is never reached. The
+    // hasNoClient gate is also bypassed for chrome-extension transports
+    // because the extension provides its own approval UI.
+    mockClientCountByCapability.set("host_browser", 0);
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({ hasNoClient: true, transportInterface: "chrome-extension" }),
+      ),
+    ).toBe(true);
+  });
+
+  test("listClientsByCapability is queried with host_browser, not host_bash or host_file (per-capability invariant)", () => {
+    // Defense against any future regression that hardcodes a different
+    // capability in the cross-client check. Only host_browser-capable
+    // clients should satisfy host_browser exposure.
+    mockClientCountByCapability.set("host_bash", 1);
+    mockClientCountByCapability.set("host_file", 1);
+    mockClientCountByCapability.set("host_browser", 0);
+    expect(
+      isToolActiveForContext(
+        "host_browser",
+        makeCtx({ hasNoClient: false, transportInterface: "web" }),
+      ),
+    ).toBe(false);
   });
 });
 

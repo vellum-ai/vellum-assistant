@@ -357,7 +357,7 @@ export const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
 export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
 /**
  * Capabilities eligible for cross-client exposure on non-host-proxy
- * transports (e.g. web, ios routing to a connected macOS client).
+ * transports (e.g. web, ios routing to a connected capable client).
  * Adding a capability here exposes ALL tools that map to it (per
  * HOST_TOOL_TO_CAPABILITY) on non-host-proxy transports — the daemon then
  * routes the actual invocation to the connected capable client via the
@@ -366,17 +366,25 @@ export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
  * Inclusions:
  * - host_bash (Phase 1, PR #29322)
  * - host_file (Phases 2 & 3, PRs #29398 + #29440)
+ * - host_browser (executor parity shipped in PR #27489 host-browser-via-
+ *   macos-host-proxy, exposed cross-client here)
  *
  * Exclusions:
- * - host_browser: chrome-extension is its own executor; web turns don't
- *   have a CDP target model. Re-evaluate when host browser via macOS
- *   host proxy ships (PR #27489).
  * - host_app_control, host_cu: not in HOST_TOOL_TO_CAPABILITY
- *   (skill-routed).
+ *   (skill-routed; cross-client preactivation is a separate workstream).
+ *
+ * Defense-in-depth follow-up (deferred): host_browser does not yet adopt
+ * the same-actor guard that host_bash / host_file / host_cu / host_transfer
+ * apply to their result routes. The chrome-extension client today does not
+ * send `x-vellum-client-id` on its result POST, so enforcing the guard
+ * requires a coordinated extension change. The current `requireGuardian`
+ * gate on `/v1/host-browser-result` is the same-binding boundary. Tracking
+ * issue: TBD.
  */
 const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
   "host_bash",
   "host_file",
+  "host_browser",
 ]);
 const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
@@ -413,15 +421,15 @@ export function isToolActiveForContext(
     // transport cannot service this capability, the tool is filtered out.
     if (transport && capability && !supportsHostProxy(transport, capability)) {
       // Cross-client exception: allow host tools whose capabilities have
-      // cross-client routing infrastructure (Phases 1–3) to be exposed for
-      // non-host-proxy transports (e.g. "web", "ios") when at least one
-      // capable client is connected via the event hub. Members of
-      // CROSS_CLIENT_EXPOSED_CAPABILITIES (host_bash, host_file) qualify;
-      // host_browser is intentionally excluded (chrome-extension is its
-      // own executor and web turns don't have a CDP target model).
+      // cross-client routing infrastructure (Phases 1–3 plus host_browser
+      // via PR #27489) to be exposed for non-host-proxy transports (e.g.
+      // "web", "ios") when at least one capable client is connected via
+      // the event hub. Members of CROSS_CLIENT_EXPOSED_CAPABILITIES
+      // (host_bash, host_file, host_browser) qualify.
       // chrome-extension transport is excluded as a security boundary
-      // (extension only gets host_browser); hasNoClient turns are excluded
-      // (no interactive approval UI available).
+      // (extension only gets host_browser via its own executor path);
+      // hasNoClient turns are excluded (no interactive approval UI
+      // available).
       if (
         capability &&
         CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
