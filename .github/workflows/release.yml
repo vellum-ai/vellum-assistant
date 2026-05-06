@@ -2579,6 +2579,7 @@ jobs:
         id: trigger
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PLAYWRIGHT_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'auto' }}
         run: |
           SOURCE="run:${{ github.run_id }}"
           BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -2589,9 +2590,9 @@ jobs:
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/actions/workflows/playwright.yaml/dispatches" \
-            -d "{\"ref\":\"main\",\"inputs\":{\"source\":\"$SOURCE\",\"shards\":\"4\",\"test_filter\":\"critical\"}}"
+            -d "{\"ref\":\"main\",\"inputs\":{\"source\":\"$SOURCE\",\"environment\":\"$PLAYWRIGHT_ENVIRONMENT\",\"shards\":\"4\",\"test_filter\":\"critical\"}}"
 
-          echo "Triggered playwright workflow with source $SOURCE"
+          echo "Triggered playwright workflow with source $SOURCE and environment $PLAYWRIGHT_ENVIRONMENT"
           sleep 15
 
       - name: Wait for Playwright workflow result
