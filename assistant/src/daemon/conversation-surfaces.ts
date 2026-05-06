@@ -1506,22 +1506,6 @@ export async function handleSurfaceAction(
     surfaceData,
   );
 
-  // One-shot interactive surfaces — auto-complete immediately so the client
-  // transitions to a completion chip without requiring the LLM to call
-  // ui_dismiss. Forms, confirmations, and file uploads are all terminal
-  // after a single user action.
-  const ONE_SHOT_SURFACE_TYPES = ["form", "confirmation", "file_upload"];
-  if (ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)) {
-    broadcastMessage({
-      type: "ui_surface_complete",
-      conversationId: ctx.conversationId,
-      surfaceId,
-      summary,
-      submittedData: mergedData,
-    });
-    markSurfaceCompleted(ctx, surfaceId, summary);
-  }
-
   // Extract file attachments from action data so they are sent as proper
   // image/file content blocks instead of dumping base64 into the text.
   let pendingAttachments: UserMessageAttachment[] = [];
@@ -1649,6 +1633,21 @@ export async function handleSurfaceAction(
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
     return;
+  }
+
+  // One-shot interactive surfaces — auto-complete now that the message has
+  // been accepted. Deferred until after rejection check so the surface stays
+  // active and retryable if the queue was full.
+  const ONE_SHOT_SURFACE_TYPES = ["form", "confirmation", "file_upload"];
+  if (ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)) {
+    broadcastMessage({
+      type: "ui_surface_complete",
+      conversationId: ctx.conversationId,
+      surfaceId,
+      summary,
+      submittedData: mergedData,
+    });
+    markSurfaceCompleted(ctx, surfaceId, summary);
   }
 
   // One-shot: clear accumulated state now that the message has been accepted.
