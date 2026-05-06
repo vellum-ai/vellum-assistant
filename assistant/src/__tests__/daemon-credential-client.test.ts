@@ -13,8 +13,13 @@ let _ipcResponse: { ok: boolean; result?: unknown; error?: string } = {
   error: "Could not connect to assistant daemon. Is it running?",
 };
 
+let _lastIpcCall: { method: string; params: unknown } | null = null;
+
 mock.module("../ipc/cli-client.js", () => ({
-  cliIpcCall: async () => _ipcResponse,
+  cliIpcCall: async (method: string, params: unknown) => {
+    _lastIpcCall = { method, params };
+    return _ipcResponse;
+  },
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -118,6 +123,56 @@ describe("daemon credential client", () => {
       );
       expect(result.result).toBe("not-found");
       expect(result.error).toBeUndefined();
+    });
+  });
+
+  // Regression: the IPC server registers route handlers by `operationId`
+  // (e.g. `secrets_add`, `secrets_delete`) and unwraps params from
+  // `{ body: ... }`. Earlier versions called `secrets/write` and
+  // `secrets/delete` with un-wrapped params, which the IPC server rejected
+  // with "Unknown method". These tests pin the wire format so it cannot
+  // silently drift again.
+  describe("IPC wire format", () => {
+    test("set uses secrets_add with body-wrapped params", async () => {
+      _ipcResponse = { ok: true, result: { success: true } };
+      _lastIpcCall = null;
+
+      await setSecureKeyViaDaemon(
+        "credential",
+        "github-app:pem",
+        "secret-pem-value",
+      );
+
+      const captured = _lastIpcCall as {
+        method: string;
+        params: unknown;
+      } | null;
+      expect(captured).not.toBeNull();
+      expect(captured?.method).toBe("secrets_add");
+      expect(captured?.params).toEqual({
+        body: {
+          type: "credential",
+          name: "github-app:pem",
+          value: "secret-pem-value",
+        },
+      });
+    });
+
+    test("delete uses secrets_delete with body-wrapped params", async () => {
+      _ipcResponse = { ok: true, result: { success: true } };
+      _lastIpcCall = null;
+
+      await deleteSecureKeyViaDaemon("credential", "github-app:pem");
+
+      const captured = _lastIpcCall as {
+        method: string;
+        params: unknown;
+      } | null;
+      expect(captured).not.toBeNull();
+      expect(captured?.method).toBe("secrets_delete");
+      expect(captured?.params).toEqual({
+        body: { type: "credential", name: "github-app:pem" },
+      });
     });
   });
 });
