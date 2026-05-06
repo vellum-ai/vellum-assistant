@@ -2211,6 +2211,12 @@ if [ -f "$MACOS_DIR/credential-executor" ]; then
     echo "credential-executor binary signed with entitlements"
 fi
 
+if [ -f "$MACOS_DIR/vellum-assistant" ]; then
+    ASSISTANT_BIN_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
+    codesign "${ASSISTANT_BIN_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-assistant"
+    echo "Assistant binary signed with entitlements"
+fi
+
 # Embedding runtime node_modules are no longer bundled (downloaded post-hatch).
 
 # Sign any additional regular files directly under Contents/MacOS.
@@ -2220,6 +2226,7 @@ if [ -d "$MACOS_DIR" ]; then
     find "$MACOS_DIR" -maxdepth 1 -type f \
         ! -name "$BUNDLE_DISPLAY_NAME" \
         ! -name "vellum-daemon" \
+        ! -name "vellum-assistant" \
         ! -name "vellum-cli" \
         ! -name "vellum-gateway" \
         ! -name "credential-executor" \
@@ -2266,6 +2273,11 @@ fi
 # Sign the outer app bundle with entitlements (without --deep to preserve nested signatures)
 APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$APP_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
 codesign "${APP_SIGN_FLAGS[@]}" "$APP_DIR"
+
+# Clean up temp debug entitlements directory (created for non-release builds)
+if [ -n "${_DEBUG_ENT_DIR:-}" ] && [ -d "$_DEBUG_ENT_DIR" ]; then
+    rm -rf "$_DEBUG_ENT_DIR"
+fi
 
 echo "Built: $APP_DIR"
 
