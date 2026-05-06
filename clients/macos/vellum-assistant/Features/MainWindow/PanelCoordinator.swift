@@ -999,6 +999,7 @@ struct ActiveChatViewWrapper: View {
     @Binding var anchorMessageId: UUID?
     @Binding var highlightedMessageId: UUID?
     var isInteractionEnabled: Bool = true
+    @State private var showCreateProfileSheet = false
 
     /// Reads the persisted bootstrap state so the chat view can suppress
     /// the empty state during first-launch bootstrap.
@@ -1049,6 +1050,9 @@ struct ActiveChatViewWrapper: View {
                 },
                 onOpenConversationApp: onOpenConversationApp,
                 onOpenConversationDocument: onOpenConversationDocument,
+                onCreateInferenceProfile: {
+                    showCreateProfileSheet = true
+                },
                 recoveryMode: settingsStore.managedAssistantRecoveryMode,
                 isRecoveryModeExiting: settingsStore.recoveryModeExiting,
                 onResumeAssistant: {
@@ -1079,6 +1083,26 @@ struct ActiveChatViewWrapper: View {
             )
             .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
             .disabled(windowState.inspectorMessageId != nil || !isInteractionEnabled)
+            .sheet(isPresented: $showCreateProfileSheet) {
+                InferenceProfilesSheet(
+                    store: settingsStore,
+                    isPresented: $showCreateProfileSheet,
+                    startInCreateMode: true,
+                    onCreatedProfileSaved: { savedName in
+                        if conversationId == nil {
+                            viewModel.pendingInferenceProfile = savedName
+                            return
+                        }
+                        guard let conversationId else { return }
+                        Task { @MainActor in
+                            await conversationManager.setConversationInferenceProfile(
+                                id: conversationId,
+                                profile: savedName
+                            )
+                        }
+                    }
+                )
+            }
 
             if let messageId = windowState.inspectorMessageId {
                 MessageInspectorView(

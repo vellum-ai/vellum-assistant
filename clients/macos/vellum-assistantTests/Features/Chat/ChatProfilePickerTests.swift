@@ -104,6 +104,19 @@ final class ChatProfilePickerTests: XCTestCase {
         XCTAssertFalse(ComposerSettingsMenu.shouldExposeCreateProfileCommand(for: config))
     }
 
+    func testCreateProfileCommandIsHiddenWhenCallbackIsMissing() {
+        let config = ChatProfilePickerConfiguration(
+            current: nil,
+            profiles: [],
+            activeProfile: "balanced",
+            canCreateProfile: true,
+            onSelect: { _ in }
+        )
+
+        XCTAssertFalse(ComposerSettingsMenu.shouldRenderProfileSection(for: config))
+        XCTAssertFalse(ComposerSettingsMenu.shouldExposeCreateProfileCommand(for: config))
+    }
+
     // MARK: - Selection callback wiring (covers ComposerView → ChatProfilePicker → ConversationManager)
 
     func testConversationManagerSetsOverrideOnSelection() async {
@@ -154,6 +167,50 @@ final class ChatProfilePickerTests: XCTestCase {
             [MockChatProfilePickerClient.SetCall(conversationId: "conv-1", profile: nil)]
         )
         XCTAssertNil(env.manager.conversations[0].inferenceProfile)
+    }
+
+    func testCreatedProfileSaveSelectsConversationOverrideWithoutChangingActiveProfile() async {
+        let fixture = SettingsTestFixture.make()
+        fixture.store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "balanced",
+                "profiles": [
+                    "balanced": ["provider": "anthropic", "model": "claude-sonnet-4-6"],
+                    "custom-profile": ["provider": "openai", "model": "gpt-5"],
+                ],
+            ]
+        ])
+        let env = makeManagerEnvironment(initialProfile: nil)
+        env.mockClient.setResponse = ConversationInferenceProfileResponse(
+            conversationId: "conv-1",
+            profile: "custom-profile"
+        )
+
+        let onCreatedProfileSaved: (String) -> Void = { savedName in
+            Task { @MainActor in
+                await env.manager.setConversationInferenceProfile(
+                    id: env.localId,
+                    profile: savedName
+                )
+            }
+        }
+
+        onCreatedProfileSaved("custom-profile")
+        await env.drainPendingTasks()
+
+        XCTAssertEqual(
+            env.mockClient.setCalls,
+            [MockChatProfilePickerClient.SetCall(conversationId: "conv-1", profile: "custom-profile")]
+        )
+        XCTAssertEqual(env.manager.conversations[0].inferenceProfile, "custom-profile")
+        XCTAssertEqual(fixture.store.activeProfile, "balanced")
+        XCTAssertFalse(
+            fixture.mockClient.patchConfigCalls.contains { payload in
+                guard let llm = payload["llm"] as? [String: Any] else { return false }
+                return llm.keys.contains("activeProfile")
+            },
+            "Chat-owned create-profile save must not patch llm.activeProfile"
+        )
     }
 
     // MARK: - Helpers

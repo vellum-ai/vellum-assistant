@@ -186,6 +186,7 @@ private struct ThreadWindowContentView: View {
     @State private var anchorMessageId: UUID?
     @State private var highlightedMessageId: UUID?
     @State private var windowSize: CGSize = CGSize(width: 700, height: 700)
+    @State private var showCreateProfileSheet = false
 
     /// Derived title from ConversationManager — updates reactively when
     /// the conversation is renamed, avoiding the stale-title bug.
@@ -209,6 +210,8 @@ private struct ThreadWindowContentView: View {
                         enabledSince: settingsStore.mediaEmbedsEnabledSince,
                         allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
                     ),
+                    inferenceProfiles: settingsStore.profiles,
+                    activeInferenceProfile: settingsStore.activeProfile,
                     onMicrophoneToggle: {},
                     onForkFromMessage: (conversation?.isChannelConversation ?? false) ? nil : { daemonMessageId in onFork(daemonMessageId) },
                     onAddFunds: {
@@ -243,6 +246,9 @@ private struct ThreadWindowContentView: View {
                             userInfo: ["documentSurfaceId": surfaceId]
                         )
                     },
+                    onCreateInferenceProfile: {
+                        showCreateProfileSheet = true
+                    },
                     recoveryMode: settingsStore.managedAssistantRecoveryMode,
                     isRecoveryModeExiting: settingsStore.recoveryModeExiting,
                     onResumeAssistant: {
@@ -254,6 +260,7 @@ private struct ThreadWindowContentView: View {
                     },
                     anchorMessageId: $anchorMessageId,
                     highlightedMessageId: $highlightedMessageId,
+                    conversationId: conversationLocalId,
                     isInteractionEnabled: true,
                     isReadonly: conversation?.isChannelConversation ?? false,
                     watchSession: ambientAgent.activeWatchSession,
@@ -265,6 +272,21 @@ private struct ThreadWindowContentView: View {
                 // pop-out thread windows.
                 .environment(assistantFeatureFlagStore)
                 .padding(.bottom, VSpacing.md)
+                .sheet(isPresented: $showCreateProfileSheet) {
+                    InferenceProfilesSheet(
+                        store: settingsStore,
+                        isPresented: $showCreateProfileSheet,
+                        startInCreateMode: true,
+                        onCreatedProfileSaved: { savedName in
+                            Task { @MainActor in
+                                await conversationManager.setConversationInferenceProfile(
+                                    id: conversationLocalId,
+                                    profile: savedName
+                                )
+                            }
+                        }
+                    )
+                }
             }
 
             // Actions drawer rendered above all content
