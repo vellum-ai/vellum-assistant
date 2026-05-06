@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
+const realEventHub = await import("../runtime/assistant-event-hub.js");
+
 mock.module("../runtime/assistant-event-hub.js", () => ({
+  ...realEventHub,
   broadcastMessage: (_msg: ServerMessage) => {},
 }));
 

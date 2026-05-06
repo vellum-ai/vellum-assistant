@@ -3,16 +3,16 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
 let broadcastedMessages: ServerMessage[] = [];
+const realEventHub = await import("../runtime/assistant-event-hub.js");
 mock.module("../runtime/assistant-event-hub.js", () => ({
+  ...realEventHub,
   broadcastMessage: (msg: ServerMessage) => broadcastedMessages.push(msg),
 }));
 
-import {
-  createSurfaceMutex,
-  handleSurfaceAction,
-  type SurfaceConversationContext,
-  surfaceProxyResolver,
-} from "../daemon/conversation-surfaces.js";
+const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
+  await import("../daemon/conversation-surfaces.js");
+
+import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type {
   SurfaceData,
   SurfaceType,
