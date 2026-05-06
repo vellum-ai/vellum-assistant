@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "license": "MIT",
   "type": "module",
   "exports": {

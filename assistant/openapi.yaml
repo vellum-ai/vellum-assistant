@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.7.3
+  version: 0.8.0
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -7681,8 +7681,7 @@ paths:
     post:
       operationId: memory_v2_reembedskills_post
       summary: Re-seed v2 skill entries from the current skill catalog
-      description:
-        Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on config.memory.v2.enabled.
+      description: Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on config.memory.v2.enabled.
       tags:
         - memory
       responses:
