@@ -792,6 +792,10 @@ struct TeleportSection: View {
                 }
             } catch is CancellationError {
                 throw CancellationError()
+            } catch let error as GatewayHTTPClient.ClientError {
+                // Permanent setup errors (notAuthenticated, noConnectedAssistant,
+                // invalidURL) — fail fast rather than retry until timeout
+                throw error
             } catch {
                 // Transient network errors — retry
                 continue
