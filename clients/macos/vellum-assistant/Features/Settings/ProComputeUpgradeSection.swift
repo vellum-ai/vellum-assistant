@@ -57,6 +57,7 @@ struct ProComputeUpgradeSection: View {
 
                 VIconView(.chevronRight, size: 14)
                     .foregroundStyle(VColor.contentTertiary)
+                    .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Available")
