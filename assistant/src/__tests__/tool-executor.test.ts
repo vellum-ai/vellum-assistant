@@ -215,6 +215,19 @@ describe("ToolExecutor allowedToolNames gating", () => {
     expect(result.content).toBe("ok");
   });
 
+  test("preserves exact active create_app tool before applying compatibility aliases", async () => {
+    const executor = new ToolExecutor(makePrompter());
+    const allowed = new Set(["create_app", "app_create"]);
+    const result = await executor.execute(
+      "create_app",
+      { name: "Custom App" },
+      makeContext({ allowedToolNames: allowed }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(lastCheckArgs?.toolName).toBe("create_app");
+  });
+
   test("blocks execution when tool is NOT in the allowed set", async () => {
     const executor = new ToolExecutor(makePrompter());
     const allowed = new Set(["file_read", "bash"]);

@@ -11,6 +11,7 @@ export function resolveToolNameAlias(
   name: string,
   allowedToolNames?: ReadonlySet<string>,
 ): string {
+  if (allowedToolNames?.has(name)) return name;
   const canonical = TOOL_NAME_ALIASES.get(name);
   if (!canonical) return name;
   if (allowedToolNames && !allowedToolNames.has(canonical)) return name;

@@ -295,6 +295,34 @@ describe("session-tool-setup app refresh side effects", () => {
       });
     });
 
+    test("preserves exact active create_app skill tool when app_create is also active", async () => {
+      const ctx = makeCtx({
+        allowedToolNames: new Set(["create_app", "app_create"]),
+      });
+      const executor = makeFakeExecutor({
+        content: JSON.stringify({ id: "custom-app-1", name: "Custom App" }),
+        isError: false,
+      });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+      );
+
+      await toolFn("skill_execute", {
+        tool: "create_app",
+        input: { name: "Custom App" },
+        activity: "Running custom app tool",
+      });
+
+      const calls = executor.execute.mock.calls as unknown[][];
+      expect(calls[0][0]).toBe("create_app");
+      expect(broadcastSpy).not.toHaveBeenCalled();
+    });
+
     test("skips side effects when app_create result is an error", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "Error", isError: true });
