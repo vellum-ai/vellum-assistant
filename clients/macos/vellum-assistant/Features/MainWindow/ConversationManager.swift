@@ -491,6 +491,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         guard !NSApp.isActive else { return }
         guard let conversation = listStore.conversations.first(where: { $0.id == conversationId }) else { return }
         if conversation.shouldSuppressUnreadIndicator { return }
+        guard let daemonConversationId = conversation.conversationId else { return }
         guard let vm = selectionStore.chatViewModels[conversationId] else { return }
         // Voice path posts its own VOICE_RESPONSE_COMPLETE notification; skip to avoid duplicates.
         if vm.isVoiceModeActive { return }
@@ -504,8 +505,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         content.body = bodyText
         content.sound = .default
         content.categoryIdentifier = "ACTIVITY_COMPLETE"
-        content.threadIdentifier = conversationId.uuidString
-        content.userInfo = ["conversationId": conversationId.uuidString]
+        content.threadIdentifier = daemonConversationId
+        content.userInfo = ["conversationId": daemonConversationId]
 
         let request = UNNotificationRequest(
             identifier: "turn-complete-\(conversationId.uuidString)-\(UUID().uuidString)",
