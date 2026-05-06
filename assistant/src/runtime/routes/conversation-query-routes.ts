@@ -22,7 +22,9 @@ import { z } from "zod";
 
 import {
   deepMergeOverwrite,
+  fillContextDefaultsForMissingKeys,
   getConfig,
+  getDeploymentContextDefaults,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
@@ -314,7 +316,23 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
 
 function handleGetConfig() {
   try {
-    return loadRawConfig();
+    const raw = loadRawConfig();
+    // Apply deployment-context defaults (e.g. IS_PLATFORM=true → all
+    // managed-capable service modes default to "managed") to leaves that
+    // are absent from the raw on-disk config. The in-memory `loadConfig()`
+    // already does this for daemon-internal consumers; the GET response
+    // also needs it so external clients (macOS, web, CLI) see the
+    // effective value rather than `undefined` when the daemon hasn't
+    // persisted an explicit choice yet. Without this, macOS's
+    // `loadServiceModes(config:)` short-circuits when `services.inference.mode`
+    // is missing and falls back to the SwiftUI `@Published` default of
+    // "your-own", which renders the wrong segment selection on
+    // freshly-hatched platform-managed assistants.
+    const contextDefaults = getDeploymentContextDefaults();
+    if (Object.keys(contextDefaults).length > 0) {
+      fillContextDefaultsForMissingKeys(raw, raw, contextDefaults);
+    }
+    return raw;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to read config: ${message}`);

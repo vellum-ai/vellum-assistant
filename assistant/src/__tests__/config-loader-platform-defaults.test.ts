@@ -57,7 +57,12 @@ afterAll(() => {
   mock.restore();
 });
 
-import { invalidateConfigCache, loadConfig } from "../config/loader.js";
+import {
+  fillContextDefaultsForMissingKeys,
+  getDeploymentContextDefaults,
+  invalidateConfigCache,
+  loadConfig,
+} from "../config/loader.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 
 // ---------------------------------------------------------------------------
@@ -312,5 +317,120 @@ describe("platform-managed config defaults", () => {
         )[svc]!.mode,
       ).toBe("your-own");
     }
+  });
+});
+
+/**
+ * Regression guard for the `handleGetConfig` route handler in
+ * `assistant/src/runtime/routes/conversation-query-routes.ts`.
+ *
+ * That handler returns the raw on-disk JSON to clients (macOS, web, CLI)
+ * via `GET /v1/config`, then layers deployment-context defaults on top
+ * via `fillContextDefaultsForMissingKeys(raw, raw, ...)`. macOS's
+ * `loadServiceModes(config:)` only updates `inferenceMode` when
+ * `services.inference.mode` is present in the response — without the
+ * fill pass, freshly-hatched platform-managed assistants would have no
+ * `services` key on disk (only `llm.profiles` from `seedInferenceProfiles`)
+ * and macOS would fall back to its `@Published` default of "your-own".
+ */
+describe("GET /v1/config handler — context-default fill on raw response", () => {
+  const originalIsPlatform = process.env.IS_PLATFORM;
+
+  afterEach(() => {
+    if (originalIsPlatform === undefined) {
+      delete process.env.IS_PLATFORM;
+    } else {
+      process.env.IS_PLATFORM = originalIsPlatform;
+    }
+  });
+
+  test("IS_PLATFORM=true, raw config has no services key → response includes managed defaults", () => {
+    process.env.IS_PLATFORM = "true";
+
+    // Mirrors the real-world fresh-hatch state: lifecycle wrote
+    // `llm.profiles` to disk, but never persisted any service modes.
+    const raw: Record<string, unknown> = {
+      llm: {
+        profiles: {
+          balanced: { provider: "anthropic", model: "claude-sonnet-4.5" },
+        },
+        activeProfile: "balanced",
+      },
+    };
+
+    const contextDefaults = getDeploymentContextDefaults();
+    fillContextDefaultsForMissingKeys(raw, raw, contextDefaults);
+
+    const services = raw["services"] as Record<string, { mode: string }>;
+    expect(services).toBeDefined();
+    for (const svc of MANAGED_SERVICES) {
+      expect(services[svc]!.mode).toBe("managed");
+    }
+  });
+
+  test("IS_PLATFORM=true, raw config has explicit services.inference.mode='your-own' → preserved", () => {
+    process.env.IS_PLATFORM = "true";
+
+    // User has explicitly chosen "your-own" via the macOS Save flow.
+    // The patch handler persisted that to disk; the fill pass must not
+    // override an explicit user choice.
+    const raw: Record<string, unknown> = {
+      services: {
+        inference: { mode: "your-own" },
+      },
+    };
+
+    const contextDefaults = getDeploymentContextDefaults();
+    fillContextDefaultsForMissingKeys(raw, raw, contextDefaults);
+
+    const services = raw["services"] as Record<string, { mode: string }>;
+    expect(services["inference"]!.mode).toBe("your-own");
+    // Other services were missing entirely → context defaults fill them in.
+    expect(services["image-generation"]!.mode).toBe("managed");
+    expect(services["web-search"]!.mode).toBe("managed");
+  });
+
+  test("IS_PLATFORM=false, raw config has no services key → response is unchanged", () => {
+    process.env.IS_PLATFORM = "false";
+
+    const raw: Record<string, unknown> = {
+      llm: {
+        profiles: {
+          balanced: { provider: "anthropic", model: "claude-sonnet-4.5" },
+        },
+      },
+    };
+
+    const contextDefaults = getDeploymentContextDefaults();
+    expect(Object.keys(contextDefaults)).toHaveLength(0);
+    fillContextDefaultsForMissingKeys(raw, raw, contextDefaults);
+
+    expect(raw["services"]).toBeUndefined();
+  });
+
+  test("IS_PLATFORM=true, raw config has partial services.inference subtree → preserves user fields, fills missing mode", () => {
+    process.env.IS_PLATFORM = "true";
+
+    // User set image-generation.provider but never chose a mode for any
+    // service. The fill pass adds the missing modes without clobbering
+    // the user-supplied provider.
+    const raw: Record<string, unknown> = {
+      services: {
+        "image-generation": { provider: "openai" },
+      },
+    };
+
+    const contextDefaults = getDeploymentContextDefaults();
+    fillContextDefaultsForMissingKeys(raw, raw, contextDefaults);
+
+    const imageGen = (
+      raw["services"] as Record<string, { mode: string; provider?: string }>
+    )["image-generation"]!;
+    expect(imageGen.mode).toBe("managed");
+    expect(imageGen.provider).toBe("openai");
+    // Inference, which was missing entirely, picks up the context default.
+    expect(
+      (raw["services"] as Record<string, { mode: string }>)["inference"]!.mode,
+    ).toBe("managed");
   });
 });

@@ -117,7 +117,7 @@ function cloneDefaultConfig(): AssistantConfig {
  * assistant deployments. Local, Docker, and bare-metal assistants are
  * unaffected.
  */
-function getDeploymentContextDefaults(): Record<string, unknown> {
+export function getDeploymentContextDefaults(): Record<string, unknown> {
   if (process.env.IS_PLATFORM !== "true" && process.env.IS_PLATFORM !== "1") {
     return {};
   }
@@ -154,7 +154,7 @@ function getDeploymentContextDefaults(): Record<string, unknown> {
  * `target`. The defensive whole-subtree assignment in the `!targetChild`
  * branch only fires for malformed inputs.
  */
-function fillContextDefaultsForMissingKeys(
+export function fillContextDefaultsForMissingKeys(
   target: Record<string, unknown>,
   fileConfig: Record<string, unknown>,
   contextDefaults: Record<string, unknown>,
