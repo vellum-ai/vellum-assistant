@@ -71,7 +71,7 @@ final class SkillsManager {
     }
 
     var selectedCategory: SkillCategory? {
-        didSet { fetchFilteredSkills() }
+        didSet { recomputeFilteredData() }
     }
 
     var skillFilter: SkillFilter = .all {
@@ -226,9 +226,7 @@ final class SkillsManager {
             }
         }()
         let queryParam = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let categoryParam = selectedCategory?.rawValue
-
-        skillsStore.fetchSkills(force: true, origin: originParam, kind: kindParam, query: queryParam.isEmpty ? nil : queryParam, category: categoryParam)
+        skillsStore.fetchSkills(force: true, origin: originParam, kind: kindParam, query: queryParam.isEmpty ? nil : queryParam, category: nil)
     }
 
     // MARK: - Recomputation
@@ -264,10 +262,6 @@ final class SkillsManager {
             }
         }
 
-        // Compute category counts from the merged+filtered list so they
-        // include external search results and always match the displayed
-        // skills. Use server counts as a base, then layer on any external
-        // results the server didn't see.
         var counts: [SkillCategory: Int] = [:]
         for skill in kindFiltered {
             let cat = inferCategory(skill)
