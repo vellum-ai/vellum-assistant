@@ -38,7 +38,11 @@ import {
   formatTranscript,
   parseDecisionOutput,
 } from "./decision.js";
-import { buildMessageCopyPrompt, parseMessageCopy } from "./message-copy.js";
+import {
+  buildMessageCopyPrompt,
+  ensureMessageMentionsLibraryLocation,
+  parseMessageCopy,
+} from "./message-copy.js";
 import { releaseProactiveArtifactClaim } from "./trigger-state.js";
 
 const log = getLogger("proactive-artifact-job");
@@ -150,9 +154,15 @@ export async function runProactiveArtifactJob(params: {
     }
     buildSucceeded = true;
 
+    if (artifactType === "app") {
+      params.broadcastMessage({ type: "app_files_changed", appId: artifactId });
+    }
+
     // ── Post-build message copy ─────────────────────────────────────
     let messageCopy: string;
-    const fallbackMessage = `I made something for you — ${artifactTitle}. Take a look when you get a chance.`;
+    const artifactNoun = artifactType === "app" ? "app" : "document";
+    const artifactArticle = artifactType === "app" ? "an" : "a";
+    const fallbackMessage = `I made ${artifactArticle} ${artifactNoun} for you — ${artifactTitle}. You can find it in Library.`;
 
     try {
       const copyProvider = await getConfiguredProvider(
@@ -184,6 +194,10 @@ export async function runProactiveArtifactJob(params: {
       log.warn({ err }, "Message copy generation failed; using fallback");
       messageCopy = fallbackMessage;
     }
+    messageCopy = ensureMessageMentionsLibraryLocation(
+      messageCopy,
+      artifactType,
+    );
 
     // ── Message injection ───────────────────────────────────────────
     await injectAuxAssistantMessage({

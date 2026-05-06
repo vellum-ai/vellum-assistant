@@ -877,7 +877,7 @@ Do NOT attempt to use tools for these providers — they will fail. Skip any che
     prompt += `\n\n<heartbeat-disposition>
 This heartbeat runs frequently. Do not manufacture a report just because it ran.
 If there is nothing genuinely useful, actionable, or interesting to surface, keep the response brief and end with HEARTBEAT_OK.
-If there is something worth interrupting the guardian for, write a concise guardian-facing note first: what happened, why it matters, and the recommended next step. Then end with HEARTBEAT_ALERT. That note may be used as notification copy.
+If there is something worth interrupting the guardian for, write a concise guardian-facing note first: what happened, why it matters, and the recommended next step. Address the guardian directly as "you"; do not write instructions to yourself or another intermediary. Then end with HEARTBEAT_ALERT. That note may be used as notification copy.
 After completing your review, end your response with one of:
 - HEARTBEAT_OK — if everything looks good, no action needed
 - HEARTBEAT_ALERT — if you found issues that need attention (describe them before this marker)

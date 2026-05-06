@@ -231,8 +231,11 @@ mock.module("uuid", () => ({
 
 const { runProactiveArtifactJob } = await import("./job.js");
 const { injectAuxAssistantMessage } = await import("./aux-message-injector.js");
-const { buildMessageCopyPrompt, parseMessageCopy } =
-  await import("./message-copy.js");
+const {
+  buildMessageCopyPrompt,
+  ensureMessageMentionsLibraryLocation,
+  parseMessageCopy,
+} = await import("./message-copy.js");
 
 // ── Test helpers ────────────────────────────────────────────────────────
 
@@ -437,15 +440,23 @@ describe("runProactiveArtifactJob", () => {
       expect(bootstrapCalls[0].conversationType).toBe("background");
       expect(bootstrapCalls[0].source).toBe("proactive_artifact");
 
-      // App associated with user's conversation for Assets chip
+      // App associated with user's conversation for existing artifact linkage
       expect(addAppConvCalls).toHaveLength(1);
       expect(addAppConvCalls[0].appId).toBe("app-123");
       expect(addAppConvCalls[0].conversationId).toBe("conv-1");
+
+      expect(broadcastCalls).toContainEqual({
+        type: "app_files_changed",
+        appId: "app-123",
+      });
 
       // Message injection: addMessage called with skipIndexing
       expect(addMessageCalls).toHaveLength(1);
       expect(addMessageCalls[0].opts).toEqual({ skipIndexing: true });
       expect(addMessageCalls[0].conversationId).toBe("conv-1");
+      const injectedAppContent = JSON.parse(addMessageCalls[0].content);
+      expect(injectedAppContent[0].text).toContain("Library");
+      expect(injectedAppContent[0].text).not.toContain("Assets");
 
       // Notification emitted
       expect(emitSignalCalls).toHaveLength(1);
@@ -503,6 +514,9 @@ describe("runProactiveArtifactJob", () => {
 
       // Message injection and notification
       expect(addMessageCalls).toHaveLength(1);
+      const injectedDocumentContent = JSON.parse(addMessageCalls[0].content);
+      expect(injectedDocumentContent[0].text).toContain("Library");
+      expect(injectedDocumentContent[0].text).not.toContain("Assets");
       expect(emitSignalCalls).toHaveLength(1);
 
       // Claim NOT released on success
@@ -623,8 +637,10 @@ describe("runProactiveArtifactJob", () => {
       // Verify fallback message was used
       expect(addMessageCalls).toHaveLength(1);
       const content = JSON.parse(addMessageCalls[0].content);
-      expect(content[0].text).toContain("I made something for you");
+      expect(content[0].text).toContain("I made an app for you");
       expect(content[0].text).toContain("Budget Tracker");
+      expect(content[0].text).toContain("Library");
+      expect(content[0].text).not.toContain("Assets");
     });
   });
 
@@ -846,6 +862,8 @@ describe("message-copy", () => {
     expect(prompt).toContain("Budget Tracker");
     expect(prompt).toContain("app-123");
     expect(prompt).toContain("I need a budget tool");
+    expect(prompt).toContain("Library");
+    expect(prompt).not.toContain("Assets pill");
     expect(prompt).toContain("MESSAGE:");
   });
 
@@ -863,5 +881,34 @@ describe("message-copy", () => {
 
   test("parseMessageCopy returns null for empty MESSAGE", () => {
     expect(parseMessageCopy("MESSAGE:   ")).toBeNull();
+  });
+
+  test("ensureMessageMentionsLibraryLocation appends missing location", () => {
+    const message = ensureMessageMentionsLibraryLocation(
+      "I built a budget tracker for your rent and groceries.",
+      "app",
+    );
+    expect(message).toContain("Library");
+    expect(message).not.toContain("Assets");
+  });
+
+  test("ensureMessageMentionsLibraryLocation normalizes terminal punctuation once", () => {
+    const message = ensureMessageMentionsLibraryLocation(
+      "I built a budget tracker for you!",
+      "app",
+    );
+    expect(message).toBe(
+      "I built a budget tracker for you. You can find the app in Library.",
+    );
+  });
+
+  test("ensureMessageMentionsLibraryLocation replaces artifact panel wording", () => {
+    const message = ensureMessageMentionsLibraryLocation(
+      "You'll find it in the artifact panel.",
+      "document",
+    );
+    expect(message).toContain("Library");
+    expect(message).not.toContain("Assets");
+    expect(message).not.toContain("artifact panel");
   });
 });
