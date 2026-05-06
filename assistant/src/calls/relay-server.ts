@@ -66,6 +66,7 @@ import {
 } from "./speaker-identification.js";
 
 const log = getLogger("relay-server");
+const DEFAULT_ASSISTANT_VOICE_LABEL = "the assistant";
 
 // ── ConversationRelay message types ──────────────────────────────────
 
@@ -1159,7 +1160,7 @@ export class RelayConnection {
 
     const greeting = assistantName
       ? `Hi, this is ${assistantName}, ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`
-      : `Hi, this is ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`;
+      : `Hi, this is ${DEFAULT_ASSISTANT_VOICE_LABEL}. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`;
 
     void speakSystemPrompt(this, greeting);
 

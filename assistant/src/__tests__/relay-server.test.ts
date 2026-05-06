@@ -362,7 +362,9 @@ function getLatestAssistantText(conversationId: string): string | null {
     if (Array.isArray(parsed)) {
       return parsed
         .filter(
-          (block): block is {
+          (
+            block,
+          ): block is {
             type: string;
             text?: string;
             surfaceType?: string;
@@ -2332,13 +2334,14 @@ describe("relay-server", () => {
 
       expect(relay.getConnectionState()).toBe("awaiting_name");
 
-      // Fallback prompt should NOT include assistant name but should include guardian label
+      // Fallback prompt should not include assistant name or internal assistant id.
       const textMessages = ws.sentMessages
         .map((raw) => JSON.parse(raw) as { type: string; token?: string })
         .filter((m) => m.type === "text");
       const promptText = textMessages.map((m) => m.token ?? "").join("");
-      expect(promptText).toContain("Hi, this is my human's assistant.");
+      expect(promptText).toContain("Hi, this is the assistant.");
       expect(promptText).not.toContain("Vellum");
+      expect(promptText).not.toContain("self");
       expect(promptText).toContain("don't recognize this number");
       expect(promptText).toContain("Can I get your name");
 
