@@ -521,9 +521,21 @@ struct AssistantProgressView: View {
     @MainActor
     private func fetchSuggestionAndOpenEditor(for toolCall: ToolCallData) async {
         let client = TrustRuleClient()
-        let scopeOpts: [(pattern: String, label: String)] = (toolCall.riskScopeOptions ?? []).map {
-            (pattern: $0.pattern, label: $0.label)
-        }
+        // Priority: prefer the Minimatch-glob save-path ladder
+        // (`riskAllowlistOptions`) because that is what the chips render and
+        // what the rule editor will persist — feeding the LLM the same
+        // pattern shapes it can save. Fall back to the regex-shaped legacy
+        // `riskScopeOptions` ladder for tool calls without allowlist
+        // coverage yet (and for the pre-tool_result "Allow and Create Rule"
+        // path where the daemon may not have populated either field yet, in
+        // which case both are empty and the suggester runs on command text
+        // alone — same behavior as before #29826).
+        let scopeOpts: [(pattern: String, label: String)] = {
+            if let allowlist = toolCall.riskAllowlistOptions, !allowlist.isEmpty {
+                return allowlist.map { (pattern: $0.pattern, label: $0.label) }
+            }
+            return (toolCall.riskScopeOptions ?? []).map { (pattern: $0.pattern, label: $0.label) }
+        }()
         let dirScopeOpts: [(scope: String, label: String)] = (toolCall.riskDirectoryScopeOptions ?? []).map {
             (scope: $0.scope, label: $0.label)
         }
@@ -1288,9 +1300,16 @@ struct ToolCallStepDetailRow: View {
     }
 
     private func fetchSuggestionForEditor(_ toolCall: ToolCallData, existingRule: TrustRule?) async throws -> TrustRuleSuggestion {
-        let scopeOpts: [(pattern: String, label: String)] = (toolCall.riskScopeOptions ?? []).map {
-            (pattern: $0.pattern, label: $0.label)
-        }
+        // Same priority as `fetchSuggestionAndOpenEditor`: feed the LLM the
+        // glob-shaped save-path ladder (the chips it can pick from), falling
+        // back to the regex-shaped display ladder when allowlist coverage
+        // is absent.
+        let scopeOpts: [(pattern: String, label: String)] = {
+            if let allowlist = toolCall.riskAllowlistOptions, !allowlist.isEmpty {
+                return allowlist.map { (pattern: $0.pattern, label: $0.label) }
+            }
+            return (toolCall.riskScopeOptions ?? []).map { (pattern: $0.pattern, label: $0.label) }
+        }()
         let dirScopeOpts: [(scope: String, label: String)] = (toolCall.riskDirectoryScopeOptions ?? []).map {
             (scope: $0.scope, label: $0.label)
         }
