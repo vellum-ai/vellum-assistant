@@ -700,5 +700,6 @@ describe("bundled skill includes", () => {
     expect(appBuilder?.bundled).toBe(true);
     expect(appBuilder?.includes).toContain("frontend-design");
     expect(frontendDesign?.bundled).toBe(true);
+    expect(frontendDesign?.displayName).toBe("Frontend Design");
   });
 });
