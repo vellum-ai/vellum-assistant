@@ -129,15 +129,14 @@ struct SettingsGeneralTab: View {
                 await fetchHealthz()
                 await refreshAssistantSwitcherItems()
             }
-            Task {
-                if let sub = try? await BillingService.shared.getSubscription() {
-                    subscription = sub
-                }
-            }
+            Task { await refreshSubscription() }
             recordSystemResourcesDeepLinkIfNeeded(store.pendingSettingsGeneralSection)
         }
         .onChange(of: authManager.isAuthenticated) { _, _ in
-            Task { await refreshAssistantSwitcherItems() }
+            Task {
+                await refreshAssistantSwitcherItems()
+                await refreshSubscription()
+            }
         }
         .onChange(of: store.pendingSettingsGeneralSection) { _, section in
             recordSystemResourcesDeepLinkIfNeeded(section)
@@ -292,6 +291,10 @@ struct SettingsGeneralTab: View {
             settingsGeneralLog.warning("Failed to refresh assistant switcher: \(error.localizedDescription, privacy: .public)")
             assistantSwitcherError = "Could not load assistants."
         }
+    }
+
+    private func refreshSubscription() async {
+        subscription = (try? await BillingService.shared.getSubscription())
     }
 
     private func switchAssistantFromVersionCard(assistantId: String) async {
