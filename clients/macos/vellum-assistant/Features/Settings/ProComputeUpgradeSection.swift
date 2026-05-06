@@ -34,6 +34,10 @@ struct ProComputeUpgradeSection: View {
             machineSize = detail?.machine_size
             isLoadingMachineSize = false
         }
+        .onChange(of: assistantId) { _, _ in
+            showConfirmation = false
+            upgradeError = nil
+        }
     }
 
     private var upgradeCard: some View {
@@ -112,18 +116,21 @@ struct ProComputeUpgradeSection: View {
     }
 
     private func performUpgrade() async {
+        let targetId = assistantId
         isUpgrading = true
         upgradeError = nil
         defer { isUpgrading = false }
 
-        let (success, detail) = await AdminAssistantClient.proUpgradeMachine(assistantId: assistantId)
+        let (success, detail) = await AdminAssistantClient.proUpgradeMachine(assistantId: targetId)
+        guard targetId == assistantId else { return }
         if success {
             // Optimistically dismiss before the re-fetch — a stale GET that still
             // returns "small" must not regress the card back into view.
             machineSize = "medium"
-            if let refreshed = await AdminAssistantClient.fetchDetail(assistantId: assistantId),
+            if let refreshed = await AdminAssistantClient.fetchDetail(assistantId: targetId),
                let actual = refreshed.machine_size,
-               actual != "small" {
+               actual != "small",
+               targetId == assistantId {
                 machineSize = actual
             }
             showConfirmation = false
