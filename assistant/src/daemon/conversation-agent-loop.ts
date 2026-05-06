@@ -986,7 +986,7 @@ export async function runAgentLoopImpl(
         compactableStartIndex: 1,
       };
     };
-    const applySuccessfulCompaction = (
+    const applySuccessfulCompaction = async (
       result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
       compactedBasis?: Message[],
     ) => {
@@ -1000,7 +1000,7 @@ export async function runAgentLoopImpl(
         provenanceContext,
         result.compactedMessages,
       );
-      applyCompactionResult(ctx, result, onEvent, reqId, {
+      await applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
       });
       currentSlackContextSummary = result.summaryText;
@@ -1087,7 +1087,10 @@ export async function runAgentLoopImpl(
       await trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
     }
     if (compacted?.compacted) {
-      applySuccessfulCompaction(compacted, messagesForStartOfTurnCompaction);
+      await applySuccessfulCompaction(
+        compacted,
+        messagesForStartOfTurnCompaction,
+      );
       shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
         compactedThisTurn = true;
@@ -1790,7 +1793,7 @@ export async function runAgentLoopImpl(
             await trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
           }
           if (result.compacted) {
-            applySuccessfulCompaction(result, compactedBasis);
+            await applySuccessfulCompaction(result, compactedBasis);
             shouldInjectWorkspace = true;
           }
         },
@@ -2119,7 +2122,7 @@ export async function runAgentLoopImpl(
         );
       }
       if (midLoopCompact.compacted) {
-        applySuccessfulCompaction(midLoopCompact, rawHistory);
+        await applySuccessfulCompaction(midLoopCompact, rawHistory);
         reducerCompacted = true;
         shouldInjectWorkspace = true;
       }
@@ -2371,7 +2374,7 @@ export async function runAgentLoopImpl(
         }
 
         if (step.compactionResult?.compacted) {
-          applySuccessfulCompaction(
+          await applySuccessfulCompaction(
             step.compactionResult,
             convergenceCompactionBasis,
           );
@@ -2537,7 +2540,7 @@ export async function runAgentLoopImpl(
             );
           }
           if (emergencyCompact?.compacted) {
-            applySuccessfulCompaction(emergencyCompact, ctx.messages);
+            await applySuccessfulCompaction(emergencyCompact, ctx.messages);
             reducerCompacted = true;
             shouldInjectWorkspace = true;
           }
@@ -3223,7 +3226,7 @@ export interface CompactionApplyContext {
  * truth for the UI indicator after compaction. Emitting both caused a
  * redundant SwiftUI invalidation on every compaction.
  */
-export function applyCompactionResult(
+export async function applyCompactionResult(
   ctx: CompactionApplyContext,
   result: {
     messages: Message[];
@@ -3249,12 +3252,12 @@ export function applyCompactionResult(
   options: {
     slackContextCompactionWatermarkTs?: string | null;
   } = {},
-): void {
+): Promise<void> {
   ctx.messages = result.messages;
   ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
+  await ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,

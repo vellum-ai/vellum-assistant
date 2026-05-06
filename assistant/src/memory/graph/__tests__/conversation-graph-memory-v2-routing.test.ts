@@ -178,6 +178,8 @@ const { migrateActivationState } =
   await import("../../migrations/232-activation-state.js");
 const schema = await import("../../schema.js");
 const { _resetMemoryV2QdrantForTests } = await import("../../v2/qdrant.js");
+const { hydrate: hydrateActivationState } =
+  await import("../../v2/activation-store.js");
 
 // The wiring layer calls `getDb()` to fetch the SQLite handle. We mock
 // only that one export and spread the real module so unrelated callers
@@ -460,5 +462,48 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
 
     expect(result.mode).toBe("context-load");
     expect(result.injectedBlockText).toBeNull();
+  });
+});
+
+describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () => {
+  test("clears everInjected so a previously-injected slug can re-attach", async () => {
+    // Without this wiring, `selectInjections` keeps subtracting the slug from
+    // every per-turn delta even though compaction discarded the cached
+    // `<memory>` attachment that previously made it visible.
+    _setOverridesForTesting({ "memory-v2-enabled": true });
+
+    const conversationId = "conv-test-evict";
+    const memory = new ConversationGraphMemory(conversationId);
+    const config = makeConfig(true);
+
+    // Turn 1 — context-load fires (initialized=false), injecting alice-vscode.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    const initial = await memory.prepareMemory(
+      makeMessages("Tell me about Alice's editor preferences"),
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+    expect(initial.injectedBlockText).toContain("### alice-vscode");
+
+    const before = await hydrateActivationState(testDbHandle!, conversationId);
+    expect(before?.everInjected.map((e) => e.slug)).toContain("alice-vscode");
+
+    await memory.onCompacted(1);
+
+    const after = await hydrateActivationState(testDbHandle!, conversationId);
+    expect(after?.everInjected).toEqual([]);
+
+    // Turn 2 — same Qdrant relevance. With everInjected cleared the slug
+    // should appear again in the injection block (re-attached on the new
+    // user message after compaction).
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    const next = await memory.prepareMemory(
+      makeMessages("And what about Alice's editor again?"),
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+    expect(next.injectedBlockText).toContain("### alice-vscode");
   });
 });

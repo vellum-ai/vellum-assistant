@@ -531,7 +531,7 @@ function makeCtx(
     }),
 
     graphMemory: {
-      onCompacted: () => {},
+      onCompacted: async () => {},
       prepareMemory: async () => ({
         runMessages: [],
         injectedTokens: 0,

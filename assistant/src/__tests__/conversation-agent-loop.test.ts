@@ -626,7 +626,7 @@ function makeCtx(
     }),
 
     graphMemory: {
-      onCompacted: () => {},
+      onCompacted: async () => {},
       prepareMemory: async () => ({
         runMessages: [],
         injectedTokens: 0,
@@ -3652,11 +3652,11 @@ describe("session-agent-loop", () => {
       expect(rendered).not.toContain("original root");
     });
 
-    test("applyCompactionResult records Slack timestamp watermark when provided", () => {
+    test("applyCompactionResult records Slack timestamp watermark when provided", async () => {
       const ctx = makeCtx();
       const events: ServerMessage[] = [];
 
-      applyCompactionResult(
+      await applyCompactionResult(
         ctx,
         {
           messages: [

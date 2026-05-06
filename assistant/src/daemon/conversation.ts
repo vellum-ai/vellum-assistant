@@ -1052,7 +1052,7 @@ export class Conversation {
       );
     }
     if (result.compacted) {
-      applyCompactionResult(this, result, this.sendToClient, null, {
+      await applyCompactionResult(this, result, this.sendToClient, null, {
         slackContextCompactionWatermarkTs: getSlackCompactionWatermarkForPrefix(
           slackChronologicalContext,
           result.compactedMessages,
