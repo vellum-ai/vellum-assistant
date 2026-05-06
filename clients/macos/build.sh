@@ -2111,25 +2111,25 @@ if [ -d "$QLPREV_APPEX" ]; then
     echo "VellumQLPreview.appex signed"
 fi
 
-# Sign CLI binary
+# Sign Bun-compiled binaries with daemon entitlements. These are JavaScript
+# executables produced by `bun build --compile` that require JIT and unsigned
+# executable memory to run under hardened runtime.
 if [ -f "$MACOS_DIR/vellum-cli" ]; then
-    CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
+    CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${CLI_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-cli"
-    echo "CLI binary signed"
+    echo "CLI binary signed with entitlements"
 fi
 
-# Sign gateway binary
 if [ -f "$MACOS_DIR/vellum-gateway" ]; then
-    GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
+    GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${GATEWAY_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-gateway"
-    echo "Gateway binary signed"
+    echo "Gateway binary signed with entitlements"
 fi
 
-# Sign credential-executor (CES) binary
 if [ -f "$MACOS_DIR/credential-executor" ]; then
-    CES_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
+    CES_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${CES_SIGN_FLAGS[@]}" "$MACOS_DIR/credential-executor"
-    echo "credential-executor binary signed"
+    echo "credential-executor binary signed with entitlements"
 fi
 
 # Embedding runtime node_modules are no longer bundled (downloaded post-hatch).
