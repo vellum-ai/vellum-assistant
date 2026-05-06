@@ -156,6 +156,7 @@ struct SettingsGeneralTab: View {
                 await refreshLockfileAssistants()
                 await fetchHealthz()
                 await refreshAssistantSwitcherItems()
+                await refreshSubscription()
             }
         }
         .sheet(isPresented: $isDockerOperationInProgress) {
