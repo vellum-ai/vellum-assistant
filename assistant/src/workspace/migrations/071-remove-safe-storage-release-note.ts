@@ -22,20 +22,31 @@ that must be acknowledged before cleanup chat continues, then keeps a status
 banner visible while cleanup mode is active.
 `;
 
-function normalizeNewlines(content: string): string {
-  return content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+const LEADING_NEWLINES = /^(?:(?:\r\n)|\n|\r)+/;
+const TRAILING_NEWLINES = /(?:(?:\r\n)|\n|\r)+$/;
+
+function findNewlineStyle(...samples: string[]): string {
+  for (const sample of samples) {
+    const match = sample.match(/\r\n|\n|\r/);
+    if (match) {
+      return match[0];
+    }
+  }
+
+  return "\n";
 }
 
 function stitchAroundRemovedBlock(before: string, after: string): string {
   if (before.trim() === "") {
-    return after.replace(/^\n+/, "");
+    return after.replace(LEADING_NEWLINES, "");
   }
 
   if (after.trim() === "") {
-    return before.replace(/\n+$/, "\n");
+    return `${before.replace(TRAILING_NEWLINES, "")}${findNewlineStyle(before)}`;
   }
 
-  return `${before.replace(/\n+$/, "\n\n")}${after.replace(/^\n+/, "")}`;
+  const newline = findNewlineStyle(before, after);
+  return `${before.replace(TRAILING_NEWLINES, "")}${newline}${newline}${after.replace(LEADING_NEWLINES, "")}`;
 }
 
 function removeRange(content: string, start: number, end: number): string {
@@ -43,30 +54,29 @@ function removeRange(content: string, start: number, end: number): string {
 }
 
 function removeSafeStorageReleaseNote(content: string): string {
-  const normalized = normalizeNewlines(content);
-  const exactStart = normalized.indexOf(SAFE_STORAGE_RELEASE_NOTE);
+  const exactStart = content.indexOf(SAFE_STORAGE_RELEASE_NOTE);
   if (exactStart >= 0) {
     return removeRange(
-      normalized,
+      content,
       exactStart,
       exactStart + SAFE_STORAGE_RELEASE_NOTE.length,
     );
   }
 
-  const markerStart = normalized.indexOf(SAFE_STORAGE_MARKER);
+  const markerStart = content.indexOf(SAFE_STORAGE_MARKER);
   if (markerStart < 0) {
     return content;
   }
 
-  const nextMarkerStart = normalized.indexOf(
+  const nextMarkerStart = content.indexOf(
     RELEASE_NOTE_MARKER_PREFIX,
     markerStart + SAFE_STORAGE_MARKER.length,
   );
 
   return removeRange(
-    normalized,
+    content,
     markerStart,
-    nextMarkerStart >= 0 ? nextMarkerStart : normalized.length,
+    nextMarkerStart >= 0 ? nextMarkerStart : content.length,
   );
 }
 

@@ -43,7 +43,7 @@ let testRoot: string;
 let workspaceDir: string;
 
 beforeAll(() => {
-  testRoot = mkdtempSync(join(tmpdir(), "migration-069-remove-safe-storage-"));
+  testRoot = mkdtempSync(join(tmpdir(), "migration-071-remove-safe-storage-"));
 });
 
 afterAll(() => {
@@ -159,6 +159,20 @@ This later note should stay.
     removeSafeStorageReleaseNoteMigration.run(workspaceDir);
 
     expect(readFileSync(updatesPath(), "utf-8")).toBe(original);
+  });
+
+  test("preserves CRLF in unrelated content when removing the safe-storage block", () => {
+    const prior =
+      "<!-- release-note-id:066-earlier-note -->\r\n## Earlier note\r\n\r\nThis note should keep CRLF.\r\n";
+    writeFileSync(
+      updatesPath(),
+      `${prior}\r\n${SAFE_STORAGE_RELEASE_NOTE}`,
+      "utf-8",
+    );
+
+    removeSafeStorageReleaseNoteMigration.run(workspaceDir);
+
+    expect(readFileSync(updatesPath(), "utf-8")).toBe(prior);
   });
 
   test("running twice is idempotent", () => {
