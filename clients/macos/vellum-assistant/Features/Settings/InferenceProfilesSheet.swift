@@ -26,7 +26,7 @@ struct InferenceProfilesSheet: View {
     @ObservedObject var store: SettingsStore
     @Binding var isPresented: Bool
     let startInCreateMode: Bool
-    let onCreatedProfileSaved: ((String) -> Void)?
+    let onCreatedProfileSaved: ((String) async -> Bool)?
 
     @State private var didApplyInitialCreateMode = false
 
@@ -77,7 +77,7 @@ struct InferenceProfilesSheet: View {
         store: SettingsStore,
         isPresented: Binding<Bool>,
         startInCreateMode: Bool = false,
-        onCreatedProfileSaved: ((String) -> Void)? = nil
+        onCreatedProfileSaved: ((String) async -> Bool)? = nil
     ) {
         self._store = ObservedObject(wrappedValue: store)
         self._isPresented = isPresented
@@ -563,8 +563,13 @@ struct InferenceProfilesSheet: View {
             }
         }
 
-        if shouldNotifyCreatedProfile {
-            onCreatedProfileSaved?(name)
+        if shouldNotifyCreatedProfile,
+           let onCreatedProfileSaved {
+            let didSelectCreatedProfile = await onCreatedProfileSaved(name)
+            guard didSelectCreatedProfile else {
+                actionError = "Saved \"\(name)\" but couldn't select it for this conversation. Try selecting it from the chat menu."
+                return
+            }
         }
         editorState = nil
     }

@@ -176,7 +176,7 @@ final class InferenceServiceCardTests: XCTestCase {
             store: store,
             isPresented: isPresented,
             startInCreateMode: true,
-            onCreatedProfileSaved: { _ in }
+            onCreatedProfileSaved: { _ in true }
         )
         XCTAssertNotNil(createSheet.body)
     }

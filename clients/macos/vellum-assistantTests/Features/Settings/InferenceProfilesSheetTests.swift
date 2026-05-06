@@ -80,7 +80,7 @@ final class InferenceProfilesSheetTests: XCTestCase {
             store: store,
             isPresented: isPresented,
             startInCreateMode: true,
-            onCreatedProfileSaved: { _ in }
+            onCreatedProfileSaved: { _ in true }
         )
         XCTAssertNotNil(sheet.body)
     }
