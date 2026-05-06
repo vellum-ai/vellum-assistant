@@ -188,11 +188,11 @@ struct ComposerSettingsMenu: View {
     }
 
     static func shouldRenderProfileSection(for config: ChatProfilePickerConfiguration) -> Bool {
-        !config.profiles.isEmpty || config.canCreateProfile
+        !config.profiles.isEmpty || shouldExposeCreateProfileCommand(for: config)
     }
 
     static func shouldExposeCreateProfileCommand(for config: ChatProfilePickerConfiguration) -> Bool {
-        config.canCreateProfile
+        config.canCreateProfile && config.onCreateProfile != nil
     }
 
     private func createProfile(using config: ChatProfilePickerConfiguration) {

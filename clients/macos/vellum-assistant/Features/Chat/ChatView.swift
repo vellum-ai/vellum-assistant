@@ -5,6 +5,7 @@ import VellumAssistantShared
 import UniformTypeIdentifiers
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatView")
+private let newModelProfileShortcutFeatureFlagKey = "new-model-profile-shortcut"
 
 // MARK: - Performance Baseline Success Criteria
 //
@@ -18,6 +19,8 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatV
 //   3. ≥30% reduction in mean graph update duration during streaming
 
 struct ChatView: View {
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore: AssistantFeatureFlagStore?
+
     // MARK: - ViewModel
 
     /// The chat view model. With @Observable + @Bindable, SwiftUI tracks only
@@ -49,6 +52,7 @@ struct ChatView: View {
     var onBootstrapSendLogs: (() -> Void)?
     var onOpenConversationApp: ((ConversationArtifact) -> Void)? = nil
     var onOpenConversationDocument: ((ConversationArtifact) -> Void)? = nil
+    var onCreateInferenceProfile: (() -> Void)? = nil
 
     // MARK: - Recovery Mode (managed assistants only)
 
@@ -523,6 +527,8 @@ struct ChatView: View {
             current: currentConversation?.inferenceProfile ?? viewModel.pendingInferenceProfile,
             profiles: inferenceProfiles,
             activeProfile: activeInferenceProfile,
+            canCreateProfile: assistantFeatureFlagStore?.isEnabled(newModelProfileShortcutFeatureFlagKey) == true
+                && onCreateInferenceProfile != nil,
             onSelect: { profile in
                 if conversationId == nil {
                     viewModel.pendingInferenceProfile = profile
@@ -535,7 +541,8 @@ struct ChatView: View {
                         profile: profile
                     )
                 }
-            }
+            },
+            onCreateProfile: onCreateInferenceProfile
         )
     }
 
