@@ -2035,16 +2035,35 @@ echo "Signing with: $SIGN_IDENTITY"
 # Sign components explicitly (Apple's recommended approach instead of --deep)
 # This ensures nested binaries with specific entitlements aren't overwritten
 
-# Timestamp flags: release builds with a real identity use Apple's timestamp
-# server (required for notarization). Debug builds and self-signed builds use
-# --timestamp=none to explicitly opt out — otherwise, when re-signing Sparkle's
-# pre-timestamped XPC services, codesign implicitly tries to preserve the
-# timestamp by contacting Apple's timestamp server, and if that server is
-# unreachable the build fails with "A timestamp was expected but was not found".
+# Hardened runtime (--options runtime) is required on macOS 26+ (Tahoe). Without
+# it the kernel enforces a Launch Constraint Violation (CODESIGNING code 4) that
+# immediately kills the process before any code executes. We enable it for ALL
+# builds — release AND debug/local.
+#
+# Timestamp: release builds with a real identity use Apple's timestamp server
+# (required for notarization). Debug/local builds use --timestamp=none to
+# explicitly opt out — otherwise, when re-signing Sparkle's pre-timestamped XPC
+# services, codesign implicitly tries to preserve the timestamp by contacting
+# Apple's server, and if unreachable the build fails with "A timestamp was
+# expected but was not found".
+#
+# Entitlements: debug builds inject com.apple.security.get-task-allow so LLDB
+# can attach under hardened runtime. This is the same pattern Xcode uses for
+# Debug configurations.
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     CODESIGN_TS_FLAGS=(--timestamp --options runtime)
+    APP_ENTITLEMENTS_PATH="$SCRIPT_DIR/app-entitlements.plist"
+    DAEMON_ENTITLEMENTS_PATH="$SCRIPT_DIR/daemon-entitlements.plist"
 else
-    CODESIGN_TS_FLAGS=(--timestamp=none)
+    CODESIGN_TS_FLAGS=(--timestamp=none --options runtime)
+    # Generate debug entitlements with get-task-allow for debugger attachment
+    _DEBUG_ENT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/vellum-ent.XXXXXX")
+    APP_ENTITLEMENTS_PATH="$_DEBUG_ENT_DIR/app-entitlements.plist"
+    DAEMON_ENTITLEMENTS_PATH="$_DEBUG_ENT_DIR/daemon-entitlements.plist"
+    cp "$SCRIPT_DIR/app-entitlements.plist" "$APP_ENTITLEMENTS_PATH"
+    cp "$SCRIPT_DIR/daemon-entitlements.plist" "$DAEMON_ENTITLEMENTS_PATH"
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.get-task-allow bool true" "$APP_ENTITLEMENTS_PATH"
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.get-task-allow bool true" "$DAEMON_ENTITLEMENTS_PATH"
 fi
 
 # Sign Sparkle.framework — must sign nested binaries inside-out before the outer framework
@@ -2130,7 +2149,7 @@ fi
 
 # Sign daemon binary with its own entitlements (JIT, network)
 if [ -f "$MACOS_DIR/vellum-daemon" ]; then
-    DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
+    DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${DAEMON_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
     echo "Daemon binary signed with entitlements"
 fi
@@ -2140,7 +2159,7 @@ fi
 # needs allow-jit, allow-unsigned-executable-memory, and network.client
 # to pass hardened runtime checks when the daemon spawns it as a child.
 if [ -f "$RESOURCES_DIR/bun" ]; then
-    BUN_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
+    BUN_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${BUN_SIGN_FLAGS[@]}" "$RESOURCES_DIR/bun"
     echo "Bundled bun runtime signed with entitlements"
 fi
@@ -2166,7 +2185,7 @@ if [ ${#STRAY_ITEMS[@]} -gt 0 ]; then
 fi
 
 # Sign the outer app bundle with entitlements (without --deep to preserve nested signatures)
-APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
+APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$APP_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
 codesign "${APP_SIGN_FLAGS[@]}" "$APP_DIR"
 
 echo "Built: $APP_DIR"
