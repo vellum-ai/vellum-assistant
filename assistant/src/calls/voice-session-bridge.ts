@@ -601,7 +601,11 @@ export async function startVoiceTurn(
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
             eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
-          } else if (msg.type === "tool_result") {
+          } else if (
+            // guard:allow-tool-result-only — web_search_tool_result is a persisted
+            // content block, not a ServerMessage emitted by the live voice turn.
+            msg.type === "tool_result"
+          ) {
             eventSink.onToolResult(msg.toolName, msg.toolUseId);
           }
           // Note: tool_use_preview_start is intentionally not handled here.
