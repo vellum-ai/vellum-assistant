@@ -118,6 +118,7 @@ struct ProComputeUpgradeSection: View {
     }
 
     private func performUpgrade() async {
+        guard !isUpgrading else { return }
         let targetId = assistantId
         isUpgrading = true
         upgradeError = nil
