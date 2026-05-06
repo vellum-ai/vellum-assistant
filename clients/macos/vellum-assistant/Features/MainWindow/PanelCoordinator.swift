@@ -1091,15 +1091,13 @@ struct ActiveChatViewWrapper: View {
                     onCreatedProfileSaved: { savedName in
                         if conversationId == nil {
                             viewModel.pendingInferenceProfile = savedName
-                            return
+                            return true
                         }
-                        guard let conversationId else { return }
-                        Task { @MainActor in
-                            await conversationManager.setConversationInferenceProfile(
-                                id: conversationId,
-                                profile: savedName
-                            )
-                        }
+                        guard let conversationId else { return false }
+                        return await conversationManager.setConversationInferenceProfile(
+                            id: conversationId,
+                            profile: savedName
+                        )
                     }
                 )
             }
