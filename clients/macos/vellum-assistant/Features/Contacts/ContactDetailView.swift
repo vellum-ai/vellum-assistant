@@ -37,22 +37,7 @@ struct ContactDetailView: View {
                     title: displayContact.displayName,
                     subtitle: "\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")"
                 ) {
-                    HStack(spacing: VSpacing.sm) {
-                        contactTypeBadge
-                        VButton(
-                            label: "Delete",
-                            iconOnly: VIcon.trash.rawValue,
-                            style: .dangerGhost,
-                            isDisabled: isDeleting,
-                            tooltip: "Delete Contact"
-                        ) {
-                            if displayContact.displayName == "New Contact" && displayContact.channels.isEmpty && displayContact.interactionCount == 0 {
-                                deleteContact()
-                            } else {
-                                showDeleteConfirmation = true
-                            }
-                        }
-                    }
+                    contactTypeBadge
                 } content: {
                     headerFields
                     headerActions
@@ -69,7 +54,8 @@ struct ContactDetailView: View {
                         store: store,
                         conversationManager: conversationManager,
                         onSelectAssistant: onSelectAssistant,
-                        showCardBorders: false
+                        showCardBorders: false,
+                        setupButtonLabel: "Invite"
                     )
                 }
 
@@ -159,6 +145,14 @@ struct ContactDetailView: View {
             VButton(label: "Save", style: .primary, isDisabled: isSaving || editedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                 Task { await saveCardEdits() }
             }
+            VButton(label: "Delete Contact", style: .danger, isDisabled: isDeleting) {
+                if displayContact.displayName == "New Contact" && displayContact.channels.isEmpty && displayContact.interactionCount == 0 {
+                    deleteContact()
+                } else {
+                    showDeleteConfirmation = true
+                }
+            }
+            .accessibilityLabel("Delete Contact")
             if isSaving {
                 ProgressView()
                     .controlSize(.small)

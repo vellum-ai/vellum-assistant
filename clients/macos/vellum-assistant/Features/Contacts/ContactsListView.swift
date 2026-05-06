@@ -54,16 +54,6 @@ struct ContactsListView: View {
 
             // System contacts (always visible, not affected by search)
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                contactListRow(
-                    name: "Your Assistant",
-                    subtitle: nil,
-                    badgeKind: .assistant,
-                    isSelected: selection == .assistant,
-                    isHovered: isAssistantHovered,
-                    onTap: { selection = .assistant },
-                    onHover: { isAssistantHovered = $0 }
-                )
-
                 if let guardian = viewModel.guardianContact {
                     contactListRow(
                         name: "You",
@@ -75,6 +65,16 @@ struct ContactsListView: View {
                         onHover: { hoveredContactId = $0 ? guardian.id : nil }
                     )
                 }
+
+                contactListRow(
+                    name: cachedAssistantDisplayName,
+                    subtitle: nil,
+                    badgeKind: .assistant,
+                    isSelected: selection == .assistant,
+                    isHovered: isAssistantHovered,
+                    onTap: { selection = .assistant },
+                    onHover: { isAssistantHovered = $0 }
+                )
             }
 
             SettingsDivider()

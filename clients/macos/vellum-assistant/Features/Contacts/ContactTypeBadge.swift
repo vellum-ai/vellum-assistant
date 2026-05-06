@@ -31,7 +31,7 @@ struct ContactTypeBadge: View {
     }
 
     var body: some View {
-        VTag(label, color: VColor.primaryBase, icon: icon)
+        VTag(label, color: color, icon: icon)
     }
 
     private var label: String {
@@ -39,6 +39,14 @@ struct ContactTypeBadge: View {
         case .guardian: return "Guardian"
         case .assistant: return "Assistant"
         case .human: return "Human"
+        }
+    }
+
+    private var color: Color {
+        switch kind {
+        case .guardian: return VColor.primaryBase
+        case .assistant: return VColor.systemNegativeStrong
+        case .human: return VColor.systemPositiveStrong
         }
     }
 

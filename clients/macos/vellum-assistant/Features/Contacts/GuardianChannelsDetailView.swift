@@ -18,6 +18,7 @@ struct GuardianChannelsDetailView: View {
     var conversationManager: ConversationManager?
     var onSelectAssistant: (() -> Void)?
     var showCardBorders: Bool = true
+    var setupButtonLabel: String = "Enable"
 
     @State var currentContact: ContactPayload?
     @State private var isLoadingReadiness: Bool = true
@@ -202,7 +203,7 @@ struct GuardianChannelsDetailView: View {
                             }
                         }
                     } else if needsSetup {
-                        VButton(label: "Set up", style: .outlined) {
+                        VButton(label: setupButtonLabel, style: .outlined) {
                             if let conversationManager {
                                 conversationManager.openConversation(
                                     message: channelSetupMessage(for: type),
@@ -233,7 +234,7 @@ struct GuardianChannelsDetailView: View {
             || setupExpanded.contains(type) {
             verificationFlowContent(for: type)
         } else {
-            VButton(label: "Set up", style: .outlined) {
+            VButton(label: setupButtonLabel, style: .outlined) {
                 if let conversationManager {
                     conversationManager.openConversation(
                         message: channelSetupMessage(for: type),
