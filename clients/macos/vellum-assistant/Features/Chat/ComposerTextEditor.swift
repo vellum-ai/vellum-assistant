@@ -149,11 +149,6 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         textView.postsFrameChangedNotifications = true
 
-        // Strip all drag types so the NSTextView doesn't intercept file drops
-        // (which would insert file paths as text). File drops are handled by
-        // SwiftUI's .onDrop modifier on the composer container.
-        textView.unregisterDraggedTypes()
-
         scrollView.contentHeight = minHeight
         scrollView.documentView = textView
         textView.delegate = coordinator
@@ -285,14 +280,6 @@ struct ComposerTextEditor: NSViewRepresentable {
             proxy.replaceText = { [weak textView] range, replacement in
                 textView?.insertText(replacement, replacementRange: range)
             }
-        }
-
-        // Re-strip drag types after any attribute change that may cause
-        // TextKit to re-register them. Also strip after external text
-        // replacement since NSTextStorage manipulation can trigger
-        // re-registration.
-        if fontChanged || colorChanged || textWasExternallyReplaced {
-            textView.unregisterDraggedTypes()
         }
 
         // --- Focus (guarded — only schedules work when intent changed) ---
