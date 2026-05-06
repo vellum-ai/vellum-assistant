@@ -100,6 +100,27 @@ describe("skills catalog loading", () => {
     expect(skill!.bundled).toBeUndefined();
   });
 
+  test("discovers symlinked skill directories that point inside ~/.vellum/workspace/skills", () => {
+    const internalSkillDir = join(
+      TEST_DIR,
+      "skills",
+      ".linked-targets",
+      "internal-skill",
+    );
+    mkdirSync(internalSkillDir, { recursive: true });
+    writeFileSync(
+      join(internalSkillDir, "SKILL.md"),
+      '---\nname: "Internal Linked Skill"\ndescription: "Inside skills root."\n---\n\nLoad me.\n',
+    );
+
+    symlinkSync(internalSkillDir, join(TEST_DIR, "skills", "linked-skill"));
+
+    const catalog = loadUserSkillCatalog();
+    expect(catalog).toHaveLength(1);
+    expect(catalog[0].id).toBe("linked-skill");
+    expect(catalog[0].name).toBe("Internal Linked Skill");
+  });
+
   test("does not discover symlinked skill directories that point outside ~/.vellum/workspace/skills", () => {
     const externalSkillDir = join(TEST_DIR, "outside", "external-skill");
     mkdirSync(externalSkillDir, { recursive: true });

@@ -621,7 +621,7 @@ function discoverSkillDirectories(skillsDir: string): string[] {
   try {
     const entries = readdirSync(skillsDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
       const directoryPath = join(skillsDir, entry.name);
       if (existsSync(join(directoryPath, "SKILL.md"))) {
         dirs.push(directoryPath);
