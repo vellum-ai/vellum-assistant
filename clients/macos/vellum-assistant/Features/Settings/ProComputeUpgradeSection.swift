@@ -1,30 +1,11 @@
 import SwiftUI
 import VellumAssistantShared
-import os
 
-private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ProComputeUpgradeSection")
-
-/// Inline upgrade card prompting Pro subscribers to migrate their managed
-/// assistant to the larger compute profile that ships with the Pro plan.
-///
-/// The card only renders when:
-/// - the user holds an active Pro subscription (`subscription.plan_id == "pro"`),
-/// - the assistant's admin detail has loaded, and
-/// - the assistant is still on the default `small` machine size (or the field
-///   is `nil`, meaning the platform hasn't recorded one yet — treat as small).
-///
-/// The admin-detail fetch is intentionally gated on `isPro` so non-Pro users
-/// never trigger the network call.
 @MainActor
 struct ProComputeUpgradeSection: View {
     let assistantId: String
     let subscription: SubscriptionResponse?
     let onUpgradeComplete: () -> Void
-
-    /// Closure-injected so tests can substitute fakes without touching the
-    /// network. Defaults wire through the production `AdminAssistantClient`.
-    var fetchDetail: (String) async -> AdminAssistantDetailResponse? = AdminAssistantClient.fetchDetail
-    var proUpgradeMachine: (String) async throws -> (Bool, String?) = AdminAssistantClient.proUpgradeMachine
 
     @State var machineSize: String? = nil
     @State var isLoadingMachineSize: Bool = true
@@ -48,7 +29,7 @@ struct ProComputeUpgradeSection: View {
                 isLoadingMachineSize = false
                 return
             }
-            let detail = await fetchDetail(assistantId)
+            let detail = await AdminAssistantClient.fetchDetail(assistantId: assistantId)
             guard !Task.isCancelled else { return }
             machineSize = detail?.machine_size
             isLoadingMachineSize = false
@@ -133,27 +114,22 @@ struct ProComputeUpgradeSection: View {
     private func performUpgrade() async {
         isUpgrading = true
         upgradeError = nil
-        defer {
-            isUpgrading = false
-            showConfirmation = false
-        }
+        defer { isUpgrading = false }
 
-        do {
-            let (success, detail) = try await proUpgradeMachine(assistantId)
-            if success {
-                // Server confirmed the upgrade — optimistically dismiss the CTA so a
-                // flaky re-fetch can't regress the card back into the visible state.
-                machineSize = "medium"
-                if let refreshed = await fetchDetail(assistantId), let actual = refreshed.machine_size {
-                    machineSize = actual
-                }
-                onUpgradeComplete()
-            } else {
-                upgradeError = detail ?? "Failed to upgrade compute profile. Please try again."
+        let (success, detail) = await AdminAssistantClient.proUpgradeMachine(assistantId: assistantId)
+        if success {
+            // Optimistically dismiss before the re-fetch — a stale GET that still
+            // returns "small" must not regress the card back into view.
+            machineSize = "medium"
+            if let refreshed = await AdminAssistantClient.fetchDetail(assistantId: assistantId),
+               let actual = refreshed.machine_size,
+               actual != "small" {
+                machineSize = actual
             }
-        } catch {
-            log.error("proUpgradeMachine threw: \(error.localizedDescription, privacy: .public)")
-            upgradeError = "Failed to upgrade compute profile. Please try again."
+            showConfirmation = false
+            onUpgradeComplete()
+        } else {
+            upgradeError = detail ?? "Failed to upgrade compute profile. Please try again."
         }
     }
 }
@@ -162,23 +138,16 @@ struct ProComputeUpgradeSection: View {
 
 #if DEBUG
 extension ProComputeUpgradeSection {
-    /// Test-only initializer that pre-populates `@State` so tests can assert
-    /// on derived display properties without driving the `.task { ... }`
-    /// network fetch. Mirrors the pattern in `SettingsBillingTab.init(...)`.
     init(
         assistantId: String,
         subscription: SubscriptionResponse?,
         initialMachineSize: String?,
         initialIsLoading: Bool,
-        onUpgradeComplete: @escaping () -> Void = {},
-        fetchDetail: @escaping (String) async -> AdminAssistantDetailResponse? = AdminAssistantClient.fetchDetail,
-        proUpgradeMachine: @escaping (String) async throws -> (Bool, String?) = AdminAssistantClient.proUpgradeMachine
+        onUpgradeComplete: @escaping () -> Void = {}
     ) {
         self.assistantId = assistantId
         self.subscription = subscription
         self.onUpgradeComplete = onUpgradeComplete
-        self.fetchDetail = fetchDetail
-        self.proUpgradeMachine = proUpgradeMachine
         self._machineSize = State(initialValue: initialMachineSize)
         self._isLoadingMachineSize = State(initialValue: initialIsLoading)
     }
