@@ -145,6 +145,10 @@ final class ComposerTextView: NSTextView {
         return []
     }
 
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        return []
+    }
+
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         return false
     }
