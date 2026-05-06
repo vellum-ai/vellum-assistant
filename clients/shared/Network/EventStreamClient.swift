@@ -507,18 +507,18 @@ public final class EventStreamClient {
         var jsonString = data
 
         // Remap server conversation IDs to client-local conversation IDs.
-        // When a mapping exists (HTTP response already processed), use it directly.
-        // Otherwise, if there's exactly one pending send, speculatively remap to
-        // that local ID — the server likely assigned a new ID that we haven't
-        // mapped yet.  Pre-register the mapping so subsequent events in the same
-        // window are handled by the fast path above.
-        // Track the final (remapped) conversation ID for broadcast filtering.
+        // Speculative remap is gated on user_message_echo so background and
+        // scheduled conversations — which never emit user_message_echo —
+        // can't pollute the map with their conversationId during the window
+        // between sendUserMessage and the HTTP 202 response.
         var broadcastConversationId: String?
         if let conversationId = extractJsonStringValue(from: jsonString, key: "conversationId") {
+            let eventType = extractJsonStringValue(from: jsonString, key: "type")
             let localId: String?
             if let mapped = serverToLocalConversationMap[conversationId] {
                 localId = mapped
-            } else if !locallyOwnedConversationIds.contains(conversationId),
+            } else if eventType == "user_message_echo",
+                      !locallyOwnedConversationIds.contains(conversationId),
                       pendingMappingLocalIds.count == 1,
                       let pendingLocalId = pendingMappingLocalIds.first {
                 localId = pendingLocalId
