@@ -227,7 +227,7 @@ describe("host.events.publish", () => {
     const received: AssistantEvent[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
-      callback: (evt) => received.push(evt),
+      callback: (evt) => { received.push(evt); },
     });
 
     try {
