@@ -99,17 +99,9 @@ struct GuardianChannelsDetailView: View {
         }
     }
 
+    /// Channel content rows. The parent SettingsCard provides the "Channels" title/subtitle header.
     private var content: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Channels")
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentDefault)
-                Text("Once verified, your assistant will recognize you when you message from these channels.")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-
             if isLoadingReadiness && visibleTypes.isEmpty {
                 channelSkeletonRows()
             } else if visibleTypes.isEmpty {

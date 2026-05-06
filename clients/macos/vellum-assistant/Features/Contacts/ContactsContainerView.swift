@@ -45,6 +45,7 @@ struct ContactsContainerView: View {
                     VNotification(createContactError, tone: .negative)
                 }
             }
+            .padding(VSpacing.lg)
             .frame(width: 320)
             .frame(maxHeight: .infinity, alignment: .top)
 
@@ -175,21 +176,13 @@ struct ContactsContainerView: View {
     private func guardianDetailView(contact: ContactPayload) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    // Title row: display name + badge + interaction count
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        HStack(spacing: VSpacing.sm) {
-                            Text(contact.displayName.hasPrefix("vellum-principal-") ? "You" : "\(contact.displayName) (You)")
-                                .font(VFont.titleSmall)
-                                .foregroundStyle(VColor.contentDefault)
-                            ContactTypeBadge(kind: .guardian)
-                        }
-                        Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-
-                    // Editable fields
+                // Header card: name, badge, interaction count, editable fields, save
+                SettingsCard(
+                    title: contact.displayName.hasPrefix("vellum-principal-") ? "You" : "\(contact.displayName) (You)",
+                    subtitle: "\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")"
+                ) {
+                    ContactTypeBadge(kind: .guardian)
+                } content: {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Name")
@@ -213,7 +206,6 @@ struct ContactsContainerView: View {
                         }
                     }
 
-                    // Save button
                     HStack(spacing: VSpacing.sm) {
                         VButton(
                             label: "Save",
@@ -232,20 +224,23 @@ struct ContactsContainerView: View {
                         VNotification(guardianErrorMessage, tone: .negative)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.bottom, VSpacing.lg)
 
-                GuardianChannelsDetailView(
-                    contact: contact,
-                    connectionManager: connectionManager,
-                    store: store,
-                    conversationManager: conversationManager,
-                    onSelectAssistant: { selection = .assistant },
-                    showCardBorders: false
-                )
-                .padding(VSpacing.lg)
+                // Channels card
+                SettingsCard(
+                    title: "Channels",
+                    subtitle: "Once verified, your assistant will recognize you when you message from these channels."
+                ) {
+                    GuardianChannelsDetailView(
+                        contact: contact,
+                        connectionManager: connectionManager,
+                        store: store,
+                        conversationManager: conversationManager,
+                        onSelectAssistant: { selection = .assistant },
+                        showCardBorders: false
+                    )
+                }
             }
+            .padding(VSpacing.lg)
         }
         .scrollContentBackground(.hidden)
         .contentMargins(0)
@@ -302,26 +297,31 @@ struct ContactsContainerView: View {
 
     @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.loadFromDiskCache()?.name)
 
-    /// Assistant detail — header + channels.
+    /// Assistant detail — header card + channels card.
     @ViewBuilder
     private var assistantDetailView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                // Header matching contact/guardian detail pattern
-                HStack(spacing: VSpacing.sm) {
-                    Text("\(cachedAssistantName) (Your Assistant)")
-                        .font(VFont.titleSmall)
-                        .foregroundStyle(VColor.contentDefault)
+                // Header card
+                SettingsCard(
+                    title: "\(cachedAssistantName) (Your Assistant)"
+                ) {
                     ContactTypeBadge(kind: .assistant)
+                } content: {
+                    EmptyView()
                 }
-                .padding(.horizontal, VSpacing.lg)
 
+                // Channels card
                 if let store {
-                    AssistantChannelsDetailView(store: store, connectionManager: connectionManager, conversationManager: conversationManager, assistantName: cachedAssistantName, showCardBorders: false)
-                        .padding(.horizontal, VSpacing.lg)
-                        .padding(.bottom, VSpacing.lg)
+                    SettingsCard(
+                        title: "Channels",
+                        subtitle: "Channels your assistant is available on."
+                    ) {
+                        AssistantChannelsDetailView(store: store, connectionManager: connectionManager, conversationManager: conversationManager, assistantName: cachedAssistantName, showCardBorders: false)
+                    }
                 }
             }
+            .padding(VSpacing.lg)
         }
         .scrollContentBackground(.hidden)
         .contentMargins(0)

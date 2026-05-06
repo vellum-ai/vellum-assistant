@@ -32,24 +32,52 @@ struct ContactDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                headerSection
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.bottom, VSpacing.lg)
+                // Header card: name, badge, interaction count, editable fields, actions
+                SettingsCard(
+                    title: displayContact.displayName,
+                    subtitle: "\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")"
+                ) {
+                    HStack(spacing: VSpacing.sm) {
+                        contactTypeBadge
+                        VButton(
+                            label: "Delete",
+                            iconOnly: VIcon.trash.rawValue,
+                            style: .dangerGhost,
+                            isDisabled: isDeleting,
+                            tooltip: "Delete Contact"
+                        ) {
+                            if displayContact.displayName == "New Contact" && displayContact.channels.isEmpty && displayContact.interactionCount == 0 {
+                                deleteContact()
+                            } else {
+                                showDeleteConfirmation = true
+                            }
+                        }
+                    }
+                } content: {
+                    headerFields
+                    headerActions
+                }
 
-                GuardianChannelsDetailView(
-                    contact: displayContact,
-                    connectionManager: connectionManager,
-                    store: store,
-                    conversationManager: conversationManager,
-                    onSelectAssistant: onSelectAssistant,
-                    showCardBorders: false
-                )
-                .padding(VSpacing.lg)
+                // Channels card
+                SettingsCard(
+                    title: "Channels",
+                    subtitle: "Once verified, your assistant will recognize this contact when they message from these channels."
+                ) {
+                    GuardianChannelsDetailView(
+                        contact: displayContact,
+                        connectionManager: connectionManager,
+                        store: store,
+                        conversationManager: conversationManager,
+                        onSelectAssistant: onSelectAssistant,
+                        showCardBorders: false
+                    )
+                }
 
                 if let errorMessage {
                     VNotification(errorMessage, tone: .negative)
                 }
             }
+            .padding(VSpacing.lg)
         }
         .scrollContentBackground(.hidden)
         .contentMargins(0)
@@ -85,19 +113,7 @@ struct ContactDetailView: View {
             focusTask?.cancel()
             focusTask = nil
         }
-    }
-
-    // MARK: - Header Section
-
-    private var headerSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            headerTitle
-            headerFields
-            headerActions
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
-            // Leave name empty for placeholder contacts so the placeholder text shows
             let name = displayContact.displayName
             let isNewContact = name == "New Contact"
             editedName = isNewContact ? "" : name
@@ -113,36 +129,7 @@ struct ContactDetailView: View {
         }
     }
 
-    private var headerTitle: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(spacing: VSpacing.sm) {
-                    Text(displayContact.displayName)
-                        .font(VFont.titleSmall)
-                        .foregroundStyle(VColor.contentDefault)
-                    contactTypeBadge
-                }
-                Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-            Spacer()
-            VButton(
-                label: "Delete",
-                iconOnly: VIcon.trash.rawValue,
-                style: .dangerGhost,
-                isDisabled: isDeleting,
-                tooltip: "Delete Contact"
-            ) {
-                // Skip confirmation for empty/placeholder contacts
-                if displayContact.displayName == "New Contact" && displayContact.channels.isEmpty && displayContact.interactionCount == 0 {
-                    deleteContact()
-                } else {
-                    showDeleteConfirmation = true
-                }
-            }
-        }
-    }
+    // MARK: - Header Fields & Actions
 
     private var headerFields: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
