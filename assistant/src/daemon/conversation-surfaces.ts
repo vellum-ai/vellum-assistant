@@ -1645,7 +1645,7 @@ export async function handleSurfaceAction(
       conversationId: ctx.conversationId,
       surfaceId,
       summary,
-      submittedData: mergedData,
+      submittedData: mergedDataForText,
     });
     markSurfaceCompleted(ctx, surfaceId, summary);
   }
