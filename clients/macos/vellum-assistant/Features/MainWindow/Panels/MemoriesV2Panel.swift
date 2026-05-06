@@ -5,14 +5,19 @@ import VellumAssistantShared
 
 /// Browse-able list of memory v2 concept pages. Renders a sorted list of
 /// concept-page summaries (slug, body size, edge count) loaded via
-/// `MemoryV2Client`. Replaces `MemoriesPanel` when `memory-v2-enabled` is on
-/// — wired in by the IntelligencePanel flag-gate (PR 6 of the plan).
+/// `MemoryV2Client`. Selecting a row opens a slide-in detail pane on the
+/// right that lazy-loads and renders the page's raw markdown body via
+/// `ConceptPageContentView` (the same component used by the per-message
+/// activation-log inspector). Replaces `MemoriesPanel` when
+/// `memory-v2-enabled` is on — wired in by the IntelligencePanel flag-gate
+/// (PR 6 of the plan).
 struct MemoriesV2Panel: View {
     let connectionManager: GatewayConnectionManager
 
     @State private var pages: [MemoryV2ConceptPageSummary] = []
     @State private var isLoading: Bool = true
     @State private var loadError: String?
+    @State private var selectedSlug: String?
 
     private let client: MemoryV2ClientProtocol
 
@@ -22,9 +27,27 @@ struct MemoriesV2Panel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 0) {
             listContent
+                .frame(maxWidth: .infinity)
+
+            if let slug = selectedSlug {
+                Divider()
+                ConceptPageContentView(
+                    slug: slug,
+                    onDismiss: { withAnimation(VAnimation.panel) { selectedSlug = nil } }
+                )
+                .id(slug)
+                .frame(width: 400)
+                .frame(maxHeight: .infinity)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .onKeyPress(.escape) {
+                    withAnimation(VAnimation.panel) { selectedSlug = nil }
+                    return .handled
+                }
+            }
         }
+        .animation(VAnimation.panel, value: selectedSlug)
         .padding(.top, VSpacing.lg)
         .task { await loadPages() }
     }
@@ -66,21 +89,32 @@ struct MemoriesV2Panel: View {
 
     @ViewBuilder
     private func row(for page: MemoryV2ConceptPageSummary) -> some View {
-        HStack(alignment: .center, spacing: VSpacing.sm) {
-            Text(page.slug)
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(VColor.contentDefault)
-                .lineLimit(1)
-                .truncationMode(.tail)
+        let isSelected = selectedSlug == page.slug
+        Button {
+            withAnimation(VAnimation.panel) { selectedSlug = page.slug }
+        } label: {
+            HStack(alignment: .center, spacing: VSpacing.sm) {
+                Text(page.slug)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
-            Spacer(minLength: VSpacing.sm)
+                Spacer(minLength: VSpacing.sm)
 
-            Text("\(page.bodyChars) chars · \(page.edgeCount) edges")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
+                Text("\(page.bodyChars) chars · \(page.edgeCount) edges")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.xs, trailing: VSpacing.md))
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(isSelected ? VColor.surfaceActive : Color.clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.sm))
         }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: - Data
