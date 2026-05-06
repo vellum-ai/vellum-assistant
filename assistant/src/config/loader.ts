@@ -108,8 +108,10 @@ function cloneDefaultConfig(): AssistantConfig {
 
 /**
  * Returns deployment-context-aware config defaults that override schema
- * defaults for platform-managed assistants. Only applied when initializing
- * a fresh config (config.json does not yet exist).
+ * defaults for platform-managed assistants. Applied to every `loadConfig()`
+ * call as a fill-only pass — they only fill keys that are absent from the
+ * raw config on disk, so an explicit user choice (e.g. saving "your-own"
+ * via the macOS Models & Services UI) always wins.
  *
  * IS_PLATFORM is set by the Vellum platform launcher for all hosted
  * assistant deployments. Local, Docker, and bare-metal assistants are
@@ -136,6 +138,49 @@ function getDeploymentContextDefaults(): Record<string, unknown> {
       "hubspot-oauth": managed,
     },
   };
+}
+
+/**
+ * Apply `contextDefaults` to `target` for any leaf keys that are absent from
+ * `fileConfig` (the raw config-on-disk payload). Mutates `target` in place.
+ *
+ * "Absent" is checked at the leaf level by walking the `contextDefaults`
+ * shape: nested objects recurse so a partial override on disk (e.g.
+ * `{services: {inference: {model: "x"}}}` with no explicit `mode`) lets the
+ * context default for `mode` win while leaving the user's `model` untouched.
+ *
+ * Pre-condition: `target` has already been passed through `validateWithSchema`
+ * so every nested object in `contextDefaults` has a corresponding object in
+ * `target`. The defensive whole-subtree assignment in the `!targetChild`
+ * branch only fires for malformed inputs.
+ */
+function fillContextDefaultsForMissingKeys(
+  target: Record<string, unknown>,
+  fileConfig: Record<string, unknown>,
+  contextDefaults: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(contextDefaults)) {
+    const fileVal = fileConfig[key];
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+    ) {
+      const targetChild = readPlainObject(target[key]);
+      const fileChild = readPlainObject(fileVal);
+      if (targetChild) {
+        fillContextDefaultsForMissingKeys(
+          targetChild,
+          fileChild ?? {},
+          value as Record<string, unknown>,
+        );
+      } else {
+        target[key] = structuredClone(value);
+      }
+    } else if (fileVal === undefined) {
+      target[key] = value;
+    }
+  }
 }
 
 /**
@@ -665,11 +710,31 @@ export function loadConfig(): AssistantConfig {
       }
     }
 
+    // Layer deployment-context defaults (e.g. IS_PLATFORM=true → all service
+    // modes = "managed") onto the in-memory config for any leaves that aren't
+    // explicitly set in `fileConfig`. This runs on every load — not just the
+    // first — because the workspace config file is written by upstream
+    // lifecycle steps (`mergeDefaultWorkspaceConfig`, `seedInferenceProfiles`)
+    // before `loadConfig()` is reached. Gating on `!configFileExisted` would
+    // make the context defaults dead code on platform-managed daemons whose
+    // config.json was created by those earlier steps without service-mode
+    // entries. Explicit user choices on disk are preserved because the helper
+    // only fills missing keys.
+    const contextDefaults = getDeploymentContextDefaults();
+    if (Object.keys(contextDefaults).length > 0) {
+      fillContextDefaultsForMissingKeys(
+        config as unknown as Record<string, unknown>,
+        fileConfig,
+        contextDefaults,
+      );
+    }
+
     // First-launch seed only: when config.json does not exist, write the full
-    // schema defaults to disk so users can discover and edit all available
-    // options. When the file already exists, leave it alone — disk represents
-    // user intent, while the in-memory `cached: AssistantConfig` (above) has
-    // all schema defaults applied via `applyNestedDefaults`/`validateWithSchema`,
+    // schema defaults (with any deployment-context overrides already applied
+    // above) to disk so users can discover and edit all available options.
+    // When the file already exists, leave it alone — disk represents user
+    // intent, while the in-memory `cached: AssistantConfig` (above) has all
+    // schema defaults applied via `applyNestedDefaults`/`validateWithSchema`,
     // so consumers calling `getConfig().memory.v2.bm25_b` continue to receive
     // the schema default whenever the field is absent on disk.
     //
@@ -687,18 +752,6 @@ export function loadConfig(): AssistantConfig {
         }
         // Strip dataDir (runtime-derived) from the persisted config
         const { dataDir: _, ...persistable } = config;
-
-        // Layer deployment context defaults on top of schema defaults.
-        // These are overrides the daemon derives from its environment (e.g.
-        // IS_PLATFORM → all service modes = "managed"). Schema defaults
-        // remain the fallback for non-platform deployments.
-        const contextDefaults = getDeploymentContextDefaults();
-        if (Object.keys(contextDefaults).length > 0) {
-          deepMergeOverwrite(
-            persistable as Record<string, unknown>,
-            contextDefaults,
-          );
-        }
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
       } catch (err) {

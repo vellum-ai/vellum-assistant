@@ -184,7 +184,7 @@ describe("platform-managed config defaults", () => {
       ) + "\n",
     );
 
-    loadConfig();
+    const config = loadConfig();
 
     const written = readConfig() as { services?: Record<string, unknown> };
     expect(written.services).toBeDefined();
@@ -192,5 +192,125 @@ describe("platform-managed config defaults", () => {
     expect(
       (written.services!["inference"] as { mode?: string })?.mode,
     ).toBe("your-own");
+    // ...and the in-memory config must mirror the explicit user choice (the
+    // fill-defaults pass must not override an explicit "your-own").
+    expect(
+      (config.services.inference as { mode: string }).mode,
+    ).toBe("your-own");
+  });
+
+  test("IS_PLATFORM=true, config file exists without a services key → in-memory config has all managed modes", () => {
+    // Regression guard for the platform-managed boot order: by the time
+    // `loadConfig()` runs, lifecycle steps such as `seedInferenceProfiles`
+    // have already written `config.json` (with `llm.profiles` etc.), so
+    // `configFileExisted` is true even on a brand-new platform-managed
+    // assistant. Deployment-context defaults must still be applied to the
+    // in-memory config for any leaf keys that are absent from disk.
+    process.env.IS_PLATFORM = "true";
+
+    writeFileSync(
+      CONFIG_PATH,
+      JSON.stringify(
+        {
+          llm: {
+            profiles: {
+              balanced: { provider: "anthropic", model: "claude-sonnet-4.5" },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    const config = loadConfig();
+
+    // In-memory config has the deployment-context defaults applied for the
+    // missing service-mode fields.
+    for (const svc of MANAGED_SERVICES) {
+      expect(
+        (
+          config.services as unknown as Record<
+            string,
+            { mode: string }
+          >
+        )[svc]!.mode,
+      ).toBe("managed");
+    }
+
+    // The on-disk file is NOT modified by the fill pass — disk reflects only
+    // what was already there. Existing-file branch never re-writes config.json.
+    const onDisk = readConfig() as Record<string, unknown>;
+    expect(onDisk["services"]).toBeUndefined();
+  });
+
+  test("IS_PLATFORM=true, config file exists with a partial service subtree → preserves user fields, fills missing mode", () => {
+    process.env.IS_PLATFORM = "true";
+
+    // User has an image-generation provider configured but never explicitly
+    // chose a mode for that service. The fill pass must apply
+    // `mode: "managed"` without clobbering the user-supplied provider.
+    // (The inference schema dropped per-service model/provider in
+    // migration 039 — image-generation still carries them, so it's the
+    // right schema to exercise the partial-subtree case.)
+    writeFileSync(
+      CONFIG_PATH,
+      JSON.stringify(
+        {
+          services: {
+            "image-generation": { provider: "openai" },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    const config = loadConfig();
+
+    const imageGen = (
+      config.services as unknown as Record<
+        string,
+        { mode: string; provider?: string }
+      >
+    )["image-generation"]!;
+    expect(imageGen.mode).toBe("managed");
+    expect(imageGen.provider).toBe("openai");
+  });
+
+  test("IS_PLATFORM=false, config file exists without services key → in-memory config keeps schema your-own defaults", () => {
+    // Sanity guard: deployment-context defaults are a no-op when IS_PLATFORM
+    // is not enabled, regardless of whether config.json existed.
+    process.env.IS_PLATFORM = "false";
+
+    writeFileSync(
+      CONFIG_PATH,
+      JSON.stringify(
+        {
+          llm: {
+            profiles: {
+              balanced: { provider: "anthropic", model: "claude-sonnet-4.5" },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    const config = loadConfig();
+
+    for (const svc of MANAGED_SERVICES) {
+      expect(
+        (
+          config.services as unknown as Record<
+            string,
+            { mode: string }
+          >
+        )[svc]!.mode,
+      ).toBe("your-own");
+    }
   });
 });
