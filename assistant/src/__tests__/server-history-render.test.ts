@@ -154,6 +154,88 @@ describe("renderHistoryContent", () => {
     ]);
   });
 
+  // ── Persisted risk-option ladders (Phase B of conflation track) ─────────────
+
+  test("hydrates persisted _risk*Options annotations onto tool calls", () => {
+    // Mirrors what `annotatePersistedAssistantMessage` writes to the DB so the
+    // rule editor's chip ladder survives chat-history reload. Without these,
+    // hydrated chips fall back to the synthesized `*` allowlist (see web's
+    // `synthesizeFallbackOption` in RuleEditorModal.tsx).
+    const scopeOptions = [
+      { pattern: "exact", label: "exact: rm -rf /tmp" },
+      { pattern: "by-program", label: "All rm" },
+    ];
+    const allowlistOptions = [
+      { label: "exact", description: "exact match", pattern: "rm -rf /tmp" },
+      { label: "All rm", description: "All rm commands", pattern: "rm *" },
+    ];
+    const directoryScopeOptions = [
+      { scope: "/Users/me/code", label: "in code/" },
+      { scope: "everywhere", label: "Everywhere" },
+    ];
+
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "bash",
+        input: { command: "rm -rf /tmp" },
+        _riskLevel: "high",
+        _matchedTrustRuleId: "rule_42",
+        _riskScopeOptions: scopeOptions,
+        _riskAllowlistOptions: allowlistOptions,
+        _riskDirectoryScopeOptions: directoryScopeOptions,
+      },
+    ]);
+
+    const [entry] = output.toolCalls;
+    expect(entry.riskLevel).toBe("high");
+    expect(entry.matchedTrustRuleId).toBe("rule_42");
+    expect(entry.riskScopeOptions).toEqual(scopeOptions);
+    expect(entry.riskAllowlistOptions).toEqual(allowlistOptions);
+    expect(entry.riskDirectoryScopeOptions).toEqual(directoryScopeOptions);
+  });
+
+  test("ignores non-array _risk*Options annotations", () => {
+    // Defensive: a malformed persisted block should not throw or coerce.
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "bash",
+        input: { command: "ls" },
+        _riskLevel: "low",
+        _riskScopeOptions: "not an array",
+        _riskAllowlistOptions: { not: "an array" },
+        _riskDirectoryScopeOptions: 42,
+      },
+    ]);
+
+    const [entry] = output.toolCalls;
+    expect(entry.riskLevel).toBe("low");
+    expect(entry.riskScopeOptions).toBeUndefined();
+    expect(entry.riskAllowlistOptions).toBeUndefined();
+    expect(entry.riskDirectoryScopeOptions).toBeUndefined();
+  });
+
+  test("omits absent _risk*Options annotations", () => {
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "bash",
+        input: { command: "ls" },
+        _riskLevel: "low",
+      },
+    ]);
+
+    const [entry] = output.toolCalls;
+    expect(entry.riskLevel).toBe("low");
+    expect(entry.riskScopeOptions).toBeUndefined();
+    expect(entry.riskAllowlistOptions).toBeUndefined();
+    expect(entry.riskDirectoryScopeOptions).toBeUndefined();
+  });
+
   test("handles mixed text and tool blocks", () => {
     const output = renderHistoryContent([
       { type: "text", text: "Let me look that up." },

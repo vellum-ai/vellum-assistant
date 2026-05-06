@@ -170,6 +170,16 @@ export interface EventHandlerState {
       approvalMode?: string;
       approvalReason?: string;
       riskThreshold?: string;
+      /** Display-only regex ladder for the rule editor (narrowest → broadest). */
+      riskScopeOptions?: Array<{ pattern: string; label: string }>;
+      /** Minimatch save patterns for the rule editor (narrowest → broadest). */
+      riskAllowlistOptions?: Array<{
+        label: string;
+        description: string;
+        pattern: string;
+      }>;
+      /** Directory scope ladder for the rule editor. */
+      riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
     }
   >;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
@@ -554,6 +564,14 @@ export function handleToolResult(
       approvalMode: event.approvalMode,
       approvalReason: event.approvalReason,
       riskThreshold: event.riskThreshold,
+      // Capture the 3 risk-option arrays so the persisted tool_use block
+      // carries the same chip ladder as the live tool_result event. Without
+      // these, hydrated chips from chat history fall back to the synthesized
+      // `*` allowlist and an empty scope ladder (see the comment on
+      // `synthesizeFallbackOption` in web's RuleEditorModal).
+      riskScopeOptions: event.riskScopeOptions,
+      riskAllowlistOptions: event.riskAllowlistOptions,
+      riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
     });
   }
 
@@ -695,6 +713,19 @@ function annotatePersistedAssistantMessage(
         if (risk.approvalMode) rec._approvalMode = risk.approvalMode;
         if (risk.approvalReason) rec._approvalReason = risk.approvalReason;
         if (risk.riskThreshold) rec._riskThreshold = risk.riskThreshold;
+        // Persist the 3 risk-option arrays so the rule editor's chip ladder
+        // survives chat-history reload. These mirror the same-named fields
+        // on the live `tool_result` event; clients should read them back via
+        // `shared.ts` and treat them identically to the live values.
+        if (risk.riskScopeOptions && risk.riskScopeOptions.length > 0)
+          rec._riskScopeOptions = risk.riskScopeOptions;
+        if (risk.riskAllowlistOptions && risk.riskAllowlistOptions.length > 0)
+          rec._riskAllowlistOptions = risk.riskAllowlistOptions;
+        if (
+          risk.riskDirectoryScopeOptions &&
+          risk.riskDirectoryScopeOptions.length > 0
+        )
+          rec._riskDirectoryScopeOptions = risk.riskDirectoryScopeOptions;
         modified = true;
       }
     }
