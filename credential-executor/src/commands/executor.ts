@@ -79,6 +79,7 @@ import { hashProposal, type AuditRecordSummary, type CommandGrantProposal } from
 import type { AuditStore } from "../audit/store.js";
 import type { PersistentGrantStore } from "../grants/persistent-store.js";
 import type { TemporaryGrantStore } from "../grants/temporary-store.js";
+import { scrubSecrets } from "../http/response-filter.js";
 import type { SessionIdRef } from "../server.js";
 
 // ---------------------------------------------------------------------------
@@ -384,7 +385,17 @@ export async function executeAuthenticatedCommand(
     );
     adapterEnv = adapterResult.env;
     tempFilePath = adapterResult.tempFilePath;
+    for (const injectedSecret of authAdapterInjectedSecrets(
+      manifest.authAdapter,
+      adapterEnv,
+    )) {
+      secretSet.add(injectedSecret);
+    }
   } catch (err) {
+    const safeMessage = scrubSecrets(
+      err instanceof Error ? err.message : String(err),
+      [matResult.value],
+    );
     // Stop the proxy session before returning — it may already be running
     if (proxySessionId) {
       try {
@@ -396,7 +407,7 @@ export async function executeAuthenticatedCommand(
     cleanupScratchDir(scratchDir);
     return {
       success: false,
-      error: `Auth adapter materialization failed: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Auth adapter materialization failed: ${safeMessage}`,
       auditId,
     };
   }
@@ -510,11 +521,16 @@ export async function executeAuthenticatedCommand(
       commandEnv,
       maxOutput,
       auditId,
+      secretSet,
     );
   } catch (err) {
+    const safeMessage = scrubSecrets(
+      err instanceof Error ? err.message : String(err),
+      Array.from(secretSet),
+    );
     execResult = {
       success: false,
-      error: `Command execution failed: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Command execution failed: ${safeMessage}`,
       auditId,
     };
   }
@@ -537,14 +553,19 @@ export async function executeAuthenticatedCommand(
           .filter((o) => !o.success)
           .map((o) => `${o.scratchPath}: ${o.reason}`)
           .join("; ");
+        const safeFailures = scrubSecrets(failures, Array.from(secretSet));
         execResult.error = execResult.error
-          ? `${execResult.error}; Output copyback failures: ${failures}`
-          : `Output copyback failures: ${failures}`;
+          ? `${execResult.error}; Output copyback failures: ${safeFailures}`
+          : `Output copyback failures: ${safeFailures}`;
       }
     } catch (err) {
+      const safeMessage = scrubSecrets(
+        err instanceof Error ? err.message : String(err),
+        Array.from(secretSet),
+      );
       execResult.error = execResult.error
-        ? `${execResult.error}; Output copyback error: ${err instanceof Error ? err.message : String(err)}`
-        : `Output copyback error: ${err instanceof Error ? err.message : String(err)}`;
+        ? `${execResult.error}; Output copyback error: ${safeMessage}`
+        : `Output copyback error: ${safeMessage}`;
     }
   }
 
@@ -558,6 +579,8 @@ export async function executeAuthenticatedCommand(
   }
 
   cleanupAll(scratchDir, tempFilePath, generatedHomeDir);
+
+  execResult = scrubCommandResult(execResult, secretSet);
 
   // -- 12. Persist audit record -----------------------------------------------
   if (deps.auditStore) {
@@ -859,9 +882,8 @@ async function buildAuthAdapterEnv(
         noNetworkEnv,
       );
       if (!helperResult.ok) {
-        throw new Error(
-          `Credential process helper failed: ${helperResult.error}`,
-        );
+        const safeError = scrubSecrets(helperResult.error, [credentialValue]);
+        throw new Error(`Credential process helper failed: ${safeError}`);
       }
       return {
         env: { [adapter.envVarName]: helperResult.stdout },
@@ -962,9 +984,10 @@ async function runCredentialProcess(
     ]);
 
     if (exitCode !== 0) {
+      const safeStderr = scrubSecrets(stderr.trim(), [credentialValue]);
       return {
         ok: false,
-        error: `Helper exited with code ${exitCode}: ${stderr.trim()}`,
+        error: `Helper exited with code ${exitCode}: ${safeStderr}`,
       };
     }
 
@@ -972,7 +995,9 @@ async function runCredentialProcess(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: scrubSecrets(err instanceof Error ? err.message : String(err), [
+        credentialValue,
+      ]),
     };
   }
 }
@@ -1085,6 +1110,7 @@ async function runCommand(
   env: Record<string, string>,
   maxOutputBytes: number,
   auditId: string,
+  secrets: ReadonlySet<string>,
 ): Promise<ExecuteCommandResult> {
   // Ensure the HOME directory exists (for clean config dirs isolation)
   if (env["HOME"]) {
@@ -1108,21 +1134,68 @@ async function runCommand(
     new Response(proc.stderr).text(),
   ]);
 
-  const stdout = stdoutRaw.length > maxOutputBytes
-    ? stdoutRaw.slice(0, maxOutputBytes) + "\n[output truncated]"
-    : stdoutRaw;
+  const secretList = Array.from(secrets);
+  const stdout = clampCommandOutput(
+    scrubSecrets(stdoutRaw, secretList),
+    maxOutputBytes,
+  );
+  const stderr = clampCommandOutput(
+    scrubSecrets(stderrRaw, secretList),
+    maxOutputBytes,
+  );
 
-  const stderr = stderrRaw.length > maxOutputBytes
-    ? stderrRaw.slice(0, maxOutputBytes) + "\n[output truncated]"
-    : stderrRaw;
+  return scrubCommandResult(
+    {
+      success: exitCode === 0,
+      exitCode,
+      stdout,
+      stderr,
+      auditId,
+      ...(exitCode !== 0
+        ? { error: `Command exited with code ${exitCode}` }
+        : {}),
+    },
+    secrets,
+  );
+}
 
+function authAdapterInjectedSecrets(
+  adapter: AuthAdapterConfig,
+  env: Record<string, string>,
+): string[] {
+  switch (adapter.type) {
+    case AuthAdapterType.EnvVar:
+    case AuthAdapterType.CredentialProcess:
+      return Object.values(env);
+    case AuthAdapterType.TempFile:
+      return [];
+    default:
+      return [];
+  }
+}
+
+function clampCommandOutput(output: string, maxOutputBytes: number): string {
+  return output.length > maxOutputBytes
+    ? output.slice(0, maxOutputBytes) + "\n[output truncated]"
+    : output;
+}
+
+function scrubCommandResult(
+  result: ExecuteCommandResult,
+  secrets: ReadonlySet<string>,
+): ExecuteCommandResult {
+  const secretList = Array.from(secrets);
   return {
-    success: exitCode === 0,
-    exitCode,
-    stdout,
-    stderr,
-    auditId,
-    ...(exitCode !== 0 ? { error: `Command exited with code ${exitCode}` } : {}),
+    ...result,
+    ...(result.stdout !== undefined
+      ? { stdout: scrubSecrets(result.stdout, secretList) }
+      : {}),
+    ...(result.stderr !== undefined
+      ? { stderr: scrubSecrets(result.stderr, secretList) }
+      : {}),
+    ...(result.error !== undefined
+      ? { error: scrubSecrets(result.error, secretList) }
+      : {}),
   };
 }
 

@@ -195,6 +195,10 @@ describe("OpenAI keys", () => {
       "OpenAI API Key",
     );
   });
+
+  test("detects generic OpenAI secret key format", () => {
+    expectMatch(`sk-${"A".repeat(40)}`, "OpenAI Secret Key");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -41,6 +41,7 @@ export function capabilityForMessageType(
 }
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
+import { redactSensitiveFields } from "../security/redaction.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
@@ -554,23 +555,25 @@ export function broadcastMessage(
   conversationId?: string,
   options?: { targetClientId?: string },
 ): void {
-  const resolvedConversationId = conversationId ?? extractConversationId(msg);
+  const safeMsg = redactServerMessage(msg);
+  const resolvedConversationId =
+    conversationId ?? extractConversationId(safeMsg);
   const targetClientId = options?.targetClientId;
 
   // Confirmation-request side effects: feed event + canonical guardian request.
-  if (msg.type === "confirmation_request" && resolvedConversationId) {
-    void emitConfirmationFeedEvent(msg, resolvedConversationId);
-    void createCanonicalRequestForConfirmation(msg, resolvedConversationId);
+  if (safeMsg.type === "confirmation_request" && resolvedConversationId) {
+    void emitConfirmationFeedEvent(safeMsg, resolvedConversationId);
+    void createCanonicalRequestForConfirmation(safeMsg, resolvedConversationId);
   }
 
   // `conversation_list_invalidated` is a list-level system event — publish
   // it unscoped so every subscriber refreshes its sidebar.
   const scopedConversationId =
-    msg.type === "conversation_list_invalidated"
+    safeMsg.type === "conversation_list_invalidated"
       ? undefined
       : resolvedConversationId;
-  const event = buildAssistantEvent(msg, scopedConversationId);
-  const targetCapability = capabilityForMessageType(msg.type);
+  const event = buildAssistantEvent(safeMsg, scopedConversationId);
+  const targetCapability = capabilityForMessageType(safeMsg.type);
   const publishOptions =
     targetCapability != null || targetClientId != null
       ? { targetCapability, targetClientId }
@@ -581,7 +584,7 @@ export function broadcastMessage(
       // When a conversation title changes, also broadcast an unscoped
       // `conversation_list_invalidated` so every connected client's sidebar
       // refreshes — not just the client viewing this conversation.
-      if (msg.type === "conversation_title_updated") {
+      if (safeMsg.type === "conversation_title_updated") {
         return assistantEventHub
           .publish(
             buildAssistantEvent({
@@ -610,6 +613,127 @@ function extractConversationId(msg: ServerMessage): string | undefined {
   return undefined;
 }
 
+function redactStructuredValue(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => redactStructuredValue(item));
+  }
+  if (value == null || typeof value !== "object") return value;
+
+  const fieldRedacted = redactSensitiveFields(value as Record<string, unknown>);
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(fieldRedacted)) {
+    result[key] = redactStructuredValue(val);
+  }
+  return result;
+}
+
+function redactServerMessage(msg: ServerMessage): ServerMessage {
+  switch (msg.type) {
+    case "assistant_text_delta":
+      return { ...msg, text: redactSecrets(msg.text) };
+    case "assistant_thinking_delta":
+      return { ...msg, thinking: redactSecrets(msg.thinking) };
+    case "tool_result":
+      return {
+        ...msg,
+        result: redactSecrets(msg.result),
+        ...(msg.status ? { status: redactSecrets(msg.status) } : {}),
+        ...(msg.riskReason
+          ? { riskReason: redactSecrets(msg.riskReason) }
+          : {}),
+        ...(msg.diff
+          ? {
+              diff: {
+                ...msg.diff,
+                oldContent: redactSecrets(msg.diff.oldContent),
+                newContent: redactSecrets(msg.diff.newContent),
+              },
+            }
+          : {}),
+      };
+    case "tool_output_chunk":
+      return {
+        ...msg,
+        chunk: redactSecrets(msg.chunk),
+        ...(msg.subToolInput
+          ? { subToolInput: redactSecrets(msg.subToolInput) }
+          : {}),
+      };
+    case "tool_input_delta":
+      return { ...msg, content: redactSecrets(msg.content) };
+    case "tool_use_start":
+      return {
+        ...msg,
+        input: redactStructuredValue(msg.input) as Record<string, unknown>,
+      } as ServerMessage;
+    case "confirmation_request":
+      return {
+        ...msg,
+        input: redactStructuredValue(msg.input) as Record<string, unknown>,
+        ...(msg.riskReason
+          ? { riskReason: redactSecrets(msg.riskReason) }
+          : {}),
+        ...(msg.diff
+          ? {
+              diff: {
+                ...msg.diff,
+                oldContent: redactSecrets(msg.diff.oldContent),
+                newContent: redactSecrets(msg.diff.newContent),
+              },
+            }
+          : {}),
+      };
+    case "conversation_error":
+      return {
+        ...msg,
+        userMessage: redactSecrets(msg.userMessage),
+        ...(msg.debugDetails
+          ? { debugDetails: redactSecrets(msg.debugDetails) }
+          : {}),
+      };
+    case "error":
+      return {
+        ...msg,
+        message: redactSecrets(msg.message),
+      };
+    case "trace_event":
+      return {
+        ...msg,
+        summary: redactSecrets(msg.summary),
+        ...(msg.attributes
+          ? {
+              attributes: redactStructuredValue(msg.attributes) as Record<
+                string,
+                string | number | boolean | null
+              >,
+            }
+          : {}),
+      };
+    case "assistant_activity_state":
+      return {
+        ...msg,
+        ...(msg.statusText
+          ? { statusText: redactSecrets(msg.statusText) }
+          : {}),
+      };
+    case "suggestion_response":
+      return {
+        ...msg,
+        suggestion: msg.suggestion ? redactSecrets(msg.suggestion) : null,
+      };
+    case "user_message_echo":
+      return { ...msg, text: redactSecrets(msg.text) };
+    case "subagent_event":
+      return {
+        ...msg,
+        event: redactServerMessage(msg.event),
+      };
+    default:
+      return msg;
+  }
+}
+
 // ── Canonical guardian request ────────────────────────────────────────────────
 
 function resolveCanonicalRequestSourceType(
@@ -619,7 +743,6 @@ function resolveCanonicalRequestSourceType(
   if (sourceChannel === "vellum") return "desktop";
   return "channel";
 }
-
 
 /**
  * Lazily load heavy dependencies and create a canonical guardian request +

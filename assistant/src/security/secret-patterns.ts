@@ -83,6 +83,10 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
     regex: /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/,
   },
   { label: "OpenAI Project Key", regex: /sk-proj-[A-Za-z0-9\-_]{40,}/ },
+  {
+    label: "OpenAI Secret Key",
+    regex: /sk-(?!ant-|or-v1-)[A-Za-z0-9][A-Za-z0-9\-_]{39,}/,
+  },
 
   // -- Google --
   { label: "Google API Key", regex: /AIza[A-Za-z0-9\-_]{35}/ },

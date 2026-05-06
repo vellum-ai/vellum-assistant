@@ -385,6 +385,38 @@ describe("HTTP executor: local static secrets", () => {
     expect(result.responseBody).toContain("octocat");
   });
 
+  test("response body is scrubbed before clamping so boundary-crossing secrets do not leak", async () => {
+    const handle = localStaticHandle("github", "api_key");
+
+    fixture.persistentStore.add({
+      id: "grant-github-boundary",
+      tool: "http",
+      pattern: "GET https://api.github.com/boundary",
+      scope: handle,
+      createdAt: Date.now(),
+      sessionId: "test-session",
+    });
+
+    const secret = "ghp_testtoken_12345678";
+    const maxBodyBytes = 256 * 1024;
+    const body = `${"a".repeat(maxBodyBytes - 5)}${secret}`;
+    const deps = buildDeps(fixture, [], { fetch: mockFetch(200, body) });
+
+    const result = await executeAuthenticatedHttpRequest(
+      {
+        credentialHandle: handle,
+        method: "GET",
+        url: "https://api.github.com/boundary",
+        purpose: "Boundary scrub test",
+      },
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.responseBody).not.toContain(secret.slice(0, 5));
+    expect(result.responseBody).not.toContain(secret);
+  });
+
   test("response headers are filtered (set-cookie stripped)", async () => {
     const handle = localStaticHandle("github", "api_key");
 

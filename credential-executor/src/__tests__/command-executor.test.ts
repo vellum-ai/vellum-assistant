@@ -679,7 +679,8 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
         },
       },
     });
-    // Script that prints the env var
+    // Script that prints the env var. CES should redact the value before
+    // returning stdout to the assistant.
     const { digest } = publishTestBundle(
       manifest,
       "local",
@@ -707,9 +708,9 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
 
     const result = await executeAuthenticatedCommand(request, deps);
 
-    // The script should output the injected token
     if (result.exitCode === 0) {
-      expect(result.stdout?.trim()).toBe("secret-token-123");
+      expect(result.stdout).not.toContain("secret-token-123");
+      expect(result.stdout?.trim()).toBe("[CES:REDACTED]");
     }
     // If the script can't execute (path issues in test), verify we got past
     // the adapter phase
@@ -765,7 +766,8 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
     const result = await executeAuthenticatedCommand(request, deps);
 
     if (result.exitCode === 0) {
-      expect(result.stdout?.trim()).toBe("Bearer my-oauth-token");
+      expect(result.stdout).not.toContain("my-oauth-token");
+      expect(result.stdout?.trim()).toBe("Bearer [CES:REDACTED]");
     }
     expect(result.error ?? "").not.toContain("Auth adapter");
   });
@@ -820,7 +822,8 @@ describe("executeAuthenticatedCommand — auth adapters", () => {
     const result = await executeAuthenticatedCommand(request, deps);
 
     if (result.exitCode === 0) {
-      expect(result.stdout?.trim()).toBe('{"key":"test-secret"}');
+      expect(result.stdout).not.toContain("test-secret");
+      expect(result.stdout?.trim()).toBe("[CES:REDACTED]");
     }
     // Verify we got past the adapter phase
     expect(result.error ?? "").not.toContain("Auth adapter");
@@ -985,10 +988,12 @@ describe("executeAuthenticatedCommand — command execution", () => {
     const { digest } = publishTestBundle(
       manifest,
       "local",
-      '#!/bin/sh\necho "error" >&2\nexit 42\n',
+      '#!/bin/sh\necho "error $TEST_API_KEY" >&2\nexit 42\n',
     );
 
-    const deps = buildDeps();
+    const deps = buildDeps({
+      materializeCredential: successMaterializer("stderr-secret-value"),
+    });
     addCommandGrant(
       deps.persistentStore,
       "local_static:test/api_key",
@@ -1010,6 +1015,61 @@ describe("executeAuthenticatedCommand — command execution", () => {
     expect(result.exitCode).toBe(42);
     expect(result.success).toBe(false);
     expect(result.stderr).toContain("error");
+    expect(result.stderr).not.toContain("stderr-secret-value");
+    expect(result.stderr).toContain("[CES:REDACTED]");
+  });
+
+  test("scrubs command stderr before truncating boundary-crossing secrets", async () => {
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      commandProfiles: {
+        list: {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\ni=0\nwhile [ "$i" -lt 95 ]; do printf a >&2; i=$((i + 1)); done\nprintf "$TEST_API_KEY" >&2\nexit 42\n',
+    );
+
+    const secret = "boundary-secret-value";
+    const deps = buildDeps({
+      materializeCredential: successMaterializer(secret),
+      maxOutputBytes: 100,
+    });
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      digest,
+      "list",
+    );
+
+    const result = await executeAuthenticatedCommand(
+      {
+        bundleDigest: digest,
+        profileName: "list",
+        credentialHandle: "local_static:test/api_key",
+        argv: ["list", "--format", "json"],
+        workspaceDir: testWorkspaceDir,
+        purpose: "Test boundary redaction",
+      },
+      deps,
+    );
+
+    expect(result.exitCode).toBe(42);
+    expect(result.success).toBe(false);
+    expect(result.stderr).not.toContain(secret);
+    expect(result.stderr).not.toContain(secret.slice(0, 5));
+    expect(result.stderr).toContain("[CES:");
   });
 
   test("does not leak CES process environment to subprocess", async () => {
@@ -1328,7 +1388,72 @@ describe("executeAuthenticatedCommand — credential_process stdin", () => {
     // cat should have echoed the credential value via stdin, which then
     // gets injected into TRANSFORMED_CRED for the command to use
     expect(result.exitCode).toBe(0);
-    expect(result.stdout?.trim()).toBe("my-raw-credential");
+    expect(result.stdout).not.toContain("my-raw-credential");
+    expect(result.stdout?.trim()).toBe("[CES:REDACTED]");
+  });
+
+  test("redacts credential_process transformed credential from command output", async () => {
+    const helperDir = makeTempDir("ces-helper");
+    const helperPath = join(helperDir, "transform-helper");
+    writeFileSync(
+      helperPath,
+      '#!/bin/sh\ncat >/dev/null\nprintf "derived-helper-token"\n',
+      { mode: 0o755 },
+    );
+
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      authAdapter: {
+        type: AuthAdapterType.CredentialProcess,
+        helperCommand: helperPath,
+        envVarName: "TRANSFORMED_CRED",
+      },
+      commandProfiles: {
+        list: {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "$TRANSFORMED_CRED"\n',
+    );
+
+    const deps = buildDeps({
+      materializeCredential: successMaterializer("source-secret-value"),
+    });
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      digest,
+      "list",
+    );
+
+    const result = await executeAuthenticatedCommand(
+      {
+        bundleDigest: digest,
+        profileName: "list",
+        credentialHandle: "local_static:test/api_key",
+        argv: ["list", "--format", "json"],
+        workspaceDir: testWorkspaceDir,
+        purpose: "Test transformed credential redaction",
+      },
+      deps,
+    );
+
+    rmSync(helperDir, { recursive: true, force: true });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain("derived-helper-token");
+    expect(result.stdout?.trim()).toBe("[CES:REDACTED]");
   });
 });
 
@@ -1520,7 +1645,8 @@ describe("executeAuthenticatedCommand — integration: local OAuth", () => {
 
     expect(result.success).toBe(true);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout?.trim()).toBe("Bearer ya29.test-oauth-token");
+    expect(result.stdout).not.toContain("ya29.test-oauth-token");
+    expect(result.stdout?.trim()).toBe("Bearer [CES:REDACTED]");
   });
 });
 
@@ -1578,7 +1704,8 @@ describe("executeAuthenticatedCommand — integration: managed OAuth", () => {
 
     expect(result.success).toBe(true);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout?.trim()).toBe("platform-managed-token-xyz");
+    expect(result.stdout).not.toContain("platform-managed-token-xyz");
+    expect(result.stdout?.trim()).toBe("[CES:REDACTED]");
   });
 });
 
@@ -1717,6 +1844,70 @@ describe("executeAuthenticatedCommand — credential_process defense-in-depth", 
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("shell metacharacters");
+  });
+
+  test("redacts credential value from helper failure errors", async () => {
+    const helperDir = makeTempDir("ces-helper");
+    const helperPath = join(helperDir, "failing-helper");
+    writeFileSync(
+      helperPath,
+      '#!/bin/sh\nsecret="$(cat)"\necho "helper failed with $secret" >&2\nexit 7\n',
+      { mode: 0o755 },
+    );
+
+    const manifest = buildManifest({
+      egressMode: EgressMode.NoNetwork,
+      authAdapter: {
+        type: AuthAdapterType.CredentialProcess,
+        helperCommand: helperPath,
+        envVarName: "TRANSFORMED_CRED",
+      },
+      commandProfiles: {
+        list: {
+          description: "List resources",
+          allowedArgvPatterns: [
+            {
+              name: "list-all",
+              tokens: ["list", "--format", "<format>"],
+            },
+          ],
+          deniedSubcommands: [],
+        },
+      },
+    });
+    const { digest } = publishTestBundle(
+      manifest,
+      "local",
+      '#!/bin/sh\necho "should not run"\n',
+    );
+
+    const deps = buildDeps({
+      materializeCredential: successMaterializer("helper-secret-value"),
+    });
+    addCommandGrant(
+      deps.persistentStore,
+      "local_static:test/api_key",
+      digest,
+      "list",
+    );
+
+    const result = await executeAuthenticatedCommand(
+      {
+        bundleDigest: digest,
+        profileName: "list",
+        credentialHandle: "local_static:test/api_key",
+        argv: ["list", "--format", "json"],
+        workspaceDir: testWorkspaceDir,
+        purpose: "Test helper error redaction",
+      },
+      deps,
+    );
+
+    rmSync(helperDir, { recursive: true, force: true });
+
+    expect(result.success).toBe(false);
+    expect(result.error).not.toContain("helper-secret-value");
+    expect(result.error).toContain("[CES:REDACTED]");
   });
 });
 

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   AssistantEventHub,
+  assistantEventHub,
   broadcastMessage,
   capabilityForMessageType,
 } from "../runtime/assistant-event-hub.js";
@@ -503,5 +504,96 @@ describe("broadcastMessage — pending interaction registration", () => {
     } as never);
 
     expect(pendingInteractions.get("req-bash-1")).toBeUndefined();
+  });
+});
+
+describe("broadcastMessage — secret redaction", () => {
+  test("redacts known secret patterns from live assistant text events", async () => {
+    const conversationId = "conv-redact-text";
+    const secret = `sk-proj-${"A".repeat(40)}`;
+    let subscription: { dispose(): void } | undefined;
+    const eventPromise = new Promise<AssistantEvent>((resolve) => {
+      subscription = assistantEventHub.subscribe({
+        type: "process",
+        filter: { conversationId },
+        callback: (event) => {
+          subscription?.dispose();
+          resolve(event);
+        },
+      });
+    });
+
+    broadcastMessage({
+      type: "assistant_text_delta",
+      conversationId,
+      text: `provider rejected ${secret}`,
+    });
+
+    const event = await eventPromise;
+    expect(event.message.type).toBe("assistant_text_delta");
+    if (event.message.type === "assistant_text_delta") {
+      expect(event.message.text).not.toContain(secret);
+      expect(event.message.text).toContain(
+        '<redacted type="OpenAI Project Key" />',
+      );
+    }
+  });
+
+  test("redacts known secret patterns and sensitive input fields from live tool events", async () => {
+    const conversationId = "conv-redact-tool";
+    const secret = `sk-${"B".repeat(40)}`;
+    const events: AssistantEvent[] = [];
+    let subscription: { dispose(): void } | undefined;
+    const eventPromise = new Promise<void>((resolve) => {
+      subscription = assistantEventHub.subscribe({
+        type: "process",
+        filter: { conversationId },
+        callback: (event) => {
+          events.push(event);
+          if (events.length === 2) {
+            subscription?.dispose();
+            resolve();
+          }
+        },
+      });
+    });
+
+    broadcastMessage({
+      type: "tool_use_start",
+      conversationId,
+      toolName: "credential_test",
+      toolUseId: "toolu-redact",
+      input: {
+        query: `use ${secret}`,
+        token: "opaque-token-value",
+      },
+    });
+    broadcastMessage({
+      type: "tool_result",
+      conversationId,
+      toolName: "credential_test",
+      toolUseId: "toolu-redact",
+      isError: true,
+      result: `failed with ${secret}`,
+    });
+
+    await eventPromise;
+
+    const serialized = JSON.stringify(events.map((event) => event.message));
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain("opaque-token-value");
+    expect(serialized).toContain("<redacted />");
+    expect(events[0].message.type).toBe("tool_use_start");
+    if (events[0].message.type === "tool_use_start") {
+      expect(String(events[0].message.input.query)).toContain(
+        '<redacted type="OpenAI Secret Key" />',
+      );
+    }
+    expect(events[1].message.type).toBe("tool_result");
+    if (events[1].message.type === "tool_result") {
+      expect(events[1].message.result).toContain(
+        '<redacted type="OpenAI Secret Key" />',
+      );
+    }
   });
 });

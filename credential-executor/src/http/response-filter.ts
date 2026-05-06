@@ -208,8 +208,8 @@ function replaceAll(str: string, search: string, replacement: string): string {
  *
  * Pipeline:
  * 1. Filter response headers to the whitelist.
- * 2. Clamp the body to MAX_BODY_BYTES.
- * 3. Scrub known secrets from the (already clamped) body.
+ * 2. Scrub known secrets from the body.
+ * 3. Clamp the scrubbed body to MAX_BODY_BYTES.
  *
  * @param raw - The raw HTTP response from the outbound call.
  * @param secrets - Known secret values to scrub from the body.
@@ -220,13 +220,14 @@ export function filterHttpResponse(
   secrets: string[] = [],
 ): SanitisedHttpResponse {
   const filteredHeaders = filterResponseHeaders(raw.headers);
-  const { clampedBody, truncated, originalBytes } = clampBody(raw.body);
-  const scrubbedBody = scrubSecrets(clampedBody, secrets);
+  const originalBytes = Buffer.byteLength(raw.body, "utf-8");
+  const scrubbedBody = scrubSecrets(raw.body, secrets);
+  const { clampedBody, truncated } = clampBody(scrubbedBody);
 
   return {
     statusCode: raw.statusCode,
     headers: filteredHeaders,
-    body: scrubbedBody,
+    body: clampedBody,
     truncated,
     originalBodyBytes: originalBytes,
   };
