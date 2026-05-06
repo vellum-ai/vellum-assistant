@@ -579,15 +579,28 @@ final class AvatarAppearanceManager {
     /// generic blank squircle instead.  Setting the bundle icon explicitly
     /// avoids the issue.
     ///
+    /// Also clears any custom Finder icon previously set on the `.app`
+    /// bundle so the notification daemon (`usernoted`) reverts to the
+    /// bundled green V. `applicationIconImage` only affects the in-process
+    /// Dock tile; LaunchServices-resolved surfaces (Finder, notifications)
+    /// read from the file-system icon metadata that `setIcon` writes.
+    ///
     /// Reference: https://developer.apple.com/documentation/appkit/nsapplication/applicationiconimage
     func restoreBundleIcon() {
         NSApplication.shared.applicationIconImage = Self.bundledAppIcon
         NSApp.dockTile.display()
+        NSWorkspace.shared.setIcon(nil, forFile: Bundle.main.bundlePath, options: [])
     }
 
     /// Updates the application dock icon to match the current avatar.
     /// Uses the custom avatar PNG when available, falls back to a character
     /// avatar rendered from saved traits, then restores the bundled Vellum logo.
+    ///
+    /// Mirrors the icon to the `.app` bundle via `NSWorkspace.setIcon` so
+    /// LaunchServices-resolved surfaces (Finder, notification daemon) also
+    /// pick up the avatar. `applicationIconImage` only affects the
+    /// in-process Dock tile, which is why notifications would otherwise
+    /// keep showing the bundled green V.
     private func updateDockIcon() {
         NotificationCenter.default.post(name: Self.avatarDidChangeNotification, object: nil)
 
@@ -618,6 +631,7 @@ final class AvatarAppearanceManager {
 
         NSApplication.shared.applicationIconImage = icon
         NSApp.dockTile.display()
+        NSWorkspace.shared.setIcon(icon, forFile: Bundle.main.bundlePath, options: [])
     }
 
     /// Renders the source image inside a macOS-style squircle mask at the given point size.

@@ -506,7 +506,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         content.categoryIdentifier = "ACTIVITY_COMPLETE"
         content.threadIdentifier = conversationId.uuidString
         content.userInfo = ["conversationId": conversationId.uuidString]
-        content.attachAppIcon()
 
         let request = UNNotificationRequest(
             identifier: "turn-complete-\(conversationId.uuidString)-\(UUID().uuidString)",
