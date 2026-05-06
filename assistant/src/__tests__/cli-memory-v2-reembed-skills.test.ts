@@ -60,7 +60,7 @@ mock.module("../memory/v2/skill-store.js", () => ({
 
 const { registerMemoryV2Command } =
   await import("../cli/commands/memory-v2.js");
-const { ROUTES: memoryV2Routes } =
+const { ROUTES: memoryV2Routes, MEMORY_V2_DISABLED_CODE } =
   await import("../runtime/routes/memory-v2-routes.js");
 const { RouteError } = await import("../runtime/routes/errors.js");
 
@@ -205,4 +205,56 @@ describe("memory_v2_reembed_skills route", () => {
     ).rejects.toBeInstanceOf(RouteError);
     expect(seedCallCount).toBe(0);
   });
+});
+
+// ---------------------------------------------------------------------------
+// All v2 routes share the same gate
+// ---------------------------------------------------------------------------
+
+describe("all memory v2 routes — MEMORY_V2_DISABLED gate", () => {
+  // Minimal bodies that satisfy each route's schema. The gate runs before
+  // schema validation so any body would surface the gate error, but using
+  // valid shapes keeps the assertion precise: we're confirming the gate
+  // (not zod) is what blocks the call.
+  const MINIMAL_BODIES: Record<string, Record<string, unknown>> = {
+    memory_v2_backfill: { op: "migrate" },
+    memory_v2_validate: {},
+    memory_v2_get_concept_page: { slug: "any" },
+    memory_v2_list_concept_pages: {},
+    memory_v2_rebuild_corpus_stats: {},
+    memory_v2_explain_similarity: { userText: "hello" },
+    memory_v2_concept_frequency: {},
+    memory_v2_fit_anisotropy: {},
+  };
+
+  const GATE_OFF_CASES = [
+    {
+      label: "feature flag is off",
+      apply: () => _setOverridesForTesting({ "memory-v2-enabled": false }),
+    },
+    {
+      label: "config is off",
+      apply: () => writeWorkspaceConfig({ memory: { v2: { enabled: false } } }),
+    },
+  ];
+
+  for (const [operationId, body] of Object.entries(MINIMAL_BODIES)) {
+    for (const { label, apply } of GATE_OFF_CASES) {
+      test(`${operationId} throws MEMORY_V2_DISABLED when ${label}`, async () => {
+        apply();
+        const route = memoryV2Routes.find((r) => r.operationId === operationId);
+        expect(route).toBeDefined();
+
+        try {
+          await route!.handler({ body });
+          throw new Error("expected handler to throw");
+        } catch (err) {
+          expect(err).toBeInstanceOf(RouteError);
+          expect((err as InstanceType<typeof RouteError>).code).toBe(
+            MEMORY_V2_DISABLED_CODE,
+          );
+        }
+      });
+    }
+  }
 });

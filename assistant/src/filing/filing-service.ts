@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import {
@@ -10,6 +9,7 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
 import { processMessage } from "../daemon/process-message.js";
+import { isMemoryV2ReadActive } from "../memory/context-search/sources/memory-v2.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -115,8 +115,8 @@ export class FilingService {
 
   start(): void {
     const fullConfig = getConfig();
-    if (isAssistantFeatureFlagEnabled("memory-v2-enabled", fullConfig)) {
-      log.info("Filing service disabled — memory v2 flag is set");
+    if (isMemoryV2ReadActive(fullConfig)) {
+      log.info("Filing service disabled — memory v2 is active");
       this._nextRunAt = null;
       this._nextCompactionAt = null;
       return;

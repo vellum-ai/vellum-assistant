@@ -2,17 +2,17 @@
 // Memory Tool handlers
 //
 // remember: save facts to the PKB (buffer.md + daily archive) under the v1
-// path, or to memory/buffer.md + memory/archive/<today>.md when the
-// `memory-v2-enabled` feature flag is on.
+// path, or to memory/buffer.md + memory/archive/<today>.md when memory v2 is
+// active.
 // ---------------------------------------------------------------------------
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { isMemoryV2ReadActive } from "../context-search/sources/memory-v2.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
 import { PKB_WORKSPACE_SCOPE } from "../pkb/types.js";
 
@@ -46,7 +46,7 @@ export function handleRemember(
   const now = new Date();
   const entry = formatRememberEntry(input.content.trim(), now);
 
-  if (isAssistantFeatureFlagEnabled("memory-v2-enabled", config)) {
+  if (isMemoryV2ReadActive(config)) {
     appendBufferAndArchive({
       rootDir: join(workspaceDir, "memory"),
       entry,

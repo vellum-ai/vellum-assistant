@@ -9,7 +9,6 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { loadConfig } from "../../config/loader.js";
 import {
   applyCorrectionIfCalibrated,
@@ -17,6 +16,7 @@ import {
   fitAnisotropyCalibration,
   saveCalibration,
 } from "../../memory/anisotropy.js";
+import { isMemoryV2ReadActive } from "../../memory/context-search/sources/memory-v2.js";
 import {
   embedWithBackend,
   selectEmbeddingBackend,
@@ -59,6 +59,31 @@ import type { RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("memory-v2-routes");
 
+/**
+ * Wire-format error code emitted when v2 routes reject a request because
+ * the dual gate (`isMemoryV2ReadActive`) is off. Exported so tests and the
+ * macOS client can reference the same string without drift.
+ */
+export const MEMORY_V2_DISABLED_CODE = "MEMORY_V2_DISABLED";
+
+/**
+ * Reject the request when memory v2 is not active. The route surface mirrors
+ * the runtime gate (`isMemoryV2ReadActive`): both the `memory-v2-enabled`
+ * feature flag and the per-workspace `memory.v2.enabled` config must be on.
+ * Returning 409 (rather than serving a partial response) keeps clients honest
+ * — the desktop Memories panel reads this code to render an explicit
+ * "disabled in config" empty state.
+ */
+function requireMemoryV2Enabled(): void {
+  if (!isMemoryV2ReadActive(loadConfig())) {
+    throw new RouteError(
+      "Memory v2 is not enabled — flip both the memory-v2-enabled feature flag and memory.v2.enabled to use this command.",
+      MEMORY_V2_DISABLED_CODE,
+      409,
+    );
+  }
+}
+
 // ── Backfill ────────────────────────────────────────────────────────────
 
 const MemoryV2BackfillParams = z
@@ -83,6 +108,7 @@ const OP_TO_JOB_TYPE: Record<MemoryV2BackfillOp, MemoryJobType> = {
 async function handleBackfill({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2BackfillResult> {
+  requireMemoryV2Enabled();
   const { op, force } = MemoryV2BackfillParams.parse(body);
   const payload: Record<string, unknown> =
     op === "migrate" && force === true ? { force: true } : {};
@@ -109,6 +135,7 @@ export type MemoryV2ValidateResult = {
 async function handleValidate({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2ValidateResult> {
+  requireMemoryV2Enabled();
   MemoryV2ValidateParams.parse(body);
 
   const workspaceDir = getWorkspaceDir();
@@ -165,6 +192,7 @@ export type MemoryV2GetConceptPageResult = {
 async function handleGetConceptPage({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2GetConceptPageResult> {
+  requireMemoryV2Enabled();
   const { slug } = MemoryV2GetConceptPageParams.parse(body);
   const workspaceDir = getWorkspaceDir();
   let page;
@@ -203,6 +231,7 @@ export type MemoryV2ListConceptPagesResult = {
 async function handleListConceptPages({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2ListConceptPagesResult> {
+  requireMemoryV2Enabled();
   MemoryV2ListConceptPagesParams.parse(body);
 
   const workspaceDir = getWorkspaceDir();
@@ -253,6 +282,7 @@ export interface MemoryV2RebuildCorpusStatsResult {
 async function handleRebuildCorpusStats({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2RebuildCorpusStatsResult> {
+  requireMemoryV2Enabled();
   MemoryV2RebuildCorpusStatsParams.parse(body);
   const workspaceDir = getWorkspaceDir();
   await rebuildConceptPageCorpusStats(workspaceDir);
@@ -284,22 +314,8 @@ export type MemoryV2ReembedSkillsResult = {
 async function handleReembedSkills({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2ReembedSkillsResult> {
+  requireMemoryV2Enabled();
   MemoryV2ReembedSkillsParams.parse(body);
-
-  // Gate the route on both the feature flag and the per-workspace config
-  // toggle so the v2 skill collection never gets re-seeded against a
-  // workspace whose v2 subsystem is intentionally off.
-  const config = loadConfig();
-  if (
-    !isAssistantFeatureFlagEnabled("memory-v2-enabled", config) ||
-    !config.memory.v2.enabled
-  ) {
-    throw new RouteError(
-      "Memory v2 is not enabled — flip both the memory-v2-enabled feature flag and memory.v2.enabled to use this command.",
-      "MEMORY_V2_DISABLED",
-      409,
-    );
-  }
 
   // Unlike the queued backfill jobs above, this is a CLI-driven sync
   // request: the operator wants the cache replaced before the next prompt
@@ -475,6 +491,7 @@ async function scoreChannel(
 async function handleExplainSimilarity({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2ExplainSimilarityResult> {
+  requireMemoryV2Enabled();
   const params = MemoryV2ExplainSimilarityParams.parse(body);
   const config = loadConfig();
   const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
@@ -534,6 +551,7 @@ const MemoryV2ConceptFrequencyParams = z
 async function handleConceptFrequency({
   body = {},
 }: RouteHandlerArgs): Promise<ConceptFrequencyResponse> {
+  requireMemoryV2Enabled();
   const { conversationId, sinceMs } =
     MemoryV2ConceptFrequencyParams.parse(body);
   const workspaceDir = getWorkspaceDir();
@@ -576,6 +594,7 @@ export interface MemoryV2FitAnisotropyResult {
 async function handleFitAnisotropy({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2FitAnisotropyResult> {
+  requireMemoryV2Enabled();
   const { k, sample } = MemoryV2FitAnisotropyParams.parse(body);
   const config = loadConfig();
 

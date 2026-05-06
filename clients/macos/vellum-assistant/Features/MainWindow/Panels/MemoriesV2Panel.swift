@@ -28,6 +28,7 @@ private enum MemoryV2SortOption: String, CaseIterable {
 struct MemoriesV2Panel: View {
     @State private var pages: [MemoryV2ConceptPageSummary] = []
     @State private var isLoading: Bool = true
+    @State private var v2Disabled: Bool = false
     @State private var selectedSlug: String?
     @State private var searchText: String = ""
     @State private var debouncedSearchText: String = ""
@@ -121,6 +122,12 @@ struct MemoriesV2Panel: View {
                 Color.clear
                 VLoadingIndicator()
             }
+        } else if v2Disabled {
+            VEmptyState(
+                title: "Memory v2 is disabled",
+                subtitle: "Set memory.v2.enabled to true in your workspace config to use the Memories tab.",
+                icon: VIcon.brain.rawValue
+            )
         } else if pages.isEmpty {
             VEmptyState(
                 title: "No concept pages yet",
@@ -180,8 +187,15 @@ struct MemoriesV2Panel: View {
     private func loadPages() async {
         isLoading = true
         defer { isLoading = false }
-        if let response = await client.listConceptPages() {
+        switch await client.listConceptPages() {
+        case .success(let response):
+            v2Disabled = false
             pages = response.pages
+        case .disabled:
+            v2Disabled = true
+            pages = []
+        case .error:
+            v2Disabled = false
         }
     }
 }
