@@ -10,7 +10,5 @@ export const releaseNotesSafeStorageLimitsMigration: WorkspaceMigration = {
     // Registered no-op slot retained for workspace migration checkpoint compatibility.
   },
 
-  down(_workspaceDir: string): void {
-    // No-op.
-  },
+  down(_workspaceDir: string): void {},
 };
