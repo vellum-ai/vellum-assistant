@@ -2023,6 +2023,12 @@ find "$MACOS_DIR" -maxdepth 1 \( -type f -o -type s \) \
     \( -name "*.pid" -o -name "*.sock" -o -name "*.log" \) \
     -delete
 
+# Strip extended attributes (com.apple.FinderInfo, com.apple.ResourceFork,
+# com.apple.provenance, etc.) that codesign rejects with "resource fork,
+# Finder information, or similar detritus not allowed". These can accumulate
+# from Finder interactions, file copies, or SPM package resolution.
+xattr -cr "$APP_DIR"
+
 # 6. Code sign
 echo "Signing with: $SIGN_IDENTITY"
 
