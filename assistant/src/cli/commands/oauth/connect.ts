@@ -513,20 +513,14 @@ Examples:
               return;
             }
 
-            // IPC unavailable (daemon unreachable, older daemon without this route, socket
-            // missing). Surface a clear error and exit 1.
-            //
-            // We previously fell through to an in-process invocation of
-            // `orchestrateOAuthConnect`, but that fallback re-introduced the heap-split bug
-            // for `--callback-transport=gateway` (the platform redirect would land in a
-            // different process from the loopback waiter — see #29596). The fallback is also
-            // dead code in practice: the OAuth tokens it would acquire need the daemon to be
-            // running before they're useful, so "daemon unreachable" is already a fatal
-            // precondition. Mirrors the MCP CLI consolidation in #29484.
+            // IPC unavailable: the assistant must be running for OAuth connect. The
+            // gateway-routed callback lands in the assistant's process, and any tokens
+            // acquired need the assistant to store and use them — so an unreachable
+            // assistant is a fatal precondition. Surface a clear error and exit 1.
             writeError(
               startResult.error
-                ? `Could not reach the assistant daemon: ${startResult.error}. Is the assistant running?`
-                : "Could not reach the assistant daemon. Is the assistant running?",
+                ? `Could not reach the assistant: ${startResult.error}. Is the assistant running?`
+                : "Could not reach the assistant. Is the assistant running?",
             );
             return;
           }
