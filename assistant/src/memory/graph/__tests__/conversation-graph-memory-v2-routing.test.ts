@@ -98,9 +98,11 @@ class MockQdrantClient {
     _name: string,
     params: { using: string; limit: number; filter?: unknown },
   ) {
-    const queue =
-      qdrantState.queryResponses[params.using as "dense" | "sparse"];
-    return queue.shift() ?? { points: [] };
+    // The four-channel hybrid query fires body-dense, body-sparse,
+    // summary-dense, summary-sparse in order; both dense channels share
+    // the dense queue and both sparse channels share the sparse queue.
+    const channel = params.using.endsWith("sparse") ? "sparse" : "dense";
+    return qdrantState.queryResponses[channel].shift() ?? { points: [] };
   }
 }
 
@@ -242,10 +244,21 @@ function makeMemory(): InstanceType<typeof ConversationGraphMemory> {
   return m;
 }
 
-/** Stage one set of dense/sparse hits for each channel of the activation
- *  pipeline (1 candidate query + 3 simBatch channels). */
+/** Stage one set of body and summary dense/sparse hits for each channel of
+ *  the activation pipeline (1 candidate query + 3 simBatch channels). Each
+ *  `hybridQueryConceptPages` call now fires four sub-queries (body-dense,
+ *  body-sparse, summary-dense, summary-sparse) so we push four entries per
+ *  channel iteration. Hits without `summary*Score` set produce empty point
+ *  lists for the summary channels — fine for tests that only care about body
+ *  scoring. */
 function stageTurn(
-  hits: Array<{ slug: string; denseScore?: number; sparseScore?: number }>,
+  hits: Array<{
+    slug: string;
+    denseScore?: number;
+    sparseScore?: number;
+    summaryDenseScore?: number;
+    summarySparseScore?: number;
+  }>,
 ): void {
   for (let i = 0; i < 4; i++) {
     qdrantState.queryResponses.dense.push({
@@ -257,6 +270,22 @@ function stageTurn(
       points: hits
         .filter((h) => h.sparseScore !== undefined)
         .map((h) => ({ score: h.sparseScore, payload: { slug: h.slug } })),
+    });
+    qdrantState.queryResponses.dense.push({
+      points: hits
+        .filter((h) => h.summaryDenseScore !== undefined)
+        .map((h) => ({
+          score: h.summaryDenseScore,
+          payload: { slug: h.slug },
+        })),
+    });
+    qdrantState.queryResponses.sparse.push({
+      points: hits
+        .filter((h) => h.summarySparseScore !== undefined)
+        .map((h) => ({
+          score: h.summarySparseScore,
+          payload: { slug: h.slug },
+        })),
     });
   }
 }
@@ -341,7 +370,9 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     expect(result.mode).toBe("per-turn");
     expect(result.injectedBlockText).not.toBeNull();
     expect(result.injectedBlockText).not.toContain("<memory>");
-    expect(result.injectedBlockText).toContain("### alice-vscode");
+    expect(result.injectedBlockText).toContain(
+      "# memory/concepts/alice-vscode.md",
+    );
 
     // The leading content block on the user message is the v2 block,
     // wrapped exactly once.
@@ -390,7 +421,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     expect(firstBlock.text.endsWith("\n</memory>")).toBe(true);
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
     expect(firstBlock.text.match(/<\/memory>/g)?.length).toBe(1);
-    expect(firstBlock.text).toContain("### alice-vscode");
+    expect(firstBlock.text).toContain("# memory/concepts/alice-vscode.md");
   });
 
   test("flag on + config on with empty Qdrant hits → no v2 block, v1 fallback skipped", async () => {
@@ -432,7 +463,9 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
 
     expect(result.mode).toBe("context-load");
     expect(result.injectedBlockText).not.toBeNull();
-    expect(result.injectedBlockText).toContain("### alice-vscode");
+    expect(result.injectedBlockText).toContain(
+      "# memory/concepts/alice-vscode.md",
+    );
     // injectedBlockText is the unwrapped inner content; the wrapper is
     // applied at injection time on the run message.
     expect(result.injectedBlockText).not.toContain("<memory>");
@@ -484,7 +517,9 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
       new AbortController().signal,
       noopEvent,
     );
-    expect(initial.injectedBlockText).toContain("### alice-vscode");
+    expect(initial.injectedBlockText).toContain(
+      "# memory/concepts/alice-vscode.md",
+    );
 
     const before = await hydrateActivationState(testDbHandle!, conversationId);
     expect(before?.everInjected.map((e) => e.slug)).toContain("alice-vscode");
@@ -504,6 +539,8 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
       new AbortController().signal,
       noopEvent,
     );
-    expect(next.injectedBlockText).toContain("### alice-vscode");
+    expect(next.injectedBlockText).toContain(
+      "# memory/concepts/alice-vscode.md",
+    );
   });
 });
