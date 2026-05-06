@@ -219,7 +219,7 @@ async function handleListConceptPages({
           slug,
           bodyBytes: Buffer.byteLength(page.body, "utf8"),
           edgeCount: page.frontmatter.edges.length,
-          updatedAtMs: stats.mtimeMs,
+          updatedAtMs: Math.floor(stats.mtimeMs),
         };
       } catch (err) {
         // A single corrupt page (bad YAML, schema mismatch, etc.) shouldn't
