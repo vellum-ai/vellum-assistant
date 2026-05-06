@@ -2103,7 +2103,10 @@ find "$MACOS_DIR" -maxdepth 1 \( -type f -o -type s \) \
 # com.apple.provenance, etc.) that codesign rejects with "resource fork,
 # Finder information, or similar detritus not allowed". These can accumulate
 # from Finder interactions, file copies, or SPM package resolution.
-xattr -cr "$APP_DIR"
+# Ensure all files are writable first — SPM resource bundles (PrivacyInfo.xcprivacy,
+# font files) are read-only from the build cache.
+chmod -R u+w "$APP_DIR" 2>/dev/null || true
+xattr -cr "$APP_DIR" 2>/dev/null || true
 
 # 6. Code sign
 echo "Signing with: $SIGN_IDENTITY"
