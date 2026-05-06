@@ -313,6 +313,26 @@ struct OnboardingFlowView: View {
         isResolvingAssociatedManagedAssistant = true
         defer { isResolvingAssociatedManagedAssistant = false }
 
+        // Reconcile the local lockfile against the platform's authoritative
+        // list of managed assistants before deciding what to do. A fresh
+        // sign-in on a new install (or a build that switched to env-scoped
+        // lockfile paths) will have an empty lockfile even though the
+        // account already owns assistants — pulling them in here lets the
+        // post-auth flow resume directly into the app rather than dumping
+        // the user back at the hosting selector.
+        if !state.isRehatch {
+            let router = ReturningUserRouter()
+            if let landscape = try? await router.fetchLandscape(),
+               landscape.platformWasConsulted {
+                let result = LockfileReconciler.reconcile(
+                    platformAssistants: landscape.platformAssistants
+                )
+                if result.didChange {
+                    log.info("Lockfile reconciled: +\(result.added.count, privacy: .public) -\(result.removed.count, privacy: .public)")
+                }
+            }
+        }
+
         // Only auto-proceed if there's already a managed assistant in the lockfile
         // AND this is a fresh onboarding (not a re-hatch from the developer tab).
         // Do NOT create a new managed assistant here — that should only happen if

@@ -33,30 +33,41 @@ extension AppDelegate {
                 // ReturningUserRouter so this call site and ReauthView
                 // share one source of truth.
                 //
-                // The synchronous fast path is the only router call made
-                // here — when the lockfile has a current-environment
-                // entry it returns .autoConnect and the app proceeds
-                // without any network wait. When it returns nil, the
-                // lockfile has zero current-env entries, which means
-                // showAuthWindow will land on OnboardingFlowView
-                // regardless of what the platform says.
+                // First pull the platform's authoritative list of managed
+                // assistants and reconcile the local lockfile against it —
+                // this is what lets a fresh sign-in on a new install (or a
+                // new env-scoped lockfile path) discover assistants the
+                // account already owns. When the platform fetch fails we
+                // fall back to the lockfile-only fast path.
                 let router = ReturningUserRouter()
-                if let decision = router.decideFast() {
-                    switch decision {
-                    case .autoConnect:
-                        log.info("[authFlow] router → autoConnect → proceedToApp()")
-                        proceedToApp()
-                    case .showHostingPicker:
-                        log.info("[authFlow] router → showHostingPicker")
-                        showAuthWindow()
-                    case .showAssistantPicker:
-                        // decideFast() never returns this (no flag/platform
-                        // check), but handle it for exhaustiveness.
-                        log.info("[authFlow] router → showAssistantPicker")
-                        showAuthWindow()
+                let decision: ReturningUserRouter.RoutingDecision
+                if let landscape = try? await router.fetchLandscape(),
+                   landscape.platformWasConsulted {
+                    let result = LockfileReconciler.reconcile(
+                        platformAssistants: landscape.platformAssistants
+                    )
+                    if result.didChange {
+                        log.info(
+                            "[authFlow] lockfile reconciled: +\(result.added.count) -\(result.removed.count)"
+                        )
                     }
+                    // Re-evaluate from the freshly reconciled lockfile so
+                    // the routing decision sees any added or removed
+                    // managed entries.
+                    decision = router.decideFast() ?? .showHostingPicker
                 } else {
-                    log.info("[authFlow] router → nil (no current-env entry) — showing auth window")
+                    decision = router.decideFast() ?? .showHostingPicker
+                }
+
+                switch decision {
+                case .autoConnect:
+                    log.info("[authFlow] router → autoConnect → proceedToApp()")
+                    proceedToApp()
+                case .showHostingPicker:
+                    log.info("[authFlow] router → showHostingPicker")
+                    showAuthWindow()
+                case .showAssistantPicker:
+                    log.info("[authFlow] router → showAssistantPicker")
                     showAuthWindow()
                 }
             } else {
