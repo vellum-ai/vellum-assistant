@@ -4,7 +4,6 @@
 
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
-import { isMemoryV2ReadActive } from "../context-search/sources/memory-v2.js";
 import {
   isQdrantBreakerOpen,
   withQdrantBreaker,
@@ -42,10 +41,10 @@ export async function searchPkbFiles(
   limit: number,
   scopeIds?: string[],
 ): Promise<PkbSearchResult[]> {
-  // v2 owns the read path when both gates are on; v2 absorbs PKB as a read
-  // source, so PKB hint search short-circuits to keep traffic off the v1
-  // collection (avoiding OOM-crash risk from a corrupted sparse segment).
-  if (isMemoryV2ReadActive(getConfig())) return [];
+  // v2 owns the read path when enabled; v2 absorbs PKB as a read source,
+  // so PKB hint search short-circuits to keep traffic off the v1 collection
+  // (avoiding OOM-crash risk from a corrupted sparse segment).
+  if (getConfig().memory.v2.enabled) return [];
 
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping PKB search");

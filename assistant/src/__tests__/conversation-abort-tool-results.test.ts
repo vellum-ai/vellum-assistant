@@ -1,17 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type {
   ContentBlock,
   Message,
   ProviderResponse,
 } from "../providers/types.js";
-
-// This test exercises v1 conversation routing. The `memory-v2-enabled` flag
-// (registry default `true`) flips memory routing to v2 — disable it here so
-// the v1 paths under test stay active.
-_setOverridesForTesting({ "memory-v2-enabled": false });
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -61,6 +55,7 @@ mock.module("../config/loader.js", () => ({
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
+    memory: { v2: { enabled: false } },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,

@@ -7,10 +7,7 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import {
-  initFeatureFlagOverrides,
-  isAssistantFeatureFlagEnabled,
-} from "../config/assistant-feature-flags.js";
+import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import {
   getPlatformAssistantId,
   getRuntimeHttpHost,
@@ -321,21 +318,16 @@ export async function runDaemon(): Promise<void> {
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 
-    // Pre-populate
-    // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
-    // Fired non-blocking so a slow or unreachable gateway doesn't delay
-    // daemon startup (the IPC call has a 3s connect + 5s call timeout
-    // that would otherwise stall the critical path).
-    //
-    // On resolve, retry the v2 skill seed: the synchronous gate at the
-    // skill-seed call site below evaluates the memory-v2-enabled flag
-    // before the gateway has populated overrides, so a cold-boot race
-    // can leave the v2 skill collection unseeded for the lifetime of
-    // the daemon. seedV2SkillEntries is idempotent, so re-running after
-    // overrides land is safe.
-    void initFeatureFlagOverrides()
-      .then(() => maybeSeedMemoryV2Skills(loadConfig()))
-      .catch((err) => log.warn({ err }, "Background feature flag init failed"));
+    // Pre-populate feature flag overrides so subsequent sync
+    // isAssistantFeatureFlagEnabled() calls have data. Fired non-blocking
+    // so a slow or unreachable gateway doesn't delay daemon startup (the
+    // IPC call has a 3s connect + 5s call timeout that would otherwise
+    // stall the critical path).
+    void initFeatureFlagOverrides().catch((err) =>
+      log.warn({ err }, "Background feature flag init failed"),
+    );
+
+    maybeSeedMemoryV2Skills(loadConfig());
 
     seedInterfaceFiles();
 
@@ -1301,14 +1293,11 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Proactive artifact backfill failed");
     }
 
-    // Filing yields to the memory v2 consolidation job when the flag is on —
+    // Filing yields to the memory v2 consolidation job when v2 is enabled —
     // both serve the same role (periodic background memory processing) and
     // running both is redundant. The consolidation job runs through the
     // memory jobs worker (see `maybeEnqueueGraphMaintenanceJobs`).
-    const memoryV2Enabled = isAssistantFeatureFlagEnabled(
-      "memory-v2-enabled",
-      config,
-    );
+    const memoryV2Enabled = config.memory.v2.enabled;
     let filing: FilingService | null = null;
     if (!memoryV2Enabled) {
       const filingConfig = config.filing;

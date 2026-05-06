@@ -4,9 +4,8 @@
  *
  * The CLI half mocks `cliIpcCall` and asserts the subcommand dispatches
  * to `memory_v2_reembed_skills` with an empty body. The route half uses
- * the real `loadConfig` + flag resolver — flags are toggled via
- * `_setOverridesForTesting` and `memory.v2.enabled` is toggled via a
- * per-test `config.json` fixture in the temp workspace. We mock only
+ * the real `loadConfig` — `memory.v2.enabled` is toggled via a per-test
+ * `config.json` fixture in the temp workspace. We mock only
  * `seedV2SkillEntries` so we can assert it was invoked without actually
  * embedding skills.
  */
@@ -17,20 +16,14 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
-import {
-  _setOverridesForTesting,
-  clearFeatureFlagOverridesCache,
-} from "../config/assistant-feature-flags.js";
 import { invalidateConfigCache } from "../config/loader.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
-// Module-level mocks — kept minimal. `loadConfig`,
-// `isAssistantFeatureFlagEnabled`, and `getLogger` use their real
-// implementations because we already have first-class test hooks
-// (`_setOverridesForTesting` for flags, a per-test workspace `config.json`
-// for config) that exercise the same code paths the route handler runs in
-// production.
+// Module-level mocks — kept minimal. `loadConfig` and `getLogger` use their
+// real implementations because we have first-class test hooks (a per-test
+// workspace `config.json` for config) that exercise the same code paths
+// the route handler runs in production.
 // ---------------------------------------------------------------------------
 
 let lastIpcCall: { method: string; params?: Record<string, unknown> } | null =
@@ -128,17 +121,15 @@ beforeEach(() => {
   seedCallCount = 0;
   process.exitCode = 0;
 
-  // Real flag + config defaults: enable both so happy-path tests pass.
-  _setOverridesForTesting({ "memory-v2-enabled": true });
+  // Default: v2 enabled so happy-path tests pass.
   writeWorkspaceConfig({ memory: { v2: { enabled: true } } });
 });
 
 afterEach(() => {
-  // Roll back the workspace config + flag overrides between cases so a
-  // gate-off test does not leak into the next case's setup.
+  // Roll back the workspace config between cases so a gate-off test does
+  // not leak into the next case's setup.
   rmSync(join(getWorkspaceDir(), "config.json"), { force: true });
   invalidateConfigCache();
-  clearFeatureFlagOverridesCache();
 });
 
 // ---------------------------------------------------------------------------
@@ -188,15 +179,6 @@ describe("memory_v2_reembed_skills route", () => {
     expect(seedCallCount).toBe(0);
   });
 
-  test("throws RouteError when feature flag is off", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
-
-    await expect(
-      reembedSkillsRoute!.handler({ body: {} }),
-    ).rejects.toBeInstanceOf(RouteError);
-    expect(seedCallCount).toBe(0);
-  });
-
   test("throws RouteError when config.memory.v2.enabled is off", async () => {
     writeWorkspaceConfig({ memory: { v2: { enabled: false } } });
 
@@ -228,10 +210,6 @@ describe("all memory v2 routes — MEMORY_V2_DISABLED gate", () => {
   };
 
   const GATE_OFF_CASES = [
-    {
-      label: "feature flag is off",
-      apply: () => _setOverridesForTesting({ "memory-v2-enabled": false }),
-    },
     {
       label: "config is off",
       apply: () => writeWorkspaceConfig({ memory: { v2: { enabled: false } } }),

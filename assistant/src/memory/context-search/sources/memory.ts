@@ -9,7 +9,7 @@ import type {
   RecallSearchContext,
   RecallSearchResult,
 } from "../types.js";
-import { isMemoryV2ReadActive, searchMemoryV2Source } from "./memory-v2.js";
+import { searchMemoryV2Source } from "./memory-v2.js";
 
 const log = getLogger("context-search-memory-source");
 
@@ -23,7 +23,7 @@ export async function searchMemorySource(
     return { evidence: [] };
   }
 
-  if (isMemoryV2ReadActive(context.config)) {
+  if (context.config.memory.v2.enabled) {
     return searchMemoryV2Source(query, context, normalizedLimit);
   }
 

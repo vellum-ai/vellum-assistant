@@ -13,10 +13,10 @@
  * extraction-trigger path. Until then this handler is invoked only by
  * `memory_v2_sweep` rows enqueued explicitly (tests, future CLI).
  *
- * Skipped entirely when the `memory-v2-enabled` feature flag is off, or when
+ * Skipped entirely when `config.memory.v2.enabled` is false, or when
  * `config.memory.v2.sweep_enabled` is false — keeps the sweep dormant in
  * v1-only workspaces and in v2 workspaces that haven't opted in, even if a
- * stale row sits in the queue at flag-flip time.
+ * stale row sits in the queue when v2 is disabled.
  */
 
 import { readFileSync } from "node:fs";
@@ -25,7 +25,6 @@ import { join } from "node:path";
 import { desc, gt } from "drizzle-orm";
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
 import {
@@ -104,12 +103,12 @@ export async function memoryV2SweepJob(
   _job: MemoryJob,
   config: AssistantConfig,
 ): Promise<number> {
-  if (!isAssistantFeatureFlagEnabled("memory-v2-enabled", config)) {
-    log.debug("memory-v2-enabled flag off; sweep skipped");
+  if (!config.memory?.v2?.enabled) {
+    log.debug("memory.v2.enabled is false; sweep skipped");
     return 0;
   }
 
-  if (!config.memory?.v2?.sweep_enabled) {
+  if (!config.memory.v2.sweep_enabled) {
     log.debug("memory.v2.sweep_enabled is false; sweep skipped");
     return 0;
   }

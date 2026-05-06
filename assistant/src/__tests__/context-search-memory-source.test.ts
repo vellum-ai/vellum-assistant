@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type {
   RecallEvidence,
@@ -107,11 +106,7 @@ const v2Calls: Array<{
 }> = [];
 let v2EvidenceReturn: RecallEvidence[] = [];
 
-const realMemoryV2 =
-  await import("../memory/context-search/sources/memory-v2.js");
-
 mock.module(memoryV2SourceModule, () => ({
-  isMemoryV2ReadActive: realMemoryV2.isMemoryV2ReadActive,
   searchMemoryV2Source: async (
     query: string,
     context: RecallSearchContext,
@@ -138,7 +133,6 @@ describe("searchMemorySource", () => {
     getNodesByIdsCalls.length = 0;
     v2Calls.length = 0;
     v2EvidenceReturn = [];
-    _setOverridesForTesting({ "memory-v2-enabled": false });
   });
 
   test("hydrates graph hits into memory recall evidence", async () => {
@@ -298,8 +292,7 @@ describe("searchMemorySource", () => {
     );
   });
 
-  test("routes to v2 source when both v2 gates are on", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("routes to v2 source when memory.v2.enabled is on", async () => {
     v2EvidenceReturn = [
       {
         id: "memory:v2:alice",
@@ -334,29 +327,13 @@ describe("searchMemorySource", () => {
     ]);
   });
 
-  test("stays on legacy path when feature flag is on but config.memory.v2.enabled is off", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("stays on legacy path when memory.v2.enabled is off", async () => {
     searchHits = [{ nodeId: "node-a", score: 0.7, text: "" }];
     hydratedNodes = [makeNode({ id: "node-a", content: "Legacy hit" })];
 
     await searchMemorySource(
       "alice",
       makeContext({ config: makeV2DisabledConfig() }),
-      5,
-    );
-
-    expect(v2Calls).toHaveLength(0);
-    expect(searchCalls).toHaveLength(1);
-  });
-
-  test("stays on legacy path when feature flag is off", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
-    searchHits = [{ nodeId: "node-a", score: 0.7, text: "" }];
-    hydratedNodes = [makeNode({ id: "node-a", content: "Legacy hit" })];
-
-    await searchMemorySource(
-      "alice",
-      makeContext({ config: makeV2EnabledConfig() }),
       5,
     );
 
@@ -387,7 +364,7 @@ function makeContext(
   return {
     workingDir: "/tmp/example-workspace",
     conversationId: "conv-123",
-    config: {} as AssistantConfig,
+    config: { memory: { v2: { enabled: false } } } as AssistantConfig,
     ...overrides,
   };
 }

@@ -25,9 +25,9 @@
  *     violation lists). Does not mutate the workspace.
  *
  * Lives alongside the existing v1 `memory` command rather than replacing it
- * so flipping `memory-v2-enabled` back to off fully re-engages the v1
- * pipeline. While the flag is on, v1 graph extraction/maintenance and PKB
- * filing are suppressed; v1 data stays in place but stops being updated.
+ * so flipping `memory.v2.enabled` back to false fully re-engages the v1
+ * pipeline. While v2 is on, v1 graph extraction/maintenance and PKB filing
+ * are suppressed; v1 data stays in place but stops being updated.
  */
 
 import type { Command } from "commander";
@@ -172,9 +172,9 @@ export function registerMemoryV2Command(program: Command): void {
     `
 The v2 subsystem replaces the v1 graph + PKB with prose concept pages,
 directed edges stored in each page's frontmatter, and activation-based
-retrieval. v2 stays gated behind the memory-v2-enabled feature flag —
+retrieval. v2 is gated behind the memory.v2.enabled config field —
 these subcommands remain useful operator tools regardless of whether
-the flag is on.
+v2 is currently active.
 
 Subcommands fall into three groups:
 
@@ -273,8 +273,8 @@ prefix). Useful after editing a skill's SKILL.md, after a feature-flag flip
 changes the enabled-skill set, or to recover corrupted skill embeddings.
 
 Unlike 'reembed' (concept pages), this runs synchronously inside the
-daemon — the command returns only once the seed completes. Requires both
-the memory-v2-enabled feature flag and memory.v2.enabled to be on.
+daemon — the command returns only once the seed completes. Requires
+memory.v2.enabled to be true.
 
 Examples:
   $ assistant memory v2 reembed-skills`,

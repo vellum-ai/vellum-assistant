@@ -15,7 +15,6 @@ import type {
   RecallSearchContext,
   RecallSearchResult,
 } from "../types.js";
-import { isMemoryV2ReadActive } from "./memory-v2.js";
 
 const log = getLogger("context-search-pkb-source");
 
@@ -76,7 +75,7 @@ export async function searchPkbSource(
   context: RecallSearchContext,
   limit: number,
 ): Promise<RecallSearchResult> {
-  if (isMemoryV2ReadActive(context.config)) {
+  if (context.config.memory.v2.enabled) {
     return { evidence: [] };
   }
 
@@ -139,7 +138,7 @@ export async function searchPkbSource(
 export function readPkbContextEvidence(
   context: RecallSearchContext,
 ): RecallEvidence[] {
-  if (isMemoryV2ReadActive(context.config)) {
+  if (context.config.memory.v2.enabled) {
     return [];
   }
 

@@ -25,7 +25,6 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { isMemoryV2ReadActive } from "../../memory/context-search/sources/memory-v2.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
   embedWithBackend,
@@ -176,11 +175,11 @@ async function searchNodesSemantic(
 ): Promise<{ ids: string[]; total: number } | null> {
   try {
     const config = getConfig();
-    // v2 owns the read path when both gates are on. Fall back to SQL search
-    // (the caller's `null` branch) instead of querying the v1 collection,
-    // which is in active retirement and a corrupted sparse segment can
-    // OOM-crash the shared Qdrant process.
-    if (isMemoryV2ReadActive(config)) return null;
+    // v2 owns the read path when enabled. Fall back to SQL search (the
+    // caller's `null` branch) instead of querying the v1 collection, which
+    // is in active retirement and a corrupted sparse segment can OOM-crash
+    // the shared Qdrant process.
+    if (config.memory.v2.enabled) return null;
     const backendStatus = await getMemoryBackendStatus(config);
     if (!backendStatus.provider) return null;
 

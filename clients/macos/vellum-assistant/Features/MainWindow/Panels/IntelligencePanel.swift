@@ -13,7 +13,6 @@ struct IntelligencePanel: View {
     var store: SettingsStore?
     var conversationManager: ConversationManager?
     var authManager: AuthManager?
-    var assistantFeatureFlagStore: AssistantFeatureFlagStore?
     var showToast: ((String, ToastInfo.Style) -> Void)?
     var initialTab: String? = nil
     @Binding var pendingTab: String?
@@ -24,7 +23,7 @@ struct IntelligencePanel: View {
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingTab: Binding<String?> = .constant(nil), pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingTab: Binding<String?> = .constant(nil), pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
@@ -34,7 +33,6 @@ struct IntelligencePanel: View {
         self.store = store
         self.conversationManager = conversationManager
         self.authManager = authManager
-        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.showToast = showToast
         self.initialTab = initialTab
         _pendingTab = pendingTab
@@ -149,19 +147,8 @@ struct IntelligencePanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .memories:
-            Group {
-                if assistantFeatureFlagStore?.isEnabled("memory-v2-enabled") ?? true {
-                    MemoriesV2Panel()
-                } else {
-                    MemoriesPanel(
-                        connectionManager: connectionManager,
-                        assistantName: cachedAssistantName,
-                        onImportMemory: onImportMemory,
-                        focusedMemoryId: $pendingMemoryId
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            MemoriesV2Panel()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }

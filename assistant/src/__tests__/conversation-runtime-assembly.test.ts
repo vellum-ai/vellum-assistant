@@ -1,11 +1,20 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
-
-// This test exercises v1 conversation routing. The `memory-v2-enabled` flag
-// (registry default `true`) flips memory routing to v2 — disable it here so
-// the v1 paths under test stay active.
-_setOverridesForTesting({ "memory-v2-enabled": false });
+// This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
+// `true`) makes the PKB injector go silent — force it off here so the v1
+// injection chain assertions stay meaningful.
+const realLoaderForAssemblyTest = await import("../config/loader.js");
+const realGetConfigForAssemblyTest = realLoaderForAssemblyTest.getConfig;
+mock.module("../config/loader.js", () => ({
+  ...realLoaderForAssemblyTest,
+  getConfig: () => {
+    const real = realGetConfigForAssemblyTest();
+    return {
+      ...real,
+      memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
+    };
+  },
+}));
 
 // PKB search is mocked so the reminder-hints tests can assert behavior
 // without standing up Qdrant. The mock returns whatever is staged in

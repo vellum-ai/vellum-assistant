@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "../../__tests__/helpers/mock-logger.js";
-import { _setOverridesForTesting } from "../../config/assistant-feature-flags.js";
 
-// This test exercises the v1 PKB search path. The `memory-v2-enabled` flag
-// (registry default `true`) makes pkb-search short-circuit to keep traffic
-// off the legacy collection — disable it so the v1 path stays under test.
-_setOverridesForTesting({ "memory-v2-enabled": false });
+// This test exercises the v1 PKB search path. `config.memory.v2.enabled`
+// (default `true`) makes pkb-search short-circuit to keep traffic off the
+// legacy collection — force it off so the v1 path stays under test.
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({ memory: { v2: { enabled: false } } }),
+}));
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),

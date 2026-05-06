@@ -1,18 +1,16 @@
 /**
  * Tests for the v2 routing wired into `ConversationGraphMemory.prepareMemory`.
  *
- * The wiring layer at `conversation-graph-memory.ts` reads two signals to
- * decide whether to swap v1's injection step for the v2 activation pipeline:
+ * The wiring layer at `conversation-graph-memory.ts` reads
+ * `config.memory.v2.enabled` to decide whether to swap v1's injection step
+ * for the v2 activation pipeline.
  *
- *   1. The `memory-v2-enabled` feature flag (`isAssistantFeatureFlagEnabled`).
- *   2. The workspace config value `memory.v2.enabled`.
- *
- * Both must be true for v2 to take over. This file uses the *real*
- * `injectMemoryV2Block` and stubs only the lower-level deps (Qdrant client,
- * embedding backend) the way `memory/v2/__tests__/injection.test.ts` does —
- * mocking `injection.js` itself would clobber that sibling test when both
- * files run in the same `bun test` invocation, since `mock.module` is
- * process-global. Avoiding the mock keeps the suite hermetic in either order.
+ * This file uses the *real* `injectMemoryV2Block` and stubs only the
+ * lower-level deps (Qdrant client, embedding backend) the way
+ * `memory/v2/__tests__/injection.test.ts` does — mocking `injection.js`
+ * itself would clobber that sibling test when both files run in the same
+ * `bun test` invocation, since `mock.module` is process-global. Avoiding
+ * the mock keeps the suite hermetic in either order.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,7 +18,6 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import {
   afterAll,
-  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -172,8 +169,6 @@ import type { DrizzleDb } from "../../db-connection.js";
 
 const { ConversationGraphMemory } =
   await import("../conversation-graph-memory.js");
-const { _setOverridesForTesting } =
-  await import("../../../config/assistant-feature-flags.js");
 const { applyNestedDefaults } = await import("../../../config/loader.js");
 const { getSqliteFrom } = await import("../../db-connection.js");
 const { migrateActivationState } =
@@ -301,39 +296,12 @@ beforeEach(() => {
   _resetMemoryV2QdrantForTests();
 });
 
-afterEach(() => {
-  _setOverridesForTesting({});
-});
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)", () => {
-  test("flag off → v2 not run, messages unchanged", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
-    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
-
-    const memory = makeMemory();
-    const config = makeConfig(true);
-    const messages = makeMessages();
-
-    const result = await memory.prepareMemory(
-      messages,
-      config,
-      new AbortController().signal,
-      noopEvent,
-    );
-
-    expect(result.mode).toBe("per-turn");
-    expect(result.injectedBlockText).toBeNull();
-    // No v2 block prepended — the v1 retriever returned zero nodes so the
-    // user message is exactly the input.
-    expect(result.runMessages).toEqual(messages);
-  });
-
-  test("flag on + config off → v2 not run, messages unchanged", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("config off → v2 not run, messages unchanged", async () => {
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
 
     const memory = makeMemory();
@@ -352,8 +320,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     expect(result.runMessages).toEqual(messages);
   });
 
-  test("flag on + config on → v2 block prepended, mode is per-turn", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("config on → v2 block prepended, mode is per-turn", async () => {
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
 
     const memory = makeMemory();
@@ -394,7 +361,6 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     // Regression for the double-wrap bug: v2 cached `lastInjectedBlock`
     // already wrapped, then `reinjectCachedMemory` re-wrapped via
     // `injectTextBlock`, producing `<memory>\n<memory>\n...\n</memory>\n</memory>`.
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
 
     const memory = makeMemory();
@@ -424,8 +390,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     expect(firstBlock.text).toContain("# memory/concepts/alice-vscode.md");
   });
 
-  test("flag on + config on with empty Qdrant hits → no v2 block, v1 fallback skipped", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("config on with empty Qdrant hits → no v2 block, v1 fallback skipped", async () => {
     // No `stageTurn` call — every channel returns `{ points: [] }` so the
     // candidate set is empty and `injectMemoryV2Block` returns block=null.
     const memory = makeMemory();
@@ -445,8 +410,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
 });
 
 describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load path)", () => {
-  test("flag on + config on → v2 fires with mode=context-load", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("config on → v2 fires with mode=context-load", async () => {
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
 
     // Fresh memory → initialized=false → runContextLoad branch.
@@ -478,12 +442,11 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
     expect(loadContextMemoryMock).not.toHaveBeenCalled();
   });
 
-  test("flag off → v2 not run on first turn either", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
+  test("config off → v2 not run on first turn either", async () => {
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
 
     const memory = new ConversationGraphMemory("conv-test-cl-off");
-    const config = makeConfig(true);
+    const config = makeConfig(false);
     const messages = makeMessages("first message of the conversation here");
 
     const result = await memory.prepareMemory(
@@ -503,8 +466,6 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
     // Without this wiring, `selectInjections` keeps subtracting the slug from
     // every per-turn delta even though compaction discarded the cached
     // `<memory>` attachment that previously made it visible.
-    _setOverridesForTesting({ "memory-v2-enabled": true });
-
     const conversationId = "conv-test-evict";
     const memory = new ConversationGraphMemory(conversationId);
     const config = makeConfig(true);

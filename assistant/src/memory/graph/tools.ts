@@ -56,10 +56,10 @@ export const graphRecallDefinition: ToolDefinition = {
 /**
  * Save a fact to the assistant's knowledge base. The fact is appended to
  * `buffer.md` (immediately available in the next conversation) and the daily
- * archive (permanent date-indexed record). With the `memory-v2-enabled`
- * feature flag on, writes go under `memory/`; otherwise they go under
- * `pkb/`. Consolidation of the buffer into longer-form storage runs as a
- * separate periodic job in both modes.
+ * archive (permanent date-indexed record). When `memory.v2.enabled` is true,
+ * writes go under `memory/`; otherwise they go under `pkb/`. Consolidation
+ * of the buffer into longer-form storage runs as a separate periodic job in
+ * both modes.
  */
 export const graphRememberDefinition: ToolDefinition = {
   name: "remember",

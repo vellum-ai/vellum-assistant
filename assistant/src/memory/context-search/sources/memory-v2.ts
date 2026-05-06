@@ -2,7 +2,7 @@
 // Memory v2 — `recall` adapter for the `memory` source
 // ---------------------------------------------------------------------------
 //
-// When the v2 flag is on, the `memory` recall source reads from the v2
+// When v2 is enabled, the `memory` recall source reads from the v2
 // concept-page subsystem (under `<workspace>/memory/concepts/`) instead of
 // the legacy graph. Two retrieval paths run in parallel and merge:
 //
@@ -26,8 +26,6 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
-import type { AssistantConfig } from "../../../config/schema.js";
 import { getLogger } from "../../../util/logger.js";
 import { embedWithRetry } from "../../embed.js";
 import { generateSparseEmbedding } from "../../embedding-backend.js";
@@ -45,20 +43,6 @@ import type {
   RecallSearchContext,
   RecallSearchResult,
 } from "../types.js";
-
-/**
- * True when both v2 gates are on. Single source of truth for whether v2 is
- * the active memory subsystem — used by recall sources (`memory`, `pkb`),
- * per-turn injectors, the indexer's v1 graph_extract suppression, and the
- * v1/v2 maintenance scheduler. The historical name retains "Read" but the
- * predicate now gates both read and write paths.
- */
-export function isMemoryV2ReadActive(config: AssistantConfig): boolean {
-  return (
-    isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
-    config.memory.v2.enabled
-  );
-}
 
 const log = getLogger("context-search-memory-v2-source");
 

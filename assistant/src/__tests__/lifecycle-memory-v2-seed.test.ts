@@ -5,9 +5,9 @@
  *
  * The gates are exercised in isolation rather than mounting the full
  * lifecycle import graph. Coverage matrix:
- *   - Skill seed (`maybeSeedMemoryV2Skills`): flag/config gating, rejection
- *     swallowing, race recovery.
- *   - Schema rebuild (`maybeRebuildMemoryV2Concepts`): flag/config gating,
+ *   - Skill seed (`maybeSeedMemoryV2Skills`): config gating, rejection
+ *     swallowing.
+ *   - Schema rebuild (`maybeRebuildMemoryV2Concepts`): config gating,
  *     drift-triggered reembed enqueue, empty-after-create reembed enqueue,
  *     no enqueue when collection is healthy, error swallowing.
  *
@@ -22,7 +22,6 @@ import type { AssistantConfig } from "../config/schema.js";
 // ---------------------------------------------------------------------------
 
 interface TestState {
-  flagOverrides: Record<string, boolean>;
   seedCallCount: number;
   seedShouldReject: Error | null;
   warnCalls: Array<{ obj: unknown; msg: unknown }>;
@@ -37,7 +36,6 @@ interface TestState {
 }
 
 const state: TestState = {
-  flagOverrides: {},
   seedCallCount: 0,
   seedShouldReject: null,
   warnCalls: [],
@@ -53,14 +51,6 @@ const state: TestState = {
 // ---------------------------------------------------------------------------
 // Mocks — installed before the module under test is loaded.
 // ---------------------------------------------------------------------------
-
-mock.module("../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string, _config: unknown): boolean => {
-    const explicit = state.flagOverrides[key];
-    if (typeof explicit === "boolean") return explicit;
-    return true; // undeclared flags default to enabled
-  },
-}));
 
 mock.module("../memory/v2/skill-store.js", () => ({
   seedV2SkillEntries: async (): Promise<void> => {
@@ -148,7 +138,6 @@ async function flushMicrotasks(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function resetState(): void {
-  state.flagOverrides = {};
   state.seedCallCount = 0;
   state.seedShouldReject = null;
   state.warnCalls = [];
@@ -164,57 +153,21 @@ function resetState(): void {
 describe("maybeSeedMemoryV2Skills (daemon startup gate)", () => {
   beforeEach(resetState);
 
-  test("invokes seedV2SkillEntries when flag and config are both enabled", async () => {
-    state.flagOverrides = { "memory-v2-enabled": true };
+  test("invokes seedV2SkillEntries when memory.v2.enabled is true", async () => {
     maybeSeedMemoryV2Skills(makeConfig(true));
     await flushMicrotasks();
     expect(state.seedCallCount).toBe(1);
     expect(state.warnCalls).toHaveLength(0);
   });
 
-  test("does not invoke seedV2SkillEntries when feature flag is off", async () => {
-    state.flagOverrides = { "memory-v2-enabled": false };
-    maybeSeedMemoryV2Skills(makeConfig(true));
-    await flushMicrotasks();
-    expect(state.seedCallCount).toBe(0);
-    expect(state.warnCalls).toHaveLength(0);
-  });
-
-  test("does not invoke seedV2SkillEntries when config.memory.v2.enabled is off", async () => {
-    state.flagOverrides = { "memory-v2-enabled": true };
+  test("does not invoke seedV2SkillEntries when memory.v2.enabled is false", async () => {
     maybeSeedMemoryV2Skills(makeConfig(false));
     await flushMicrotasks();
     expect(state.seedCallCount).toBe(0);
     expect(state.warnCalls).toHaveLength(0);
-  });
-
-  test("does not invoke seedV2SkillEntries when both gates are off", async () => {
-    state.flagOverrides = { "memory-v2-enabled": false };
-    maybeSeedMemoryV2Skills(makeConfig(false));
-    await flushMicrotasks();
-    expect(state.seedCallCount).toBe(0);
-    expect(state.warnCalls).toHaveLength(0);
-  });
-
-  test("re-invocation seeds after flag flips on (deferred-init race recovery)", async () => {
-    // Models the lifecycle-startup race: the synchronous seed call evaluates
-    // the flag while the gateway IPC override fetch is still in flight, falls
-    // through to the registry default (`false`), and skips. Once
-    // `initFeatureFlagOverrides()` resolves, the chained `.then` re-invokes
-    // the seed with the now-populated cache and the flag flips to `true`.
-    state.flagOverrides = { "memory-v2-enabled": false };
-    maybeSeedMemoryV2Skills(makeConfig(true));
-    await flushMicrotasks();
-    expect(state.seedCallCount).toBe(0);
-
-    state.flagOverrides = { "memory-v2-enabled": true };
-    maybeSeedMemoryV2Skills(makeConfig(true));
-    await flushMicrotasks();
-    expect(state.seedCallCount).toBe(1);
   });
 
   test("swallows seedV2SkillEntries rejections and logs a warning", async () => {
-    state.flagOverrides = { "memory-v2-enabled": true };
     state.seedShouldReject = new Error("seed failed");
 
     // The gate must not throw — startup must not block on this.
@@ -233,18 +186,7 @@ describe("maybeSeedMemoryV2Skills (daemon startup gate)", () => {
 describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
   beforeEach(resetState);
 
-  test("does nothing when the feature flag is off", async () => {
-    state.flagOverrides = { "memory-v2-enabled": false };
-
-    await maybeRebuildMemoryV2Concepts(makeConfig(true));
-
-    expect(state.ensureCollectionCallCount).toBe(0);
-    expect(state.enqueueCalls).toEqual([]);
-  });
-
-  test("does nothing when config.memory.v2.enabled is off", async () => {
-    state.flagOverrides = { "memory-v2-enabled": true };
-
+  test("does nothing when memory.v2.enabled is false", async () => {
     await maybeRebuildMemoryV2Concepts(makeConfig(false));
 
     expect(state.ensureCollectionCallCount).toBe(0);
@@ -252,7 +194,6 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
   });
 
   test("enqueues memory_v2_reembed when the collection was migrated", async () => {
-    state.flagOverrides = { "memory-v2-enabled": true };
     state.ensureCollectionResult = { migrated: true };
 
     await maybeRebuildMemoryV2Concepts(makeConfig(true));
@@ -267,7 +208,6 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
   });
 
   test("enqueues reembed when the collection is empty but pages exist on disk (crash-mid-rebuild recovery)", async () => {
-    state.flagOverrides = { "memory-v2-enabled": true };
     state.ensureCollectionResult = { migrated: false };
     state.countResult = 0;
     state.listPagesResult = ["people/alice", "topics/zsh"];
@@ -280,7 +220,6 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
   });
 
   test("does not enqueue when the collection is healthy and populated", async () => {
-    state.flagOverrides = { "memory-v2-enabled": true };
     state.ensureCollectionResult = { migrated: false };
     state.countResult = 1185;
     state.listPagesResult = ["people/alice"];
@@ -291,7 +230,6 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
   });
 
   test("does not enqueue when the collection is empty AND no pages exist on disk (fresh workspace)", async () => {
-    state.flagOverrides = { "memory-v2-enabled": true };
     state.ensureCollectionResult = { migrated: false };
     state.countResult = 0;
     state.listPagesResult = [];
@@ -302,7 +240,6 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
   });
 
   test("swallows ensureConceptPageCollection failures and logs a warning", async () => {
-    state.flagOverrides = { "memory-v2-enabled": true };
     state.ensureCollectionThrows = new Error("Qdrant unreachable");
 
     // Must not throw — startup never blocks on this gate.

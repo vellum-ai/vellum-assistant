@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type { RecallSearchContext } from "../memory/context-search/types.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
@@ -17,6 +16,16 @@ import { makeMockLogger } from "./helpers/mock-logger.js";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
+}));
+
+// Override `getConfig` so `searchPkbFiles`'s v2 short-circuit (which checks
+// `getConfig().memory.v2.enabled`) stays inactive — these tests exercise
+// the v1 path. Spread the real loader so other exports (loadConfig,
+// applyNestedDefaults, etc.) keep working.
+const realPkbLoader = await import("../config/loader.js");
+mock.module("../config/loader.js", () => ({
+  ...realPkbLoader,
+  getConfig: () => ({ memory: { v2: { enabled: false } } }),
 }));
 
 const embedCalls: Array<{
@@ -174,7 +183,7 @@ function makeContext(
   return {
     workingDir: "/workspace",
     conversationId: "conv-xyz",
-    config: {} as AssistantConfig,
+    config: { memory: { v2: { enabled: false } } } as AssistantConfig,
     ...overrides,
   };
 }
@@ -193,7 +202,6 @@ describe("PKB context-search source", () => {
     denseThrows = null;
     pkbContext = null;
     nowScratchpad = null;
-    _setOverridesForTesting({ "memory-v2-enabled": false });
   });
 
   test("converts PKB hits to recall evidence with snippets and scores", async () => {
@@ -443,8 +451,7 @@ describe("PKB context-search source", () => {
     ]);
   });
 
-  test("short-circuits to empty when both v2 gates are on", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("short-circuits to empty when memory.v2.enabled is on", async () => {
     denseResults = [
       {
         id: "dense-a",
@@ -471,7 +478,6 @@ describe("PKB context-search source", () => {
   });
 
   test("readPkbContextEvidence short-circuits when v2 read is active", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     pkbContext = "should not surface under v2";
     nowScratchpad = "should not surface under v2";
 

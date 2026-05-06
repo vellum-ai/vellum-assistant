@@ -9,7 +9,6 @@ import { getLogger } from "../util/logger.js";
 import { enqueueAutoAnalysisIfEnabled } from "./auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
-import { isMemoryV2ReadActive } from "./context-search/sources/memory-v2.js";
 import { getDb } from "./db-connection.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import { enqueueMemoryJob, upsertDebouncedJob } from "./jobs-store.js";
@@ -190,7 +189,7 @@ export async function indexMessageNow(
       }
 
       const v2Config =
-        triggerConfig != null && isMemoryV2ReadActive(triggerConfig)
+        triggerConfig != null && triggerConfig.memory.v2.enabled
           ? triggerConfig
           : null;
 

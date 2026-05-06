@@ -75,7 +75,7 @@ public final class MainWindowState {
     var inspectorMessageId: String?
 
     /// Transient memory ID to deep-link into when the Intelligence panel opens.
-    /// Consumed once by IntelligencePanel/MemoriesPanel, then set back to nil.
+    /// Consumed once by IntelligencePanel/MemoriesV2Panel, then set back to nil.
     var pendingMemoryId: String?
 
     /// Transient skill ID to deep-link into when the Intelligence panel opens.

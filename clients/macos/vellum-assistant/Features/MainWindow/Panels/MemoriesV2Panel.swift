@@ -22,9 +22,8 @@ private enum MemoryV2SortOption: String, CaseIterable {
 /// `MemoryV2Client`. Selecting a row opens a slide-in detail pane on the
 /// right that lazy-loads and renders the page's raw markdown body via
 /// `ConceptPageContentView` (the same component used by the per-message
-/// activation-log inspector). Replaces `MemoriesPanel` when
-/// `memory-v2-enabled` is on — wired in by the IntelligencePanel flag-gate
-/// (PR 6 of the plan).
+/// activation-log inspector). When `memory.v2.enabled` is false, renders
+/// a disabled state surfaced via the API's MEMORY_V2_DISABLED 409.
 struct MemoriesV2Panel: View {
     @State private var pages: [MemoryV2ConceptPageSummary] = []
     @State private var isLoading: Bool = true

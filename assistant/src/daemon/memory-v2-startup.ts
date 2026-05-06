@@ -6,23 +6,11 @@
 // startup work invoked from `lifecycle.ts`. Lives in its own file so the unit
 // test for the gate does not have to mount the entire lifecycle import graph.
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("memory-v2-startup");
-
-/**
- * Both v2 startup hooks gate on the feature flag AND the workspace config —
- * keep them in sync via this helper so the gates can never drift.
- */
-function isMemoryV2EnabledForStartup(config: AssistantConfig): boolean {
-  return (
-    isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
-    config.memory.v2.enabled
-  );
-}
 
 /**
  * Fire-and-forget seed of the v2 skill entries (now indexed alongside concept
@@ -33,7 +21,7 @@ function isMemoryV2EnabledForStartup(config: AssistantConfig): boolean {
  * `assistant/CLAUDE.md` daemon startup philosophy).
  */
 export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
-  if (!isMemoryV2EnabledForStartup(config)) return;
+  if (!config.memory.v2.enabled) return;
   void import("../memory/v2/skill-store.js")
     .then(({ seedV2SkillEntries }) => seedV2SkillEntries())
     .catch((err) => log.warn({ err }, "Failed to seed v2 skill entries"));
@@ -64,7 +52,7 @@ export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
 export async function maybeRebuildMemoryV2Concepts(
   config: AssistantConfig,
 ): Promise<void> {
-  if (!isMemoryV2EnabledForStartup(config)) return;
+  if (!config.memory.v2.enabled) return;
 
   try {
     const { ensureConceptPageCollection, countConceptPagePoints } =

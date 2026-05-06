@@ -1,16 +1,14 @@
 /**
  * Tests for `handleRemember` routing between v1 (PKB) and v2 (memory/).
  *
- * Routing follows `isMemoryV2ReadActive(config)` — both the
- * `memory-v2-enabled` flag AND `config.memory.v2.enabled` must be true for
- * writes to go to v2. Any other combination falls back to v1 PKB.
+ * Routing follows `config.memory.v2.enabled`: when true, writes go to
+ * memory/; otherwise they fall back to v1 PKB.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
-  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -59,11 +57,13 @@ afterAll(() => {
 // Imports are deferred to after the env var is set so any internal use of
 // `getWorkspaceDir()` resolves to the tmpdir.
 const { handleRemember } = await import("../tool-handlers.js");
-const { _setOverridesForTesting } =
-  await import("../../../config/assistant-feature-flags.js");
 const { applyNestedDefaults } = await import("../../../config/loader.js");
 
 const CONFIG = applyNestedDefaults({});
+const CONFIG_V2_OFF = {
+  ...CONFIG,
+  memory: { ...CONFIG.memory, v2: { ...CONFIG.memory.v2, enabled: false } },
+};
 
 beforeEach(() => {
   enqueueCalls.length = 0;
@@ -73,10 +73,6 @@ beforeEach(() => {
   rmSync(join(tmpWorkspace, "memory"), { recursive: true, force: true });
 });
 
-afterEach(() => {
-  _setOverridesForTesting({});
-});
-
 function todaysArchiveBasename(now: Date = new Date()): string {
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
@@ -84,11 +80,7 @@ function todaysArchiveBasename(now: Date = new Date()): string {
   return `${yyyy}-${mm}-${dd}.md`;
 }
 
-describe("handleRemember — memory-v2 flag on", () => {
-  beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
-  });
-
+describe("handleRemember — memory.v2.enabled on", () => {
   test("writes to memory/buffer.md and memory/archive/<today>.md", () => {
     const result = handleRemember(
       { content: "Alice prefers VS Code over Vim" },
@@ -172,17 +164,13 @@ describe("handleRemember — memory-v2 flag on", () => {
   });
 });
 
-describe("handleRemember — memory-v2 flag off (v1 PKB path)", () => {
-  beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
-  });
-
+describe("handleRemember — memory.v2.enabled off (v1 PKB path)", () => {
   test("writes to pkb/buffer.md and pkb/archive/<today>.md", () => {
     const result = handleRemember(
       { content: "v1 path still works" },
       "conv-v1-1",
       "default",
-      CONFIG,
+      CONFIG_V2_OFF,
     );
 
     expect(result.success).toBe(true);
@@ -203,7 +191,7 @@ describe("handleRemember — memory-v2 flag off (v1 PKB path)", () => {
       { content: "index me" },
       "conv-v1-2",
       "default",
-      CONFIG,
+      CONFIG_V2_OFF,
     );
 
     expect(result.success).toBe(true);
@@ -218,35 +206,5 @@ describe("handleRemember — memory-v2 flag off (v1 PKB path)", () => {
     for (const call of enqueueCalls) {
       expect(call.pkbRoot).toBe(pkbDir);
     }
-  });
-});
-
-describe("handleRemember — flag on but config off (v1 PKB path)", () => {
-  beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
-  });
-
-  test("falls back to v1 when memory.v2.enabled is false", () => {
-    const configWithV2Off = {
-      ...CONFIG,
-      memory: { ...CONFIG.memory, v2: { ...CONFIG.memory.v2, enabled: false } },
-    };
-
-    const result = handleRemember(
-      { content: "config kill switch is on" },
-      "conv-asymmetric-1",
-      "default",
-      configWithV2Off,
-    );
-
-    expect(result.success).toBe(true);
-
-    const pkbDir = join(tmpWorkspace, "pkb");
-    expect(readFileSync(join(pkbDir, "buffer.md"), "utf-8")).toContain(
-      "config kill switch is on",
-    );
-    expect(existsSync(join(tmpWorkspace, "memory"))).toBe(false);
-    // v1 path enqueues both buffer and archive re-index jobs.
-    expect(enqueueCalls).toHaveLength(2);
   });
 });

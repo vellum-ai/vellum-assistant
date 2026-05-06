@@ -34,9 +34,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-const { _setOverridesForTesting } =
-  await import("../config/assistant-feature-flags.js");
-
 // Mock conversation store
 const createdConversations: Array<{ title: string; conversationType: string }> =
   [];
@@ -128,7 +125,6 @@ describe("FilingService", () => {
     } catch {
       // best-effort
     }
-    _setOverridesForTesting({});
   });
 
   beforeEach(() => {
@@ -331,8 +327,7 @@ describe("FilingService", () => {
   });
 
   describe("memory v2 gate", () => {
-    test("start() does not schedule timers when v2 flag and config are both on", () => {
-      _setOverridesForTesting({ "memory-v2-enabled": true });
+    test("start() does not schedule timers when memory.v2.enabled is true", () => {
       mockConfig.memory.v2.enabled = true;
 
       const service = createService();
@@ -342,32 +337,7 @@ describe("FilingService", () => {
       expect(service.nextCompactionAt).toBeNull();
     });
 
-    test("start() schedules timers when flag is on but config is off (v2 inactive → v1 filing runs)", () => {
-      _setOverridesForTesting({ "memory-v2-enabled": true });
-      mockConfig.memory.v2.enabled = false;
-
-      const service = createService();
-      service.start();
-
-      expect(service.nextRunAt).not.toBeNull();
-      expect(service.nextCompactionAt).not.toBeNull();
-      service.stop();
-    });
-
-    test("start() schedules timers when only the config is on", () => {
-      _setOverridesForTesting({ "memory-v2-enabled": false });
-      mockConfig.memory.v2.enabled = true;
-
-      const service = createService();
-      service.start();
-
-      expect(service.nextRunAt).not.toBeNull();
-      expect(service.nextCompactionAt).not.toBeNull();
-      service.stop();
-    });
-
-    test("start() schedules timers when both flag and config are off", () => {
-      _setOverridesForTesting({ "memory-v2-enabled": false });
+    test("start() schedules timers when memory.v2.enabled is false (v1 filing runs)", () => {
       mockConfig.memory.v2.enabled = false;
 
       const service = createService();

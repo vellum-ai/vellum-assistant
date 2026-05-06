@@ -11,14 +11,16 @@ import {
   test,
 } from "bun:test";
 
-import { _setOverridesForTesting } from "../../config/assistant-feature-flags.js";
 import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
 import type { ToolContext } from "../types.js";
 
-// This test exercises v1 PKB re-index enqueue. The `memory-v2-enabled` flag
-// (registry default `true`) makes the enqueue path skipped — disable it so
-// the v1 PKB index path stays under test.
-_setOverridesForTesting({ "memory-v2-enabled": false });
+// This test exercises v1 PKB re-index enqueue. `config.memory.v2.enabled`
+// (default `true`) makes the enqueue path skipped — force it off so the
+// v1 PKB index path stays under test.
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({ memory: { v2: { enabled: false } } }),
+  loadConfig: () => ({ memory: { v2: { enabled: false } } }),
+}));
 
 let tmpWorkspace: string;
 let previousWorkspaceEnv: string | undefined;

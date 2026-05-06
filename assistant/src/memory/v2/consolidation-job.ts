@@ -15,8 +15,8 @@
  * substitute in.
  *
  * Lifecycle:
- *   1. Bail if the `memory-v2-enabled` feature flag is off (the worker may
- *      have claimed a stale row at flag-flip time).
+ *   1. Bail if `config.memory.v2.enabled` is false (the worker may have
+ *      claimed a stale row from before v2 was disabled).
  *   2. Acquire a single-process lock at `memory/.v2-state/consolidation.lock`
  *      so two overlapping schedule windows can't fight over the same files.
  *      The lock contains the holder's PID + timestamp so a crashed run leaves
@@ -53,7 +53,6 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
@@ -85,11 +84,11 @@ const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [
 
 /**
  * Job handler. See file header for the full lifecycle. Returns a discriminated
- * union so tests can assert on the path taken (flag-off / locked / empty /
+ * union so tests can assert on the path taken (disabled / locked / empty /
  * invoked) without having to spy on the filesystem.
  */
 export type ConsolidationOutcome =
-  | { kind: "flag_off" }
+  | { kind: "disabled" }
   | { kind: "locked"; holder: string }
   | { kind: "empty_buffer" }
   | { kind: "wake_failed"; reason?: string }
@@ -104,9 +103,9 @@ export async function memoryV2ConsolidateJob(
   _job: MemoryJob,
   config: AssistantConfig,
 ): Promise<ConsolidationOutcome> {
-  if (!isAssistantFeatureFlagEnabled("memory-v2-enabled", config)) {
-    log.debug("memory-v2-enabled flag off; consolidation skipped");
-    return { kind: "flag_off" };
+  if (!config.memory.v2.enabled) {
+    log.debug("memory.v2.enabled is false; consolidation skipped");
+    return { kind: "disabled" };
   }
 
   const memoryDir = join(getWorkspaceDir(), "memory");

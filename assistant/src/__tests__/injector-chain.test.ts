@@ -24,22 +24,30 @@
  *    content.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
-import {
-  applyRuntimeInjections,
-  composeInjectorChain,
-} from "../daemon/conversation-runtime-assembly.js";
-import {
-  DEFAULT_INJECTOR_ORDER,
-  defaultInjectorsPlugin,
-} from "../plugins/defaults/injectors.js";
+// This test exercises v1 PKB injection. `config.memory.v2.enabled`
+// (default `true`) makes the PKB injector go silent — force it off here
+// so the v1 injection chain assertions stay meaningful.
+const realLoader = await import("../config/loader.js");
+const realGetConfig = realLoader.getConfig;
+mock.module("../config/loader.js", () => ({
+  ...realLoader,
+  getConfig: () => {
+    const real = realGetConfig();
+    return {
+      ...real,
+      memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
+    };
+  },
+}));
 
-// This test exercises v1 PKB injection. The `memory-v2-enabled` flag
-// (registry default `true`) makes the PKB injector go silent — disable it
-// here so the v1 injection chain assertions stay meaningful.
-_setOverridesForTesting({ "memory-v2-enabled": false });
+const { applyRuntimeInjections, composeInjectorChain } = await import(
+  "../daemon/conversation-runtime-assembly.js"
+);
+const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } = await import(
+  "../plugins/defaults/injectors.js"
+);
 import {
   getInjectors,
   registerPlugin,

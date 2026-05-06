@@ -11,7 +11,6 @@ import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
 } from "./cleanup-schedule-state.js";
-import { isMemoryV2ReadActive } from "./context-search/sources/memory-v2.js";
 import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
@@ -623,8 +622,8 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
  * Enqueue periodic graph maintenance jobs.
  *
  * Mutually exclusive between v1 and v2:
- *   - v2 active (both `memory-v2-enabled` flag and `memory.v2.enabled`
- *     config on) → only `memory_v2_consolidate` is scheduled.
+ *   - v2 active (`memory.v2.enabled` on) → only `memory_v2_consolidate` is
+ *     scheduled.
  *   - v2 inactive → the four v1 entries (decay, consolidate, pattern_scan,
  *     narrative) are scheduled instead.
  *
@@ -643,7 +642,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): void {
-  const v2Active = isMemoryV2ReadActive(config);
+  const v2Active = config.memory.v2.enabled;
 
   const schedule: Array<{
     key: string;

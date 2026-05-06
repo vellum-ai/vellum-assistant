@@ -8,13 +8,13 @@
  * only surface its config and provide an on-demand trigger for the Settings UI.
  *
  * `available` mirrors the filing route's `available` field: it reflects which
- * background memory job is active for this instance. When `memory-v2-enabled`
- * is off, consolidation returns `available: false` and the UI hides the row.
+ * background memory job is active for this instance. When
+ * `config.memory.v2.enabled` is false, consolidation returns
+ * `available: false` and the UI hides the row.
  */
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
 import {
@@ -26,7 +26,7 @@ import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function isConsolidationAvailable(): boolean {
-  return isAssistantFeatureFlagEnabled("memory-v2-enabled", getConfig());
+  return getConfig().memory.v2.enabled;
 }
 
 function consolidationIntervalMs(): number {
@@ -66,14 +66,13 @@ export const ROUTES: RouteDefinition[] = [
       success: z.boolean(),
     }),
     handler: async (_args: RouteHandlerArgs) => {
-      const available = isConsolidationAvailable();
-      const v2Config = getConfig().memory.v2;
+      const enabled = getConfig().memory.v2.enabled;
       const intervalMs = consolidationIntervalMs();
       const lastRunAt = readLastRunAt();
       const nextRunAt = lastRunAt != null ? lastRunAt + intervalMs : null;
       return {
-        available,
-        enabled: available && v2Config.enabled,
+        available: enabled,
+        enabled,
         intervalMs,
         nextRunAt,
         lastRunAt,
@@ -99,7 +98,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: async (_args: RouteHandlerArgs) => {
       if (!isConsolidationAvailable()) {
         throw new BadRequestError(
-          "Consolidation is not available (memory-v2-enabled is off)",
+          "Consolidation is not available (memory.v2.enabled is false)",
         );
       }
       // Coalesce: don't pile up duplicate jobs if the worker hasn't picked up

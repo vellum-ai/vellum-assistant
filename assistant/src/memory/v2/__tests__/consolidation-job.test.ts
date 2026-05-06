@@ -1,10 +1,10 @@
 /**
  * Tests for `assistant/src/memory/v2/consolidation-job.ts`.
  *
- * Coverage matrix (from PR 20 acceptance criteria):
- *   - Flag off → no provider/wake calls; returns flag_off.
- *   - Flag on, empty buffer → no wake call; returns empty_buffer.
- *   - Flag on, non-empty buffer → bootstrap conversation, wake invoked with
+ * Coverage matrix:
+ *   - v2 disabled in config → no provider/wake calls; returns disabled.
+ *   - v2 on, empty buffer → no wake call; returns empty_buffer.
+ *   - v2 on, non-empty buffer → bootstrap conversation, wake invoked with
  *     the cutoff-templated prompt, follow-up jobs enqueued.
  *   - Lock file already present → second call returns locked; first call's
  *     in-flight semantics preserved by leaving the lock in place.
@@ -27,7 +27,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
-  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -129,19 +128,18 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { _setOverridesForTesting } =
-  await import("../../../config/assistant-feature-flags.js");
 const { memoryV2ConsolidateJob } = await import("../consolidation-job.js");
 const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 
-// `isAssistantFeatureFlagEnabled` ignores the `config` argument it receives
-// (resolution is purely from the overrides + registry caches), and the
-// resolver only reads `config.memory.v2.consolidation_prompt_path` — so a
-// minimal stand-in covers both call sites without materializing the full
-// default config.
+// The resolver only reads `config.memory.v2.enabled` and
+// `config.memory.v2.consolidation_prompt_path`, so a minimal stand-in
+// covers both call sites without materializing the full default config.
 const CONFIG = {
-  memory: { v2: { consolidation_prompt_path: null } },
+  memory: { v2: { enabled: true, consolidation_prompt_path: null } },
+} as Parameters<typeof memoryV2ConsolidateJob>[1];
+const CONFIG_DISABLED = {
+  memory: { v2: { enabled: false, consolidation_prompt_path: null } },
 } as Parameters<typeof memoryV2ConsolidateJob>[1];
 
 function makeJob(): Parameters<typeof memoryV2ConsolidateJob>[0] {
@@ -187,34 +185,25 @@ beforeEach(() => {
   wakeReason = undefined;
 });
 
-afterEach(() => {
-  _setOverridesForTesting({});
-});
-
 // ---------------------------------------------------------------------------
 
-describe("memoryV2ConsolidateJob — flag off", () => {
-  test("returns flag_off without invoking the wake when flag is off", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
+describe("memoryV2ConsolidateJob — v2 disabled", () => {
+  test("returns disabled without invoking the wake when memory.v2.enabled is false", async () => {
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
 
-    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG_DISABLED);
 
-    expect(result).toEqual({ kind: "flag_off" });
+    expect(result).toEqual({ kind: "disabled" });
     expect(bootstrapCalls).toBe(0);
     expect(wakeCalls).toBe(0);
     expect(enqueuedJobs).toHaveLength(0);
-    // Lock must NOT linger on the flag-off path — the handler bailed before
+    // Lock must NOT linger on the disabled path — the handler bailed before
     // the lock was acquired.
     expect(existsSync(lockPath())).toBe(false);
   });
 });
 
-describe("memoryV2ConsolidateJob — flag on, empty buffer", () => {
-  beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
-  });
-
+describe("memoryV2ConsolidateJob — empty buffer", () => {
   test("returns empty_buffer when buffer.md is missing", async () => {
     expect(existsSync(bufferPath())).toBe(false);
 
@@ -244,9 +233,8 @@ describe("memoryV2ConsolidateJob — flag on, empty buffer", () => {
   });
 });
 
-describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
+describe("memoryV2ConsolidateJob — non-empty buffer", () => {
   beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     writeFileSync(
       bufferPath(),
       "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
@@ -288,7 +276,9 @@ describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
       "CUSTOM CONSOLIDATION at {{CUTOFF}}\n",
     );
     const overrideConfig = {
-      memory: { v2: { consolidation_prompt_path: "custom-prompt.md" } },
+      memory: {
+        v2: { enabled: true, consolidation_prompt_path: "custom-prompt.md" },
+      },
     } as Parameters<typeof memoryV2ConsolidateJob>[1];
 
     const result = await memoryV2ConsolidateJob(makeJob(), overrideConfig);
@@ -368,7 +358,6 @@ describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
 
 describe("memoryV2ConsolidateJob — concurrent invocations", () => {
   beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
   });
 

@@ -1,19 +1,16 @@
 /**
  * Tests for v1/v2 mutual exclusion in `maybeEnqueueGraphMaintenanceJobs`.
  *
- * The schedule is now mutually exclusive: when both the `memory-v2-enabled`
- * flag and `memory.v2.enabled` config are on, only `memory_v2_consolidate`
- * is scheduled; otherwise the four v1 entries (decay, consolidate,
- * pattern_scan, narrative) fire and the v2 entry does not.
+ * The schedule is mutually exclusive: when `memory.v2.enabled` is true,
+ * only `memory_v2_consolidate` is scheduled; otherwise the four v1
+ * entries (decay, consolidate, pattern_scan, narrative) fire and the v2
+ * entry does not.
  *
  * Coverage:
- *   - Flag off → only v1 entries fire (no `memory_v2_consolidate`).
- *   - Flag on + config off → only v1 entries fire.
- *   - Flag on + config on, no prior checkpoint → only the v2 entry fires.
- *   - Flag on + config on, recent checkpoint → no v2 row (interval not
- *     yet elapsed).
- *   - Flag on + config on, stale checkpoint → v2 row enqueued, checkpoint
- *     refreshed.
+ *   - Config off → only v1 entries fire (no `memory_v2_consolidate`).
+ *   - Config on, no prior checkpoint → only the v2 entry fires.
+ *   - Config on, recent checkpoint → no v2 row (interval not yet elapsed).
+ *   - Config on, stale checkpoint → v2 row enqueued, checkpoint refreshed.
  *
  * The sweep job is intentionally NOT scheduled here: it is wired into the
  * `graph_extract` debounce in `indexer.ts`. Those triggers are covered by
@@ -27,7 +24,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
-  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -69,8 +65,6 @@ const { getDb } = await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
 const { resetTestTables } = await import("../raw-query.js");
 const { memoryJobs } = await import("../schema.js");
-const { _setOverridesForTesting } =
-  await import("../../config/assistant-feature-flags.js");
 const { applyNestedDefaults } = await import("../../config/loader.js");
 const { setMemoryCheckpoint, deleteMemoryCheckpoint } =
   await import("../checkpoints.js");
@@ -111,26 +105,10 @@ beforeEach(() => {
   resetTestTables("memory_jobs", "memory_checkpoints");
 });
 
-afterEach(() => {
-  _setOverridesForTesting({});
-});
-
 // ---------------------------------------------------------------------------
 
 describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
-  test("does not enqueue consolidate when memory-v2-enabled flag is off", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
-    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
-
-    // Force the interval to look elapsed. If the gate failed open, this
-    // would be enough to enqueue a job.
-    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
-
-    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
-  });
-
   test("does not enqueue consolidate when config.memory.v2.enabled is off", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     const config = buildConfig({ v2Enabled: false, intervalHours: 1 });
 
     maybeEnqueueGraphMaintenanceJobs(config, Date.now());
@@ -138,8 +116,7 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
   });
 
-  test("enqueues consolidate when both gates are on and no checkpoint exists", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("enqueues consolidate when v2 is on and no checkpoint exists", () => {
     const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
 
     maybeEnqueueGraphMaintenanceJobs(config, Date.now());
@@ -153,7 +130,6 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
   });
 
   test("does not enqueue consolidate before the interval has elapsed", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
 
     const now = Date.now();
@@ -166,7 +142,6 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
   });
 
   test("enqueues consolidate again once the interval elapses", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
 
     const now = Date.now();
@@ -182,7 +157,6 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
   });
 
   test("respects a custom consolidation_interval_hours value", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     const config = buildConfig({ v2Enabled: true, intervalHours: 6 });
 
     const now = Date.now();
@@ -206,7 +180,6 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
   });
 
   test("v1 maintenance entries are suppressed when v2 is active", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
 
     // No checkpoints set — every entry would be due if it were scheduled.
@@ -225,27 +198,7 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
   });
 
-  test("flag-off path fires v1 entries and does not enqueue v2", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
-    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
-
-    deleteMemoryCheckpoint("graph_maintenance:decay:last_run");
-    deleteMemoryCheckpoint("graph_maintenance:consolidate:last_run");
-    deleteMemoryCheckpoint("graph_maintenance:pattern_scan:last_run");
-    deleteMemoryCheckpoint("graph_maintenance:narrative:last_run");
-    deleteMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY);
-
-    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
-
-    expect(countPendingJobs("graph_decay")).toBe(1);
-    expect(countPendingJobs("graph_consolidate")).toBe(1);
-    expect(countPendingJobs("graph_pattern_scan")).toBe(1);
-    expect(countPendingJobs("graph_narrative_refine")).toBe(1);
-    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
-  });
-
-  test("config-gate-off path fires v1 entries and does not enqueue v2", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("v2-off path fires v1 entries and does not enqueue v2", () => {
     const config = buildConfig({ v2Enabled: false, intervalHours: 1 });
 
     deleteMemoryCheckpoint("graph_maintenance:decay:last_run");

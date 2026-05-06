@@ -8,7 +8,6 @@
 
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
@@ -654,8 +653,8 @@ export class ConversationGraphMemory {
   }
 
   /**
-   * Run the v2 activation pipeline when the `memory-v2-enabled` feature flag
-   * *and* the workspace config (`memory.v2.enabled`) are both on.
+   * Run the v2 activation pipeline when the workspace config
+   * (`memory.v2.enabled`) is on.
    *
    * The two outcomes the caller distinguishes via `routed`:
    *   - `routed: false` — v2 disabled; caller falls through to the legacy v1
@@ -677,10 +676,7 @@ export class ConversationGraphMemory {
     runMessages: Message[];
     injectedBlockText: string | null;
   }> {
-    if (
-      !isAssistantFeatureFlagEnabled("memory-v2-enabled", config) ||
-      !config.memory.v2.enabled
-    ) {
+    if (!config.memory.v2.enabled) {
       return { routed: false, runMessages: messages, injectedBlockText: null };
     }
 

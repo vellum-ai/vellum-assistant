@@ -9,7 +9,6 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
 import { processMessage } from "../daemon/process-message.js";
-import { isMemoryV2ReadActive } from "../memory/context-search/sources/memory-v2.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -115,7 +114,7 @@ export class FilingService {
 
   start(): void {
     const fullConfig = getConfig();
-    if (isMemoryV2ReadActive(fullConfig)) {
+    if (fullConfig.memory.v2.enabled) {
       log.info("Filing service disabled — memory v2 is active");
       this._nextRunAt = null;
       this._nextCompactionAt = null;

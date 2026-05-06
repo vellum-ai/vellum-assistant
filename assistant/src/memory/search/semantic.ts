@@ -1,7 +1,6 @@
 import { inArray } from "drizzle-orm";
 
 import { getConfig } from "../../config/loader.js";
-import { isMemoryV2ReadActive } from "../context-search/sources/memory-v2.js";
 import { getDb } from "../db-connection.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import type {
@@ -56,10 +55,10 @@ export async function semanticSearch(
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
-  // v2 owns the read path when both gates are on; the v1 `memory` collection
-  // is in active retirement, and routing semantic recall there would re-enter
-  // the same corrupted sparse segments that can OOM-crash Qdrant.
-  if (isMemoryV2ReadActive(getConfig())) return [];
+  // v2 owns the read path when enabled; the v1 `memory` collection is in
+  // active retirement, and routing semantic recall there would re-enter the
+  // same corrupted sparse segments that can OOM-crash Qdrant.
+  if (getConfig().memory.v2.enabled) return [];
 
   const qdrant = getQdrantClient();
 
