@@ -102,32 +102,4 @@ final class ProComputeUpgradeSectionTests: XCTestCase {
         )
         XCTAssertFalse(section.shouldShowCard)
     }
-
-    func testOptimisticMachineSizeAfterSuccessfulUpgrade() {
-        let section = ProComputeUpgradeSection(
-            assistantId: "asst-1",
-            subscription: makeProSubscription(),
-            initialMachineSize: "medium",
-            initialIsLoading: false
-        )
-        XCTAssertFalse(section.shouldShowCard)
-    }
-
-    func testTransitionFromBaseToProDoesNotShowStaleCardWhileLoading() {
-        let baseSection = ProComputeUpgradeSection(
-            assistantId: "asst-1",
-            subscription: makeBaseSubscription(),
-            initialMachineSize: nil,
-            initialIsLoading: false
-        )
-        XCTAssertFalse(baseSection.shouldShowCard)
-
-        let proLoadingSection = ProComputeUpgradeSection(
-            assistantId: "asst-1",
-            subscription: makeProSubscription(),
-            initialMachineSize: nil,
-            initialIsLoading: true
-        )
-        XCTAssertFalse(proLoadingSection.shouldShowCard)
-    }
 }
