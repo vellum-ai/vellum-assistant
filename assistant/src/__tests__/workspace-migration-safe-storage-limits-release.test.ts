@@ -12,7 +12,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { releaseNotesSafeStorageLimitsMigration } from "../workspace/migrations/067-release-notes-safe-storage-limits.js";
 
 const MIGRATION_ID = "067-release-notes-safe-storage-limits";
-const MARKER = `<!-- release-note-id:${MIGRATION_ID} -->`;
 
 let workspaceDir: string;
 
@@ -26,10 +25,6 @@ function freshWorkspace(): void {
 
 function updatesPath(): string {
   return join(workspaceDir, "UPDATES.md");
-}
-
-function markerCount(content: string): number {
-  return content.split(MARKER).length - 1;
 }
 
 beforeEach(() => {
@@ -47,44 +42,37 @@ describe("workspace migration 067-release-notes-safe-storage-limits", () => {
     expect(releaseNotesSafeStorageLimitsMigration.id).toBe(MIGRATION_ID);
   });
 
-  test("creates UPDATES.md with marker and key copy when file is absent", () => {
+  test("does not create UPDATES.md when file is absent", () => {
     expect(existsSync(updatesPath())).toBe(false);
 
     releaseNotesSafeStorageLimitsMigration.run(workspaceDir);
 
-    const content = readFileSync(updatesPath(), "utf-8");
-    expect(content).toContain(MARKER);
-    expect(content).toContain("safe-storage-limits");
-    expect(content).toContain("critical 95% threshold");
-    expect(content).toContain("trusted-contact messages");
+    expect(existsSync(updatesPath())).toBe(false);
   });
 
-  test("is idempotent when run twice", () => {
-    releaseNotesSafeStorageLimitsMigration.run(workspaceDir);
+  test("leaves existing UPDATES.md byte-identical", () => {
+    const existing = "## Prior\n\nExisting release note.\n";
+    writeFileSync(updatesPath(), existing, "utf-8");
+
     releaseNotesSafeStorageLimitsMigration.run(workspaceDir);
 
-    const content = readFileSync(updatesPath(), "utf-8");
-    expect(markerCount(content)).toBe(1);
-    expect(content.match(/Safe storage limits/g)?.length).toBe(1);
+    expect(readFileSync(updatesPath(), "utf-8")).toBe(existing);
   });
 
-  test("appends to existing UPDATES.md when marker is absent", () => {
-    const prior = "## Prior\n\nExisting release note.\n";
-    writeFileSync(updatesPath(), prior, "utf-8");
-
+  test("is idempotent when run twice in an empty workspace", () => {
+    releaseNotesSafeStorageLimitsMigration.run(workspaceDir);
     releaseNotesSafeStorageLimitsMigration.run(workspaceDir);
 
-    const content = readFileSync(updatesPath(), "utf-8");
-    expect(content.startsWith(prior)).toBe(true);
-    expect(content).toContain(MARKER);
+    expect(existsSync(updatesPath())).toBe(false);
   });
 
-  test("is a no-op when marker is already present", () => {
-    const seeded = `## Prior\n\n${MARKER}\nAlready announced.\n`;
-    writeFileSync(updatesPath(), seeded, "utf-8");
+  test("is idempotent when run twice with existing UPDATES.md", () => {
+    const existing = "## Prior\n\nExisting release note.\n";
+    writeFileSync(updatesPath(), existing, "utf-8");
 
     releaseNotesSafeStorageLimitsMigration.run(workspaceDir);
+    releaseNotesSafeStorageLimitsMigration.run(workspaceDir);
 
-    expect(readFileSync(updatesPath(), "utf-8")).toBe(seeded);
+    expect(readFileSync(updatesPath(), "utf-8")).toBe(existing);
   });
 });
