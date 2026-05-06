@@ -365,6 +365,11 @@ function extractSegments(node: TSNode, source: string): CommandSegment[] {
         let isRecovery = recoverySibling;
         if (!isRecovery) {
           for (let i = 1; i < statementChildren.length; i++) {
+            // web-tree-sitter exposes startIndex/endIndex as UTF-16
+            // code-unit positions on the original source string (not
+            // UTF-8 byte offsets like the C/Rust core). They line up
+            // with `source.slice(...)` directly — verified by the
+            // non-ASCII regression tests below.
             const gap = source.slice(
               statementChildren[i - 1].endIndex,
               statementChildren[i].startIndex,
@@ -465,12 +470,24 @@ function extractSegments(node: TSNode, source: string): CommandSegment[] {
       case "while_statement":
       case "for_statement":
       case "case_statement":
-      case "function_definition":
-      case "negated_command": {
+      case "function_definition": {
         // Descending into a nested execution context — bump depth so any
         // segments emitted from this subtree are marked synthetic.
         for (const child of n.namedChildren) {
           walkNode(child, operator, nestingDepth + 1, recoverySibling);
+        }
+        break;
+      }
+
+      case "negated_command": {
+        // `! cmd` is a prefix operator that negates the pipeline's exit
+        // status; it is NOT a nested execution context. The user still
+        // typed the inner commands at the top level, so they must keep
+        // their parent's nesting depth (otherwise `! ls` and similar
+        // lose their `ls *` wildcard scope option in the trust-rule
+        // editor).
+        for (const child of n.namedChildren) {
+          walkNode(child, operator, nestingDepth, recoverySibling);
         }
         break;
       }

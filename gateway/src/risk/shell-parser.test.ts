@@ -711,5 +711,44 @@ describe("Shell Parser", () => {
       expect(rmSeg!.synthetic).toBe(true);
       expect(rmSeg!.args).toEqual(["-rf", "/"]);
     });
+
+    test("non-ASCII text before a separator does not trigger spurious recovery", async () => {
+      // Regression: tree-sitter byte offsets vs. JS UTF-16 code units.
+      // For `echo café; ls`, the `é` is 2 bytes in UTF-8 but 1 code
+      // unit in JS — using `source.slice(byteStart, byteEnd)` shifts
+      // the gap window and misses the `;`, marking both siblings as
+      // synthetic.
+      const result = await parse("echo café; ls");
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+      const programs = result.segments.map((s) => s.program);
+      expect(programs).toEqual(["echo", "ls"]);
+    });
+
+    test("multi-byte emoji before a separator does not trigger spurious recovery", async () => {
+      // 🎉 is 4 bytes in UTF-8 (and 2 UTF-16 code units), exercising
+      // the surrogate-pair branch of the byte-vs-code-unit fix.
+      const result = await parse("echo 🎉; pwd");
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+      const programs = result.segments.map((s) => s.program);
+      expect(programs).toEqual(["echo", "pwd"]);
+    });
+
+    test("`! cmd` does NOT mark the inner command synthetic", async () => {
+      // `negated_command` is a prefix operator on a pipeline, not a
+      // nested execution context. The user typed `ls` at the top level;
+      // it must retain its `ls *` wildcard scope option.
+      const result = await parse("! ls foo");
+      const lsSeg = result.segments.find((s) => s.program === "ls");
+      expect(lsSeg).toBeDefined();
+      expect(lsSeg!.synthetic).toBeFalsy();
+    });
+
+    test("`! pipeline` keeps every segment non-synthetic", async () => {
+      const result = await parse("! ls | grep foo");
+      const programs = result.segments.map((s) => s.program);
+      expect(programs).toContain("ls");
+      expect(programs).toContain("grep");
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+    });
   });
 });
