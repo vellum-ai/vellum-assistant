@@ -34,11 +34,18 @@ final class ReturningUserRouterTests: XCTestCase {
         lockfile: [LockfileAssistant] = [],
         orgId: String? = nil,
         platformResult: Result<[PlatformAssistant], Error>? = nil,
+        resolveOrgResult: Result<String, Error>? = nil,
         multiAssistantFlag: Bool = false
     ) -> ReturningUserRouter {
-        let mockAuth: MockAuthService? = platformResult.map { result in
-            MockAuthService(listResult: result)
-        }
+        // Build a mock auth service if either the list result OR an explicit
+        // resolveOrg result is supplied. This lets tests exercise the
+        // "auth service present but no cached org ID" path.
+        let mockAuth: MockAuthService? = (platformResult != nil || resolveOrgResult != nil)
+            ? MockAuthService(
+                listResult: platformResult ?? .success([]),
+                resolveOrgResult: resolveOrgResult ?? .failure(StubError.notStubbed)
+            )
+            : nil
         return ReturningUserRouter(
             organizationIdProvider: { orgId },
             authServiceProvider: { mockAuth },
@@ -46,6 +53,8 @@ final class ReturningUserRouterTests: XCTestCase {
             multiAssistantFlagProvider: { multiAssistantFlag }
         )
     }
+
+    private enum StubError: Error { case notStubbed }
 
     // MARK: - decideFast
 
@@ -208,11 +217,62 @@ final class ReturningUserRouterTests: XCTestCase {
         XCTAssertEqual(decision, .showHostingPicker)
     }
 
-    func testNoOrgIdSkipsPlatformFetch() async throws {
+    func testNoOrgIdAndNoAuthServiceSkipsPlatformFetch() async throws {
+        // No auth service injected → router can't even attempt to resolve
+        // an org, so the platform fetch is skipped entirely.
         let router = makeRouter(lockfile: [makeLocalAssistant()], orgId: nil)
         let landscape = try await router.fetchLandscape()
         XCTAssertFalse(landscape.platformWasConsulted)
         XCTAssertEqual(landscape.totalCount, 1)
+    }
+
+    func testNoCachedOrgResolvesViaAuthService() async throws {
+        // Reproduces the post-login race that broke the staging DMG even
+        // after #29855 landed: AuthManager flips `state = .authenticated`
+        // and SwiftUI observers spawn Tasks that call fetchLandscape()
+        // *before* `resolveOrganizationIdAfterAuth` has persisted
+        // `connectedOrganizationId` to UserDefaults. The router should
+        // resolve the org itself via the auth service rather than silently
+        // skipping the platform fetch and dumping the user at the hosting
+        // selector.
+        let router = makeRouter(
+            lockfile: [],
+            orgId: nil,
+            platformResult: .success([makePlatformAssistant(id: "p-1")]),
+            resolveOrgResult: .success("org-resolved")
+        )
+        let landscape = try await router.fetchLandscape()
+        XCTAssertTrue(landscape.platformWasConsulted)
+        XCTAssertEqual(landscape.platformAssistants.map(\.id), ["p-1"])
+    }
+
+    func testNoCachedOrgAndResolveFailsSkipsPlatformFetch() async throws {
+        // If org resolution itself fails (transient network error), we
+        // must NOT report platformWasConsulted=true with an empty list —
+        // that would let LockfileReconciler wipe legitimate managed entries.
+        let router = makeRouter(
+            lockfile: [makeManagedAssistant()],
+            orgId: nil,
+            resolveOrgResult: .failure(URLError(.timedOut))
+        )
+        let landscape = try await router.fetchLandscape()
+        XCTAssertFalse(landscape.platformWasConsulted)
+        XCTAssertEqual(landscape.lockfileAssistants.count, 1)
+    }
+
+    func testCachedOrgIdSkipsResolveCall() async throws {
+        // When the org ID is already cached we should NOT call resolveOrg
+        // again — the resolve mock is wired to fail, so reaching it would
+        // surface as platformWasConsulted=false, not the .success below.
+        let router = makeRouter(
+            lockfile: [],
+            orgId: "org-cached",
+            platformResult: .success([makePlatformAssistant(id: "p-1")]),
+            resolveOrgResult: .failure(URLError(.timedOut))
+        )
+        let landscape = try await router.fetchLandscape()
+        XCTAssertTrue(landscape.platformWasConsulted)
+        XCTAssertEqual(landscape.platformAssistants.map(\.id), ["p-1"])
     }
 
     // MARK: - Landscape helpers
@@ -249,18 +309,26 @@ final class ReturningUserRouterTests: XCTestCase {
 @MainActor
 private final class MockAuthService: ManagedAssistantBootstrapAuthServicing {
     private let listResult: Result<[PlatformAssistant], Error>
+    private let resolveOrgResult: Result<String, Error>
 
-    init(listResult: Result<[PlatformAssistant], Error>) {
+    init(
+        listResult: Result<[PlatformAssistant], Error>,
+        resolveOrgResult: Result<String, Error>
+    ) {
         self.listResult = listResult
+        self.resolveOrgResult = resolveOrgResult
     }
 
     func listAssistants(organizationId: String) async throws -> [PlatformAssistant] {
         try listResult.get()
     }
 
+    func resolveOrganizationId() async throws -> String {
+        try resolveOrgResult.get()
+    }
+
     // Unused by router — stubs only.
     func getOrganizations() async throws -> [PlatformOrganization] { [] }
-    func resolveOrganizationId() async throws -> String { "" }
     func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
         fatalError("Not used by ReturningUserRouter")
     }

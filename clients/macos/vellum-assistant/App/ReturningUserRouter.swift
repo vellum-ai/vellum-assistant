@@ -113,17 +113,45 @@ final class ReturningUserRouter {
     }
 
     /// Fetch the assistant landscape from both sources.
+    ///
+    /// When `organizationIdProvider()` returns nil (e.g. the post-login
+    /// race where `AuthManager` flips `state = .authenticated` *before*
+    /// awaiting `resolveOrganizationIdAfterAuth`, so SwiftUI observers
+    /// can fire and call `fetchLandscape` while `connectedOrganizationId`
+    /// hasn't been persisted to `UserDefaults` yet), we resolve the org
+    /// via the auth service ourselves. This makes the router self-
+    /// sufficient instead of silently skipping the platform fetch and
+    /// forcing every caller to sequence the org resolution upstream.
     func fetchLandscape() async throws -> AssistantLandscape {
         let lockfile = lockfileLoader()
 
-        guard let orgId = organizationIdProvider(),
-              let authService = authServiceProvider() else {
-            log.info("fetchLandscape: no org ID or auth service — skipping platform fetch")
+        guard let authService = authServiceProvider() else {
+            log.info("fetchLandscape: no auth service — skipping platform fetch")
             return AssistantLandscape(
                 lockfileAssistants: lockfile,
                 platformAssistants: [],
                 platformWasConsulted: false
             )
+        }
+
+        let orgId: String
+        if let cached = organizationIdProvider() {
+            orgId = cached
+        } else {
+            log.info("fetchLandscape: no cached org ID — resolving from auth service")
+            do {
+                orgId = try await authService.resolveOrganizationId()
+                log.info("fetchLandscape: resolved org \(orgId, privacy: .public)")
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                log.warning("fetchLandscape: org resolution failed — \(error.localizedDescription, privacy: .public)")
+                return AssistantLandscape(
+                    lockfileAssistants: lockfile,
+                    platformAssistants: [],
+                    platformWasConsulted: false
+                )
+            }
         }
 
         do {
