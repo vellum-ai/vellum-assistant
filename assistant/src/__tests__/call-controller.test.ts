@@ -3,6 +3,7 @@ import {
   beforeEach,
   describe,
   expect,
+  jest,
   type Mock,
   mock,
   test,
@@ -127,6 +128,7 @@ function createMockVoiceTurn(tokens: string[]) {
     assistantId?: string;
     onTextDelta: (text: string) => void;
     onToolUse?: (toolName: string, input: Record<string, unknown>) => void;
+    onToolResult?: (toolName: string, toolUseId?: string) => void;
     onComplete: () => void;
     onError: (message: string) => void;
     signal?: AbortSignal;
@@ -530,6 +532,69 @@ describe("call-controller", () => {
     });
 
     controller.destroy();
+  });
+
+  test("handleCallerUtterance: reassures caller during long silent tool use", async () => {
+    jest.useFakeTimers();
+    let finishTurn = (): void => {
+      throw new Error("Voice turn has not started");
+    };
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        onToolUse?: (
+          toolName: string,
+          input: Record<string, unknown>,
+          toolUseId?: string,
+        ) => void;
+        onToolResult?: (toolName: string, toolUseId?: string) => void;
+        onComplete: () => void;
+        signal?: AbortSignal;
+      }) => {
+        if (opts.signal?.aborted) {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          throw err;
+        }
+        opts.onToolUse?.("web_search", { query: "store hours" }, "tool-1");
+        return new Promise((resolve) => {
+          finishTurn = () => {
+            opts.onToolResult?.("web_search", "tool-1");
+            opts.onComplete();
+            resolve({
+              turnId: "long-tool-run",
+              abort: () => {},
+            });
+          };
+        });
+      },
+    );
+    const { relay, controller } = setupController();
+
+    try {
+      const turnPromise = controller.handleCallerUtterance(
+        "Can you check their hours?",
+      );
+      await Promise.resolve();
+
+      expect(relay.sentTokens).not.toContainEqual({
+        token: "I'm still working on that.",
+        last: true,
+      });
+
+      jest.advanceTimersByTime(20_000);
+      await Promise.resolve();
+
+      expect(relay.sentTokens).toContainEqual({
+        token: "I'm still working on that.",
+        last: true,
+      });
+
+      finishTurn();
+      await turnPromise;
+    } finally {
+      controller.destroy();
+      jest.useRealTimers();
+    }
   });
 
   test("handleCallerUtterance: sends last=true at end of turn", async () => {

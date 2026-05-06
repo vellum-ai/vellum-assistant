@@ -269,6 +269,44 @@ describe("voice-session-bridge", () => {
     ]);
   });
 
+  test("startVoiceTurn forwards tool results to onToolResult callback", async () => {
+    const conversation = createConversation("voice bridge tool-result test");
+    const events: ServerMessage[] = [
+      {
+        type: "tool_result",
+        toolName: "web_search",
+        result: "Open until 6 PM",
+        conversationId: conversation.id,
+        toolUseId: "tool-1",
+      },
+      { type: "message_complete", conversationId: conversation.id },
+    ];
+    const session = makeStreamingSession(events);
+    injectDeps(() => session);
+
+    const toolResults: Array<{
+      toolName: string;
+      toolUseId?: string;
+    }> = [];
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: "Hello from caller",
+      isInbound: true,
+      onTextDelta: () => {},
+      onToolResult: (toolName, toolUseId) =>
+        toolResults.push({ toolName, toolUseId }),
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(toolResults).toEqual([
+      { toolName: "web_search", toolUseId: "tool-1" },
+    ]);
+  });
+
   test("startVoiceTurn forwards error events to onError callback", async () => {
     const conversation = createConversation("voice bridge error test");
     const events: ServerMessage[] = [

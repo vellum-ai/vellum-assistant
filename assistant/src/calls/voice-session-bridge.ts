@@ -87,7 +87,12 @@ export interface VoiceRunEventSink {
     >,
   ): void;
   onError(message: string): void;
-  onToolUse(toolName: string, input: Record<string, unknown>): void;
+  onToolUse(
+    toolName: string,
+    input: Record<string, unknown>,
+    toolUseId?: string,
+  ): void;
+  onToolResult(toolName: string, toolUseId?: string): void;
 }
 
 export interface VoiceTurnCallbacks {
@@ -138,7 +143,13 @@ export interface VoiceTurnOptions {
   /** Called for each streaming text token from the agent loop. */
   onTextDelta?: (text: string) => void;
   /** Called when the agent loop is about to execute a tool. */
-  onToolUse?: (toolName: string, input: Record<string, unknown>) => void;
+  onToolUse?: (
+    toolName: string,
+    input: Record<string, unknown>,
+    toolUseId?: string,
+  ) => void;
+  /** Called when the agent loop receives a tool result. */
+  onToolResult?: (toolName: string, toolUseId?: string) => void;
   /** Called when the agent loop completes a full response. */
   onComplete?: () => void;
   /** Called when the agent loop encounters an error. */
@@ -310,9 +321,13 @@ export async function startVoiceTurn(
     onError: (message) => {
       opts.onError?.(message);
     },
-    onToolUse: (toolName, input) => {
-      log.debug({ toolName, input }, "Voice turn tool_use event");
-      opts.onToolUse?.(toolName, input);
+    onToolUse: (toolName, input, toolUseId) => {
+      log.debug({ toolName, input, toolUseId }, "Voice turn tool_use event");
+      opts.onToolUse?.(toolName, input, toolUseId);
+    },
+    onToolResult: (toolName, toolUseId) => {
+      log.debug({ toolName, toolUseId }, "Voice turn tool_result event");
+      opts.onToolResult?.(toolName, toolUseId);
     },
   };
 
@@ -585,7 +600,9 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
-            eventSink.onToolUse(msg.toolName, msg.input);
+            eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
+          } else if (msg.type === "tool_result") {
+            eventSink.onToolResult(msg.toolName, msg.toolUseId);
           }
           // Note: tool_use_preview_start is intentionally not handled here.
           // Voice only reacts to the definitive tool_use_start event.

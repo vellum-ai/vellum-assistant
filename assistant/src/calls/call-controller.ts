@@ -73,6 +73,9 @@ const log = getLogger("call-controller");
 
 type ControllerState = "idle" | "processing" | "speaking";
 
+const VOICE_TOOL_STILL_WORKING_DELAY_MS = 20_000;
+const VOICE_TOOL_STILL_WORKING_MESSAGE = "I'm still working on that.";
+
 const VOICE_TOOL_PRELUDE_ACTIONS: Record<string, string> = {
   web_search: "look that up",
   web_fetch: "open that page",
@@ -623,6 +626,27 @@ export class CallController {
     let fullResponseText = "";
     let assistantSpeechQueued = false;
     let fallbackToolPreludeSpoken = false;
+    let activeToolCallCount = 0;
+    let stillWorkingTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearStillWorkingTimer = (): void => {
+      if (!stillWorkingTimer) return;
+      clearTimeout(stillWorkingTimer);
+      stillWorkingTimer = null;
+    };
+
+    const armStillWorkingTimer = (): void => {
+      clearStillWorkingTimer();
+      stillWorkingTimer = setTimeout(() => {
+        stillWorkingTimer = null;
+        if (!this.isCurrentRun(runVersion)) return;
+        if (runSignal.aborted || activeToolCallCount <= 0) return;
+        void speakSystemPrompt(
+          this.transport,
+          VOICE_TOOL_STILL_WORKING_MESSAGE,
+        );
+      }, VOICE_TOOL_STILL_WORKING_DELAY_MS);
+    };
 
     // When using the synthesized path, we accumulate all text and synthesize
     // the complete response at the end of the turn (better prosody).
@@ -696,12 +720,21 @@ export class CallController {
 
       const onToolUse = (toolName: string): void => {
         if (!this.isCurrentRun(runVersion)) return;
+        activeToolCallCount++;
+        armStillWorkingTimer();
         if (assistantSpeechQueued || fallbackToolPreludeSpoken) return;
         fallbackToolPreludeSpoken = true;
         void speakSystemPrompt(
           this.transport,
           formatVoiceToolPrelude(toolName),
         );
+      };
+
+      const onToolResult = (): void => {
+        activeToolCallCount = Math.max(0, activeToolCallCount - 1);
+        if (activeToolCallCount === 0) {
+          clearStillWorkingTimer();
+        }
       };
 
       // Start the voice turn through the session bridge
@@ -716,6 +749,7 @@ export class CallController {
         skipDisclosure: this.skipDisclosure,
         onTextDelta,
         onToolUse,
+        onToolResult,
         onComplete,
         onError,
         signal: runSignal,
@@ -749,7 +783,11 @@ export class CallController {
     // inside the Promise constructor before this await adds its handler.
     // The await below still re-throws, caught by the outer try-catch.
     turnComplete.catch(() => {});
-    await turnComplete;
+    try {
+      await turnComplete;
+    } finally {
+      clearStillWorkingTimer();
+    }
     if (!this.isCurrentRun(runVersion)) return fullResponseText;
 
     // Final sweep: strip any remaining control markers from the buffer
