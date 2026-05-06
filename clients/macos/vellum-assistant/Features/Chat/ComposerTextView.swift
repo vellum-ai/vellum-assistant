@@ -138,5 +138,15 @@ final class ComposerTextView: NSTextView {
         let hasImageData = pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil
         return hasImageFile || hasImageData
     }
+
+    // MARK: - Drag Rejection
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        return []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        return false
+    }
 }
 #endif
