@@ -49,6 +49,7 @@ struct ComposerSection: View, Equatable {
             && lhs.inferenceProfilePicker?.current == rhs.inferenceProfilePicker?.current
             && lhs.inferenceProfilePicker?.profiles == rhs.inferenceProfilePicker?.profiles
             && lhs.inferenceProfilePicker?.activeProfile == rhs.inferenceProfilePicker?.activeProfile
+            && lhs.inferenceProfilePicker?.canCreateProfile == rhs.inferenceProfilePicker?.canCreateProfile
             && (lhs.inferenceProfilePicker == nil) == (rhs.inferenceProfilePicker == nil)
     }
 
