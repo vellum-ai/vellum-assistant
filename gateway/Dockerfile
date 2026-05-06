@@ -57,4 +57,4 @@ EXPOSE 7830
 
 ENV GATEWAY_PORT=7830
 
-CMD ["bun", "run", "src/index.ts"]
+CMD ["bun", "--smol", "run", "src/index.ts"]
