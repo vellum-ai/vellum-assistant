@@ -1278,7 +1278,7 @@ graph TB
 - Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` or `SKILLS.md` files.
 - After persist or delete, the file watcher triggers conversation eviction; the next turn runs in a fresh conversation. The model's system prompt instructs it to continue normally.
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
-- `skill_load` validates the recursive include graph (via `include-graph.ts`) before emitting output. Missing children and cycles produce `isError: true` with no `<loaded_skill>` marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.
+- `skill_load` resolves the recursive include graph (via `include-graph.ts`) before emitting output. Missing children are listed as suggested skills without child `<loaded_skill>` markers; cycles still produce `isError: true` with no marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.
 
 ### Skills Authoring via HTTP
 
@@ -1289,32 +1289,33 @@ The Skills page in the macOS client can author managed skills through the daemon
 
 ### Include Graph Validation
 
-Skills can declare child relationships via the `includes` frontmatter field (a JSON array of skill IDs). When `skill_load` loads a parent skill, it validates the full recursive include graph before emitting output.
+Skills can declare child relationships via the `includes` frontmatter field (a JSON array of skill IDs). When `skill_load` loads a parent skill, it attempts to resolve and auto-install missing includes before emitting output. Available includes are appended to the loaded skill output; unavailable includes are surfaced as suggestions instead of blocking the parent skill.
 
 ```mermaid
 graph LR
     LOAD["skill_load(parent)"] --> CATALOG["loadSkillCatalog()"]
     CATALOG --> INDEX["indexCatalogById()"]
-    INDEX --> VALIDATE["validateIncludes(rootId, index)"]
-    VALIDATE -->|"ok"| OUTPUT["Emit output +<br/>Included Skills (immediate)<br/>+ loaded_skill marker"]
-    VALIDATE -->|"missing child"| ERR_MISSING["isError: true<br/>no loaded_skill marker"]
-    VALIDATE -->|"cycle detected"| ERR_CYCLE["isError: true<br/>no loaded_skill marker"]
+    INDEX --> AUTOINSTALL["Attempt catalog auto-install<br/>for missing includes"]
+    AUTOINSTALL --> RESOLVE["collectAllMissing(rootId, index)<br/>+ validateIncludeCycles(rootId, index)"]
+    RESOLVE -->|"ok + no missing child"| OUTPUT["Emit output +<br/>Included Skills (immediate)<br/>+ loaded_skill markers"]
+    RESOLVE -->|"ok + missing child"| OUTPUT_MISSING["Emit parent output +<br/>Suggested Included Skills<br/>without child markers"]
+    RESOLVE -->|"cycle detected"| ERR_CYCLE["isError: true<br/>no loaded_skill marker"]
 ```
 
 **Validation rules:**
 
-- **Missing children**: If any skill in the recursive graph references an `includes` ID not found in the catalog, validation fails with the full path from root to the missing reference.
+- **Missing children**: Missing includes trigger catalog auto-install attempts. Any include still unavailable is listed under "Suggested Included Skills (not loaded)" and does not receive a `<loaded_skill>` marker.
 - **Cycles**: Three-state DFS (unseen → visiting → done) detects direct and indirect cycles. The error includes the cycle path.
-- **Fail-closed**: On any validation error, `skill_load` returns `isError: true` with no `<loaded_skill>` marker, preventing the agent from using a skill with broken dependencies.
+- **Fail-closed cycles**: Circular include chains still return `isError: true` with no `<loaded_skill>` marker.
 
-**Key constraint**: Include metadata is metadata-only. Child skills are **not** auto-activated — the agent must explicitly call `skill_load` for each child. The `projectSkillTools()` function only projects tools for skills with explicit `<loaded_skill>` markers in conversation history.
+**Key constraint**: Include metadata is advisory. Available included skills are appended to the parent output and receive explicit `<loaded_skill>` markers; unavailable included skills remain suggestions so the agent can search for and install them if the task needs their guidance or tools.
 
-| Source File                             | Purpose                                                                                    |
-| --------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `assistant/src/skills/include-graph.ts` | `indexCatalogById()`, `getImmediateChildren()`, `validateIncludes()`, `traverseIncludes()` |
-| `assistant/src/tools/skills/load.ts`    | Include validation integration in `skill_load` execute path                                |
-| `assistant/src/config/skills.ts`        | `includes` field parsing from SKILL.md frontmatter                                         |
-| `assistant/src/skills/managed-store.ts` | `includes` emission in `buildSkillMarkdown()`                                              |
+| Source File                             | Purpose                                                                                                               |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/skills/include-graph.ts` | `indexCatalogById()`, `getImmediateChildren()`, `validateIncludes()`, `validateIncludeCycles()`, `traverseIncludes()` |
+| `assistant/src/tools/skills/load.ts`    | Include resolution integration in `skill_load` execute path                                                           |
+| `assistant/src/config/skills.ts`        | `includes` field parsing from SKILL.md frontmatter                                                                    |
+| `assistant/src/skills/managed-store.ts` | `includes` emission in `buildSkillMarkdown()`                                                                         |
 
 ---
 
@@ -1358,16 +1359,15 @@ skills/<skill-id>/
 
 The following capabilities ship as bundled skills in `assistant/src/config/bundled-skills/`:
 
-| Skill ID          | Tools                                                                                                                                                                                                                                                             | Purpose                                                                                                                                                                                                                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `browser`         | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`                                                             | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules)                                                                                                                                |
-| `gmail`           | Gmail search, archive, send, etc.                                                                                                                                                                                                                                 | Email management via OAuth2 integration                                                                                                                                                                                                                                                              |
-| `computer-use`    | `computer_use_observe`, `computer_use_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_wait`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_done`, `computer_use_respond` | Computer-use proxy tools — preactivated via `preactivatedSkillIds` in desktop sessions. Each tool forwards actions to the connected macOS client via `HostCuProxy`, which handles request/resolve proxying, step counting, loop detection, and observation formatting within the unified agent loop. |
-| `weather`         | `get-weather`                                                                                                                                                                                                                                                     | Fetch current weather data                                                                                                                                                                                                                                                                           |
-| `app-builder`     | `app_create`, `app_delete`, `app_refresh`, `app_generate_icon`                                                                                                                                                                                                    | Dynamic app authoring — create and manage persistent apps; file editing uses generic file tools plus `app_refresh` (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                    |
-| `frontend-design` | (instruction-only)                                                                                                                                                                                                                                                | Shared frontend design guidance included by `app-builder` so hosted assistants can load app-building instructions without first installing a managed catalog skill                                                                                                                                   |
-| `self-upgrade`    | (instruction-only)                                                                                                                                                                                                                                                | Self-improvement workflow                                                                                                                                                                                                                                                                            |
-| `start-the-day`   | (instruction-only)                                                                                                                                                                                                                                                | Morning briefing routine                                                                                                                                                                                                                                                                             |
+| Skill ID        | Tools                                                                                                                                                                                                                                                             | Purpose                                                                                                                                                                                                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `browser`       | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`                                                             | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules)                                                                                                                                |
+| `gmail`         | Gmail search, archive, send, etc.                                                                                                                                                                                                                                 | Email management via OAuth2 integration                                                                                                                                                                                                                                                              |
+| `computer-use`  | `computer_use_observe`, `computer_use_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_wait`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_done`, `computer_use_respond` | Computer-use proxy tools — preactivated via `preactivatedSkillIds` in desktop sessions. Each tool forwards actions to the connected macOS client via `HostCuProxy`, which handles request/resolve proxying, step counting, loop detection, and observation formatting within the unified agent loop. |
+| `weather`       | `get-weather`                                                                                                                                                                                                                                                     | Fetch current weather data                                                                                                                                                                                                                                                                           |
+| `app-builder`   | `app_create`, `app_delete`, `app_refresh`, `app_generate_icon`                                                                                                                                                                                                    | Dynamic app authoring — create and manage persistent apps; file editing uses generic file tools plus `app_refresh` (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                    |
+| `self-upgrade`  | (instruction-only)                                                                                                                                                                                                                                                | Self-improvement workflow                                                                                                                                                                                                                                                                            |
+| `start-the-day` | (instruction-only)                                                                                                                                                                                                                                                | Morning briefing routine                                                                                                                                                                                                                                                                             |
 
 ### Activation and Projection Flow
 
@@ -1554,19 +1554,19 @@ Every layer in the pipeline defaults to rejection rather than silent degradation
 
 ### Key Source Files
 
-| File                                                | Role                                                                                       |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `assistant/src/config/skills.ts`                    | Skill catalog loading: bundled, managed, workspace, extra directories                      |
-| `assistant/src/config/bundled-skills/`              | Bundled skill directories (browser, gmail, computer-use, weather, etc.)                    |
-| `assistant/src/skills/tool-manifest.ts`             | `TOOLS.json` parser and validator                                                          |
-| `assistant/src/skills/active-skill-tools.ts`        | `deriveActiveSkills()` — scans history for `<loaded_skill>` markers                        |
-| `assistant/src/skills/include-graph.ts`             | Include graph builder: `indexCatalogById()`, `validateIncludes()`, cycle/missing detection |
-| `assistant/src/daemon/conversation-skill-tools.ts`  | `projectSkillTools()` — per-turn projection, register/unregister lifecycle                 |
-| `assistant/src/tools/skills/skill-tool-factory.ts`  | `createSkillToolsFromManifest()` — manifest entries to Tool objects                        |
-| `assistant/src/tools/skills/skill-script-runner.ts` | Host runner: dynamic import + `run()` call                                                 |
-| `assistant/src/tools/skills/sandbox-runner.ts`      | Sandbox runner: isolated subprocess execution                                              |
-| `assistant/src/tools/registry.ts`                   | `registerSkillTools()` / `unregisterSkillTools()` — global tool registry                   |
-| `assistant/src/permissions/checker.ts`              | Skill-origin default-ask permission policy                                                 |
+| File                                                | Role                                                                                         |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `assistant/src/config/skills.ts`                    | Skill catalog loading: bundled, managed, workspace, extra directories                        |
+| `assistant/src/config/bundled-skills/`              | Bundled skill directories (browser, gmail, computer-use, weather, etc.)                      |
+| `assistant/src/skills/tool-manifest.ts`             | `TOOLS.json` parser and validator                                                            |
+| `assistant/src/skills/active-skill-tools.ts`        | `deriveActiveSkills()` — scans history for `<loaded_skill>` markers                          |
+| `assistant/src/skills/include-graph.ts`             | Include graph builder: `indexCatalogById()`, `validateIncludes()`, `validateIncludeCycles()` |
+| `assistant/src/daemon/conversation-skill-tools.ts`  | `projectSkillTools()` — per-turn projection, register/unregister lifecycle                   |
+| `assistant/src/tools/skills/skill-tool-factory.ts`  | `createSkillToolsFromManifest()` — manifest entries to Tool objects                          |
+| `assistant/src/tools/skills/skill-script-runner.ts` | Host runner: dynamic import + `run()` call                                                   |
+| `assistant/src/tools/skills/sandbox-runner.ts`      | Sandbox runner: isolated subprocess execution                                                |
+| `assistant/src/tools/registry.ts`                   | `registerSkillTools()` / `unregisterSkillTools()` — global tool registry                     |
+| `assistant/src/permissions/checker.ts`              | Skill-origin default-ask permission policy                                                   |
 
 ---
 

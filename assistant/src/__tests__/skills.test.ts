@@ -1,6 +1,7 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -679,27 +680,40 @@ describe("bundled computer-use skill", () => {
   });
 });
 
-describe("bundled skill includes", () => {
-  beforeEach(() => {
-    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-  });
+describe("skill source ownership", () => {
+  const BUNDLED_SKILLS_DIR = join(
+    import.meta.dir,
+    "..",
+    "config",
+    "bundled-skills",
+  );
+  const FIRST_PARTY_SKILLS_DIR = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "skills",
+  );
 
-  afterEach(() => {
-    const skillsDir = join(TEST_DIR, "skills");
-    if (existsSync(skillsDir))
-      rmSync(skillsDir, { recursive: true, force: true });
-  });
+  function collectSourceSkillIds(rootDir: string): string[] {
+    return readdirSync(rootDir, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          existsSync(join(rootDir, entry.name, "SKILL.md")),
+      )
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+  }
 
-  test("app-builder can resolve its frontend-design include locally", () => {
-    const catalog = loadSkillCatalog();
-    const appBuilder = catalog.find((skill) => skill.id === "app-builder");
-    const frontendDesign = catalog.find(
-      (skill) => skill.id === "frontend-design",
+  test("bundled skills are not duplicated in the first-party source catalog", () => {
+    const firstPartyIds = new Set(
+      collectSourceSkillIds(FIRST_PARTY_SKILLS_DIR),
+    );
+    const duplicates = collectSourceSkillIds(BUNDLED_SKILLS_DIR).filter((id) =>
+      firstPartyIds.has(id),
     );
 
-    expect(appBuilder?.bundled).toBe(true);
-    expect(appBuilder?.includes).toContain("frontend-design");
-    expect(frontendDesign?.bundled).toBe(true);
-    expect(frontendDesign?.displayName).toBe("Frontend Design");
+    expect(duplicates).toEqual([]);
   });
 });

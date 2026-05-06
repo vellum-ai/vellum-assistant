@@ -19,7 +19,7 @@ import {
 import {
   collectAllMissing,
   indexCatalogById,
-  validateIncludes,
+  validateIncludeCycles,
 } from "../../skills/include-graph.js";
 import { renderInlineCommands } from "../../skills/inline-command-render.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
@@ -204,6 +204,7 @@ export class SkillLoadTool implements Tool {
 
     // Load catalog for include validation and child metadata output
     let catalogIndex: Map<string, SkillSummary> | undefined;
+    let missingIncludedSkillIds: string[] = [];
     if (skill.includes && skill.includes.length > 0) {
       let catalog = loadSkillCatalog();
       catalogIndex = indexCatalogById(catalog);
@@ -260,19 +261,13 @@ export class SkillLoadTool implements Tool {
         catalogIndex = indexCatalogById(catalog);
       }
 
-      // Validate (fail-closed - catches genuinely missing deps + cycles)
-      const validation = validateIncludes(skill.id, catalogIndex);
+      missingIncludedSkillIds = [...collectAllMissing(skill.id, catalogIndex)];
+
+      // Validate cycles fail closed. Missing includes are advisory: the parent
+      // skill should still load so the assistant can decide whether to search
+      // for and install the suggested dependency.
+      const validation = validateIncludeCycles(skill.id, catalogIndex);
       if (!validation.ok) {
-        if (validation.error === "missing") {
-          return {
-            content: `Error: skill "${skill.id}" includes "${
-              validation.missingChildId
-            }" which was not found (referenced by "${
-              validation.parentId
-            }" via path: ${validation.path.join(" → ")})`,
-            isError: true,
-          };
-        }
         if (validation.error === "cycle") {
           return {
             content: `Error: skill "${
@@ -283,10 +278,6 @@ export class SkillLoadTool implements Tool {
             isError: true,
           };
         }
-        return {
-          content: `Error: skill "${skill.id}" has an invalid include graph`,
-          isError: true,
-        };
       }
     }
 
@@ -444,12 +435,24 @@ export class SkillLoadTool implements Tool {
           }
         }
       }
-      immediateChildrenSection = `Included Skills (immediate):\n${childLines.join(
-        "\n",
-      )}`;
+      immediateChildrenSection =
+        childLines.length > 0
+          ? `Included Skills (immediate):\n${childLines.join("\n")}`
+          : "Included Skills (immediate): none";
     } else {
       immediateChildrenSection = "Included Skills (immediate): none";
     }
+
+    const missingIncludesSection =
+      missingIncludedSkillIds.length > 0
+        ? [
+            "Suggested Included Skills (not loaded):",
+            ...missingIncludedSkillIds.map(
+              (id) =>
+                `  - ${id}: not installed or unavailable. If this task needs it, search for and install this skill, then load it.`,
+            ),
+          ].join("\n")
+        : undefined;
 
     let versionHash: string | undefined;
     try {
@@ -512,6 +515,7 @@ export class SkillLoadTool implements Tool {
           : []),
         ...includedBodies.flatMap((b) => [b, ""]),
         immediateChildrenSection,
+        ...(missingIncludesSection ? [missingIncludesSection] : []),
         "",
         `<loaded_skill id="${skill.id}"${versionAttr} />`,
         ...includeMarkers,
