@@ -14,7 +14,8 @@ struct ProComputeUpgradeSection: View {
     @State var upgradeError: String? = nil
 
     var isPro: Bool { subscription?.plan_id == "pro" }
-    var needsUpgrade: Bool { machineSize == nil || machineSize == "small" }
+    // Only show when the platform has explicitly persisted "small" — nil means either "never persisted" or "fetch failed", and we can't distinguish, so play it safe.
+    var needsUpgrade: Bool { machineSize == "small" }
     var shouldShowCard: Bool { isPro && !isLoadingMachineSize && needsUpgrade }
 
     var body: some View {

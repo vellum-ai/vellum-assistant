@@ -33,14 +33,14 @@ final class ProComputeUpgradeSectionTests: XCTestCase {
 
     // MARK: - shouldShowCard matrix
 
-    func testProUserWithNilMachineSizeShowsCard() {
+    func testProUserWithNilMachineSizeDoesNotShowCard() {
         let section = ProComputeUpgradeSection(
             assistantId: "asst-1",
             subscription: makeProSubscription(),
             initialMachineSize: nil,
             initialIsLoading: false
         )
-        XCTAssertTrue(section.shouldShowCard)
+        XCTAssertFalse(section.shouldShowCard)
     }
 
     func testProUserWithSmallMachineSizeShowsCard() {
