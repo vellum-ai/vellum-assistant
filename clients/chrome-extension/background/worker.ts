@@ -42,6 +42,7 @@ import {
 import { SseConnection, type SseMode } from "./sse-connection.js";
 import { fetchAssistants } from "./cloud-api.js";
 import { appendEvent, clearEventLog, getEventLog, getOperations, getOperationById, recordRequest, recordResponse } from "./event-log.js";
+import { getClientId } from "./client-identity.js";
 import {
   startCloudLogin,
   getStoredSession,
@@ -383,6 +384,10 @@ async function dispatchHostBrowserResult(
 
     const headers: Record<string, string> = {
       "content-type": "application/json",
+      // Identifies this extension to the daemon's actor-binding check.
+      // The daemon validates this matches the client recorded at request
+      // time before resolving the pending host_browser interaction.
+      "X-Vellum-Client-Id": await getClientId(),
     };
     if (mode.kind === "vellum-cloud") {
       if (mode.token) {
@@ -416,7 +421,10 @@ async function dispatchHostBrowserResult(
   if (userMode !== "cloud") {
     const gatewayUrl = await getStoredGatewayUrl();
     try {
-      const fallbackHeaders: Record<string, string> = { "content-type": "application/json" };
+      const fallbackHeaders: Record<string, string> = {
+        "content-type": "application/json",
+        "X-Vellum-Client-Id": await getClientId(),
+      };
       if (selfHostedPairToken) {
         fallbackHeaders["authorization"] = `Bearer ${selfHostedPairToken}`;
       }

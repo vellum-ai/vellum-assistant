@@ -5,6 +5,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -29,6 +30,44 @@ const HOST_BROWSER_INTERFACE_PREFERENCE: InterfaceId[] = [
   "chrome-extension",
   "macos",
 ];
+
+/**
+ * Pick the host_browser-capable client to dispatch to.
+ *
+ * When a `sourceActorPrincipalId` is supplied, candidate clients are
+ * filtered down to those owned by the same actor before applying the
+ * interface-preference order. Returns `undefined` when no same-actor
+ * client is connected; the caller surfaces this as the existing
+ * "no active extension connection" rejection.
+ *
+ * When `sourceActorPrincipalId` is undefined (legacy callers without a
+ * resolved actor identity), falls through to the prior behavior so the
+ * registry singleton continues to work as before.
+ */
+function resolveTargetClient(sourceActorPrincipalId: string | undefined) {
+  if (sourceActorPrincipalId == null) {
+    return assistantEventHub.getPreferredClientByCapability(
+      "host_browser",
+      HOST_BROWSER_INTERFACE_PREFERENCE,
+    );
+  }
+
+  const sameActorClients = assistantEventHub
+    .listClientsByCapability("host_browser")
+    .filter((c) => c.actorPrincipalId === sourceActorPrincipalId);
+  if (sameActorClients.length === 0) return undefined;
+
+  // Stable sort by interface preference; lastActiveAt is the implicit
+  // tiebreaker because listClientsByCapability already returns clients
+  // in lastActiveAt-desc order.
+  return [...sameActorClients].sort((a, b) => {
+    const ai = HOST_BROWSER_INTERFACE_PREFERENCE.indexOf(a.interfaceId);
+    const bi = HOST_BROWSER_INTERFACE_PREFERENCE.indexOf(b.interfaceId);
+    const ea = ai === -1 ? HOST_BROWSER_INTERFACE_PREFERENCE.length : ai;
+    const eb = bi === -1 ? HOST_BROWSER_INTERFACE_PREFERENCE.length : bi;
+    return ea - eb;
+  })[0];
+}
 
 export class HostBrowserProxy {
   private static _instance: HostBrowserProxy | null = null;
@@ -84,15 +123,57 @@ export class HostBrowserProxy {
     return assistantEventHub.listClientsByInterface("chrome-extension").length > 0;
   }
 
+  /**
+   * Send a host_browser request to the connected extension/macOS bridge.
+   *
+   * When `sourceActorPrincipalId` is supplied, the proxy refuses to dispatch
+   * to a client owned by a different actor — same-user enforcement is the
+   * authoritative gate against routing one actor's CDP request onto another
+   * actor's connected extension. The auto-resolved target's `clientId` and
+   * `actorPrincipalId` are then persisted alongside the pending interaction
+   * so that the result-route's same-actor check can verify the submitting
+   * client at result time.
+   *
+   * When `sourceActorPrincipalId` is undefined (legacy/internal flows with
+   * no resolved actor identity), falls back to interface-preference
+   * resolution without an actor filter, preserving prior behavior.
+   */
   request(
     input: HostBrowserInput,
     conversationId: string,
     signal?: AbortSignal,
+    sourceActorPrincipalId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
     }
 
+    // Resolve the target client up front so we can persist the actor binding
+    // alongside the pending interaction registration. Same shape as
+    // host-cu-proxy: the result-route same-actor check compares the
+    // submitting client's actor against this captured value.
+    const preferredClient = resolveTargetClient(sourceActorPrincipalId);
+
+    // Same-user enforcement: when the caller's actor is known, refuse to
+    // dispatch to a client owned by a different actor. This covers the
+    // cross-client exposure case where a web/iOS turn for actor A would
+    // otherwise auto-resolve to actor B's connected extension.
+    if (
+      sourceActorPrincipalId != null &&
+      preferredClient != null &&
+      preferredClient.actorPrincipalId !== sourceActorPrincipalId
+    ) {
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId: preferredClient.clientId,
+        op: "host_browser",
+      });
+      if (rejection) return Promise.resolve(rejection);
+    }
+
+    const targetClientId = preferredClient?.clientId;
+    const targetActorPrincipalId = preferredClient?.actorPrincipalId;
     const requestId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
@@ -135,6 +216,8 @@ export class HostBrowserProxy {
       pendingInteractions.register(requestId, {
         conversationId,
         kind: "host_browser",
+        targetClientId,
+        targetActorPrincipalId,
         rpcResolve: resolve as (v: unknown) => void,
         rpcReject: reject,
         timer,
@@ -142,10 +225,6 @@ export class HostBrowserProxy {
       });
 
       try {
-        const preferredClient = assistantEventHub.getPreferredClientByCapability(
-          "host_browser",
-          HOST_BROWSER_INTERFACE_PREFERENCE,
-        );
         if (!preferredClient) {
           pendingInteractions.resolve(requestId);
           reject(

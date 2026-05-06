@@ -112,9 +112,14 @@ public struct HostProxyClient: HostProxyClientProtocol {
     public func postBrowserResult(_ result: HostBrowserResultPayload) async -> Bool {
         do {
             let body = try JSONEncoder().encode(result)
+            // Attach X-Vellum-Client-Id so the daemon can verify the submitting
+            // client matches the targeted client recorded at request time.
+            // Without this header the daemon will reject targeted host_browser
+            // results with 400. Mirrors postBashResult / postCuResult / etc.
             let response = try await GatewayHTTPClient.post(
                 path: "host-browser-result",
                 body: body,
+                extraHeaders: ["X-Vellum-Client-Id": DeviceIdStore.getOrCreate()],
                 timeout: 30
             )
             guard response.isSuccess else {

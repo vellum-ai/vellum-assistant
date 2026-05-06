@@ -14,6 +14,12 @@ mock.module("../config/env.js", () => ({
   hasUngatedHttpAuthDisabled: () => false,
 }));
 
+// local-actor-identity reads the contacts table; stub it to a passthrough so
+// the resolver returns whatever header value the test provides.
+mock.module("../runtime/local-actor-identity.js", () => ({
+  resolveActorPrincipalIdForLocalGuardian: (raw: string | undefined) => raw,
+}));
+
 interface ResolveCall {
   requestId: string;
   response: { content: string; isError: boolean };
@@ -44,6 +50,7 @@ const pendingInteractions = await import("../runtime/pending-interactions.js");
 import {
   BadRequestError,
   ConflictError,
+  ForbiddenError,
   NotFoundError,
 } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/host-browser-routes.js";
@@ -135,5 +142,316 @@ describe("handleHostBrowserResult", () => {
     expect(resolveSpy).toHaveLength(1);
     expect(resolveSpy[0].requestId).toBe(requestId);
     expect(resolveSpy[0].response).toEqual({ content: "", isError: false });
+  });
+});
+
+// ── Same-actor guard ───────────────────────────────────────────────────
+
+describe("handleHostBrowserResult — same-actor guard", () => {
+  beforeEach(() => {
+    pendingInteractions.clear();
+    resolveSpy.length = 0;
+  });
+
+  // ── Targeted + correct headers → 200 ─────────────────────────────────
+
+  describe("targeted + correct x-vellum-client-id + actor-principal", () => {
+    test("returns { accepted: true } and resolves the interaction", async () => {
+      const requestId = "browser-req-targeted-match";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      const result = await handleHostBrowserResult({
+        body: { requestId, content: "ok", isError: false },
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "user-1",
+        },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(resolveSpy).toHaveLength(1);
+      expect(resolveSpy[0].requestId).toBe(requestId);
+    });
+
+    test("trims whitespace from x-vellum-client-id before comparing", async () => {
+      const requestId = "browser-req-targeted-trim";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      const result = await handleHostBrowserResult({
+        body: { requestId, content: "ok", isError: false },
+        headers: {
+          "x-vellum-client-id": "  client-A  ",
+          "x-vellum-actor-principal-id": "user-1",
+        },
+      });
+
+      expect(result).toEqual({ accepted: true });
+    });
+  });
+
+  // ── Targeted + missing x-vellum-client-id → 400 ──────────────────────
+
+  describe("targeted + missing x-vellum-client-id", () => {
+    test("throws BadRequestError when header is absent", () => {
+      const requestId = "browser-req-targeted-no-header";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      expect(() =>
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+        }),
+      ).toThrow(BadRequestError);
+    });
+
+    test("throws BadRequestError when header is whitespace only", () => {
+      const requestId = "browser-req-targeted-empty-header";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      expect(() =>
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+          headers: { "x-vellum-client-id": "   " },
+        }),
+      ).toThrow(BadRequestError);
+    });
+
+    test("interaction is NOT consumed on 400 (still pending)", () => {
+      const requestId = "browser-req-targeted-no-header-stays";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      try {
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+        });
+      } catch {
+        // expected
+      }
+
+      expect(pendingInteractions.get(requestId)).toBeDefined();
+      expect(resolveSpy).toHaveLength(0);
+    });
+  });
+
+  // ── Targeted + wrong x-vellum-client-id → 403 ────────────────────────
+
+  describe("targeted + wrong x-vellum-client-id", () => {
+    test("throws ForbiddenError when client id does not match target", () => {
+      const requestId = "browser-req-targeted-client-mismatch";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      expect(() =>
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+          headers: {
+            "x-vellum-client-id": "client-B",
+            "x-vellum-actor-principal-id": "user-1",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("ForbiddenError message names both submitting and expected client", () => {
+      const requestId = "browser-req-targeted-mismatch-msg";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      let caught: unknown;
+      try {
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+          headers: {
+            "x-vellum-client-id": "client-B",
+            "x-vellum-actor-principal-id": "user-1",
+          },
+        });
+      } catch (e) {
+        caught = e;
+      }
+
+      expect(caught).toBeInstanceOf(ForbiddenError);
+      const msg = (caught as ForbiddenError).message;
+      expect(msg).toContain("client-A");
+      expect(msg).toContain("client-B");
+    });
+
+    test("interaction is NOT consumed on 403 (still pending)", () => {
+      const requestId = "browser-req-targeted-mismatch-stays";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      try {
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+          headers: {
+            "x-vellum-client-id": "client-B",
+            "x-vellum-actor-principal-id": "user-1",
+          },
+        });
+      } catch {
+        // expected
+      }
+
+      expect(pendingInteractions.get(requestId)).toBeDefined();
+      expect(resolveSpy).toHaveLength(0);
+    });
+  });
+
+  // ── Targeted + actor-principal binding (defense-in-depth) ────────────
+
+  describe("targeted + actor-principal binding", () => {
+    test("throws ForbiddenError when submitting actor does not match target's actor", () => {
+      const requestId = "browser-req-actor-mismatch";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      expect(() =>
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "user-2",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("throws ForbiddenError when submitting actor header is missing", () => {
+      const requestId = "browser-req-actor-missing";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      expect(() =>
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+          headers: { "x-vellum-client-id": "client-A" },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("throws ForbiddenError when target has no captured actor principal", () => {
+      const requestId = "browser-req-actor-no-target";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        // targetActorPrincipalId intentionally omitted
+      });
+
+      expect(() =>
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "user-1",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("interaction NOT consumed on actor-mismatch 403", () => {
+      const requestId = "browser-req-actor-mismatch-stays";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+        targetClientId: "client-A",
+        targetActorPrincipalId: "user-1",
+      });
+
+      try {
+        handleHostBrowserResult({
+          body: { requestId, content: "ok", isError: false },
+          headers: {
+            "x-vellum-client-id": "client-A",
+            "x-vellum-actor-principal-id": "user-2",
+          },
+        });
+      } catch {
+        // expected
+      }
+
+      expect(pendingInteractions.get(requestId)).toBeDefined();
+      expect(resolveSpy).toHaveLength(0);
+    });
+  });
+
+  // ── Untargeted (no targetClientId) — regression ───────────────────────
+
+  describe("untargeted (no targetClientId)", () => {
+    test("accepts when no headers are provided", async () => {
+      const requestId = "browser-req-untargeted-no-header";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+      });
+
+      const result = await handleHostBrowserResult({
+        body: { requestId, content: "ok", isError: false },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(resolveSpy).toHaveLength(1);
+    });
+
+    test("accepts when header is present (header ignored when untargeted)", async () => {
+      const requestId = "browser-req-untargeted-with-header";
+      pendingInteractions.register(requestId, {
+        conversationId: "conv-1",
+        kind: "host_browser",
+      });
+
+      const result = await handleHostBrowserResult({
+        body: { requestId, content: "ok", isError: false },
+        headers: { "x-vellum-client-id": "anything" },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(resolveSpy).toHaveLength(1);
+    });
   });
 });

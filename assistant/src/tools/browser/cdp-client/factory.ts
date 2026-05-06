@@ -183,7 +183,7 @@ export function buildPinnedCandidateList(
   context: ToolContext,
   mode: Exclude<BrowserMode, "auto">,
 ): BackendCandidate[] {
-  const { conversationId } = context;
+  const { conversationId, sourceActorPrincipalId } = context;
 
   switch (mode) {
     case "extension": {
@@ -213,6 +213,8 @@ export function buildPinnedCandidateList(
             const client = createExtensionCdpClient(
               hostBrowserProxy,
               conversationId,
+              undefined,
+              sourceActorPrincipalId,
             );
             const backend = createExtensionBackend({
               isAvailable: () => true,
@@ -287,7 +289,7 @@ export function buildPinnedCandidateList(
  * Exported for testing.
  */
 export function buildCandidateList(context: ToolContext): BackendCandidate[] {
-  const { conversationId } = context;
+  const { conversationId, sourceActorPrincipalId } = context;
   const candidates: BackendCandidate[] = [];
   const hostBrowserProxy = HostBrowserProxy.instance;
 
@@ -300,6 +302,8 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
         const client = createExtensionCdpClient(
           hostBrowserProxy,
           conversationId,
+          undefined,
+          sourceActorPrincipalId,
         );
         const backend = createExtensionBackend({
           isAvailable: () => true,

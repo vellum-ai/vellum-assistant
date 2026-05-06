@@ -13,6 +13,22 @@ mock.module("../util/logger.js", () => ({
 let publishedEvents: unknown[] = [];
 let mockHasConnection = true;
 
+/**
+ * Per-test client roster used by the same-actor binding tests below.
+ *
+ * When non-empty, `listClientsByCapability` and `getActorPrincipalIdForClient`
+ * read from this list. The legacy `mockHasConnection` boolean continues to
+ * drive `getPreferredClientByCapability`, which is the fallback path used
+ * when the caller has no `sourceActorPrincipalId` (legacy/internal flows).
+ */
+type MockClient = {
+  clientId: string;
+  interfaceId: "chrome-extension" | "macos";
+  actorPrincipalId?: string;
+  capabilities: string[];
+};
+let mockClients: MockClient[] = [];
+
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     publish: async (event: unknown, _options?: unknown) => {
@@ -27,6 +43,10 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
             capabilities: ["host_browser"],
           }
         : undefined,
+    listClientsByCapability: (cap: string) =>
+      mockClients.filter((c) => c.capabilities.includes(cap)),
+    getActorPrincipalIdForClient: (clientId: string) =>
+      mockClients.find((c) => c.clientId === clientId)?.actorPrincipalId,
   },
   broadcastMessage: (msg: unknown) => {
     publishedEvents.push(msg);
@@ -53,6 +73,7 @@ describe("HostBrowserProxy", () => {
     pendingInteractions.clear();
     publishedEvents = [];
     mockHasConnection = true;
+    mockClients = [];
     proxy = HostBrowserProxy.instance;
   });
 
@@ -367,6 +388,202 @@ describe("HostBrowserProxy", () => {
       proxy.dispose();
 
       expect(spy.removeCalls).toEqual(["abort"]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Same-actor binding (cross-user enforcement)
+  //
+  // The host-browser proxy is auto-resolved (the LLM-facing tool does not
+  // expose `target_client_id`), so same-user enforcement runs on the
+  // resolved candidate before we register the pending interaction:
+  //
+  //   1. `resolveTargetClient(sourceActorPrincipalId)` filters candidate
+  //      clients to those owned by the caller's actor before applying the
+  //      chrome-extension-first interface preference. When the caller has
+  //      no actor (legacy/internal flow), it falls back to the legacy
+  //      `getPreferredClientByCapability` path used by other tests above.
+  //   2. The proxy persists `targetClientId` and `targetActorPrincipalId`
+  //      on the pending interaction so the result-route's same-actor check
+  //      has authoritative bindings to compare against (mirrors host-cu).
+  //
+  // These tests focus on (1) and (2). Result-side guard coverage lives in
+  // `host-browser-routes.test.ts` (HTTP 400/403 against the same bindings).
+  // ---------------------------------------------------------------------------
+
+  describe("same-actor binding", () => {
+    test("persists targetClientId + targetActorPrincipalId when caller actor matches", async () => {
+      mockClients = [
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const sent = getPublishedMessages()[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      const pending = pendingInteractions.get(requestId);
+      expect(pending).toBeDefined();
+      expect(pending?.targetClientId).toBe("ext-client");
+      expect(pending?.targetActorPrincipalId).toBe("user-1");
+
+      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("rejects when only different-actor clients are connected", async () => {
+      mockClients = [
+        {
+          clientId: "other-user-ext",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-2",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      // Auto-resolution filters out the cross-user candidate, so the
+      // proxy falls into the existing "no active extension connection"
+      // rejection — we never broadcast to a different actor's client.
+      await expect(resultPromise).rejects.toThrow(
+        "no active extension connection",
+      );
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("prefers chrome-extension over macos among same-actor clients", async () => {
+      mockClients = [
+        {
+          clientId: "macos-client",
+          interfaceId: "macos",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const sent = getPublishedMessages()[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      const pending = pendingInteractions.get(requestId);
+      expect(pending?.targetClientId).toBe("ext-client");
+
+      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("falls back to macOS bridge when no chrome-extension is connected for the caller's actor", async () => {
+      mockClients = [
+        {
+          clientId: "macos-client",
+          interfaceId: "macos",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
+        .requestId as string;
+
+      const pending = pendingInteractions.get(requestId);
+      expect(pending?.targetClientId).toBe("macos-client");
+      expect(pending?.targetActorPrincipalId).toBe("user-1");
+
+      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("legacy callers without a sourceActorPrincipalId use the unfiltered fallback path", async () => {
+      // No mockClients populated — but mockHasConnection is true, so the
+      // legacy `getPreferredClientByCapability` branch returns its default
+      // `test-client` candidate. The pending interaction binds to that
+      // client without an actor, preserving prior single-user behavior.
+      mockHasConnection = true;
+      mockClients = [];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        // signal omitted
+        // sourceActorPrincipalId omitted — legacy path
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
+        .requestId as string;
+
+      const pending = pendingInteractions.get(requestId);
+      expect(pending?.targetClientId).toBe("test-client");
+      expect(pending?.targetActorPrincipalId).toBeUndefined();
+
+      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("rejects when caller has actor but no host_browser-capable client is connected for that actor", async () => {
+      // Same-user filter returns empty even though listClientsByCapability
+      // would return a non-empty list (because that list is for a
+      // different actor). The legacy fallback IS NOT consulted in this
+      // branch — we don't want to silently broadcast to anyone.
+      mockClients = [
+        {
+          clientId: "other-user-ext",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-99",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      await expect(resultPromise).rejects.toThrow(
+        "no active extension connection",
+      );
+      expect(getPublishedMessages()).toHaveLength(0);
     });
   });
 });

@@ -45,6 +45,7 @@ export type SameActorOp =
   | "host_bash"
   | "host_file"
   | "host_cu"
+  | "host_browser"
   | "host_transfer";
 
 /**

@@ -224,6 +224,11 @@ export function createMockChromeExtension(
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${options.token}`,
+          // Same-actor binding: identifies this fixture to the daemon's
+          // result-route check. The daemon will reject targeted host_browser
+          // results without this header (or where it doesn't match the
+          // captured target client).
+          "X-Vellum-Client-Id": clientId,
         },
         body: JSON.stringify(body),
       });

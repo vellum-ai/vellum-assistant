@@ -78,13 +78,26 @@ let desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
 const logWarnCalls: Array<{ args: unknown[] }> = [];
 const logDebugCalls: Array<{ args: unknown[] }> = [];
 
+// Spread-real-module pattern: bun's `mock.module` is process-global, so a
+// factory that returns ONLY `{ createExtensionCdpClient }` would clobber
+// the `ExtensionCdpClient` class export for every later test file that
+// imports from this module path (e.g. extension-cdp-client.test.ts). We
+// snapshot the real exports first and override only the symbols this
+// suite stubs out.
+import * as realCdpInspectClient from "../cdp-inspect-client.js";
+import * as realExtensionCdpClient from "../extension-cdp-client.js";
+import * as realLocalCdpClient from "../local-cdp-client.js";
+
 mock.module("../extension-cdp-client.js", () => ({
+  ...realExtensionCdpClient,
   createExtensionCdpClient: createExtensionCdpClientMock,
 }));
 mock.module("../local-cdp-client.js", () => ({
+  ...realLocalCdpClient,
   createLocalCdpClient: createLocalCdpClientMock,
 }));
 mock.module("../cdp-inspect-client.js", () => ({
+  ...realCdpInspectClient,
   createCdpInspectClient: createCdpInspectClientMock,
 }));
 mock.module("../../../../config/loader.js", () => ({
@@ -235,9 +248,15 @@ describe("getCdpClient", () => {
     );
     expect(result).toEqual({ ok: true, via: "extension" });
     expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+    // Call signature includes optional cdpSessionId and sourceActorPrincipalId
+    // (both undefined here — no pinned session id, no actor binding in this
+    // legacy ctx). The `sourceActorPrincipalId` param exists so the proxy
+    // can refuse cross-user dispatch under cross-client exposure.
     expect(createExtensionCdpClientMock).toHaveBeenCalledWith(
       fakeProxy,
       "test-convo",
+      undefined,
+      undefined,
     );
     expect(createLocalCdpClientMock).not.toHaveBeenCalled();
     expect(createCdpInspectClientMock).not.toHaveBeenCalled();
@@ -657,6 +676,31 @@ describe("getCdpClient", () => {
     expect(client.conversationId).toBe("macos-inspect");
     await client.send("Page.navigate");
     expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("threads sourceActorPrincipalId from ToolContext into createExtensionCdpClient", async () => {
+    // The proxy uses sourceActorPrincipalId to refuse cross-user dispatch
+    // when host_browser is exposed cross-client (web/iOS turn → connected
+    // extension/macOS bridge). The factory must thread the value from the
+    // ToolContext through to ExtensionCdpClient on every candidate-list path
+    // so the actor identity reaches the proxy at request time.
+    const fakeProxy = makeAvailableProxy();
+    mockSingletonProxy = fakeProxy;
+    const ctx = makeContext({
+      conversationId: "actor-bound",
+      sourceActorPrincipalId: "user-actor-1",
+    });
+
+    const client = getCdpClient(ctx);
+    await client.send("Page.navigate");
+
+    expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createExtensionCdpClientMock).toHaveBeenCalledWith(
+      fakeProxy,
+      "actor-bound",
+      undefined,
+      "user-actor-1",
+    );
   });
 });
 
