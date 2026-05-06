@@ -844,12 +844,49 @@ export function isGatewayWatchModeAvailable(): boolean {
 // It should eventually converge with
 // assistant/src/daemon/daemon-control.ts::startDaemon which is the
 // assistant-side equivalent.
+/**
+ * Write (or overwrite) a shell wrapper at `<workspace>/bin/assistant` that
+ * pre-injects the three instance-specific env vars before exec-ing the real
+ * assistant binary from the app bundle.
+ *
+ * This lets developers invoke `<workspace>/bin/assistant <command>` directly
+ * from the terminal without manually setting env vars.  Only created when a
+ * compiled `assistant` binary is present adjacent to the CLI executable (i.e.
+ * inside a desktop app bundle) — a no-op in source/watch mode.
+ *
+ * The wrapper is idempotent: safe to call on every daemon wake.
+ */
+function writeAssistantWrapper(resources: LocalInstanceResources): void {
+  const assistantBinary = join(dirname(process.execPath), "assistant");
+  if (!existsSync(assistantBinary)) return;
+
+  const workspaceDir = join(resources.instanceDir, ".vellum", "workspace");
+  const protectedDir = join(resources.instanceDir, ".vellum", "protected");
+  const binDir = join(workspaceDir, "bin");
+
+  mkdirSync(binDir, { recursive: true });
+  const wrapperPath = join(binDir, "assistant");
+  writeFileSync(
+    wrapperPath,
+    [
+      "#!/bin/sh",
+      `export VELLUM_WORKSPACE_DIR="${workspaceDir}"`,
+      `export CREDENTIAL_SECURITY_DIR="${protectedDir}"`,
+      `export GATEWAY_SECURITY_DIR="${protectedDir}"`,
+      `exec "${assistantBinary}" "$@"`,
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+}
+
 export async function startLocalDaemon(
   watch: boolean = false,
   resources: LocalInstanceResources,
   options?: DaemonStartOptions,
 ): Promise<void> {
   warnIfLegacyWorkspaceFallbackDetected(resources);
+  writeAssistantWrapper(resources);
 
   const foreground = options?.foreground ?? false;
   // Check for a compiled daemon binary adjacent to the CLI executable.
