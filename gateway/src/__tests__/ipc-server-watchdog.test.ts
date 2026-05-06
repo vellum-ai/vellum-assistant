@@ -223,4 +223,82 @@ describe("GatewayIpcServer socket-file watchdog", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(existsSync(socketPath)).toBe(false);
   });
+
+  test("rebindIfMissing aborts cleanly when shutdown happens mid-listen", async () => {
+    server = buildServer({ watchdogIntervalMs: 0 });
+    server.start();
+    await waitForListening(socketPath);
+
+    // Trigger the path-missing condition so the rebind actually engages.
+    unlinkSync(socketPath);
+
+    // Async functions run synchronously up to the first await — this
+    // returns to us with newServer.listen() in flight.
+    const inFlight = server.rebindIfMissing();
+
+    // Simulate stop() racing the rebind: just clear the live server
+    // pointer. We can't call full stop() here because we want to observe
+    // exactly the post-listen race-guard branch and not a server already
+    // closed by the time listen resolves; clearing the field is the same
+    // signal stop() raises (see stop()'s `this.server = null`).
+    (server as unknown as { server: null }).server = null;
+
+    const result = await inFlight;
+    expect(result).toBe(false);
+
+    // The discarded newServer should have been closed AND its path
+    // unlinked, so we don't leak a stale listener after "shutdown".
+    expect(existsSync(socketPath)).toBe(false);
+
+    // The race guard must NOT have resurrected the listener.
+    expect(
+      (server as unknown as { server: unknown }).server,
+    ).toBeNull();
+
+    // Manual cleanup — afterEach will try to call stop() on a server
+    // that's already in a partially-broken state, which is fine because
+    // stop() is null-safe on this.server.
+  });
+
+  test("watchdog timer catches synchronous rebind errors so unhandled rejections don't escape", async () => {
+    server = buildServer({ watchdogIntervalMs: 25 });
+    server.start();
+    await waitForListening(socketPath);
+
+    const unhandledRejections: unknown[] = [];
+    const onUnhandled = (err: unknown) => {
+      unhandledRejections.push(err);
+    };
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      // Force rebindIfMissing to throw synchronously by replacing
+      // ensureSocketDir on the live instance — simulates mkdirSync
+      // failing (e.g. EACCES on a read-only fs).
+      let throwCount = 0;
+      (
+        server as unknown as { ensureSocketDir: () => void }
+      ).ensureSocketDir = () => {
+        throwCount++;
+        throw new Error("simulated mkdirSync failure");
+      };
+
+      // Trigger the path-missing condition so each tick engages the
+      // throwing code path.
+      unlinkSync(socketPath);
+
+      // Wait for several watchdog ticks (~5 ticks at 25ms = 125ms).
+      await new Promise((r) => setTimeout(r, 200));
+
+      // The timer must have fired multiple times — proving the
+      // rejection didn't kill it.
+      expect(throwCount).toBeGreaterThanOrEqual(2);
+
+      // No unhandled rejections must have escaped the catch()
+      // wrapper in start()'s setInterval.
+      expect(unhandledRejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
 });

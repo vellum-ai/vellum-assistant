@@ -135,7 +135,15 @@ export class GatewayIpcServer {
 
     if (this.watchdogIntervalMs > 0 && this.watchdogHandle === null) {
       this.watchdogHandle = setInterval(() => {
-        this.rebindIfMissing();
+        // Catch synchronous throws from the entry path of rebindIfMissing
+        // (e.g. ensureSocketDir → mkdirSync EACCES) so the timer doesn't
+        // spew unhandled-rejection noise every 5s on a read-only fs.
+        this.rebindIfMissing().catch((err) => {
+          log.error(
+            { err, path: this.socketPath },
+            "Watchdog rebind failed unexpectedly",
+          );
+        });
       }, this.watchdogIntervalMs);
       // Don't keep the event loop alive just for this watchdog.
       this.watchdogHandle.unref?.();
@@ -204,6 +212,10 @@ export class GatewayIpcServer {
     if (this.server === null) return false;
     if (existsSync(this.socketPath)) return false;
 
+    // Snapshot the current listener so we can detect a generation change
+    // (stop()/restart/concurrent rebind) after the async listen() resolves.
+    const initialServer = this.server;
+
     log.warn(
       { path: this.socketPath },
       "IPC socket path missing on disk — re-binding listener",
@@ -240,18 +252,44 @@ export class GatewayIpcServer {
       return false;
     }
 
+    // Race guard: while we were awaiting listen(), stop() may have
+    // cleared this.server, or some other path may have replaced it.
+    // Installing newServer now would resurrect the listener after
+    // shutdown (keeping the process alive and accepting IPC again).
+    // Discard the new server instead.
+    if (this.server !== initialServer) {
+      try {
+        newServer.close();
+      } catch {
+        /* ignore */
+      }
+      // newServer.listen() recreated the path on disk; stop() may have
+      // already unlinked it, but if our listen won the race the file
+      // is sitting there — clean it up so it doesn't shadow a future
+      // start().
+      if (existsSync(this.socketPath)) {
+        try {
+          unlinkSync(this.socketPath);
+        } catch {
+          /* ignore */
+        }
+      }
+      log.warn(
+        { path: this.socketPath },
+        "IPC server state changed during rebind — discarded new listener",
+      );
+      return false;
+    }
+
     // Move the previous listener into the legacy set so already-connected
     // clients keep their accept loop alive. Close it gracefully — `close()`
     // stops accepting new connections (which the kernel already won't route
     // here anyway after the path moved) but lets in-flight sockets drain.
-    const previous = this.server;
     this.server = newServer;
-    if (previous) {
-      this.legacyServers.add(previous);
-      previous.close(() => {
-        this.legacyServers.delete(previous);
-      });
-    }
+    this.legacyServers.add(initialServer);
+    initialServer.close(() => {
+      this.legacyServers.delete(initialServer);
+    });
 
     log.info({ path: this.socketPath }, "IPC socket re-bound after path loss");
     return true;
