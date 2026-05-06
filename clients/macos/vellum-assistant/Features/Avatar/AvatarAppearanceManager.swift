@@ -481,7 +481,11 @@ final class AvatarAppearanceManager {
         assistantName = "V"
         AvatarCache.clearAll()
         updateDockIcon()
-        updateDockLabel()
+        // Explicit reset: drop the persisted dock label so the next build
+        // falls back to the env-default ("Vellum"/"Vellum Dev"). `updateDockLabel`
+        // intentionally no-ops on the "V" sentinel to avoid clobbering during
+        // the cold-start gateway race, so we delete here instead.
+        try? FileManager.default.removeItem(at: Self.dockDisplayNameURL)
     }
 
     // MARK: - Local Cache Hydration
@@ -651,9 +655,6 @@ final class AvatarAppearanceManager {
 
     // MARK: - Dock Label
 
-    /// Default app name used for the dock label when no assistant is connected.
-    private static let defaultDockLabel = "Vellum"
-
     /// Sentinel file that `build.sh` reads at build time to set
     /// `CFBundleDisplayName` so the Dock shows the assistant name from
     /// the very first launch after a rebuild.
@@ -675,11 +676,20 @@ final class AvatarAppearanceManager {
     /// TCC permissions (Accessibility, Screen Recording, Microphone) and
     /// Gatekeeper. The dock label only takes effect after a rebuild.
     private func updateDockLabel() {
-        let label = assistantName != "V" ? assistantName : Self.defaultDockLabel
+        // Only persist a resolved persona name. Writing a "Vellum" fallback
+        // here would clobber a previously-good value during the gateway
+        // cold-start race window — `IdentityInfo.loadAsync()` is a gateway
+        // HTTP call, and when the daemon/gateway aren't up yet it returns
+        // nil and `assistantName` collapses to "V". Overwriting at that
+        // point causes the next rebuild's `build.sh` to read "Vellum" and
+        // produce `Vellum.app` alongside the existing persona-named bundle.
+        // `cli/src/commands/retire.ts` deletes this file when the last
+        // assistant is retired, so no default write is needed either.
+        guard assistantName != "V" else { return }
 
         let dir = Self.dockDisplayNameURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try? label.write(to: Self.dockDisplayNameURL, atomically: true, encoding: .utf8)
+        try? assistantName.write(to: Self.dockDisplayNameURL, atomically: true, encoding: .utf8)
     }
 
     // MARK: - Image Utilities

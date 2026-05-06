@@ -945,6 +945,25 @@ KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 echo "BUNDLE_DISPLAY_NAME=$BUNDLE_DISPLAY_NAME"
 
 # ---------------------------------------------------------------------------
+# Defense in depth: remove sibling .app bundles in dist/ that share our
+# bundle ID. Different `BUNDLE_DISPLAY_NAME` values produce different bundle
+# paths but share `CFBundleIdentifier`, so a previous build under a different
+# display name (e.g. a persona name like "Jarvis.app") sits next to the new
+# one. Both can be launched and registered with Launch Services, producing
+# duplicate Dock entries with the same identity. AppBundleRenamer.swift has
+# the same cleanup but only runs on the sign-out / no-assistants path.
+# ---------------------------------------------------------------------------
+for stale in "$SCRIPT_DIR/dist"/*.app; do
+    [ -d "$stale" ] || continue
+    [ "$stale" = "$APP_DIR" ] && continue
+    stale_id=$(plutil -extract CFBundleIdentifier raw "$stale/Contents/Info.plist" 2>/dev/null || true)
+    if [ "$stale_id" = "$BUNDLE_ID" ]; then
+        echo "Removing stale bundle with matching ID: $stale"
+        rm -rf "$stale"
+    fi
+done
+
+# ---------------------------------------------------------------------------
 # Local Sparkle configuration
 #
 # For local builds, point the Sparkle appcast at a localhost route served by
