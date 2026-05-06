@@ -650,10 +650,10 @@ describe("voice-session-bridge", () => {
       "Introduce yourself once at the start using your assistant name if you know it",
     );
     expect(prompt).toContain(
-      'If your assistant name is not known, call yourself "the assistant" instead.',
+      "If your assistant name is not known, skip the name and just identify yourself as the guardian's assistant.",
     );
     expect(prompt).toContain(
-      'Never use an internal assistant ID such as "self" as your spoken name.',
+      "Never use a UUID-shaped internal assistant ID as your spoken name.",
     );
     expect(prompt).toContain(
       'Do NOT say "I\'m calling" or "I\'m calling on behalf of".',

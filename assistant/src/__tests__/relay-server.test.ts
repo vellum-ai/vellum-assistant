@@ -2334,16 +2334,57 @@ describe("relay-server", () => {
 
       expect(relay.getConnectionState()).toBe("awaiting_name");
 
-      // Fallback prompt should not include assistant name or internal assistant id.
+      // Fallback prompt should use the existing guardian-label wording.
       const textMessages = ws.sentMessages
         .map((raw) => JSON.parse(raw) as { type: string; token?: string })
         .filter((m) => m.type === "text");
       const promptText = textMessages.map((m) => m.token ?? "").join("");
-      expect(promptText).toContain("Hi, this is the assistant.");
+      expect(promptText).toContain("Hi, this is my human's assistant.");
       expect(promptText).not.toContain("Vellum");
-      expect(promptText).not.toContain("self");
       expect(promptText).toContain("don't recognize this number");
       expect(promptText).toContain("Can I get your name");
+
+      relay.destroy();
+    } finally {
+      mockAssistantName = prevName;
+    }
+  });
+
+  test("inbound voice: unknown caller name capture does not speak a UUID assistant name", async () => {
+    const prevName = mockAssistantName;
+    mockAssistantName = "11111111-2222-4333-8444-555555555555";
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+    try {
+      ensureConversation("conv-invite-uuid-name");
+      const session = createCallSession({
+        conversationId: "conv-invite-uuid-name",
+        provider: "twilio",
+        fromNumber: "+12125550157",
+        toNumber: "+12125550111",
+      });
+
+      const { ws, relay } = createMockWs(session.id);
+
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "setup",
+          callSid: "CA_invite_uuid_name",
+          from: "+12125550157",
+          to: "+12125550111",
+        }),
+      );
+
+      expect(relay.getConnectionState()).toBe("awaiting_name");
+
+      const promptText = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+        .filter((m) => m.type === "text")
+        .map((m) => m.token ?? "")
+        .join("");
+      expect(promptText).toContain("Hi, this is my human's assistant.");
+      expect(promptText).not.toContain("11111111-2222-4333-8444-555555555555");
 
       relay.destroy();
     } finally {

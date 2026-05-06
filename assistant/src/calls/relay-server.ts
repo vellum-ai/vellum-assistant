@@ -66,7 +66,8 @@ import {
 } from "./speaker-identification.js";
 
 const log = getLogger("relay-server");
-const DEFAULT_ASSISTANT_VOICE_LABEL = "the assistant";
+const UUID_SHAPED_NAME =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 // ── ConversationRelay message types ──────────────────────────────────
 
@@ -1160,7 +1161,7 @@ export class RelayConnection {
 
     const greeting = assistantName
       ? `Hi, this is ${assistantName}, ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`
-      : `Hi, this is ${DEFAULT_ASSISTANT_VOICE_LABEL}. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`;
+      : `Hi, this is ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`;
 
     void speakSystemPrompt(this, greeting);
 
@@ -1616,7 +1617,11 @@ export class RelayConnection {
   private resolveAssistantLabel(): string | null {
     try {
       const name = getAssistantName();
-      return name?.trim() || null;
+      const trimmedName = name?.trim();
+      if (!trimmedName || UUID_SHAPED_NAME.test(trimmedName)) {
+        return null;
+      }
+      return trimmedName;
     } catch {
       return null;
     }
