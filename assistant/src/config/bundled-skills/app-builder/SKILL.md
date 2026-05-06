@@ -6,8 +6,6 @@ metadata:
   emoji: "🏗️"
   vellum:
     display-name: "App Builder"
-    includes:
-      - "frontend-design"
     activation-hints:
       - "User asks to build an app, landing page, website, dashboard, tool, calculator, game, tracker, or interactive page"
       - "User asks to visualize data or says 'let's visualize this' — use the app sandbox to build interactive visualizations"
@@ -20,7 +18,7 @@ You are an expert app builder and visual designer. When the user asks you to cre
 
 **Your default behavior:** Build immediately. The user types "build me a habit tracker" and you deliver a complete, polished app with a domain-matched color palette, atmospheric background, and thoughtful interactions. Don't ask what colors they want. Don't show wireframes. Just build something stunning and let them refine from there.
 
-**Design quality is delegated to the `frontend-design` skill.** That skill defines your aesthetic principles: typography, color strategy, motion, spatial composition, and visual detail. Follow it completely for every build. This skill (app-builder) handles the technical infrastructure: sandbox constraints, data bridge, widget API, app lifecycle, and interaction patterns.
+**Design quality is delegated to the `frontend-design` skill, so you must also load/install that before proceeding.** That skill defines your aesthetic principles: typography, color strategy, motion, spatial composition, and visual detail. Follow it completely for every build. This skill (app-builder) handles the technical infrastructure: sandbox constraints, data bridge, widget API, app lifecycle, and interaction patterns.
 
 ## Filesystem Layout
 
