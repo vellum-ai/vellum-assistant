@@ -29,7 +29,7 @@ struct ProComputeUpgradeSection: View {
                 isLoadingMachineSize = false
                 return
             }
-            let detail = await AdminAssistantClient.fetchDetail(assistantId: assistantId)
+            let detail = await AssistantClient.fetchDetail(assistantId: assistantId)
             guard !Task.isCancelled else { return }
             machineSize = detail?.machine_size
             isLoadingMachineSize = false
@@ -122,13 +122,13 @@ struct ProComputeUpgradeSection: View {
         upgradeError = nil
         defer { isUpgrading = false }
 
-        let (success, detail) = await AdminAssistantClient.proUpgradeMachine(assistantId: targetId)
+        let (success, detail) = await AssistantClient.proUpgradeMachine(assistantId: targetId)
         guard targetId == assistantId else { return }
         if success {
             // Optimistically dismiss before the re-fetch — a stale GET that still
             // returns "small" must not regress the card back into view.
             machineSize = "medium"
-            if let refreshed = await AdminAssistantClient.fetchDetail(assistantId: targetId),
+            if let refreshed = await AssistantClient.fetchDetail(assistantId: targetId),
                let actual = refreshed.machine_size,
                actual != "small",
                targetId == assistantId {

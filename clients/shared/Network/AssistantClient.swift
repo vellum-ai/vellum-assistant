@@ -1,18 +1,18 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AdminAssistantClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AssistantClient")
 
-public struct AdminAssistantDetailResponse: Decodable, Sendable {
+public struct AssistantDetailResponse: Decodable, Sendable {
     public let machine_size: String?
 }
 
-public enum AdminAssistantClient {
-    public static func fetchDetail(assistantId: String) async -> AdminAssistantDetailResponse? {
+public enum AssistantClient {
+    public static func fetchDetail(assistantId: String) async -> AssistantDetailResponse? {
         do {
-            let (decoded, response): (AdminAssistantDetailResponse?, GatewayHTTPClient.Response) =
+            let (decoded, response): (AssistantDetailResponse?, GatewayHTTPClient.Response) =
                 try await GatewayHTTPClient.get(
-                    path: "admin/assistants/\(assistantId)/",
+                    path: "assistants/\(assistantId)/",
                     timeout: 15,
                     unprefixed: true
                 ) { $0.keyDecodingStrategy = .useDefaultKeys }
@@ -31,7 +31,7 @@ public enum AdminAssistantClient {
     public static func proUpgradeMachine(assistantId: String) async -> (success: Bool, detail: String?) {
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "admin/assistants/\(assistantId)/pro-upgrade-machine/",
+                path: "assistants/\(assistantId)/pro-upgrade-machine/",
                 json: [:],
                 timeout: 60,
                 unprefixed: true
