@@ -1285,7 +1285,7 @@ describe("assistant oauth connect <provider> — daemon unreachable (BYO mode)",
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("Could not reach the assistant daemon");
+    expect(parsed.error).toContain("Could not reach the assistant");
     expect(parsed.error).toContain("Is the assistant running?");
   });
 
