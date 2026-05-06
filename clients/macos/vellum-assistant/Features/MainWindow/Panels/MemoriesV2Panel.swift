@@ -117,12 +117,10 @@ struct MemoriesV2Panel: View {
     @ViewBuilder
     private var listContent: some View {
         if isLoading {
-            VStack {
-                Spacer()
+            ZStack {
+                Color.clear
                 VLoadingIndicator()
-                Spacer()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if pages.isEmpty {
             VEmptyState(
                 title: "No concept pages yet",
