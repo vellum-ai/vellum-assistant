@@ -1159,6 +1159,7 @@ export async function handleSurfaceAction(
       summary,
       submittedData: data,
     });
+    markSurfaceCompleted(ctx, surfaceId, summary);
 
     // Cleanup and resolve — order matters: cleanup clears the timer
     // before resolve() unblocks the caller.
@@ -1505,10 +1506,12 @@ export async function handleSurfaceAction(
     surfaceData,
   );
 
-  // Forms are one-shot surfaces — auto-complete immediately so the client
-  // transitions from the "Submitting…" spinner to a completion chip without
-  // requiring the LLM to call ui_dismiss.
-  if (pending.surfaceType === "form") {
+  // One-shot interactive surfaces — auto-complete immediately so the client
+  // transitions to a completion chip without requiring the LLM to call
+  // ui_dismiss. Forms, confirmations, and file uploads are all terminal
+  // after a single user action.
+  const ONE_SHOT_SURFACE_TYPES = ["form", "confirmation", "file_upload"];
+  if (ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)) {
     broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
