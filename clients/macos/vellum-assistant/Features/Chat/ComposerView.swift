@@ -51,6 +51,8 @@ struct ComposerView: View, Equatable {
             && lhs.inferenceProfilePicker?.current == rhs.inferenceProfilePicker?.current
             && lhs.inferenceProfilePicker?.profiles == rhs.inferenceProfilePicker?.profiles
             && lhs.inferenceProfilePicker?.activeProfile == rhs.inferenceProfilePicker?.activeProfile
+            && lhs.inferenceProfilePicker?.canCreateProfile == rhs.inferenceProfilePicker?.canCreateProfile
+            && (lhs.inferenceProfilePicker?.onCreateProfile != nil) == (rhs.inferenceProfilePicker?.onCreateProfile != nil)
             && (lhs.inferenceProfilePicker == nil) == (rhs.inferenceProfilePicker == nil)
     }
     private let composerMaxHeight: CGFloat = 300
