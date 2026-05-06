@@ -57,12 +57,8 @@ afterAll(() => {
   mock.restore();
 });
 
-import {
-  fillContextDefaultsForMissingKeys,
-  getDeploymentContextDefaults,
-  invalidateConfigCache,
-  loadConfig,
-} from "../config/loader.js";
+import { invalidateConfigCache, loadConfig } from "../config/loader.js";
+import { applyContextDefaultsToRawConfig } from "../runtime/routes/conversation-query-routes.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 
 // ---------------------------------------------------------------------------
@@ -322,16 +318,18 @@ describe("platform-managed config defaults", () => {
 
 /**
  * Regression guard for the `handleGetConfig` route handler in
- * `assistant/src/runtime/routes/conversation-query-routes.ts`.
+ * `assistant/src/runtime/routes/conversation-query-routes.ts`. That handler
+ * returns the raw on-disk JSON to clients (macOS, web, CLI) via
+ * `GET /v1/config`, but first layers deployment-context defaults on top
+ * via the `applyContextDefaultsToRawConfig` helper.
  *
- * That handler returns the raw on-disk JSON to clients (macOS, web, CLI)
- * via `GET /v1/config`, then layers deployment-context defaults on top
- * via `fillContextDefaultsForMissingKeys(raw, raw, ...)`. macOS's
- * `loadServiceModes(config:)` only updates `inferenceMode` when
- * `services.inference.mode` is present in the response — without the
- * fill pass, freshly-hatched platform-managed assistants would have no
- * `services` key on disk (only `llm.profiles` from `seedInferenceProfiles`)
- * and macOS would fall back to its `@Published` default of "your-own".
+ * macOS's `loadServiceModes(config:)` only updates `inferenceMode` when
+ * `services.inference.mode` is present in the response — without the fill
+ * pass, freshly-hatched platform-managed assistants would have no `services`
+ * key on disk (only `llm.profiles` from `seedInferenceProfiles`) and macOS
+ * would fall back to its `@Published` default of "your-own". The helper is
+ * also responsible for guarding against `loadRawConfig()` returning a
+ * non-object payload from a malformed-but-parseable `config.json`.
  */
 describe("GET /v1/config handler — context-default fill on raw response", () => {
   const originalIsPlatform = process.env.IS_PLATFORM;
@@ -358,10 +356,11 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
       },
     };
 
-    const contextDefaults = getDeploymentContextDefaults();
-    fillContextDefaultsForMissingKeys(raw, raw, contextDefaults);
-
-    const services = raw["services"] as Record<string, { mode: string }>;
+    const result = applyContextDefaultsToRawConfig(raw) as Record<
+      string,
+      unknown
+    >;
+    const services = result["services"] as Record<string, { mode: string }>;
     expect(services).toBeDefined();
     for (const svc of MANAGED_SERVICES) {
       expect(services[svc]!.mode).toBe("managed");
@@ -380,10 +379,11 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
       },
     };
 
-    const contextDefaults = getDeploymentContextDefaults();
-    fillContextDefaultsForMissingKeys(raw, raw, contextDefaults);
-
-    const services = raw["services"] as Record<string, { mode: string }>;
+    const result = applyContextDefaultsToRawConfig(raw) as Record<
+      string,
+      unknown
+    >;
+    const services = result["services"] as Record<string, { mode: string }>;
     expect(services["inference"]!.mode).toBe("your-own");
     // Other services were missing entirely → context defaults fill them in.
     expect(services["image-generation"]!.mode).toBe("managed");
@@ -401,11 +401,11 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
       },
     };
 
-    const contextDefaults = getDeploymentContextDefaults();
-    expect(Object.keys(contextDefaults)).toHaveLength(0);
-    fillContextDefaultsForMissingKeys(raw, raw, contextDefaults);
-
-    expect(raw["services"]).toBeUndefined();
+    const result = applyContextDefaultsToRawConfig(raw) as Record<
+      string,
+      unknown
+    >;
+    expect(result["services"]).toBeUndefined();
   });
 
   test("IS_PLATFORM=true, raw config has partial services.inference subtree → preserves user fields, fills missing mode", () => {
@@ -420,17 +420,60 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
       },
     };
 
-    const contextDefaults = getDeploymentContextDefaults();
-    fillContextDefaultsForMissingKeys(raw, raw, contextDefaults);
-
-    const imageGen = (
-      raw["services"] as Record<string, { mode: string; provider?: string }>
-    )["image-generation"]!;
-    expect(imageGen.mode).toBe("managed");
-    expect(imageGen.provider).toBe("openai");
+    const result = applyContextDefaultsToRawConfig(raw) as Record<
+      string,
+      unknown
+    >;
+    const services = result["services"] as Record<
+      string,
+      { mode: string; provider?: string }
+    >;
+    expect(services["image-generation"]!.mode).toBe("managed");
+    expect(services["image-generation"]!.provider).toBe("openai");
     // Inference, which was missing entirely, picks up the context default.
-    expect(
-      (raw["services"] as Record<string, { mode: string }>)["inference"]!.mode,
-    ).toBe("managed");
+    expect(services["inference"]!.mode).toBe("managed");
+  });
+
+  // -------------------------------------------------------------------------
+  // Malformed-but-parseable config.json — must not 500 the GET endpoint.
+  //
+  // `loadRawConfig()` is typed `Record<string, unknown>` but `JSON.parse`
+  // will happily return `null`, primitives, or arrays for a syntactically
+  // valid file like `null` / `42` / `[]`. The helper must return those
+  // payloads unchanged rather than throwing inside
+  // `fillContextDefaultsForMissingKeys`.
+  // -------------------------------------------------------------------------
+
+  test("IS_PLATFORM=true, raw config is null → returned unchanged (no throw)", () => {
+    process.env.IS_PLATFORM = "true";
+    expect(applyContextDefaultsToRawConfig(null)).toBe(null);
+  });
+
+  test("IS_PLATFORM=true, raw config is a primitive number → returned unchanged (no throw)", () => {
+    process.env.IS_PLATFORM = "true";
+    expect(applyContextDefaultsToRawConfig(42)).toBe(42);
+  });
+
+  test("IS_PLATFORM=true, raw config is an array → returned unchanged (no throw)", () => {
+    process.env.IS_PLATFORM = "true";
+    const raw: unknown[] = [{ foo: "bar" }];
+    const result = applyContextDefaultsToRawConfig(raw);
+    expect(result).toBe(raw);
+    // No `services` key was synthesized onto the array.
+    expect((result as { services?: unknown }).services).toBeUndefined();
+  });
+
+  test("IS_PLATFORM=true, raw config is a string → returned unchanged (no throw)", () => {
+    process.env.IS_PLATFORM = "true";
+    expect(applyContextDefaultsToRawConfig("not-an-object")).toBe(
+      "not-an-object",
+    );
+  });
+
+  test("IS_PLATFORM=false, raw config is null → returned unchanged (no throw)", () => {
+    // Sanity check: when there are no context defaults to apply, the helper
+    // also short-circuits cleanly on non-object payloads.
+    process.env.IS_PLATFORM = "false";
+    expect(applyContextDefaultsToRawConfig(null)).toBe(null);
   });
 });
