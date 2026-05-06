@@ -187,7 +187,7 @@ struct MessageInspectorMemoryV2Tab: View {
     private func statusBanner(model: MessageInspectorMemoryV2TabModel) -> some View {
         VCard {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text("Memory v2 — turn \(model.turn) (\(model.mode))")
+                Text("Memory — turn \(model.turn) (\(model.mode))")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
 
@@ -286,8 +286,8 @@ struct MessageInspectorMemoryV2Tab: View {
 
     private var noDataState: some View {
         VEmptyState(
-            title: "No memory v2 data",
-            subtitle: "Memory v2 didn't run for this turn.",
+            title: "No memory data",
+            subtitle: "Memory retrieval didn't run for this turn.",
             icon: VIcon.brain.rawValue
         )
         .frame(minHeight: 280)

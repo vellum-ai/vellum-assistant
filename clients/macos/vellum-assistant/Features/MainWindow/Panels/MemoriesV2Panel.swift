@@ -124,14 +124,14 @@ struct MemoriesV2Panel: View {
             }
         } else if v2Disabled {
             VEmptyState(
-                title: "Memory v2 is disabled",
-                subtitle: "Set memory.v2.enabled to true in your workspace config to use the Memories tab.",
+                title: "Memories are disabled",
+                subtitle: "Enable memory in your workspace config to use this tab.",
                 icon: VIcon.brain.rawValue
             )
         } else if pages.isEmpty {
             VEmptyState(
-                title: "No concept pages yet",
-                subtitle: "Memory v2 builds concept pages as the assistant reflects on your conversations. Check back after some chats.",
+                title: "No memories yet",
+                subtitle: "Your assistant builds concept pages as it reflects on your conversations. Check back after a few chats.",
                 icon: VIcon.brain.rawValue
             )
         } else if displayedPages.isEmpty {
