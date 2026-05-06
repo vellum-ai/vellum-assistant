@@ -1113,7 +1113,7 @@ jobs:
             const filePath = path.join('assistant/src/workspace/migrations', relPath.replace(/\.js$/, '.ts'));
             const src = fs.readFileSync(filePath, 'utf-8');
             let id;
-            const litMatch = src.match(/id:\s*['\x22]([^'\x22]+)['\x22]/);
+            const litMatch = src.match(/id:\s*['\x22]([^'\x22\n]+)['\x22]/);
             if (litMatch) {
               id = litMatch[1];
             } else {
