@@ -66,6 +66,7 @@ import { bumpStaleHeartbeatIntervalMigration } from "./065-bump-stale-heartbeat-
 import { seedHeartbeatCallsiteCostDefaultMigration } from "./066-seed-heartbeat-callsite-cost-default.js";
 import { releaseNotesSafeStorageLimitsMigration } from "./067-release-notes-safe-storage-limits.js";
 import { releaseNotesLocalTimezoneMigration } from "./068-release-notes-local-timezone.js";
+import { seedOnboardingThreadsMigration } from "./069-seed-onboarding-threads.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -143,4 +144,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedHeartbeatCallsiteCostDefaultMigration,
   releaseNotesSafeStorageLimitsMigration,
   releaseNotesLocalTimezoneMigration,
+  seedOnboardingThreadsMigration,
 ];
