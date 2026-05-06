@@ -50,6 +50,60 @@ final class ChatProfilePickerTests: XCTestCase {
         )
     }
 
+    // MARK: - Create profile command
+
+    func testConfigurationDefaultsHideCreateProfileCommand() {
+        let config = ChatProfilePickerConfiguration(
+            current: nil,
+            profiles: [],
+            activeProfile: "balanced",
+            onSelect: { _ in }
+        )
+
+        XCTAssertFalse(config.canCreateProfile)
+        XCTAssertNil(config.onCreateProfile)
+        XCTAssertFalse(ComposerSettingsMenu.shouldRenderProfileSection(for: config))
+        XCTAssertFalse(ComposerSettingsMenu.shouldExposeCreateProfileCommand(for: config))
+    }
+
+    func testCreateProfileCommandIsExposedWhenEnabledWithoutProfiles() {
+        var didRequestCreateProfile = false
+        let config = ChatProfilePickerConfiguration(
+            current: nil,
+            profiles: [],
+            activeProfile: "balanced",
+            canCreateProfile: true,
+            onSelect: { _ in },
+            onCreateProfile: {
+                didRequestCreateProfile = true
+            }
+        )
+
+        XCTAssertTrue(config.canCreateProfile)
+        XCTAssertTrue(ComposerSettingsMenu.shouldRenderProfileSection(for: config))
+        XCTAssertTrue(ComposerSettingsMenu.shouldExposeCreateProfileCommand(for: config))
+
+        config.onCreateProfile?()
+
+        XCTAssertTrue(didRequestCreateProfile)
+    }
+
+    func testCreateProfileCommandIsHiddenWhenDisabledWithProfiles() {
+        let config = ChatProfilePickerConfiguration(
+            current: nil,
+            profiles: [InferenceProfile(name: "balanced")],
+            activeProfile: "balanced",
+            canCreateProfile: false,
+            onSelect: { _ in },
+            onCreateProfile: {
+                XCTFail("Disabled create-profile commands must not be exposed")
+            }
+        )
+
+        XCTAssertTrue(ComposerSettingsMenu.shouldRenderProfileSection(for: config))
+        XCTAssertFalse(ComposerSettingsMenu.shouldExposeCreateProfileCommand(for: config))
+    }
+
     // MARK: - Selection callback wiring (covers ComposerView → ChatProfilePicker → ConversationManager)
 
     func testConversationManagerSetsOverrideOnSelection() async {

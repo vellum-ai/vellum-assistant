@@ -1,9 +1,9 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Bundle of the per-conversation inference-profile state and the persistence
-/// callback the composer threads through to ``ChatProfilePicker``. A single optional
-/// parameter on ``ComposerView`` / ``ComposerSection`` toggles the pill.
+/// Bundle of the per-conversation inference-profile state and callbacks the
+/// composer threads through to ``ChatProfilePicker``. A single optional parameter
+/// on ``ComposerView`` / ``ComposerSection`` toggles the pill.
 struct ChatProfilePickerConfiguration {
     /// The current per-conversation inference-profile override. `nil` means
     /// the conversation inherits `activeProfile`.
@@ -19,6 +19,28 @@ struct ChatProfilePickerConfiguration {
     /// Persists a selection. Passing `nil` clears the override so the
     /// conversation falls back to `activeProfile`.
     let onSelect: (String?) -> Void
+
+    /// Already feature-gated capability for surfacing a create-profile command.
+    let canCreateProfile: Bool
+
+    /// Opens the profile creation flow owned by the chat surface.
+    let onCreateProfile: (() -> Void)?
+
+    init(
+        current: String?,
+        profiles: [InferenceProfile],
+        activeProfile: String,
+        canCreateProfile: Bool = false,
+        onSelect: @escaping (String?) -> Void,
+        onCreateProfile: (() -> Void)? = nil
+    ) {
+        self.current = current
+        self.profiles = profiles
+        self.activeProfile = activeProfile
+        self.onSelect = onSelect
+        self.canCreateProfile = canCreateProfile
+        self.onCreateProfile = onCreateProfile
+    }
 }
 
 /// A compact pill button in the composer action bar that lets the user pick a

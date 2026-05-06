@@ -149,7 +149,7 @@ struct ComposerSettingsMenu: View {
                     }
                 }
 
-                if let config, !config.profiles.isEmpty {
+                if let config, Self.shouldRenderProfileSection(for: config) {
                     let effectiveProfile = config.current ?? config.activeProfile
 
                     sectionHeader("Model Profile")
@@ -169,12 +169,37 @@ struct ComposerSettingsMenu: View {
                             }
                         }
                     }
+
+                    if Self.shouldExposeCreateProfileCommand(for: config) {
+                        VMenuItem(
+                            icon: VIcon.plus.rawValue,
+                            label: "New Profile...",
+                            size: .regular
+                        ) {
+                            createProfile(using: config)
+                        }
+                    }
                 }
             }
         } onDismiss: {
             isMenuOpen = false
             activePanel = nil
         }
+    }
+
+    static func shouldRenderProfileSection(for config: ChatProfilePickerConfiguration) -> Bool {
+        !config.profiles.isEmpty || config.canCreateProfile
+    }
+
+    static func shouldExposeCreateProfileCommand(for config: ChatProfilePickerConfiguration) -> Bool {
+        config.canCreateProfile
+    }
+
+    private func createProfile(using config: ChatProfilePickerConfiguration) {
+        activePanel?.close()
+        activePanel = nil
+        isMenuOpen = false
+        config.onCreateProfile?()
     }
     #endif
 
