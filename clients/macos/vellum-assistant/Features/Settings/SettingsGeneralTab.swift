@@ -132,10 +132,14 @@ struct SettingsGeneralTab: View {
             Task { await refreshSubscription() }
             recordSystemResourcesDeepLinkIfNeeded(store.pendingSettingsGeneralSection)
         }
-        .onChange(of: authManager.isAuthenticated) { _, _ in
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             Task {
                 await refreshAssistantSwitcherItems()
-                await refreshSubscription()
+                if !isAuthenticated {
+                    subscription = nil
+                } else {
+                    await refreshSubscription()
+                }
             }
         }
         .onChange(of: store.pendingSettingsGeneralSection) { _, section in
@@ -295,7 +299,9 @@ struct SettingsGeneralTab: View {
     }
 
     private func refreshSubscription() async {
-        subscription = (try? await BillingService.shared.getSubscription())
+        if let sub = try? await BillingService.shared.getSubscription() {
+            subscription = sub
+        }
     }
 
     private func switchAssistantFromVersionCard(assistantId: String) async {
