@@ -17,9 +17,9 @@ import {
   test,
 } from "bun:test";
 
-import { removeSafeStorageReleaseNoteMigration } from "../workspace/migrations/069-remove-safe-storage-release-note.js";
+import { removeSafeStorageReleaseNoteMigration } from "../workspace/migrations/071-remove-safe-storage-release-note.js";
 
-const MIGRATION_ID = "069-remove-safe-storage-release-note";
+const MIGRATION_ID = "071-remove-safe-storage-release-note";
 const SAFE_STORAGE_MARKER =
   "<!-- release-note-id:067-release-notes-safe-storage-limits -->";
 const LATER_MARKER =
@@ -62,7 +62,7 @@ function updatesPath(): string {
   return join(workspaceDir, "UPDATES.md");
 }
 
-describe("workspace migration 069-remove-safe-storage-release-note", () => {
+describe("workspace migration 071-remove-safe-storage-release-note", () => {
   test("has the correct id and description", () => {
     expect(removeSafeStorageReleaseNoteMigration.id).toBe(MIGRATION_ID);
     expect(removeSafeStorageReleaseNoteMigration.description).toContain(

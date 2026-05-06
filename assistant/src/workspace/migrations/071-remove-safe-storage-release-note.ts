@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
 
-const MIGRATION_ID = "069-remove-safe-storage-release-note";
+const MIGRATION_ID = "071-remove-safe-storage-release-note";
 const SAFE_STORAGE_RELEASE_NOTE_ID = "067-release-notes-safe-storage-limits";
 const SAFE_STORAGE_MARKER = `<!-- release-note-id:${SAFE_STORAGE_RELEASE_NOTE_ID} -->`;
 const RELEASE_NOTE_MARKER_PREFIX = "<!-- release-note-id:";
