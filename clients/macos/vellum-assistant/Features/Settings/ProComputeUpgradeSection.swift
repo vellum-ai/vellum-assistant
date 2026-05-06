@@ -49,6 +49,7 @@ struct ProComputeUpgradeSection: View {
                 return
             }
             let detail = await fetchDetail(assistantId)
+            guard !Task.isCancelled else { return }
             machineSize = detail?.machine_size
             isLoadingMachineSize = false
         }
@@ -101,6 +102,7 @@ struct ProComputeUpgradeSection: View {
                     if showConfirmation {
                         Task { await performUpgrade() }
                     } else {
+                        upgradeError = nil
                         showConfirmation = true
                     }
                 }
