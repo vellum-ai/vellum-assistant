@@ -32,7 +32,6 @@ import {
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { ConversationGraphMemory } from "../../memory/graph/conversation-graph-memory.js";
 import type { Message } from "../../providers/types.js";
-import { getLogger } from "../../util/logger.js";
 import { registerPlugin } from "../registry.js";
 import {
   type MemoryArgs,
@@ -50,15 +49,6 @@ import {
  * hatch for custom retrievers.
  */
 export const DEFAULT_MEMORY_GRAPH_KIND = "default.graph" as const;
-
-const log = getLogger("default-memory-retrieval");
-
-/**
- * Foreground turns should not wait on cold embedding/model/Qdrant startup.
- * Warm memory retrieval is normally well under this budget; cold-start work
- * continues through background jobs and the next turn can pick it up.
- */
-const DEFAULT_MEMORY_GRAPH_RETRIEVAL_BUDGET_MS = 2_000;
 
 /**
  * Shape of the single block the default memory-graph retriever emits.
@@ -82,12 +72,6 @@ export interface GraphMemoryPayload {
  * Passed as a second argument to {@link runDefaultMemoryRetrieval} rather
  * than threaded through {@link MemoryArgs} to keep the plugin-facing
  * pipeline surface minimal.
- *
- * The per-turn abort signal lives on {@link MemoryArgs.signal} instead of
- * here so the pipeline runner's `linkAbortSignal` can swap it for an
- * internally-linked signal — that way a plugin timeout actually cancels
- * the underlying `prepareMemory` work instead of letting it run after
- * `Promise.race` has already rejected.
  */
 export interface DefaultMemoryRetrievalDeps {
   /** Live message list for this turn (pre-injection). */
@@ -100,8 +84,6 @@ export interface DefaultMemoryRetrievalDeps {
   readonly onEvent: (msg: ServerMessage) => void;
   /** True when the actor for this turn is trusted (guardian-class). */
   readonly isTrustedActor: boolean;
-  /** Override for tests; `null` disables the foreground soft budget. */
-  readonly graphRetrievalBudgetMs?: number | null;
 }
 
 /**
@@ -113,6 +95,11 @@ export interface DefaultMemoryRetrievalDeps {
  * trusted) or a single {@link GraphMemoryPayload} wrapping the graph
  * retriever's full output. The agent loop narrows via
  * {@link DEFAULT_MEMORY_GRAPH_KIND} to consume it.
+ *
+ * Memory retrieval blocks the turn — there is no soft timeout here. Memory
+ * is critical context, and silently dropping it produces a worse outcome
+ * than a slower turn. Cancellation still works via `args.signal`, which is
+ * threaded into `prepareMemory`.
  */
 export async function runDefaultMemoryRetrieval(
   args: MemoryArgs,
@@ -133,14 +120,12 @@ export async function runDefaultMemoryRetrieval(
     };
   }
 
-  const graphResult = await prepareGraphMemoryWithBudget(args, deps);
-  if (!graphResult) {
-    return {
-      pkbContent,
-      nowContent,
-      memoryGraphBlocks: [],
-    };
-  }
+  const graphResult = await deps.graphMemory.prepareMemory(
+    deps.messages,
+    deps.config,
+    args.signal,
+    deps.onEvent,
+  );
 
   const payload: GraphMemoryPayload = {
     kind: DEFAULT_MEMORY_GRAPH_KIND,
@@ -152,69 +137,6 @@ export async function runDefaultMemoryRetrieval(
     nowContent,
     memoryGraphBlocks: [payload],
   };
-}
-
-async function prepareGraphMemoryWithBudget(
-  args: MemoryArgs,
-  deps: DefaultMemoryRetrievalDeps,
-): Promise<Awaited<
-  ReturnType<ConversationGraphMemory["prepareMemory"]>
-> | null> {
-  const budgetMs =
-    deps.graphRetrievalBudgetMs === undefined
-      ? DEFAULT_MEMORY_GRAPH_RETRIEVAL_BUDGET_MS
-      : deps.graphRetrievalBudgetMs;
-
-  if (budgetMs === null) {
-    return deps.graphMemory.prepareMemory(
-      deps.messages,
-      deps.config,
-      args.signal,
-      deps.onEvent,
-    );
-  }
-
-  if (args.signal.aborted) return null;
-
-  const controller = new AbortController();
-  const abortFromParent = () => controller.abort();
-  args.signal.addEventListener("abort", abortFromParent, { once: true });
-
-  let timedOut = false;
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-
-  const graphPromise = deps.graphMemory
-    .prepareMemory(deps.messages, deps.config, controller.signal, deps.onEvent)
-    .then(
-      (result) => ({ status: "ok" as const, result }),
-      (err) => ({ status: "error" as const, err }),
-    );
-
-  const timeoutPromise = new Promise<{ status: "timeout" }>((resolve) => {
-    timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-      resolve({ status: "timeout" });
-    }, budgetMs);
-  });
-
-  try {
-    const winner = await Promise.race([graphPromise, timeoutPromise]);
-    if (winner.status === "ok") return winner.result;
-    if (winner.status === "timeout") {
-      log.warn(
-        { budgetMs },
-        "Memory graph retrieval exceeded foreground budget; continuing without graph memory",
-      );
-      return null;
-    }
-
-    if (timedOut || controller.signal.aborted) return null;
-    throw winner.err;
-  } finally {
-    if (timeout) clearTimeout(timeout);
-    args.signal.removeEventListener("abort", abortFromParent);
-  }
 }
 
 /**

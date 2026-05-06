@@ -45,25 +45,28 @@ mock.module("../../../util/logger.js", () => ({
 
 // Stub the v1 retriever so we don't reach Qdrant. Both modes return zero
 // nodes — the v1 injection branch becomes a no-op, isolating the assertion
-// to "did the v2 routing fire?".
+// to "did the v2 routing fire?". Tracked via `mock()` so tests can also
+// assert that v1 retrieval is *not* called when v2 is enabled.
+const loadContextMemoryMock = mock(async () => ({
+  nodes: [],
+  serendipityNodes: [],
+  latencyMs: 1,
+  metrics: null,
+  queryVector: undefined,
+  sparseVector: undefined,
+  userQueryVector: undefined,
+  userQuerySparseVector: undefined,
+}));
+const retrieveForTurnMock = mock(async () => ({
+  nodes: [],
+  latencyMs: 1,
+  metrics: null,
+  queryVector: undefined,
+  sparseVector: undefined,
+}));
 mock.module("../retriever.js", () => ({
-  loadContextMemory: async () => ({
-    nodes: [],
-    serendipityNodes: [],
-    latencyMs: 1,
-    metrics: null,
-    queryVector: undefined,
-    sparseVector: undefined,
-    userQueryVector: undefined,
-    userQuerySparseVector: undefined,
-  }),
-  retrieveForTurn: async () => ({
-    nodes: [],
-    latencyMs: 1,
-    metrics: null,
-    queryVector: undefined,
-    sparseVector: undefined,
-  }),
+  loadContextMemory: loadContextMemoryMock,
+  retrieveForTurn: retrieveForTurnMock,
 }));
 
 // Programmable embedding + Qdrant state. Mirrors the pattern in
@@ -262,6 +265,8 @@ beforeEach(() => {
   testDbHandle = createTestDb();
   qdrantState.queryResponses.dense.length = 0;
   qdrantState.queryResponses.sparse.length = 0;
+  loadContextMemoryMock.mockClear();
+  retrieveForTurnMock.mockClear();
   _resetMemoryV2QdrantForTests();
 });
 
@@ -347,6 +352,9 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     expect(firstBlock.text.endsWith("\n</memory>")).toBe(true);
     // No nested wrapper.
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
+
+    // v1 retrieval is fully bypassed when v2 is enabled.
+    expect(retrieveForTurnMock).not.toHaveBeenCalled();
   });
 
   test("reinjectCachedMemory after v2 injection wraps exactly once (no double-wrap)", async () => {
@@ -430,6 +438,9 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
     const firstBlock = lastMsg?.content[0];
     if (firstBlock?.type !== "text") throw new Error("unexpected block type");
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
+
+    // v1 retrieval is fully bypassed when v2 is enabled.
+    expect(loadContextMemoryMock).not.toHaveBeenCalled();
   });
 
   test("flag off → v2 not run on first turn either", async () => {
