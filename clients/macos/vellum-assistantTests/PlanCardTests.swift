@@ -135,9 +135,9 @@ final class PlanCardTests: XCTestCase {
         XCTAssertEqual(card.displayState, .error(message: "Boom", buttonLabel: "Manage Plan"))
     }
 
-    /// Without a fallback CTA in the error state, an `auto-credit-topup`-disabled
-    /// user hitting a transient `/billing/subscription` failure has no path to
-    /// billing settings — the prior simple "Adjust Plan" card always had a button.
+    /// Without a fallback CTA in the error state, a user hitting a transient
+    /// `/billing/subscription` failure has no path to billing settings — the
+    /// prior simple "Adjust Plan" card always had a button.
     func testErrorStateExposesManageButton() {
         var manageInvocations = 0
         let card = PlanCard(

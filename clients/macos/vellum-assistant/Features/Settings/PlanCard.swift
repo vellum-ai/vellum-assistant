@@ -33,8 +33,8 @@ struct PlanCard: View {
         case loaded(planName: String, subtitle: String, buttonLabel: String, isPro: Bool)
         /// Plan/subscription fetch failed. We still render a fallback CTA so
         /// users hitting a transient error retain a path to billing settings —
-        /// otherwise an `auto-credit-topup`-disabled user has no way to manage
-        /// or upgrade their plan when the API blips.
+        /// otherwise they have no way to manage or upgrade their plan when the
+        /// API blips.
         case error(message: String, buttonLabel: String)
     }
 
