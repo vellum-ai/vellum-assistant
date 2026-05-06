@@ -678,3 +678,27 @@ describe("bundled computer-use skill", () => {
     ]);
   });
 });
+
+describe("bundled skill includes", () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  });
+
+  afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
+  });
+
+  test("app-builder can resolve its frontend-design include locally", () => {
+    const catalog = loadSkillCatalog();
+    const appBuilder = catalog.find((skill) => skill.id === "app-builder");
+    const frontendDesign = catalog.find(
+      (skill) => skill.id === "frontend-design",
+    );
+
+    expect(appBuilder?.bundled).toBe(true);
+    expect(appBuilder?.includes).toContain("frontend-design");
+    expect(frontendDesign?.bundled).toBe(true);
+  });
+});
