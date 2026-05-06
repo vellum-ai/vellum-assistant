@@ -5,7 +5,6 @@ import VellumAssistantShared
 @MainActor
 struct SettingsBillingTab: View {
     var authManager: AuthManager
-    var assistantFeatureFlagStore: AssistantFeatureFlagStore
 
     @State private var summary: BillingSummaryResponse?
     @State private var subscription: SubscriptionResponse?
@@ -23,14 +22,6 @@ struct SettingsBillingTab: View {
         topUpAmounts.contains(selectedAmount) ? selectedAmount : topUpAmounts.first ?? ""
     }
 
-    var isProPlanAdjustEnabled: Bool {
-        assistantFeatureFlagStore.isEnabled("pro-plan-adjust")
-    }
-
-    var isAutoCreditTopUpEnabled: Bool {
-        assistantFeatureFlagStore.isEnabled("auto-credit-topup")
-    }
-
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
@@ -38,9 +29,7 @@ struct SettingsBillingTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            if isProPlanAdjustEnabled {
-                planSection
-            }
+            planSection
             balanceCard
             if isLoading {
                 addFundsSkeleton
@@ -316,13 +305,11 @@ struct SettingsBillingTab: View {
                 ) {
                     Task { await handleTopUp() }
                 }
-                if isAutoCreditTopUpEnabled {
-                    VButton(
-                        label: "Configure Auto Top Ups",
-                        style: .outlined
-                    ) {
-                        NSWorkspace.shared.open(AppURLs.billingSettings)
-                    }
+                VButton(
+                    label: "Configure Auto Top Ups",
+                    style: .outlined
+                ) {
+                    NSWorkspace.shared.open(AppURLs.billingSettings)
                 }
             }
 
@@ -381,12 +368,10 @@ struct SettingsBillingTab: View {
         error = nil
         planError = nil
 
-        // Always refresh the billing summary. When `pro-plan-adjust` is on we
-        // also fetch the subscription + plan catalog in parallel; while the
-        // flag is off those endpoints aren't called so users on the legacy
-        // billing tab don't pay for unused requests. Each fetch has its own
-        // `do/catch` so a flaky `/subscription/` call still lets the balance
-        // card render (and vice versa).
+        // Refresh the billing summary alongside the subscription + plan catalog
+        // in parallel. Each fetch has its own `do/catch` so a flaky
+        // `/subscription/` call still lets the balance card render (and vice
+        // versa).
         //
         // Critically, we resolve the billing summary BEFORE awaiting the plan
         // metadata so a slow `/subscription/` or `/plans/` call doesn't keep
@@ -394,52 +379,37 @@ struct SettingsBillingTab: View {
         // launched concurrently, so total wall-clock time is unchanged — but
         // the balance UI flips out of loading as soon as the summary call
         // returns, independent of plan-metadata latency.
-        if isProPlanAdjustEnabled {
-            async let summaryTask = BillingService.shared.getBillingSummary()
-            async let subscriptionTask = BillingService.shared.getSubscription()
-            async let plansTask = BillingService.shared.getPlanCatalog()
+        async let summaryTask = BillingService.shared.getBillingSummary()
+        async let subscriptionTask = BillingService.shared.getSubscription()
+        async let plansTask = BillingService.shared.getPlanCatalog()
 
-            do {
-                var result = try await summaryTask
-                if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: result) {
-                    result = bootstrapped
-                }
-                summary = result
-            } catch {
-                if summary == nil {
-                    self.error = "Unable to load billing information. Please try again."
-                }
+        do {
+            var result = try await summaryTask
+            if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: result) {
+                result = bootstrapped
             }
-            isLoading = false
+            summary = result
+        } catch {
+            if summary == nil {
+                self.error = "Unable to load billing information. Please try again."
+            }
+        }
+        isLoading = false
 
-            // Each fetch is awaited independently so a flaky `/plans/` doesn't
-            // discard a successfully-fetched subscription (and vice versa). On
-            // refresh, the prior `@State` value is retained when a fetch
-            // throws. `planError` is only set when we end up missing data the
-            // card needs — preserving previously-loaded state on transient
-            // refresh failures.
-            if let sub = try? await subscriptionTask {
-                subscription = sub
-            }
-            if let catalog = try? await plansTask {
-                plans = catalog.plans
-            }
-            if subscription == nil || plans == nil {
-                planError = "Unable to load plan information."
-            }
-        } else {
-            do {
-                var result = try await BillingService.shared.getBillingSummary()
-                if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: result) {
-                    result = bootstrapped
-                }
-                summary = result
-            } catch {
-                if summary == nil {
-                    self.error = "Unable to load billing information. Please try again."
-                }
-            }
-            isLoading = false
+        // Each fetch is awaited independently so a flaky `/plans/` doesn't
+        // discard a successfully-fetched subscription (and vice versa). On
+        // refresh, the prior `@State` value is retained when a fetch
+        // throws. `planError` is only set when we end up missing data the
+        // card needs — preserving previously-loaded state on transient
+        // refresh failures.
+        if let sub = try? await subscriptionTask {
+            subscription = sub
+        }
+        if let catalog = try? await plansTask {
+            plans = catalog.plans
+        }
+        if subscription == nil || plans == nil {
+            planError = "Unable to load plan information."
         }
     }
 
@@ -495,13 +465,11 @@ extension SettingsBillingTab {
     /// and `PlanCardTests` to exercise the rendered output against known fixtures.
     init(
         authManager: AuthManager,
-        assistantFeatureFlagStore: AssistantFeatureFlagStore,
         initialSummary: BillingSummaryResponse?,
         initialSubscription: SubscriptionResponse? = nil,
         initialPlans: [PlanCatalogEntry]? = nil
     ) {
         self.authManager = authManager
-        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self._summary = State(initialValue: initialSummary)
         self._subscription = State(initialValue: initialSubscription)
         self._plans = State(initialValue: initialPlans)
