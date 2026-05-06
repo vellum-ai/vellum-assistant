@@ -5,7 +5,6 @@ import VellumAssistantShared
 @MainActor
 struct SettingsBillingTab: View {
     var authManager: AuthManager
-    var assistantFeatureFlagStore: AssistantFeatureFlagStore
 
     @State private var summary: BillingSummaryResponse?
     @State private var subscription: SubscriptionResponse?
@@ -466,13 +465,11 @@ extension SettingsBillingTab {
     /// and `PlanCardTests` to exercise the rendered output against known fixtures.
     init(
         authManager: AuthManager,
-        assistantFeatureFlagStore: AssistantFeatureFlagStore,
         initialSummary: BillingSummaryResponse?,
         initialSubscription: SubscriptionResponse? = nil,
         initialPlans: [PlanCatalogEntry]? = nil
     ) {
         self.authManager = authManager
-        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self._summary = State(initialValue: initialSummary)
         self._subscription = State(initialValue: initialSubscription)
         self._plans = State(initialValue: initialPlans)
