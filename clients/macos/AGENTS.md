@@ -429,6 +429,12 @@ All `vellum.ai` and external links the app navigates to (docs pages, terms of se
 - The docs base URL honors a `VELLUM_DOCS_BASE_URL` env var (validated as an absolute http(s) URL with no query/fragment, falls back to `https://www.vellum.ai/docs` on failure).
 - If you introduce a new env-var-overridable URL, also: (1) embed the var into `Info.plist`'s `LSEnvironment` in `clients/macos/build.sh` — LaunchServices doesn't inherit shell env, so `./build.sh run` requires the embedding (XML-escape values; see the existing `VELLUM_DOCS_BASE_URL` block for the pattern); (2) register the var in `assistant/src/tools/terminal/safe-env.ts` and `assistant/src/config/env-registry.ts` per `assistant/CLAUDE.md` § "Adding new environment variables".
 
+### Authentication
+
+The WorkOS sign-in flow uses [`ASWebAuthenticationSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) (`AuthManager.startWorkOSLogin`). Apple's defaults assume the sheet shares cookies with the user's existing Safari session — flipping [`prefersEphemeralWebBrowserSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession/prefersephemeralwebbrowsersession) to `true` silently breaks SSO, because the user's existing IdP cookies (Google etc.) become invisible to the sheet and every login asks for credentials from scratch.
+
+Before mirroring an auth-session flag from iOS to macOS (or vice versa), reproduce the bug being fixed on the *target* platform. The two platforms use the same `ASWebAuthenticationSession` API but have different IdP-cookie expectations and different historical bug surfaces, so a setting that is right on one platform can be wrong on the other.
+
 ---
 
 ## Data Storage
