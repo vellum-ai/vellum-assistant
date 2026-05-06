@@ -68,6 +68,7 @@ import { releaseNotesSafeStorageLimitsMigration } from "./067-release-notes-safe
 import { releaseNotesLocalTimezoneMigration } from "./068-release-notes-local-timezone.js";
 import { seedOnboardingThreadsMigration } from "./069-seed-onboarding-threads.js";
 import { memoryV2SummarySchemaRebuildMigration } from "./070-memory-v2-summary-schema-rebuild.js";
+import { removeSafeStorageReleaseNoteMigration } from "./071-remove-safe-storage-release-note.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -147,4 +148,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   releaseNotesLocalTimezoneMigration,
   seedOnboardingThreadsMigration,
   memoryV2SummarySchemaRebuildMigration,
+  removeSafeStorageReleaseNoteMigration,
 ];
