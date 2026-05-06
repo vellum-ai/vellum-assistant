@@ -5,6 +5,7 @@ import VellumAssistantShared
 @MainActor
 struct SettingsBillingTab: View {
     var authManager: AuthManager
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore
 
     @State private var summary: BillingSummaryResponse?
     @State private var subscription: SubscriptionResponse?
@@ -22,6 +23,10 @@ struct SettingsBillingTab: View {
         topUpAmounts.contains(selectedAmount) ? selectedAmount : topUpAmounts.first ?? ""
     }
 
+    var isProPlanAdjustEnabled: Bool {
+        assistantFeatureFlagStore.isEnabled("pro-plan-adjust")
+    }
+
     @State private var isProcessingTopUp: Bool = false
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
@@ -29,7 +34,9 @@ struct SettingsBillingTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            planSection
+            if isProPlanAdjustEnabled {
+                planSection
+            }
             balanceCard
             if isLoading {
                 addFundsSkeleton
@@ -465,11 +472,13 @@ extension SettingsBillingTab {
     /// and `PlanCardTests` to exercise the rendered output against known fixtures.
     init(
         authManager: AuthManager,
+        assistantFeatureFlagStore: AssistantFeatureFlagStore,
         initialSummary: BillingSummaryResponse?,
         initialSubscription: SubscriptionResponse? = nil,
         initialPlans: [PlanCatalogEntry]? = nil
     ) {
         self.authManager = authManager
+        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self._summary = State(initialValue: initialSummary)
         self._subscription = State(initialValue: initialSubscription)
         self._plans = State(initialValue: initialPlans)

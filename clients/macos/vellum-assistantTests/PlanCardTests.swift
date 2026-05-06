@@ -165,6 +165,7 @@ final class PlanCardTests: XCTestCase {
         let cancelISO = "2026-09-15T00:00:00Z"
         let view = SettingsBillingTab(
             authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
             initialSummary: nil,
             initialSubscription: makeProSubscription(
                 cancelAtPeriodEnd: true,
@@ -189,6 +190,7 @@ final class PlanCardTests: XCTestCase {
     func testActiveProSubscriptionRendersRenewsLine() {
         let view = SettingsBillingTab(
             authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
             initialSummary: nil,
             initialSubscription: makeProSubscription(cancelAtPeriodEnd: false),
             initialPlans: makePlanCatalog()
@@ -207,6 +209,7 @@ final class PlanCardTests: XCTestCase {
     func testBaseSubscriptionRendersNoRenewalLine() {
         let view = SettingsBillingTab(
             authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
             initialSummary: nil,
             initialSubscription: makeBaseSubscription(),
             initialPlans: makePlanCatalog()
@@ -221,6 +224,7 @@ final class PlanCardTests: XCTestCase {
     func testCancellingSubscriptionWithoutExplicitCancelAtFallsBackToPeriodEnd() {
         let view = SettingsBillingTab(
             authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
             initialSummary: nil,
             initialSubscription: makeProSubscription(
                 cancelAtPeriodEnd: true,
@@ -245,6 +249,7 @@ final class PlanCardTests: XCTestCase {
     func testCanceledStatusHidesRenewalLine() {
         let view = SettingsBillingTab(
             authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
             initialSummary: nil,
             initialSubscription: makeProSubscription(
                 cancelAtPeriodEnd: false,

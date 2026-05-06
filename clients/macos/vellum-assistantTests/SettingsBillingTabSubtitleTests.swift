@@ -35,6 +35,7 @@ final class SettingsBillingTabSubtitleTests: XCTestCase {
     func testSubtitleNilWhenSummaryNotLoaded() {
         let view = SettingsBillingTab(
             authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
             initialSummary: nil
         )
         XCTAssertNil(view.addCreditsSubtitleAttributed)
@@ -44,6 +45,7 @@ final class SettingsBillingTabSubtitleTests: XCTestCase {
         let summary = makeSummary(maximumBalance: "1000")
         let view = SettingsBillingTab(
             authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
             initialSummary: summary
         )
 
@@ -70,6 +72,7 @@ final class SettingsBillingTabSubtitleTests: XCTestCase {
         let summary = makeSummary(maximumBalance: "1000")
         let view = SettingsBillingTab(
             authManager: AuthManager(),
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
             initialSummary: summary
         )
 

@@ -280,6 +280,14 @@
       "label": "Analyze Conversation",
       "description": "Show the 'Analyze' / 'Analyze conversation' option in conversation context menus and the conversation title actions dropdown.",
       "defaultEnabled": false
+    },
+    {
+      "id": "pro-plan-adjust",
+      "scope": "assistant",
+      "key": "pro-plan-adjust",
+      "label": "Pro Plan Adjust",
+      "description": "Show the rich Plan card (current plan, features, Manage/Upgrade CTA) at the top of the macOS Settings → Billing tab.",
+      "defaultEnabled": false
     }
   ]
 }
