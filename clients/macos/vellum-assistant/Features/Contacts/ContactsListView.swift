@@ -82,7 +82,7 @@ struct ContactsListView: View {
             if viewModel.regularContacts.isEmpty && viewModel.searchQuery.isEmpty {
                 addContactButton
             } else {
-                if !viewModel.regularContacts.isEmpty {
+                if !viewModel.regularContacts.isEmpty || !viewModel.searchQuery.isEmpty {
                     searchBar
                 }
 
