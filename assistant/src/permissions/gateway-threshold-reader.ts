@@ -46,17 +46,16 @@ const CONVERSATION_CACHE_TTL_MS = 5_000;
 
 // ── Failure-coalescing log helper ────────────────────────────────────────────
 // When the gateway IPC socket is broken (e.g. the path was unlinked from
-// disk; see PR #29771), every threshold lookup fails with ENOENT and the
-// previous implementation emitted one WARN per failure — ~10/sec on the
-// hot path. That made the actual signal ("Strict-when-Relaxed because the
-// gateway lost its socket") invisible inside its own log spam.
+// disk), every threshold lookup fails with ENOENT on the hot path. Without
+// coalescing the per-call WARN drowns the actual signal ("Strict-when-
+// Relaxed because the gateway lost its socket") in its own log spam.
 //
-// Each `op` (e.g. "conversation_threshold", "global_thresholds") has at
-// most one WARN every {@link FAILURE_WARN_INTERVAL_MS}. The first failure
-// in a streak always WARNs immediately so failures aren't lost. When the
-// IPC starts working again, an INFO records how long the streak lasted
-// and how many calls were swallowed — that's the cue dashboards should
-// alert on.
+// Each `op` (e.g. "conversation_threshold", "global_thresholds") emits at
+// most one WARN per {@link DEFAULT_FAILURE_WARN_INTERVAL_MS} window. The
+// first failure in a streak WARNs immediately so failures aren't lost. When
+// the IPC starts working again, an INFO records the streak duration and
+// how many calls were swallowed — that's the cue dashboards should alert
+// on.
 
 interface FailureState {
   consecutiveFailures: number;
