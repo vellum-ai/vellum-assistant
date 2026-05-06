@@ -5,29 +5,28 @@ import { dirname, join } from "node:path";
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
 
 /**
- * Resolve the Vellum root directory.
+ * The daemon's root data directory (`~/.vellum`).
  *
- * Resolution order:
- * 1. Parent of VELLUM_WORKSPACE_DIR — e.g. /data/.vellum/workspace → /data/.vellum
- * 2. If that parent is "/" (workspace mounted at top level, e.g. /workspace),
- *    fall back to homedir()/.vellum
- *
- * This mirrors the same logic used in workspace/migrations/utils.ts so that
- * the protected directory (and other root-relative paths) correctly follow
- * the workspace location in containerised deployments.
+ * Used as a fallback when `VELLUM_WORKSPACE_DIR` is not set, and as a
+ * stable constant for paths (like `.env`) that intentionally live at the
+ * host home directory regardless of workspace relocation.
  */
-function getVellumRoot(): string {
+const VELLUM_ROOT = join(homedir(), ".vellum");
+
+/**
+ * Returns the Vellum root directory.
+ *
+ * Resolution order (mirrors workspace/migrations/utils.ts):
+ * 1. Parent of VELLUM_WORKSPACE_DIR — e.g. /data/.vellum/workspace → /data/.vellum
+ * 2. If that parent is "/" (workspace at top level), fall back to ~/.vellum
+ */
+export function vellumRoot(): string {
   const override = getWorkspaceDirOverride();
   if (override) {
     const parent = dirname(override);
     if (parent !== "/") return parent;
   }
-  return join(homedir(), ".vellum");
-}
-
-/** Returns the daemon's root data directory (`~/.vellum`). */
-export function vellumRoot(): string {
-  return getVellumRoot();
+  return VELLUM_ROOT;
 }
 
 export function isMacOS(): boolean {
@@ -172,17 +171,16 @@ export function getHistoryPath(): string {
 }
 
 /**
- * Returns the protected directory (~/.vellum/protected). Security-sensitive
- * files — trust rules, encrypted credential store, signing keys, feature-flag
- * overrides, device approval lists — live here.
+ * Returns the protected directory. Security-sensitive files — trust rules,
+ * encrypted credential store, signing keys, feature-flag overrides, device
+ * approval lists — live here.
  *
  * This directory is:
- * - Outside the workspace
  * - Outside the sandbox write boundary (tools cannot modify it)
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
  */
 export function getProtectedDir(): string {
-  return join(getVellumRoot(), "protected");
+  return join(vellumRoot(), "protected");
 }
 
 /** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
@@ -216,7 +214,7 @@ export function getBinDir(): string {
 
 /** Returns the path to the dot-env file (~/.vellum/.env). Stays at root because it contains secrets. */
 export function getDotEnvPath(): string {
-  return join(getVellumRoot(), ".env");
+  return join(vellumRoot(), ".env");
 }
 
 /** Returns the path to the embed-worker PID file (~/.vellum/workspace/embed-worker.pid). */
@@ -234,7 +232,7 @@ export function getEmbedWorkerPidPath(): string {
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
   if (override) return override;
-  return join(getVellumRoot(), "workspace");
+  return join(VELLUM_ROOT, "workspace");
 }
 
 /**
@@ -380,7 +378,7 @@ export function getBundledBunPath(): string | undefined {
 }
 
 export function ensureDataDir(): void {
-  const root = getVellumRoot();
+  const root = vellumRoot();
   const workspace = getWorkspaceDir();
   const wsData = join(workspace, "data");
   const dirs = [

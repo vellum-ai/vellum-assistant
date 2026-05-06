@@ -220,17 +220,6 @@ export type RuntimeInboundResponse = {
   /** When true, the runtime denied the inbound message (e.g. ACL rejection). */
   denied?: boolean;
   /**
-   * When a guardian approved an inbound voice access request, the contact that
-   * should be activated. The gateway writes the dual-write on behalf of the
-   * runtime so the assistant never triggers contact writes via IPC.
-   */
-  activatedContact?: {
-    sourceChannel: string;
-    externalUserId: string;
-    externalChatId?: string;
-    displayName?: string;
-  };
-  /**
    * A user-facing rejection message that the runtime could not deliver via
    * the callback URL (e.g. due to auth failure). When present, the gateway
    * should deliver it directly to the channel.

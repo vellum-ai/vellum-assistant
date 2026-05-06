@@ -239,7 +239,7 @@ export class HostCuProxy {
           targetClientId != null
             ? assistantEventHub.getActorPrincipalIdForClient(targetClientId)
             : undefined,
-        rpcResolve: resolve,
+        rpcResolve: resolve as (v: unknown) => void,
         rpcReject: reject,
         timer,
         detachAbort,

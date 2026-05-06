@@ -160,8 +160,9 @@ export function handleChannelDecision(
     : pending[0];
   if (!info) return { applied: false };
 
-  // Resolve the interaction to get the conversation and remove from tracker
-  const resolved = pendingInteractions.resolve(info.requestId);
+  // Peek (not consume) — resolveConfirmation() owns deregistration and
+  // must fire the promptResolve callback stored in the interaction.
+  const resolved = pendingInteractions.get(info.requestId);
   if (!resolved) return { applied: false };
 
   // Map channel-level action to the permission system's UserDecision type.

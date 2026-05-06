@@ -192,6 +192,8 @@ function makeIdleSession(opts?: {
       processing = false;
     },
     handleConfirmationResponse: (requestId: string, decision: string) => {
+      // Simulate PermissionPrompter.resolveConfirmation(): prompter owns deregistration.
+      pendingInteractions.resolve(requestId);
       opts?.onConfirmation?.(requestId, decision);
     },
     handleSecretResponse: (
@@ -199,6 +201,8 @@ function makeIdleSession(opts?: {
       value?: string,
       delivery?: string,
     ) => {
+      // Simulate SecretPrompter.resolveSecret(): prompter owns deregistration.
+      pendingInteractions.resolve(requestId);
       opts?.onSecret?.(requestId, value, delivery);
     },
   } as unknown as Conversation;
@@ -285,6 +289,8 @@ function makeConfirmationEmittingSession(opts?: {
       await new Promise<void>(() => {});
     },
     handleConfirmationResponse: (requestId: string, decision: string) => {
+      // Simulate PermissionPrompter.resolveConfirmation(): prompter owns deregistration.
+      pendingInteractions.resolve(requestId);
       opts?.onConfirmation?.(requestId, decision);
     },
     handleSecretResponse: () => {},

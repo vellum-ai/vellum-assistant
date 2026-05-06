@@ -273,7 +273,7 @@ export class HostTransferProxy {
                     resolvedTargetClientId,
                   )
                 : undefined,
-            rpcResolve: resolve,
+            rpcResolve: resolve as (v: unknown) => void,
             rpcReject: reject,
             timer,
             detachAbort,
@@ -462,7 +462,7 @@ export class HostTransferProxy {
                 resolvedTargetClientId,
               )
             : undefined,
-        rpcResolve: resolve,
+        rpcResolve: resolve as (v: unknown) => void,
         rpcReject: reject,
         timer,
         detachAbort,

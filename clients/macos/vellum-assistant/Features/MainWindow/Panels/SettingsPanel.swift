@@ -443,8 +443,7 @@ struct SettingsPanel: View {
             permissionsAndPrivacyContent
         case .billing:
             SettingsBillingTab(
-                authManager: authManager,
-                assistantFeatureFlagStore: assistantFeatureFlagStore
+                authManager: authManager
             )
         case .archivedConversations:
             SettingsArchivedConversationsTab(conversationManager: conversationManager)

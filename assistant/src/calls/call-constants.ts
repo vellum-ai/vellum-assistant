@@ -1,14 +1,7 @@
 import { getConfig } from "../config/loader.js";
 
 // Emergency/high-risk numbers that should never be called
-const DENIED_NUMBERS = new Set([
-  "911",
-  "112",
-  "999",
-  "000",
-  "110",
-  "119",
-]);
+const DENIED_NUMBERS = new Set(["911", "112", "999", "000", "110", "119"]);
 
 /**
  * Check whether a phone number is a denied emergency number.
@@ -74,4 +67,8 @@ export function getGuardianWaitUpdateSteadyMaxIntervalMs(): number {
 
 export function getSilenceTimeoutMs(): number {
   return 30 * 1000; // 30 seconds
+}
+
+export function getEndCallListenWindowMs(): number {
+  return 15 * 1000;
 }

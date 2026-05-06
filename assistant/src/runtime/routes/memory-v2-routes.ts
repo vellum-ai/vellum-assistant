@@ -4,6 +4,9 @@
  * Migrated from `ipc/routes/memory-v2-backfill.ts` and
  * `ipc/routes/memory-v2-validate.ts` into the shared ROUTES array.
  */
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
+
 import { z } from "zod";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
@@ -32,6 +35,7 @@ import {
   validateEdgeTargets,
 } from "../../memory/v2/edge-index.js";
 import {
+  getConceptsDir,
   listPages,
   readPage,
   renderPageContent,
@@ -47,10 +51,13 @@ import {
   getConceptPageCorpusStats,
   rebuildConceptPageCorpusStats,
 } from "../../memory/v2/sparse-bm25.js";
+import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { RouteError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 import type { RouteHandlerArgs } from "./types.js";
+
+const log = getLogger("memory-v2-routes");
 
 // ── Backfill ────────────────────────────────────────────────────────────
 
@@ -178,6 +185,59 @@ async function handleGetConceptPage({
     );
   }
   return { slug, rendered: renderPageContent(page) };
+}
+
+// ── List concept pages ──────────────────────────────────────────────────
+
+const MemoryV2ListConceptPagesParams = z.object({}).strict();
+
+export type MemoryV2ListConceptPagesResult = {
+  pages: Array<{
+    slug: string;
+    bodyChars: number;
+    edgeCount: number;
+    updatedAtMs: number;
+  }>;
+  total: number;
+};
+
+async function handleListConceptPages({
+  body = {},
+}: RouteHandlerArgs): Promise<MemoryV2ListConceptPagesResult> {
+  MemoryV2ListConceptPagesParams.parse(body);
+
+  const workspaceDir = getWorkspaceDir();
+  const conceptsDir = getConceptsDir(workspaceDir);
+  const slugs = await listPages(workspaceDir);
+
+  const settled = await Promise.all(
+    slugs.map(async (slug) => {
+      try {
+        const page = await readPage(workspaceDir, slug);
+        if (!page) return null;
+        const stats = await stat(join(conceptsDir, `${slug}.md`));
+        return {
+          slug,
+          bodyChars: Buffer.byteLength(page.body, "utf8"),
+          edgeCount: page.frontmatter.edges.length,
+          updatedAtMs: stats.mtimeMs,
+        };
+      } catch (err) {
+        // A single corrupt page (bad YAML, schema mismatch, etc.) shouldn't
+        // poison the whole listing — the validate route is the place to
+        // surface those; this one is read-only and best-effort.
+        log.warn(
+          `Skipping concept page '${slug}' in list-concept-pages: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return null;
+      }
+    }),
+  );
+  const pages = settled.filter(
+    (p): p is MemoryV2ListConceptPagesResult["pages"][number] => p !== null,
+  );
+
+  return { pages, total: pages.length };
 }
 
 // ── Rebuild BM25 corpus stats ───────────────────────────────────────────
@@ -602,6 +662,17 @@ export const ROUTES: RouteDefinition[] = [
       "Returns the rendered (frontmatter + body) markdown for a slug. 404 when the slug has no on-disk page — the activation log inspector uses this to show what got injected.",
     tags: ["memory"],
     requestBody: MemoryV2GetConceptPageParams,
+  },
+  {
+    operationId: "memory_v2_list_concept_pages",
+    method: "POST",
+    endpoint: "memory/v2/list-concept-pages",
+    handler: handleListConceptPages,
+    summary: "List all memory v2 concept pages with metadata",
+    description:
+      "Returns slugs, body sizes, edge counts, and last-modified timestamps for every concept page on disk. Read-only; used by the desktop About → Memories surface to render a browse-able list.",
+    tags: ["memory"],
+    requestBody: MemoryV2ListConceptPagesParams,
   },
   {
     operationId: "memory_v2_reembed_skills",

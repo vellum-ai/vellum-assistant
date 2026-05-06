@@ -174,9 +174,6 @@ export async function handleGuardianReplyIntercept(
         eventId,
         canonicalRouter: routerResult.type,
         requestId: routerResult.requestId,
-        ...(routerResult.activatedContact
-          ? { activatedContact: routerResult.activatedContact }
-          : {}),
       }),
       skipApprovalInterception: false,
     };

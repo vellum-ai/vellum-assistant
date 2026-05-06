@@ -769,9 +769,11 @@ struct TeleportSection: View {
         phase = .verifying
     }
 
-    /// Polls the platform's job-status endpoint for an export job until it
-    /// reports `complete` or `failed`. Mirrors the polling block in
-    /// `importBundleToManaged` (5s interval, 60min timeout, 5xx-only retry).
+    /// Polls the managed runtime's job-status endpoint for an export job until
+    /// it reports `complete` or `failed`. Uses `GatewayHTTPClient` (assistant-
+    /// scoped routing) so the request reaches the runtime's in-memory
+    /// `MigrationJobRegistry` rather than the platform Django DB, which has no
+    /// record of runtime-local job IDs. 5s interval, 60min timeout, 5xx-only retry.
     private func pollExportJob(jobId: String) async throws {
         let pollInterval: UInt64 = 5_000_000_000
         let timeout: TimeInterval = 3600
@@ -780,26 +782,51 @@ struct TeleportSection: View {
         while Date().timeIntervalSince(start) < timeout {
             try await Task.sleep(nanoseconds: pollInterval)
 
-            let status: PlatformMigrationClient.JobStatus
+            let response: GatewayHTTPClient.Response
             do {
-                status = try await PlatformMigrationClient.pollJobStatus(jobId: jobId)
+                response = try await GatewayHTTPClient.withAssistant(assistant.assistantId) {
+                    try await GatewayHTTPClient.get(
+                        path: "migrations/jobs/\(jobId)",
+                        timeout: 30
+                    )
+                }
             } catch is CancellationError {
                 throw CancellationError()
-            } catch let error as PlatformMigrationClient.PlatformMigrationError {
-                if case .requestFailed(let statusCode, _) = error, (500..<600).contains(statusCode) {
-                    continue
-                }
+            } catch let error as GatewayHTTPClient.ClientError {
+                // Permanent setup errors (notAuthenticated, noConnectedAssistant,
+                // invalidURL) — fail fast rather than retry until timeout
                 throw error
             } catch {
+                // Transient network errors — retry
                 continue
             }
 
-            if status.status == "complete" {
+            if response.statusCode >= 500 {
+                // Transient server error — retry
+                continue
+            }
+
+            guard response.isSuccess else {
+                throw TeleportError.exportJobFailed(
+                    message: "Job status check failed (HTTP \(response.statusCode))"
+                )
+            }
+
+            guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
+                // Malformed JSON — retry
+                continue
+            }
+
+            let jobStatus = json["status"] as? String ?? ""
+            if jobStatus == "complete" {
                 return
             }
-            if status.status == "failed" {
-                throw TeleportError.exportJobFailed(message: status.error ?? "Export job failed")
+            if jobStatus == "failed" {
+                throw TeleportError.exportJobFailed(
+                    message: json["error"] as? String ?? "Export job failed"
+                )
             }
+            // "processing" or anything else — continue polling
         }
         throw TeleportError.exportTimedOut
     }

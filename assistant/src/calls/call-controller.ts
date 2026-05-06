@@ -26,6 +26,7 @@ import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import {
+  getEndCallListenWindowMs,
   getMaxCallDurationMs,
   getSilenceTimeoutMs,
   getUserConsultationTimeoutMs,
@@ -37,6 +38,7 @@ import {
   registerCallController,
   unregisterCallController,
 } from "./call-state.js";
+import { isTerminalState } from "./call-state-machine.js";
 import {
   createPendingQuestion,
   expirePendingQuestions,
@@ -93,6 +95,7 @@ export class CallController {
   private currentTurnPromise: Promise<void> | null = null;
   private destroyed = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private endCallListenTimer: ReturnType<typeof setTimeout> | null = null;
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationWarningTimer: ReturnType<typeof setTimeout> | null = null;
   /**
@@ -244,6 +247,8 @@ export class CallController {
     transcript: string,
     speaker?: PromptSpeakerContext,
   ): Promise<void> {
+    this.cancelPendingEndCall();
+
     const interruptedInFlight =
       this.state === "processing" || this.state === "speaking";
     // If we're already processing or speaking, abort the in-flight generation
@@ -295,6 +300,8 @@ export class CallController {
       return false;
     }
 
+    this.cancelPendingEndCall();
+
     // Clear the consultation timeout and record
     clearTimeout(this.pendingGuardianInput.timer);
     this.pendingGuardianInput = null;
@@ -326,6 +333,8 @@ export class CallController {
    * position once the current turn completes.
    */
   async handleUserInstruction(instructionText: string): Promise<void> {
+    this.cancelPendingEndCall();
+
     recordCallEvent(this.callSessionId, "user_instruction_relayed", {
       instruction: instructionText,
     });
@@ -408,6 +417,7 @@ export class CallController {
   destroy(): void {
     this.destroyed = true;
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    if (this.endCallListenTimer) clearTimeout(this.endCallListenTimer);
     if (this.durationTimer) clearTimeout(this.durationTimer);
     if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
     if (this.pendingGuardianInput) {
@@ -419,6 +429,7 @@ export class CallController {
       this.durationEndTimer = null;
     }
     this.pendingInstructions = [];
+    this.endCallListenTimer = null;
     this.llmRunVersion++;
     this.abortCurrentTurn();
     if (this.activeSynthesisAbort) {
@@ -1075,73 +1086,7 @@ export class CallController {
 
     // Check for END_CALL marker
     if (responseText.includes(END_CALL_MARKER)) {
-      // Clear any pending consultation before completing the call.
-      // Without this, the consultation timeout can fire on an already-ended
-      // call, overwriting 'completed' status back to 'in_progress' and
-      // starting a new LLM turn on a dead conversation. Similarly, a late
-      // handleUserAnswer could be accepted since pendingGuardianInput is
-      // still non-null.
-      if (this.pendingGuardianInput) {
-        clearTimeout(this.pendingGuardianInput.timer);
-
-        // Expire store-side consultation records so clients don't observe
-        // a completed call with a dangling pendingQuestion, and guardian
-        // replies are cleanly rejected instead of hitting answerCall failures.
-        expirePendingQuestions(this.callSessionId);
-        const previousRequest = getPendingCanonicalRequestByCallSessionId(
-          this.callSessionId,
-        );
-        if (previousRequest) {
-          expireCanonicalGuardianRequest(previousRequest.id);
-        }
-
-        this.pendingGuardianInput = null;
-      }
-
-      const currentSession = getCallSession(this.callSessionId);
-      const shouldNotifyCompletion = currentSession
-        ? currentSession.status !== "completed" &&
-          currentSession.status !== "failed" &&
-          currentSession.status !== "cancelled"
-        : false;
-
-      this.transport.endSession("Call completed");
-      updateCallSession(this.callSessionId, {
-        status: "completed",
-        endedAt: Date.now(),
-      });
-      recordCallEvent(this.callSessionId, "call_ended", {
-        reason: "completed",
-      });
-
-      // Notify the voice conversation
-      if (shouldNotifyCompletion && currentSession) {
-        finalizeCall(this.callSessionId, currentSession.conversationId);
-      }
-
-      // Post a pointer message in the initiating conversation
-      if (currentSession?.initiatedFromConversationId) {
-        const durationMs = currentSession.startedAt
-          ? Date.now() - currentSession.startedAt
-          : 0;
-        addPointerMessage(
-          currentSession.initiatedFromConversationId,
-          "completed",
-          currentSession.toNumber,
-          {
-            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
-          },
-        ).catch((err) => {
-          log.warn(
-            {
-              conversationId: currentSession.initiatedFromConversationId,
-              err,
-            },
-            "Skipping pointer write — origin conversation may no longer exist",
-          );
-        });
-      }
-      this.state = "idle";
+      this.scheduleEndCallAfterListenWindow();
       return;
     }
 
@@ -1151,6 +1096,124 @@ export class CallController {
     this.currentTurnHandle = null;
     this.resetSilenceTimer();
     this.flushPendingInstructions();
+  }
+
+  private scheduleEndCallAfterListenWindow(): void {
+    const currentSession = getCallSession(this.callSessionId);
+    if (currentSession && isTerminalState(currentSession.status)) {
+      this.state = "idle";
+      this.currentTurnHandle = null;
+      return;
+    }
+
+    const clearedPendingGuardianInput =
+      this.clearPendingGuardianInputForCallEnd();
+    this.state = "idle";
+    this.currentTurnHandle = null;
+
+    if (this.endCallListenTimer) {
+      clearTimeout(this.endCallListenTimer);
+      this.endCallListenTimer = null;
+    }
+
+    const listenWindowMs = getEndCallListenWindowMs();
+    const callContinues =
+      this.pendingInstructions.length > 0 || listenWindowMs > 0;
+    if (clearedPendingGuardianInput && callContinues) {
+      updateCallSession(this.callSessionId, { status: "in_progress" });
+    }
+
+    if (this.pendingInstructions.length > 0) {
+      this.flushPendingInstructions();
+      return;
+    }
+
+    if (listenWindowMs <= 0) {
+      this.completeCallFromEndMarker();
+      return;
+    }
+
+    this.resetSilenceTimer();
+    this.endCallListenTimer = setTimeout(() => {
+      this.endCallListenTimer = null;
+      this.completeCallFromEndMarker();
+    }, listenWindowMs);
+  }
+
+  private cancelPendingEndCall(): void {
+    if (!this.endCallListenTimer) return;
+    clearTimeout(this.endCallListenTimer);
+    this.endCallListenTimer = null;
+  }
+
+  private clearPendingGuardianInputForCallEnd(): boolean {
+    if (!this.pendingGuardianInput) return false;
+
+    clearTimeout(this.pendingGuardianInput.timer);
+
+    // Expire store-side consultation records so clients don't observe
+    // a completed call with a dangling pendingQuestion, and guardian
+    // replies are cleanly rejected instead of hitting answerCall failures.
+    expirePendingQuestions(this.callSessionId);
+    const previousRequest = getPendingCanonicalRequestByCallSessionId(
+      this.callSessionId,
+    );
+    if (previousRequest) {
+      expireCanonicalGuardianRequest(previousRequest.id);
+    }
+
+    this.pendingGuardianInput = null;
+    return true;
+  }
+
+  private completeCallFromEndMarker(): void {
+    if (this.destroyed) return;
+
+    const currentSession = getCallSession(this.callSessionId);
+    if (currentSession && isTerminalState(currentSession.status)) {
+      this.state = "idle";
+      return;
+    }
+
+    const shouldNotifyCompletion = !!currentSession;
+
+    this.transport.endSession("Call completed");
+    updateCallSession(this.callSessionId, {
+      status: "completed",
+      endedAt: Date.now(),
+    });
+    recordCallEvent(this.callSessionId, "call_ended", {
+      reason: "completed",
+    });
+
+    // Notify the voice conversation
+    if (shouldNotifyCompletion && currentSession) {
+      finalizeCall(this.callSessionId, currentSession.conversationId);
+    }
+
+    // Post a pointer message in the initiating conversation
+    if (currentSession?.initiatedFromConversationId) {
+      const durationMs = currentSession.startedAt
+        ? Date.now() - currentSession.startedAt
+        : 0;
+      addPointerMessage(
+        currentSession.initiatedFromConversationId,
+        "completed",
+        currentSession.toNumber,
+        {
+          duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+        },
+      ).catch((err) => {
+        log.warn(
+          {
+            conversationId: currentSession.initiatedFromConversationId,
+            err,
+          },
+          "Skipping pointer write — origin conversation may no longer exist",
+        );
+      });
+    }
+    this.state = "idle";
   }
 
   private isExpectedAbortError(err: unknown): boolean {
