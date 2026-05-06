@@ -7,6 +7,10 @@ struct SettingsSoundsTab: View {
     /// The sound manager singleton provides config, playback, and available sounds.
     private var soundManager: SoundManager { SoundManager.shared }
 
+    /// True when the global toggle is off. Disables editing/triggering controls but
+    /// not preview buttons — `SoundManager.previewSound` bypasses the global toggle.
+    private var isGlobalDisabled: Bool { !soundManager.config.globalEnabled }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             globalSoundSection
@@ -52,7 +56,7 @@ struct SettingsSoundsTab: View {
                 )
                 .frame(maxWidth: 200)
             }
-            .disabled(!soundManager.config.globalEnabled)
+            .disabled(isGlobalDisabled)
 
             SettingsDivider()
 
@@ -78,7 +82,6 @@ struct SettingsSoundsTab: View {
                 soundEventRow(for: event)
             }
         }
-        .disabled(!soundManager.config.globalEnabled)
     }
 
     @ViewBuilder
@@ -106,6 +109,7 @@ struct SettingsSoundsTab: View {
                         }
                     )
                 )
+                .disabled(isGlobalDisabled)
             }
 
             soundPoolEditor(for: event, eventConfig: eventConfig, sounds: sounds)
@@ -163,6 +167,7 @@ struct SettingsSoundsTab: View {
                         ) {
                             removeSound(at: index, for: event)
                         }
+                        .disabled(isGlobalDisabled)
                     }
                     .frame(maxWidth: 220, alignment: .leading)
                 }
@@ -206,6 +211,7 @@ struct SettingsSoundsTab: View {
                     menuWidth: 260,
                     menuMaxHeight: 360
                 )
+                .disabled(isGlobalDisabled)
             }
         }
         .frame(maxWidth: 220, alignment: .leading)
