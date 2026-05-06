@@ -265,33 +265,109 @@ fi
 BUILD_VERSION="${BUILD_VERSION:-1}"
 
 # Signing identity (overridable via env for CI)
-# Auto-detect any valid code signing certificate in keychain
+# Auto-detect any valid code signing certificate in keychain.
+# macOS 26+ enforces Launch Constraints that reject ad-hoc signed apps with
+# security-sensitive entitlements — a real signing identity is required.
 if [ -z "${SIGN_IDENTITY:-}" ]; then
-    # Try Developer ID Application first (for distribution)
-    SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-        | grep "Developer ID Application" \
-        | head -1 \
-        | sed 's/.*"\(.*\)"/\1/' || true)
+    # Helper: list valid (non-revoked, non-expired) codesigning identities.
+    # Filters out entries flagged by the keychain as CSSMERR_TP_CERT_REVOKED,
+    # CSSMERR_TP_CERT_EXPIRED, or other CSSMERR errors, plus the summary line.
+    _valid_codesign_identities() {
+        security find-identity -v -p codesigning 2>/dev/null \
+            | grep -v -E "(CSSMERR_|valid identities found)" \
+            || true
+    }
 
-    # Fall back to Apple Development certificate (for local dev)
-    if [ -z "$SIGN_IDENTITY" ]; then
-        SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-            | grep -E "(Apple Development|Mac Developer)" \
-            | head -1 \
+    if command -v security >/dev/null 2>&1; then
+        # Try Developer ID Application first (for distribution)
+        SIGN_IDENTITY=$(_valid_codesign_identities \
+            | grep "Developer ID Application" | head -1 \
             | sed 's/.*"\(.*\)"/\1/' || true)
+
+        # Fall back to Apple Development certificate (for local dev)
+        if [ -z "$SIGN_IDENTITY" ]; then
+            SIGN_IDENTITY=$(_valid_codesign_identities \
+                | grep -E "(Apple Development|Mac Developer)" | head -1 \
+                | sed 's/.*"\(.*\)"/\1/' || true)
+        fi
+
+        # Fall back to any valid codesigning identity (e.g. self-signed)
+        if [ -z "$SIGN_IDENTITY" ]; then
+            SIGN_IDENTITY=$(_valid_codesign_identities \
+                | head -1 \
+                | sed 's/.*"\(.*\)"/\1/' || true)
+        fi
+
+        # No valid certificate found — create a self-signed one for local dev.
+        # macOS 26+ requires a non-empty codeSigningID for apps that claim
+        # security-sensitive entitlements (virtualization, audio-input, etc.).
+        # A self-signed cert satisfies this without Apple Developer enrollment.
+        if [ -z "$SIGN_IDENTITY" ] && command -v openssl >/dev/null 2>&1; then
+            _CERT_CN="Vellum Local Development"
+            # Check if we already created this cert in a previous build
+            if ! _valid_codesign_identities | grep -q "$_CERT_CN"; then
+                echo ""
+                echo "No codesigning certificate found in keychain."
+                echo "Creating self-signed certificate '$_CERT_CN' for local development..."
+                echo "(This is a one-time operation — the cert persists in your login keychain.)"
+                echo ""
+                _CERT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/vellum-cert.XXXXXX")
+                cat > "$_CERT_DIR/cert.conf" << 'CERTEOF'
+[req]
+distinguished_name = req_dn
+x509_extensions = codesign_ext
+prompt = no
+[req_dn]
+CN = Vellum Local Development
+[codesign_ext]
+keyUsage = critical, digitalSignature
+extendedKeyUsage = critical, codeSigning
+basicConstraints = critical, CA:false
+CERTEOF
+                if openssl req -x509 -newkey rsa:2048 \
+                    -keyout "$_CERT_DIR/key.pem" -out "$_CERT_DIR/cert.pem" \
+                    -days 3650 -nodes -config "$_CERT_DIR/cert.conf" 2>/dev/null && \
+                   openssl pkcs12 -export -in "$_CERT_DIR/cert.pem" \
+                    -inkey "$_CERT_DIR/key.pem" -out "$_CERT_DIR/cert.p12" \
+                    -passout pass: 2>/dev/null && \
+                   security import "$_CERT_DIR/cert.p12" \
+                    -k ~/Library/Keychains/login.keychain-db \
+                    -T /usr/bin/codesign -P "" 2>/dev/null; then
+                    echo "Certificate '$_CERT_CN' created and imported into login keychain."
+                    echo ""
+                else
+                    echo "Warning: Failed to create self-signed certificate." >&2
+                    echo "         You may need to create one manually or install an Apple Development cert." >&2
+                    echo ""
+                fi
+                rm -rf "$_CERT_DIR"
+            fi
+            # Pick up the newly-created (or previously-created) cert
+            SIGN_IDENTITY=$(_valid_codesign_identities \
+                | grep "$_CERT_CN" | head -1 \
+                | sed 's/.*"\(.*\)"/\1/' || true)
+        fi
     fi
 
-    # Fall back to any valid codesigning identity (e.g. self-signed)
-    if [ -z "$SIGN_IDENTITY" ]; then
-        SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-            | grep -v "valid identities found" \
-            | head -1 \
-            | sed 's/.*"\(.*\)"/\1/' || true)
-    fi
-
-    # Fall back to adhoc signing (no certificate)
+    # Final fallback: ad-hoc signing. Works on macOS ≤15 but will be rejected
+    # by macOS 26+ for apps with security-sensitive entitlements.
     if [ -z "$SIGN_IDENTITY" ]; then
         SIGN_IDENTITY="-"
+        # Warn on macOS 26+ where ad-hoc signing causes launch failures
+        _macos_major=$(sw_vers -productVersion 2>/dev/null | cut -d. -f1 || echo "0")
+        if [ "$_macos_major" -ge 26 ] 2>/dev/null; then
+            echo "" >&2
+            echo "WARNING: Using ad-hoc code signing on macOS $_macos_major." >&2
+            echo "  macOS 26+ rejects ad-hoc signed apps with security entitlements." >&2
+            echo "  The app will likely crash on launch with 'Launch Constraint Violation'." >&2
+            echo "" >&2
+            echo "  To fix, do ONE of:" >&2
+            echo "    1. Install openssl: brew install openssl" >&2
+            echo "       (Re-run this script and it will auto-create a signing cert)" >&2
+            echo "    2. Open Xcode → Settings → Accounts → Apple ID → Manage Certificates → +" >&2
+            echo "       (Creates a free Apple Development certificate)" >&2
+            echo "" >&2
+        fi
     fi
 fi
 
