@@ -44,6 +44,7 @@
     "@vellumai/credential-storage": "file:../packages/credential-storage",
     "@vellumai/egress-proxy": "file:../packages/egress-proxy",
     "@vellumai/gateway-client": "file:../packages/gateway-client",
+    "@vellumai/ipc-server-utils": "file:../packages/ipc-server-utils",
     "@vellumai/service-contracts": "file:../packages/service-contracts",
     "@vellumai/skill-host-contracts": "file:../packages/skill-host-contracts",
     "@vellumai/slack-text": "file:../packages/slack-text",

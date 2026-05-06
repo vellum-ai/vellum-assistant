@@ -7,6 +7,7 @@
       "dependencies": {
         "@vellumai/assistant-client": "file:../packages/assistant-client",
         "@vellumai/ces-client": "file:../packages/ces-client",
+        "@vellumai/ipc-server-utils": "file:../packages/ipc-server-utils",
         "@vellumai/service-contracts": "file:../packages/service-contracts",
         "@vellumai/slack-text": "file:../packages/slack-text",
         "@vellumai/twilio-client": "file:../packages/twilio-client",
@@ -208,6 +209,8 @@
     "@vellumai/assistant-client": ["@vellumai/assistant-client@file:../packages/assistant-client", { "devDependencies": { "@types/bun": "1.3.10", "typescript": "5.9.3" } }],
 
     "@vellumai/ces-client": ["@vellumai/ces-client@file:../packages/ces-client", { "dependencies": { "@vellumai/service-contracts": "file:../service-contracts" }, "devDependencies": { "@types/bun": "1.2.4", "typescript": "5.7.3" } }],
+
+    "@vellumai/ipc-server-utils": ["@vellumai/ipc-server-utils@file:../packages/ipc-server-utils", { "devDependencies": { "@types/bun": "1.3.10", "typescript": "5.9.3" } }],
 
     "@vellumai/service-contracts": ["@vellumai/service-contracts@file:../packages/service-contracts", { "dependencies": { "zod": "4.3.6" }, "devDependencies": { "@types/bun": "1.2.4", "typescript": "5.7.3" } }],
 
@@ -497,9 +500,11 @@
 
     "@vellumai/ces-client/@types/bun": ["@types/bun@1.2.4", "", { "dependencies": { "bun-types": "1.2.4" } }, "sha512-QtuV5OMR8/rdKJs213iwXDpfVvnskPXY/S0ZiFbsTjQZycuqPbMW8Gf/XhLfwE5njW8sxI2WjISURXPlHypMFA=="],
 
-    "@vellumai/ces-client/@vellumai/service-contracts": ["@vellumai/service-contracts@file:../packages/service-contracts", {}],
+    "@vellumai/ces-client/@vellumai/service-contracts": ["@vellumai/service-contracts@file:../packages/service-contracts", { "dependencies": { "zod": "4.3.6" }, "devDependencies": { "@types/bun": "1.2.4", "typescript": "5.7.3" } }],
 
     "@vellumai/ces-client/typescript": ["typescript@5.7.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw=="],
+
+    "@vellumai/ipc-server-utils/@types/bun": ["@types/bun@1.3.10", "", { "dependencies": { "bun-types": "1.3.10" } }, "sha512-0+rlrUrOrTSskibryHbvQkDOWRJwJZqZlxrUs1u4oOoTln8+WIXBPmAuCF35SWB2z4Zl3E84Nl/D0P7803nigQ=="],
 
     "@vellumai/service-contracts/@types/bun": ["@types/bun@1.2.4", "", { "dependencies": { "bun-types": "1.2.4" } }, "sha512-QtuV5OMR8/rdKJs213iwXDpfVvnskPXY/S0ZiFbsTjQZycuqPbMW8Gf/XhLfwE5njW8sxI2WjISURXPlHypMFA=="],
 
@@ -566,6 +571,8 @@
     "@vellumai/assistant-client/@types/bun/bun-types": ["bun-types@1.3.10", "", { "dependencies": { "@types/node": "*" } }, "sha512-tcpfCCl6XWo6nCVnpcVrxQ+9AYN1iqMIzgrSKYMB/fjLtV2eyAVEg7AxQJuCq/26R6HpKWykQXuSOq/21RYcbg=="],
 
     "@vellumai/ces-client/@types/bun/bun-types": ["bun-types@1.2.4", "", { "dependencies": { "@types/node": "*", "@types/ws": "~8.5.10" } }, "sha512-nDPymR207ZZEoWD4AavvEaa/KZe/qlrbMSchqpQwovPZCKc7pwMoENjEtHgMKaAjJhy+x6vfqSBA1QU3bJgs0Q=="],
+
+    "@vellumai/ipc-server-utils/@types/bun/bun-types": ["bun-types@1.3.10", "", { "dependencies": { "@types/node": "*" } }, "sha512-tcpfCCl6XWo6nCVnpcVrxQ+9AYN1iqMIzgrSKYMB/fjLtV2eyAVEg7AxQJuCq/26R6HpKWykQXuSOq/21RYcbg=="],
 
     "@vellumai/service-contracts/@types/bun/bun-types": ["bun-types@1.2.4", "", { "dependencies": { "@types/node": "*", "@types/ws": "~8.5.10" } }, "sha512-nDPymR207ZZEoWD4AavvEaa/KZe/qlrbMSchqpQwovPZCKc7pwMoENjEtHgMKaAjJhy+x6vfqSBA1QU3bJgs0Q=="],
 

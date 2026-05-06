@@ -26,6 +26,7 @@
   "dependencies": {
     "@vellumai/assistant-client": "file:../packages/assistant-client",
     "@vellumai/ces-client": "file:../packages/ces-client",
+    "@vellumai/ipc-server-utils": "file:../packages/ipc-server-utils",
     "@vellumai/service-contracts": "file:../packages/service-contracts",
     "@vellumai/slack-text": "file:../packages/slack-text",
     "@vellumai/twilio-client": "file:../packages/twilio-client",

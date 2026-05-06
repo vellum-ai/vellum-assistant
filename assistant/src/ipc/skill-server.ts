@@ -37,9 +37,13 @@
  * back to a shorter deterministic path via the shared socket-path resolver.
  */
 
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { dirname } from "node:path";
+
+import {
+  ensureSocketDir,
+  SocketWatchdog,
+} from "@vellumai/ipc-server-utils";
 
 import {
   type SkillRouteHandle,
@@ -233,6 +237,15 @@ class SkillIpcConnectionState implements SkillIpcConnection {
 // Server
 // ---------------------------------------------------------------------------
 
+/** Optional configuration for {@link SkillIpcServer}. */
+export interface SkillIpcServerOptions {
+  /**
+   * How often the socket-file watchdog stats the listening socket path.
+   * Set to `0` to disable. Defaults to {@link SocketWatchdog}'s 5000ms.
+   */
+  watchdogIntervalMs?: number;
+}
+
 export class SkillIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
@@ -252,8 +265,15 @@ export class SkillIpcServer {
   private connections = new WeakMap<Socket, SkillIpcConnectionState>();
   private nextConnectionId = 1;
   private socketPath: string;
+  private watchdog: SocketWatchdog;
+  /**
+   * Servers whose listener path has been replaced by a re-bind. Kept around
+   * so already-connected sockets continue to work; closed gracefully once
+   * their accept loops drain.
+   */
+  private legacyServers = new Set<Server>();
 
-  constructor() {
+  constructor(options?: SkillIpcServerOptions) {
     const resolution = resolveSkillIpcSocketPath();
     this.socketPath = resolution.path;
     log.info(
@@ -266,6 +286,21 @@ export class SkillIpcServer {
     for (const route of skillIpcStreamingRoutes) {
       this.streamingMethods.set(route.method, route.handler);
     }
+
+    this.watchdog = new SocketWatchdog({
+      socketPath: this.socketPath,
+      intervalMs: options?.watchdogIntervalMs,
+      getServer: () => this.server,
+      createServer: () => this.createListeningServer(),
+      onRebind: (newServer, oldServer) => {
+        this.server = newServer;
+        this.legacyServers.add(oldServer);
+        oldServer.close(() => {
+          this.legacyServers.delete(oldServer);
+        });
+      },
+      log,
+    });
   }
 
   /** Register an additional method handler after construction. */
@@ -349,17 +384,71 @@ export class SkillIpcServer {
   /** Start listening on the Unix domain socket. */
   async start(): Promise<void> {
     // Ensure the parent directory exists before listening.
-    const socketDir = dirname(this.socketPath);
-    if (!existsSync(socketDir)) {
-      mkdirSync(socketDir, { recursive: true, mode: 0o700 });
-    }
+    ensureSocketDir(this.socketPath);
 
     // Probe before unlink so a second daemon can't silently orphan an active
     // listener (Unix lets you unlink a still-bound socket file). See
     // `ensureSocketPathFree` for the behavior matrix.
     await ensureSocketPathFree(this.socketPath);
 
-    this.server = createServer((socket) => {
+    this.server = this.createListeningServer();
+    this.server.listen(this.socketPath, () => {
+      log.info({ path: this.socketPath }, "Skill IPC server listening");
+    });
+
+    this.watchdog.start();
+  }
+
+  /** Stop the server and disconnect all clients. */
+  stop(): void {
+    this.watchdog.stop();
+
+    for (const client of this.clients) {
+      this.teardownSubscriptions(client);
+      this.teardownConnection(client);
+      if (!client.destroyed) client.destroy();
+    }
+    this.clients.clear();
+
+    for (const legacy of this.legacyServers) {
+      legacy.close();
+    }
+    this.legacyServers.clear();
+
+    if (this.server) {
+      this.server.close();
+      this.server = null;
+    }
+
+    if (existsSync(this.socketPath)) {
+      try {
+        unlinkSync(this.socketPath);
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /** Get the socket path (for diagnostics). */
+  getSocketPath(): string {
+    return this.socketPath;
+  }
+
+  /**
+   * Re-bind the listening socket if its path entry is missing on disk.
+   *
+   * Public for tests so the watchdog can be exercised deterministically
+   * without waiting for the interval. Returns `true` when a re-bind was
+   * performed, `false` otherwise.
+   */
+  async rebindIfMissing(): Promise<boolean> {
+    return this.watchdog.rebindIfMissing();
+  }
+
+  // ── Internal ──────────────────────────────────────────────────────────
+
+  private createListeningServer(): Server {
+    const server = createServer((socket) => {
       this.clients.add(socket);
       const connection = new SkillIpcConnectionState(
         `skill-ipc-${this.nextConnectionId++}`,
@@ -406,44 +495,12 @@ export class SkillIpcServer {
       });
     });
 
-    this.server.on("error", (err) => {
+    server.on("error", (err) => {
       log.error({ err }, "Skill IPC server error");
     });
 
-    this.server.listen(this.socketPath, () => {
-      log.info({ path: this.socketPath }, "Skill IPC server listening");
-    });
+    return server;
   }
-
-  /** Stop the server and disconnect all clients. */
-  stop(): void {
-    for (const client of this.clients) {
-      this.teardownSubscriptions(client);
-      this.teardownConnection(client);
-      if (!client.destroyed) client.destroy();
-    }
-    this.clients.clear();
-
-    if (this.server) {
-      this.server.close();
-      this.server = null;
-    }
-
-    if (existsSync(this.socketPath)) {
-      try {
-        unlinkSync(this.socketPath);
-      } catch {
-        // Ignore
-      }
-    }
-  }
-
-  /** Get the socket path (for diagnostics). */
-  getSocketPath(): string {
-    return this.socketPath;
-  }
-
-  // ── Internal ──────────────────────────────────────────────────────────
 
   private handleMessage(socket: Socket, line: string): void {
     let frame: IpcRequest & { result?: unknown; error?: string };

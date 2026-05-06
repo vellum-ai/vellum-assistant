@@ -11,16 +11,19 @@
  * volume. On platforms with strict AF_UNIX path limits, the server falls back
  * to a shorter deterministic path.
  *
- * Resilience: the server runs a watchdog timer that re-binds the listening
- * socket when its on-disk path entry has been removed (e.g. by a tmpfs sweep
- * or rogue cleanup of `/run/*`). Existing connected sockets survive the
- * re-bind because the kernel keeps connection inodes alive independently of
- * the listener path; only new `connect()` calls require the path to exist.
+ * Resilience: a {@link SocketWatchdog} re-binds the listening socket when its
+ * on-disk path entry is removed (e.g. by a tmpfs sweep or rogue cleanup of
+ * `/run/*`). Existing connected sockets survive the re-bind because the
+ * kernel keeps connection inodes alive independently of the listener path;
+ * only new `connect()` calls require the path to exist.
  */
 
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import {
+  SocketWatchdog,
+  ensureSocketDir,
+} from "@vellumai/ipc-server-utils";
+import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { dirname } from "node:path";
 
 import type { z } from "zod";
 
@@ -64,15 +67,11 @@ export type IpcRoute = {
 /** Optional configuration for {@link GatewayIpcServer}. */
 export interface GatewayIpcServerOptions {
   /**
-   * How often to check whether the listening socket path still exists on
-   * disk. When the path has been removed (tmpfs sweep, manual `rm`, etc.)
-   * the server re-binds atomically. Set to `0` to disable. Defaults to
-   * 5000ms.
+   * How often the socket-file watchdog stats the listening socket path.
+   * Set to `0` to disable. Defaults to {@link SocketWatchdog}'s 5000ms.
    */
   watchdogIntervalMs?: number;
 }
-
-const DEFAULT_WATCHDOG_INTERVAL_MS = 5000;
 
 // ---------------------------------------------------------------------------
 // Server
@@ -84,21 +83,17 @@ export class GatewayIpcServer {
   private methods = new Map<string, IpcMethodHandler>();
   private schemas = new Map<string, z.ZodType>();
   private socketPath: string;
-  private watchdogIntervalMs: number;
-  private watchdogHandle: ReturnType<typeof setInterval> | null = null;
+  private watchdog: SocketWatchdog;
   /**
    * Servers whose listener path has been replaced by a re-bind. Kept around
-   * so that already-connected sockets continue to work; closed once their
-   * accept loops shut down (which happens immediately because the path no
-   * longer routes new connects to them).
+   * so that already-connected sockets continue to work; closed gracefully
+   * once their accept loops drain.
    */
   private legacyServers = new Set<Server>();
 
   constructor(routes?: IpcRoute[], options?: GatewayIpcServerOptions) {
     const resolution = resolveIpcSocketPath("gateway");
     this.socketPath = resolution.path;
-    this.watchdogIntervalMs =
-      options?.watchdogIntervalMs ?? DEFAULT_WATCHDOG_INTERVAL_MS;
     log.info(
       { source: resolution.source, path: resolution.path },
       "Gateway IPC socket path resolved",
@@ -111,13 +106,33 @@ export class GatewayIpcServer {
         }
       }
     }
+
+    this.watchdog = new SocketWatchdog({
+      socketPath: this.socketPath,
+      intervalMs: options?.watchdogIntervalMs,
+      getServer: () => this.server,
+      createServer: () => this.createListeningServer(),
+      onRebind: (newServer, oldServer) => {
+        this.server = newServer;
+        // Move the previous listener into the legacy set so already-
+        // connected clients keep their accept loop alive. close() stops
+        // accepting new connections (which the kernel already won't route
+        // here anyway after the path moved) but lets in-flight sockets
+        // drain.
+        this.legacyServers.add(oldServer);
+        oldServer.close(() => {
+          this.legacyServers.delete(oldServer);
+        });
+      },
+      log,
+    });
   }
 
   /** Start listening on the Unix domain socket. */
   start(): void {
     // Ensure the parent directory exists — on a fresh hatch the workspace
     // dir may not have been created yet when the IPC server starts.
-    this.ensureSocketDir();
+    ensureSocketDir(this.socketPath);
 
     // Clean up stale socket file from a previous run
     if (existsSync(this.socketPath)) {
@@ -133,29 +148,12 @@ export class GatewayIpcServer {
       log.info({ path: this.socketPath }, "IPC server listening");
     });
 
-    if (this.watchdogIntervalMs > 0 && this.watchdogHandle === null) {
-      this.watchdogHandle = setInterval(() => {
-        // Catch synchronous throws from the entry path of rebindIfMissing
-        // (e.g. ensureSocketDir → mkdirSync EACCES) so the timer doesn't
-        // spew unhandled-rejection noise every 5s on a read-only fs.
-        this.rebindIfMissing().catch((err) => {
-          log.error(
-            { err, path: this.socketPath },
-            "Watchdog rebind failed unexpectedly",
-          );
-        });
-      }, this.watchdogIntervalMs);
-      // Don't keep the event loop alive just for this watchdog.
-      this.watchdogHandle.unref?.();
-    }
+    this.watchdog.start();
   }
 
   /** Stop the server and disconnect all clients. */
   stop(): void {
-    if (this.watchdogHandle !== null) {
-      clearInterval(this.watchdogHandle);
-      this.watchdogHandle = null;
-    }
+    this.watchdog.stop();
 
     for (const socket of this.clients) {
       if (!socket.destroyed) {
@@ -205,104 +203,13 @@ export class GatewayIpcServer {
    *
    * Public for tests so the watchdog can be exercised deterministically
    * without waiting for the interval. Returns `true` when a re-bind was
-   * performed, `false` when the socket was already healthy or the server
-   * is not running.
+   * performed, `false` otherwise.
    */
   async rebindIfMissing(): Promise<boolean> {
-    if (this.server === null) return false;
-    if (existsSync(this.socketPath)) return false;
-
-    // Snapshot the current listener so we can detect a generation change
-    // (stop()/restart/concurrent rebind) after the async listen() resolves.
-    const initialServer = this.server;
-
-    log.warn(
-      { path: this.socketPath },
-      "IPC socket path missing on disk — re-binding listener",
-    );
-
-    this.ensureSocketDir();
-
-    const newServer = this.createListeningServer();
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const onError = (err: unknown) => {
-          newServer.off("listening", onListening);
-          reject(err);
-        };
-        const onListening = () => {
-          newServer.off("error", onError);
-          resolve();
-        };
-        newServer.once("error", onError);
-        newServer.once("listening", onListening);
-        newServer.listen(this.socketPath);
-      });
-    } catch (err) {
-      log.error(
-        { err, path: this.socketPath },
-        "Failed to re-bind IPC socket — will retry on next watchdog tick",
-      );
-      // Best-effort cleanup of the half-initialized server.
-      try {
-        newServer.close();
-      } catch {
-        /* ignore */
-      }
-      return false;
-    }
-
-    // Race guard: while we were awaiting listen(), stop() may have
-    // cleared this.server, or some other path may have replaced it.
-    // Installing newServer now would resurrect the listener after
-    // shutdown (keeping the process alive and accepting IPC again).
-    // Discard the new server instead.
-    if (this.server !== initialServer) {
-      try {
-        newServer.close();
-      } catch {
-        /* ignore */
-      }
-      // newServer.listen() recreated the path on disk; stop() may have
-      // already unlinked it, but if our listen won the race the file
-      // is sitting there — clean it up so it doesn't shadow a future
-      // start().
-      if (existsSync(this.socketPath)) {
-        try {
-          unlinkSync(this.socketPath);
-        } catch {
-          /* ignore */
-        }
-      }
-      log.warn(
-        { path: this.socketPath },
-        "IPC server state changed during rebind — discarded new listener",
-      );
-      return false;
-    }
-
-    // Move the previous listener into the legacy set so already-connected
-    // clients keep their accept loop alive. Close it gracefully — `close()`
-    // stops accepting new connections (which the kernel already won't route
-    // here anyway after the path moved) but lets in-flight sockets drain.
-    this.server = newServer;
-    this.legacyServers.add(initialServer);
-    initialServer.close(() => {
-      this.legacyServers.delete(initialServer);
-    });
-
-    log.info({ path: this.socketPath }, "IPC socket re-bound after path loss");
-    return true;
+    return this.watchdog.rebindIfMissing();
   }
 
   // ── Internal ──────────────────────────────────────────────────────────
-
-  private ensureSocketDir(): void {
-    const socketDir = dirname(this.socketPath);
-    if (!existsSync(socketDir)) {
-      mkdirSync(socketDir, { recursive: true });
-    }
-  }
 
   private createListeningServer(): Server {
     const server = createServer((socket) => this.handleConnection(socket));
