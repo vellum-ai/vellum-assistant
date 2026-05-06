@@ -306,6 +306,56 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
     }
 
+    func testGenericProviderBillingErrorCreatesTypedBannerState() {
+        viewModel.conversationId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.error(ErrorMessage(
+            conversationId: "sess-1",
+            code: "PROVIDER_BILLING",
+            message: "Your provider key needs credits.",
+            errorCategory: "provider_billing"
+        )))
+
+        XCTAssertEqual(viewModel.errorText, "Your provider key needs credits.")
+        XCTAssertEqual(viewModel.conversationError?.category, .providerBilling)
+        XCTAssertEqual(viewModel.conversationError?.errorCategory, "provider_billing")
+        XCTAssertTrue(viewModel.conversationError?.isProviderBilling == true)
+        XCTAssertEqual(viewModel.conversationError?.presentationSurface, .providerBillingBanner)
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    func testGenericProviderBillingErrorWithConversationIdSurfacesAfterTurnCleared() {
+        viewModel.conversationId = "sess-1"
+
+        viewModel.handleServerMessage(.error(ErrorMessage(
+            conversationId: "sess-1",
+            code: "PROVIDER_BILLING",
+            message: "Your provider key needs credits.",
+            errorCategory: "provider_billing"
+        )))
+
+        XCTAssertEqual(viewModel.errorText, "Your provider key needs credits.")
+        XCTAssertEqual(viewModel.conversationError?.errorCategory, "provider_billing")
+        XCTAssertEqual(viewModel.conversationError?.presentationSurface, .providerBillingBanner)
+    }
+
+    func testGenericProviderBillingErrorForOtherConversationIsIgnoredAfterTurnCleared() {
+        viewModel.conversationId = "sess-1"
+
+        viewModel.handleServerMessage(.error(ErrorMessage(
+            conversationId: "sess-2",
+            code: "PROVIDER_BILLING",
+            message: "Your provider key needs credits.",
+            errorCategory: "provider_billing"
+        )))
+
+        XCTAssertNil(viewModel.errorText)
+        XCTAssertNil(viewModel.conversationError)
+    }
+
     func testDismissErrorClearsErrorText() {
         viewModel.errorText = "Some error"
         viewModel.dismissError()
@@ -1471,6 +1521,168 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.conversationError?.category, .managedUsageLimit)
         XCTAssertEqual(viewModel.conversationError?.errorCategory, "managed_usage_limit")
         XCTAssertTrue(viewModel.conversationError?.recoverySuggestion.contains("Vellum-managed") == true)
+    }
+
+    func testProviderBillingCreditsExhaustedIsManagedCreditsExhausted() {
+        viewModel.conversationId = "sess-1"
+
+        let errorMsg = billingConversationErrorMessage(
+            userMessage: "Your Vellum balance has run out.",
+            errorCategory: "credits_exhausted"
+        )
+        viewModel.handleServerMessage(.conversationError(errorMsg))
+
+        let error = viewModel.conversationError
+        XCTAssertEqual(error?.category, .providerBilling)
+        XCTAssertEqual(error?.errorCategory, "credits_exhausted")
+        XCTAssertTrue(error?.isManagedCreditsExhausted == true)
+        XCTAssertTrue(error?.isCreditsExhausted == true)
+        XCTAssertFalse(error?.isProviderBilling == true)
+        XCTAssertEqual(error?.presentationSurface, .managedCreditsBanner)
+        XCTAssertTrue(error?.shouldSuppressGenericErrorSurface == true)
+        XCTAssertTrue(error?.recoverySuggestion.contains("Vellum account") == true)
+    }
+
+    func testProviderBillingErrorCategoryIsProviderBillingNotCreditsExhausted() {
+        viewModel.conversationId = "sess-1"
+
+        let errorMsg = billingConversationErrorMessage(
+            userMessage: "Your provider API key needs credits.",
+            errorCategory: "provider_billing"
+        )
+        viewModel.handleServerMessage(.conversationError(errorMsg))
+
+        let error = viewModel.conversationError
+        XCTAssertEqual(error?.category, .providerBilling)
+        XCTAssertEqual(error?.errorCategory, "provider_billing")
+        XCTAssertFalse(error?.isManagedCreditsExhausted == true)
+        XCTAssertFalse(error?.isCreditsExhausted == true)
+        XCTAssertTrue(error?.isProviderBilling == true)
+        XCTAssertEqual(error?.presentationSurface, .providerBillingBanner)
+        XCTAssertTrue(error?.shouldSuppressGenericErrorSurface == true)
+        XCTAssertTrue(error?.recoverySuggestion.contains("provider") == true)
+        XCTAssertFalse(error?.recoverySuggestion.contains("Add credits") == true)
+    }
+
+    func testProviderBillingCodeWithoutErrorCategoryUsesVersionSkewFallback() {
+        viewModel.conversationId = "sess-1"
+
+        let errorMsg = billingConversationErrorMessage(
+            userMessage: "Your provider API key needs credits.",
+            errorCategory: nil
+        )
+        viewModel.handleServerMessage(.conversationError(errorMsg))
+
+        XCTAssertTrue(viewModel.conversationError?.isProviderBilling == true)
+        XCTAssertEqual(viewModel.conversationError?.presentationSurface, .providerBillingBanner)
+    }
+
+    func testProviderBillingCodeWithNonBillingErrorCategoryDoesNotUseProviderBillingBanner() {
+        viewModel.conversationId = "sess-1"
+
+        let errorMsg = billingConversationErrorMessage(
+            userMessage: "The provider request failed.",
+            errorCategory: "provider_api_error"
+        )
+        viewModel.handleServerMessage(.conversationError(errorMsg))
+
+        XCTAssertFalse(viewModel.conversationError?.isProviderBilling == true)
+        XCTAssertEqual(viewModel.conversationError?.presentationSurface, .generic)
+    }
+
+    func testConversationErrorPreservesProviderBillingErrorCategory() {
+        viewModel.conversationId = "sess-1"
+
+        let errorMsg = billingConversationErrorMessage(
+            userMessage: "Your provider API key needs credits.",
+            errorCategory: "regenerate:provider_billing"
+        )
+        viewModel.handleServerMessage(.conversationError(errorMsg))
+
+        XCTAssertEqual(
+            viewModel.conversationError?.errorCategory,
+            "regenerate:provider_billing",
+            "ConversationErrorMessage.errorCategory should be preserved in ConversationError"
+        )
+        XCTAssertTrue(viewModel.conversationError?.isProviderBilling == true)
+        XCTAssertFalse(viewModel.conversationError?.isCreditsExhausted == true)
+    }
+
+    func testConversationManagerViewModelSuppressesProviderBillingInlineErrorMessage() {
+        let managerViewModel = makeConversationManagerViewModel(conversationId: "sess-provider-billing")
+
+        let errorMsg = billingConversationErrorMessage(
+            conversationId: "sess-provider-billing",
+            userMessage: "Your provider API key needs credits.",
+            errorCategory: "provider_billing"
+        )
+        managerViewModel.handleServerMessage(.conversationError(errorMsg))
+
+        XCTAssertEqual(managerViewModel.messages.count, 0)
+        XCTAssertEqual(managerViewModel.errorText, "Your provider API key needs credits.")
+        XCTAssertTrue(managerViewModel.conversationError?.isProviderBilling == true)
+        XCTAssertEqual(managerViewModel.conversationError?.presentationSurface, .providerBillingBanner)
+        XCTAssertFalse(managerViewModel.errorManager.isConversationErrorDisplayedInline)
+    }
+
+    func testConversationManagerViewModelSuppressesManagedCreditsInlineErrorMessage() {
+        let managerViewModel = makeConversationManagerViewModel(conversationId: "sess-managed-credits")
+
+        let errorMsg = billingConversationErrorMessage(
+            conversationId: "sess-managed-credits",
+            userMessage: "Your Vellum balance has run out.",
+            errorCategory: "credits_exhausted"
+        )
+        managerViewModel.handleServerMessage(.conversationError(errorMsg))
+
+        XCTAssertEqual(managerViewModel.messages.count, 0)
+        XCTAssertEqual(managerViewModel.errorText, "Your Vellum balance has run out.")
+        XCTAssertTrue(managerViewModel.conversationError?.isManagedCreditsExhausted == true)
+        XCTAssertEqual(managerViewModel.conversationError?.presentationSurface, .managedCreditsBanner)
+        XCTAssertFalse(managerViewModel.errorManager.isConversationErrorDisplayedInline)
+    }
+
+    func testConversationManagerViewModelKeepsGenericErrorsInline() {
+        let managerViewModel = makeConversationManagerViewModel(conversationId: "sess-provider-api")
+
+        let errorMsg = ConversationErrorMessage(
+            conversationId: "sess-provider-api",
+            code: .providerApi,
+            userMessage: "The provider request failed.",
+            retryable: true,
+            errorCategory: "provider_api_error"
+        )
+        managerViewModel.handleServerMessage(.conversationError(errorMsg))
+
+        XCTAssertEqual(managerViewModel.messages.count, 1)
+        XCTAssertEqual(managerViewModel.messages[0].role, .assistant)
+        XCTAssertTrue(managerViewModel.messages[0].isError)
+        XCTAssertEqual(managerViewModel.messages[0].text, "The provider request failed.")
+        XCTAssertTrue(managerViewModel.errorManager.isConversationErrorDisplayedInline)
+    }
+
+    private func billingConversationErrorMessage(
+        conversationId: String = "sess-1",
+        userMessage: String,
+        errorCategory: String?
+    ) -> ConversationErrorMessage {
+        ConversationErrorMessage(
+            conversationId: conversationId,
+            code: .providerBilling,
+            userMessage: userMessage,
+            retryable: false,
+            errorCategory: errorCategory
+        )
+    }
+
+    private func makeConversationManagerViewModel(conversationId: String) -> ChatViewModel {
+        let manager = ConversationManager(
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient
+        )
+        let managerViewModel = manager.makeViewModel()
+        managerViewModel.conversationId = conversationId
+        return managerViewModel
     }
 
     func testConversationErrorSetsRecoverySuggestion() {

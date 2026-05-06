@@ -14,8 +14,29 @@ export interface TemporalContextOptions {
   hostTimeZone?: string;
   /** IANA timezone configured in user settings (if available). */
   configuredUserTimeZone?: string | null;
-  /** IANA timezone inferred from user profile/memory (if available). */
+  /** IANA timezone reported by the active client for the current turn. */
+  clientTimezone?: string | null;
+  /** IANA timezone persisted from prior client environment detection. */
+  detectedTimezone?: string | null;
+  /** Profile timezone candidate accepted by legacy callers; not used for turn resolution. */
   userTimeZone?: string | null;
+}
+
+export type TurnTimezoneSource =
+  | "timeZone"
+  | "configuredUserTimezone"
+  | "clientTimezone"
+  | "detectedTimezone"
+  | "hostTimezone"
+  | "utcFallback";
+
+export interface TurnTimezoneContext {
+  configuredUserTimezone: string | null;
+  clientTimezone: string | null;
+  detectedTimezone: string | null;
+  hostTimezone: string | null;
+  effectiveTimezone: string;
+  source: TurnTimezoneSource;
 }
 
 const WEEKDAY_LONG = [
@@ -86,7 +107,12 @@ function canonicalizeUtcGmtOffsetToken(offsetToken: string): string | null {
   ).padStart(2, "0")}`;
 }
 
-function canonicalizeTimeZone(timeZone: string): string | null {
+export function canonicalizeTimeZone(
+  timeZone: string | null | undefined,
+): string | null {
+  if (timeZone == null) {
+    return null;
+  }
   const trimmed = timeZone.trim();
   if (trimmed.length === 0) {
     return null;
@@ -119,6 +145,17 @@ function canonicalizeTimeZone(timeZone: string): string | null {
   } catch {
     return null;
   }
+}
+
+function firstResolvedTimezone(
+  candidates: Array<[TurnTimezoneSource, string | null]>,
+): { source: TurnTimezoneSource; timeZone: string } | null {
+  for (const [source, timeZone] of candidates) {
+    if (timeZone) {
+      return { source, timeZone };
+    }
+  }
+  return null;
 }
 
 /**
@@ -289,11 +326,41 @@ function formatLocalDate(date: Date, timeZone: string): string {
   ).padStart(2, "0")}`;
 }
 
+export function resolveTurnTimezoneContext(
+  options: TemporalContextOptions = {},
+): TurnTimezoneContext {
+  const configuredUserTimezone = canonicalizeTimeZone(
+    options.configuredUserTimeZone,
+  );
+  const clientTimezone = canonicalizeTimeZone(options.clientTimezone);
+  const detectedTimezone = canonicalizeTimeZone(options.detectedTimezone);
+  const hostTimezone = canonicalizeTimeZone(
+    options.hostTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  const explicitTimezone = canonicalizeTimeZone(options.timeZone);
+  const selected = firstResolvedTimezone([
+    ["timeZone", explicitTimezone],
+    ["configuredUserTimezone", configuredUserTimezone],
+    ["clientTimezone", clientTimezone],
+    ["detectedTimezone", detectedTimezone],
+    ["hostTimezone", hostTimezone],
+  ]);
+
+  return {
+    configuredUserTimezone,
+    clientTimezone,
+    detectedTimezone,
+    hostTimezone,
+    effectiveTimezone: selected?.timeZone ?? "UTC",
+    source: selected?.source ?? "utcFallback",
+  };
+}
+
 /**
  * Format time as HH:MM:SS with UTC offset and timezone name.
  *
  * Uses the timezone resolution cascade:
- * explicit override → configured user tz → profile user tz → host fallback.
+ * explicit override → configured user tz → client tz → detected tz → host fallback.
  *
  * Returns format: `2026-04-02 (Thursday) 01:52:33 -05:00 (America/Chicago)`
  */
@@ -301,24 +368,7 @@ export function formatTurnTimestamp(
   options: TemporalContextOptions = {},
 ): string {
   const now = new Date(options.nowMs ?? Date.now());
-  const resolvedHostTimeZone =
-    canonicalizeTimeZone(
-      options.hostTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-    ) ?? "UTC";
-  const resolvedConfiguredUserTimeZone = options.configuredUserTimeZone
-    ? canonicalizeTimeZone(options.configuredUserTimeZone)
-    : null;
-  const resolvedUserTimeZone = options.userTimeZone
-    ? canonicalizeTimeZone(options.userTimeZone)
-    : null;
-  const resolvedTimeZone = options.timeZone
-    ? canonicalizeTimeZone(options.timeZone)
-    : null;
-  const timeZone =
-    resolvedTimeZone ??
-    resolvedConfiguredUserTimeZone ??
-    resolvedUserTimeZone ??
-    resolvedHostTimeZone;
+  const timeZone = resolveTurnTimezoneContext(options).effectiveTimezone;
 
   const dateStr = formatLocalDate(now, timeZone);
   const todayParts = localDateParts(now, timeZone);
@@ -341,4 +391,3 @@ export function formatTurnTimestamp(
 
   return `${dateStr} (${dayName}) ${hour}:${minute}:${second} ${offset} (${timeZone})`;
 }
-

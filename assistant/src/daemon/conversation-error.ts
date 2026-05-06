@@ -46,6 +46,13 @@ const MANAGED_USAGE_LIMIT_PATTERNS = [
   /current plan allows/i,
 ];
 
+const PROVIDER_BILLING_PATTERNS = [
+  /credit balance is too low/i,
+  /insufficient.*credits?/i,
+  /requires more credits/i,
+  /can only afford/i,
+];
+
 // Overloaded patterns — provider is capacity-constrained (distinct from rate limiting)
 const OVERLOADED_PATTERNS = [/overloaded/i];
 
@@ -269,13 +276,10 @@ function classifyCore(
       };
     }
     if (error.statusCode === 402) {
-      return {
-        code: "PROVIDER_BILLING",
-        userMessage:
-          "You've run out of credits. Add funds to continue using the assistant.",
-        retryable: false,
-        errorCategory: "credits_exhausted",
-      };
+      if (isManagedBalanceError(error)) {
+        return managedBalanceClassification();
+      }
+      return providerBillingClassification();
     }
     if (error.statusCode === 429) {
       if (isManagedUsageLimitError(error, message)) {
@@ -350,13 +354,8 @@ function classifyCore(
           errorCategory: "tool_ordering",
         };
       }
-      if (/credit balance is too low|insufficient.*credits?/i.test(message)) {
-        return {
-          code: "PROVIDER_BILLING",
-          userMessage: "Your API key has insufficient credits.",
-          retryable: false,
-          errorCategory: "provider_billing",
-        };
+      if (isProviderBillingError(message)) {
+        return providerBillingClassification();
       }
       if (
         /invalid.*api.?key|invalid.*x-api-key|authentication.?error|invalid.authentication/i.test(
@@ -421,6 +420,40 @@ function isManagedUsageLimitError(error: unknown, message: string): boolean {
     return true;
   }
   return MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(message));
+}
+
+function isManagedBalanceError(error: ProviderError): boolean {
+  return getProviderRoutingSource(error.provider) === "managed-proxy";
+}
+
+function isProviderBillingError(message: string): boolean {
+  return PROVIDER_BILLING_PATTERNS.some((p) => p.test(message));
+}
+
+function managedBalanceClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_BILLING",
+    userMessage:
+      "You've run out of credits. Add funds to continue using the assistant.",
+    retryable: false,
+    errorCategory: "credits_exhausted",
+  };
+}
+
+function providerBillingClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_BILLING",
+    userMessage:
+      "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings.",
+    retryable: false,
+    errorCategory: "provider_billing",
+  };
 }
 
 function classifyByMessage(

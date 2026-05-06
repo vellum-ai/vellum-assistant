@@ -566,11 +566,11 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("provider_not_configured");
     });
 
-    it("classifies ProviderError with 402 as credits_exhausted (non-retryable)", () => {
+    it("classifies direct ProviderError with 402 as provider_billing (non-retryable)", () => {
       const err = new ProviderError("Payment Required", "anthropic", 402);
       const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_BILLING");
-      expect(result.errorCategory).toBe("credits_exhausted");
+      expect(result.errorCategory).toBe("provider_billing");
       expect(result.retryable).toBe(false);
     });
 
@@ -614,6 +614,96 @@ describe("classifyConversationError", () => {
         expect(result.errorCategory).toBeDefined();
         expect(result.errorCategory.length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  describe("OpenRouter billing classification", () => {
+    it("keeps managed-proxy OpenRouter 402 responses as credits_exhausted", () => {
+      providerRoutingSources.openrouter = "managed-proxy";
+      const err = new ProviderError(
+        "OpenRouter API error (402): Payment Required",
+        "openrouter",
+        402,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("credits_exhausted");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("Add funds");
+      expect(result.userMessage).toContain("assistant");
+    });
+
+    it("classifies direct Anthropic, OpenAI, and OpenRouter 402 responses as provider_billing", () => {
+      providerRoutingSources.anthropic = "user-key";
+      providerRoutingSources.openai = "user-key";
+      providerRoutingSources.openrouter = "user-key";
+
+      for (const provider of ["anthropic", "openai", "openrouter"]) {
+        const err = new ProviderError(
+          `${provider} API error (402): Payment Required`,
+          provider,
+          402,
+        );
+
+        const result = classifyConversationError(err, baseCtx);
+
+        expect(result.code).toBe("PROVIDER_BILLING");
+        expect(result.errorCategory).toBe("provider_billing");
+        expect(result.retryable).toBe(false);
+        expect(result.userMessage).toContain("provider");
+        expect(result.userMessage).toContain("Settings");
+      }
+    });
+
+    it("classifies OpenRouter 400 credit-limit messages as provider_billing", () => {
+      const cases = [
+        "OpenRouter API error (400): This request requires more credits",
+        "OpenRouter API error (400): You can only afford 1000 tokens",
+      ];
+
+      for (const message of cases) {
+        const err = new ProviderError(message, "openrouter", 400);
+
+        const result = classifyConversationError(err, baseCtx);
+
+        expect(result.code).toBe("PROVIDER_BILLING");
+        expect(result.errorCategory).toBe("provider_billing");
+        expect(result.retryable).toBe(false);
+      }
+    });
+
+    it("classifies managed-proxy OpenRouter insufficient_balance bodies as credits_exhausted", () => {
+      providerRoutingSources.openrouter = "managed-proxy";
+      const err = new ProviderError(
+        'OpenRouter API error (402): {"code":"insufficient_balance","detail":"Managed balance exhausted"}',
+        "openrouter",
+        402,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("credits_exhausted");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("classifies direct OpenRouter insufficient_balance bodies as provider_billing", () => {
+      providerRoutingSources.openrouter = "user-key";
+      const err = new ProviderError(
+        'OpenRouter API error (402): {"code":"insufficient_balance","detail":"Provider account balance exhausted"}',
+        "openrouter",
+        402,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("provider_billing");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("provider");
+      expect(result.userMessage).toContain("Settings");
     });
   });
 

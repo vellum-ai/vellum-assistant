@@ -382,29 +382,11 @@ export class ConversationGraphMemory {
     signal: AbortSignal,
     onEvent: (msg: ServerMessage) => void,
   ) {
-    const result = await loadContextMemory({
-      scopeId: "default",
-      recentSummaries,
-      userQuery,
-      config,
-      signal,
-    });
-
-    this.initialized = true;
-    this.needsReload = false;
-
-    // v2 routing: when the feature flag and workspace config are both on,
-    // replace v1's injection with the activation-pipeline output. v1
-    // retrieval still runs above so its tracker stays warm — keeps the
-    // off→on→off flag flip cheap and avoids invalidating cached metrics.
-    // assistantMessage is empty: context-load fires on turn 1 / post-
-    // compaction, so there is no immediately-prior assistant turn to
-    // weight the activation against.
-    //
     // Use the raw user text (no >10-char filter) so even short greetings
     // ("hi") get a fresh top-K activation dump on the first user message.
-    // The activation pipeline is robust to weak ANN signal — it still falls
-    // back to spreading + nowText to surface candidates.
+    // The activation pipeline is robust to weak ANN signal — it falls back
+    // to spreading + nowText to surface candidates.
+    const startedAt = Date.now();
     const rawUserText = readRawUserText(messages[messages.length - 1]);
     const v2 = await this.maybeRouteV2Injection(
       messages,
@@ -414,6 +396,9 @@ export class ConversationGraphMemory {
       "",
       signal,
     );
+    this.initialized = true;
+    this.needsReload = false;
+
     if (v2.routed) {
       this.lastInjectedBlock = v2.injectedBlockText;
       this.lastInjectedNodeIds = [];
@@ -423,16 +408,21 @@ export class ConversationGraphMemory {
         injectedTokens: v2.injectedBlockText
           ? estimateTextTokens(v2.injectedBlockText)
           : 0,
-        latencyMs: result.latencyMs,
+        latencyMs: Date.now() - startedAt,
         mode: "context-load" as const,
         injectedBlockText: v2.injectedBlockText,
-        metrics: result.metrics,
-        queryVector: result.queryVector,
-        sparseVector: result.sparseVector,
-        userQueryVector: result.userQueryVector,
-        userQuerySparseVector: result.userQuerySparseVector,
+        metrics: null,
       };
     }
+
+    // v1 fallback — only reached when the v2 flag or workspace config is off.
+    const result = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries,
+      userQuery,
+      config,
+      signal,
+    });
 
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
@@ -541,21 +531,9 @@ export class ConversationGraphMemory {
       if (userLastBlocks.length > 0 && assistantLast) break;
     }
 
-    const result = await retrieveForTurn({
-      assistantLastMessage: assistantLast,
-      userLastMessage: userLast,
-      userLastMessageBlocks: userLastBlocks,
-      scopeId: "default",
-      config,
-      tracker: this.tracker,
-      signal,
-    });
-
-    // v2 routing: same gating as `runContextLoad` — when the flag and config
-    // are both on, the v2 activation pipeline produces the injection block
-    // (or `null` for the cache-stable empty path). v1 retrieval above runs
-    // unconditionally so the tracker stays in sync with the v1 nodes —
-    // cheap insurance for an off→on→off flag flip mid-conversation.
+    // v2 path — skip v1 retrieval entirely when v2 is enabled. See the
+    // matching comment in `runContextLoad` for rationale.
+    const startedAt = Date.now();
     const v2 = await this.maybeRouteV2Injection(
       messages,
       config,
@@ -573,14 +551,23 @@ export class ConversationGraphMemory {
         injectedTokens: v2.injectedBlockText
           ? estimateTextTokens(v2.injectedBlockText)
           : 0,
-        latencyMs: result.latencyMs,
+        latencyMs: Date.now() - startedAt,
         mode: "per-turn" as const,
         injectedBlockText: v2.injectedBlockText,
-        metrics: result.metrics,
-        queryVector: result.queryVector,
-        sparseVector: result.sparseVector,
+        metrics: null,
       };
     }
+
+    // v1 path (only reached when the v2 flag or workspace config is off).
+    const result = await retrieveForTurn({
+      assistantLastMessage: assistantLast,
+      userLastMessage: userLast,
+      userLastMessageBlocks: userLastBlocks,
+      scopeId: "default",
+      config,
+      tracker: this.tracker,
+      signal,
+    });
 
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
@@ -640,12 +627,12 @@ export class ConversationGraphMemory {
   }
 
   /**
-   * Route the v1 retrieval's injection step through the v2 activation
-   * pipeline when the `memory-v2-enabled` feature flag *and* the workspace
-   * config (`memory.v2.enabled`) are both on.
+   * Run the v2 activation pipeline when the `memory-v2-enabled` feature flag
+   * *and* the workspace config (`memory.v2.enabled`) are both on.
    *
    * The two outcomes the caller distinguishes via `routed`:
-   *   - `routed: false` — v2 disabled; caller runs the existing v1 injection.
+   *   - `routed: false` — v2 disabled; caller falls through to the legacy v1
+   *                        retrieval path.
    *   - `routed: true`  — v2 ran. `runMessages` is either the v2-prepended
    *                        message list (block was non-null) or the input
    *                        messages unchanged (cache-stable empty path).

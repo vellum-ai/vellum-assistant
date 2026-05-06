@@ -40,7 +40,7 @@ import {
   type HostBrowserSessionInvalidatedEnvelope,
 } from "./host-browser-dispatcher.js";
 import { SseConnection, type SseMode } from "./sse-connection.js";
-import { fetchAssistants, getCsrfToken } from "./cloud-api.js";
+import { fetchAssistants } from "./cloud-api.js";
 import { appendEvent, clearEventLog, getEventLog, getOperations, getOperationById, recordRequest, recordResponse } from "./event-log.js";
 import {
   startCloudLogin,
@@ -395,10 +395,6 @@ async function dispatchHostBrowserResult(
       if (mode.organizationId) {
         headers["Vellum-Organization-Id"] = mode.organizationId;
       }
-      const csrfToken = await getCsrfToken(baseUrl);
-      if (csrfToken) {
-        headers["X-CSRFToken"] = csrfToken;
-      }
     } else if (selfHostedPairToken) {
       headers["authorization"] = `Bearer ${selfHostedPairToken}`;
     }
@@ -468,22 +464,17 @@ function dispatchHostBrowserEvent(envelope: HostBrowserEventEnvelope): void {
     if (mode.organizationId) {
       headers["Vellum-Organization-Id"] = mode.organizationId;
     }
-    // Resolve CSRF token and session token concurrently — both are needed
-    // for authenticated cross-site POSTs but neither is available synchronously.
-    void Promise.all([getCsrfToken(baseUrl), getStoredSession()]).then(
-      ([csrfToken, freshSession]) => {
-        if (csrfToken) headers["X-CSRFToken"] = csrfToken;
-        if (freshSession?.sessionToken) {
-          headers["X-Session-Token"] = freshSession.sessionToken;
-        }
-        void fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(envelope),
-          credentials: "include",
-        }).catch(() => { /* fire and forget */ });
-      },
-    );
+    void getStoredSession().then((freshSession) => {
+      if (freshSession?.sessionToken) {
+        headers["X-Session-Token"] = freshSession.sessionToken;
+      }
+      void fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(envelope),
+        credentials: "include",
+      }).catch(() => { /* fire and forget */ });
+    });
     return;
   } else if (selfHostedPairToken) {
     headers["authorization"] = `Bearer ${selfHostedPairToken}`;
@@ -520,20 +511,17 @@ function dispatchHostBrowserSessionInvalidated(
     if (mode.organizationId) {
       headers["Vellum-Organization-Id"] = mode.organizationId;
     }
-    void Promise.all([getCsrfToken(baseUrl), getStoredSession()]).then(
-      ([csrfToken, freshSession]) => {
-        if (csrfToken) headers["X-CSRFToken"] = csrfToken;
-        if (freshSession?.sessionToken) {
-          headers["X-Session-Token"] = freshSession.sessionToken;
-        }
-        void fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(envelope),
-          credentials: "include",
-        }).catch(() => { /* fire and forget */ });
-      },
-    );
+    void getStoredSession().then((freshSession) => {
+      if (freshSession?.sessionToken) {
+        headers["X-Session-Token"] = freshSession.sessionToken;
+      }
+      void fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(envelope),
+        credentials: "include",
+      }).catch(() => { /* fire and forget */ });
+    });
     return;
   } else if (selfHostedPairToken) {
     headers["authorization"] = `Bearer ${selfHostedPairToken}`;

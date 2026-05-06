@@ -404,6 +404,13 @@ function stripNullLeaves(value: unknown): unknown {
   return out;
 }
 
+function readPlainObject(value: unknown): Record<string, unknown> | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 /**
  * Deep-merge `overrides` into `target`, overwriting leaf values.
  * Recursively merges nested objects; scalars and arrays from `overrides`
@@ -467,6 +474,18 @@ export function deepMergeOverwrite(
   }
 }
 
+export type DefaultWorkspaceConfigMergeResult = {
+  providedLlmProfileNames: Set<string>;
+  providedLlmActiveProfile: boolean;
+};
+
+function emptyDefaultWorkspaceConfigMergeResult(): DefaultWorkspaceConfigMergeResult {
+  return {
+    providedLlmProfileNames: new Set(),
+    providedLlmActiveProfile: false,
+  };
+}
+
 /**
  * Merge default workspace config from the file referenced by
  * VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH into the workspace config on disk.
@@ -476,9 +495,11 @@ export function deepMergeOverwrite(
  * Schema defaults are no longer materialized into the file on load — the
  * in-memory `loadConfig()` cache applies them at access time instead.
  */
-export function mergeDefaultWorkspaceConfig(): void {
+export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult {
   const defaultConfigPath = process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
-  if (!defaultConfigPath || !existsSync(defaultConfigPath)) return;
+  if (!defaultConfigPath || !existsSync(defaultConfigPath)) {
+    return emptyDefaultWorkspaceConfigMergeResult();
+  }
 
   let defaults: unknown;
   try {
@@ -489,7 +510,7 @@ export function mergeDefaultWorkspaceConfig(): void {
       "Failed to read default workspace config from %s",
       defaultConfigPath,
     );
-    return;
+    return emptyDefaultWorkspaceConfigMergeResult();
   }
 
   if (
@@ -497,16 +518,44 @@ export function mergeDefaultWorkspaceConfig(): void {
     typeof defaults !== "object" ||
     Array.isArray(defaults)
   ) {
-    return;
+    return emptyDefaultWorkspaceConfigMergeResult();
   }
+
+  const llmDefaults = readPlainObject(
+    (defaults as Record<string, unknown>).llm,
+  );
+  const providedProfiles = readPlainObject(llmDefaults?.profiles);
+  const mergeResult: DefaultWorkspaceConfigMergeResult = {
+    providedLlmProfileNames: new Set(
+      providedProfiles ? Object.keys(providedProfiles) : [],
+    ),
+    providedLlmActiveProfile:
+      llmDefaults != null &&
+      Object.prototype.hasOwnProperty.call(llmDefaults, "activeProfile"),
+  };
 
   const configPath = getConfigPath();
   let existing: Record<string, unknown> = {};
   if (existsSync(configPath)) {
     try {
       existing = JSON.parse(readFileSync(configPath, "utf-8"));
-    } catch {
-      // If existing config is corrupt, start fresh
+    } catch (err) {
+      quarantineCorruptConfig(configPath, err);
+      // After preserving the corrupt file, start fresh so the default overlay
+      // can still initialize a valid config for this startup.
+    }
+  }
+
+  if (mergeResult.providedLlmProfileNames.size > 0) {
+    // Default-config profile entries are authoritative fragments. Remove any
+    // old same-name profile first so recursive merge does not leave stale
+    // provider-specific leaves behind.
+    const existingLlm = readPlainObject(existing.llm);
+    const existingProfiles = readPlainObject(existingLlm?.profiles);
+    if (existingProfiles) {
+      for (const name of mergeResult.providedLlmProfileNames) {
+        delete existingProfiles[name];
+      }
     }
   }
 
@@ -533,6 +582,8 @@ export function mergeDefaultWorkspaceConfig(): void {
   } catch {
     log.info("Merged default workspace config from %s", defaultConfigPath);
   }
+
+  return mergeResult;
 }
 
 export function loadConfig(): AssistantConfig {

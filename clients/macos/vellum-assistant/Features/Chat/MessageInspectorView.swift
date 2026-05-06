@@ -318,15 +318,9 @@ struct MessageInspectorView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var visibleTabs: [MessageInspectorDetailTab] {
-        MessageInspectorDetailTab.allCases.filter { tab in
-            tab != .memoryV2 || viewState.memoryV2Activation != nil
-        }
-    }
-
     private var detailTabBar: some View {
         VTabs(
-            items: visibleTabs.map { (label: $0.label, tag: $0) },
+            items: MessageInspectorDetailTab.allCases.map { (label: $0.label, tag: $0) },
             selection: Binding(
                 get: { viewState.selectedDetailTab },
                 set: { viewState.selectDetailTab($0) }
@@ -340,9 +334,11 @@ struct MessageInspectorView: View {
         case .overview:
             MessageInspectorOverviewTab(entry: entry)
         case .memory:
-            MessageInspectorMemoryTab(memoryRecall: viewState.memoryRecall)
-        case .memoryV2:
-            MessageInspectorMemoryV2Tab(activation: viewState.memoryV2Activation)
+            if let activation = viewState.memoryV2Activation {
+                MessageInspectorMemoryV2Tab(activation: activation)
+            } else {
+                MessageInspectorMemoryTab(memoryRecall: viewState.memoryRecall)
+            }
         case .prompt:
             MessageInspectorPromptTab(entry: entry)
         case .response:
@@ -638,7 +634,6 @@ enum RawPayloadPane: String, CaseIterable {
 enum MessageInspectorDetailTab: String, CaseIterable {
     case overview
     case memory
-    case memoryV2
     case prompt
     case response
     case raw
@@ -649,8 +644,6 @@ enum MessageInspectorDetailTab: String, CaseIterable {
             return "Overview"
         case .memory:
             return "Memory"
-        case .memoryV2:
-            return "Memory v2"
         case .prompt:
             return "Prompt"
         case .response:
@@ -711,7 +704,6 @@ struct MessageInspectorViewState {
             guard !orderedLogs.isEmpty else {
                 loadState = .empty
                 selectedLogID = nil
-                resetSelectedTabIfMemoryV2Unavailable()
                 return
             }
 
@@ -735,14 +727,6 @@ struct MessageInspectorViewState {
             conversationKind = nil
             loadState = .failed
             selectedLogID = nil
-        }
-
-        resetSelectedTabIfMemoryV2Unavailable()
-    }
-
-    private mutating func resetSelectedTabIfMemoryV2Unavailable() {
-        if selectedDetailTab == .memoryV2 && memoryV2Activation == nil {
-            selectedDetailTab = .overview
         }
     }
 

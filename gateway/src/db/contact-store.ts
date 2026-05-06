@@ -1,4 +1,4 @@
-import { desc, eq, and, sql } from "drizzle-orm";
+import { desc, eq, and, ne, or, sql } from "drizzle-orm";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { contacts, contactChannels } from "./schema.js";
 
@@ -64,6 +64,32 @@ export class ContactStore {
       .where(eq(contactChannels.contactId, contactId))
       .orderBy(contactChannels.createdAt)
       .all();
+  }
+
+  /**
+   * Looks up a non-revoked phone channel whose externalUserId or address
+   * matches the given phone number. Used to detect callers whose number is
+   * registered but not yet verified via DTMF challenge.
+   */
+  getContactByPhoneNumber(
+    phoneNumber: string,
+  ): { contact: Contact; channel: ContactChannel } | undefined {
+    return this.db
+      .select({ contact: contacts, channel: contactChannels })
+      .from(contacts)
+      .innerJoin(contactChannels, eq(contactChannels.contactId, contacts.id))
+      .where(
+        and(
+          eq(contactChannels.type, "phone"),
+          ne(contactChannels.status, "revoked"),
+          or(
+            eq(contactChannels.externalUserId, phoneNumber),
+            eq(contactChannels.address, phoneNumber),
+          ),
+        ),
+      )
+      .limit(1)
+      .get();
   }
 
   /**

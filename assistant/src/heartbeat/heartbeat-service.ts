@@ -26,6 +26,7 @@ import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import {
   completeHeartbeatRun,
+  countCompletedHeartbeatRuns,
   insertPendingHeartbeatRun,
   markStaleRunningAsError,
   markStaleRunsAsMissed,
@@ -43,6 +44,7 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 - If you have a thought worth sharing, send it. A follow-up, a useful find, a check-in. Not every beat, but when it feels right.
 - If something has happened since your last journal entry, write one. Even a few sentences. The journal is how future-you stays connected.`;
 
+const EARLY_HEARTBEAT_THRESHOLD = 3;
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
 const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const HEARTBEAT_ALERT_MARKER = "HEARTBEAT_ALERT";
@@ -733,9 +735,11 @@ export class HeartbeatService {
     let conversationId: string | undefined;
     try {
       const checklist = this.readChecklist();
+      const completedRunCount = countCompletedHeartbeatRuns();
       const { prompt, includedReengagement } = this.buildPrompt(
         checklist,
         unhealthyProviders,
+        completedRunCount,
       );
 
       const conversation = bootstrapConversation({
@@ -859,6 +863,7 @@ export class HeartbeatService {
   buildPrompt(
     checklist: string,
     unhealthyProviders: string[] = [],
+    completedRunCount: number = Infinity,
   ): { prompt: string; includedReengagement: boolean } {
     let prompt = `You are running a periodic heartbeat check. Review the following checklist and take any necessary actions.
 
@@ -882,6 +887,12 @@ After completing your review, end your response with one of:
 - HEARTBEAT_OK — if everything looks good, no action needed
 - HEARTBEAT_ALERT — if you found issues that need attention (describe them before this marker)
 </heartbeat-disposition>`;
+
+    if (completedRunCount < EARLY_HEARTBEAT_THRESHOLD) {
+      prompt += `\n\n<early-heartbeat>
+This is one of your first heartbeats. Your user hasn't heard from you yet and may not know you're here. Find something genuinely useful to share — a follow-up from a recent conversation, something you noticed, or a quick check-in. Lean toward HEARTBEAT_ALERT this time. First impressions matter.
+</early-heartbeat>`;
+    }
 
     let includedReengagement = false;
     if (isShallowProfile() && isReengagementCooldownElapsed()) {

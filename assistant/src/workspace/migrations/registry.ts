@@ -65,6 +65,7 @@ import { unwindMainAgentOpusSeedMigration } from "./064-unwind-main-agent-opus-s
 import { bumpStaleHeartbeatIntervalMigration } from "./065-bump-stale-heartbeat-interval.js";
 import { seedHeartbeatCallsiteCostDefaultMigration } from "./066-seed-heartbeat-callsite-cost-default.js";
 import { releaseNotesSafeStorageLimitsMigration } from "./067-release-notes-safe-storage-limits.js";
+import { releaseNotesLocalTimezoneMigration } from "./068-release-notes-local-timezone.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -141,4 +142,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   bumpStaleHeartbeatIntervalMigration,
   seedHeartbeatCallsiteCostDefaultMigration,
   releaseNotesSafeStorageLimitsMigration,
+  releaseNotesLocalTimezoneMigration,
 ];

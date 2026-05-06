@@ -414,7 +414,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             return self.isLatestToolUseRecipient(viewModel)
         }
         viewModel.shouldCreateInlineErrorMessage = { error in
-            !error.isCreditsExhausted && !error.isProviderNotConfigured && !error.isManagedKeyInvalid
+            error.shouldCreateInlineErrorMessage
         }
         viewModel.onManagedKeyInvalid = { [weak self] in
             guard let self else { return }

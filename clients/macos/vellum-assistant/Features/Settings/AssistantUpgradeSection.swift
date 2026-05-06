@@ -43,6 +43,16 @@ struct AssistantUpgradeSection: View {
     /// The update manager to observe for reactive Sparkle status updates.
     var updateManager: UpdateManager
 
+    /// Assistant choices shown above version controls. Uses the same
+    /// presentation model as the platform-login picker.
+    var assistantSwitcherItems: [AssistantPickerItem] = []
+    var selectedAssistantId: String?
+    var switchingAssistantId: String?
+    var isAssistantSwitcherLoading: Bool = false
+    var assistantSwitcherError: String?
+    var onSwitchAssistant: (String) -> Void = { _ in }
+    var onRefreshAssistants: () -> Void = {}
+
     @State private var availableReleases: [AssistantRelease] = []
     @State private var selectedVersion: String?
     @State private var isLoadingReleases = false
@@ -151,6 +161,20 @@ struct AssistantUpgradeSection: View {
 
     var body: some View {
         SettingsCard(title: "Assistant Version", subtitle: topologySubtitle) {
+            if shouldShowAssistantSwitcher {
+                AssistantVersionSwitcher(
+                    items: assistantSwitcherItems,
+                    selectedAssistantId: selectedAssistantId,
+                    switchingAssistantId: switchingAssistantId,
+                    isLoading: isAssistantSwitcherLoading,
+                    errorMessage: assistantSwitcherError,
+                    onSwitch: onSwitchAssistant,
+                    onRefresh: onRefreshAssistants
+                )
+
+                SettingsDivider()
+            }
+
             // Version info — always visible
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if topology == .local {
@@ -426,6 +450,10 @@ struct AssistantUpgradeSection: View {
         }
     }
 
+    private var shouldShowAssistantSwitcher: Bool {
+        assistantSwitcherItems.count > 1 || assistantSwitcherError != nil
+    }
+
     // MARK: - Actions
 
     private func loadReleases() async {
@@ -693,5 +721,4 @@ struct AssistantRelease: Decodable, Identifiable {
 
     var id: String { version }
 }
-
 

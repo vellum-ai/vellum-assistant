@@ -203,20 +203,22 @@ struct ChatConversationErrorToast: View {
     }
 }
 
-// MARK: - Credits Exhausted Banner
+// MARK: - Above Composer Action Banner
 
-/// Inline banner shown when the user's credits are exhausted.
-/// Uses a warm, encouraging tone with a visual gauge and clear CTA.
-struct CreditsExhaustedBanner: View {
-    let onAddFunds: () -> Void
+private struct AboveComposerActionBanner: View {
+    let title: String
+    let subtitle: String
+    let actionLabel: String
+    let signpost: StaticString
+    let onAction: () -> Void
 
     var body: some View {
         HStack(spacing: VSpacing.xl) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("💰  Your balance has run out")
+                Text(title)
                     .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentEmphasized)
-                Text("Add funds to pick up where you left off.")
+                Text(subtitle)
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
@@ -224,8 +226,8 @@ struct CreditsExhaustedBanner: View {
 
             Spacer(minLength: 0)
 
-            VButton(label: "Add Funds", style: .primary) {
-                onAddFunds()
+            VButton(label: actionLabel, style: .primary) {
+                onAction()
             }
         }
         .padding(VSpacing.lg)
@@ -239,7 +241,45 @@ struct CreditsExhaustedBanner: View {
             )
         )
         .transition(.move(edge: .bottom).combined(with: .opacity))
-        .layoutHangSignpost("chat.creditsExhaustedBanner")
+        .layoutHangSignpost(signpost)
+    }
+}
+
+// MARK: - Credits Exhausted Banner
+
+/// Inline banner shown when the user's credits are exhausted.
+/// Uses a warm, encouraging tone with a visual gauge and clear CTA.
+struct CreditsExhaustedBanner: View {
+    let onAddFunds: () -> Void
+
+    var body: some View {
+        AboveComposerActionBanner(
+            title: "💰  Your balance has run out",
+            subtitle: "Add funds to pick up where you left off.",
+            actionLabel: "Add Funds",
+            signpost: "chat.creditsExhaustedBanner",
+            onAction: onAddFunds
+        )
+    }
+}
+
+// MARK: - Provider Billing Banner
+
+/// Inline banner shown when the user's configured provider reports
+/// account or API-key billing trouble.
+/// This intentionally mirrors the managed credits blocker: there is no manual
+/// dismiss action because the banner clears with the conversation error state.
+struct ProviderBillingBanner: View {
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        AboveComposerActionBanner(
+            title: "Your API key needs credits",
+            subtitle: "Add funds with your provider or lower the model token limit.",
+            actionLabel: "Open Settings",
+            signpost: "chat.providerBillingBanner",
+            onAction: onOpenSettings
+        )
     }
 }
 

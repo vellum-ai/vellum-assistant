@@ -291,21 +291,13 @@ function seedPendingConfirmation(
   conversation: Conversation,
   requestId: string,
 ): void {
+  // Access private ownedIds so denyAllPending/dispose can find this request.
+  // promptResolve/promptReject callbacks are stored in pendingInteractions via
+  // registerPendingInteraction, which is called separately in each test.
   const prompter = conversation["prompter"] as unknown as {
-    pending: Map<
-      string,
-      {
-        resolve: (...args: unknown[]) => void;
-        reject: (...args: unknown[]) => void;
-        timer: ReturnType<typeof setTimeout>;
-      }
-    >;
+    ownedIds: Set<string>;
   };
-  prompter.pending.set(requestId, {
-    resolve: () => {},
-    reject: () => {},
-    timer: setTimeout(() => {}, 60_000),
-  });
+  prompter.ownedIds.add(requestId);
 }
 
 /**
@@ -439,12 +431,12 @@ describe("approval cascading", () => {
       makeConfirmationDetails(["bash:echo stale"]),
     );
 
-    // Remove req-stale from the prompter's pending map (simulating it was
+    // Remove req-stale from the prompter's ownedIds (simulating it was
     // already resolved by another path before cascade reaches it)
     const prompter = conversationObj["prompter"] as unknown as {
-      pending: Map<string, unknown>;
+      ownedIds: Set<string>;
     };
-    prompter.pending.delete("req-stale");
+    prompter.ownedIds.delete("req-stale");
 
     // This should not throw — cascade should skip req-stale gracefully
     expect(() => {

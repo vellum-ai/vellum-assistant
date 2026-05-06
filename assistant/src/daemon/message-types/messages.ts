@@ -241,6 +241,8 @@ export interface ErrorMessage {
   message: string;
   /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */
   category?: string;
+  /** Machine-readable conversation error category for clients that need source-aware recovery UI. */
+  errorCategory?: string;
 }
 
 export interface MessageQueued {

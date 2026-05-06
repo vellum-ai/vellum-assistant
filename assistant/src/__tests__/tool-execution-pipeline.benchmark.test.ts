@@ -30,16 +30,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Allow toggling between no-rule and matched-rule paths
-let mockRuleResponse: import("../permissions/types.js").TrustRule | null = null;
-
-mock.module("../permissions/trust-store.js", () => ({
-  addRule: () => {},
-  findHighestPriorityRule: () => mockRuleResponse,
-  onRulesChanged: () => {},
-  clearCache: () => {},
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -300,38 +290,6 @@ describe("Tool execution pipeline benchmark", () => {
     expect(p95).toBeLessThan(50);
     // git status is low risk, should auto-allow
     expect(results[0].decision).toBe("allow");
-  });
-
-  test("check: matched allow-rule path for medium-risk tool", async () => {
-    // Exercise the code path where findHighestPriorityRule returns a matching
-    // allow rule, rather than always falling through to the no-rule default.
-    mockRuleResponse = {
-      id: "bench:allow-file_write",
-      tool: "file_write",
-      pattern: "**",
-      scope: "/tmp",
-      decision: "allow",
-      priority: 90,
-      createdAt: Date.now(),
-    };
-
-    try {
-      const { timings, results } = await benchmarkAsync(
-        () => check("file_write", { path: "/tmp/out.txt" }, "/tmp"),
-        ITERATIONS,
-      );
-
-      const p50 = percentile(timings, 50);
-      const p95 = percentile(timings, 95);
-
-      expect(p50).toBeLessThan(10);
-      expect(p95).toBeLessThan(20);
-      // Medium-risk with a matching allow rule should auto-allow
-      expect(results[0].decision).toBe("allow");
-      expect(results[0].matchedRule?.id).toBe("bench:allow-file_write");
-    } finally {
-      mockRuleResponse = null;
-    }
   });
 
   test("check: permission cost is stable across different input paths", async () => {

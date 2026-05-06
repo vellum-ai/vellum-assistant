@@ -944,8 +944,23 @@ extension DeleteQueuedMessage {
 }
 
 extension ErrorMessage {
-    public init(message: String, category: String? = nil) {
-        self.init(type: "error", message: message, category: category)
+    public init(
+        conversationId: String? = nil,
+        requestId: String? = nil,
+        code: String? = nil,
+        message: String,
+        category: String? = nil,
+        errorCategory: String? = nil
+    ) {
+        self.init(
+            type: "error",
+            conversationId: conversationId,
+            requestId: requestId,
+            code: code,
+            message: message,
+            category: category,
+            errorCategory: errorCategory
+        )
     }
 }
 

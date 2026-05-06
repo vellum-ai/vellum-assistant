@@ -210,9 +210,9 @@ In local tunnel setups, updating `ingress.publicBaseUrl` in Settings is typicall
 
 The assistant runtime uses this URL to construct all webhook and OAuth callback URLs automatically.
 
-### Velay for Twilio Local Testing
+### Velay for Twilio Testing
 
-Velay is an additional managed ingress transport for Twilio calls. It does not replace ngrok or `ingress.publicBaseUrl`. In this phase, Velay registration writes only `ingress.twilioPublicBaseUrl`; Twilio URL builders prefer that value when it is present, while Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs continue to use `ingress.publicBaseUrl`.
+Velay is a managed ingress transport for assistant-hosted HTTP and WebSocket traffic. When Velay registration succeeds, the gateway writes the registered public assistant URL to `ingress.publicBaseUrl` and marks it with `ingress.publicBaseUrlManagedBy: "velay"`. Twilio URL builders use that public base URL for voice, status, relay, and media-stream endpoints.
 
 Use Velay when testing Twilio voice webhooks or Twilio WebSocket upgrades through the platform-managed tunnel:
 
@@ -222,16 +222,16 @@ Use Velay when testing Twilio voice webhooks or Twilio WebSocket upgrades throug
    vel up velay
    ```
 
-2. Ensure vembda injects the Velay endpoint into assistant gateway containers:
+2. Ensure vembda injects the Velay endpoint into assistant gateway containers. For local Docker-hosted assistants, the gateway container must dial the Velay service running on the host:
 
    ```bash
    VELAY_BASE_URL=http://host.docker.internal:8501
    ```
 
-   The `host.docker.internal` host is important for Docker-hosted assistants because the gateway container must dial the Velay service running on the host.
+   Hosted environments should use their environment's deployed Velay URL instead.
 
 3. Re-hatch or restart the assistant so the gateway process receives `VELAY_BASE_URL`.
-4. Confirm the gateway logs include `Velay tunnel connected` followed by `Velay tunnel registered`. Registration publishes the returned Velay URL to `ingress.twilioPublicBaseUrl` without changing `ingress.publicBaseUrl`.
+4. Confirm the gateway logs include `Velay tunnel connected` followed by `Velay tunnel registered`. Registration publishes the returned Velay URL to `ingress.publicBaseUrl`.
 
 For an HTTP bridge smoke test, send a request to the registered Velay public URL and confirm it reaches the loopback gateway, for example:
 
@@ -249,7 +249,7 @@ bun -e 'const ws = new WebSocket(process.argv[1]); ws.onopen = () => { console.l
   "wss://<velay-host>/<assistant-id>/webhooks/twilio/relay?callSessionId=session-123&token=<edge-token>"
 ```
 
-For a real Twilio call, expose local Velay with a public HTTPS/WSS tunnel and configure the platform Velay service with that origin as `VELAY_PUBLIC_BASE_URL`. After the assistant re-registers, Twilio should fetch `/webhooks/twilio/voice` and open `/webhooks/twilio/relay` or `/webhooks/twilio/media-stream/...` through the Velay URL. Keep using ngrok or another custom tunnel in `ingress.publicBaseUrl` when you need Telegram, OAuth, email, or non-Twilio webhook ingress.
+For a real Twilio call, expose local Velay with a public HTTPS/WSS tunnel and configure the platform Velay service with that origin as `VELAY_PUBLIC_BASE_URL`. After the assistant re-registers, Twilio should fetch `/webhooks/twilio/voice` and open `/webhooks/twilio/relay` or `/webhooks/twilio/media-stream/...` through the Velay URL. Use ngrok or another custom tunnel in `ingress.publicBaseUrl` only for local/self-hosted workflows that are not routed through Velay.
 
 ## Ingress Boundary Guarantees
 

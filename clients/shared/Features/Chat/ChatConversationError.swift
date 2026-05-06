@@ -70,7 +70,7 @@ public enum ConversationErrorCategory: Equatable, Sendable {
         case .providerApi:
             return "This is usually temporary — click Retry, or check your API key in Settings if it persists."
         case .providerBilling:
-            return "Please add credits to your account or update your API key in Settings."
+            return "Add funds with your provider or update your API key in Settings."
         case .providerOrdering:
             return "This is usually temporary — click Retry to continue."
         case .providerWebSearch:
@@ -95,6 +95,14 @@ public enum ConversationErrorCategory: Equatable, Sendable {
     }
 }
 
+/// Preferred UI surface for a conversation-level error.
+public enum ConversationErrorPresentationSurface: Equatable, Sendable {
+    case managedCreditsBanner
+    case providerBillingBanner
+    case missingApiKeyBanner
+    case generic
+}
+
 /// Typed error state for conversation-level errors from the daemon.
 public struct ConversationError: Equatable {
     public let category: ConversationErrorCategory
@@ -110,7 +118,7 @@ public struct ConversationError: Equatable {
         self.category = ConversationErrorCategory(from: msg.code)
         self.message = msg.userMessage
         self.isRetryable = msg.retryable
-        self.recoverySuggestion = self.category.recoverySuggestion
+        self.recoverySuggestion = Self.recoverySuggestion(for: self.category, errorCategory: msg.errorCategory)
         self.conversationId = msg.conversationId
         self.debugDetails = msg.debugDetails
         self.errorCategory = msg.errorCategory
@@ -120,16 +128,48 @@ public struct ConversationError: Equatable {
         self.category = category
         self.message = message
         self.isRetryable = isRetryable
-        self.recoverySuggestion = category.recoverySuggestion
+        self.recoverySuggestion = Self.recoverySuggestion(for: category, errorCategory: errorCategory)
         self.conversationId = conversationId
         self.debugDetails = debugDetails
         self.errorCategory = errorCategory
     }
 
-    /// Whether this error indicates that the user's credits are exhausted.
+    /// Whether this error indicates that Vellum-managed credits are exhausted.
     /// Matches both plain "credits_exhausted" and prefixed variants like "regenerate:credits_exhausted".
+    public var isManagedCreditsExhausted: Bool {
+        Self.isManagedCreditsExhausted(errorCategory)
+    }
+
+    /// Compatibility alias for existing managed-credits UI checks.
     public var isCreditsExhausted: Bool {
-        errorCategory?.hasSuffix("credits_exhausted") == true
+        isManagedCreditsExhausted
+    }
+
+    /// Whether this error indicates billing trouble with the user's configured provider.
+    /// Matches both plain "provider_billing" and prefixed variants like "regenerate:provider_billing".
+    public var isProviderBilling: Bool {
+        Self.isProviderBilling(category: category, errorCategory: errorCategory)
+    }
+
+    public var presentationSurface: ConversationErrorPresentationSurface {
+        if isManagedCreditsExhausted {
+            return .managedCreditsBanner
+        }
+        if isProviderBilling {
+            return .providerBillingBanner
+        }
+        if isProviderNotConfigured {
+            return .missingApiKeyBanner
+        }
+        return .generic
+    }
+
+    public var shouldSuppressGenericErrorSurface: Bool {
+        presentationSurface != .generic
+    }
+
+    public var shouldCreateInlineErrorMessage: Bool {
+        !shouldSuppressGenericErrorSurface && !isManagedKeyInvalid
     }
 
     /// Whether this error indicates that no provider is configured for inference.
@@ -140,5 +180,29 @@ public struct ConversationError: Equatable {
     /// Whether this error indicates the managed assistant API key is invalid and should be reprovisioned.
     public var isManagedKeyInvalid: Bool {
         category == .managedKeyInvalid
+    }
+
+    private static func recoverySuggestion(for category: ConversationErrorCategory, errorCategory: String?) -> String {
+        if isManagedCreditsExhausted(errorCategory) {
+            return "Add credits to your Vellum account or switch to your API key in Settings."
+        }
+        if isProviderBilling(category: category, errorCategory: errorCategory) {
+            return ConversationErrorCategory.providerBilling.recoverySuggestion
+        }
+        return category.recoverySuggestion
+    }
+
+    private static func isManagedCreditsExhausted(_ errorCategory: String?) -> Bool {
+        errorCategory?.hasSuffix("credits_exhausted") == true
+    }
+
+    private static func isProviderBilling(category: ConversationErrorCategory, errorCategory: String?) -> Bool {
+        if isManagedCreditsExhausted(errorCategory) {
+            return false
+        }
+        if errorCategory?.hasSuffix("provider_billing") == true {
+            return true
+        }
+        return category == .providerBilling && errorCategory == nil
     }
 }

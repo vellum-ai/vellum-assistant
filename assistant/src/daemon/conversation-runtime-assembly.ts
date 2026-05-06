@@ -789,6 +789,9 @@ export interface UnifiedTurnContextOptions {
   interfaceName?: string;
   channelName?: string;
   actorContext?: InboundActorContext | null;
+  configuredUserTimezone?: string | null;
+  clientTimezone?: string | null;
+  detectedTimezone?: string | null;
   /**
    * Human-readable duration since the previous user message (e.g. "14h ago",
    * "yesterday", "3d ago"). Only populated when the gap exceeds 12 hours so
@@ -831,6 +834,25 @@ export function buildUnifiedTurnContextBlock(
 
   const lines: string[] = ["<turn_context>"];
   lines.push(`current_time: ${options.timestamp}`);
+  const configuredUserTimezone = options.configuredUserTimezone ?? null;
+  const clientDeviceTimezone =
+    options.clientTimezone ?? options.detectedTimezone ?? null;
+  const hasTimezoneMismatch =
+    configuredUserTimezone !== null &&
+    clientDeviceTimezone !== null &&
+    configuredUserTimezone !== clientDeviceTimezone;
+  if (hasTimezoneMismatch) {
+    const sanitizedConfiguredTimezone = sanitizeInlineContextValue(
+      configuredUserTimezone,
+    );
+    const sanitizedClientDeviceTimezone =
+      sanitizeInlineContextValue(clientDeviceTimezone);
+    lines.push(`configured_user_timezone: ${sanitizedConfiguredTimezone}`);
+    lines.push(`client_device_timezone: ${sanitizedClientDeviceTimezone}`);
+    lines.push(
+      `timezone_update_available: after explicit user confirmation, persist client_device_timezone with \`assistant config set ui.userTimezone "${sanitizedClientDeviceTimezone}"\``,
+    );
+  }
   if (options.timeSinceLastMessage) {
     lines.push(`time_since_last_message: ${options.timeSinceLastMessage}`);
   }

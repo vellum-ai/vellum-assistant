@@ -49,7 +49,7 @@ describe("Twilio validation middleware", () => {
     };
   });
 
-  test("validates signatures against Twilio-specific public ingress first", async () => {
+  test("validates signatures against configured public ingress", async () => {
     mockConfig = {
       ingress: {
         publicBaseUrl: "  https://twilio.example.com///  ",
@@ -77,7 +77,7 @@ describe("Twilio validation middleware", () => {
     ]);
   });
 
-  test("falls back to generic public ingress when Twilio-specific ingress is empty", async () => {
+  test("uses configured public ingress for status callbacks", async () => {
     const req = new Request("http://127.0.0.1:7821/v1/calls/twilio/status", {
       method: "POST",
       headers: { "x-twilio-signature": "valid" },

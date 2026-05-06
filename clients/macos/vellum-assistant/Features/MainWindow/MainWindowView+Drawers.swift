@@ -50,20 +50,7 @@ extension MainWindowView {
                         await authManager.loginWithToast(showToast: { msg, style in
                             windowState.showToast(message: msg, style: style)
                         }, onSuccess: {
-                            // Re-bootstrap actor credentials and local assistant API key
-                            // so the app can authenticate to the local assistant again.
-                            // Mirrors the pattern in SettingsPanel and proceedToApp().
-                            if !(AppDelegate.shared?.isCurrentAssistantManaged ?? false) {
-                                AppDelegate.shared?.ensureActorCredentials()
-                            }
-                            AppDelegate.shared?.localBootstrapDidComplete = false
-                            AppDelegate.shared?.ensureLocalAssistantApiKey()
-
-                            // For managed assistants, re-establish the connection now that
-                            // the user has a valid session token.
-                            if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
-                                AppDelegate.shared?.reconnectManagedAssistant()
-                            }
+                            AppDelegate.shared?.handlePlatformLoginSucceeded()
                         })
                     }
                 },

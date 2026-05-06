@@ -166,7 +166,7 @@ export class HostBashProxy {
       pendingInteractions.register(requestId, {
         conversationId,
         kind: "host_bash",
-        rpcResolve: resolve,
+        rpcResolve: resolve as (v: unknown) => void,
         rpcReject: reject,
         timer,
         detachAbort,

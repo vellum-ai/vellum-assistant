@@ -988,7 +988,15 @@ final class ChatActionHandler {
         // Only process errors relevant to this chat conversation. Generic daemon
         // errors (e.g., validation failures from unrelated message types
         // like work_item_delete) should not pollute the chat UI.
-        guard vm.isSending || vm.isThinking || vm.isCancelling || vm.currentAssistantMessageId != nil || vm.isWorkspaceRefinementInFlight else {
+        let typedBillingError = billingConversationError(from: err, fallbackConversationId: vm.conversationId)
+        let isActiveTurnError = vm.isSending
+            || vm.isThinking
+            || vm.isCancelling
+            || vm.currentAssistantMessageId != nil
+            || vm.isWorkspaceRefinementInFlight
+        let isRelevantBillingError = typedBillingError != nil
+            && err.conversationId.map { !$0.isEmpty && belongsToConversation($0) } == true
+        guard isActiveTurnError || isRelevantBillingError else {
             return
         }
         vm.isWorkspaceRefinementInFlight = false
@@ -1062,6 +1070,9 @@ final class ChatActionHandler {
         vm.clearCurrentTurnTracking()
         if !wasCancelling {
             vm.errorText = err.message
+            if let typedBillingError {
+                vm.conversationError = typedBillingError
+            }
             // When the backend blocks a message for containing secrets,
             // stash the full send context so "Send Anyway" can reconstruct
             // the original UserMessageMessage with attachments and surface metadata.
@@ -1117,6 +1128,22 @@ final class ChatActionHandler {
             vm.requestIdToMessageId = [:]
             vm.activeRequestIdToMessageId = [:]
         }
+    }
+
+    private func billingConversationError(from err: ErrorMessage, fallbackConversationId: String?) -> ConversationError? {
+        guard let errorCategory = err.errorCategory else { return nil }
+        guard errorCategory.hasSuffix("credits_exhausted") || errorCategory.hasSuffix("provider_billing") else {
+            return nil
+        }
+
+        let code = err.code.flatMap(ConversationErrorCode.init(rawValue:)) ?? .providerBilling
+        return ConversationError(from: ConversationErrorMessage(
+            conversationId: err.conversationId ?? fallbackConversationId ?? "",
+            code: code,
+            userMessage: err.message,
+            retryable: false,
+            errorCategory: errorCategory
+        ))
     }
 
     private func handleConfirmationRequest(_ msg: ConfirmationRequestMessage, vm: ChatViewModel) {

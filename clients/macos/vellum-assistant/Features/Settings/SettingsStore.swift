@@ -143,6 +143,7 @@ public final class SettingsStore: ObservableObject {
     @Published var mediaEmbedsEnabledSince: Date?
     @Published var mediaEmbedVideoAllowlistDomains: [String]
     @Published var userTimezone: String?
+    @Published var detectedTimezone: String?
 
     // MARK: - Telegram Integration State
 
@@ -381,6 +382,7 @@ public final class SettingsStore: ObservableObject {
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
     private let settingsClient: SettingsClientProtocol
+    private let currentDeviceTimezoneIdentifier: () -> String
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
@@ -451,6 +453,7 @@ public final class SettingsStore: ObservableObject {
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
         settingsClient: SettingsClientProtocol = SettingsClient(),
         configPath: String? = nil,
+        currentDeviceTimezoneIdentifier: @escaping () -> String = { TimeZone.autoupdatingCurrent.identifier },
         verificationSessionTimeoutDuration: TimeInterval = 12,
         verificationStatusPollInterval: TimeInterval = 2,
         verificationStatusPollWindow: TimeInterval = 600
@@ -460,6 +463,7 @@ public final class SettingsStore: ObservableObject {
         self.channelClient = channelClient
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient
+        self.currentDeviceTimezoneIdentifier = currentDeviceTimezoneIdentifier
         self.configPath = configPath
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
@@ -538,19 +542,20 @@ public final class SettingsStore: ObservableObject {
             self.nextConversationShortcut = UserDefaults.standard.string(forKey: "nextConversationShortcut") ?? ""
         }
 
-        // Use defaults for config-dependent properties; the daemon will
-        // provide authoritative values once reachable via loadConfigFromDaemon().
-        let emptyConfig: [String: Any] = [:]
+        // Use local config when a test/local path is provided; otherwise
+        // defaults are replaced once loadConfigFromDaemon() reaches the assistant.
+        let initialConfig = Self.loadConfigFile(path: configPath)
 
         // Load media embed settings (defaults when config is empty)
-        let mediaSettings = Self.loadMediaEmbedSettings(config: emptyConfig)
+        let mediaSettings = Self.loadMediaEmbedSettings(config: initialConfig)
         self.mediaEmbedsEnabled = mediaSettings.enabled
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
-        self.userTimezone = Self.loadUserTimezone(config: emptyConfig)
+        self.userTimezone = Self.loadUserTimezone(config: initialConfig)
+        self.detectedTimezone = Self.loadDetectedTimezone(config: initialConfig)
 
         // Service modes use defaults until daemon provides config
-        loadServiceModes(config: emptyConfig)
+        loadServiceModes(config: initialConfig)
 
         // Seed provider catalog from `LLMProviderRegistry` so the UI has data
         // before the first daemon fetch completes.
@@ -802,6 +807,15 @@ public final class SettingsStore: ObservableObject {
                 guard let self else { return }
                 self.refreshModelInfo()
                 self.refreshDaemonConfig()
+            }
+            .store(in: &cancellables)
+
+        // Keep the assistant's persisted device timezone fresh even if the
+        // Appearance settings tab is never opened.
+        NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.persistCurrentDetectedTimezoneIfNeeded()
             }
             .store(in: &cancellables)
 
@@ -4272,6 +4286,23 @@ public final class SettingsStore: ObservableObject {
         persistUserTimezone()
     }
 
+    /// Saves the device-detected timezone under `ui.detectedTimezone`.
+    ///
+    /// Returns an error string when the value is not a valid IANA timezone.
+    @discardableResult
+    func saveDetectedTimezone(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let canonical = Self.canonicalizeTimeZoneIdentifier(trimmed) else {
+            return "Use an IANA timezone like America/New_York."
+        }
+
+        guard detectedTimezone != canonical else { return nil }
+
+        detectedTimezone = canonical
+        persistDetectedTimezone()
+        return nil
+    }
+
     // MARK: - Media Embed Actions
 
     /// Toggles media embeds on or off and persists the change to the workspace config.
@@ -4401,6 +4432,16 @@ public final class SettingsStore: ObservableObject {
         // its `guard !trimmed.isEmpty` check.
         let tzValue = userTimezone ?? ""
 
+        updateLocalConfig { config in
+            var ui = config["ui"] as? [String: Any] ?? [:]
+            if let userTimezone {
+                ui["userTimezone"] = userTimezone
+            } else {
+                ui.removeValue(forKey: "userTimezone")
+            }
+            config["ui"] = ui
+        }
+
         Task {
             let success = await settingsClient.patchConfig([
                 "ui": ["userTimezone": tzValue]
@@ -4409,6 +4450,29 @@ public final class SettingsStore: ObservableObject {
                 log.error("Failed to patch config for user timezone")
             }
         }
+    }
+
+    private func persistDetectedTimezone() {
+        guard let detectedTimezone else { return }
+
+        updateLocalConfig { config in
+            var ui = config["ui"] as? [String: Any] ?? [:]
+            ui["detectedTimezone"] = detectedTimezone
+            config["ui"] = ui
+        }
+
+        Task {
+            let success = await settingsClient.patchConfig([
+                "ui": ["detectedTimezone": detectedTimezone]
+            ])
+            if !success {
+                log.error("Failed to patch config for detected timezone")
+            }
+        }
+    }
+
+    private func persistCurrentDetectedTimezoneIfNeeded() {
+        _ = saveDetectedTimezone(currentDeviceTimezoneIdentifier())
     }
 
     /// In-flight config refresh task. Cancelled when a new refresh is
@@ -4487,6 +4551,7 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
         self.userTimezone = Self.loadUserTimezone(config: config)
+        self.detectedTimezone = Self.loadDetectedTimezone(config: config)
 
         if let services = config["services"] as? [String: Any],
            let webSearch = services["web-search"] as? [String: Any],
@@ -4539,6 +4604,8 @@ public final class SettingsStore: ObservableObject {
         if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
             persistMediaEmbedState()
         }
+
+        persistCurrentDetectedTimezoneIfNeeded()
     }
 
     private func callSiteIdsReferencingProfile(_ profileName: String) -> [String] {
@@ -4577,6 +4644,40 @@ public final class SettingsStore: ObservableObject {
             return nil
         }
         return canonicalizeTimeZoneIdentifier(trimmed)
+    }
+
+    private static func loadDetectedTimezone(config: [String: Any]) -> String? {
+        guard let ui = config["ui"] as? [String: Any],
+              let raw = ui["detectedTimezone"] as? String else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        return canonicalizeTimeZoneIdentifier(trimmed)
+    }
+
+    private static func loadConfigFile(path: String?) -> [String: Any] {
+        guard let path,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        return json
+    }
+
+    private func updateLocalConfig(_ mutate: (inout [String: Any]) -> Void) {
+        guard let configPath else { return }
+        var config = Self.loadConfigFile(path: configPath)
+        mutate(&config)
+
+        do {
+            let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: URL(fileURLWithPath: configPath), options: .atomic)
+        } catch {
+            log.error("Failed to update local config file: \(String(describing: error), privacy: .public)")
+        }
     }
 
 }

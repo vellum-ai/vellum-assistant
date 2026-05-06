@@ -541,9 +541,7 @@ struct MainWindowView: View {
             .overlay(alignment: .top) {
                 ObservationBoundaryView {
                     MainWindowErrorOverlay(
-                        activeViewModel: conversationManager.activeViewModel,
-                        settingsStore: settingsStore,
-                        windowState: windowState
+                        activeViewModel: conversationManager.activeViewModel
                     )
                 }
             }
@@ -674,7 +672,6 @@ struct MainWindowView: View {
 /// toast is visible.
 struct ErrorToastOverlay: View {
     let errorManager: ChatErrorManager
-    let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
     let onDismissConversationError: () -> Void
@@ -684,7 +681,9 @@ struct ErrorToastOverlay: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
-            if let conversationError = errorManager.conversationError, !conversationError.isCreditsExhausted, !conversationError.isProviderNotConfigured, !errorManager.isConversationErrorDisplayedInline {
+            if let conversationError = errorManager.conversationError,
+               !conversationError.shouldSuppressGenericErrorSurface,
+               !errorManager.isConversationErrorDisplayedInline {
                 ChatConversationErrorToast(
                     error: conversationError,
                     onRetry: onRetryConversationError,

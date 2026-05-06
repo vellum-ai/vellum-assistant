@@ -19,6 +19,7 @@ import {
   getWorkspacePromptPath,
   getWorkspaceSkillsDir,
   getXdgVellumConfigDirName,
+  vellumRoot,
 } from "../util/platform.js";
 
 const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
@@ -99,7 +100,7 @@ describe("path characterization", () => {
     ensureDataDir();
 
     // Root-level dirs (ensureDataDir always creates these)
-    const root = join(homedir(), ".vellum");
+    const root = vellumRoot();
     expect(existsSync(root)).toBe(true);
 
     // Workspace dirs (in our temp location)

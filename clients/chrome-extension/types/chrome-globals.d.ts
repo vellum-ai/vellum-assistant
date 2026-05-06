@@ -190,55 +190,6 @@ interface ChromeWindowsNamespace {
   readonly WINDOW_ID_NONE: number;
 }
 
-interface ChromeCookie {
-  name: string;
-  value: string;
-  domain: string;
-  hostOnly?: boolean;
-  path: string;
-  secure: boolean;
-  httpOnly: boolean;
-  sameSite?: "no_restriction" | "lax" | "strict" | "unspecified";
-  session?: boolean;
-  expirationDate?: number;
-  storeId?: string;
-}
-
-interface ChromeCookiesGetAllDetails {
-  domain?: string;
-  name?: string;
-  path?: string;
-  secure?: boolean;
-  session?: boolean;
-  storeId?: string;
-  url?: string;
-}
-
-interface ChromeCookiesSetDetails {
-  url: string;
-  name?: string;
-  value?: string;
-  domain?: string;
-  path?: string;
-  secure?: boolean;
-  httpOnly?: boolean;
-  sameSite?: "no_restriction" | "lax" | "strict" | "unspecified";
-  expirationDate?: number;
-  storeId?: string;
-}
-
-interface ChromeCookiesGetDetails {
-  name: string;
-  url: string;
-  storeId?: string;
-}
-
-interface ChromeCookiesNamespace {
-  get(details: ChromeCookiesGetDetails): Promise<ChromeCookie | null>;
-  getAll(details: ChromeCookiesGetAllDetails): Promise<ChromeCookie[]>;
-  set(details: ChromeCookiesSetDetails): Promise<ChromeCookie | null>;
-}
-
 interface ChromeDebuggerDebuggee {
   tabId?: number;
   extensionId?: string;
@@ -330,7 +281,6 @@ interface ChromeGlobal {
   runtime: ChromeRuntimeNamespace;
   tabs: ChromeTabsNamespace;
   windows: ChromeWindowsNamespace;
-  cookies: ChromeCookiesNamespace;
   debugger: ChromeDebuggerNamespace;
 }
 
