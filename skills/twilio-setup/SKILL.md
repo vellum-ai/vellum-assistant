@@ -47,7 +47,7 @@ assistant credentials inspect --service twilio --field auth_token --json  # chec
 assistant config get twilio.phoneNumber
 ```
 
-- If all three Twilio values are non-empty -- Twilio credentials and phone number are configured, but still check the TTS voice before declaring setup complete.
+- If all three Twilio values are non-empty -- Twilio credentials and phone number are configured, but still check the TTS service before declaring setup complete.
 - Otherwise, continue to the missing steps.
 
 ## Checking Current TTS Service Configuration
