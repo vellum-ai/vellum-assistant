@@ -840,10 +840,6 @@ export function isGatewayWatchModeAvailable(): boolean {
   }
 }
 
-// NOTE: startLocalDaemon() is the CLI-side daemon lifecycle manager.
-// It should eventually converge with
-// assistant/src/daemon/daemon-control.ts::startDaemon which is the
-// assistant-side equivalent.
 /**
  * Write (or overwrite) a shell wrapper at `<workspace>/bin/assistant` that
  * pre-injects the three instance-specific env vars before exec-ing the real
@@ -880,6 +876,10 @@ function writeAssistantWrapper(resources: LocalInstanceResources): void {
   );
 }
 
+// NOTE: startLocalDaemon() is the CLI-side daemon lifecycle manager.
+// It should eventually converge with
+// assistant/src/daemon/daemon-control.ts::startDaemon which is the
+// assistant-side equivalent.
 export async function startLocalDaemon(
   watch: boolean = false,
   resources: LocalInstanceResources,
