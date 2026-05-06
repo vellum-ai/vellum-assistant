@@ -102,6 +102,8 @@ struct ChatView: View {
     @State private var isDraggingInternalImage = false
     @State private var dragEndLocalMonitor: Any?
     @State private var dragEndGlobalMonitor: Any?
+    @State private var isShiftHeld = false
+    @State private var shiftMonitor: Any?
 
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
@@ -199,8 +201,18 @@ struct ChatView: View {
                 showSkeleton = false
             }
         }
+        .onAppear {
+            shiftMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+                isShiftHeld = event.modifierFlags.contains(.shift)
+                return event
+            }
+        }
         .onDisappear {
             removeDragEndMonitors()
+            if let monitor = shiftMonitor {
+                NSEvent.removeMonitor(monitor)
+                shiftMonitor = nil
+            }
         }
     }
 
@@ -572,9 +584,9 @@ struct ChatView: View {
                 )
                 .overlay {
                     VStack(spacing: VSpacing.sm) {
-                        VIconView(.arrowDownToLine, size: 28)
+                        VIconView(isShiftHeld ? .fileText : .arrowDownToLine, size: 28)
                             .foregroundStyle(VColor.primaryBase)
-                        Text("Drop files here")
+                        Text(isShiftHeld ? "Drop to insert path" : "Drop files here")
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.primaryBase)
                     }
@@ -646,7 +658,15 @@ struct ChatView: View {
             onDropEnded: { viewModel.attachmentManager.endExternalLoad() },
             isDropTargeted: $isDropTargeted,
             isDraggingInternalImage: $isDraggingInternalImage,
-            onInternalDragRejected: { self.removeDragEndMonitors() }
+            onInternalDragRejected: { self.removeDragEndMonitors() },
+            onDropPathsAsText: { urls in
+                let paths = urls.map(\.path).joined(separator: " ")
+                if viewModel.inputText.isEmpty {
+                    viewModel.inputText = paths
+                } else {
+                    viewModel.inputText += " " + paths
+                }
+            }
         )
     }
 
