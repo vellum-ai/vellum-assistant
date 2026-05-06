@@ -42,12 +42,35 @@ set -euo pipefail
 # package-resolution failures (e.g. network timeouts downloading binary
 # artifacts). Retries up to MAX_ATTEMPTS times with a short delay.
 # ---------------------------------------------------------------------------
+restore_dirty_spm_checkouts() {
+    local checkouts_dir="$SCRIPT_DIR/../.build/checkouts"
+    local restored_dirty=1
+
+    [ -d "$checkouts_dir" ] || return 1
+
+    for checkout in "$checkouts_dir"/*; do
+        [ -d "$checkout/.git" ] || continue
+
+        if ! git -C "$checkout" diff --quiet --ignore-submodules -- 2>/dev/null || \
+           ! git -C "$checkout" diff --cached --quiet --ignore-submodules -- 2>/dev/null || \
+           [ -n "$(git -C "$checkout" ls-files --others --exclude-standard 2>/dev/null)" ]; then
+            echo "warning: dirty SPM checkout detected, restoring pinned package source: $(basename "$checkout")"
+            git -C "$checkout" restore --source=HEAD --staged --worktree . 2>/dev/null || return 1
+            git -C "$checkout" clean -fd 2>/dev/null || return 1
+            restored_dirty=0
+        fi
+    done
+
+    return "$restored_dirty"
+}
+
 swift_with_retry() {
     local max_attempts="${SWIFT_RETRY_ATTEMPTS:-3}"
     local attempt=1
     local _pch_cleaned=0
     local _build_cleaned=0
     local _artifact_cleaned=0
+    local _dirty_checkout_cleaned=0
     local _stderr_log
     _stderr_log=$(mktemp)
     # FIFO for stderr streaming. Process substitutions (2> >(tee ...)) are
@@ -105,6 +128,15 @@ swift_with_retry() {
                     [ -n "$_stale_path" ] && rm -rf "$_stale_path"
                 done
             _artifact_cleaned=1
+            continue
+        fi
+        # SwiftPM checkouts are generated cache contents. If one is edited
+        # locally, SwiftPM keeps reusing it and can fail in dependency source
+        # before package resolution has a chance to restore the pinned version.
+        if [ "$_dirty_checkout_cleaned" -eq 0 ] && restore_dirty_spm_checkouts; then
+            echo "warning: restored dirty SPM checkout cache, retrying..."
+            [ -d "$SPM_MODULE_CACHE" ] && rm -rf "$SPM_MODULE_CACHE"
+            _dirty_checkout_cleaned=1
             continue
         fi
         # Signal 5 (SIGTRAP) is a non-transient crash (e.g. WebKit
