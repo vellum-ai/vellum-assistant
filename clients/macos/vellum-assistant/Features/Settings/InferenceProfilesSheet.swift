@@ -567,6 +567,7 @@ struct InferenceProfilesSheet: View {
            let onCreatedProfileSaved {
             let didSelectCreatedProfile = await onCreatedProfileSaved(name)
             guard didSelectCreatedProfile else {
+                editorState = nil
                 actionError = "Saved \"\(name)\" but couldn't select it for this conversation. Try selecting it from the chat menu."
                 return
             }
