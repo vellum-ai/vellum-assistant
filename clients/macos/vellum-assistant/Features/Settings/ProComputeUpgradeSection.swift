@@ -139,8 +139,12 @@ struct ProComputeUpgradeSection: View {
         do {
             let (success, detail) = try await proUpgradeMachine(assistantId)
             if success {
-                let refreshed = await fetchDetail(assistantId)
-                machineSize = refreshed?.machine_size
+                // Server confirmed the upgrade — optimistically dismiss the CTA so a
+                // flaky re-fetch can't regress the card back into the visible state.
+                machineSize = "medium"
+                if let refreshed = await fetchDetail(assistantId), let actual = refreshed.machine_size {
+                    machineSize = actual
+                }
                 onUpgradeComplete()
             } else {
                 upgradeError = detail ?? "Failed to upgrade compute profile. Please try again."

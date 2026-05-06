@@ -111,6 +111,25 @@ final class ProComputeUpgradeSectionTests: XCTestCase {
     /// medium/large. This documents the invariant enforced by keying the
     /// task on `assistantId + subscription.plan_id` and resetting the
     /// loading flag at the top of the task body.
+    /// Documents the optimistic-dismiss invariant in `performUpgrade()`: once
+    /// the server confirms the upgrade, the section sets `machineSize =
+    /// "medium"` *before* the best-effort re-fetch. Even if the re-fetch
+    /// returns nil (transient network error / vembda race), the CTA must stay
+    /// dismissed because `machineSize == "medium"` makes `needsUpgrade` false.
+    /// We can't drive `performUpgrade()` directly from a test (it's private and
+    /// the `@State` mutations require a live view), so we assert on the post-
+    /// condition: a Pro user on `"medium"` never shows the upgrade card,
+    /// regardless of whether a follow-up admin-detail fetch ever lands.
+    func testOptimisticMachineSizeAfterSuccessfulUpgrade() {
+        let section = ProComputeUpgradeSection(
+            assistantId: "asst-1",
+            subscription: makeProSubscription(),
+            initialMachineSize: "medium",
+            initialIsLoading: false
+        )
+        XCTAssertFalse(section.shouldShowCard)
+    }
+
     func testTransitionFromBaseToProDoesNotShowStaleCardWhileLoading() {
         let baseSection = ProComputeUpgradeSection(
             assistantId: "asst-1",
