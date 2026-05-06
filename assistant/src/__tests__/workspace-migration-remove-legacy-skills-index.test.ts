@@ -180,22 +180,74 @@ describe("068-remove-legacy-skills-index migration", () => {
     expectNestedSkillPreserved(legacyIndexPath, nestedSkillPath);
   });
 
-  test("does not overwrite an existing top-level skill when preserving nested indexed skills", () => {
+  test("preserves nested indexed skill with alternate id when top-level basename exists", () => {
     const legacyIndexPath = writeLegacyIndex("- org/my-skill\n");
     const nestedSkillPath = writeSkill("org/my-skill", "Nested body.");
     const topLevelSkillPath = writeSkill("my-skill", "Top-level body.");
 
     removeLegacySkillsIndexMigration.run(workspaceDir);
 
+    const preservedSkillPath = join(
+      workspaceDir,
+      "skills",
+      "org__my-skill",
+      "SKILL.md",
+    );
     expect(existsSync(legacyIndexPath)).toBe(false);
     expect(readFileSync(nestedSkillPath, "utf-8")).toContain("Nested body.");
     expect(readFileSync(topLevelSkillPath, "utf-8")).toContain(
       "Top-level body.",
     );
+    expect(readFileSync(preservedSkillPath, "utf-8")).toContain("Nested body.");
 
     const loaded = loadSkillBySelector("my-skill");
     expect(loaded.error).toBeUndefined();
     expect(loaded.skill!.body).toBe("Top-level body.");
+
+    const loadedPreserved = loadSkillBySelector("org__my-skill");
+    expect(loadedPreserved.error).toBeUndefined();
+    expect(loadedPreserved.skill!.body).toBe("Nested body.");
+  });
+
+  test("preserves same-basename nested indexed skills with unique top-level ids", () => {
+    const legacyIndexPath = writeLegacyIndex(
+      "- team-a/deploy\n- team-b/deploy\n",
+    );
+    const teamASkillPath = writeSkill("team-a/deploy", "Team A body.");
+    const teamBSkillPath = writeSkill("team-b/deploy", "Team B body.");
+
+    removeLegacySkillsIndexMigration.run(workspaceDir);
+
+    const primaryPreservedSkillPath = join(
+      workspaceDir,
+      "skills",
+      "deploy",
+      "SKILL.md",
+    );
+    const alternatePreservedSkillPath = join(
+      workspaceDir,
+      "skills",
+      "team-b__deploy",
+      "SKILL.md",
+    );
+
+    expect(existsSync(legacyIndexPath)).toBe(false);
+    expect(existsSync(teamASkillPath)).toBe(true);
+    expect(existsSync(teamBSkillPath)).toBe(true);
+    expect(readFileSync(primaryPreservedSkillPath, "utf-8")).toContain(
+      "Team A body.",
+    );
+    expect(readFileSync(alternatePreservedSkillPath, "utf-8")).toContain(
+      "Team B body.",
+    );
+
+    const primaryLoaded = loadSkillBySelector("deploy");
+    expect(primaryLoaded.error).toBeUndefined();
+    expect(primaryLoaded.skill!.body).toBe("Team A body.");
+
+    const alternateLoaded = loadSkillBySelector("team-b__deploy");
+    expect(alternateLoaded.error).toBeUndefined();
+    expect(alternateLoaded.skill!.body).toBe("Team B body.");
   });
 
   test("does not follow legacy index entries outside the skills root", () => {
