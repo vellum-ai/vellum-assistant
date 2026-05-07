@@ -1275,18 +1275,36 @@ export function clearExpiredInferenceProfiles(
   now: number,
 ): Array<{ conversationId: string; sessionId: string | null }> {
   const raw = getSqliteFrom(getDb());
-  return raw
+  // Step 1: capture session IDs BEFORE clearing (SQLite RETURNING shows post-update values,
+  // so we must read the old values first).
+  const expired = raw
+    .prepare(
+      `SELECT id AS conversationId, inference_profile_session_id AS sessionId
+       FROM conversations
+       WHERE inference_profile_expires_at IS NOT NULL
+         AND inference_profile_expires_at <= ?`,
+    )
+    .all(now) as Array<{ conversationId: string; sessionId: string | null }>;
+
+  if (expired.length === 0) return [];
+
+  // Step 2: clear them. Re-apply the same WHERE conditions to preserve CAS protection:
+  // any mid-scan write that updated expires_at to a future value won't match.
+  const ids = expired.map((r) => r.conversationId);
+  const placeholders = ids.map(() => "?").join(", ");
+  raw
     .prepare(
       `UPDATE conversations
        SET inference_profile = NULL,
            inference_profile_session_id = NULL,
            inference_profile_expires_at = NULL
-       WHERE inference_profile_expires_at IS NOT NULL
-         AND inference_profile_expires_at <= ?
-       RETURNING id AS conversationId,
-                 inference_profile_session_id AS sessionId`,
+       WHERE id IN (${placeholders})
+         AND inference_profile_expires_at IS NOT NULL
+         AND inference_profile_expires_at <= ?`,
     )
-    .all(now) as Array<{ conversationId: string; sessionId: string | null }>;
+    .run(...ids, now);
+
+  return expired;
 }
 
 /**
