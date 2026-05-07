@@ -81,15 +81,15 @@ import {
   stopCanonicalGuardianExpirySweep,
 } from "./routes/canonical-guardian-expiry-sweep.js";
 import {
-  startInferenceProfileSessionReaper,
-  stopInferenceProfileSessionReaper,
-} from "./routes/inference-profile-session-reaper.js";
-import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-guardian-routes.js";
 import { RouteError } from "./routes/errors.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
+import {
+  startInferenceProfileSessionReaper,
+  stopInferenceProfileSessionReaper,
+} from "./routes/inference-profile-session-reaper.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers

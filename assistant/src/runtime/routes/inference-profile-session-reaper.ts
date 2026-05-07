@@ -12,9 +12,9 @@
  */
 
 import { clearExpiredInferenceProfiles } from "../../memory/conversation-crud.js";
+import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
-import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("inference-profile-session-reaper");
 
