@@ -280,6 +280,25 @@ describe("closeInferenceProfileSession", () => {
     expect(result.noop).toBe(true);
     expect(result.closed).toBeNull();
   });
+
+  test("close with sticky override (no sessionId) — noop=true, sticky override preserved", async () => {
+    const conv = createConversation("sess-handler-close-sticky");
+
+    // Set a sticky override (no ttlSeconds → sessionId=null)
+    await setInferenceProfileSession({
+      conversationId: conv.id,
+      profile: "balanced",
+    });
+
+    expect(getConversation(conv.id)?.inferenceProfileSessionId).toBeNull();
+
+    const result = await closeInferenceProfileSession(conv.id);
+
+    expect(result.noop).toBe(true);
+    expect(result.closed).toBeNull();
+    // Sticky override must remain untouched
+    expect(getConversation(conv.id)?.inferenceProfile).toBe("balanced");
+  });
 });
 
 describe("listInferenceProfileSessionsWithRemaining", () => {
