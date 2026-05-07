@@ -4,6 +4,7 @@
  * can delegate without exposing its full surface.
  */
 
+import { getConfig } from "../config/loader.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
 import type { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
@@ -373,16 +374,29 @@ export function disposeConversation(ctx: DisposeContext): void {
       // Best-effort — don't block conversation disposal
     }
     if (!isAutoAnalysis) {
+      // Suppress v1 graph extraction when memory v2 is active — v2 reads
+      // from buffer.md and concept pages, so the v1 graph would be stale
+      // data nobody consumes. Mirrors the gate applied in `indexer.ts`
+      // for the per-message indexing path. Fail open to v1 if config
+      // can't load, since the worker handler also short-circuits.
+      let v2Enabled = false;
       try {
-        enqueueMemoryJob("graph_extract", {
-          conversationId: ctx.conversationId,
-          scopeId: "default",
-          ...(ctx.activeContextNodeIds?.length
-            ? { activeContextNodeIds: ctx.activeContextNodeIds }
-            : {}),
-        });
+        v2Enabled = getConfig().memory.v2.enabled;
       } catch {
-        // Best-effort — don't block conversation disposal
+        // Best-effort — fall through to legacy v1 enqueue
+      }
+      if (!v2Enabled) {
+        try {
+          enqueueMemoryJob("graph_extract", {
+            conversationId: ctx.conversationId,
+            scopeId: "default",
+            ...(ctx.activeContextNodeIds?.length
+              ? { activeContextNodeIds: ctx.activeContextNodeIds }
+              : {}),
+          });
+        } catch {
+          // Best-effort — don't block conversation disposal
+        }
       }
     }
 

@@ -736,41 +736,48 @@ export async function runDaemon(): Promise<void> {
       }
 
       if (qdrantStarted) {
-        try {
-          const embeddingSelection = await selectEmbeddingBackend(config);
-          // Sentinel only encodes the dense provider+model identity; sparse
-          // encoder changes never require collection recreation, so they
-          // intentionally do not contribute to the v1 collection identity.
-          const embeddingModel = embeddingSelection.backend
-            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
-            : undefined;
-          const qdrantClient = initQdrantClient({
-            url: qdrantUrl,
-            collection: config.memory.qdrant.collection,
-            vectorSize: config.memory.qdrant.vectorSize,
-            onDisk: config.memory.qdrant.onDisk,
-            quantization: config.memory.qdrant.quantization,
-            embeddingModel,
-          });
+        // Skip the v1 Qdrant collection lifecycle when memory v2 is active —
+        // the v1 collection has no writers (handleRemember returns early) or
+        // readers (graph search is bypassed) under v2, so ensuring/migrating
+        // it just maintains a dead-on-arrival collection. Existing on-disk
+        // collections are left intact so flipping v2 off restores v1 cleanly.
+        if (!config.memory.v2.enabled) {
+          try {
+            const embeddingSelection = await selectEmbeddingBackend(config);
+            // Sentinel only encodes the dense provider+model identity; sparse
+            // encoder changes never require collection recreation, so they
+            // intentionally do not contribute to the v1 collection identity.
+            const embeddingModel = embeddingSelection.backend
+              ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
+              : undefined;
+            const qdrantClient = initQdrantClient({
+              url: qdrantUrl,
+              collection: config.memory.qdrant.collection,
+              vectorSize: config.memory.qdrant.vectorSize,
+              onDisk: config.memory.qdrant.onDisk,
+              quantization: config.memory.qdrant.quantization,
+              embeddingModel,
+            });
 
-          // Eagerly ensure the collection exists so we detect migrations
-          // (unnamed→named vectors, dimension/model changes) at startup.
-          // If a destructive migration occurred, enqueue a rebuild_index job
-          // to re-embed all memory items from the SQLite cache.
-          const { migrated } = await qdrantClient.ensureCollection();
-          if (migrated) {
-            enqueueMemoryJob("rebuild_index", {});
-            log.info(
-              "Qdrant collection was migrated — enqueued rebuild_index job",
+            // Eagerly ensure the collection exists so we detect migrations
+            // (unnamed→named vectors, dimension/model changes) at startup.
+            // If a destructive migration occurred, enqueue a rebuild_index job
+            // to re-embed all memory items from the SQLite cache.
+            const { migrated } = await qdrantClient.ensureCollection();
+            if (migrated) {
+              enqueueMemoryJob("rebuild_index", {});
+              log.info(
+                "Qdrant collection was migrated — enqueued rebuild_index job",
+              );
+            }
+
+            log.info("Qdrant vector store initialized");
+          } catch (err) {
+            log.warn(
+              { err },
+              "Qdrant client initialization failed — memory features will be degraded",
             );
           }
-
-          log.info("Qdrant vector store initialized");
-        } catch (err) {
-          log.warn(
-            { err },
-            "Qdrant client initialization failed — memory features will be degraded",
-          );
         }
 
         // Detect schema drift on the v2 concept-page collection (e.g.
@@ -788,27 +795,28 @@ export async function runDaemon(): Promise<void> {
           );
         }
 
-        // Reconcile the PKB Qdrant index against the on-disk tree. Kept
-        // inside the `qdrantStarted` guard so we don't call
-        // `getQdrantClient()` (which throws "not initialized") on every
-        // startup when Qdrant is unavailable. Fire-and-forget so enqueued
-        // re-index jobs drain in the background and first-turn latency
-        // stays unaffected.
-        void (async () => {
-          try {
-            const { reconcilePkbIndex } =
-              await import("../memory/pkb/pkb-reconcile.js");
-            const { PKB_WORKSPACE_SCOPE } =
-              await import("../memory/pkb/types.js");
-            const pkbRoot = join(getWorkspaceDir(), "pkb");
-            await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
-          } catch (err) {
-            log.warn(
-              { err },
-              "PKB index reconciliation failed — continuing startup",
-            );
-          }
-        })();
+        // Reconcile the PKB Qdrant index against the on-disk tree. Gated on
+        // !v2 because PKB is the v1 storage layer; under v2 the v1 collection
+        // is not initialized, so calling `getQdrantClient()` here would throw.
+        // Fire-and-forget so enqueued re-index jobs drain in the background
+        // and first-turn latency stays unaffected.
+        if (!config.memory.v2.enabled) {
+          void (async () => {
+            try {
+              const { reconcilePkbIndex } =
+                await import("../memory/pkb/pkb-reconcile.js");
+              const { PKB_WORKSPACE_SCOPE } =
+                await import("../memory/pkb/types.js");
+              const pkbRoot = join(getWorkspaceDir(), "pkb");
+              await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
+            } catch (err) {
+              log.warn(
+                { err },
+                "PKB index reconciliation failed — continuing startup",
+              );
+            }
+          })();
+        }
 
         // Build the BM25 corpus stats (per-token document frequencies and
         // average document length) used by the v2 sparse channel. Without
