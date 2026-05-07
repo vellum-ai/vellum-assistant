@@ -355,6 +355,15 @@ export const LLMSchema = z
     // schema level, so `LLMSchema.parse({})` yields an empty map.
     callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
     activeProfile: z.string().min(1).optional(),
+    // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
+    // the CLI to apply when `--ttl` is omitted; the daemon handler itself only
+    // reads `maxTtlSeconds` (to clamp caller-supplied values).
+    profileSession: z
+      .object({
+        defaultTtlSeconds: z.number().int().min(1).default(1800),
+        maxTtlSeconds: z.number().int().min(1).default(43200),
+      })
+      .default({ defaultTtlSeconds: 1800, maxTtlSeconds: 43200 }),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
