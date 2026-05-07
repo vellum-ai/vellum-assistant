@@ -19,7 +19,6 @@
 
 import { z } from "zod";
 
-import { loadConfig } from "../../config/loader.js";
 import { destroyActiveConversation } from "../../daemon/conversation-store.js";
 import {
   cancelGeneration,
@@ -37,7 +36,6 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
-  setConversationInferenceProfile,
   unarchiveConversation,
   updateConversationTitle,
   wipeConversation,
@@ -55,6 +53,7 @@ import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("conversation-management-routes");
@@ -183,16 +182,10 @@ async function handleSwitchConversation({ body = {} }: RouteHandlerArgs) {
   };
 }
 
-function handleSetInferenceProfile({
+async function handleSetInferenceProfile({
   pathParams = {},
   body = {},
 }: RouteHandlerArgs) {
-  const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
-  const conversation = getConversation(resolvedId);
-  if (!conversation) {
-    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
-  }
-
   if (
     body.profile !== null &&
     (typeof body.profile !== "string" || (body.profile as string).length === 0)
@@ -200,38 +193,14 @@ function handleSetInferenceProfile({
     throw new BadRequestError("profile must be a non-empty string or null");
   }
 
-  const profile = body.profile as string | null;
-  if (profile !== null) {
-    const profiles = loadConfig().llm?.profiles ?? {};
-    if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
-      throw new BadRequestError(
-        `Profile "${profile}" is not defined in llm.profiles`,
-      );
-    }
-  }
+  const result = await setInferenceProfileSession({
+    conversationId: pathParams.id!,
+    profile: body.profile as string | null,
+    ttlSeconds: body.ttlSeconds as number | null | undefined,
+    sessionId: body.sessionId as string | undefined,
+  });
 
-  if (conversation.inferenceProfile !== profile) {
-    setConversationInferenceProfile(resolvedId, profile);
-    assistantEventHub
-      .publish(
-        buildAssistantEvent(
-          {
-            type: "conversation_inference_profile_updated",
-            conversationId: resolvedId,
-            profile,
-          },
-          resolvedId,
-        ),
-      )
-      .catch((err) => {
-        log.warn(
-          { err, conversationId: resolvedId },
-          "Failed to publish conversation_inference_profile_updated event",
-        );
-      });
-  }
-
-  return { conversationId: resolvedId, profile };
+  return result;
 }
 
 function handleRenameConversation({
@@ -500,15 +469,28 @@ export const ROUTES: RouteDefinition[] = [
     policyKey: "conversations/inference-profile",
     summary: "Set conversation inference profile",
     description:
-      "Override the LLM inference profile for a single conversation.",
+      "Override the LLM inference profile for a single conversation. " +
+      "Optionally supply ttlSeconds to create a session-backed (expiring) override.",
     tags: ["conversations"],
     pathParams: [{ name: "id", type: "uuid" }],
     requestBody: z.object({
       profile: z.string().nullable(),
+      ttlSeconds: z.number().positive().nullable().optional(),
+      sessionId: z.string().uuid().optional(),
     }),
     responseBody: z.object({
       conversationId: z.string(),
       profile: z.string().nullable(),
+      sessionId: z.string().nullable(),
+      expiresAt: z.number().nullable(),
+      ttlSeconds: z.number().nullable().optional(),
+      replaced: z
+        .object({
+          profile: z.string().nullable(),
+          sessionId: z.string().nullable(),
+          expiresAt: z.number().nullable(),
+        })
+        .nullable(),
     }),
     handler: handleSetInferenceProfile,
   },

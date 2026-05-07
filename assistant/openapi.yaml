@@ -3521,7 +3521,9 @@ paths:
     put:
       operationId: conversations_by_id_inferenceprofile_put
       summary: Set conversation inference profile
-      description: Override the LLM inference profile for a single conversation.
+      description:
+        Override the LLM inference profile for a single conversation. Optionally supply ttlSeconds to create a
+        session-backed (expiring) override.
       tags:
         - conversations
       responses:
@@ -3538,9 +3540,46 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  sessionId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  expiresAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  ttlSeconds:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  replaced:
+                    anyOf:
+                      - type: object
+                        properties:
+                          profile:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          sessionId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          expiresAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        required:
+                          - profile
+                          - sessionId
+                          - expiresAt
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - conversationId
                   - profile
+                  - sessionId
+                  - expiresAt
+                  - replaced
                 additionalProperties: false
       parameters:
         - name: id
@@ -3559,6 +3598,15 @@ paths:
                   anyOf:
                     - type: string
                     - type: "null"
+                ttlSeconds:
+                  anyOf:
+                    - type: number
+                      exclusiveMinimum: 0
+                    - type: "null"
+                sessionId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
               required:
                 - profile
               additionalProperties: false
@@ -3851,6 +3899,202 @@ paths:
               required:
                 - conversationId
               additionalProperties: false
+  /v1/conversations/inference-profile-session:
+    post:
+      operationId: conversations_inferenceprofilesession_post
+      summary: Open an inference-profile session
+      description:
+        Open (or replace) a session-backed inference-profile override for a conversation. Supports an optional TTL
+        — omit for a sticky (non-expiring) override.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  profile:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  sessionId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  expiresAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  ttlSeconds:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  replaced:
+                    anyOf:
+                      - type: object
+                        properties:
+                          profile:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          sessionId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          expiresAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        required:
+                          - profile
+                          - sessionId
+                          - expiresAt
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - conversationId
+                  - profile
+                  - sessionId
+                  - expiresAt
+                  - replaced
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                profile:
+                  type: string
+                  minLength: 1
+                ttlSeconds:
+                  type: number
+                  exclusiveMinimum: 0
+                sessionId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+              required:
+                - conversationId
+                - profile
+              additionalProperties: false
+  /v1/conversations/inference-profile-session/close:
+    post:
+      operationId: conversations_inferenceprofilesession_close_post
+      summary: Close an inference-profile session
+      description:
+        Close the active session-backed inference-profile override for a conversation. Only closes session-backed
+        overrides; sticky overrides are left untouched.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  closed:
+                    anyOf:
+                      - type: object
+                        properties:
+                          profile:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          sessionId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - profile
+                          - sessionId
+                        additionalProperties: false
+                      - type: "null"
+                  noop:
+                    type: boolean
+                required:
+                  - conversationId
+                  - closed
+                  - noop
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+              required:
+                - conversationId
+              additionalProperties: false
+  /v1/conversations/inference-profile-sessions:
+    get:
+      operationId: conversations_inferenceprofilesessions_get
+      summary: List active inference-profile sessions
+      description: List all active (non-expired) session-backed inference-profile overrides, optionally filtered by conversationId.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        conversationId:
+                          type: string
+                        conversationTitle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        profile:
+                          type: string
+                        sessionId:
+                          type: string
+                        expiresAt:
+                          type: number
+                        remainingSeconds:
+                          type: number
+                      required:
+                        - conversationId
+                        - conversationTitle
+                        - profile
+                        - sessionId
+                        - expiresAt
+                        - remainingSeconds
+                      additionalProperties: false
+                required:
+                  - sessions
+                additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional conversation ID filter
   /v1/conversations/rename:
     post:
       operationId: conversations_rename_post
