@@ -20,7 +20,6 @@
 import { z } from "zod";
 
 import { destroyActiveConversation } from "../../daemon/conversation-store.js";
-import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import {
   cancelGeneration,
   clearAllConversations,
@@ -54,6 +53,7 @@ import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("conversation-management-routes");
