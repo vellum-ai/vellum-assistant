@@ -7,6 +7,7 @@ struct CommandPaletteView: View {
     var onDismiss: () -> Void
     var onSelectRecent: ((UUID) -> Void)?
     var onSelectConversation: ((String) -> Void)?
+    var onResizeNeeded: (() -> Void)?
 
     @FocusState private var isSearchFocused: Bool
 
@@ -126,6 +127,12 @@ struct CommandPaletteView: View {
         .onChange(of: viewModel.query) {
             viewModel.clampSelection()
             viewModel.triggerSearch()
+        }
+        .onChange(of: viewModel.allItems.count) {
+            onResizeNeeded?()
+        }
+        .onChange(of: viewModel.isSearching) {
+            onResizeNeeded?()
         }
     }
 
