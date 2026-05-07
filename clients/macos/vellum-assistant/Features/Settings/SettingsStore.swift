@@ -38,6 +38,14 @@ public final class SettingsStore: ObservableObject {
     @Published var hasKey: Bool = false
     @Published var hasVercelKey: Bool = false
 
+    /// Set of provider names the daemon currently has an `api_key` secret for.
+    /// Settings UI presence checks (STT card, TTS card, API Keys sheet) read
+    /// this set rather than reaching into the local `vellum_provider_*` files
+    /// so the daemon's encrypted store stays the single source of truth.
+    /// Refreshed via ``refreshDaemonProviderKeys()``; on transport failure the
+    /// previous snapshot is preserved (stale-but-correct beats blank).
+    @Published private(set) var daemonProviderKeys: Set<String> = []
+
     // MARK: - Embedding Config State
     @Published var embeddingProvider: String = "auto"
     @Published var embeddingModel: String? = nil
@@ -1089,6 +1097,16 @@ public final class SettingsStore: ObservableObject {
         guard let response = await settingsClient.fetchVercelConfig() else { return false }
         applyVercelConfigResponse(response)
         return response.success && response.hasToken
+    }
+
+    /// Refresh ``daemonProviderKeys`` from `GET /v1/secrets`. Called from
+    /// settings-card `.task` blocks and after add/delete operations. On
+    /// transport failure the existing set is left in place — a brief outage
+    /// shouldn't blank every "Reset" button when the user actually has keys.
+    func refreshDaemonProviderKeys() async {
+        if let listed = await APIKeyManager.listKeys() {
+            daemonProviderKeys = listed
+        }
     }
 
     private func applyVercelConfigResponse(_ response: VercelApiConfigResponseMessage) {
@@ -3975,8 +3993,10 @@ public final class SettingsStore: ObservableObject {
     /// Checks whether a TTS credential exists for the given provider using
     /// the registry's credential metadata. Credential-mode providers are
     /// looked up via `APIKeyManager.getCredential(service:field:)`; api-key
-    /// mode providers via `APIKeyManager.getKey(for:)`.
-    static func ttsCredentialExists(for ttsProviderId: String) -> Bool {
+    /// mode providers read from the daemon-backed ``daemonProviderKeys``
+    /// snapshot — call ``refreshDaemonProviderKeys()`` on view appear so the
+    /// cache is current before this is consulted.
+    func ttsCredentialExists(for ttsProviderId: String) -> Bool {
         let entry = loadTTSProviderRegistry().provider(withId: ttsProviderId)
         guard let entry else { return false }
         switch entry.credentialMode {
@@ -3985,7 +4005,7 @@ public final class SettingsStore: ObservableObject {
             return APIKeyManager.getCredential(service: namespace, field: "api_key") != nil
         case .apiKey:
             let keyProvider = entry.apiKeyProviderName ?? entry.id
-            return APIKeyManager.getKey(for: keyProvider) != nil
+            return daemonProviderKeys.contains(keyProvider)
         }
     }
 

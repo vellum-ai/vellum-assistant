@@ -100,6 +100,11 @@ struct STTServiceCard: View {
         .task {
             await refreshSTTProviderRegistry()
             sttRegistry = loadSTTProviderRegistry()
+            // Pull the daemon's current api_key inventory so `sttKeyExists`
+            // reports correctly. `.onAppear` runs before this `.task` body
+            // resolves, so we re-evaluate after the refresh lands.
+            await store.refreshDaemonProviderKeys()
+            sttProviderHasKey = sttKeyExists(for: draftSTTProvider)
         }
         .onAppear {
             draftSTTProvider = sttProviderRaw
@@ -148,7 +153,7 @@ struct STTServiceCard: View {
 
     private func sttKeyExists(for sttProviderId: String) -> Bool {
         let keyProvider = SettingsStore.sttApiKeyProviderName(for: sttProviderId)
-        return APIKeyManager.getKey(for: keyProvider) != nil
+        return store.daemonProviderKeys.contains(keyProvider)
     }
 
     private func resetSTTKey() {

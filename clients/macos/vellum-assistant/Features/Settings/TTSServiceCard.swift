@@ -136,10 +136,18 @@ struct TTSServiceCard: View {
         .onDisappear {
             testPlayer.stop()
         }
+        .task {
+            // Pull the daemon's current api_key inventory so the api-key
+            // branch of `ttsCredentialExists` reports correctly. Re-evaluate
+            // `ttsProviderHasKey` after refresh lands since `.onAppear` runs
+            // first with whatever snapshot the store happens to hold.
+            await store.refreshDaemonProviderKeys()
+            ttsProviderHasKey = store.ttsCredentialExists(for: draftTTSProvider)
+        }
         .onAppear {
             draftTTSProvider = ttsProviderRaw
             initialTTSProvider = ttsProviderRaw
-            ttsProviderHasKey = SettingsStore.ttsCredentialExists(for: ttsProviderRaw)
+            ttsProviderHasKey = store.ttsCredentialExists(for: ttsProviderRaw)
             let voiceId = storedVoiceId(for: ttsProviderRaw)
             ttsVoiceIdText = voiceId
             initialVoiceId = voiceId
@@ -147,7 +155,7 @@ struct TTSServiceCard: View {
         .onChange(of: draftTTSProvider) { _, _ in
             ttsApiKeyText = ""
             ttsSaveError = nil
-            ttsProviderHasKey = SettingsStore.ttsCredentialExists(for: draftTTSProvider)
+            ttsProviderHasKey = store.ttsCredentialExists(for: draftTTSProvider)
             let voiceId = storedVoiceId(for: draftTTSProvider)
             ttsVoiceIdText = voiceId
             initialVoiceId = voiceId
