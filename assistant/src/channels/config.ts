@@ -72,6 +72,15 @@ const CHANNEL_POLICIES = {
       codeRedemptionEnabled: true,
     },
   },
+  platform: {
+    notification: {
+      deliveryEnabled: true,
+      conversationStrategy: "start_new_conversation",
+    },
+    invite: {
+      codeRedemptionEnabled: false,
+    },
+  },
   phone: {
     notification: {
       deliveryEnabled: false,

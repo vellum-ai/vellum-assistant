@@ -15,6 +15,7 @@ import { getDeliverableChannels } from "../channels/config.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { getLogger } from "../util/logger.js";
 import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
+import { PlatformPushAdapter } from "./adapters/platform.js";
 import { SlackAdapter } from "./adapters/slack.js";
 import { TelegramAdapter } from "./adapters/telegram.js";
 import {
@@ -61,7 +62,11 @@ export function registerBroadcastFn(fn: BroadcastFn): void {
 
 function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
-    const adapters = [new TelegramAdapter(), new SlackAdapter()];
+    const adapters = [
+      new TelegramAdapter(),
+      new SlackAdapter(),
+      new PlatformPushAdapter(),
+    ];
     if (registeredBroadcastFn) {
       adapters.unshift(new VellumAdapter(registeredBroadcastFn));
     }
@@ -108,6 +113,11 @@ function getConnectedChannels(): NotificationChannel[] {
       case "vellum":
         // Vellum is always considered connected (the local transport is
         // always available when the daemon is running).
+        channels.push(channel);
+        break;
+      case "platform":
+        // Platform push is always considered connected — the dispatch
+        // endpoint is always reachable and self-gates on the LD flag.
         channels.push(channel);
         break;
       case "telegram": {
