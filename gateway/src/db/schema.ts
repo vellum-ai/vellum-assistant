@@ -122,6 +122,74 @@ export const contactChannels = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Assistant ingress invites
+// ---------------------------------------------------------------------------
+//
+// Mirrors the assistant-side `assistant_ingress_invites` table. Sits in the
+// gateway DB so future PRs can move invite redemption (currently in
+// assistant/src/runtime/invite-redemption-service.ts) into the gateway
+// process. With this schema in place plus contacts/contact_channels
+// already gateway-side, voice invite redemption can do a single LOCAL
+// gateway-DB transaction (contact-channel upsert + invite use record)
+// instead of round-tripping through the assistant DB.
+//
+// The table is empty at install time; it begins receiving writes when the
+// invite-creation and invite-redemption code paths are migrated. No data
+// migration from the assistant DB — voice invites are short-lived (TTL
+// ≤24h) and aging out is acceptable during the cutover window.
+
+export const assistantIngressInvites = sqliteTable(
+  "assistant_ingress_invites",
+  {
+    id: text("id").primaryKey(),
+    sourceChannel: text("source_channel").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    sourceConversationId: text("source_conversation_id"),
+    note: text("note"),
+    maxUses: integer("max_uses").notNull().default(1),
+    useCount: integer("use_count").notNull().default(0),
+    expiresAt: integer("expires_at").notNull(),
+    status: text("status").notNull().default("active"),
+    redeemedByExternalUserId: text("redeemed_by_external_user_id"),
+    redeemedByExternalChatId: text("redeemed_by_external_chat_id"),
+    redeemedAt: integer("redeemed_at"),
+    // Voice invite fields (nullable — non-voice invites leave these NULL).
+    expectedExternalUserId: text("expected_external_user_id"),
+    voiceCodeHash: text("voice_code_hash"),
+    voiceCodeDigits: integer("voice_code_digits"),
+    // 6-digit invite code hash (nullable — voice invites use voiceCodeHash).
+    inviteCodeHash: text("invite_code_hash"),
+    // Display metadata for personalized voice prompts (nullable).
+    friendName: text("friend_name"),
+    guardianName: text("guardian_name"),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    // Voice redemption: findActiveVoiceInvites filters by
+    // (source_channel='phone', status='active', expected_external_user_id).
+    index("idx_assistant_ingress_invites_voice_lookup").on(
+      table.sourceChannel,
+      table.status,
+      table.expectedExternalUserId,
+    ),
+    // 6-digit code redemption: findByInviteCodeHash filters by
+    // (invite_code_hash, source_channel, status='active').
+    index("idx_assistant_ingress_invites_code_lookup").on(
+      table.inviteCodeHash,
+      table.sourceChannel,
+    ),
+    // Token-link redemption: findByTokenHash filters by token_hash.
+    index("idx_assistant_ingress_invites_token_hash").on(table.tokenHash),
+    // Contact-scoped lookups (e.g. listing invites for a contact).
+    index("idx_assistant_ingress_invites_contact").on(table.contactId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Auto-approve thresholds
 // ---------------------------------------------------------------------------
 
