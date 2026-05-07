@@ -90,14 +90,7 @@ struct GuardianChannelsDetailView: View {
     }
 
     private var visibleTypes: [String] {
-        Self.allChannelTypes.filter { type in
-            let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
-            let readiness = channelReadiness[type]
-            let isAvailable = readiness?.ready == true
-                || readiness?.setupStatus == "ready"
-                || readiness?.setupStatus == "incomplete"
-            return hasExisting || isAvailable
-        }
+        Self.allChannelTypes
     }
 
     /// Channel content rows. The parent SettingsCard provides the "Channels" title/subtitle header.
@@ -161,8 +154,9 @@ struct GuardianChannelsDetailView: View {
         let existingChannels = displayContact.channels.filter { $0.type == type && $0.status != "revoked" }
         let activeChannel = existingChannels.first(where: { $0.status == "active" && $0.verifiedAt != nil })
             ?? existingChannels.first
+        let isGuardian = displayContact.role == "guardian"
         let isVerified = (activeChannel?.status == "active" && activeChannel?.verifiedAt != nil)
-            || store?.channelVerificationState(for: type).verified == true
+            || (isGuardian && store?.channelVerificationState(for: type).verified == true)
 
         if showCardBorders {
             SettingsCard(title: channelLabel(for: type), subtitle: channelSubtitle(for: type), showBorder: true) {
@@ -170,11 +164,12 @@ struct GuardianChannelsDetailView: View {
                     VBadge(label: "Verified", tone: .positive)
                 }
             } content: {
-                channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
+                channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified, isGuardian: isGuardian)
             }
         } else {
+            let storeVerified = isGuardian && (store?.channelVerificationState(for: type).verified == true)
             let needsSetup = !isVerified
-                && store?.channelVerificationState(for: type).verified != true
+                && !storeVerified
                 && (existingChannels.isEmpty || dismissedChannels.contains(type))
                 && !setupExpanded.contains(type)
 
@@ -219,17 +214,17 @@ struct GuardianChannelsDetailView: View {
                 .frame(minHeight: 36)
 
                 if !needsSetup && !isVerified {
-                    channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified)
+                    channelCardContent(type: type, existingChannels: existingChannels, activeChannel: activeChannel, isVerified: isVerified, isGuardian: isGuardian)
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func channelCardContent(type: String, existingChannels: [ContactChannelPayload], activeChannel: ContactChannelPayload?, isVerified: Bool) -> some View {
+    private func channelCardContent(type: String, existingChannels: [ContactChannelPayload], activeChannel: ContactChannelPayload?, isVerified: Bool, isGuardian: Bool = true) -> some View {
         if let channel = activeChannel, isVerified {
             verifiedChannelContent(channel: channel, type: type)
-        } else if store?.channelVerificationState(for: type).verified == true
+        } else if (isGuardian && store?.channelVerificationState(for: type).verified == true)
             || (!existingChannels.isEmpty && !dismissedChannels.contains(type))
             || setupExpanded.contains(type) {
             verificationFlowContent(for: type)
