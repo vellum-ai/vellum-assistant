@@ -429,7 +429,9 @@ public final class GatewayConnectionManager {
     /// on its own and vice-versa.
     private func updateAuthFailedSignal() {
         let tripped = authFailureTracker.isAuthFailed
-        guard tripped != isAuthFailed else { return }
+        // Read backing storage so this guard doesn't register a tracking
+        // dependency on the same turn the property is written.
+        guard tripped != _isAuthFailed else { return }
         isAuthFailed = tripped
         if tripped {
             let status = authFailureTracker.lastStatusCode ?? -1
@@ -1121,6 +1123,7 @@ public final class GatewayConnectionManager {
     deinit {
         autoWakeTask?.cancel()
         reconnectionTask?.cancel()
+        setConnectedTask?.cancel()
         if let observer = assistantChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
