@@ -5,15 +5,12 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationListStore")
 
-/// Lightweight identifiable wrapper for ForEach over grouped conversations.
+/// Lightweight identifiable wrapper for `ForEach` over grouped conversations.
 ///
-/// `Equatable` conformance is load-bearing: it lets callers gate
-/// `@Observable` stored-property writes with `!=`, so assignments that would
-/// produce an identical array do not trigger SwiftUI observation
-/// notifications or downstream `ForEachState.update` keypath projection on
-/// every element. See [Observation framework](https://developer.apple.com/documentation/observation)
-/// — `@Observable` fires change notifications on every assignment regardless
-/// of value equality, so the caller is responsible for skipping no-op writes.
+/// `Equatable` conformance is load-bearing: it lets callers gate `@Observable`
+/// stored-property writes with `!=` so assignments that would produce an
+/// identical array do not fan out as observation notifications. Reference:
+/// [Observation framework](https://developer.apple.com/documentation/observation).
 struct SidebarGroupEntry: Identifiable, Equatable {
     let id: String
     let group: ConversationGroup
@@ -34,22 +31,21 @@ final class ConversationListStore {
 
     // MARK: - Stored Properties
 
-    /// The full conversation list. Marked `@ObservationIgnored` so view bodies
-    /// cannot accidentally subscribe to the entire array — every mutation
-    /// (pagination, heartbeat re-fetch, per-message seen flip, in-place model
-    /// edit) would otherwise invalidate every observer and force a synchronous
-    /// `GraphHost.asyncTransaction` inside the `@Observable` `willSet` hook.
-    /// On large lists this stalls the main thread for seconds; see the Sentry
-    /// app-hang telemetry referenced in the cached-derived-properties comment.
+    /// The full conversation list. `@ObservationIgnored` so view bodies cannot
+    /// subscribe to the entire array — every mutation (pagination, heartbeat
+    /// re-fetch, per-message seen flip, in-place model edit) would otherwise
+    /// notify every observer and force a synchronous SwiftUI graph update
+    /// inside the `willSet` hook.
     ///
     /// Views must read one of the cached scalars (`hasAnyConversations`,
     /// `unseenScheduledCount`, …), the cached lookup (`conversationsByLocalId`),
     /// or one of the cached arrays (`visibleConversations`,
-    /// `archivedConversations`, `sidebarGroupEntries`, …) — all of which are
-    /// recomputed once per mutation in `recomputeDerivedProperties()` behind
-    /// equality guards. Mutations from `ConversationManager` and
-    /// `ConversationRestorer` continue to write through this property; the
-    /// `didSet` keeps the cached views in sync.
+    /// `archivedConversations`, `sidebarGroupEntries`, …) — all recomputed once
+    /// per mutation in `recomputeDerivedProperties()` behind equality guards.
+    /// Mutations continue to write through this property; the `didSet` keeps
+    /// the cached views in sync.
+    ///
+    /// Reference: [`@ObservationIgnored`](https://developer.apple.com/documentation/observation/observationignored()).
     @ObservationIgnored var conversations: [ConversationModel] = [] {
         didSet { recomputeDerivedProperties() }
     }
@@ -234,37 +230,33 @@ final class ConversationListStore {
     /// Count of visible conversations with unseen assistant messages (dock badge).
     private(set) var unseenVisibleConversationCount: Int = 0
 
-    /// `true` when at least one conversation exists. Cached so views observing
-    /// the boolean (e.g. the loading-skeleton dismissal in MainWindowView's
-    /// lifecycle observers) are not invalidated by every per-message mutation
-    /// of the underlying `conversations` array.
+    /// `true` when at least one conversation exists. Cached so observers of the
+    /// boolean are not invalidated on every per-message mutation of the
+    /// underlying `conversations` array.
     private(set) var hasAnyConversations: Bool = false
 
     /// `true` when at least one non-archived conversation exists. Cached so the
-    /// sidebar's loading-skeleton gate (`SidebarView.conversationGroupsList`)
-    /// does not re-evaluate on every `visibleConversations` mutation.
+    /// sidebar loading-skeleton gate does not re-evaluate on every
+    /// `visibleConversations` mutation.
     private(set) var hasAnyVisibleConversations: Bool = false
 
-    /// Count of unseen visible conversations in the Scheduled section. Cached so
-    /// the sidebar's `.onChange(of:)` auto-expand observer does not subscribe
-    /// to the full `conversations` array. Read-only by design — exposing the
-    /// scalar (rather than the underlying filtered array) is what allows the
-    /// `!=` guard in `recomputeDerivedProperties` to suppress no-op writes.
+    /// Count of unseen visible conversations in the Scheduled section. Exposing
+    /// the scalar (rather than the filtered array) lets the `!=` guard in
+    /// `recomputeDerivedProperties` suppress no-op writes.
     private(set) var unseenScheduledCount: Int = 0
 
-    /// O(1) lookup of conversations by their local UUID. Used by per-conversation
-    /// views (`ChatView`, `ThreadWindow`) that need to resolve a single
-    /// `ConversationModel` without scanning the array — and without subscribing
-    /// to the array itself, which would re-invalidate them on every unrelated
-    /// list mutation.
+    /// O(1) lookup of conversations by local UUID. Used by per-conversation
+    /// views that need to resolve a single `ConversationModel` without scanning
+    /// — and without subscribing to — the full array.
     private(set) var conversationsByLocalId: [UUID: ConversationModel] = [:]
 
-    /// Archived conversations ordered by most-recently-archived first. Items whose
-    /// archive timestamp is unknown (legacy, pre-migration) sort to the bottom with
-    /// `createdAt` as a stable tiebreaker. Cached so the Settings → Archive tab
-    /// reads a ready-made array and does not subscribe to the full `conversations`
-    /// array. Recomputed when either `conversations` (via
-    /// `recomputeDerivedProperties`) or `archivedConversationTimestamps` changes.
+    /// Archived conversations ordered by most-recently-archived first. Items
+    /// whose archive timestamp is unknown (legacy, pre-migration) sort to the
+    /// bottom with `createdAt` as a stable tiebreaker. Cached so the
+    /// Settings → Archive tab reads a ready-made array and does not subscribe
+    /// to the full `conversations` array. Recomputed when either
+    /// `conversations` (via `recomputeDerivedProperties`) or
+    /// `archivedConversationTimestamps` changes.
     private(set) var archivedConversations: [ConversationModel] = []
 
     /// Pre-computed sidebar group entries with feature-flag-aware folding applied.
@@ -283,19 +275,17 @@ final class ConversationListStore {
     private(set) var systemSidebarGroupEntries: [SidebarGroupEntry] = []
     private(set) var customSidebarGroupEntries: [SidebarGroupEntry] = []
 
-    /// Recompute all derived sidebar properties from `conversations` and `groups`.
-    /// Called from `conversations.didSet` and `groups.didSet`. Skips work when
-    /// `conversations` is empty to avoid wasted computation (e.g. when `groups`
-    /// is assigned before `conversations` during restoration).
+    /// Recompute all derived sidebar properties from `conversations` and
+    /// `groups`. Called from `conversations.didSet` and `groups.didSet`. Skips
+    /// work when `conversations` is empty to avoid wasted computation (e.g.
+    /// when `groups` is assigned before `conversations` during restoration).
     ///
     /// Every cached array/scalar is written behind a `!=` equality guard.
     /// `@Observable` notifies on every stored-property assignment regardless of
     /// value equality, so without these guards a pagination or heartbeat pulse
-    /// that produces an identical sidebar (e.g. seen-state flip,
-    /// `lastInteractedAt` tie) would still invalidate every observer and force
-    /// a synchronous `GraphHost.asyncTransaction` in the `willSet` hook —
-    /// the source of the `KeyPath._projectReadOnly` main-thread hang in the
-    /// Sentry app-hang telemetry.
+    /// that produces an identical sidebar would still invalidate every observer
+    /// and force a synchronous SwiftUI graph update inside `willSet`. Reference:
+    /// [`withObservationTracking(_:onChange:)`](https://developer.apple.com/documentation/observation/withobservationtracking(_:onchange:)).
     private func recomputeDerivedProperties() {
         guard !conversations.isEmpty else {
             let emptyGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
@@ -424,17 +414,14 @@ final class ConversationListStore {
     }
 
     /// Derive sidebar group entries from `groupedConversations` and the current
-    /// `customGroupsEnabled` flag. Called from `recomputeDerivedProperties()` and
-    /// when `customGroupsEnabled` changes.
+    /// `customGroupsEnabled` flag. Called from `recomputeDerivedProperties()`
+    /// and when `customGroupsEnabled` changes.
     ///
     /// Writes the three cached arrays (`sidebarGroupEntries`,
     /// `systemSidebarGroupEntries`, `customSidebarGroupEntries`) behind `!=`
-    /// equality guards. `@Observable` notifies on every stored-property
-    /// assignment regardless of value equality, so without these guards a
-    /// pagination or heartbeat pulse that produces an identical sidebar
-    /// (e.g. seen-state flip, `lastInteractedAt` tie) would still invalidate
-    /// every sidebar view and force `ForEachState.update` to re-diff — the
-    /// source of the `KeyPath._projectReadOnly` main-thread hang.
+    /// equality guards so identical sidebars produced by no-op mutations do not
+    /// invalidate every sidebar view (see `recomputeDerivedProperties()` for
+    /// the rationale).
     private func recomputeSidebarGroupEntries() {
         let raw = groupedConversations
         var entries: [SidebarGroupEntry] = []

@@ -212,10 +212,10 @@ struct SidebarView: View {
             selectConversation: { selectConversation(conversation) },
             onSelect: onSelect,
             onTogglePin: {
-                // Look up current pin state from the live conversations array,
+                // Look up current pin state from the live conversation lookup,
                 // not the captured struct value (which may be stale).
-                let currentlyPinned = conversationManager.conversations
-                    .first(where: { $0.id == conversation.id })?.isPinned ?? false
+                let currentlyPinned = conversationManager.listStore
+                    .conversationsByLocalId[conversation.id]?.isPinned ?? false
                 if currentlyPinned {
                     conversationManager.unpinConversation(id: conversation.id)
                 } else {

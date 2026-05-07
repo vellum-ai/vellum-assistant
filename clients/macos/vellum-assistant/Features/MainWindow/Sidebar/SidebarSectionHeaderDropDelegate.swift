@@ -16,7 +16,7 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
     func validateDrop(info: DropInfo) -> Bool {
         if isConversationDrag {
             guard let sourceId = sidebar.draggingConversationId,
-                  let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
+                  let source = conversationManager.listStore.conversationsByLocalId[sourceId],
                   source.groupId != groupId else { return false }
             return true
         }
@@ -73,7 +73,7 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
                 guard let payload = SidebarDropPayload.parse(from: string) else { return }
                 switch payload {
                 case .conversation(let uuid):
-                    if let source = self.conversationManager.conversations.first(where: { $0.id == uuid }),
+                    if let source = self.conversationManager.listStore.conversationsByLocalId[uuid],
                        source.groupId != self.groupId {
                         self.conversationManager.moveConversationToGroup(uuid, groupId: self.groupId)
                     }
@@ -92,7 +92,7 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
         let sourceId = sidebar.draggingConversationId
         sidebar.endConversationDrag()
         guard let sourceId else { return false }
-        if let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
+        if let source = conversationManager.listStore.conversationsByLocalId[sourceId],
            source.groupId == groupId { return false }
         conversationManager.moveConversationToGroup(sourceId, groupId: groupId)
         return true
