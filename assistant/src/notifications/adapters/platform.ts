@@ -61,6 +61,14 @@ export class PlatformPushAdapter implements ChannelAdapter {
       return { success: false, error: "platform client unavailable" };
     }
 
+    if (!client.platformAssistantId) {
+      log.warn(
+        { sourceEventName: payload.sourceEventName },
+        "Platform assistant ID not configured — skipping push dispatch",
+      );
+      return { success: false, error: "platform assistant ID not configured" };
+    }
+
     const guardianPrincipalId =
       typeof destination.metadata?.guardianPrincipalId === "string"
         ? destination.metadata.guardianPrincipalId

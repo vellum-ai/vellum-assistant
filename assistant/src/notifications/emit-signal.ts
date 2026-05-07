@@ -116,9 +116,14 @@ function getConnectedChannels(): NotificationChannel[] {
         channels.push(channel);
         break;
       case "platform":
-        // Platform push is always considered connected — the dispatch
-        // endpoint is always reachable and self-gates on the LD flag.
-        channels.push(channel);
+        // Platform push is connected when the daemon has a registered
+        // broadcast function — i.e., full daemon mode where platform
+        // credentials are also available. Mirrors the vellum gate so
+        // the decision engine doesn't route to platform in standalone
+        // CLI contexts where VellumPlatformClient.create() returns null.
+        if (registeredBroadcastFn) {
+          channels.push(channel);
+        }
         break;
       case "telegram": {
         // A binding-based channel is connected when the guardian has an
