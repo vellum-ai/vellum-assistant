@@ -34,7 +34,23 @@ final class ConversationListStore {
 
     // MARK: - Stored Properties
 
-    var conversations: [ConversationModel] = [] {
+    /// The full conversation list. Marked `@ObservationIgnored` so view bodies
+    /// cannot accidentally subscribe to the entire array — every mutation
+    /// (pagination, heartbeat re-fetch, per-message seen flip, in-place model
+    /// edit) would otherwise invalidate every observer and force a synchronous
+    /// `GraphHost.asyncTransaction` inside the `@Observable` `willSet` hook.
+    /// On large lists this stalls the main thread for seconds; see the Sentry
+    /// app-hang telemetry referenced in the cached-derived-properties comment.
+    ///
+    /// Views must read one of the cached scalars (`hasAnyConversations`,
+    /// `unseenScheduledCount`, …), the cached lookup (`conversationsByLocalId`),
+    /// or one of the cached arrays (`visibleConversations`,
+    /// `archivedConversations`, `sidebarGroupEntries`, …) — all of which are
+    /// recomputed once per mutation in `recomputeDerivedProperties()` behind
+    /// equality guards. Mutations from `ConversationManager` and
+    /// `ConversationRestorer` continue to write through this property; the
+    /// `didSet` keeps the cached views in sync.
+    @ObservationIgnored var conversations: [ConversationModel] = [] {
         didSet { recomputeDerivedProperties() }
     }
     var groups: [ConversationGroup] = [] {
@@ -130,6 +146,7 @@ final class ConversationListStore {
         didSet {
             let encoded = archivedConversationTimestamps.mapValues { $0.timeIntervalSince1970 }
             UserDefaults.standard.set(encoded, forKey: Self.archivedConversationsSortKey)
+            recomputeArchivedConversations()
         }
     }
 
@@ -217,25 +234,38 @@ final class ConversationListStore {
     /// Count of visible conversations with unseen assistant messages (dock badge).
     private(set) var unseenVisibleConversationCount: Int = 0
 
+    /// `true` when at least one conversation exists. Cached so views observing
+    /// the boolean (e.g. the loading-skeleton dismissal in MainWindowView's
+    /// lifecycle observers) are not invalidated by every per-message mutation
+    /// of the underlying `conversations` array.
+    private(set) var hasAnyConversations: Bool = false
+
+    /// `true` when at least one non-archived conversation exists. Cached so the
+    /// sidebar's loading-skeleton gate (`SidebarView.conversationGroupsList`)
+    /// does not re-evaluate on every `visibleConversations` mutation.
+    private(set) var hasAnyVisibleConversations: Bool = false
+
+    /// Count of unseen visible conversations in the Scheduled section. Cached so
+    /// the sidebar's `.onChange(of:)` auto-expand observer does not subscribe
+    /// to the full `conversations` array. Read-only by design — exposing the
+    /// scalar (rather than the underlying filtered array) is what allows the
+    /// `!=` guard in `recomputeDerivedProperties` to suppress no-op writes.
+    private(set) var unseenScheduledCount: Int = 0
+
+    /// O(1) lookup of conversations by their local UUID. Used by per-conversation
+    /// views (`ChatView`, `ThreadWindow`) that need to resolve a single
+    /// `ConversationModel` without scanning the array — and without subscribing
+    /// to the array itself, which would re-invalidate them on every unrelated
+    /// list mutation.
+    private(set) var conversationsByLocalId: [UUID: ConversationModel] = [:]
+
     /// Archived conversations ordered by most-recently-archived first. Items whose
     /// archive timestamp is unknown (legacy, pre-migration) sort to the bottom with
-    /// `createdAt` as a stable tiebreaker. Computed on read — only consumed by the
-    /// Settings → Archived Conversations tab, which is not a hot path. Under
-    /// `@Observable`, reading this re-computes when either `conversations` or
-    /// `archivedConversationTimestamps` changes.
-    var archivedConversations: [ConversationModel] {
-        let timestamps = archivedConversationTimestamps
-        return conversations
-            .filter { $0.isArchived }
-            .sorted { lhs, rhs in
-                let lhsDate = lhs.conversationId.flatMap { timestamps[$0] } ?? .distantPast
-                let rhsDate = rhs.conversationId.flatMap { timestamps[$0] } ?? .distantPast
-                if lhsDate == rhsDate {
-                    return lhs.createdAt > rhs.createdAt
-                }
-                return lhsDate > rhsDate
-            }
-    }
+    /// `createdAt` as a stable tiebreaker. Cached so the Settings → Archive tab
+    /// reads a ready-made array and does not subscribe to the full `conversations`
+    /// array. Recomputed when either `conversations` (via
+    /// `recomputeDerivedProperties`) or `archivedConversationTimestamps` changes.
+    private(set) var archivedConversations: [ConversationModel] = []
 
     /// Pre-computed sidebar group entries with feature-flag-aware folding applied.
     /// When custom groups are disabled, non-system-group conversations are folded
@@ -257,31 +287,65 @@ final class ConversationListStore {
     /// Called from `conversations.didSet` and `groups.didSet`. Skips work when
     /// `conversations` is empty to avoid wasted computation (e.g. when `groups`
     /// is assigned before `conversations` during restoration).
+    ///
+    /// Every cached array/scalar is written behind a `!=` equality guard.
+    /// `@Observable` notifies on every stored-property assignment regardless of
+    /// value equality, so without these guards a pagination or heartbeat pulse
+    /// that produces an identical sidebar (e.g. seen-state flip,
+    /// `lastInteractedAt` tie) would still invalidate every observer and force
+    /// a synchronous `GraphHost.asyncTransaction` in the `willSet` hook —
+    /// the source of the `KeyPath._projectReadOnly` main-thread hang in the
+    /// Sentry app-hang telemetry.
     private func recomputeDerivedProperties() {
         guard !conversations.isEmpty else {
-            sortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
-            groupedConversations = []
-            visibleConversations = []
-            unseenVisibleConversationCount = 0
+            let emptyGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
+            if sortedGroups != emptyGroups { sortedGroups = emptyGroups }
+            if !groupedConversations.isEmpty { groupedConversations = [] }
+            if !visibleConversations.isEmpty { visibleConversations = [] }
+            if unseenVisibleConversationCount != 0 { unseenVisibleConversationCount = 0 }
+            if hasAnyConversations { hasAnyConversations = false }
+            if hasAnyVisibleConversations { hasAnyVisibleConversations = false }
+            if unseenScheduledCount != 0 { unseenScheduledCount = 0 }
+            if !conversationsByLocalId.isEmpty { conversationsByLocalId = [:] }
             if !sidebarGroupEntries.isEmpty { sidebarGroupEntries = [] }
             if !systemSidebarGroupEntries.isEmpty { systemSidebarGroupEntries = [] }
             if !customSidebarGroupEntries.isEmpty { customSidebarGroupEntries = [] }
+            recomputeArchivedConversations()
             onDerivedPropertiesRecomputed?()
             return
         }
         let currentSortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
-        sortedGroups = currentSortedGroups
+        if sortedGroups != currentSortedGroups { sortedGroups = currentSortedGroups }
 
         let positionMap = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
         let currentVisible = conversations
             .filter { !$0.isArchived }
             .sorted { visibleConversationSortOrder($0, $1, positionMap: positionMap) }
-        visibleConversations = currentVisible
+        if visibleConversations != currentVisible { visibleConversations = currentVisible }
 
-        unseenVisibleConversationCount = conversations.count {
+        let currentUnseenCount = conversations.count {
             !$0.isArchived && $0.hasUnseenLatestAssistantMessage
                 && !$0.shouldSuppressGlobalUnreadAggregations
         }
+        if unseenVisibleConversationCount != currentUnseenCount {
+            unseenVisibleConversationCount = currentUnseenCount
+        }
+
+        if !hasAnyConversations { hasAnyConversations = true }
+        let currentHasVisible = !currentVisible.isEmpty
+        if hasAnyVisibleConversations != currentHasVisible {
+            hasAnyVisibleConversations = currentHasVisible
+        }
+
+        let currentScheduledUnseen = currentVisible.count {
+            $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage
+        }
+        if unseenScheduledCount != currentScheduledUnseen {
+            unseenScheduledCount = currentScheduledUnseen
+        }
+
+        let currentLookup = Dictionary(uniqueKeysWithValues: conversations.map { ($0.id, $0) })
+        if conversationsByLocalId != currentLookup { conversationsByLocalId = currentLookup }
 
         // Bucket visible conversations by group in a single pass (O(N)).
         let knownGroupIds = Set(groups.map(\.id))
@@ -318,9 +382,45 @@ final class ConversationListStore {
         if !didFoldIntoAll && (!ungrouped.isEmpty || !orphaned.isEmpty) {
             grouped.append((ConversationGroup.all, ungrouped + orphaned))
         }
-        groupedConversations = grouped
+        if !groupedConversationsEqual(groupedConversations, grouped) {
+            groupedConversations = grouped
+        }
         recomputeSidebarGroupEntries()
+        recomputeArchivedConversations()
         onDerivedPropertiesRecomputed?()
+    }
+
+    /// Compare two `groupedConversations` snapshots element-wise. The stored
+    /// type is a tuple, which does not synthesize `Equatable`, so we compare
+    /// by hand to support the `!=` write guard in `recomputeDerivedProperties`.
+    private func groupedConversationsEqual(
+        _ lhs: [(group: ConversationGroup?, conversations: [ConversationModel])],
+        _ rhs: [(group: ConversationGroup?, conversations: [ConversationModel])]
+    ) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (l, r) in zip(lhs, rhs) {
+            if l.group != r.group { return false }
+            if l.conversations != r.conversations { return false }
+        }
+        return true
+    }
+
+    /// Recompute the cached `archivedConversations` array. Invoked from
+    /// `recomputeDerivedProperties()` and from `archivedConversationTimestamps.didSet`
+    /// because the sort order depends on both inputs.
+    private func recomputeArchivedConversations() {
+        let timestamps = archivedConversationTimestamps
+        let updated = conversations
+            .filter { $0.isArchived }
+            .sorted { lhs, rhs in
+                let lhsDate = lhs.conversationId.flatMap { timestamps[$0] } ?? .distantPast
+                let rhsDate = rhs.conversationId.flatMap { timestamps[$0] } ?? .distantPast
+                if lhsDate == rhsDate {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhsDate > rhsDate
+            }
+        if archivedConversations != updated { archivedConversations = updated }
     }
 
     /// Derive sidebar group entries from `groupedConversations` and the current

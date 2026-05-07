@@ -210,6 +210,48 @@ Prefer migrating the parent to `@Observable` so the bridge becomes unnecessary (
 - **Use targeted `@Published` + `.removeDuplicates()` instead of forwarding `objectWillChange`.** Wiring one object's `objectWillChange` publisher into another's invalidates the entire SwiftUI tree on every emission. Expose a narrow `@Published var activeMessageCount: Int` (or equivalent) and attach `.removeDuplicates()` so downstream views only re-render when the value actually changes.
 
 </details>
+<details>
+<summary><strong>Worked example — caching derived scalars from high-frequency `@Observable` collections</strong></summary>
+
+The Observation framework records access at the property level, not the value level: every assignment to an `@Observable` stored property fires the `willSet` hook and notifies every observer registered via [`withObservationTracking(_:onChange:)`](https://developer.apple.com/documentation/observation/withobservationtracking(_:onchange:)) — even when the new value equals the old one. SwiftUI runs the resulting graph update synchronously inside `willSet`, so a `.onChange(of: collection.derivedScalar)` modifier ends up subscribing to every mutation of the underlying collection, not just to changes in the scalar.
+
+```swift
+// Anti-pattern: `.onChange` reads `.isEmpty` from an @Observable collection, so
+// every per-row mutation fires the observer even though `isEmpty` is unchanged.
+.onChange(of: store.conversations.isEmpty) { _, isEmpty in ... }
+
+private var unreadCount: Int {
+    store.conversations.count { !$0.isArchived && $0.hasUnread }
+}
+.onChange(of: unreadCount) { _, count in ... } // also subscribes to the full array
+```
+
+```swift
+// Recommended: cache the scalar on the store behind an equality guard so
+// observers are only notified when the derived value actually changes.
+@Observable @MainActor final class Store {
+    var conversations: [Conversation] = [] {
+        didSet { recompute() }
+    }
+    private(set) var hasAnyConversations: Bool = false
+    private(set) var unreadCount: Int = 0
+
+    private func recompute() {
+        let any = !conversations.isEmpty
+        if hasAnyConversations != any { hasAnyConversations = any }
+        let count = conversations.count { !$0.isArchived && $0.hasUnread }
+        if unreadCount != count { unreadCount = count }
+    }
+}
+.onChange(of: store.hasAnyConversations) { _, hasAny in ... }
+.onChange(of: store.unreadCount) { _, count in ... }
+```
+
+For the pattern (and its enforcement) in this repo, see `ConversationListStore.recomputeDerivedProperties()` (`hasAnyConversations`, `unseenScheduledCount`, `visibleConversations`, …). Apply this any time a view-body or `.onChange` observer reads a scalar derived from an `@Observable` collection that mutates more than once per render frame.
+
+To make accidental regression impossible, mark the underlying collection [`@ObservationIgnored`](https://developer.apple.com/documentation/observation/observationignored()) and route all view-body reads through the cached scalars / lookups (see `ConversationListStore.conversations`). Note the failure mode: views that bypass the cache and read the ignored property silently stop reacting to mutations — verify there are no remaining view-body reads before adding the attribute.
+
+</details>
 
 ### High-Frequency Updates
 

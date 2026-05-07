@@ -349,7 +349,7 @@ private struct ThreadWindowContentView: View {
     }
 
     private var conversation: ConversationModel? {
-        conversationManager.conversations.first(where: { $0.id == conversationLocalId })
+        conversationManager.listStore.conversationsByLocalId[conversationLocalId]
     }
 
     private var threadTitleActionsDrawer: some View {

@@ -359,8 +359,9 @@ struct MainWindowView: View {
                         return nil
                     }
                 }()
+                let visibleIds = conversationManager.selectionStore.visibleNonArchivedConversationIds
                 if case .conversation(let id) = newSelection {
-                    if listStore.conversations.contains(where: { $0.id == id && !$0.isArchived }) {
+                    if visibleIds.contains(id) {
                         if conversationManager.activeConversationId != id {
                             conversationIdToActivate = id
                         }
@@ -380,7 +381,7 @@ struct MainWindowView: View {
                     // guard the dock keeps rendering the previous
                     // `activeConversationId` while the sidebar highlights
                     // nothing — a mixed state the user lands in on Back.
-                    let isCommittedAndVisible = listStore.conversations.contains { $0.id == id && !$0.isArchived }
+                    let isCommittedAndVisible = visibleIds.contains(id)
                     let isCurrentDraft = conversationManager.draftLocalId == id
                     if isCommittedAndVisible {
                         if conversationManager.activeConversationId != id {

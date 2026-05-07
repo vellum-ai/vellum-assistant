@@ -119,7 +119,7 @@ struct ChatView: View {
 
     private var currentConversation: ConversationModel? {
         guard let conversationManager, let conversationId else { return nil }
-        return conversationManager.conversations.first(where: { $0.id == conversationId })
+        return conversationManager.listStore.conversationsByLocalId[conversationId]
     }
 
     var body: some View {
