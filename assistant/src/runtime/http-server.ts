@@ -81,6 +81,10 @@ import {
   stopCanonicalGuardianExpirySweep,
 } from "./routes/canonical-guardian-expiry-sweep.js";
 import {
+  startInferenceProfileSessionReaper,
+  stopInferenceProfileSessionReaper,
+} from "./routes/inference-profile-session-reaper.js";
+import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-guardian-routes.js";
@@ -492,12 +496,16 @@ export class RuntimeHttpServer {
 
     startCanonicalGuardianExpirySweep();
     log.info("Canonical guardian request expiry sweep started");
+
+    startInferenceProfileSessionReaper();
+    log.info("Inference profile session reaper started");
   }
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
     stopGuardianActionSweep();
     stopCanonicalGuardianExpirySweep();
+    stopInferenceProfileSessionReaper();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;
