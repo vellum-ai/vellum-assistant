@@ -63,6 +63,7 @@ import {
   migrateContactsUserFileColumn,
   migrateConversationForkLineage,
   migrateConversationHostAccess,
+  migrateConversationInferenceProfileSession,
   migrateConversationsArchivedAt,
   migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
@@ -410,6 +411,7 @@ export function initializeDb(): void {
     },
     migrateScheduleRetryPolicy,
     migrateTraceEventsCreatedAtIndex,
+    migrateConversationInferenceProfileSession,
   ];
 
   // Run each migration step, catching and logging individual failures so one

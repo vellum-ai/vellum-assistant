@@ -201,6 +201,7 @@ export {
 } from "./237-heartbeat-runs.js";
 export { migrateScheduleRetryPolicy } from "./238-schedule-retry-policy.js";
 export { migrateTraceEventsCreatedAtIndex } from "./239-trace-events-created-at-index.js";
+export { migrateConversationInferenceProfileSession } from "./240-conversation-inference-profile-session.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
