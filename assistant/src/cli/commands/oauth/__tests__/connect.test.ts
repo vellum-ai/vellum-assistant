@@ -39,6 +39,9 @@ let mockPlatformFetchResults: Array<{
   body: unknown;
 }> = [];
 let mockPlatformFetchCallIndex = 0;
+// Captures the path + parsed JSON body of each platform fetch call so tests can
+// assert on what was actually sent to /v1/assistants/.../oauth/.../start/ etc.
+let mockPlatformFetchCalls: Array<{ path: string; body: unknown }> = [];
 
 let mockIsManagedMode: (key: string) => boolean = () => false;
 
@@ -51,7 +54,12 @@ let mockCliIpcCallFn: (
   method: string,
   params?: Record<string, unknown>,
   opts?: { timeoutMs?: number },
-) => Promise<{ ok: boolean; result?: unknown; error?: string; statusCode?: number }> = async () => ({
+) => Promise<{
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  statusCode?: number;
+}> = async () => ({
   ok: false,
   error: "IPC unavailable (default mock — forces fallback)",
 });
@@ -175,7 +183,17 @@ mock.module("../shared.js", () => ({
     return {
       platformAssistantId: (mockPlatformClientResult as Record<string, unknown>)
         .platformAssistantId,
-      fetch: async (_path: string, _init?: RequestInit): Promise<Response> => {
+      fetch: async (path: string, init?: RequestInit): Promise<Response> => {
+        let parsedBody: unknown = undefined;
+        if (typeof init?.body === "string") {
+          try {
+            parsedBody = JSON.parse(init.body);
+          } catch {
+            parsedBody = init.body;
+          }
+        }
+        mockPlatformFetchCalls.push({ path, body: parsedBody });
+
         const idx = mockPlatformFetchCallIndex++;
         const result = mockPlatformFetchResults[idx] ?? {
           ok: false,
@@ -275,7 +293,9 @@ describe("assistant oauth connect", () => {
     mockPlatformClientResult = null;
     mockPlatformFetchResults = [];
     mockPlatformFetchCallIndex = 0;
+    mockPlatformFetchCalls = [];
     mockIsManagedMode = () => false;
+    delete process.env.IS_CONTAINERIZED;
     mockCliIpcCallFn = async () => ({ ok: false, error: "IPC unavailable" });
     mockLogInfo = () => {};
     process.exitCode = 0;
@@ -393,6 +413,147 @@ describe("assistant oauth connect", () => {
     expect(mockOpenInBrowserCalls[0]).toBe(
       "https://platform.example.com/oauth/connect",
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Managed mode: redirect_after_connect baseline
+  //
+  // Regression coverage for JARVIS-731: when no caller-supplied redirect is
+  // available the platform's default ("/") resolves against HEADLESS_BASE_URL,
+  // landing the user on the Vellum marketing site instead of an OAuth
+  // completion page. The CLI must always send an explicit redirect that points
+  // to a real success surface — either a loopback page or the
+  // /account/oauth/desktop-complete route.
+  // -------------------------------------------------------------------------
+
+  test("managed mode with --no-browser: sends redirect_after_connect=/account/oauth/desktop-complete", async () => {
+    mockGetProvider = () => ({
+      provider: "notion",
+      authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
+      tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
+      tokenExchangeBodyFormat: "form",
+      managedServiceConfigKey: "notion-oauth",
+    });
+    mockIsManagedMode = () => true;
+    mockPlatformClientResult = { platformAssistantId: "asst-731" };
+    mockPlatformFetchResults = [
+      {
+        ok: true,
+        status: 200,
+        body: { connect_url: "https://api.notion.com/v1/oauth/authorize?…" },
+      },
+    ];
+
+    const { exitCode } = await runCommand([
+      "connect",
+      "notion",
+      "--no-browser",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+
+    const startCall = mockPlatformFetchCalls.find((c) =>
+      c.path.includes("/oauth/notion/start/"),
+    );
+    expect(startCall).toBeDefined();
+    const sentBody = startCall!.body as Record<string, unknown>;
+    expect(sentBody.redirect_after_connect).toBe(
+      "/account/oauth/desktop-complete",
+    );
+  });
+
+  test("managed mode containerized + browser: sends redirect_after_connect=/account/oauth/desktop-complete", async () => {
+    process.env.IS_CONTAINERIZED = "true";
+
+    mockGetProvider = () => ({
+      provider: "notion",
+      authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
+      tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
+      tokenExchangeBodyFormat: "form",
+      managedServiceConfigKey: "notion-oauth",
+    });
+    mockIsManagedMode = () => true;
+    mockPlatformClientResult = { platformAssistantId: "asst-731" };
+    mockPlatformFetchResults = [
+      {
+        ok: true,
+        status: 200,
+        body: { connect_url: "https://api.notion.com/v1/oauth/authorize?…" },
+      },
+      // Snapshot — empty
+      { ok: true, status: 200, body: [] },
+      // Poll — new connection appeared
+      {
+        ok: true,
+        status: 200,
+        body: [
+          {
+            id: "conn-new",
+            account_label: "user@example.com",
+            scopes_granted: [],
+          },
+        ],
+      },
+    ];
+
+    const { exitCode } = await runCommand(["connect", "notion", "--json"]);
+    expect(exitCode).toBe(0);
+
+    const startCall = mockPlatformFetchCalls.find((c) =>
+      c.path.includes("/oauth/notion/start/"),
+    );
+    expect(startCall).toBeDefined();
+    const sentBody = startCall!.body as Record<string, unknown>;
+    expect(sentBody.redirect_after_connect).toBe(
+      "/account/oauth/desktop-complete",
+    );
+  });
+
+  test("managed mode default (browser, host): sends loopback redirect_after_connect", async () => {
+    mockGetProvider = () => ({
+      provider: "notion",
+      authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
+      tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
+      tokenExchangeBodyFormat: "form",
+      managedServiceConfigKey: "notion-oauth",
+    });
+    mockIsManagedMode = () => true;
+    mockPlatformClientResult = { platformAssistantId: "asst-731" };
+    mockPlatformFetchResults = [
+      {
+        ok: true,
+        status: 200,
+        body: { connect_url: "https://api.notion.com/v1/oauth/authorize?…" },
+      },
+      // Snapshot — empty
+      { ok: true, status: 200, body: [] },
+      // Poll — new connection appeared
+      {
+        ok: true,
+        status: 200,
+        body: [
+          {
+            id: "conn-new",
+            account_label: "user@example.com",
+            scopes_granted: [],
+          },
+        ],
+      },
+    ];
+
+    const { exitCode } = await runCommand(["connect", "notion", "--json"]);
+    expect(exitCode).toBe(0);
+
+    const startCall = mockPlatformFetchCalls.find((c) =>
+      c.path.includes("/oauth/notion/start/"),
+    );
+    expect(startCall).toBeDefined();
+    const sentBody = startCall!.body as Record<string, unknown>;
+    const redirect = sentBody.redirect_after_connect as string;
+    // Loopback server picks an ephemeral port on localhost and serves the
+    // OAuth completion page in-process; the URL shape is stable enough to
+    // assert without binding to a specific port.
+    expect(redirect).toMatch(/^http:\/\/localhost:\d+\/oauth\/complete$/);
   });
 
   // -------------------------------------------------------------------------
@@ -590,7 +751,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
               state: "ipc-state",
             },
           };
@@ -631,7 +793,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
               state: "ipc-state",
             },
           };
@@ -667,7 +830,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
               state: "ipc-state",
             },
           };
@@ -688,7 +852,9 @@ describe("assistant oauth connect", () => {
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
       expect(parsed.deferred).toBe(true);
-      expect(parsed.authUrl).toBe("https://accounts.google.com/o/oauth2/auth?state=ipc-state");
+      expect(parsed.authUrl).toBe(
+        "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+      );
       expect(parsed.state).toBe("ipc-state");
       expect(parsed.service).toBe("google");
       // Should NOT poll status when --no-browser is set
@@ -703,7 +869,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
               state: "ipc-state",
             },
           };
@@ -717,7 +884,9 @@ describe("assistant oauth connect", () => {
         "--no-browser",
       ]);
       expect(exitCode).toBe(0);
-      expect(stdout).toContain("https://accounts.google.com/o/oauth2/auth?state=ipc-state");
+      expect(stdout).toContain(
+        "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+      );
       expect(mockOpenInBrowserCalls.length).toBe(0);
     });
 
@@ -756,7 +925,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=poll-err-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=poll-err-state",
               state: "poll-err-state",
             },
           };
@@ -818,7 +988,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=transient-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=transient-state",
               state: "transient-state",
             },
           };
@@ -870,7 +1041,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=json-mode-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=json-mode-state",
               state: "json-mode-state",
             },
           };
@@ -910,7 +1082,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=gw-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=gw-state",
               state: "gw-state",
             },
           };
@@ -938,7 +1111,9 @@ describe("assistant oauth connect", () => {
       expect(exitCode).toBe(0);
       // Verify callbackTransport was forwarded in the IPC body
       expect(capturedParams).toBeDefined();
-      expect((capturedParams!.body as Record<string, unknown>).callbackTransport).toBe("gateway");
+      expect(
+        (capturedParams!.body as Record<string, unknown>).callbackTransport,
+      ).toBe("gateway");
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
       expect(parsed.accountInfo).toBe("gw-user@example.com");
