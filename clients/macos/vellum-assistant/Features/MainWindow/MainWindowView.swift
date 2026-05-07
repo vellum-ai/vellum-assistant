@@ -36,7 +36,7 @@ struct MainWindowView: View {
     /// rather than invalidating the entire view on any change.
     ///
     /// `windowState` is `@Bindable` because `PanelCoordinator` needs
-    /// `$windowState.pendingMemoryId` / `$windowState.pendingSkillId`
+    /// `$windowState.pendingSkillId`
     /// binding projections to pass into the logs-and-usage panel. Unlike
     /// `@ObservedObject`, `@Bindable` doesn't establish its own view
     /// invalidation policy — Observation still tracks property granularly.

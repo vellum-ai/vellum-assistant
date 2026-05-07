@@ -74,10 +74,6 @@ public final class MainWindowState {
     /// the main chat and the subagent detail panel can trigger the inspector.
     var inspectorMessageId: String?
 
-    /// Transient memory ID to deep-link into when the Intelligence panel opens.
-    /// Consumed once by IntelligencePanel/MemoriesV2Panel, then set back to nil.
-    var pendingMemoryId: String?
-
     /// Transient skill ID to deep-link into when the Intelligence panel opens.
     /// Consumed once by IntelligencePanel/SkillsPanel, then set back to nil.
     var pendingSkillId: String?
@@ -276,12 +272,6 @@ public final class MainWindowState {
     func showPanel(_ panel: SidePanelType) {
         selection = .panel(panel)
         lastActivePanelString = String(describing: panel)
-    }
-
-    /// Navigate to the Intelligence panel and deep-link to a specific memory.
-    func showMemory(id: String) {
-        pendingMemoryId = id
-        showPanel(.intelligence)
     }
 
     /// Navigate to the Intelligence panel and deep-link to a specific skill.

@@ -168,9 +168,8 @@ extension MainWindowView {
                 conversationManager: conversationManager,
                 authManager: authManager,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil),
+                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingSkillId != nil ? "Skills" : nil),
                 pendingTab: $windowState.pendingIntelligenceTab,
-                pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
         case .home:
@@ -894,9 +893,8 @@ extension MainWindowView {
                 conversationManager: conversationManager,
                 authManager: authManager,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil),
+                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingSkillId != nil ? "Skills" : nil),
                 pendingTab: $windowState.pendingIntelligenceTab,
-                pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
         case .home:
