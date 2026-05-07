@@ -75,7 +75,10 @@ const CHANNEL_POLICIES = {
   platform: {
     notification: {
       deliveryEnabled: true,
-      conversationStrategy: "start_new_conversation",
+      // Platform is a push-only relay — conversations are owned by the vellum
+      // channel. Using not_deliverable prevents pairDeliveryWithConversation
+      // from creating orphaned user-visible conversations on every push.
+      conversationStrategy: "not_deliverable",
     },
     invite: {
       codeRedemptionEnabled: false,
