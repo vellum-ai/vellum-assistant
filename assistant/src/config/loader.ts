@@ -649,7 +649,24 @@ export function loadConfig(): AssistantConfig {
     let configFileExisted = true;
     if (existsSync(configPath)) {
       try {
-        fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+        const parsed: unknown = JSON.parse(readFileSync(configPath, "utf-8"));
+        if (!isPlainObject(parsed)) {
+          // Same shape contract as `loadRawConfig`: top-level value must be a
+          // plain object. A `null`, primitive, or array is treated like a
+          // parse error so downstream code (`warnAndStripDeprecatedFields`,
+          // `setNestedValue` in the managed-Gemini migration block, etc.)
+          // never iterates a non-record. Quarantine + fall through to defaults.
+          quarantineCorruptConfig(
+            configPath,
+            new Error(
+              `config.json must contain a JSON object at the top level; got ${describeJsonShape(parsed)}`,
+            ),
+          );
+          fileConfig = {};
+          configFileExisted = false;
+        } else {
+          fileConfig = parsed;
+        }
       } catch (err) {
         // The daemon must never block startup (assistant/CLAUDE.md). A config
         // file that fails JSON.parse — truncated during a mid-write crash, or
