@@ -52,6 +52,50 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.maxTokens).toBe(64000);
   });
 
+  test("model-only call-site override infers provider from known model owner", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "openai",
+        model: "gpt-5.5",
+      },
+      profiles: {
+        active: { provider: "openai", model: "gpt-5.5" },
+      },
+      activeProfile: "active",
+      callSites: {
+        conversationStarters: {
+          model: "claude-haiku-4-5-20251001",
+          effort: "low",
+        },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("conversationStarters", llm);
+
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
+    expect(resolved.effort).toBe("low");
+  });
+
+  test("unknown model-only override preserves inherited provider", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "openai",
+        model: "gpt-5.5",
+      },
+      callSites: {
+        memoryExtraction: { model: "local-custom-model" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("local-custom-model");
+  });
+
   test("profile field overrides default when call site references it", () => {
     const llm = LLMSchema.parse({
       default: fullDefault,

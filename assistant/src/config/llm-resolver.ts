@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { getCatalogProviderForModel } from "../providers/model-catalog.js";
 import {
   type LLMCallSite,
   LLMConfigBase,
@@ -67,7 +68,7 @@ export function resolveCallSiteConfig(
     appendCallSiteLayers(layers, callSite, llm, site);
   }
 
-  return finalize(deepMerge(...layers));
+  return finalize(deepMerge(...layers.map(withImpliedProviderForKnownModel)));
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,20 @@ export function resolveCallSiteConfig(
 // ---------------------------------------------------------------------------
 
 type Mergeable = Record<string, unknown>;
+
+function withImpliedProviderForKnownModel(source: Mergeable): Mergeable {
+  if (source.provider !== undefined) return source;
+  const model = source.model;
+  if (typeof model !== "string" || model.length === 0) return source;
+
+  const provider = getCatalogProviderForModel(model);
+  if (provider === undefined) return source;
+
+  return {
+    ...source,
+    provider,
+  };
+}
 
 function appendProfileLayer(
   layers: Mergeable[],

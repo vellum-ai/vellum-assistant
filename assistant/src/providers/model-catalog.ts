@@ -768,3 +768,13 @@ export function isModelInCatalog(provider: string, modelId: string): boolean {
   const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
   return entry?.models.some((m) => m.id === modelId) ?? false;
 }
+
+/** Return the unique catalog provider that owns a model ID, if known. */
+export function getCatalogProviderForModel(
+  modelId: string,
+): string | undefined {
+  const matches = PROVIDER_CATALOG.filter((p) =>
+    p.models.some((m) => m.id === modelId),
+  );
+  return matches.length === 1 ? matches[0]?.id : undefined;
+}
