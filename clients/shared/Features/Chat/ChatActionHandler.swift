@@ -504,12 +504,17 @@ final class ChatActionHandler {
         // Flush any buffered streaming text before finalizing the message.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
-        // Backfill the daemon's persisted message ID so fork, inspect,
-        // TTS, and other daemon-anchored actions work without a history reload.
-        if let messageId = complete.messageId,
-           let msgId = vm.currentAssistantMessageId,
+        // Backfill both ids without a history reload: messageId is the
+        // concrete persisted row for row-scoped actions, while displayMessageId
+        // is the merged history/display id used for reconciliation.
+        if let msgId = vm.currentAssistantMessageId,
            let idx = vm.messages.firstIndex(where: { $0.id == msgId }) {
-            vm.messages[idx].daemonMessageId = messageId
+            if let messageId = complete.messageId {
+                vm.messages[idx].daemonMessageId = messageId
+            }
+            if let displayMessageId = complete.displayMessageId ?? complete.messageId {
+                vm.messages[idx].displayMessageId = displayMessageId
+            }
         }
         // Strip heavy binary data from old messages to cap memory growth.
         vm.trimOldMessagesIfNeeded()
@@ -958,11 +963,15 @@ final class ChatActionHandler {
         vm.ingestAssistantAttachments(handoff.attachments)
         // Keep isSending = true — daemon is handing off to next queued message
         if let existingId = vm.currentAssistantMessageId {
-            // Backfill the daemon's persisted message ID so fork, inspect,
-            // TTS, and other daemon-anchored actions work without a history reload.
-            if let messageId = handoff.messageId,
-               let index = vm.messages.firstIndex(where: { $0.id == existingId }) {
-                vm.messages[index].daemonMessageId = messageId
+            // Backfill both ids before the handoff clears currentAssistantMessageId.
+            // messageId remains row-scoped; displayMessageId is the merged bubble id.
+            if let index = vm.messages.firstIndex(where: { $0.id == existingId }) {
+                if let messageId = handoff.messageId {
+                    vm.messages[index].daemonMessageId = messageId
+                }
+                if let displayMessageId = handoff.displayMessageId ?? handoff.messageId {
+                    vm.messages[index].displayMessageId = displayMessageId
+                }
             }
             vm.messages.finalizeStreamingMessage(id: existingId, completeToolCalls: .none)
         }

@@ -652,8 +652,14 @@ export function handleListMessages(
     // on createdAt. The mismatch is benign — it may return slightly extra
     // data on a page boundary but never loses messages.
     const displayTimestamp = m.sentAt ?? m.timestamp;
+    const mergedMessageIds = mergedIdMap.get(m.id) ?? [];
+    const daemonMessageId =
+      m.role === "assistant"
+        ? (mergedMessageIds[mergedMessageIds.length - 1] ?? m.id)
+        : undefined;
     return {
       id: m.id ?? "",
+      ...(daemonMessageId ? { daemonMessageId } : {}),
       role: m.role,
       content: m.text,
       timestamp: new Date(displayTimestamp).toISOString(),

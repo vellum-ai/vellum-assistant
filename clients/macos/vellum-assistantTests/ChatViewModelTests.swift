@@ -253,6 +253,22 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.messages[0].isStreaming)
     }
 
+    func testMessageCompleteKeepsDisplayAndDaemonIdsSeparate() {
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
+
+        viewModel.handleServerMessage(
+            .messageComplete(
+                MessageCompleteMessage(
+                    messageId: "row-a2",
+                    displayMessageId: "display-a1"
+                )
+            )
+        )
+
+        XCTAssertEqual(viewModel.messages[0].daemonMessageId, "row-a2")
+        XCTAssertEqual(viewModel.messages[0].displayMessageId, "display-a1")
+    }
+
     func testMessageCompleteWithoutStreamingMessage() {
         viewModel.isSending = true
         viewModel.isThinking = true
@@ -921,6 +937,26 @@ final class ChatViewModelTests: XCTestCase {
         } else {
             XCTFail("Expected dequeued message to remain in transcript")
         }
+    }
+
+    func testGenerationHandoffKeepsDisplayAndDaemonIdsSeparate() {
+        viewModel.conversationId = "sess-1"
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
+
+        viewModel.handleServerMessage(
+            .generationHandoff(
+                GenerationHandoffMessage(
+                    conversationId: "sess-1",
+                    requestId: nil,
+                    queuedCount: 1,
+                    messageId: "row-a2",
+                    displayMessageId: "display-a1"
+                )
+            )
+        )
+
+        XCTAssertEqual(viewModel.messages[0].daemonMessageId, "row-a2")
+        XCTAssertEqual(viewModel.messages[0].displayMessageId, "display-a1")
     }
 
     func testMessageDequeuedRestoresSendingAndThinkingState() {
@@ -2186,6 +2222,26 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[1].attachments.count, 1)
         XCTAssertEqual(viewModel.messages[1].attachments[0].filename, "chart.png")
         XCTAssertEqual(viewModel.messages[1].attachments[0].id, "hist-att-1")
+    }
+
+    func testPopulateFromHistoryKeepsDisplayAndDaemonIdsSeparate() {
+        let displayId = UUID()
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: displayId.uuidString,
+                daemonMessageId: "row-a2",
+                role: "assistant",
+                text: "Done",
+                timestamp: 1000
+            ),
+        ]
+
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].id, displayId)
+        XCTAssertEqual(viewModel.messages[0].displayMessageId, displayId.uuidString)
+        XCTAssertEqual(viewModel.messages[0].daemonMessageId, "row-a2")
     }
 
     func testPopulateFromHistoryIncludesAttachmentOnlyMessages() {

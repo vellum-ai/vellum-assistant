@@ -127,6 +127,11 @@ export interface EventHandlerState {
    */
   contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
+  /**
+   * First persisted assistant row in this run; history keeps this id when it
+   * merges tool-turn rows into one display bubble.
+   */
+  firstAssistantMessageId: string | undefined;
   lastAssistantMessageId: string | undefined;
   readonly pendingToolResults: Map<string, PendingToolResult>;
   readonly persistedToolUseIds: Set<string>;
@@ -222,6 +227,7 @@ export function createEventHandlerState(): EventHandlerState {
     contextTooLargeDetected: false,
     contextTooLargeError: null,
     providerErrorUserMessage: null,
+    firstAssistantMessageId: undefined,
     lastAssistantMessageId: undefined,
     pendingToolResults: new Map(),
     persistedToolUseIds: new Set(),
@@ -243,6 +249,12 @@ export function createEventHandlerState(): EventHandlerState {
     currentTurnToolUseIds: [],
     turnStartedAt: Date.now(),
   };
+}
+
+export function getClientDisplayMessageId(
+  state: EventHandlerState,
+): string | undefined {
+  return state.firstAssistantMessageId ?? state.lastAssistantMessageId;
 }
 
 // ── Shared Helper ────────────────────────────────────────────────────
@@ -1004,6 +1016,7 @@ export async function handleMessageComplete(
     DEFAULT_TIMEOUTS.persistence,
   )) as PersistAddResult;
   const assistantMsg = assistantPersistResult.message;
+  state.firstAssistantMessageId ??= assistantMsg.id;
   state.lastAssistantMessageId = assistantMsg.id;
 
   // Backfill message_id on all LLM request logs from this turn.

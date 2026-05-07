@@ -1688,8 +1688,11 @@ public struct ChatMessage: Identifiable, Equatable {
     /// Typed error metadata for inline error display (category icon, recovery suggestion, etc.).
     /// Populated when the error originates from a `ConversationErrorMessage`.
     public var conversationError: ConversationError?
-    /// The daemon's persisted message ID, populated from history responses.
-    /// Nil for freshly streamed messages that haven't been loaded from history.
+    /// The daemon/history ID for the rendered bubble after history merges tool turns.
+    /// Used to reconcile a live streamed bubble with the same bubble loaded from history.
+    public var displayMessageId: String?
+    /// The daemon's concrete persisted message row ID.
+    /// Nil for freshly streamed messages until completion or history backfills it.
     /// Used for fork-from-message, inspect LLM context, TTS, and other daemon-anchored actions.
     public var daemonMessageId: String?
     /// Client-generated correlation nonce stamped on the optimistic row at

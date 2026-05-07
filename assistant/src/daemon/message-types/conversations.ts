@@ -310,8 +310,14 @@ export interface GenerationHandoff {
   queuedCount: number;
   attachments?: UserMessageAttachment[];
   attachmentWarnings?: string[];
-  /** Database ID of the persisted assistant message, if any. */
+  /** Database ID of the final persisted assistant row, if any. */
   messageId?: string;
+  /**
+   * Database ID used by clients for the rendered assistant bubble. Tool turns
+   * may persist multiple assistant rows; this matches the history row that
+   * survives query-time merging.
+   */
+  displayMessageId?: string;
 }
 
 export interface ModelInfo {
@@ -387,7 +393,10 @@ export interface HistoryResponse {
   type: "history_response";
   conversationId: string;
   messages: Array<{
-    id?: string; // Database message ID (for matching surfaces)
+    /** Database ID used by clients for the rendered message bubble. */
+    id?: string;
+    /** Concrete persisted row ID for row-scoped actions such as TTS/fork. */
+    daemonMessageId?: string;
     role: string;
     text: string;
     timestamp: number;

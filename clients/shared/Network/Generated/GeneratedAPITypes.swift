@@ -1706,8 +1706,9 @@ public struct GenerationHandoff: Codable, Sendable {
     public let attachments: [UserMessageAttachment]?
     public let attachmentWarnings: [String]?
     public let messageId: String?
+    public let displayMessageId: String?
 
-    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, displayMessageId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.requestId = requestId
@@ -1715,6 +1716,7 @@ public struct GenerationHandoff: Codable, Sendable {
         self.attachments = attachments
         self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
+        self.displayMessageId = displayMessageId
     }
 }
 
@@ -2149,6 +2151,7 @@ public struct HistoryResponse: Codable, Sendable {
 
 public struct HistoryResponseMessage: Codable, Sendable {
     public let id: String?
+    public let daemonMessageId: String?
     public let role: String
     public let text: String
     public let timestamp: Double
@@ -2169,8 +2172,9 @@ public struct HistoryResponseMessage: Codable, Sendable {
     /// True when text or tool result content was truncated due to maxTextChars/maxToolResultChars.
     public let wasTruncated: Bool?
 
-    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, thinkingSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
+    public init(id: String? = nil, daemonMessageId: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, thinkingSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
         self.id = id
+        self.daemonMessageId = daemonMessageId
         self.role = role
         self.text = text
         self.timestamp = timestamp
@@ -2690,14 +2694,16 @@ public struct MessageComplete: Codable, Sendable {
     public let attachments: [UserMessageAttachment]?
     public let attachmentWarnings: [String]?
     public let messageId: String?
+    public let displayMessageId: String?
     public let source: String?
 
-    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, source: String? = nil) {
+    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, displayMessageId: String? = nil, source: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.attachments = attachments
         self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
+        self.displayMessageId = displayMessageId
         self.source = source
     }
 }

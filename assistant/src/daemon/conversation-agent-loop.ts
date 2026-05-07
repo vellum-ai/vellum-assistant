@@ -147,6 +147,7 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
+  getClientDisplayMessageId,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
@@ -2834,6 +2835,7 @@ export async function runAgentLoopImpl(
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
       syncLastAssistantMessageToDisk();
+      const clientDisplayMessageId = getClientDisplayMessageId(state);
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
@@ -2874,6 +2876,9 @@ export async function runAgentLoopImpl(
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
+          ...(clientDisplayMessageId
+            ? { displayMessageId: clientDisplayMessageId }
+            : {}),
         });
       } else {
         ctx.emitActivityState("idle", "message_complete", "global", reqId);
@@ -2896,6 +2901,9 @@ export async function runAgentLoopImpl(
             : {}),
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
+            : {}),
+          ...(clientDisplayMessageId
+            ? { displayMessageId: clientDisplayMessageId }
             : {}),
         });
 
