@@ -153,6 +153,11 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["listMemoryItems", ["settings.read"]],
   ["updateMemoryItem", ["settings.write"]],
 
+  // Inference profile sessions
+  ["inference_profile_close", ["chat.write"]],
+  ["inference_profile_list", ["chat.read"]],
+  ["inference_profile_open", ["chat.write"]],
+
   // Notification intent
   ["notificationintentresult_post", ["settings.write"]],
 

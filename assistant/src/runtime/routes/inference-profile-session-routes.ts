@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 
+import { BadRequestError } from "./errors.js";
 import {
   closeInferenceProfileSession,
   listInferenceProfileSessionsWithRemaining,
@@ -22,9 +23,12 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 async function handleOpenInferenceProfileSession({
   body = {},
 }: RouteHandlerArgs) {
+  if (body.profile == null || typeof body.profile !== "string") {
+    throw new BadRequestError("profile must be a non-empty string");
+  }
   return setInferenceProfileSession({
     conversationId: body.conversationId as string,
-    profile: body.profile as string,
+    profile: body.profile,
     ttlSeconds: body.ttlSeconds as number | null | undefined,
     sessionId: body.sessionId as string | undefined,
   });
