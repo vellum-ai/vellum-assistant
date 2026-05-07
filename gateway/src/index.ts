@@ -677,7 +677,7 @@ async function main() {
     {
       // Keep DELETE on the invite collection unsupported; only /invites/:id
       // should revoke an invite.
-      path: /^\/v1\/contacts\/(?!invites$)([^/]+)\/?$/,
+      path: /^\/v1\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
       method: "DELETE",
       auth: "edge",
       handler: (_req, params) =>
@@ -685,7 +685,7 @@ async function main() {
     },
     {
       // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/(?!invites$)([^/]+)\/?$/,
+      path: /^\/v1\/assistants\/[^/]+\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
       method: "DELETE",
       auth: "edge",
       handler: (_req, params) =>
