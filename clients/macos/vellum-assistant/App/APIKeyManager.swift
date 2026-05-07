@@ -248,6 +248,53 @@ enum APIKeyManager {
         }
     }
 
+    /// List API-key provider names currently stored in the daemon's secret
+    /// store via the gateway API. Filters out non-`api_key` entries (e.g.
+    /// OAuth credentials) so callers get just the BYOK provider set.
+    ///
+    /// Returns `nil` on transport failure — callers should treat that as
+    /// "status unknown" rather than "no keys stored", same convention as
+    /// ``keyStatus(for:)``.
+    static func listKeys() async -> Set<String>? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "secrets", timeout: 5
+            )
+            guard response.isSuccess else {
+                apiKeyLog.error("listKeys failed: HTTP \(response.statusCode, privacy: .public)")
+                return nil
+            }
+            return parseListKeysResponse(response.data)
+        } catch {
+            apiKeyLog.error("listKeys failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Parse the `GET /v1/secrets` response into the set of `api_key`
+    /// provider names. Internal so tests can exercise the shape handling
+    /// (notably the `secrets`/`accounts` alias and the mixed `api_key` /
+    /// `credential` entry forms) without standing up a gateway.
+    static func parseListKeysResponse(_ data: Data) -> Set<String>? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        // The daemon returns both `secrets` and `accounts` as aliases of the
+        // same array; prefer `secrets` and fall back for older daemons.
+        let entries = (json["secrets"] as? [[String: Any]])
+            ?? (json["accounts"] as? [[String: Any]])
+            ?? []
+        var names = Set<String>()
+        for entry in entries {
+            guard let type = entry["type"] as? String, type == "api_key",
+                  let name = entry["name"] as? String, !name.isEmpty else {
+                continue
+            }
+            names.insert(name)
+        }
+        return names
+    }
+
     // MARK: - Credential access (service:field secrets)
 
     private static let credentialPrefix = "vellum_credential_"
