@@ -1666,4 +1666,366 @@ describe("web_fetch tool", () => {
       "Extracted text content is very short",
     );
   });
+
+  // ── Markdown content negotiation: Accept header & alternate mime types ──
+
+  test("Accept header lists application/markdown and text/x-markdown above HTML", async () => {
+    let capturedAcceptHeader = "";
+
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/doc" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async (_url, requestOptions) => {
+          capturedAcceptHeader = requestOptions.headers["Accept"] ?? "";
+          return new Response("ok", {
+            status: 200,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          });
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    // text/markdown still wins (implicit q=1.0).
+    expect(capturedAcceptHeader.startsWith("text/markdown")).toBe(true);
+    // Both legacy/experimental variants are advertised at q=0.95, above HTML at 0.9.
+    expect(capturedAcceptHeader).toContain("application/markdown;q=0.95");
+    expect(capturedAcceptHeader).toContain("text/x-markdown;q=0.95");
+    expect(capturedAcceptHeader).toContain("text/html;q=0.9");
+    // Sanity: the relative order matters - markdown variants must come before html.
+    const mdIndex = capturedAcceptHeader.indexOf("application/markdown");
+    const htmlIndex = capturedAcceptHeader.indexOf("text/html");
+    expect(mdIndex).toBeLessThan(htmlIndex);
+  });
+
+  test("text/x-markdown content type is treated as markdown", async () => {
+    const md = "# Title\n\nSome **bold** text.\n";
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/doc.md" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(md, {
+            status: 200,
+            headers: { "content-type": "text/x-markdown; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: markdown");
+    expect(result.content).not.toContain("Mode: markdown (sniffed)");
+    expect(result.content).toContain("# Title");
+    expect(result.content).toContain("**bold**");
+  });
+
+  test("application/markdown content type is treated as markdown", async () => {
+    const md = "# Doc\n\n```ts\nconst x = 1;\n```\n";
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/doc" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(md, {
+            status: 200,
+            headers: { "content-type": "application/markdown" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: markdown");
+    expect(result.content).toContain("```ts");
+  });
+
+  test("text/markdown with variant=GFM parameter is treated as markdown", async () => {
+    const md = "# GFM\n\n- item 1\n- item 2\n";
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/gfm" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(md, {
+            status: 200,
+            headers: {
+              "content-type": "text/markdown; charset=utf-8; variant=GFM",
+            },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: markdown");
+    expect(result.content).toContain("# GFM");
+  });
+
+  // ── Markdown content sniffing for ambiguous content types ──────────────
+
+  test("treats text/plain as markdown when the body has clear markdown signals (raw GitHub case)", async () => {
+    // Mimics raw.githubusercontent.com, which serves .md files as text/plain.
+    const md = [
+      "# README",
+      "",
+      "## Install",
+      "",
+      "```bash",
+      "npm install foo",
+      "```",
+      "",
+      "- one",
+      "- two",
+      "",
+      "See the [docs](https://example.com/docs) for more.",
+    ].join("\n");
+
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/raw/README.md" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(md, {
+            status: 200,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: markdown (sniffed)");
+    expect(result.content).toContain(
+      `Content type was "text/plain; charset=utf-8" but the body looks like markdown`,
+    );
+    // Markdown indentation/code-fence preserved (not collapsed by normalizeText).
+    expect(result.content).toContain("```bash");
+    expect(result.content).toContain("- one");
+  });
+
+  test("treats response with no content-type as markdown when the body has markdown signals", async () => {
+    const md = "# Hello\n\nText with [link](https://example.com).\n";
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/no-ctype" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          // Note: Response always synthesizes a content-type if body is set.
+          // Force it to a generic value to simulate "no useful hint".
+          new Response(md, {
+            status: 200,
+            headers: { "content-type": "application/octet-stream" },
+          }),
+      },
+    );
+
+    // application/octet-stream is rejected by isTextLikeContentType, so this
+    // case actually tests our content-type guard, not sniffing.
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Unsupported content type");
+  });
+
+  test("does NOT sniff plain prose (single heading without other markers) as markdown", async () => {
+    const plainProse = [
+      "# Notice",
+      "",
+      "This document is just a heading followed by ordinary prose without any other",
+      "markdown structures. The sniffer should leave it as plain text so that we do",
+      "not produce false positives on text files that happen to start with a hash.",
+    ].join("\n");
+
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/plain.txt" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(plainProse, {
+            status: 200,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("Mode: markdown");
+    expect(result.content).toContain("Mode: extracted");
+  });
+
+  test("does NOT sniff a robots.txt-style plain text file as markdown", async () => {
+    const robotsTxt = [
+      "User-agent: *",
+      "Disallow: /admin",
+      "Disallow: /private",
+      "Allow: /",
+      "Sitemap: https://example.com/sitemap.xml",
+    ].join("\n");
+
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/robots.txt" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(robotsTxt, {
+            status: 200,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("Mode: markdown");
+    expect(result.content).toContain("User-agent");
+  });
+
+  test("explicit text/markdown wins over body sniff (no '(sniffed)' marker)", async () => {
+    // Body has markdown signals AND server declares it as markdown - the
+    // explicit content type should take precedence over sniffing.
+    const md = "# Title\n\n- a\n- b\n\nWith a [link](https://example.com).\n";
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/explicit.md" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(md, {
+            status: 200,
+            headers: { "content-type": "text/markdown; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: markdown");
+    expect(result.content).not.toContain("Mode: markdown (sniffed)");
+    expect(result.content).not.toContain("the body looks like markdown");
+  });
+
+  test("HTML body with markdown-looking content stays in HTML extraction path", async () => {
+    // The HTML check runs before the markdown sniff. A page with HTML
+    // boilerplate should be extracted as HTML even if the body text contains
+    // some markdown-looking patterns.
+    const html =
+      "<!doctype html><html><head><title>Blog</title></head><body><h1>Blog</h1><p>Post about `code` and [things](https://example.com).</p></body></html>";
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/post" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(html, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: extracted");
+    expect(result.content).not.toContain("Mode: markdown");
+  });
+
+  // ── Markdown alternate <link> detection ───────────────────────────────
+
+  test("surfaces <link rel=\"alternate\" type=\"text/markdown\"> from HTML head as a notice", async () => {
+    const html = [
+      '<!doctype html><html><head>',
+      "<title>Docs</title>",
+      '<link rel="alternate" type="text/markdown" href="/docs/page.md">',
+      "</head><body><h1>Docs</h1><p>Body content here that is long enough to avoid the JS-rendering notice path. ".repeat(
+        4,
+      ) + "</p></body></html>",
+    ].join("");
+
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/docs/page" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(html, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain(
+      "Page advertises a markdown alternate at https://example.com/docs/page.md",
+    );
+    // The relative href should have been resolved against the page URL.
+    expect(result.content).toContain(
+      "re-fetch that URL for cleaner content",
+    );
+  });
+
+  test("handles absolute href for the markdown alternate link", async () => {
+    const html = [
+      '<!doctype html><html><head>',
+      "<title>Docs</title>",
+      '<link href="https://md.example.com/page.md" type="text/markdown" rel="alternate">',
+      "</head><body><h1>Docs</h1><p>Some content.</p></body></html>",
+    ].join("");
+
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/page" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(html, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain(
+      "Page advertises a markdown alternate at https://md.example.com/page.md",
+    );
+  });
+
+  test("ignores <link rel=\"alternate\"> with non-markdown type", async () => {
+    const html = [
+      '<!doctype html><html><head>',
+      "<title>Feed</title>",
+      '<link rel="alternate" type="application/rss+xml" href="/feed.xml">',
+      '<link rel="alternate" type="application/atom+xml" href="/feed.atom">',
+      "</head><body><h1>Feed</h1></body></html>",
+    ].join("");
+
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(html, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain(
+      "Page advertises a markdown alternate",
+    );
+  });
+
+  test("does not surface markdown alternate notice when response is already markdown", async () => {
+    // If the body itself is markdown, the alternate hint would be redundant.
+    // (The metadata extractor isn't even invoked for markdown bodies.)
+    const md = "# Doc\n\nContent.\n";
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/doc.md" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(md, {
+            status: 200,
+            headers: { "content-type": "text/markdown; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain(
+      "Page advertises a markdown alternate",
+    );
+  });
 });

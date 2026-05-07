@@ -47,6 +47,7 @@ const TEXT_LIKE_CONTENT_TYPES = [
   "application/javascript",
   "application/x-javascript",
   "application/ld+json",
+  "application/markdown",
 ];
 
 const HTML_ENTITY_MAP: Record<string, string> = {
@@ -265,9 +266,64 @@ function isTextLikeContentType(contentType: string): boolean {
   });
 }
 
+// We accept the standardized type (RFC 7763) plus the legacy/experimental
+// variants that some servers and static-site generators still emit.
+const MARKDOWN_MIME_TYPES = new Set([
+  "text/markdown",
+  "text/x-markdown",
+  "application/markdown",
+]);
+
 function isMarkdownContentType(contentType: string): boolean {
   const mimeType = parseMimeType(contentType);
-  return mimeType === "text/markdown";
+  return MARKDOWN_MIME_TYPES.has(mimeType);
+}
+
+// Body sniff for cases where the server sends a generic content type
+// (text/plain or none) but the payload is actually markdown. Common for
+// raw GitHub URLs that serve `.md` files as text/plain. Conservative:
+// requires multiple distinct markdown features so we don't misclassify
+// random plain-text documents.
+function looksLikeMarkdown(text: string): boolean {
+  // Markdown signals appear early; sample the first few KB to bound work.
+  const sample = safeStringSlice(text, 0, 16_000);
+
+  // Strong signal: a fenced code block (triple-backtick or triple-tilde)
+  // that opens and closes. Very rare in plain text.
+  if (
+    /^(```|~~~)[^\n`~]*\n[\s\S]*?\n\1\s*$/m.test(sample) ||
+    /^(```|~~~)[^\n`~]*\n[\s\S]*?\n\1\s*\n/m.test(sample)
+  ) {
+    return true;
+  }
+
+  const hasAtxHeading = /^#{1,6}\s+\S/m.test(sample);
+  const hasSetextHeading = /^\S[^\n]*\n(=+|-+)\s*$/m.test(sample);
+  const hasHeading = hasAtxHeading || hasSetextHeading;
+
+  const atxHeadingMatches = sample.match(/^#{1,6}\s+\S/gm);
+  if (atxHeadingMatches && atxHeadingMatches.length >= 2) return true;
+
+  const hasBulletList =
+    /^[ \t]*[-*+][ \t]+\S/m.test(sample) ||
+    /^[ \t]*\d+\.[ \t]+\S/m.test(sample);
+  const hasMarkdownLink = /\[[^\]\n]+\]\([^)\n]+\)/.test(sample);
+  const hasInlineCode = /`[^`\n]+`/.test(sample);
+  const hasEmphasis = /\*\*\S[\s\S]*?\S\*\*|__\S[\s\S]*?\S__/.test(sample);
+  const hasBlockquote = /^>[ \t]+\S/m.test(sample);
+
+  // Two or more independent signals (heading, list, link, inline code,
+  // emphasis, blockquote) is a reliable enough indicator.
+  const signalCount = [
+    hasHeading,
+    hasBulletList,
+    hasMarkdownLink,
+    hasInlineCode,
+    hasEmphasis,
+    hasBlockquote,
+  ].filter(Boolean).length;
+
+  return signalCount >= 2;
 }
 
 function isHtmlContentType(contentType: string): boolean {
@@ -351,9 +407,32 @@ function extractFirstMatch(
   return value || undefined;
 }
 
+// Find a `<link rel="alternate" type="text/markdown" href="...">` tag in the
+// document head. Convention from the llms.txt spec and adopted by sites that
+// publish markdown variants: parsing each <link> tag and checking attributes
+// is order-independent and tolerant of arbitrary attribute spacing.
+function findMarkdownAlternateHref(searchRegion: string): string | undefined {
+  const linkRegex = /<link\b([^>]*)>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = linkRegex.exec(searchRegion)) !== null) {
+    const attrs = match[1];
+    if (!/\brel\s*=\s*(['"])\s*alternate\s*\1/i.test(attrs)) continue;
+    if (
+      !/\btype\s*=\s*(['"])\s*(?:text\/markdown|text\/x-markdown|application\/markdown)\s*\1/i.test(
+        attrs,
+      )
+    )
+      continue;
+    const hrefMatch = /\bhref\s*=\s*(['"])([^'"]+)\1/i.exec(attrs);
+    if (hrefMatch) return hrefMatch[2].trim();
+  }
+  return undefined;
+}
+
 function extractHtmlMetadata(html: string): {
   title?: string;
   description?: string;
+  markdownAlternateHref?: string;
 } {
   // Only search the <head> section (or first 50KB) to avoid catastrophic
   // regex backtracking on large HTML documents.
@@ -393,7 +472,9 @@ function extractHtmlMetadata(html: string): {
       2,
     );
 
-  return { title, description };
+  const markdownAlternateHref = findMarkdownAlternateHref(searchRegion);
+
+  return { title, description, markdownAlternateHref };
 }
 
 async function readResponseText(
@@ -462,10 +543,12 @@ function formatWebFetchOutput(params: {
   notices: string[];
   raw: boolean;
   markdown?: boolean;
+  markdownSniffed?: boolean;
   markdownTokens?: string;
 }): string {
   let mode = "extracted";
-  if (params.markdown) mode = "markdown";
+  if (params.markdown)
+    mode = params.markdownSniffed ? "markdown (sniffed)" : "markdown";
   else if (params.raw) mode = "raw";
 
   const lines: string[] = [
@@ -583,8 +666,13 @@ export async function executeWebFetch(
     );
 
     const requestHeaders = {
+      // Prefer markdown for LLM consumption: the standardized type (text/markdown,
+      // RFC 7763) is the implicit q=1.0 winner, with legacy/experimental variants
+      // close behind, then HTML, then plain text. Many doc sites (Anthropic,
+      // Stripe, Mintlify-based, etc.) honor this and serve markdown directly,
+      // saving us a HTML→text extraction step and producing cleaner agent input.
       Accept:
-        "text/markdown, text/html;q=0.9, application/xhtml+xml;q=0.9, text/plain;q=0.8, application/json;q=0.7, */*;q=0.6",
+        "text/markdown, application/markdown;q=0.95, text/x-markdown;q=0.95, text/html;q=0.9, application/xhtml+xml;q=0.9, text/plain;q=0.8, application/json;q=0.7, */*;q=0.6",
       "Accept-Encoding": "identity",
       "User-Agent":
         process.env.HTTP_USER_AGENT ||
@@ -741,10 +829,24 @@ export async function executeWebFetch(
     }
 
     const body = await readResponseText(response, MAX_DOWNLOAD_BYTES);
-    const markdown = isMarkdownContentType(contentType);
+    const explicitMarkdown = isMarkdownContentType(contentType);
     const html =
-      !markdown && (isHtmlContentType(contentType) || looksLikeHtml(body.text));
-    const metadata = html ? extractHtmlMetadata(body.text) : {};
+      !explicitMarkdown &&
+      (isHtmlContentType(contentType) || looksLikeHtml(body.text));
+    // Content sniff: when the server returned an ambiguous content type
+    // (text/plain or none) and the body looks unambiguously like markdown,
+    // treat it as markdown rather than collapsing whitespace via the plain
+    // text path. This rescues common cases like raw GitHub `.md` URLs which
+    // serve markdown as `text/plain; charset=utf-8`.
+    const sniffedMarkdown =
+      !explicitMarkdown && !html && looksLikeMarkdown(body.text);
+    const markdown = explicitMarkdown || sniffedMarkdown;
+
+    const metadata: {
+      title?: string;
+      description?: string;
+      markdownAlternateHref?: string;
+    } = html ? extractHtmlMetadata(body.text) : {};
     const markdownTokens =
       response.headers.get("x-markdown-tokens") ?? undefined;
 
@@ -778,9 +880,30 @@ export async function executeWebFetch(
         `start_index (${startIndex}) exceeded available content length (${processed.length}).`,
       );
     }
+    if (sniffedMarkdown) {
+      notices.push(
+        `Content type was "${contentType || "unknown"}" but the body looks like markdown - treating as markdown.`,
+      );
+    }
     if (html && !rawMode && processed.length < 200) {
       notices.push(
         `Extracted text content is very short (${processed.length} characters). The page may require JavaScript rendering for full content.`,
+      );
+    }
+    if (html && metadata.markdownAlternateHref) {
+      let resolvedHref = metadata.markdownAlternateHref;
+      try {
+        resolvedHref = new URL(metadata.markdownAlternateHref, currentUrl)
+          .href;
+      } catch {
+        // Keep the raw href if it can't be resolved as an absolute URL.
+      }
+      const safeAlternate = sanitizeUrlStringForOutput(
+        resolvedHref,
+        currentUrl,
+      );
+      notices.push(
+        `Page advertises a markdown alternate at ${safeAlternate} - re-fetch that URL for cleaner content.`,
       );
     }
 
@@ -800,6 +923,7 @@ export async function executeWebFetch(
       notices,
       raw: rawMode,
       markdown,
+      markdownSniffed: sniffedMarkdown,
       markdownTokens,
     });
 
