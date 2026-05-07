@@ -90,11 +90,7 @@ struct GuardianChannelsDetailView: View {
     }
 
     private var visibleTypes: [String] {
-        let isGuardian = displayContact.role == "guardian"
-        if isGuardian {
-            return Self.allChannelTypes
-        }
-        // For contacts, only show channels the assistant has configured.
+        // Show only channels the assistant has configured (ready/incomplete).
         return Self.allChannelTypes.filter { type in
             let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
             guard !hasExisting else { return true }
