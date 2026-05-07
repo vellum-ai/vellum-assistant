@@ -180,4 +180,36 @@ describe("loadRawConfig corrupt-file recovery", () => {
     expect(raw).toEqual({ foo: "bar", nested: { k: 1 } });
     expect(listQuarantinedFiles()).toHaveLength(0);
   });
+
+  // ---------------------------------------------------------------------------
+  // Shape-mismatch quarantine — JSON.parse can succeed on `null`, primitives,
+  // and arrays, all of which violate the function's `Record<string, unknown>`
+  // return-type contract. These cases must be quarantined the same way as a
+  // syntax error so callers (e.g. /v1/config handlers) can iterate the result
+  // safely without runtime shape checks.
+  // ---------------------------------------------------------------------------
+
+  test.each([
+    ["null at the top level", "null"],
+    ["a JSON number", "42"],
+    ["a JSON string", '"hello"'],
+    ["a JSON boolean", "true"],
+    ["a JSON array", '["provider", "anthropic"]'],
+  ])(
+    "quarantines when config.json contains %s and returns {}",
+    (_label, jsonText) => {
+      writeFileSync(CONFIG_PATH, jsonText);
+
+      // Must not throw — same contract as the syntax-error path.
+      const raw = loadRawConfig();
+
+      expect(raw).toEqual({});
+      const quarantined = listQuarantinedFiles();
+      expect(quarantined).toHaveLength(1);
+      // Original wrong-shape content is preserved for debugging.
+      expect(readFileSync(join(WORKSPACE_DIR, quarantined[0]), "utf-8")).toBe(
+        jsonText,
+      );
+    },
+  );
 });
