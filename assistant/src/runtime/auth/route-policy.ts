@@ -137,6 +137,18 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations/wake", scopes: ["chat.write"] },
 
   { endpoint: "conversations/inference-profile", scopes: ["chat.write"] },
+  {
+    endpoint: "conversations/inference-profile-session/open",
+    scopes: ["chat.write"],
+  },
+  {
+    endpoint: "conversations/inference-profile-session/close",
+    scopes: ["chat.write"],
+  },
+  {
+    endpoint: "conversations/inference-profile-sessions",
+    scopes: ["chat.read"],
+  },
   { endpoint: "conversations/cancel", scopes: ["chat.write"] },
   { endpoint: "conversations/undo", scopes: ["chat.write"] },
   { endpoint: "conversations/regenerate", scopes: ["chat.write"] },
