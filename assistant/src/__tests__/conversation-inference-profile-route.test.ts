@@ -104,16 +104,16 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     subscription.dispose();
   });
 
-  test("rejects unknown profile names with BadRequestError", () => {
+  test("rejects unknown profile names with BadRequestError", async () => {
     const conversation = createConversation("inference-profile-unknown");
 
-    expect(() =>
+    await expect(
       profileRoute.handler({
         pathParams: { id: conversation.id },
         body: { profile: "does-not-exist" },
         headers: {},
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
     expect(getConversation(conversation.id)?.inferenceProfile).toBeNull();
   });
 
@@ -193,13 +193,13 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     subscription.dispose();
   });
 
-  test("throws NotFoundError when the conversation does not exist", () => {
-    expect(() =>
+  test("throws NotFoundError when the conversation does not exist", async () => {
+    await expect(
       profileRoute.handler({
         pathParams: { id: "missing" },
         body: { profile: "balanced" },
         headers: {},
       }),
-    ).toThrow(NotFoundError);
+    ).rejects.toThrow(NotFoundError);
   });
 });

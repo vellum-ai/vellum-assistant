@@ -1231,6 +1231,10 @@ export function unarchiveConversation(id: string): boolean {
  * Set or clear the inference profile override for a conversation.
  * Pass `null` to clear the override and fall back to the workspace
  * `llm.activeProfile` resolution.
+ *
+ * Also clears any stale session columns (`inferenceProfileSessionId`,
+ * `inferenceProfileExpiresAt`) so that the reaper and lazy expiry check
+ * cannot later clobber the newly-set profile.
  */
 export function setConversationInferenceProfile(
   conversationId: string,
@@ -1238,7 +1242,12 @@ export function setConversationInferenceProfile(
 ): void {
   const db = getDb();
   db.update(conversations)
-    .set({ inferenceProfile: profile, updatedAt: Date.now() })
+    .set({
+      inferenceProfile: profile,
+      inferenceProfileSessionId: null,
+      inferenceProfileExpiresAt: null,
+      updatedAt: Date.now(),
+    })
     .where(eq(conversations.id, conversationId))
     .run();
 }
@@ -1275,36 +1284,29 @@ export function clearExpiredInferenceProfiles(
   now: number,
 ): Array<{ conversationId: string; sessionId: string | null }> {
   const raw = getSqliteFrom(getDb());
-  // Step 1: capture session IDs BEFORE clearing (SQLite RETURNING shows post-update values,
-  // so we must read the old values first).
-  const expired = raw
-    .prepare(
-      `SELECT id AS conversationId, inference_profile_session_id AS sessionId
-       FROM conversations
-       WHERE inference_profile_expires_at IS NOT NULL
-         AND inference_profile_expires_at <= ?`,
-    )
-    .all(now) as Array<{ conversationId: string; sessionId: string | null }>;
+  // Two-step approach: SELECT to get pre-clear sessionIds, then UPDATE.
+  // The UPDATE re-applies the WHERE condition for CAS safety.
+  // RETURNING the id lets us know which rows were actually cleared.
+  const expired = raw.prepare(`
+    SELECT id AS conversationId, inference_profile_session_id AS sessionId
+    FROM conversations
+    WHERE inference_profile_expires_at IS NOT NULL AND inference_profile_expires_at <= ?
+  `).all(now) as Array<{ conversationId: string; sessionId: string | null }>;
 
   if (expired.length === 0) return [];
 
-  // Step 2: clear them. Re-apply the same WHERE conditions to preserve CAS protection:
-  // any mid-scan write that updated expires_at to a future value won't match.
   const ids = expired.map((r) => r.conversationId);
   const placeholders = ids.map(() => "?").join(", ");
-  raw
-    .prepare(
-      `UPDATE conversations
-       SET inference_profile = NULL,
-           inference_profile_session_id = NULL,
-           inference_profile_expires_at = NULL
-       WHERE id IN (${placeholders})
-         AND inference_profile_expires_at IS NOT NULL
-         AND inference_profile_expires_at <= ?`,
-    )
-    .run(...ids, now);
 
-  return expired;
+  const actuallyCleared = raw.prepare(`
+    UPDATE conversations
+    SET inference_profile = NULL, inference_profile_session_id = NULL, inference_profile_expires_at = NULL
+    WHERE id IN (${placeholders}) AND inference_profile_expires_at IS NOT NULL AND inference_profile_expires_at <= ?
+    RETURNING id AS conversationId
+  `).all(...ids, now) as Array<{ conversationId: string }>;
+
+  const clearedSet = new Set(actuallyCleared.map((r) => r.conversationId));
+  return expired.filter((r) => clearedSet.has(r.conversationId));
 }
 
 /**
@@ -1323,6 +1325,7 @@ export function listActiveInferenceProfileSessions(
   const db = getDb();
   const now = Date.now();
   const baseConditions = [
+    isNotNull(conversations.inferenceProfile),
     isNotNull(conversations.inferenceProfileExpiresAt),
     gt(conversations.inferenceProfileExpiresAt, now),
     isNotNull(conversations.inferenceProfileSessionId),

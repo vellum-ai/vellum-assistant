@@ -37,7 +37,7 @@ let reaperInProgress = false;
 export function tickInferenceProfileReaper(): void {
   const now = Date.now();
   const cleared = clearExpiredInferenceProfiles(now);
-  for (const { conversationId, sessionId } of cleared) {
+  for (const { conversationId } of cleared) {
     assistantEventHub
       .publish(
         buildAssistantEvent(
@@ -45,7 +45,7 @@ export function tickInferenceProfileReaper(): void {
             type: "conversation_inference_profile_updated",
             conversationId,
             profile: null,
-            sessionId,
+            sessionId: null,
             expiresAt: null,
           },
           conversationId,
