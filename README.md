@@ -107,6 +107,7 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 | Section | What's covered |
 |---------|---------------|
+| [Glossary](https://vellum.ai/docs/glossary) | Shared vocabulary — concepts, roles, and terms used across the docs and codebase ([`GLOSSARY.md`](GLOSSARY.md)) |
 | [Architecture](https://vellum.ai/docs/developer-guide/architecture) | Platform domains, repo structure, runtime · clients · gateway |
 | [Security & Permissions](https://vellum.ai/docs/developer-guide/security) | Sandbox, credentials, trust rules, permission modes |
 | [Features & Capabilities](https://vellum.ai/docs/developer-guide/features) | Integrations, dynamic skills, browser, attachments, media embeds |

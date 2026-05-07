@@ -2,7 +2,7 @@
 
 Words shape perception. The language we use defines how people think about what we're building. This glossary establishes shared meaning across the company so that when we say a word, everyone understands the same thing.
 
-This is the canonical, repo-level reference. The same definitions are surfaced in the public docs at <https://www.vellum.ai/docs/key-concepts/glossary>.
+This is the canonical, repo-level reference. The same definitions are surfaced in the public docs at <https://www.vellum.ai/docs/glossary>.
 
 ---
 
