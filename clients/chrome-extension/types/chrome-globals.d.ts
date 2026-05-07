@@ -115,12 +115,36 @@ interface ChromeRuntimeManifest {
   [key: string]: unknown;
 }
 
+interface ChromeRuntimeOnInstalledDetails {
+  reason: "install" | "update" | "chrome_update" | "shared_module_update";
+  previousVersion?: string;
+  id?: string;
+}
+
+interface ChromeRuntimeOnInstalledEvent {
+  addListener(
+    listener: (details: ChromeRuntimeOnInstalledDetails) => void,
+  ): void;
+  removeListener(
+    listener: (details: ChromeRuntimeOnInstalledDetails) => void,
+  ): void;
+}
+
+interface ChromeRuntimeOnStartupEvent {
+  addListener(listener: () => void): void;
+  removeListener(listener: () => void): void;
+}
+
 interface ChromeRuntimeNamespace {
   /** The ID of the extension. */
   readonly id: string;
   readonly lastError: ChromeRuntimeLastError | undefined;
   connectNative(application: string): ChromeRuntimePort;
   onMessage: ChromeRuntimeOnMessageEvent;
+  /** Fired when the extension is first installed, updated, or when Chrome itself is updated. */
+  onInstalled: ChromeRuntimeOnInstalledEvent;
+  /** Fired when a profile that has this extension installed first starts up. */
+  onStartup: ChromeRuntimeOnStartupEvent;
   // Generic over the response type so callers can narrow the callback
   // argument without casting. Matches the de-facto shape used by the
   // official @types/chrome package.
@@ -131,6 +155,33 @@ interface ChromeRuntimeNamespace {
   getManifest(): ChromeRuntimeManifest;
   /** Resolve a path relative to the extension root into an absolute chrome-extension:// URL. */
   getURL(path: string): string;
+}
+
+interface ChromeAlarm {
+  name: string;
+  scheduledTime: number;
+  periodInMinutes?: number;
+}
+
+interface ChromeAlarmCreateInfo {
+  /** Absolute time (epoch ms) at which the first alarm should fire. */
+  when?: number;
+  /** Delay before the first alarm fires, in minutes. Mutually exclusive with `when`. */
+  delayInMinutes?: number;
+  /** If set, the alarm fires repeatedly at this interval after the first fire. */
+  periodInMinutes?: number;
+}
+
+interface ChromeAlarmsOnAlarmEvent {
+  addListener(listener: (alarm: ChromeAlarm) => void): void;
+  removeListener(listener: (alarm: ChromeAlarm) => void): void;
+}
+
+interface ChromeAlarmsNamespace {
+  create(name: string, alarmInfo: ChromeAlarmCreateInfo): Promise<void>;
+  get(name: string): Promise<ChromeAlarm | undefined>;
+  clear(name: string): Promise<boolean>;
+  onAlarm: ChromeAlarmsOnAlarmEvent;
 }
 
 interface ChromeTab {
@@ -276,6 +327,7 @@ interface ChromeActionNamespace {
 
 interface ChromeGlobal {
   action: ChromeActionNamespace;
+  alarms: ChromeAlarmsNamespace;
   storage: ChromeStorageNamespace;
   identity: ChromeIdentityNamespace;
   runtime: ChromeRuntimeNamespace;
