@@ -11,7 +11,8 @@ import type { ChannelId } from "./types.js";
 export type ConversationStrategy =
   | "start_new_conversation"
   | "continue_existing_conversation"
-  | "not_deliverable";
+  | "not_deliverable"
+  | "push_only";
 
 export interface ChannelInvitePolicy {
   /** Whether inbound invite code redemption is supported on this channel. */
@@ -76,9 +77,9 @@ const CHANNEL_POLICIES = {
     notification: {
       deliveryEnabled: true,
       // Platform is a push-only relay — conversations are owned by the vellum
-      // channel. Using not_deliverable prevents pairDeliveryWithConversation
-      // from creating orphaned user-visible conversations on every push.
-      conversationStrategy: "not_deliverable",
+      // channel. push_only skips pairDeliveryWithConversation without implying
+      // the channel is non-deliverable (which not_deliverable would).
+      conversationStrategy: "push_only",
     },
     invite: {
       codeRedemptionEnabled: false,

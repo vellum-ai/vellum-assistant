@@ -71,6 +71,7 @@ describe("channel policy registry", () => {
       "start_new_conversation",
       "continue_existing_conversation",
       "not_deliverable",
+      "push_only",
     ]);
 
     for (const channelId of CHANNEL_IDS) {
@@ -101,6 +102,7 @@ describe("channel policy registry", () => {
       ["telegram", "continue_existing_conversation"],
       ["slack", "continue_existing_conversation"],
       ["phone", "not_deliverable"],
+      ["platform", "push_only"],
     ];
 
     for (const [channelId, expected] of expectedStrategies) {
@@ -113,6 +115,7 @@ describe("channel policy registry", () => {
       "start_new_conversation",
       "continue_existing_conversation",
       "not_deliverable",
+      "push_only",
     ]);
 
     for (const channelId of CHANNEL_IDS) {
@@ -145,6 +148,15 @@ describe("channel policy registry", () => {
       const policy = getChannelPolicy(channelId);
       if (policy.notification.conversationStrategy === "not_deliverable") {
         expect(policy.notification.deliveryEnabled).toBe(false);
+      }
+    }
+  });
+
+  test("channels with push_only strategy have deliveryEnabled: true", () => {
+    for (const channelId of CHANNEL_IDS) {
+      const policy = getChannelPolicy(channelId);
+      if (policy.notification.conversationStrategy === "push_only") {
+        expect(policy.notification.deliveryEnabled).toBe(true);
       }
     }
   });
