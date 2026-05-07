@@ -334,7 +334,7 @@ final class ConversationListStore {
             unseenScheduledCount = currentScheduledUnseen
         }
 
-        let currentLookup = Dictionary(uniqueKeysWithValues: conversations.map { ($0.id, $0) })
+        let currentLookup = Dictionary(conversations.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         if conversationsByLocalId != currentLookup { conversationsByLocalId = currentLookup }
 
         // Bucket visible conversations by group in a single pass (O(N)).
