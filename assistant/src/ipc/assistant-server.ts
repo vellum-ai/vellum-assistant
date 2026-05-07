@@ -53,6 +53,10 @@ import {
   writeStreamEnd,
 } from "./ipc-framing.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
+import {
+  type DbProxyTransactionParams,
+  handleDbProxyTransaction,
+} from "./routes/db-proxy-transaction.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
@@ -167,12 +171,16 @@ export class AssistantIpcServer {
       this.methods.set(route.operationId, route.handler);
     }
 
-    // ⚠️  TEMPORARY — gateway→assistant DB proxy (see ipc/routes/db-proxy.ts).
-    // This is the ONLY route defined directly here; all other routes go in ROUTES.
-    // Remove once contacts/guardian-binding logic is fully migrated to the
-    // gateway's own database.
+    // ⚠️  TEMPORARY — gateway→assistant DB proxies (see ipc/routes/db-proxy.ts
+    // and ipc/routes/db-proxy-transaction.ts). These are the ONLY routes
+    // defined directly here; all other routes go in ROUTES. Remove once
+    // contacts/guardian-binding logic is fully migrated to the gateway's
+    // own database.
     this.methods.set("db_proxy", (params) =>
       handleDbProxy(params as unknown as DbProxyParams),
+    );
+    this.methods.set("db_proxy_transaction", (params) =>
+      handleDbProxyTransaction(params as unknown as DbProxyTransactionParams),
     );
 
     this.watchdog = new SocketWatchdog({
