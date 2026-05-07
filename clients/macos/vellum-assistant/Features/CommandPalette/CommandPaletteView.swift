@@ -371,8 +371,6 @@ struct CommandPaletteView: View {
         case .conversation(let conv):
             onSelectConversation?(conv.id)
             onDismiss()
-        case .memory:
-            break
         case .schedule, .contact:
             // Non-navigable results — no action on Enter
             break
