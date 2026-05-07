@@ -137,11 +137,26 @@ struct TTSServiceCard: View {
             testPlayer.stop()
         }
         .task {
-            // Pull the daemon's current api_key inventory so the api-key
-            // branch of `ttsCredentialExists` reports correctly. Re-evaluate
+            // Pull the current api_key inventory so the api-key branch of
+            // `ttsCredentialExists` reports correctly. Re-evaluate
             // `ttsProviderHasKey` after refresh lands since `.onAppear` runs
-            // first with whatever snapshot the store happens to hold.
-            await store.refreshDaemonProviderKeys()
+            // first with whatever snapshot the store happens to hold. The
+            // credential-mode branch reads keychain directly so it doesn't
+            // need the providerKeys cache, but the cache fallback below still
+            // helps the api-key branch on first-load transport failure.
+            let refreshed = await store.refreshProviderKeys()
+            if !refreshed && store.providerKeys.isEmpty {
+                // Per-provider fallback only matters for api-key mode; the
+                // credential-mode branch of `ttsCredentialExists` reads
+                // keychain so it's already correct without a refresh.
+                let entry = loadTTSProviderRegistry().provider(withId: draftTTSProvider)
+                if case .apiKey = entry?.credentialMode {
+                    let keyProvider = entry?.apiKeyProviderName ?? draftTTSProvider
+                    if await APIKeyManager.hasKey(for: keyProvider) {
+                        store.insertProviderKey(keyProvider)
+                    }
+                }
+            }
             ttsProviderHasKey = store.ttsCredentialExists(for: draftTTSProvider)
         }
         .onAppear {
