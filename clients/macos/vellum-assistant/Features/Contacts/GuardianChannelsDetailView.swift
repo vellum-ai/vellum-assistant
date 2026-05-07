@@ -90,7 +90,17 @@ struct GuardianChannelsDetailView: View {
     }
 
     private var visibleTypes: [String] {
-        Self.allChannelTypes
+        let isGuardian = displayContact.role == "guardian"
+        if isGuardian {
+            return Self.allChannelTypes
+        }
+        // For contacts, only show channels the assistant has configured.
+        return Self.allChannelTypes.filter { type in
+            let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
+            guard !hasExisting else { return true }
+            guard let info = channelReadiness[type] else { return false }
+            return info.ready || info.setupStatus == "ready" || info.setupStatus == "incomplete"
+        }
     }
 
     /// Channel content rows. The parent SettingsCard provides the "Channels" title/subtitle header.
