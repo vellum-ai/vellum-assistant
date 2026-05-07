@@ -355,6 +355,12 @@ export const LLMSchema = z
     // schema level, so `LLMSchema.parse({})` yields an empty map.
     callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
     activeProfile: z.string().min(1).optional(),
+    profileSession: z
+      .object({
+        defaultTtlSeconds: z.number().int().min(1).default(1800),
+        maxTtlSeconds: z.number().int().min(1).default(43200),
+      })
+      .default({ defaultTtlSeconds: 1800, maxTtlSeconds: 43200 }),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {

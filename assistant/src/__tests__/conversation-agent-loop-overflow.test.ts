@@ -76,6 +76,7 @@ const defaultLlmConfig: LLMConfig = {
   profiles: {},
   profileOrder: [],
   callSites: {},
+  profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
   pricingOverrides: [],
 };
 
