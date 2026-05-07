@@ -50,6 +50,10 @@ When adding a new dependency:
 
 All `uses:` steps in `.github/workflows/**` and `.github/actions/**` must pin to a 40-character commit SHA with a trailing `# vX.Y.Z` comment (e.g. `actions/checkout@a1b2c3... # v6.0.2`). Never use a bare major tag (`@v6`) or a floating version tag (`@v6.0.2`) on its own — SHAs are immutable while tags can be force-moved, so SHA pinning is the GitHub security-hardening recommendation. To upgrade: look up the new tag's commit SHA with `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, then replace both the SHA and the trailing comment. For actions that don't publish `vX.Y.Z` tags (e.g. `dawidd6/action-download-artifact`, which tags only bare majors), pin to the SHA with a `# vN` trailing comment instead.
 
+### Workflow duplication
+
+`dev-release.yaml` and `release.yml` share duplicated logic (e.g. the "Compute migration ceilings" inline Node script). When fixing or changing logic that appears in both workflows, apply the change to both files in the same PR. Search for the same code block in the other workflow before marking the fix complete.
+
 ### iOS release dispatch
 
 The release workflows (`dev-release.yaml`, `release.yml`) include `dispatch-ios-release` jobs that fire a [`repository_dispatch`](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#repository_dispatch) event to [`vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform) to trigger iOS Capacitor builds. The dispatch carries `environment` (dev/staging/production) and `version` in the payload. The receiving workflow [`release-ios.yaml`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/.github/workflows/release-ios.yaml) handles those events. Full environment mapping is documented in [`web/ios/README.md`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/ios/README.md#ci--release-pipeline) in the platform repo.
