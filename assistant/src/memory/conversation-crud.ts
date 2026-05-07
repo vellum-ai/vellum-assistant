@@ -9,6 +9,7 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   isNull,
   like,
   lt,
@@ -45,7 +46,7 @@ import {
 } from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
-import { getDb } from "./db-connection.js";
+import { getDb, getSqliteFrom } from "./db-connection.js";
 import { indexMessageNow } from "./indexer.js";
 import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
@@ -186,6 +187,8 @@ export interface ConversationRow {
   lastMessageAt: number | null;
   archivedAt: number | null;
   inferenceProfile: string | null;
+  inferenceProfileSessionId: string | null;
+  inferenceProfileExpiresAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -216,6 +219,8 @@ export const parseConversation = createRowMapper<
   lastMessageAt: "lastMessageAt",
   archivedAt: "archivedAt",
   inferenceProfile: "inferenceProfile",
+  inferenceProfileSessionId: "inferenceProfileSessionId",
+  inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
 });
 
 export interface MessageRow {
@@ -1239,6 +1244,112 @@ export function setConversationInferenceProfile(
 }
 
 /**
+ * Atomically set the inference profile, session id, and expiry timestamp for
+ * a conversation. Pass `null` for all three to clear the session-backed
+ * override and fall back to the workspace `llm.activeProfile` resolution.
+ */
+export function setConversationInferenceProfileSession(
+  conversationId: string,
+  profile: string | null,
+  sessionId: string | null,
+  expiresAt: number | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      inferenceProfile: profile,
+      inferenceProfileSessionId: sessionId,
+      inferenceProfileExpiresAt: expiresAt,
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+/**
+ * Clear all conversations whose session-backed inference profile has expired.
+ * Returns an array of `{ conversationId, sessionId }` for each cleared row so
+ * callers can emit the appropriate update events.
+ */
+export function clearExpiredInferenceProfiles(
+  now: number,
+): Array<{ conversationId: string; sessionId: string | null }> {
+  const raw = getSqliteFrom(getDb());
+  // Step 1: capture session IDs BEFORE clearing (SQLite RETURNING shows post-update values,
+  // so we must read the old values first).
+  const expired = raw
+    .prepare(
+      `SELECT id AS conversationId, inference_profile_session_id AS sessionId
+       FROM conversations
+       WHERE inference_profile_expires_at IS NOT NULL
+         AND inference_profile_expires_at <= ?`,
+    )
+    .all(now) as Array<{ conversationId: string; sessionId: string | null }>;
+
+  if (expired.length === 0) return [];
+
+  // Step 2: clear them. Re-apply the same WHERE conditions to preserve CAS protection:
+  // any mid-scan write that updated expires_at to a future value won't match.
+  const ids = expired.map((r) => r.conversationId);
+  const placeholders = ids.map(() => "?").join(", ");
+  raw
+    .prepare(
+      `UPDATE conversations
+       SET inference_profile = NULL,
+           inference_profile_session_id = NULL,
+           inference_profile_expires_at = NULL
+       WHERE id IN (${placeholders})
+         AND inference_profile_expires_at IS NOT NULL
+         AND inference_profile_expires_at <= ?`,
+    )
+    .run(...ids, now);
+
+  return expired;
+}
+
+/**
+ * List conversations with an active (non-expired) session-backed inference
+ * profile. Pass a `conversationId` to narrow to a single conversation.
+ */
+export function listActiveInferenceProfileSessions(
+  conversationId?: string,
+): Array<{
+  conversationId: string;
+  conversationTitle: string | null;
+  profile: string;
+  sessionId: string;
+  expiresAt: number;
+}> {
+  const db = getDb();
+  const now = Date.now();
+  const baseConditions = [
+    isNotNull(conversations.inferenceProfileExpiresAt),
+    gt(conversations.inferenceProfileExpiresAt, now),
+    isNotNull(conversations.inferenceProfileSessionId),
+  ];
+  if (conversationId) {
+    baseConditions.push(eq(conversations.id, conversationId));
+  }
+  return db
+    .select({
+      conversationId: conversations.id,
+      conversationTitle: conversations.title,
+      profile: conversations.inferenceProfile,
+      sessionId: conversations.inferenceProfileSessionId,
+      expiresAt: conversations.inferenceProfileExpiresAt,
+    })
+    .from(conversations)
+    .where(and(...baseConditions))
+    .all() as Array<{
+      conversationId: string;
+      conversationTitle: string | null;
+      profile: string;
+      sessionId: string;
+      expiresAt: number;
+    }>;
+}
+
+/**
  * Resolve the per-turn inference-profile override from an already-loaded
  * conversation row. Returns the row's `inferenceProfile` for non-background
  * conversations, `undefined` otherwise — background turns (subagent fan-out,
@@ -1252,6 +1363,15 @@ export function getConversationOverrideProfileFromRow(
   conv: ConversationRow | null,
 ): string | undefined {
   if (conv?.conversationType === "background") return undefined;
+  // Treat an expired session as if the override is absent. The eager reaper
+  // clears the row and emits the update event; the lazy check here ensures
+  // correctness on read paths before the reaper fires.
+  if (
+    conv?.inferenceProfileExpiresAt != null &&
+    conv.inferenceProfileExpiresAt < Date.now()
+  ) {
+    return undefined;
+  }
   return conv?.inferenceProfile ?? undefined;
 }
 

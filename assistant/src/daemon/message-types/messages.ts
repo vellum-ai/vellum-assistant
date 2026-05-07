@@ -370,6 +370,8 @@ export interface ConversationInferenceProfileUpdated {
   type: "conversation_inference_profile_updated";
   conversationId: string;
   profile: string | null;
+  sessionId?: string | null;
+  expiresAt?: number | null;
 }
 
 export type TraceEventKind =
