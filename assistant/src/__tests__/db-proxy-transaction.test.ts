@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { handleDbProxyTransaction } from "../ipc/routes/db-proxy-transaction.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { RouteError } from "../runtime/routes/errors.js";
 
 initializeDb();
 
@@ -65,7 +66,8 @@ describe("db_proxy_transaction", () => {
       .prepare("INSERT INTO proxy_tx_test (id, label) VALUES (?, ?)")
       .run(2, "preexisting");
 
-    expect(() =>
+    let caught: unknown;
+    try {
       handleDbProxyTransaction({
         steps: [
           {
@@ -78,8 +80,23 @@ describe("db_proxy_transaction", () => {
             bind: [2, "beta"],
           },
         ],
-      }),
-    ).toThrow();
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    // The thrown error must be a RouteError carrying the underlying SQL
+    // message — without the wrapping, the IPC envelope would lose the
+    // statusCode and the gateway-side strict caller would misclassify
+    // this as a transport failure ("assistant may not be ready").
+    expect(caught).toBeInstanceOf(RouteError);
+    if (caught instanceof RouteError) {
+      expect(caught.code).toBe("DB_PROXY_TRANSACTION_FAILED");
+      expect(caught.statusCode).toBe(500);
+      // The original SQL constraint message must survive the wrap so
+      // operators can debug from the gateway logs.
+      expect(caught.message).toMatch(/UNIQUE|PRIMARY KEY|constraint/i);
+    }
 
     // The first step's insert must NOT have committed.
     expect(rowCount()).toBe(1);
@@ -156,10 +173,19 @@ describe("db_proxy_transaction", () => {
     expect(updated.count).toBe(1);
   });
 
-  test("rejects empty step list", () => {
-    expect(() => handleDbProxyTransaction({ steps: [] })).toThrow(
-      /at least one step/,
-    );
+  test("rejects empty step list with a 400 RouteError", () => {
+    let caught: unknown;
+    try {
+      handleDbProxyTransaction({ steps: [] });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RouteError);
+    if (caught instanceof RouteError) {
+      expect(caught.statusCode).toBe(400);
+      expect(caught.code).toBe("INVALID_PARAMS");
+      expect(caught.message).toMatch(/at least one step/);
+    }
   });
 
   test("returns lastInsertRowid for inserts", () => {
