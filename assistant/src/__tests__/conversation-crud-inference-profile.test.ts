@@ -9,7 +9,9 @@ mock.module("../util/logger.js", () => ({
 import {
   createConversation,
   getConversation,
+  getConversationOverrideProfileFromRow,
   setConversationInferenceProfile,
+  setConversationInferenceProfileSession,
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -50,5 +52,48 @@ describe("setConversationInferenceProfile", () => {
     await setConversationInferenceProfile(conv.id, "cost-optimized");
     const updated = getConversation(conv.id);
     expect(updated).toHaveProperty("inferenceProfile", "cost-optimized");
+  });
+});
+
+describe("getConversationOverrideProfileFromRow — lazy expiry check", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  test("returns undefined when inferenceProfileExpiresAt is in the past", () => {
+    const conv = createConversation("inference-profile-expired");
+    // Set a session-backed profile with an already-expired timestamp.
+    setConversationInferenceProfileSession(
+      conv.id,
+      "balanced",
+      "session-uuid-1",
+      Date.now() - 1,
+    );
+    const row = getConversation(conv.id);
+    expect(row).not.toBeNull();
+    expect(getConversationOverrideProfileFromRow(row)).toBeUndefined();
+  });
+
+  test("returns the profile when inferenceProfileExpiresAt is in the future", () => {
+    const conv = createConversation("inference-profile-active-session");
+    setConversationInferenceProfileSession(
+      conv.id,
+      "balanced",
+      "session-uuid-2",
+      Date.now() + 60_000,
+    );
+    const row = getConversation(conv.id);
+    expect(row).not.toBeNull();
+    expect(getConversationOverrideProfileFromRow(row)).toBe("balanced");
+  });
+
+  test("returns the profile when no expiry is set (non-session override)", () => {
+    const conv = createConversation("inference-profile-no-expiry");
+    setConversationInferenceProfileSession(conv.id, "quality-optimized", null, null);
+    const row = getConversation(conv.id);
+    expect(row).not.toBeNull();
+    expect(getConversationOverrideProfileFromRow(row)).toBe("quality-optimized");
   });
 });
