@@ -7,8 +7,7 @@
 //
 //   - `memory_v2_migrate`              — one-shot v1→v2 synthesis (PR 16).
 //   - `memory_v2_reembed`              — fan out an `embed_concept_page` job
-//     per slug, plus four reserved-slug jobs for the meta files
-//     (`__essentials__`, `__threads__`, `__recent__`, `__buffer__`).
+//     per concept-page slug.
 //   - `memory_v2_activation_recompute` — recompute persisted activation
 //     state for every conversation, no rendering. Used after consolidation
 //     replaces or deletes pages that other conversations still reference.
@@ -44,21 +43,6 @@ import {
 import { listPages } from "./page-store.js";
 
 const log = getLogger("memory-v2-backfill");
-
-/**
- * Reserved slugs the reembed job enqueues alongside the concept-page slugs.
- * These name the four prose meta files (essentials/threads/recent/buffer)
- * loaded into the system prompt by PR 11. Embedding them is forward-looking
- * — the existing `embed-concept-page` handler treats unknown slugs as
- * deletions (a no-op when no embedding exists), so enqueueing here is safe
- * regardless of whether the meta files are ever embedded for retrieval.
- */
-export const META_FILE_SLUGS = [
-  "__essentials__",
-  "__threads__",
-  "__recent__",
-  "__buffer__",
-] as const;
 
 // ---------------------------------------------------------------------------
 // memory_v2_migrate — wraps runMemoryV2Migration
@@ -110,12 +94,18 @@ export async function memoryV2MigrateJob(
 // ---------------------------------------------------------------------------
 
 /**
- * Job handler: enqueue an `embed_concept_page` job per concept-page slug, plus
- * one job per reserved meta-file slug ({@link META_FILE_SLUGS}).
+ * Job handler: enqueue an `embed_concept_page` job per concept-page slug.
  *
- * Returns the total number of jobs enqueued — `concept-page count + 4`.
- * Callers (and tests) use the return value to assert progress without
- * inspecting the job table directly.
+ * Returns the total number of jobs enqueued. Callers (and tests) use the
+ * return value to assert progress without inspecting the job table directly.
+ *
+ * Note on meta files: `essentials.md` / `threads.md` / `recent.md` /
+ * `buffer.md` are direct-injected into the system prompt every turn via
+ * `_autoinject.md`. They are NOT enqueued for embedding here — their slugs
+ * (`__essentials__` etc.) contain underscores that the concept-page slug
+ * validator rejects (`[a-z0-9][a-z0-9-]*`), and they live at `memory/<name>.md`
+ * rather than `memory/concepts/<name>.md`, so path resolution would also miss.
+ * Embedding them would be redundant with the direct injection regardless.
  */
 export async function memoryV2ReembedJob(
   _job: MemoryJob,
@@ -127,16 +117,12 @@ export async function memoryV2ReembedJob(
   for (const slug of slugs) {
     enqueueEmbedConceptPageJob({ slug });
   }
-  for (const slug of META_FILE_SLUGS) {
-    enqueueEmbedConceptPageJob({ slug });
-  }
 
-  const total = slugs.length + META_FILE_SLUGS.length;
   log.info(
-    { conceptPages: slugs.length, metaFiles: META_FILE_SLUGS.length, total },
+    { conceptPages: slugs.length, total: slugs.length },
     "Memory v2 reembed enqueued",
   );
-  return total;
+  return slugs.length;
 }
 
 // ---------------------------------------------------------------------------

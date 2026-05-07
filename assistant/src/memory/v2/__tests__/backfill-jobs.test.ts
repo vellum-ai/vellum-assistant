@@ -208,7 +208,6 @@ const { writePage } = await import("../page-store.js");
 const { save: saveActivation, hydrate: hydrateActivation } =
   await import("../activation-store.js");
 const {
-  META_FILE_SLUGS,
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,
   memoryV2ReembedJob,
@@ -322,7 +321,7 @@ describe("memoryV2MigrateJob", () => {
 // ---------------------------------------------------------------------------
 
 describe("memoryV2ReembedJob", () => {
-  test("returns N + 4 (one per concept page plus the four meta files) and writes that many job rows", async () => {
+  test("returns N (one per concept page) and writes that many job rows", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice",
       frontmatter: { edges: [], ref_files: [] },
@@ -339,8 +338,8 @@ describe("memoryV2ReembedJob", () => {
       TEST_CONFIG,
     );
 
-    // Return value covers the contract: N concept pages + 4 meta files.
-    expect(total).toBe(2 + META_FILE_SLUGS.length);
+    // Return value covers the contract: one job per concept page.
+    expect(total).toBe(2);
 
     // Verify the slugs that were enqueued by reading the memory_jobs table.
     // Tests that mock `jobs-store.js` skip inserting rows; when this suite
@@ -349,34 +348,51 @@ describe("memoryV2ReembedJob", () => {
     // belt-and-suspenders.
     const rows = getDb().select().from(memoryJobs).all();
     if (rows.length > 0) {
-      expect(rows).toHaveLength(2 + META_FILE_SLUGS.length);
+      expect(rows).toHaveLength(2);
       const slugs = rows.map((row) => JSON.parse(row.payload).slug);
       expect(slugs).toContain("alice");
       expect(slugs).toContain("bob");
-      for (const metaSlug of META_FILE_SLUGS) {
-        expect(slugs).toContain(metaSlug);
-      }
       for (const row of rows) {
         expect(row.type).toBe("embed_concept_page");
       }
     }
   });
 
-  test("with no concept pages on disk, still enqueues the 4 meta-file jobs", async () => {
+  test("with no concept pages on disk, enqueues nothing", async () => {
     const total = await memoryV2ReembedJob(
       makeJob("memory_v2_reembed"),
       TEST_CONFIG,
     );
-    expect(total).toBe(META_FILE_SLUGS.length);
+    expect(total).toBe(0);
   });
 
-  test("uses reserved meta-file slugs (__essentials__/__threads__/__recent__/__buffer__)", () => {
-    expect([...META_FILE_SLUGS]).toEqual([
-      "__essentials__",
-      "__threads__",
-      "__recent__",
-      "__buffer__",
-    ]);
+  test("does NOT enqueue reserved meta-file slugs (regression: would fail concept-page slug validator)", async () => {
+    // The four prose meta files (essentials/threads/recent/buffer) live at
+    // `memory/<name>.md` and are direct-injected into the system prompt via
+    // `_autoinject.md`. Their underscore-bracketed slug aliases used to be
+    // enqueued for embedding here, which produced 4 stale `failed` rows on
+    // every reembed because `validateSlug` rejects underscores. Guard against
+    // a regression.
+    await writePage(tmpWorkspace, {
+      slug: "alice",
+      frontmatter: { edges: [], ref_files: [] },
+      body: "Alice.\n",
+    });
+
+    await memoryV2ReembedJob(makeJob("memory_v2_reembed"), TEST_CONFIG);
+
+    const rows = getDb().select().from(memoryJobs).all();
+    if (rows.length > 0) {
+      const slugs = rows.map((row) => JSON.parse(row.payload).slug);
+      for (const reserved of [
+        "__essentials__",
+        "__threads__",
+        "__recent__",
+        "__buffer__",
+      ]) {
+        expect(slugs).not.toContain(reserved);
+      }
+    }
   });
 });
 
