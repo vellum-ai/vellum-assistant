@@ -119,7 +119,7 @@ final class CommandPaletteViewModel {
     }
 
     private func performSearch(query: String) async -> GlobalSearchResults {
-        let params = ["q": query, "limit": "10"]
+        let params = ["q": query, "limit": "10", "categories": "conversations,schedules,contacts"]
 
         do {
             let (decoded, response): (GlobalSearchResponse?, _) = try await GatewayHTTPClient.get(
