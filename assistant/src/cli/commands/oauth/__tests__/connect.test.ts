@@ -416,14 +416,14 @@ describe("assistant oauth connect", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Managed mode: redirect_after_connect baseline
+  // Managed mode: redirect_after_connect contract
   //
-  // Regression coverage for JARVIS-731: when no caller-supplied redirect is
-  // available the platform's default ("/") resolves against HEADLESS_BASE_URL,
-  // landing the user on the Vellum marketing site instead of an OAuth
-  // completion page. The CLI must always send an explicit redirect that points
-  // to a real success surface — either a loopback page or the
-  // /account/oauth/desktop-complete route.
+  // The CLI must always send an explicit `redirect_after_connect` to the
+  // platform's OAuth start endpoint — either a loopback URL (when running
+  // on a host with the local redirect server available) or the
+  // `/account/oauth/desktop-complete` route. Falling through to the
+  // platform's own default lands the browser on a surface that does not
+  // render OAuth result params.
   // -------------------------------------------------------------------------
 
   test("managed mode with --no-browser: sends redirect_after_connect=/account/oauth/desktop-complete", async () => {

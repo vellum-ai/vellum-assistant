@@ -82,14 +82,11 @@ public final class PlatformOAuthService {
         var urlRequest = try await authenticatedRequest(url: url, method: "POST")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Default to the styled desktop OAuth-success page when no caller-supplied
-        // redirect is available. The platform's own fallback ("/") resolves against
-        // HEADLESS_BASE_URL — in production that is the marketing site
-        // (https://www.vellum.ai), which renders fine but ignores OAuth query
-        // parameters and gives the user no completion feedback. Sending
-        // "/account/oauth/desktop-complete" lands the browser on the same page the
-        // CLI's containerized branch already uses (see assistant/src/cli/commands
-        // /oauth/connect.ts), which mirrors renderOAuthCompletionPage styling.
+        // Always send an explicit `redirect_after_connect`. The platform's own
+        // default resolves against `HEADLESS_BASE_URL`, which on production is
+        // the marketing site and does not render OAuth result params.
+        // `/account/oauth/desktop-complete` is the dedicated success surface
+        // served by the web app for desktop/native OAuth completions.
         let redirectValue = redirectAfterConnect ?? "/account/oauth/desktop-complete"
         let body: [String: Any] = [
             "requested_scopes": [] as [String],

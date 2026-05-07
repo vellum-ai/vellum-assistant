@@ -223,23 +223,21 @@ Examples:
               body.requested_scopes = opts.scopes;
             }
 
-            // Baseline redirect for any caller without a more specific landing
-            // surface. The platform's own fallback ("/") resolves against
-            // HEADLESS_BASE_URL — in production that is the marketing site
-            // (https://www.vellum.ai), which silently swallows the OAuth result
-            // params and gives the user no completion feedback. The
-            // /account/oauth/desktop-complete page mirrors the styling rendered
-            // by oauth-completion-page.ts and is suitable for any browser landing.
-            // Applies to:
-            //   - --no-browser invocations (URL handed off to another surface,
-            //     e.g. an LLM embedding it in chat)
-            //   - containerized hosts where the loopback server is unreachable
-            //   - the local-host fallback if startManagedRedirectServer throws
+            // Always send an explicit `redirect_after_connect`. The platform's
+            // default resolves against HEADLESS_BASE_URL, which on production
+            // is the marketing site and does not render OAuth result params.
+            // `/account/oauth/desktop-complete` is the dedicated success page
+            // served by the web app, suitable when the post-auth browser hop
+            // happens on a surface this process does not control (e.g.
+            // `--no-browser`, containerized hosts, or any caller that just
+            // hands the URL to a third party).
             body.redirect_after_connect = "/account/oauth/desktop-complete";
 
-            // When the browser is opened locally on a host, prefer a loopback
-            // server that renders renderOAuthCompletionPage in-process so the
-            // completion page can also short-circuit the polling loop below.
+            // When the browser is opened locally on a non-containerized host,
+            // prefer a loopback URL that serves `renderOAuthCompletionPage` in
+            // this process. The loopback page lets the polling loop below
+            // short-circuit on the callback rather than waiting on the next
+            // poll tick.
             let redirectServer:
               | { redirectUrl: string; cleanup: () => void }
               | undefined;
@@ -248,7 +246,8 @@ Examples:
                 redirectServer = await startManagedRedirectServer(provider);
                 body.redirect_after_connect = redirectServer.redirectUrl;
               } catch {
-                // Non-fatal — keep the desktop-complete fallback set above.
+                // Loopback server is best-effort; the explicit fallback above
+                // still lands the user on a real success surface.
               }
             }
 
