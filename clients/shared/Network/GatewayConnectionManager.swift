@@ -98,8 +98,6 @@ public final class GatewayConnectionManager {
     /// repetitive "Health check passed" logs after the first three passes.
     @ObservationIgnored private var consecutiveHealthCheckSuccesses = 0
     func setUpdateInProgress(_ value: Bool) {
-        // Read backing storage so the guard doesn't register a tracking
-        // dependency on the same turn the property is written.
         let wasInProgress = _isUpdateInProgress
         if value != wasInProgress { isUpdateInProgress = value }
         if value && !wasInProgress {
@@ -173,10 +171,7 @@ public final class GatewayConnectionManager {
 
     public func connect() async throws {
         try await connectImpl(cancelAutoWake: true)
-        // `setConnected` coalesces writes onto the next `@MainActor` turn.
-        // Drain the in-flight task so callers can read `isConnected` /
-        // `isConnecting` synchronously after this `await` resolves.
-        await drainPendingConnectionState()
+        await awaitPendingConnectedTransitions()
     }
 
     func connectImpl(cancelAutoWake: Bool) async throws {
@@ -244,10 +239,7 @@ public final class GatewayConnectionManager {
         reconnectionTask?.cancel()
         reconnectionTask = nil
         disconnectInternal()
-        // Synchronous public API: callers expect `isConnected == false`
-        // on return, so flush the coalesced write inline rather than
-        // letting it run on the next `@MainActor` turn.
-        flushPendingConnectionStateSync()
+        flushPendingConnectedTransitions()
     }
 
     func disconnectInternal(cancelAutoWake: Bool = true) {
@@ -429,8 +421,6 @@ public final class GatewayConnectionManager {
     /// on its own and vice-versa.
     private func updateAuthFailedSignal() {
         let tripped = authFailureTracker.isAuthFailed
-        // Read backing storage so this guard doesn't register a tracking
-        // dependency on the same turn the property is written.
         guard tripped != _isAuthFailed else { return }
         isAuthFailed = tripped
         if tripped {
@@ -465,8 +455,8 @@ public final class GatewayConnectionManager {
 
     /// Internal hook to await the in-flight coalescing task from unit tests.
     /// Production code must not call this.
-    internal func _testWaitForPendingConnectionState() async {
-        await drainPendingConnectionState()
+    internal func _testAwaitPendingConnectedTransitions() async {
+        await awaitPendingConnectedTransitions()
     }
 
     private func startHealthCheckLoop() {
@@ -560,8 +550,6 @@ public final class GatewayConnectionManager {
         guard let assistant = VersionCompat.parseMajorMinor(assistantVersion),
               let client = VersionCompat.parseMajorMinor(clientVersion) else { return }
         let mismatch = assistant.major != client.major || assistant.minor != client.minor
-        // Read backing storage so this guard doesn't register a tracking
-        // dependency on the same turn the property is written.
         if mismatch != _versionMismatch {
             versionMismatch = mismatch
         }
@@ -590,9 +578,6 @@ public final class GatewayConnectionManager {
     private func handleServerMessage(_ message: ServerMessage) {
         if case .assistantStatus(let status) = message {
             if let version = status.version {
-                // Backing-storage reads in these guards avoid registering
-                // tracking dependencies on the same turn the property is
-                // written.
                 if version != _assistantVersion { assistantVersion = version }
                 checkVersionCompatibility(assistantVersion: version)
                 if _isUpdateInProgress && !self.outcomeEmittedForCurrentCycle {
@@ -969,67 +954,66 @@ public final class GatewayConnectionManager {
         observationStream { [weak self] in self?.isConnected ?? false }
     }
 
-    // MARK: - Helpers
+    // MARK: - Coalesced isConnected writes
+    //
+    // Each `@Observable` property write fires every registered
+    // `withObservationTracking` `onChange` callback synchronously inside
+    // `willSet`. With per-instance SwiftUI view bodies, `observationStream`
+    // consumers, and `.onChange(of:)` modifiers, the tracking-context count
+    // on `isConnected` can reach the tens-to-low-hundreds; doing the write
+    // off the calling stack frame breaks any synchronous re-entry into this
+    // setter and lets the actor interleave other work.
+    //
+    // Public-API contract: `connect()` is async and awaits the in-flight
+    // task; `disconnect()` is sync and flushes inline. Callers can therefore
+    // read `isConnected` immediately after either call returns.
+    //
+    // References:
+    //   - https://developer.apple.com/documentation/observation/observable
+    //   - https://developer.apple.com/documentation/observation/withobservationtracking(_:onchange:)
+    //   - https://developer.apple.com/videos/play/wwdc2023/10149/
+    //   - https://developer.apple.com/videos/play/wwdc2021/10133/
 
-    // MARK: - Coalesced Connection-State Setter
-
-    /// Pending target for `isConnected`, written by `setConnected` and
-    /// drained by either the in-flight coalescing task or
-    /// `flushPendingConnectionStateSync`. Marked `@ObservationIgnored`
-    /// so writes never register tracking dependencies.
     @ObservationIgnored private var pendingConnectedTarget: Bool?
-
-    /// In-flight coalescing task. While non-nil, additional `setConnected`
-    /// calls only update `pendingConnectedTarget` and return; the task
-    /// loops until the target is drained.
     @ObservationIgnored private var setConnectedTask: Task<Void, Never>?
 
     /// Records a target for `isConnected` and ensures it will be applied
     /// on a subsequent `@MainActor` turn. Back-to-back calls within the
     /// same turn coalesce to the most-recent target, skipping intermediate
     /// `willSet` fan-outs.
-    ///
-    /// Each `@Observable` property write fires every registered
-    /// `withObservationTracking` `onChange` callback synchronously inside
-    /// `willSet`. With per-instance SwiftUI view bodies, `observationStream`
-    /// consumers, and `.onChange(of:)` modifiers, the tracking-context
-    /// count on `isConnected` can reach the tens-to-low-hundreds; doing
-    /// the write off the calling stack frame breaks any synchronous
-    /// re-entry into this setter and lets the actor interleave other work.
-    ///
-    /// References:
-    ///   - https://developer.apple.com/documentation/observation/observable
-    ///   - https://developer.apple.com/documentation/observation/withobservationtracking(_:onchange:)
-    ///   - https://developer.apple.com/videos/play/wwdc2023/10149/
     private func setConnected(_ connected: Bool) {
-        // Read the macro-synthesised backing storage so this early-out
-        // doesn't register a tracking dependency on the calling
-        // `withObservationTracking` context. A pending target always
-        // supersedes the current value, so skip the early-out then.
+        // Pure backing-storage compare. A pending target always supersedes
+        // the current value, so skip the early-out then.
         if pendingConnectedTarget == nil, _isConnected == connected { return }
-
         pendingConnectedTarget = connected
-        if setConnectedTask != nil { return }
-
+        guard setConnectedTask == nil else { return }
         setConnectedTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.setConnectedTask = nil }
-            // Drain re-entrant queued targets (e.g. from a synchronous
-            // onChange handler) by iteration rather than recursion.
-            while let target = self.pendingConnectedTarget {
-                self.pendingConnectedTarget = nil
-                guard self._isConnected != target else { continue }
-                self.applyConnectedTransition(target)
-            }
+            self.applyAllPendingConnectedTransitions()
         }
     }
 
-    /// Applies any pending `setConnected` target inline, cancelling the
-    /// in-flight task. Used by synchronous public API (`disconnect`) where
-    /// callers expect `isConnected` to reflect the new state on return.
-    private func flushPendingConnectionStateSync() {
+    /// Synchronously applies any queued targets, cancelling the in-flight
+    /// task. Used by the synchronous public API (`disconnect`).
+    private func flushPendingConnectedTransitions() {
         setConnectedTask?.cancel()
         setConnectedTask = nil
+        applyAllPendingConnectedTransitions()
+    }
+
+    /// Awaits the in-flight coalescing task. Used by the async public API
+    /// (`connect`) so the post-`await` read invariant is preserved.
+    private func awaitPendingConnectedTransitions() async {
+        if let task = setConnectedTask {
+            await task.value
+        }
+    }
+
+    /// Drains `pendingConnectedTarget` by iteration. Re-entrant queued
+    /// targets (e.g. from a synchronous `onChange` handler) are picked up
+    /// by the next loop iteration rather than recursion.
+    private func applyAllPendingConnectedTransitions() {
         while let target = pendingConnectedTarget {
             pendingConnectedTarget = nil
             guard _isConnected != target else { continue }
@@ -1037,34 +1021,28 @@ public final class GatewayConnectionManager {
         }
     }
 
-    /// Awaits the in-flight coalescing task so async public API
-    /// (`connect`) returns with `isConnected` reflecting the new state.
-    private func drainPendingConnectionState() async {
-        if let task = setConnectedTask {
-            await task.value
-        }
-    }
-
-    /// Writes `isConnected` and runs the associated side effects on
-    /// `@MainActor`. Reads `isConnecting` via the macro-synthesised
-    /// backing storage to avoid a redundant tracking-dependency
-    /// registration on the same turn the property is being written.
+    /// Writes `isConnected` on `@MainActor` and runs the side effects
+    /// associated with the new state.
     private func applyConnectedTransition(_ connected: Bool) {
         isConnected = connected
         if _isConnecting { isConnecting = false }
         if connected {
-            // `NotificationCenter.post` invokes observer callbacks
-            // synchronously on the posting thread; defer to the next
-            // `@MainActor` turn so the dispatch isn't billed to whatever
-            // stack frame triggered this transition.
-            // https://developer.apple.com/documentation/foundation/notificationcenter/post(name:object:)
-            Task { @MainActor [weak self] in
-                guard let self, self.isConnected else { return }
-                NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
-            }
+            scheduleDaemonDidReconnect()
             handlePostSparkleUpdate()
         } else {
             autoWakeIfAssistantDied()
+        }
+    }
+
+    /// Defers the `daemonDidReconnect` post to the next `@MainActor` turn
+    /// so observer callbacks (which `NotificationCenter.post` invokes
+    /// synchronously) are billed to a fresh stack frame, not the one that
+    /// triggered the transition.
+    /// https://developer.apple.com/documentation/foundation/notificationcenter/post(name:object:)
+    private func scheduleDaemonDidReconnect() {
+        Task { @MainActor [weak self] in
+            guard let self, self.isConnected else { return }
+            NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
         }
     }
 

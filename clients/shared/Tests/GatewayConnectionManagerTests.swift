@@ -142,42 +142,34 @@ final class GatewayConnectionManagerTests: XCTestCase {
 
     // MARK: - setConnected Coalescing
 
-    /// Verifies that `setConnected` defers writes to the next `@MainActor`
-    /// turn and that back-to-back calls within a single turn coalesce to
-    /// the most-recent target. Without coalescing, each call would
-    /// synchronously fan out to every `withObservationTracking` callback
-    /// registered on `isConnected`.
+    /// Back-to-back calls within a single `@MainActor` turn collapse to
+    /// the most-recent target; the public property is unchanged until
+    /// the in-flight task drains.
     func testSetConnectedDefersWritesAndCoalescesToFinalTarget() async {
         let client = GatewayConnectionManager()
         XCTAssertFalse(client.isConnected)
 
-        // Drive rapid alternating targets within the same actor turn.
         client._testSetConnected(true)
         client._testSetConnected(false)
         client._testSetConnected(true)
         client._testSetConnected(false)
         client._testSetConnected(true)
 
-        // Within the same actor turn the public property should still
-        // reflect the prior committed value: writes are deferred.
         XCTAssertFalse(client.isConnected, "Coalesced writes must not apply within the same actor turn")
 
-        // Drain the in-flight coalescing task.
-        await client._testWaitForPendingConnectionState()
+        await client._testAwaitPendingConnectedTransitions()
 
-        // Only the most-recent target should have been applied.
         XCTAssertTrue(client.isConnected, "Final coalesced target should be the last setConnected call")
     }
 
-    /// Verifies that the coalescing path remains consistent when the
-    /// final target equals the current value: the loop drains and the
-    /// public property is unchanged.
+    /// A transient flap (true → false) that returns to the original
+    /// value drains as a no-op.
     func testSetConnectedCoalescesBackToOriginalValueAsNoOp() async {
         let client = GatewayConnectionManager()
 
         client._testSetConnected(true)
         client._testSetConnected(false)
-        await client._testWaitForPendingConnectionState()
+        await client._testAwaitPendingConnectedTransitions()
 
         XCTAssertFalse(client.isConnected, "Coalesced apply with final target equal to prior value is a no-op")
     }
