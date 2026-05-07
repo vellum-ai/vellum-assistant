@@ -847,7 +847,7 @@ public final class GatewayConnectionManager {
             var attempt = 0
             while !Task.isCancelled {
                 // If another path (e.g. autoWakeIfAssistantDied) connected us, exit
-                guard !self.isConnected else {
+                guard !self._isConnected else {
                     log.info("reconnect-loop: already connected, exiting")
                     break
                 }
@@ -1041,7 +1041,7 @@ public final class GatewayConnectionManager {
     /// https://developer.apple.com/documentation/foundation/notificationcenter/post(name:object:)
     private func scheduleDaemonDidReconnect() {
         Task { @MainActor [weak self] in
-            guard let self, self.isConnected else { return }
+            guard let self, self._isConnected else { return }
             NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
         }
     }
