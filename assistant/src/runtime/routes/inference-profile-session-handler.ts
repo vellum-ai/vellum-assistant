@@ -202,8 +202,12 @@ export async function setInferenceProfileSession({
 
 /**
  * Close the active session-backed inference-profile override for a
- * conversation. Equivalent to calling `setInferenceProfileSession` with
- * `profile: null`.
+ * conversation.
+ *
+ * Only closes session-backed overrides (rows with a non-null
+ * `inferenceProfileSessionId`). Sticky overrides set by the composer picker
+ * (profile present, no sessionId) are left untouched — close is not the right
+ * verb for those and callers should use the PUT endpoint to clear them.
  *
  * Returns `noop: true` when there was no active session to close.
  */
@@ -214,12 +218,27 @@ export async function closeInferenceProfileSession(
   closed: { profile: string | null; sessionId: string | null } | null;
   noop: boolean;
 }> {
+  const resolvedId = resolveConversationId(conversationId) ?? conversationId;
+  const conversation = getConversation(resolvedId);
+  if (!conversation) {
+    throw new NotFoundError(`Conversation ${conversationId} not found`);
+  }
+
+  const hasActiveSession =
+    conversation.inferenceProfileSessionId != null &&
+    (conversation.inferenceProfileExpiresAt == null ||
+      conversation.inferenceProfileExpiresAt > Date.now());
+
+  if (!hasActiveSession) {
+    return { conversationId: resolvedId, closed: null, noop: true };
+  }
+
   const result = await setInferenceProfileSession({
-    conversationId,
+    conversationId: resolvedId,
     profile: null,
   });
   return {
-    conversationId,
+    conversationId: result.conversationId,
     closed:
       result.replaced !== null
         ? {
