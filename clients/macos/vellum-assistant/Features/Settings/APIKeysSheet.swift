@@ -267,12 +267,30 @@ struct APIKeysSheet: View {
     // MARK: - Key Status Loading
 
     private func loadAllKeyStatuses() async {
-        for provider in keyRequiredProviders {
-            let hasKey = await APIKeyManager.hasKey(for: provider.id)
-            keyStatuses[provider.id] = hasKey
-            if hasKey {
-                maskedKeys[provider.id] = await APIKeyManager.maskedKey(for: provider.id)
+        // Prefer one bulk `GET /v1/secrets` over N per-provider `secrets/read`
+        // calls — the listing endpoint reports every stored api_key in a single
+        // round-trip. Fall back to per-provider `hasKey` only on transport
+        // failure so a brief outage doesn't render every row as "not configured".
+        let providersWithKeys: Set<String>
+        if let listed = await APIKeyManager.listKeys() {
+            providersWithKeys = listed
+            for provider in keyRequiredProviders {
+                keyStatuses[provider.id] = listed.contains(provider.id)
             }
+        } else {
+            var fallback: Set<String> = []
+            for provider in keyRequiredProviders {
+                let hasKey = await APIKeyManager.hasKey(for: provider.id)
+                keyStatuses[provider.id] = hasKey
+                if hasKey { fallback.insert(provider.id) }
+            }
+            providersWithKeys = fallback
+        }
+        // Masked previews live behind a different endpoint (`secrets/read`)
+        // so they still need a per-provider call — but only for providers
+        // we now know are present.
+        for provider in keyRequiredProviders where providersWithKeys.contains(provider.id) {
+            maskedKeys[provider.id] = await APIKeyManager.maskedKey(for: provider.id)
         }
     }
 }
