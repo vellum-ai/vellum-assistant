@@ -169,9 +169,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     var sortedGroups: [ConversationGroup] { listStore.sortedGroups }
 
-    var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] {
-        listStore.groupedConversations
-    }
+    var groupedConversations: [GroupedConversations] { listStore.groupedConversations }
 
     var sidebarGroupEntries: [SidebarGroupEntry] { listStore.sidebarGroupEntries }
 

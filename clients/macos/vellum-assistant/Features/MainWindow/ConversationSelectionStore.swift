@@ -58,7 +58,7 @@ final class ConversationSelectionStore {
         draftViewModel = nil
         draftLocalId = nil
         activeConversationId = conversationId
-        activeConversation = listStore.conversations.first { $0.id == conversationId }
+        activeConversation = listStore.conversationsByLocalId[conversationId]
 
         let vm = getOrCreateViewModel(for: conversationId)
         vm?.ensureMessageLoopStarted()
@@ -282,7 +282,7 @@ final class ConversationSelectionStore {
             return vm
         }
         // Only create if the conversation exists
-        guard let conversation = listStore.conversations.first(where: { $0.id == conversationId }) else { return nil }
+        guard let conversation = listStore.conversationsByLocalId[conversationId] else { return nil }
         guard let viewModel = viewModelFactory?() else { return nil }
         viewModel.conversationId = conversation.conversationId
         viewModel.isChannelConversation = conversation.isChannelConversation
@@ -449,7 +449,7 @@ final class ConversationSelectionStore {
               previousId != nextId,
               let vm = chatViewModels[previousId],
               vm.messages.isEmpty else { return }
-        let conversation = listStore.conversations.first(where: { $0.id == previousId })
+        let conversation = listStore.conversationsByLocalId[previousId]
         guard conversation?.conversationId == nil else { return }
         listStore.conversations.removeAll { $0.id == previousId }
         chatViewModels.removeValue(forKey: previousId)
@@ -466,7 +466,7 @@ final class ConversationSelectionStore {
     /// channel conversation (Slack, etc.). Cancels any existing refresh task first.
     func startChannelRefreshIfNeeded(conversationId localId: UUID) {
         stopChannelRefresh()
-        guard let conversation = listStore.conversations.first(where: { $0.id == localId }),
+        guard let conversation = listStore.conversationsByLocalId[localId],
               conversation.isChannelConversation,
               let daemonConversationId = conversation.conversationId else { return }
 
