@@ -201,7 +201,7 @@ struct GuardianChannelsDetailView: View {
                         VButton(label: setupButtonLabel, style: .outlined) {
                             if let conversationManager {
                                 conversationManager.openConversation(
-                                    message: channelSetupMessage(for: type),
+                                    message: channelSetupMessage(for: type, isGuardian: isGuardian),
                                     forceNew: true
                                 )
                             } else {
@@ -232,7 +232,7 @@ struct GuardianChannelsDetailView: View {
             VButton(label: setupButtonLabel, style: .outlined) {
                 if let conversationManager {
                     conversationManager.openConversation(
-                        message: channelSetupMessage(for: type),
+                        message: channelSetupMessage(for: type, isGuardian: isGuardian),
                         forceNew: true
                     )
                 } else {
@@ -490,12 +490,21 @@ struct GuardianChannelsDetailView: View {
         }
     }
 
-    private func channelSetupMessage(for type: String) -> String {
-        switch type {
-        case "telegram": return "I'd like to verify my identity as your guardian on Telegram. Can you help me set that up?"
-        case "slack": return "I'd like to verify my identity as your guardian on Slack. Can you help me set that up?"
-        case "phone": return "I'd like to verify my identity as your guardian for phone calls. Can you help me set that up?"
-        default: return "I'd like to verify my identity as your guardian on \(type.capitalized). Can you help me set that up?"
+    private func channelSetupMessage(for type: String, isGuardian: Bool) -> String {
+        if isGuardian {
+            switch type {
+            case "telegram": return "I'd like to verify my identity as your guardian on Telegram. Can you help me set that up?"
+            case "slack": return "I'd like to verify my identity as your guardian on Slack. Can you help me set that up?"
+            case "phone": return "I'd like to verify my identity as your guardian for phone calls. Can you help me set that up?"
+            default: return "I'd like to verify my identity as your guardian on \(type.capitalized). Can you help me set that up?"
+            }
+        } else {
+            switch type {
+            case "telegram": return "I'd like to verify a contact's Telegram identity. Can you walk me through it?"
+            case "slack": return "I'd like to verify a contact's Slack identity. Can you walk me through it?"
+            case "phone": return "I'd like to verify a contact's phone number. Can you help me set that up?"
+            default: return "I'd like to verify a contact's \(type.capitalized) identity. Can you walk me through it?"
+            }
         }
     }
 
