@@ -367,23 +367,23 @@ export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
  * routes the actual invocation to the connected capable client via the
  * proxy's targetClientId path.
  *
+ * All members below adopt the same-actor enforcement pattern: the proxy
+ * binds the request to a specific client id + actor principal id at
+ * dispatch time, and the corresponding result route requires the
+ * submitting client to present an `x-vellum-client-id` matching the
+ * captured target plus an `x-vellum-actor-principal-id` matching the
+ * captured actor (see `enforceSameActorOrThrow` in
+ * `runtime/auth/same-actor.ts`).
+ *
  * Inclusions:
  * - host_bash (Phase 1, PR #29322)
  * - host_file (Phases 2 & 3, PRs #29398 + #29440)
- * - host_browser (executor parity shipped in PR #27489 host-browser-via-
- *   macos-host-proxy, exposed cross-client here)
+ * - host_browser (PR #27489 executor parity + PR #29829 cross-client
+ *   exposure with same-actor guard at proxy dispatch and result route)
  *
  * Exclusions:
  * - host_app_control, host_cu: not in HOST_TOOL_TO_CAPABILITY
  *   (skill-routed; cross-client preactivation is a separate workstream).
- *
- * Defense-in-depth follow-up (deferred): host_browser does not yet adopt
- * the same-actor guard that host_bash / host_file / host_cu / host_transfer
- * apply to their result routes. The chrome-extension client today does not
- * send `x-vellum-client-id` on its result POST, so enforcing the guard
- * requires a coordinated extension change. The current `requireGuardian`
- * gate on `/v1/host-browser-result` is the same-binding boundary. Tracking
- * issue: TBD.
  */
 const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
   "host_bash",
