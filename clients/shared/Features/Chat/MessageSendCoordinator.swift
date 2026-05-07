@@ -14,6 +14,9 @@ protocol MessageSendCoordinatorDelegate: AnyObject {
     var activeSurfaceId: String? { get }
     var isChatDockedToSide: Bool { get }
     var conversationType: String? { get }
+    // Mutate through ChatViewModel so its stuck-turn watchdogs are armed and cancelled.
+    var isSending: Bool { get set }
+    var isThinking: Bool { get set }
     var isBootstrapping: Bool { get }
     var isCancelling: Bool { get set }
     var cancelledDuringRefinement: Bool { get set }
@@ -207,7 +210,7 @@ final class MessageSendCoordinator {
         // so it gets sent when conversation_info arrives instead of being dropped.
         if (messageManager.isSending || delegate.isBootstrapping) && delegate.conversationId == nil {
             if delegate.pendingUserMessage == nil {
-                messageManager.isSending = true
+                delegate.isSending = true
                 let attachments = attachmentManager.pendingAttachments
                 attachmentManager.pendingAttachments = []
                 delegate.pendingUserMessage = text
@@ -219,7 +222,7 @@ final class MessageSendCoordinator {
                 delegate.pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
                     UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath, rawData: $0.rawData)
                 }
-                messageManager.isThinking = true
+                delegate.isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: messageManager.pendingSkillInvocation, attachments: attachments)
                 userMsg.isHidden = hidden
                 userMsg.clientMessageId = clientMessageId
@@ -336,8 +339,8 @@ final class MessageSendCoordinator {
         // message; message-less conversation creates are silent and shouldn't
         // affect UI state.
         if userMessage != nil {
-            messageManager.isSending = true
-            messageManager.isThinking = true
+            delegate.isSending = true
+            delegate.isThinking = true
         }
         delegate.pendingUserMessage = userMessage
         delegate.pendingUserAttachments = attachments
@@ -358,8 +361,8 @@ final class MessageSendCoordinator {
                     try await delegate.connectionManager.connect()
                 } catch {
                     log.error("Failed to connect to daemon: \(error.localizedDescription)")
-                    self.messageManager.isThinking = false
-                    self.messageManager.isSending = false
+                    delegate.isThinking = false
+                    delegate.isSending = false
                     delegate.bootstrapCorrelationId = nil
                     delegate.lastFailedMessageText = delegate.pendingUserMessage
                     delegate.lastFailedMessageDisplayText = delegate.pendingUserMessageDisplayText
@@ -419,8 +422,8 @@ final class MessageSendCoordinator {
                 )
             } else {
                 delegate.onConversationCreated?(newConversationId)
-                self.messageManager.isSending = false
-                self.messageManager.isThinking = false
+                delegate.isSending = false
+                delegate.isThinking = false
             }
             // Clear one-shot preactivated skills so they don't leak into a
             // later conversation if this bootstrap is interrupted before completion.
@@ -502,11 +505,11 @@ final class MessageSendCoordinator {
             return
         }
 
-        messageManager.isSending = true
+        delegate.isSending = true
         // Only show "Thinking" for the primary send. Queued messages will
         // set isThinking = true when they are dequeued for processing.
         if queuedMessageId == nil {
-            messageManager.isThinking = true
+            delegate.isThinking = true
         }
 
         // Make sure we're listening
@@ -552,8 +555,8 @@ final class MessageSendCoordinator {
         messageManager.isWorkspaceRefinementInFlight = false
         messageManager.refinementMessagePreview = nil
         messageManager.refinementStreamingText = nil
-        messageManager.isThinking = false
-        messageManager.isSending = false
+        delegate.isThinking = false
+        delegate.isSending = false
     }
 
     // MARK: - Stop Generating
@@ -597,8 +600,8 @@ final class MessageSendCoordinator {
             messageManager.isWorkspaceRefinementInFlight = false
             messageManager.refinementMessagePreview = nil
             messageManager.refinementStreamingText = nil
-            messageManager.isThinking = false
-            messageManager.isSending = false
+            delegate.isThinking = false
+            delegate.isSending = false
             dispatchPendingSendDirect()
             return
         }
@@ -639,7 +642,7 @@ final class MessageSendCoordinator {
         delegate.isCancelling = true
         delegate.cancelledDuringRefinement = messageManager.isWorkspaceRefinementInFlight
         messageManager.isWorkspaceRefinementInFlight = false
-        messageManager.isThinking = false
+        delegate.isThinking = false
 
         // Mark current assistant message as stopped and complete any in-progress
         // tool calls in a single batch so their chips don't show an endless spinner.
@@ -678,8 +681,8 @@ final class MessageSendCoordinator {
         messageManager.refinementMessagePreview = nil
         messageManager.refinementStreamingText = nil
         delegate.cancelledDuringRefinement = false
-        messageManager.isSending = false
-        messageManager.isThinking = false
+        delegate.isSending = false
+        delegate.isThinking = false
         delegate.isCancelling = false
         // Mark current assistant message as stopped and reset queued statuses
         // in a single batch to avoid O(n) synchronous Combine pipeline evaluations.

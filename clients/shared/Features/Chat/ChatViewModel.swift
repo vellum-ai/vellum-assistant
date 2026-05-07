@@ -399,6 +399,15 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             }
         }
     }
+
+    var isSendingWatchdogArmedForTesting: Bool {
+        sendingWatchdogTask != nil
+    }
+
+    var isThinkingWatchdogArmedForTesting: Bool {
+        thinkingWatchdogTask != nil
+    }
+
     public var assistantActivityPhase: String {
         get { messageManager.assistantActivityPhase }
         set { messageManager.assistantActivityPhase = newValue }
