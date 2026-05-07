@@ -159,6 +159,22 @@ export async function setInferenceProfileSession({
     clamped = undefined;
   }
 
+  // Skip write and event when nothing has changed.
+  if (
+    conversation.inferenceProfile === profile &&
+    conversation.inferenceProfileSessionId === (newSessionId ?? null) &&
+    conversation.inferenceProfileExpiresAt === (newExpiresAt ?? null)
+  ) {
+    return {
+      conversationId: resolvedId,
+      profile,
+      sessionId: newSessionId ?? null,
+      expiresAt: newExpiresAt ?? null,
+      ttlSeconds: clamped,
+      replaced,
+    };
+  }
+
   setConversationInferenceProfileSession(
     resolvedId,
     profile,
