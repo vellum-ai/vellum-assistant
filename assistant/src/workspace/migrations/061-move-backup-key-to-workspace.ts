@@ -1,54 +1,35 @@
 /**
- * Workspace migration 061: Move backup.key from protected/ to workspace.
+ * Workspace migration 061: NEUTRALIZED (was: move backup.key to workspace).
  *
- * The backup encryption key previously lived at ~/.vellum/protected/backup.key.
- * This migration copies it to ~/.vellum/workspace/.backup.key so the daemon
- * no longer depends on the protected directory (owned by the gateway).
+ * This migration historically moved `~/.vellum/protected/backup.key` into
+ * the workspace at `~/.vellum/workspace/.backup.key`. That direction is
+ * wrong: the workspace is the assistant's sandbox surface — `bash` and
+ * other tools read files from it without `path-policy.ts` mediation, so a
+ * workspace `.backup.key` is exposed to prompt-injection-driven exfiltration.
  *
- * The old file is removed after a successful copy. If the new file already
- * exists (e.g. from VELLUM_BACKUP_KEY_PATH override or re-run), the old
- * file is simply cleaned up.
+ * 061 is preserved in the registry (entries are append-only and never
+ * removed) but is now a no-op for fresh installs. Existing installs that
+ * already executed 061 have a workspace `.backup.key`; migration 072
+ * (`072-cleanup-workspace-backup-key`) relocates it back to
+ * `~/.vellum/protected/backup.key` and removes the workspace copy.
+ *
+ * See ATL-444 for the full vulnerability writeup. Do not restore the
+ * original behavior — it would re-introduce the exposure.
  */
 
-import { copyFileSync, existsSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
-
 import type { WorkspaceMigration } from "./types.js";
-import { getVellumRoot } from "./utils.js";
 
 export const moveBackupKeyToWorkspaceMigration: WorkspaceMigration = {
   id: "061-move-backup-key-to-workspace",
-  description: "Move backup.key from protected/ to workspace",
+  description:
+    "(deprecated) Previously moved backup.key into the workspace; now a no-op (see migration 072 for cleanup)",
 
-  run(workspaceDir: string): void {
-    const oldPath = join(getVellumRoot(), "protected", "backup.key");
-    const newPath = join(workspaceDir, ".backup.key");
-    if (!existsSync(oldPath)) return;
-    if (existsSync(newPath)) {
-      try {
-        unlinkSync(oldPath);
-      } catch {}
-      return;
-    }
-    try {
-      copyFileSync(oldPath, newPath);
-      unlinkSync(oldPath);
-    } catch {}
+  run(_workspaceDir: string): void {
+    // No-op. See migration 072 for cleanup of any workspace backup.key
+    // left over from earlier runs of this migration.
   },
 
-  down(workspaceDir: string): void {
-    const oldPath = join(getVellumRoot(), "protected", "backup.key");
-    const newPath = join(workspaceDir, ".backup.key");
-    if (!existsSync(newPath)) return;
-    if (existsSync(oldPath)) {
-      try {
-        unlinkSync(newPath);
-      } catch {}
-      return;
-    }
-    try {
-      copyFileSync(newPath, oldPath);
-      unlinkSync(newPath);
-    } catch {}
+  down(_workspaceDir: string): void {
+    // No-op.
   },
 };
