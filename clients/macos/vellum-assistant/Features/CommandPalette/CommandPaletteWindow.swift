@@ -172,7 +172,7 @@ final class CommandPaletteWindow {
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = VAnimation.durationFast
-                context.timingFunction = CAMediaTimingFunction(name: .easeInOut)
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 panel.animator().setFrame(newFrame, display: true)
             }
         } else {
