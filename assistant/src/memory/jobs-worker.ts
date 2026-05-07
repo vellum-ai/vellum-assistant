@@ -509,6 +509,11 @@ async function processJob(
       await embedGraphTriggerJob(job, config);
       return;
     case "graph_extract":
+      // Stale rows enqueued before v2 was enabled (or by any unguarded v1
+      // path) must not consume embedding/extraction budget when v2 is on.
+      if (config.memory.v2.enabled) {
+        return;
+      }
       await graphExtractJob(job, config);
       return;
     case "conversation_analyze":

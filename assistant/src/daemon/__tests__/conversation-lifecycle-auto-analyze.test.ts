@@ -56,6 +56,16 @@ let autoAnalyzeEnabled = true;
 // `disposeConversation` must skip the `graph_extract` enqueue.
 const autoAnalysisConversations = new Set<string>();
 
+// Toggles the `memory.v2.enabled` flag the disposal code reads via
+// `getConfig()`. Defaults to false so the bulk of the suite — which asserts
+// v1 graph_extract still fires — keeps its semantics. The dedicated v2 cases
+// flip this to true.
+let v2Enabled = false;
+
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({ memory: { v2: { enabled: v2Enabled } } }),
+}));
+
 mock.module("../../memory/auto-analysis-guard.js", () => ({
   AUTO_ANALYSIS_SOURCE: "auto-analysis",
   isAutoAnalysisConversation: (conversationId: string) =>
@@ -160,6 +170,7 @@ describe("disposeConversation — auto-analysis enqueue", () => {
     autoAnalyzeCalls.length = 0;
     autoAnalyzeEnabled = true;
     autoAnalysisConversations.clear();
+    v2Enabled = false;
   });
 
   test("guardian conversation with auto-analyze ON — enqueues both graph_extract and conversation_analyze (via helper)", () => {
@@ -312,5 +323,26 @@ describe("disposeConversation — auto-analysis enqueue", () => {
       },
     }));
     autoAnalyzeEnabled = originalEnabled;
+  });
+
+  test("memory v2 enabled — graph_extract enqueue is suppressed (auto-analysis still runs)", () => {
+    // Under memory v2, the v1 graph has no readers (retrieval is bypassed at
+    // conversation-graph-memory.ts), so producing extraction jobs just fills
+    // the queue with stale work. Auto-analysis is orthogonal and must keep
+    // running.
+    v2Enabled = true;
+    const ctx = makeDisposeContext({
+      conversationId: "conv-v2-on",
+      trustClass: "guardian",
+    });
+
+    disposeConversation(ctx);
+
+    expect(memoryJobCalls).toHaveLength(0);
+    expect(autoAnalyzeCalls).toHaveLength(1);
+    expect(autoAnalyzeCalls[0]).toEqual({
+      conversationId: "conv-v2-on",
+      trigger: "lifecycle",
+    });
   });
 });
