@@ -2,72 +2,10 @@ import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import { log } from "../logger.js";
+import { resolveConversationId } from "../utils/conversation-id.js";
+import { parseDuration } from "../utils/parse-duration.js";
 
-// ---------------------------------------------------------------------------
-// Duration parser
-// ---------------------------------------------------------------------------
-
-/**
- * Parse a human-friendly duration string into seconds.
- *
- * Accepted formats:
- *   "60"     → 60   (bare number = seconds)
- *   "60s"    → 60
- *   "5m"     → 300
- *   "1h"     → 3600
- *   "1h30m"  → 5400
- *   "90s"    → 90
- */
-export function parseDuration(input: string): number {
-  if (/^\d+$/.test(input)) return parseInt(input, 10);
-
-  let total = 0;
-  const re = /(\d+)(h|m|s)/g;
-  let match;
-  while ((match = re.exec(input)) !== null) {
-    const val = parseInt(match[1], 10);
-    switch (match[2]) {
-      case "h":
-        total += val * 3600;
-        break;
-      case "m":
-        total += val * 60;
-        break;
-      case "s":
-        total += val;
-        break;
-    }
-  }
-  if (total === 0) throw new Error(`Invalid duration: "${input}"`);
-  return total;
-}
-
-// ---------------------------------------------------------------------------
-// Conversation ID resolution
-// ---------------------------------------------------------------------------
-
-function resolveConversationId(positionalArg?: string): string {
-  if (positionalArg) return positionalArg;
-
-  const skillCtxRaw = process.env.__SKILL_CONTEXT_JSON;
-  if (skillCtxRaw) {
-    try {
-      const ctx = JSON.parse(skillCtxRaw) as Record<string, unknown>;
-      if (typeof ctx.conversationId === "string" && ctx.conversationId) {
-        return ctx.conversationId;
-      }
-    } catch {
-      // Ignore malformed JSON
-    }
-  }
-
-  const envConvId = process.env.__CONVERSATION_ID;
-  if (envConvId) return envConvId;
-
-  throw new Error(
-    "No conversation ID provided. Pass it as an argument, or set $__SKILL_CONTEXT_JSON or $__CONVERSATION_ID.",
-  );
-}
+export { parseDuration };
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -110,7 +48,11 @@ Examples:
       ) => {
         let conversationId: string;
         try {
-          conversationId = resolveConversationId(conversationIdArg);
+          conversationId = resolveConversationId({
+            explicit: conversationIdArg,
+            failureHelp:
+              "No conversation ID provided. Pass it as an argument, or set $__SKILL_CONTEXT_JSON or $__CONVERSATION_ID.",
+          });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (opts.json) {

@@ -8,6 +8,7 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { log } from "../logger.js";
+import { attachProfileSubcommand } from "./inference-profile.js";
 
 /**
  * Attach the `send` subcommand to the given command group (`inference` or
@@ -178,6 +179,7 @@ Examples:
   );
 
   attachSendSubcommand(inference);
+  attachProfileSubcommand(inference);
 
   const llm = program
     .command("llm")

@@ -593,6 +593,9 @@ describe("command-registry", () => {
       expect(getAssistantPath("conversations clear").baseRisk).toBe("medium");
       expect(getAssistantPath("conversations wipe").baseRisk).toBe("high");
       expect(getAssistantPath("backup restore").baseRisk).toBe("high");
+      expect(getAssistantPath("inference profile open").baseRisk).toBe("low");
+      expect(getAssistantPath("inference profile close").baseRisk).toBe("low");
+      expect(getAssistantPath("inference profile list").baseRisk).toBe("low");
     });
   });
 
