@@ -129,6 +129,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "image-generation generate",
   "inference",
   "inference send",
+  "inference profile",
+  "inference profile open",
+  "inference profile close",
+  "inference profile list",
   "llm",
   "llm send",
   "keys",
@@ -399,6 +403,22 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "image-generation generate", risk: "medium" },
   { path: "inference send", risk: "medium" },
   { path: "llm send", risk: "medium" },
+  {
+    path: "inference profile open",
+    risk: "low",
+    reason:
+      "Opens a reversible conversation-scoped profile session; server validates the profile name",
+  },
+  {
+    path: "inference profile close",
+    risk: "low",
+    reason: "Closes an active profile session; idempotent",
+  },
+  {
+    path: "inference profile list",
+    risk: "low",
+    reason: "Read-only listing of active sessions",
+  },
   { path: "mcp reload", risk: "low" },
   { path: "mcp add", risk: "high" },
   { path: "mcp auth", risk: "medium" },
