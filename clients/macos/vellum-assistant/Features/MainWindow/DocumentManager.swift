@@ -17,6 +17,7 @@ final class DocumentManager {
     var surfaceId: String?
     var conversationId: String?
     var isSaving: Bool = false
+    var isExportingPDF: Bool = false
     var lastSaveError: String?
 
     /// Current document content and metadata.
@@ -142,6 +143,7 @@ final class DocumentManager {
         initialContent = ""
         pendingInitialContent = nil
         isSaving = false
+        isExportingPDF = false
         lastSaveError = nil
         log.info("Document closed")
     }
@@ -166,7 +168,9 @@ final class DocumentManager {
         let contentToSave = currentContent ?? ""
         let wordCountToSave = wordCount
         let client = documentClient
+        isExportingPDF = true
         Task {
+            defer { isExportingPDF = false }
             // Await the save so the server has the latest content before rendering
             _ = await client.saveDocument(
                 surfaceId: surfaceId,
