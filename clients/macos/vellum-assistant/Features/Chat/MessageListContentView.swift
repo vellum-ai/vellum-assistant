@@ -481,8 +481,18 @@ private struct PinnedLatestTurnSection: View {
     /// zero-height layout passes SwiftUI runs during setup and
     /// window/split-view collapse — negative minimums cause layout
     /// warnings and unstable pinned-turn rendering.
-    private var viewportMinHeight: CGFloat? {
-        scrollViewportHeight.map { max(0, $0 - VSpacing.md * 2) }
+    ///
+    /// Falls back to `0` (instead of `nil`) before the first
+    /// `OnScrollGeometryChange` measurement lands so `topAlignedMinHeight`
+    /// always wraps the section in `TopAlignedMinHeightLayout`. The
+    /// modifier's `@ViewBuilder` returns `self` unwrapped on `nil` and
+    /// `TopAlignedMinHeightLayout { self }` otherwise, so a `nil → value`
+    /// transition would change the section's structural identity and
+    /// rebuild every transcript row inside on the first measurement —
+    /// matching the old `@State viewportMinHeight: CGFloat = 0` default
+    /// keeps identity stable across that transition.
+    private var viewportMinHeight: CGFloat {
+        scrollViewportHeight.map { max(0, $0 - VSpacing.md * 2) } ?? 0
     }
 
     var body: some View {
