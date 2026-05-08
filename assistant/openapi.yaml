@@ -9260,6 +9260,59 @@ paths:
           schema:
             type: string
           description: When 'true', include deferred schedules that are normally hidden.
+    post:
+      operationId: schedules_post
+      summary: Create schedule
+      description: Create a new recurring schedule. Currently restricted to mode='execute'.
+      tags:
+        - schedules
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedules:
+                    type: array
+                    items: {}
+                    description: Updated schedule list
+                required:
+                  - schedules
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Display name
+                expression:
+                  type: string
+                  description: Cron or RRULE expression
+                message:
+                  type: string
+                  description: Message body to execute on each fire
+                timezone:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description: IANA timezone, e.g. America/New_York
+                enabled:
+                  type: boolean
+                  description: Whether the schedule starts active (default true)
+                mode:
+                  type: string
+                  description: Currently must be 'execute'
+              required:
+                - name
+                - expression
+                - message
+              additionalProperties: false
   /v1/schedules/{id}:
     delete:
       operationId: schedules_by_id_delete
