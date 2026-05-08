@@ -166,7 +166,7 @@ COPY --from=builder /app /app
 # this downloads the matching headless-shell binary. Pin to a fixed path so the
 # binary is found regardless of what HOME is set to at runtime.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN cd /app/assistant && bunx playwright install chromium
+RUN cd /app/assistant && bunx playwright install --only-shell chromium
 
 RUN chmod +x /app/assistant/docker-entrypoint.sh
 
