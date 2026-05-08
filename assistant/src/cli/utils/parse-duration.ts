@@ -14,6 +14,10 @@
  */
 export function parseDuration(input: string): number {
   if (/^\d+$/.test(input)) return parseInt(input, 10);
+  // Validate the whole string is composed entirely of <digits><unit> groups
+  if (!/^(\d+[hms])+$/.test(input)) {
+    throw new Error(`Invalid duration: "${input}"`);
+  }
 
   let total = 0;
   const re = /(\d+)(h|m|s)/g;

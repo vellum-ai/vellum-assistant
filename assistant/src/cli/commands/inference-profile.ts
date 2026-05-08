@@ -18,6 +18,8 @@ import { parseDuration } from "../utils/parse-duration.js";
 
 // ── Constants ─────────────────────────────────────────────────────────
 
+const DEFAULT_TTL_SECONDS = 1800; // 30 minutes
+
 const CONV_ID_HELP =
   "No conversation ID available.\n" +
   "Provide --conversation-id explicitly, or run from a skill or bash tool context.";
@@ -111,7 +113,7 @@ Examples:
     .description("Open a profile session for the current conversation")
     .option(
       "--ttl <duration>",
-      'Session TTL (e.g. 30m, 1h, "never" for sticky; omit for sticky)',
+      'Session TTL (e.g. 30m, 1h, "never" for sticky; default: 30m)',
     )
     .option(
       "--conversation-id <id>",
@@ -123,12 +125,13 @@ Examples:
       `
 Opens a profile session that pins the given profile to the current
 conversation. The session expires after --ttl, or is sticky (no
-expiry) if --ttl never is specified or --ttl is omitted entirely.
+expiry) if --ttl never is specified. If --ttl is omitted, the session
+defaults to 30 minutes.
 
 Examples:
   $ assistant inference profile open balanced --ttl 30m
   $ assistant inference profile open fast --ttl never
-  $ assistant inference profile open balanced            # sticky, no expiry
+  $ assistant inference profile open balanced            # uses default 30m TTL
   $ assistant inference profile open balanced --json`,
     )
     .action(
@@ -181,13 +184,12 @@ Examples:
           }
         }
 
+        const effectiveTtlSeconds = ttlSeconds !== undefined ? ttlSeconds : DEFAULT_TTL_SECONDS;
         const body: Record<string, unknown> = {
           conversationId,
           profile: profileName,
+          ttlSeconds: effectiveTtlSeconds,
         };
-        if (ttlSeconds !== undefined) {
-          body.ttlSeconds = ttlSeconds;
-        }
 
         const ipcResult = await cliIpcCall<OpenResult>(
           "inference_profile_open",
