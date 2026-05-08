@@ -8,8 +8,7 @@
  * Coverage matrix:
  *   - migrate: wraps `runMemoryV2Migration`; force flag propagates;
  *     `MigrationAlreadyAppliedError` is swallowed (no rethrow).
- *   - reembed: enqueues `N + 4` jobs (concept-page slugs plus four reserved
- *     meta-file slugs).
+ *   - reembed: enqueues `N` jobs, one per concept-page slug.
  *   - activation-recompute: walks conversations with rows, runs the pipeline
  *     end-to-end against the real activation module, persists fresh state.
  *
@@ -366,13 +365,12 @@ describe("memoryV2ReembedJob", () => {
     expect(total).toBe(0);
   });
 
-  test("does NOT enqueue reserved meta-file slugs (regression: would fail concept-page slug validator)", async () => {
+  test("does NOT enqueue reserved meta-file slugs", async () => {
     // The four prose meta files (essentials/threads/recent/buffer) live at
     // `memory/<name>.md` and are direct-injected into the system prompt via
-    // `_autoinject.md`. Their underscore-bracketed slug aliases used to be
-    // enqueued for embedding here, which produced 4 stale `failed` rows on
-    // every reembed because `validateSlug` rejects underscores. Guard against
-    // a regression.
+    // `_autoinject.md`. Their underscore-bracketed slug aliases (e.g.
+    // `__essentials__`) fail the concept-page slug validator
+    // (`[a-z0-9][a-z0-9-]*`), so the reembed fan-out must not enqueue them.
     await writePage(tmpWorkspace, {
       slug: "alice",
       frontmatter: { edges: [], ref_files: [] },

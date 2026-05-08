@@ -90,7 +90,7 @@ export async function memoryV2MigrateJob(
 }
 
 // ---------------------------------------------------------------------------
-// memory_v2_reembed — fan out embed jobs for every page + meta file
+// memory_v2_reembed — fan out embed jobs for every concept page
 // ---------------------------------------------------------------------------
 
 /**
