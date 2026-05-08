@@ -38,6 +38,7 @@ export const INTERFACE_IDS = [
   "slack",
   "email",
   "chrome-extension",
+  "tauri",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
@@ -84,6 +85,7 @@ export const INTERACTIVE_INTERFACES: ReadonlySet<InterfaceId> = new Set([
   "ios",
   "cli",
   "web",
+  "tauri",
 ]);
 
 export function isInteractiveInterface(id: InterfaceId): boolean {
