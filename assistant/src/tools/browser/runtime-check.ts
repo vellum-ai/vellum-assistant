@@ -140,9 +140,21 @@ export async function ensureChromiumHeadlessShell(
   headlessShellInstalling = (async () => {
     log.info("Chromium headless shell not found, installing...");
     const bunPath = await ensureBun();
+
+    // Run the CLI from the same directory where importPlaywright() installed
+    // the package so the resolved playwright version matches the pw module.
+    const externalDir = getExternalDir();
+    const externalPwExists = existsSync(
+      join(externalDir, "node_modules", "playwright", "package.json"),
+    );
+
     const proc = Bun.spawn(
       [bunPath, "x", "playwright", "install", "--only-shell", "chromium"],
-      { stdout: "pipe", stderr: "pipe" },
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+        cwd: externalPwExists ? externalDir : undefined,
+      },
     );
     const timeoutMs = 120_000;
     let timer: ReturnType<typeof setTimeout>;
