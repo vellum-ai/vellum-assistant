@@ -5,6 +5,31 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Scroll Viewport Height Environment
+
+/// The current visible height of the scroll container that hosts the
+/// transcript, in points. `nil` until the first `OnScrollGeometryChange`
+/// callback lands (e.g., during initial render or right after a
+/// conversation switch resets the value).
+///
+/// Published by `MessageListView` from its filtered `viewportHeight` state
+/// so descendants — like `PinnedLatestTurnSection`'s `topAlignedMinHeight`
+/// floor — can size against the viewport without measuring it again.
+/// Going through `EnvironmentValues` (rather than props on the equatable
+/// `MessageListContentView`) keeps the `.equatable()` barrier in place:
+/// only descendants that read `\.scrollViewportHeight` re-evaluate when
+/// the viewport changes; the rest of the transcript stays inert.
+private struct ScrollViewportHeightKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+extension EnvironmentValues {
+    var scrollViewportHeight: CGFloat? {
+        get { self[ScrollViewportHeightKey.self] }
+        set { self[ScrollViewportHeightKey.self] = newValue }
+    }
+}
+
 struct MessageListView: View {
 
     let messages: [ChatMessage]
@@ -196,6 +221,11 @@ struct MessageListView: View {
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
             .environment(\.messageHeightCache, messageHeightCache)
+            // Same filtered value `bottomAlignedMinHeight` consumes one line up.
+            // `PinnedLatestTurnSection` reads it to size its `topAlignedMinHeight`
+            // floor instead of running its own `containerRelativeFrame` probe —
+            // see `ScrollViewportHeightKey` at the top of this file.
+            .environment(\.scrollViewportHeight, viewportHeight.isFinite ? viewportHeight : nil)
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .fixedWidth(widths.scrollSurfaceWidth)
             .id(conversationId)

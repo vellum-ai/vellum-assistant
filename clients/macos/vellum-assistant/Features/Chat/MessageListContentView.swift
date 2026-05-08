@@ -457,18 +457,32 @@ private struct PinnedLatestTurnSection: View {
     let isUnanchoredThinking: Bool
     let thinkingLabel: String
 
-    // Minimum height equal to the scroll container's visible height
-    // (minus the outer LazyVStack's vertical padding). Sourced from a
-    // zero-size `containerRelativeFrame` probe in the `.background` so
-    // the section grows to fill the viewport when content is short but
-    // is still free to exceed it when an assistant response is longer
-    // than a viewport — preserving scrollability for tall answers.
-    @State private var viewportMinHeight: CGFloat = 0
+    // Filtered scroll-container visible height published by `MessageListView`
+    // (see `ScrollViewportHeightKey` in `MessageListView.swift`). Reading it
+    // here lets us size the section's `topAlignedMinHeight` floor against the
+    // viewport without a second `containerRelativeFrame` + `onGeometryChange`
+    // probe — which would feed an independent `@State` and add another full
+    // layout pass through the eager transcript stack on every viewport change.
+    // `nil` until `OnScrollGeometryChange` lands its first measurement, in
+    // which case `topAlignedMinHeight(nil)` is a no-op and the section sits
+    // at its natural height for the initial frame.
+    @Environment(\.scrollViewportHeight) private var scrollViewportHeight: CGFloat?
 
     private var hasResponseContent: Bool {
         contentView.showsStandaloneLatestEdgeActivity
             || !contentView.state.orphanSubagents.isEmpty
             || !partition.responseItems.isEmpty
+    }
+
+    /// Viewport-sized floor for the section, minus the outer transcript
+    /// padding (`VSpacing.md` top + `VSpacing.md` bottom in
+    /// `MessageListContentView.body`'s `EdgeInsets`) so the anchor row
+    /// lands with the intended visual gap. `max(0, …)` guards transient
+    /// zero-height layout passes SwiftUI runs during setup and
+    /// window/split-view collapse — negative minimums cause layout
+    /// warnings and unstable pinned-turn rendering.
+    private var viewportMinHeight: CGFloat? {
+        scrollViewportHeight.map { max(0, $0 - VSpacing.md * 2) }
     }
 
     var body: some View {
@@ -504,29 +518,7 @@ private struct PinnedLatestTurnSection: View {
             contentView.latestEdgeSentinel(isFlipped: false)
         }
         .topAlignedMinHeight(viewportMinHeight)
-        .background(viewportMinHeightProbe)
         .flipped()
-    }
-
-    /// Zero-width `Color.clear` sized to the scroll container's visible
-    /// height via `containerRelativeFrame`. `onGeometryChange` mirrors the
-    /// resolved height into `@State` so the VStack's `minHeight` tracks
-    /// the viewport. `max(0, …)` keeps the closure non-negative for the
-    /// transient zero-height layout passes SwiftUI runs during setup and
-    /// window/split-view collapse — negative frame dimensions produce
-    /// layout warnings and unstable pinned-turn rendering.
-    private var viewportMinHeightProbe: some View {
-        Color.clear
-            .containerRelativeFrame(.vertical, alignment: .top) { length, _ in
-                max(0, length - VSpacing.md * 2)
-            }
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.height
-            } action: { newHeight in
-                if abs(viewportMinHeight - newHeight) > 0.5 {
-                    viewportMinHeight = newHeight
-                }
-            }
     }
 
     @ViewBuilder
