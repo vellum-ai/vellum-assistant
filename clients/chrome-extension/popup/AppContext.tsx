@@ -18,6 +18,7 @@ export interface AppContextValue {
   healthDetail: ConnectionHealthDetail;
   authProfile: AssistantAuthProfile | null;
   operationCount: number;
+  selfHostedPaired: boolean;
   setScreen: (screen: Screen) => void;
   sendMessage: <T>(message: Record<string, unknown>) => Promise<T>;
   onSignOut: () => void;

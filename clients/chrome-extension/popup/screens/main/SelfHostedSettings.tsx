@@ -55,11 +55,11 @@ export function SelfHostedSettings({ onPaired }: SelfHostedSettingsProps) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' && !pairing) {
         pairAndConnect();
       }
     },
-    [pairAndConnect],
+    [pairAndConnect, pairing],
   );
 
   return (

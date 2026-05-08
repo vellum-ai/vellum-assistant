@@ -12,9 +12,9 @@ import { StatusCard } from './main/StatusCard.js';
  * controls for cloud or self-hosted operation.
  */
 export function MainScreen() {
-  const { mode, operationCount, setScreen } = useAppContext();
+  const { mode, operationCount, selfHostedPaired, setScreen, onSignOut } = useAppContext();
 
-  const [paired, setPaired] = useState(false);
+  const [paired, setPaired] = useState(selfHostedPaired);
   const [assistantName, setAssistantName] = useState('');
   const [accountEmail, setAccountEmail] = useState('');
 
@@ -42,10 +42,6 @@ export function MainScreen() {
   const handlePaired = useCallback(() => {
     setPaired(true);
   }, []);
-
-  const handleBackToWelcome = useCallback(() => {
-    setScreen({ name: 'welcome' });
-  }, [setScreen]);
 
   const handleActivityClick = useCallback(() => {
     setScreen({ name: 'activity' });
@@ -100,7 +96,7 @@ export function MainScreen() {
 
       {showSelfHostedSettings && <SelfHostedSettings onPaired={handlePaired} />}
 
-      <SessionActions paired={paired} onBack={handleBackToWelcome} />
+      <SessionActions paired={paired} onBack={onSignOut} />
     </div>
   );
 }
