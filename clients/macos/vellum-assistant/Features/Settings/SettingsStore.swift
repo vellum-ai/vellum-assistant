@@ -893,7 +893,10 @@ public final class SettingsStore: ObservableObject {
             if result.success {
                 // Drain any stale local file value so the next-launch resync
                 // doesn't push it back over the daemon's fresh write.
-                APIKeyManager.deleteKey(for: "anthropic")
+                // `let _: Void` pins the sync overload — without it Swift's
+                // overload resolution inside this `Task` would pick the
+                // `async` deleteKey (which expects an `await`).
+                let _: Void = APIKeyManager.deleteKey(for: "anthropic")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
                 refreshModelInfo()
@@ -928,7 +931,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: "brave")
             if result.success {
-                APIKeyManager.deleteKey(for: "brave")
+                let _: Void = APIKeyManager.deleteKey(for: "brave")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
@@ -957,7 +960,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: "perplexity")
             if result.success {
-                APIKeyManager.deleteKey(for: "perplexity")
+                let _: Void = APIKeyManager.deleteKey(for: "perplexity")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
@@ -988,7 +991,7 @@ public final class SettingsStore: ObservableObject {
             let result = await APIKeyManager.setKey(trimmed, for: provider)
             imageGenKeySaving = false
             if result.success {
-                APIKeyManager.deleteKey(for: provider)
+                let _: Void = APIKeyManager.deleteKey(for: provider)
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
@@ -1036,7 +1039,7 @@ public final class SettingsStore: ObservableObject {
                 apiKeySaving = false
             }
             if result.success {
-                APIKeyManager.deleteKey(for: provider)
+                let _: Void = APIKeyManager.deleteKey(for: provider)
                 insertProviderKey(provider)
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
@@ -3920,7 +3923,7 @@ public final class SettingsStore: ObservableObject {
         removeDeletionTombstone(type: "api_key", name: keyProvider)
         let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
         if result.success {
-            APIKeyManager.deleteKey(for: keyProvider)
+            let _: Void = APIKeyManager.deleteKey(for: keyProvider)
             insertProviderKey(keyProvider)
             scheduleRoutingSourceRefresh()
             return result
@@ -4063,7 +4066,7 @@ public final class SettingsStore: ObservableObject {
             Task {
                 let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
                 if result.success {
-                    APIKeyManager.deleteKey(for: keyProvider)
+                    let _: Void = APIKeyManager.deleteKey(for: keyProvider)
                     insertProviderKey(keyProvider)
                     onSuccess?()
                 } else if let error = result.error {
