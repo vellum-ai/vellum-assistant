@@ -4,6 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -17,6 +18,7 @@
   "include": [
     "background/**/*.ts",
     "popup/**/*.ts",
+    "popup/**/*.tsx",
     "types/**/*.d.ts"
   ],
   "exclude": ["dist/**", "node_modules/**"]

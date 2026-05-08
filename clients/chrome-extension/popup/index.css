@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #17191C;
+  --color-surface: #1C2024;
+  --color-surface-alt: #24292E;
+  --color-edge: #24292E;
+  --color-edge-hover: #2D3339;
+  --color-fg: #F6F5F4;
+  --color-fg-muted: #A9B2BB;
+  --color-fg-subtle: #5A6672;
+  --color-success: #4C9B50;
+  --color-warning: #F1B21E;
+  --color-danger: #EF4400;
+  --color-success-soft: rgba(76, 155, 80, 0.08);
+  --color-warning-soft: rgba(241, 178, 30, 0.08);
+  --color-danger-soft: rgba(239, 68, 0, 0.08);
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --animate-fade-up: fadeUp 0.5s ease-out both;
+  --animate-pulse-ring: pulseRing 2s ease-in-out infinite;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseRing {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(74, 222, 128, 0.5),
+                0 0 0 0 rgba(74, 222, 128, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 8px rgba(74, 222, 128, 0.5),
+                0 0 0 5px rgba(74, 222, 128, 0);
+  }
+}
+
+@layer base {
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    width: 420px;
+    min-height: 300px;
+    padding: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    opacity: 0.018;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+  }
+}
