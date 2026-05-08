@@ -83,6 +83,15 @@ final class OnboardingState {
     var sshUser: String = ""
     var sshPrivateKey: String = ""
     var selectedProvider: String = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
+
+    /// Provider API keys typed during onboarding, keyed by provider id.
+    /// Held in-memory only — never persisted to UserDefaults or to the local
+    /// `vellum_provider_*` credential files. The daemon is the only durable
+    /// home for these once `HatchingStepView` POSTs them post-hatch; after
+    /// that the dict is cleared. Pre-hatch back-navigation reads from this
+    /// dict so the user sees their typed value when they revisit the entry
+    /// step.
+    var providerKeys: [String: String] = [:]
     /// When true, the onboarding flow was launched from the developer tab's
     /// "Hatch New Assistant" button. This prevents auto-completing when the user
     /// already has a managed assistant, forcing the hosting selector to appear so
@@ -224,12 +233,12 @@ final class OnboardingState {
         // explicitly re-checked on the next onboarding pass after a retry.
         UserDefaults.standard.set(false, forKey: "aiDataConsent")
 
-        // Clear API key for whichever provider was selected during onboarding
+        // Clear in-memory typed keys + clean up the daemon's secret store
+        // (defensively — onboarding doesn't write to the daemon until after
+        // hatch completes, but a previous successful hatch followed by a
+        // retry could have left state behind).
         let providerToDelete = selectedProvider
-        if selectedProvider != "anthropic" {
-            APIKeyManager.deleteKey(for: selectedProvider)
-        }
-        APIKeyManager.deleteKey(for: "anthropic")
+        providerKeys = [:]
         Task {
             if providerToDelete != "anthropic" {
                 await APIKeyManager.deleteKey(for: providerToDelete)

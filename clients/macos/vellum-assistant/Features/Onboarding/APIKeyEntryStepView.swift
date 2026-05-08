@@ -100,7 +100,7 @@ struct APIKeyEntryStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            if let existingKey = APIKeyManager.getKey(for: state.selectedProvider) {
+            if let existingKey = state.providerKeys[state.selectedProvider], !existingKey.isEmpty {
                 apiKey = existingKey
                 hasExistingKey = true
             }
@@ -117,7 +117,7 @@ struct APIKeyEntryStepView: View {
             }
         }
         .onChange(of: state.selectedProvider) { _, newProvider in
-            if let existingKey = APIKeyManager.getKey(for: newProvider) {
+            if let existingKey = state.providerKeys[newProvider], !existingKey.isEmpty {
                 apiKey = existingKey
                 hasExistingKey = true
                 isEditing = false
@@ -229,9 +229,11 @@ struct APIKeyEntryStepView: View {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !providerRequiresKey || !trimmed.isEmpty else { return }
         if providerRequiresKey {
-            APIKeyManager.setKey(trimmed, for: state.selectedProvider)
-            let provider = state.selectedProvider
-            Task { await APIKeyManager.setKey(trimmed, for: provider) }
+            // Hold the typed value in OnboardingState — the daemon write
+            // happens once hatch completes (HatchingStepView post-hatch sync).
+            // No file write, no premature gateway POST that would race the
+            // daemon coming up.
+            state.providerKeys[state.selectedProvider] = trimmed
         }
         state.advance()
     }
