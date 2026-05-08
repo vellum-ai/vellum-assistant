@@ -27,10 +27,6 @@ struct OnboardingFlowView: View {
         MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
     }
 
-    private var preChatOnboardingEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("onboarding-pre-chat")
-    }
-
     private var maxOnboardingStep: Int {
         return 3
     }
