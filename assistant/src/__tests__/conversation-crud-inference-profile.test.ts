@@ -89,6 +89,33 @@ describe("getConversationOverrideProfileFromRow — lazy expiry check", () => {
     expect(getConversationOverrideProfileFromRow(row)).toBe("balanced");
   });
 
+  test("returns undefined at the exact-expiry boundary (expiresAt === now)", () => {
+    // Boundary consistency with the reaper SQL (`expires_at <= now`) and
+    // the active-session queries (`expiresAt > now`): the lazy check must
+    // treat `expiresAt === now` as expired, not active. Otherwise a
+    // just-expired session would be served for one extra turn while the
+    // reaper is racing to clear it.
+    const conv = createConversation("inference-profile-boundary");
+    const now = Date.now();
+    setConversationInferenceProfileSession(
+      conv.id,
+      "balanced",
+      "session-uuid-boundary",
+      now,
+    );
+    const row = getConversation(conv.id);
+    expect(row).not.toBeNull();
+    expect(row?.inferenceProfileExpiresAt).toBe(now);
+    // Freeze Date.now to the exact stored expiry so this is deterministic.
+    const realNow = Date.now;
+    Date.now = () => now;
+    try {
+      expect(getConversationOverrideProfileFromRow(row)).toBeUndefined();
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   test("returns the profile when no expiry is set (non-session override)", () => {
     const conv = createConversation("inference-profile-no-expiry");
     setConversationInferenceProfileSession(conv.id, "quality-optimized", null, null);

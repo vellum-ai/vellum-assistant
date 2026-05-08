@@ -1369,9 +1369,15 @@ export function getConversationOverrideProfileFromRow(
   // Treat an expired session as if the override is absent. The eager reaper
   // clears the row and emits the update event; the lazy check here ensures
   // correctness on read paths before the reaper fires.
+  //
+  // `<=` (not `<`) for boundary consistency with the rest of the session
+  // logic: the reaper SQL uses `expires_at <= ?`, and the active-session
+  // queries use `expiresAt > now` (i.e. treat exact-expiry as inactive).
+  // Without this, a session at the exact-expiry millisecond would be served
+  // for one extra turn here while being cleared by the reaper.
   if (
     conv?.inferenceProfileExpiresAt != null &&
-    conv.inferenceProfileExpiresAt < Date.now()
+    conv.inferenceProfileExpiresAt <= Date.now()
   ) {
     return undefined;
   }
