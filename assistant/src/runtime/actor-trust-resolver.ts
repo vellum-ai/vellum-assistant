@@ -13,6 +13,7 @@
 
 import type { ChannelId } from "../channels/types.js";
 import {
+  findContactByAddress,
   findContactByChannelExternalId,
   findGuardianForChannel,
 } from "../contacts/contact-store.js";
@@ -205,40 +206,61 @@ export function resolveActorTrust(
   );
 
   // --- Member lookup via contacts ---
+  // Primary path: match by externalUserId (populated after channel verification
+  // completes, or for channels registered via the verification upsert path).
+  // Fallback path: match by address (covers channels registered by the inbound
+  // name-capture flow, where address is set but externalUserId remains NULL
+  // until the DTMF challenge succeeds). Mirrors the gateway's OR-based lookup
+  // in ContactStore.getContactByPhoneNumber so the runtime's unverified-caller
+  // guard fires for pre-verification channels the gateway passes through.
   let memberRecord: ActorTrustContext["memberRecord"] = null;
-  const contactMatch = findContactByChannelExternalId(
+  const byExternalId = findContactByChannelExternalId(
     input.sourceChannel,
     canonicalSenderId,
   );
-  if (contactMatch) {
-    const matchingChannel = contactMatch.channels.find(
+  const byExternalIdChannel = byExternalId?.channels.find(
+    (ch) =>
+      ch.type === input.sourceChannel &&
+      ch.externalUserId === canonicalSenderId,
+  );
+
+  if (byExternalId && byExternalIdChannel) {
+    memberRecord = { contact: byExternalId, channel: byExternalIdChannel };
+  } else {
+    // Address fallback: catches channels where externalUserId is not yet set.
+    const byAddress = findContactByAddress(input.sourceChannel, canonicalSenderId);
+    const byAddressChannel = byAddress?.channels.find(
       (ch) =>
         ch.type === input.sourceChannel &&
-        ch.externalUserId === canonicalSenderId,
+        ch.address?.toLowerCase() === canonicalSenderId.toLowerCase(),
     );
-    if (matchingChannel) {
-      memberRecord = { contact: contactMatch, channel: matchingChannel };
+    if (byAddress && byAddressChannel) {
+      memberRecord = { contact: byAddress, channel: byAddressChannel };
     }
   }
+
   log.debug(
     {
       channel: input.sourceChannel,
       canonicalSenderId,
       found: !!memberRecord,
+      via: memberRecord?.channel.externalUserId ? "externalUserId" : memberRecord ? "address" : "none",
     },
     "trust-resolver member lookup",
   );
 
-  // Only use member metadata when the record's externalUserId matches the
+  // Only use member metadata when the record's channel identity matches the
   // current sender to avoid misidentification in group chats.
-  // Canonicalize the stored member ID to handle formatting variance (e.g.
-  // phone numbers stored without E.164 normalization).
+  // Primary check: externalUserId (canonicalized to handle E.164 variance).
+  // Fallback: address match for channels where externalUserId is NULL (e.g.
+  // name-capture registrations that haven't completed DTMF verification yet).
   const memberMatchesSender = memberRecord?.channel.externalUserId
     ? canonicalizeInboundIdentity(
         input.sourceChannel,
         memberRecord.channel.externalUserId,
       ) === canonicalSenderId
-    : false;
+    : (memberRecord?.channel.address?.toLowerCase() ===
+      canonicalSenderId.toLowerCase());
 
   const memberDisplayName =
     memberMatchesSender &&
