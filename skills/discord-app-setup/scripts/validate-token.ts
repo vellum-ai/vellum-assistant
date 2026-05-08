@@ -1,14 +1,12 @@
 #!/usr/bin/env bun
 /**
- * Validates the stored Discord bot token and captures application metadata.
+ * Validates the stored Discord bot token by hitting Discord's REST API.
  *
- * Reads the bot token from the credential store, calls Discord's API to
- * verify the token, and stores the bot user / application metadata as
- * non-secret config values:
- *   - discord_channel.applicationId
- *   - discord_channel.publicKey
- *   - discord_channel.botUserId
- *   - discord_channel.botUsername
+ * Reads the bot token from the credential store, calls `/users/@me` and
+ * `/oauth2/applications/@me`, and prints a JSON summary of the bot +
+ * application identity. Does NOT persist any of the captured metadata —
+ * everything is derivable from the bot token on demand and persisting it
+ * risks staleness after a token reset.
  *
  * Species-gated: delegates to a species-specific implementation.
  */
@@ -54,17 +52,6 @@ async function revealCredential(
   return stdout.trim();
 }
 
-async function setConfig(key: string, value: string): Promise<void> {
-  const proc = Bun.spawn(["assistant", "config", "set", key, value], {
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    throw new Error(`Failed to set config ${key}`);
-  }
-}
-
 async function discordGet<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`${DISCORD_API}${path}`, {
     headers: {
@@ -81,11 +68,11 @@ async function discordGet<T>(path: string, token: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function configureVellum(): Promise<void> {
+async function validateVellum(): Promise<void> {
   const token = await revealCredential("discord_channel", "bot_token");
   if (!token) {
     throw new Error(
-      "discord_channel:bot_token is empty. Run the bot-token prompt first.",
+      "discord_channel:bot_token is empty. Run store-bot-token.ts first.",
     );
   }
 
@@ -95,16 +82,11 @@ async function configureVellum(): Promise<void> {
     token,
   );
 
-  await setConfig("discord_channel.applicationId", app.id);
-  await setConfig("discord_channel.publicKey", app.verify_key);
-  await setConfig("discord_channel.botUserId", me.id);
-  await setConfig("discord_channel.botUsername", me.username);
-
   console.log(
     JSON.stringify(
       {
         ok: true,
-        application: { id: app.id, name: app.name },
+        application: { id: app.id, name: app.name, publicKey: app.verify_key },
         bot: { id: me.id, username: me.username },
         owner: app.owner ?? null,
       },
@@ -118,7 +100,7 @@ async function main(): Promise<void> {
   switch (species) {
     case "vellum":
       try {
-        await configureVellum();
+        await validateVellum();
       } catch (err) {
         console.error(err instanceof Error ? err.message : String(err));
         process.exitCode = 1;
