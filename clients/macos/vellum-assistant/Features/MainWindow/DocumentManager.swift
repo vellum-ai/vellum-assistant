@@ -177,8 +177,9 @@ final class DocumentManager {
         pdfExportTask?.cancel()
         pdfExportTask = Task { [weak self] in
             defer {
-                guard let self, self.surfaceId == surfaceId else { return }
-                self.isExportingPDF = false
+                if let self, self.surfaceId == surfaceId {
+                    self.isExportingPDF = false
+                }
             }
             _ = await client.saveDocument(
                 surfaceId: surfaceId,
