@@ -13,7 +13,7 @@ export function WelcomeScreen({ onSignIn, onSelfHosted }: WelcomeScreenProps) {
       <img
         src={branding.icons.icon128}
         alt={branding.name}
-        className="w-[128px] h-[128px] mb-5 animate-fade-up"
+        className="w-14 h-14 mb-5 animate-fade-up"
         style={{ animationDelay: '0.1s' }}
       />
 
