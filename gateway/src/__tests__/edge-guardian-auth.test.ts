@@ -1,9 +1,9 @@
 /**
  * Tests for the `requireEdgeGuardianAuth` middleware — both modes:
  *
- *  1. Platform-managed (DISABLE_HTTP_AUTH=true): identity asserted via
- *     `X-Vellum-User-Id` header cross-referenced against the stored
- *     `vellum:platform_user_id` credential.
+ *  1. Platform-managed (DISABLE_HTTP_AUTH=true + IS_PLATFORM=true): identity
+ *     asserted via `X-Vellum-User-Id` header cross-referenced against the
+ *     stored `vellum:platform_user_id` credential.
  *  2. Default (laptop / docker / bare-metal): edge JWT validated, then
  *     actor principal is matched against the bound vellum guardian.
  */
@@ -43,8 +43,7 @@ mock.module("../auth/token-exchange.js", () => ({
 }));
 
 const { AuthRateLimiter } = await import("../auth-rate-limiter.js");
-const { createAuthMiddleware, __resetHttpAuthDisabledCacheForTesting } =
-  await import("../http/middleware/auth.js");
+const { createAuthMiddleware } = await import("../http/middleware/auth.js");
 
 const PLATFORM_USER_ID = "user-abc-123";
 const GUARDIAN_PRINCIPAL = "actor-guardian-xyz";
@@ -65,22 +64,21 @@ beforeEach(() => {
   mockReadCredential = mock(async () => undefined);
   mockFindVellumGuardian = mock(async () => null);
   mockValidateEdgeToken = mock(() => ({ ok: false, reason: "noop" }));
-  __resetHttpAuthDisabledCacheForTesting();
 });
 
 afterEach(() => {
   delete process.env.DISABLE_HTTP_AUTH;
-  __resetHttpAuthDisabledCacheForTesting();
+  delete process.env.IS_PLATFORM;
 });
 
 // =========================================================================
-// Platform-managed mode (DISABLE_HTTP_AUTH=true → X-Vellum-User-Id)
+// Platform-managed mode (DISABLE_HTTP_AUTH=true + IS_PLATFORM=true)
 // =========================================================================
 
 describe("requireEdgeGuardianAuth — platform header mode", () => {
   beforeEach(() => {
     process.env.DISABLE_HTTP_AUTH = "true";
-    __resetHttpAuthDisabledCacheForTesting();
+    process.env.IS_PLATFORM = "true";
   });
 
   test("returns 401 when X-Vellum-User-Id header is missing", async () => {
@@ -125,6 +123,17 @@ describe("requireEdgeGuardianAuth — platform header mode", () => {
       makeReq({ "x-vellum-user-id": PLATFORM_USER_ID }),
     );
     expect(res).toBeNull();
+  });
+
+  test("falls through to JWT mode when IS_PLATFORM is false (rejects missing bearer token)", async () => {
+    // DISABLE_HTTP_AUTH=true but IS_PLATFORM=false → should use JWT path, not
+    // platform header path. No JWT provided, so expect 401.
+    process.env.IS_PLATFORM = "false";
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(
+      makeReq({ "x-vellum-user-id": PLATFORM_USER_ID }),
+    );
+    expect(res?.status).toBe(401);
   });
 });
 

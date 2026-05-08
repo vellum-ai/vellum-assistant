@@ -1,7 +1,9 @@
 /**
- * Tests for ContactStore.markChannelVerified — gateway-DB-only manual
- * channel verification flow used by the /v1/contact-channels/:id/verify
- * endpoint.
+ * Tests for ContactStore.markChannelVerified — manual channel verification
+ * flow used by the /v1/contact-channels/:id/verify endpoint.
+ *
+ * assistantDbRun is mocked to a no-op so tests exercise gateway DB logic
+ * only, without needing an assistant daemon.
  */
 
 import {
@@ -11,9 +13,17 @@ import {
   beforeAll,
   beforeEach,
   afterAll,
+  mock,
 } from "bun:test";
 
 import "./test-preload.js";
+
+// Mock the assistant DB proxy before importing ContactStore.
+mock.module("../db/assistant-db-proxy.js", () => ({
+  assistantDbRun: mock(async () => ({ changes: 0, lastInsertRowid: 0 })),
+  assistantDbQuery: mock(async () => []),
+  assistantDbExec: mock(async () => undefined),
+}));
 
 import { ContactStore } from "../db/contact-store.js";
 import {
@@ -80,17 +90,17 @@ function seedChannel(opts: {
 }
 
 describe("ContactStore.markChannelVerified", () => {
-  test("returns null when the channel does not exist", () => {
+  test("returns null when the channel does not exist", async () => {
     const store = new ContactStore();
-    expect(store.markChannelVerified("missing-id")).toBeNull();
+    expect(await store.markChannelVerified("missing-id")).toBeNull();
   });
 
-  test("flips an unverified channel to active+verifiedVia=manual", () => {
+  test("flips an unverified channel to active+verifiedVia=manual", async () => {
     seedContact("c1");
     seedChannel({ id: "ch1", contactId: "c1", status: "unverified" });
 
     const before = Date.now();
-    const result = new ContactStore().markChannelVerified("ch1");
+    const result = await new ContactStore().markChannelVerified("ch1");
     expect(result).not.toBeNull();
     expect(result!.didWrite).toBe(true);
     expect(result!.channel.status).toBe("active");
@@ -99,7 +109,7 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.channel.verifiedAt!).toBeGreaterThanOrEqual(before);
   });
 
-  test("is idempotent on an already-verified channel (no second write)", () => {
+  test("is idempotent on an already-verified channel (no second write)", async () => {
     seedContact("c1");
     seedChannel({
       id: "ch1",
@@ -109,7 +119,7 @@ describe("ContactStore.markChannelVerified", () => {
       verifiedVia: "manual",
     });
 
-    const result = new ContactStore().markChannelVerified("ch1");
+    const result = await new ContactStore().markChannelVerified("ch1");
     expect(result).not.toBeNull();
     expect(result!.didWrite).toBe(false);
     // verifiedAt must NOT have moved
@@ -117,7 +127,7 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.channel.verifiedVia).toBe("manual");
   });
 
-  test("upgrades a previously challenge-verified channel to manual", () => {
+  test("upgrades a previously challenge-verified channel to manual", async () => {
     seedContact("c1");
     seedChannel({
       id: "ch1",
@@ -128,14 +138,14 @@ describe("ContactStore.markChannelVerified", () => {
     });
 
     const before = Date.now();
-    const result = new ContactStore().markChannelVerified("ch1");
+    const result = await new ContactStore().markChannelVerified("ch1");
     expect(result).not.toBeNull();
     expect(result!.didWrite).toBe(true);
     expect(result!.channel.verifiedVia).toBe("manual");
     expect(result!.channel.verifiedAt!).toBeGreaterThanOrEqual(before);
   });
 
-  test("re-activates a non-active channel that previously had verifiedAt", () => {
+  test("re-activates a non-active channel that previously had verifiedAt", async () => {
     seedContact("c1");
     seedChannel({
       id: "ch1",
@@ -145,20 +155,20 @@ describe("ContactStore.markChannelVerified", () => {
       verifiedVia: "challenge",
     });
 
-    const result = new ContactStore().markChannelVerified("ch1");
+    const result = await new ContactStore().markChannelVerified("ch1");
     expect(result).not.toBeNull();
     expect(result!.didWrite).toBe(true);
     expect(result!.channel.status).toBe("active");
     expect(result!.channel.verifiedVia).toBe("manual");
   });
 
-  test("two successive calls only write once", () => {
+  test("two successive calls only write once", async () => {
     seedContact("c1");
     seedChannel({ id: "ch1", contactId: "c1", status: "unverified" });
 
     const store = new ContactStore();
-    const a = store.markChannelVerified("ch1");
-    const b = store.markChannelVerified("ch1");
+    const a = await store.markChannelVerified("ch1");
+    const b = await store.markChannelVerified("ch1");
     expect(a!.didWrite).toBe(true);
     expect(b!.didWrite).toBe(false);
     // Same verifiedAt — predicate prevented re-stamping

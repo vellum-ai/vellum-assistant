@@ -123,19 +123,20 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     /**
      * POST /v1/contact-channels/:id/verify — guardian-only manual verify.
      *
-     * Gateway-native: the channel mutation happens entirely in the gateway
-     * DB. We do **not** forward to the assistant runtime and we do **not**
-     * touch the assistant DB. The auth layer (`edge-guardian` strategy)
-     * has already proven the caller is the bound guardian.
+     * Gateway-native + dual-write: the channel mutation happens in the
+     * gateway DB first (source of truth); a best-effort mirror is written
+     * to the assistant DB so the daemon stays in sync during the
+     * gateway-security-migration transition period.
      *
      * Idempotent: a row that's already active+verifiedVia=manual returns
      * the same shape (200 with channel) but no second write occurs.
      */
-    handleVerifyContactChannel(
+    async handleVerifyContactChannel(
       _req: Request,
       contactChannelId: string,
-    ): Response {
-      const result = new ContactStore().markChannelVerified(contactChannelId);
+    ): Promise<Response> {
+      const result =
+        await new ContactStore().markChannelVerified(contactChannelId);
       if (!result) {
         return Response.json(
           {

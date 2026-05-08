@@ -2,8 +2,12 @@ import { type Database } from "bun:sqlite";
 
 import { desc, eq, and, ne, or, sql } from "drizzle-orm";
 
+import { assistantDbRun } from "./assistant-db-proxy.js";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { contacts, contactChannels } from "./schema.js";
+import { getLogger } from "../logger.js";
+
+const log = getLogger("contact-store");
 
 export type Contact = typeof contacts.$inferSelect;
 export type ContactChannel = typeof contactChannels.$inferSelect;
@@ -138,12 +142,12 @@ export class ContactStore {
    * Returns the channel after the write, or `null` if no channel with
    * that id exists in the gateway DB.
    *
-   * Gateway DB only — does not touch the assistant daemon.
+   * Gateway DB (source of truth) + best-effort assistant DB dual-write.
    */
-  markChannelVerified(channelId: string): {
+  async markChannelVerified(channelId: string): Promise<{
     channel: ContactChannel;
     didWrite: boolean;
-  } | null {
+  } | null> {
     const now = Date.now();
     const raw = (this.db as unknown as { $client: Database }).$client;
     const result = raw
@@ -162,6 +166,28 @@ export class ContactStore {
       .get();
 
     if (!after) return null;
-    return { channel: after, didWrite: result.changes > 0 };
+    const didWrite = result.changes > 0;
+
+    // Mirror the write to the assistant DB only when the gateway actually
+    // wrote (best-effort dual-write). Skipping the no-op case prevents
+    // spurious verified_at/updated_at drift in the assistant DB on idempotent
+    // calls. The gateway DB remains source of truth.
+    if (didWrite) {
+      try {
+        await assistantDbRun(
+          `UPDATE contact_channels
+             SET status = 'active', verified_at = ?, verified_via = 'manual', updated_at = ?
+           WHERE id = ?`,
+          [now, now, channelId],
+        );
+      } catch (err) {
+        log.warn(
+          { channelId, err },
+          "markChannelVerified: assistant DB dual-write failed (best-effort)",
+        );
+      }
+    }
+
+    return { channel: after, didWrite };
   }
 }

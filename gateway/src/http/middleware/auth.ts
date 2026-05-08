@@ -19,26 +19,13 @@ type GetClientIp = () => string;
 // DISABLE_HTTP_AUTH — platform-managed deployments bypass JWT validation
 // ---------------------------------------------------------------------------
 
-let _httpAuthDisabled: boolean | undefined;
-
 /**
  * True when HTTP auth is disabled via DISABLE_HTTP_AUTH=true.
- * Cached after first call so the env var is only read once.
+ * Reads the env var on each call — no caching — so tests can set
+ * process.env.DISABLE_HTTP_AUTH directly without any reset helper.
  */
 export function isHttpAuthDisabled(): boolean {
-  if (_httpAuthDisabled === undefined) {
-    _httpAuthDisabled =
-      process.env.DISABLE_HTTP_AUTH?.trim().toLowerCase() === "true";
-  }
-  return _httpAuthDisabled;
-}
-
-/**
- * Test-only: clear the cached `_httpAuthDisabled` so the next call re-reads
- * the env var. Production code should never call this.
- */
-export function __resetHttpAuthDisabledCacheForTesting(): void {
-  _httpAuthDisabled = undefined;
+  return process.env.DISABLE_HTTP_AUTH?.trim().toLowerCase() === "true";
 }
 
 /**
@@ -172,7 +159,11 @@ export function createAuthMiddleware(
   ): Promise<Response | null> {
     if (server && isLoopbackPeer(server, req)) return null;
 
-    if (isHttpAuthDisabled()) {
+    const isPlatform =
+      process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
+      process.env.IS_PLATFORM?.trim() === "1";
+
+    if (isHttpAuthDisabled() && isPlatform) {
       return requireEdgeGuardianAuthByPlatformHeader(req);
     }
 

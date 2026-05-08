@@ -1563,7 +1563,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Mark a contact channel as verified by guardian attestation",
           description:
-            "Guardian-only endpoint that attests a contact channel as verified without exchanging a challenge code. The caller must be the bound guardian — verified either by JWT actor principal (laptop / docker) or by `X-Vellum-User-Id` matching the stored platform user id (platform-managed). Idempotent: an already-verified channel returns 200 without re-writing. Mutation is gateway-DB-local and does not touch the assistant runtime.",
+            "Guardian-only endpoint that attests a contact channel as verified without exchanging a challenge code. The caller must be the bound guardian — verified either by JWT actor principal (laptop / docker) or by `X-Vellum-User-Id` matching the stored platform user id (platform-managed). Idempotent: an already-verified channel returns 200 without re-writing. Mutation is gateway-DB primary with a best-effort dual-write to the assistant daemon DB for sync during the gateway-security-migration transition.",
           operationId: "contactsChannelVerify",
           security: [{ BearerAuth: [] }],
           parameters: [

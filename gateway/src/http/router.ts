@@ -141,11 +141,10 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          return (async () => {
-            const authError = await requireEdgeGuardianAuth(req, server);
-            if (authError) return authError;
-            return route.handler(req, matchResult.params, getClientIp);
-          })();
+          return requireEdgeGuardianAuth(req, server).then(
+            (authError) =>
+              authError ?? route.handler(req, matchResult.params, getClientIp),
+          );
         }
 
         case "track-failures": {
