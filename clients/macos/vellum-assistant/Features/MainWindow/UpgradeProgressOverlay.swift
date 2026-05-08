@@ -130,7 +130,7 @@ struct UpgradeProgressOverlay: View {
                 }
             }
             .frame(height: 6)
-            .frame(maxWidth: 200)
+            .widthCap(200)
             .accessibilityElement()
             .accessibilityValue("\(Int(progress * 100)) percent")
             .accessibilityLabel("Upgrade progress")
