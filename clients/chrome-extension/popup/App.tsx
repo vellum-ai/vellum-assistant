@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CloudAssistant } from '../background/cloud-api.js';
 import type { OperationEntry } from '../background/event-log.js';
 import { AppContext, type Screen } from './AppContext.js';
-import { useBranding } from './hooks/use-branding.js';
 import { useSession } from './hooks/use-session.js';
 import { useStatusPoll } from './hooks/use-status-poll.js';
 import { sendMessage } from './lib/chrome-message.js';
@@ -19,8 +18,6 @@ export function App() {
   const [mode, setMode] = useState<'self-hosted' | 'cloud' | null>(null);
   const [operationCount, setOperationCount] = useState(0);
   const [selfHostedPaired, setSelfHostedPaired] = useState(false);
-
-  const _branding = useBranding();
 
   // Determine initial screen from session state once loading completes
   useEffect(() => {
@@ -182,7 +179,6 @@ export function App() {
       operationCount,
       selfHostedPaired,
       setScreen,
-      sendMessage,
       onSignOut: handleSignOut,
     }),
     [mode, health, healthDetail, authProfile, operationCount, selfHostedPaired, handleSignOut],
