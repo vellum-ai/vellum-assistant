@@ -111,7 +111,7 @@ Examples:
     .description("Open a profile session for the current conversation")
     .option(
       "--ttl <duration>",
-      'Session TTL (e.g. 30m, 1h, "never" for sticky)',
+      'Session TTL (e.g. 30m, 1h, "never" for sticky; omit for sticky)',
     )
     .option(
       "--conversation-id <id>",
@@ -122,13 +122,13 @@ Examples:
       "after",
       `
 Opens a profile session that pins the given profile to the current
-conversation. The session expires after --ttl, or is sticky if
---ttl never is specified. If --ttl is omitted the assistant applies
-its configured default TTL.
+conversation. The session expires after --ttl, or is sticky (no
+expiry) if --ttl never is specified or --ttl is omitted entirely.
 
 Examples:
   $ assistant inference profile open balanced --ttl 30m
   $ assistant inference profile open fast --ttl never
+  $ assistant inference profile open balanced            # sticky, no expiry
   $ assistant inference profile open balanced --json`,
     )
     .action(
@@ -208,15 +208,6 @@ Examples:
         const { sessionId, expiresAt, replaced } = result;
         const resultTtlSeconds = result.ttlSeconds;
 
-        // Warn if TTL was clamped by the server
-        if (
-          typeof requestedTtlSeconds === "number" &&
-          typeof resultTtlSeconds === "number" &&
-          requestedTtlSeconds !== resultTtlSeconds
-        ) {
-          writeLine(`note: ttl clamped to ${formatDuration(resultTtlSeconds)} (config maxTtlSeconds)`);
-        }
-
         if (opts.json) {
           process.stdout.write(
             JSON.stringify({
@@ -237,6 +228,15 @@ Examples:
             }) + "\n",
           );
         } else {
+          // Warn if TTL was clamped by the server (human-readable mode only)
+          if (
+            typeof requestedTtlSeconds === "number" &&
+            typeof resultTtlSeconds === "number" &&
+            requestedTtlSeconds !== resultTtlSeconds
+          ) {
+            writeLine(`note: ttl clamped to ${formatDuration(resultTtlSeconds)} (config maxTtlSeconds)`);
+          }
+
           // Human-readable output
           if (resultTtlSeconds == null) {
             writeLine(`profile ${profileName} active (sticky, no expiry)`);
