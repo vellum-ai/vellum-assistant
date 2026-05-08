@@ -850,111 +850,108 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   // When estimation says we're within budget but the provider rejects,
   // the post-run convergence loop should kick in and recover.
   // This test should PASS against current code (when no progress is made).
-  test.todo(
-    "overflow recovery compacts below limit even when estimation underestimates",
-    async () => {
-      const events: ServerMessage[] = [];
-      let callCount = 0;
-      let reducerCalled = false;
+  test("overflow recovery compacts below limit even when estimation underestimates", async () => {
+    const events: ServerMessage[] = [];
+    let callCount = 0;
+    let reducerCalled = false;
 
-      // Estimator says 185k (below 190k budget = 200k * 0.95)
-      mockEstimateTokens = 185_000;
+    // Estimator says 185k (below 190k budget = 200k * 0.95)
+    mockEstimateTokens = 185_000;
 
-      // Reducer successfully compacts
-      mockReducerStepFn = (msgs: Message[]) => {
-        reducerCalled = true;
-        return {
+    // Reducer successfully compacts
+    mockReducerStepFn = (msgs: Message[]) => {
+      reducerCalled = true;
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 100_000,
+        compactionResult: {
+          compacted: true,
           messages: msgs,
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 100_000,
-          compactionResult: {
-            compacted: true,
-            messages: msgs,
-            compactedPersistedMessages: 10,
-            summaryText: "Summary",
-            previousEstimatedInputTokens: 185_000,
-            estimatedInputTokens: 100_000,
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 20,
-            summaryCalls: 1,
-            summaryInputTokens: 800,
-            summaryOutputTokens: 300,
-            summaryModel: "mock-model",
-          },
-        };
+          compactedPersistedMessages: 10,
+          summaryText: "Summary",
+          previousEstimatedInputTokens: 185_000,
+          estimatedInputTokens: 100_000,
+          maxInputTokens: 200_000,
+          thresholdTokens: 160_000,
+          compactedMessages: 20,
+          summaryCalls: 1,
+          summaryInputTokens: 800,
+          summaryOutputTokens: 300,
+          summaryModel: "mock-model",
+        },
       };
+    };
 
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        callCount++;
-        if (callCount === 1) {
-          // Provider rejects with "prompt is too long: 242201 tokens > 200000"
-          // even though estimator said 185k
-          onEvent({
-            type: "error",
-            error: new Error(
-              "prompt is too long: 242201 tokens > 200000 maximum",
-            ),
-          });
-          onEvent({
-            type: "usage",
-            inputTokens: 0,
-            outputTokens: 0,
-            model: "test-model",
-            providerDurationMs: 10,
-          });
-          // No progress — return same messages
-          return messages;
-        }
-        // Second call succeeds
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+      callCount++;
+      if (callCount === 1) {
+        // Provider rejects with "prompt is too long: 242201 tokens > 200000"
+        // even though estimator said 185k
         onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "recovered" }],
-          },
+          type: "error",
+          error: new Error(
+            "prompt is too long: 242201 tokens > 200000 maximum",
+          ),
         });
         onEvent({
           type: "usage",
-          inputTokens: 80_000,
-          outputTokens: 200,
+          inputTokens: 0,
+          outputTokens: 0,
           model: "test-model",
-          providerDurationMs: 500,
+          providerDurationMs: 10,
         });
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({
-        agentLoopRun,
-        contextWindowManager: {
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+        // No progress — return same messages
+        return messages;
+      }
+      // Second call succeeds
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "recovered" }],
+        },
       });
+      onEvent({
+        type: "usage",
+        inputTokens: 80_000,
+        outputTokens: 200,
+        model: "test-model",
+        providerDurationMs: 500,
+      });
+      return [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [{ type: "text", text: "recovered" }] as ContentBlock[],
+        },
+      ];
+    };
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => ({ compacted: false }),
+      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    });
 
-      // The reducer should be called in the convergence loop
-      expect(reducerCalled).toBe(true);
-      // Should recover without conversation_error
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-      expect(callCount).toBe(2);
-    },
-  );
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // The reducer should be called in the convergence loop
+    expect(reducerCalled).toBe(true);
+    // Should recover without conversation_error
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+    expect(callCount).toBe(2);
+  });
 
   // ── Test 3 ────────────────────────────────────────────────────────
   // BUG: When the provider rejection reveals actual token count (e.g.,
