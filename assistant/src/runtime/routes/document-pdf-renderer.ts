@@ -9,7 +9,10 @@
 
 import { marked } from "marked";
 
-import { importPlaywright } from "../../tools/browser/runtime-check.js";
+import {
+  ensureChromiumHeadlessShell,
+  importPlaywright,
+} from "../../tools/browser/runtime-check.js";
 
 // ---------------------------------------------------------------------------
 // Print template
@@ -144,6 +147,7 @@ export async function renderMarkdownToPDF(
   const fullHtml = wrapInPrintTemplate(innerHtml);
 
   const pw = await importPlaywright();
+  await ensureChromiumHeadlessShell(pw);
   const browser = await pw.chromium.launch({ headless: true });
   try {
     const context = await browser.newContext({

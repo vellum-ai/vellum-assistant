@@ -161,13 +161,6 @@ ENV IS_CONTAINERIZED=true
 # and the generated meet-join manifest from the builder stage.
 COPY --from=builder /app /app
 
-# Install Playwright Chromium browser binary for server-side PDF rendering
-# (page.pdf()). The playwright npm package is already installed via bun install;
-# this downloads the matching headless-shell binary. Pin to a fixed path so the
-# binary is found regardless of what HOME is set to at runtime.
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN cd /app/assistant && bunx playwright install --only-shell chromium
-
 RUN chmod +x /app/assistant/docker-entrypoint.sh
 
 # Run the daemon + http server
