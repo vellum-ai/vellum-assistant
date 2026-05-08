@@ -882,8 +882,7 @@ public final class SettingsStore: ObservableObject {
         apiKeySaveError = nil
         apiKeySaving = true
 
-        // Optimistic UI update while the gateway write is in-flight.
-        APIKeyManager.setKey(trimmed, for: "anthropic")
+        // Optimistic UI flip while the daemon write is in-flight.
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
         removeDeletionTombstone(type: "api_key", name: "anthropic")
@@ -892,6 +891,9 @@ public final class SettingsStore: ObservableObject {
             let result = await APIKeyManager.setKey(trimmed, for: "anthropic")
             apiKeySaving = false
             if result.success {
+                // Drain any stale local file value so the next-launch resync
+                // doesn't push it back over the daemon's fresh write.
+                APIKeyManager.deleteKey(for: "anthropic")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
                 refreshModelInfo()
@@ -922,11 +924,11 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         braveKeySaveError = nil
-        APIKeyManager.setKey(trimmed, for: "brave")
         removeDeletionTombstone(type: "api_key", name: "brave")
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: "brave")
             if result.success {
+                APIKeyManager.deleteKey(for: "brave")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
@@ -951,11 +953,11 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         perplexityKeySaveError = nil
-        APIKeyManager.setKey(trimmed, for: "perplexity")
         removeDeletionTombstone(type: "api_key", name: "perplexity")
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: "perplexity")
             if result.success {
+                APIKeyManager.deleteKey(for: "perplexity")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
@@ -981,12 +983,12 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         imageGenKeySaveError = nil
         imageGenKeySaving = true
-        APIKeyManager.setKey(trimmed, for: provider)
         removeDeletionTombstone(type: "api_key", name: provider)
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: provider)
             imageGenKeySaving = false
             if result.success {
+                APIKeyManager.deleteKey(for: provider)
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
@@ -1026,7 +1028,6 @@ public final class SettingsStore: ObservableObject {
             apiKeySaving = true
         }
 
-        APIKeyManager.setKey(trimmed, for: provider)
         removeDeletionTombstone(type: "api_key", name: provider)
 
         Task {
@@ -1035,6 +1036,7 @@ public final class SettingsStore: ObservableObject {
                 apiKeySaving = false
             }
             if result.success {
+                APIKeyManager.deleteKey(for: provider)
                 insertProviderKey(provider)
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
@@ -3915,11 +3917,10 @@ public final class SettingsStore: ObservableObject {
             )
         }
         let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
-        let setLocalKey: (String, String) -> Void = APIKeyManager.setKey(_:for:)
-        setLocalKey(trimmed, keyProvider)
         removeDeletionTombstone(type: "api_key", name: keyProvider)
         let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
         if result.success {
+            APIKeyManager.deleteKey(for: keyProvider)
             insertProviderKey(keyProvider)
             scheduleRoutingSourceRefresh()
             return result
@@ -4058,11 +4059,11 @@ public final class SettingsStore: ObservableObject {
             }
         case .apiKey:
             let keyProvider = entry.apiKeyProviderName ?? entry.id
-            APIKeyManager.setKey(trimmed, for: keyProvider)
             removeDeletionTombstone(type: "api_key", name: keyProvider)
             Task {
                 let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
                 if result.success {
+                    APIKeyManager.deleteKey(for: keyProvider)
                     insertProviderKey(keyProvider)
                     onSuccess?()
                 } else if let error = result.error {
