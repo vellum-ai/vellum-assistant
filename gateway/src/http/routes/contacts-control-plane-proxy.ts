@@ -103,7 +103,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       getGatewayDb().delete(contacts).where(eq(contacts.id, contactId)).run();
       void ipcCallAssistant("emit_event", {
         body: { kind: "contacts_changed" },
-      } as unknown as Record<string, unknown>);
+      } as unknown as Record<string, unknown>).catch(() => {});
       log.info({ contactId }, "delete_contact: deleted");
       return new Response(null, { status: 204 });
     },

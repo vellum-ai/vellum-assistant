@@ -16,7 +16,6 @@
 import {
   IpcHandlerError,
   ipcCallAssistant,
-  ipcCallAssistantStrict,
 } from "../ipc/assistant-client.js";
 
 type SqliteValue = string | number | null | Uint8Array;
@@ -32,11 +31,11 @@ async function dbProxy(
   mode: "query" | "run" | "exec",
   bind?: SqliteValue[],
 ): Promise<DbProxyResult> {
-  const result = await ipcCallAssistant("db_proxy", { sql, mode, bind });
-  if (result === undefined) {
-    throw new Error("db_proxy IPC call failed — assistant may not be ready");
-  }
-  return result as DbProxyResult;
+  return (await ipcCallAssistant("db_proxy", {
+    sql,
+    mode,
+    bind,
+  })) as DbProxyResult;
 }
 
 /**
@@ -125,15 +124,9 @@ export type AssistantDbTransactionResult =
 export async function assistantDbTransaction(
   steps: AssistantDbTransactionStep[],
 ): Promise<AssistantDbTransactionResult> {
-  // Use the strict caller so SQL/handler errors come through as
-  // IpcHandlerError (preserving the SQL message + statusCode) rather than
-  // being collapsed into a generic transport failure. The previous
-  // ipcCallAssistant() based implementation masked real SQL errors as
-  // "assistant may not be ready", driving incorrect retry/fallback decisions.
-  const result = await ipcCallAssistantStrict("db_proxy_transaction", {
+  return (await ipcCallAssistant("db_proxy_transaction", {
     steps,
-  });
-  return result as AssistantDbTransactionResult;
+  })) as AssistantDbTransactionResult;
 }
 
 /**

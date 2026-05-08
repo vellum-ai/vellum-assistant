@@ -27,8 +27,8 @@
  */
 
 import { getSqlite } from "../../memory/db-connection.js";
-import { getLogger } from "../../util/logger.js";
 import { RouteError } from "../../runtime/routes/errors.js";
+import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("db-proxy-transaction");
 

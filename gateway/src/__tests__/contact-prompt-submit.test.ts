@@ -30,13 +30,13 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 let testAssistantDb: Database | null = null;
 
 mock.module("../db/assistant-db-proxy.js", () => ({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   async assistantDbQuery(sql: string, bind?: any[]) {
     if (!testAssistantDb) throw new Error("test assistant DB not initialized");
     const stmt = testAssistantDb.prepare(sql);
     return bind ? stmt.all(...bind) : stmt.all();
   },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   async assistantDbRun(sql: string, bind?: any[]) {
     if (!testAssistantDb) throw new Error("test assistant DB not initialized");
     const stmt = testAssistantDb.prepare(sql);
@@ -187,7 +187,7 @@ describe("handleContactPromptSubmit", () => {
 
     // IPC should have been called with the guardian contactId.
     expect(ipcMock).toHaveBeenCalledTimes(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
     expect(ipcCall.body.contactId).toBe("guardian-1");
   });
@@ -258,7 +258,7 @@ describe("handleContactPromptSubmit", () => {
 
     // IPC should have been called with an error so the CLI doesn't hang.
     expect(ipcMock).toHaveBeenCalledTimes(1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
     expect(typeof ipcCall.body.error).toBe("string");
   });
@@ -315,7 +315,7 @@ describe("handleContactPromptSubmit", () => {
     expect(contacts).toHaveLength(1);
     expect(contacts[0].id).toBe("contact-1");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const ipcCall = (ipcMock.mock.calls as any[][])[0][1] as { body: Record<string, unknown> };
     expect(ipcCall.body.contactId).toBe("contact-1");
   });

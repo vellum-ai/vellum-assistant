@@ -173,12 +173,9 @@ export async function handleInbound(
 
     // ── Contact channel interaction tracking (dual-write) ──
     // Reads from the assistant DB (source of truth during migration),
-    // writes to both assistant DB and gateway DB. Uses ipcCallAssistant
-    // directly (resolves to undefined on failure, never throws) so
-    // socket errors cannot leak as unhandled rejections in tests.
+    // writes to both assistant DB and gateway DB. Fire-and-forget so
+    // IPC failures here cannot leak as unhandled rejections.
     if (!response.denied) {
-      // Fire-and-forget: detach from current async context so pending
-      // IPC socket operations cannot leak into test runners.
       void touchContactChannelStats(event, response.duplicate).catch(
         () => {},
       );
@@ -211,8 +208,8 @@ interface DbProxyResult {
  * Look up the contact channel in the assistant DB and dual-write
  * interaction stats to both the assistant and gateway databases.
  *
- * Uses ipcCallAssistant directly (resolves to undefined on failure)
- * so socket errors cannot surface as unhandled rejections.
+ * Caller wraps in `.catch(() => {})` so IPC failures cannot surface as
+ * unhandled rejections.
  */
 async function touchContactChannelStats(
   event: GatewayInboundEvent,
@@ -234,17 +231,17 @@ async function touchContactChannelStats(
     sql: "SELECT id FROM contact_channels WHERE type = ? AND external_user_id = ? LIMIT 1",
     mode: "query",
     bind: [event.sourceChannel, canonicalActorId],
-  })) as DbProxyResult | undefined;
+  })) as DbProxyResult;
 
-  if (!result?.rows?.length) {
+  if (!result.rows?.length) {
     result = (await ipcCallAssistant("db_proxy", {
       sql: "SELECT id FROM contact_channels WHERE type = ? AND external_chat_id = ? LIMIT 1",
       mode: "query",
       bind: [event.sourceChannel, event.message.conversationExternalId],
-    })) as DbProxyResult | undefined;
+    })) as DbProxyResult;
   }
 
-  if (!result?.rows?.length) return;
+  if (!result.rows?.length) return;
 
   const channelId = result.rows[0].id as string;
   const now = Date.now();
