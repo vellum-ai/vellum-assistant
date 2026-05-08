@@ -86,6 +86,7 @@ export class VelayTunnelClient {
   private reconnectTimer: unknown = null;
   private heartbeatTimer: unknown = null;
   private readTimeoutTimer: unknown = null;
+  private peerHeartbeatConfirmed = false;
   private publishedPublicBaseUrl: string | undefined;
   private unsubscribeConfigInvalidation: (() => void) | undefined;
 
@@ -232,9 +233,6 @@ export class VelayTunnelClient {
       });
 
       ws.addEventListener("message", (event) => {
-        if (this.ws === ws && this.running) {
-          this.resetReadTimeout(ws);
-        }
         void this.handleMessage(event.data, ws, expectedAssistantId).catch(
           (err) => {
             log.error({ err }, "Failed to handle Velay frame");
@@ -272,6 +270,17 @@ export class VelayTunnelClient {
     if (!frame) {
       log.warn("Ignoring malformed Velay frame");
       return;
+    }
+
+    if (
+      frame.type === VELAY_FRAME_TYPES.heartbeat &&
+      !this.peerHeartbeatConfirmed
+    ) {
+      this.peerHeartbeatConfirmed = true;
+      log.info("Velay peer confirmed heartbeat support");
+    }
+    if (this.peerHeartbeatConfirmed) {
+      this.resetReadTimeout(originWs);
     }
 
     switch (frame.type) {
@@ -412,7 +421,6 @@ export class VelayTunnelClient {
   private startHeartbeat(ws: WebSocket): void {
     this.clearHeartbeat();
     if (this.heartbeatIntervalMs > 0) this.scheduleHeartbeatSend(ws);
-    if (this.heartbeatReadTimeoutMs > 0) this.resetReadTimeout(ws);
   }
 
   private clearHeartbeat(): void {
@@ -424,6 +432,7 @@ export class VelayTunnelClient {
       this.timerApi.clearTimeout(this.readTimeoutTimer);
       this.readTimeoutTimer = null;
     }
+    this.peerHeartbeatConfirmed = false;
   }
 
   private scheduleHeartbeatSend(ws: WebSocket): void {

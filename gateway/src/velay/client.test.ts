@@ -964,14 +964,14 @@ describe("VelayTunnelClient", () => {
     sockets[0].emit("open");
     await flushPromises();
 
-    expect(delays).toEqual([100, 1000]);
+    expect(delays).toEqual([100]);
 
     callbacks[0]();
     await flushPromises();
     expect(sockets[0].sent).toEqual([
       JSON.stringify({ type: VELAY_FRAME_TYPES.heartbeat }),
     ]);
-    expect(delays).toEqual([100, 1000, 100]);
+    expect(delays).toEqual([100, 100]);
 
     await client.stop();
   });
@@ -999,6 +999,10 @@ describe("VelayTunnelClient", () => {
     await flushPromises();
     sockets[0].readyState = WS_OPEN;
     sockets[0].emit("open");
+    await flushPromises();
+    expect(delays).toEqual([100]);
+
+    sendFrame(sockets[0], { type: VELAY_FRAME_TYPES.heartbeat });
     await flushPromises();
     expect(delays).toEqual([100, 1000]);
 
@@ -1035,12 +1039,55 @@ describe("VelayTunnelClient", () => {
     sockets[0].readyState = WS_OPEN;
     sockets[0].emit("open");
     await flushPromises();
+    expect(delays).toEqual([100]);
+
+    sendFrame(sockets[0], { type: VELAY_FRAME_TYPES.heartbeat });
+    await flushPromises();
     expect(delays).toEqual([100, 1000]);
 
     sendFrame(sockets[0], { type: VELAY_FRAME_TYPES.heartbeat });
     await flushPromises();
 
     expect(delays).toEqual([100, 1000, 1000]);
+    expect(sockets[0].closes).toEqual([]);
+
+    await client.stop();
+  });
+
+  test("does not start the read-timeout until the peer echoes a heartbeat", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    writeConfig({ ingress: { publicBaseUrl: "https://ngrok.example.test" } });
+    const client = new VelayTunnelClient({
+      velayBaseUrl: "http://velay.example.test",
+      gatewayLoopbackBaseUrl: "http://127.0.0.1:7830",
+      credentials: makeCredentials({
+        [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+        [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
+      }),
+      configFile: makeConfigFileCache({ count: 0 }),
+      webSocketConstructor: makeFakeWebSocketConstructor(sockets),
+      reconnect: { baseDelayMs: 10, maxDelayMs: 10, jitterRatio: 0 },
+      heartbeat: { intervalMs: 100, readTimeoutMs: 1000 },
+      timerApi: makeManualTimerApi(delays, callbacks),
+    });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sockets[0].emit("open");
+    await flushPromises();
+
+    // Only the heartbeat send is scheduled; read-timeout stays gated.
+    expect(delays).toEqual([100]);
+
+    callbacks[0]();
+    await flushPromises();
+    callbacks[1]();
+    await flushPromises();
+
+    expect(delays).toEqual([100, 100, 100]);
     expect(sockets[0].closes).toEqual([]);
 
     await client.stop();
