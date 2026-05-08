@@ -179,7 +179,9 @@ export interface ProcessConversationContext {
     statusText?: string,
   ): void;
   /** Force context compaction regardless of threshold/cooldown. */
-  forceCompact(): Promise<ContextWindowResult>;
+  forceCompact(options?: {
+    targetInputTokensOverride?: number;
+  }): Promise<ContextWindowResult>;
   /** Set transport-derived hints for the conversation. */
   setTransportHints(hints: string[] | undefined): void;
   /** IANA timezone reported by the active client for the current turn. */
@@ -628,7 +630,9 @@ async function drainSingleMessage(
         "assistant_turn",
         next.requestId,
       );
-      const result = await conversation.forceCompact();
+      const result = await conversation.forceCompact({
+        targetInputTokensOverride: slashResult.targetInputTokensOverride,
+      });
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -1474,7 +1478,9 @@ export async function processMessage(
         "assistant_turn",
         requestId,
       );
-      const result = await conversation.forceCompact();
+      const result = await conversation.forceCompact({
+        targetInputTokensOverride: slashResult.targetInputTokensOverride,
+      });
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);

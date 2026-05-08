@@ -1869,7 +1869,9 @@ export async function handleSendMessage(
           "context_compacting",
           "assistant_turn",
         );
-        const result = await conversation.forceCompact();
+        const result = await conversation.forceCompact({
+          targetInputTokensOverride: slashResult.targetInputTokensOverride,
+        });
         const responseText = formatCompactResult(result);
 
         const assistantMsg = createAssistantMessage(responseText);

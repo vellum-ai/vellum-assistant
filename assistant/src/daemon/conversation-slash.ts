@@ -8,7 +8,43 @@ import { getConfiguredProviders } from "../providers/provider-availability.js";
 export type SlashResolution =
   | { kind: "passthrough"; content: string }
   | { kind: "unknown"; message: string }
-  | { kind: "compact" };
+  | { kind: "compact"; targetInputTokensOverride?: number };
+
+const COMPACT_USAGE_HINT =
+  "Usage: `/compact [<tokens>]` (e.g. `/compact 30000`, `/compact 30k`, `/compact 1m`).";
+
+type CompactParse =
+  | { kind: "compact"; targetInputTokensOverride?: number }
+  | { kind: "unknown"; message: string };
+
+const TOKEN_COUNT_PATTERN = /^(\d+(?:\.\d+)?)([km])?$/i;
+const COMPACT_COMMAND_PATTERN = /^\/compact(?:\s+(.+?))?\s*$/i;
+
+function parseTokenCount(input: string): number | null {
+  const match = input.match(TOKEN_COUNT_PATTERN);
+  if (!match) return null;
+  const value = Number.parseFloat(match[1]);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const suffix = match[2]?.toLowerCase();
+  const multiplier = suffix === "m" ? 1_000_000 : suffix === "k" ? 1_000 : 1;
+  const tokens = Math.floor(value * multiplier);
+  return tokens > 0 ? tokens : null;
+}
+
+function parseCompactCommand(trimmed: string): CompactParse | null {
+  const match = trimmed.match(COMPACT_COMMAND_PATTERN);
+  if (!match) return null;
+  const rest = match[1]?.trim();
+  if (!rest) return { kind: "compact" };
+  const tokens = parseTokenCount(rest);
+  if (tokens == null) {
+    return {
+      kind: "unknown",
+      message: `Unrecognized argument to \`/compact\`: \`${rest}\`. ${COMPACT_USAGE_HINT}`,
+    };
+  }
+  return { kind: "compact", targetInputTokensOverride: tokens };
+}
 
 // ── /context and /status commands ────────────────────────────────────
 
@@ -214,7 +250,8 @@ export function classifySlash(
     return "unknown";
   }
   if (trimmed === "/models") return "unknown";
-  if (trimmed === "/compact") return "compact";
+  const compactParse = parseCompactCommand(trimmed);
+  if (compactParse) return compactParse.kind;
   if (trimmed === "/context") return "unknown";
   if (trimmed === "/status") return "unknown";
   if (trimmed === "/commands") return "unknown";
@@ -260,10 +297,9 @@ export async function resolveSlash(
     return await resolveModelList();
   }
 
-  // Handle /compact command
-  if (trimmed === "/compact") {
-    return { kind: "compact" };
-  }
+  // Handle /compact command (with optional `<tokens>` override).
+  const compactParse = parseCompactCommand(trimmed);
+  if (compactParse) return compactParse;
 
   // Handle /context and legacy /status commands
   if (trimmed === "/context" || trimmed === "/status") {

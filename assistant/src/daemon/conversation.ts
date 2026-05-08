@@ -991,7 +991,9 @@ export class Conversation {
     }
   }
 
-  async forceCompact(): Promise<ContextWindowResult> {
+  async forceCompact(options?: {
+    targetInputTokensOverride?: number;
+  }): Promise<ContextWindowResult> {
     const conversationRow = getConversation(this.conversationId);
     const overrideProfile =
       getConversationOverrideProfileFromRow(conversationRow) ?? null;
@@ -1037,6 +1039,7 @@ export class Conversation {
         conversationOriginChannel:
           getConversationOriginChannel(this.conversationId) ?? undefined,
         overrideProfile,
+        targetInputTokensOverride: options?.targetInputTokensOverride,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
