@@ -140,15 +140,23 @@ describe("buildElevenLabsVoiceSpec", () => {
     ).toBe("abc123");
   });
 
-  test("appends model and defaults when voiceModelId is provided", () => {
+  test("maps ElevenLabs REST model IDs before appending model and defaults", () => {
     const result = buildElevenLabsVoiceSpec({
       voiceId: "abc123",
       voiceModelId: "eleven_turbo_v2",
     });
-    expect(result).toBe("abc123-eleven_turbo_v2-1_0.5_0.75");
+    expect(result).toBe("abc123-turbo_v2-1_0.5_0.75");
   });
 
-  test("uses custom speed, stability, and similarity values", () => {
+  test("passes through Twilio-supported model IDs", () => {
+    const result = buildElevenLabsVoiceSpec({
+      voiceId: "abc123",
+      voiceModelId: "turbo_v2_5",
+    });
+    expect(result).toBe("abc123-turbo_v2_5-1_0.5_0.75");
+  });
+
+  test("omits unsupported model IDs but keeps custom tuning values", () => {
     const result = buildElevenLabsVoiceSpec({
       voiceId: "voice1",
       voiceModelId: "model1",
@@ -156,7 +164,18 @@ describe("buildElevenLabsVoiceSpec", () => {
       stability: 0.8,
       similarityBoost: 0.9,
     });
-    expect(result).toBe("voice1-model1-1.5_0.8_0.9");
+    expect(result).toBe("voice1-1.5_0.8_0.9");
+  });
+
+  test("omits ElevenLabs REST models that ConversationRelay does not support", () => {
+    const result = buildElevenLabsVoiceSpec({
+      voiceId: "voice1",
+      voiceModelId: "eleven_multilingual_v2",
+      speed: 0.9,
+      stability: 0.8,
+      similarityBoost: 0.9,
+    });
+    expect(result).toBe("voice1-0.9_0.8_0.9");
   });
 
   test("trims whitespace from voiceId", () => {
@@ -478,7 +497,7 @@ describe("resolveVoiceQualityProfile", () => {
           providers: {
             elevenlabs: {
               voiceId: "test-voice",
-              voiceModelId: "model-x",
+              voiceModelId: "turbo_v2",
               speed: 1.1,
               stability: 0.6,
               similarityBoost: 0.8,
@@ -490,7 +509,7 @@ describe("resolveVoiceQualityProfile", () => {
     };
     const profile = resolveVoiceQualityProfile();
     expect(profile.ttsProvider).toBe("ElevenLabs");
-    expect(profile.voice).toBe("test-voice-model-x-1.1_0.6_0.8");
+    expect(profile.voice).toBe("test-voice-turbo_v2-1.1_0.6_0.8");
   });
 
   test("falls back to ElevenLabs config when voice-spec builder is not registered", () => {

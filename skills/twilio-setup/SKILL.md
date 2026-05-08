@@ -216,6 +216,18 @@ Run Step 3.
 - For calls, ensure `calls.enabled` is `true`
 - Trial accounts can only reach verified numbers
 
+### Calls say "application error" when using ElevenLabs
+
+Twilio ConversationRelay can hang up with "We're sorry, an application error has occurred" when the TwiML contains an invalid `ttsProvider` and `voice` combination. This is common when a normal ElevenLabs REST model ID is used where Twilio expects a ConversationRelay model suffix.
+
+Check the configured ElevenLabs model:
+
+```bash
+assistant config get services.tts.providers.elevenlabs.voiceModelId
+```
+
+Twilio-supported ElevenLabs model suffixes are `flash_v2`, `flash_v2_5`, `turbo_v2`, and `turbo_v2_5`. The assistant normalizes common ElevenLabs REST IDs such as `eleven_turbo_v2_5` when generating TwiML, but on older builds or hand-written TwiML, clear the model override or use one of the Twilio-supported suffixes.
+
 ### Incoming calls not reaching the assistant
 
 Webhooks on the Twilio phone number may not match the current ingress URL. This happens when ngrok restarts with a new URL or webhooks were never configured.
