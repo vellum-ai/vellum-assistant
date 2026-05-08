@@ -11,6 +11,10 @@ metadata:
 
 You are helping your user configure Twilio for voice calls. Walk through each step below.
 
+## Tool Call Narration
+
+Before any tool call or command, send a brief user-visible sentence saying what you are about to do. Keep it concrete and short: "I'm going to check your current Twilio configuration now" or "I'll open the secure credential prompt for your Auth Token." Do not silently check config, open credential prompts, or call the Twilio API.
+
 ## Value Classification
 
 Before you begin, understand how each Twilio value is stored:

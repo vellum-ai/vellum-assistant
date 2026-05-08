@@ -87,7 +87,12 @@ export interface VoiceRunEventSink {
     >,
   ): void;
   onError(message: string): void;
-  onToolUse(toolName: string, input: Record<string, unknown>): void;
+  onToolUse(
+    toolName: string,
+    input: Record<string, unknown>,
+    toolUseId?: string,
+  ): void;
+  onToolResult(toolName: string, toolUseId?: string): void;
 }
 
 export interface VoiceTurnCallbacks {
@@ -137,6 +142,14 @@ export interface VoiceTurnOptions {
   skipDisclosure?: boolean;
   /** Called for each streaming text token from the agent loop. */
   onTextDelta?: (text: string) => void;
+  /** Called when the agent loop is about to execute a tool. */
+  onToolUse?: (
+    toolName: string,
+    input: Record<string, unknown>,
+    toolUseId?: string,
+  ) => void;
+  /** Called when the agent loop receives a tool result. */
+  onToolResult?: (toolName: string, toolUseId?: string) => void;
   /** Called when the agent loop completes a full response. */
   onComplete?: () => void;
   /** Called when the agent loop encounters an error. */
@@ -255,6 +268,7 @@ function buildVoiceCallControlPrompt(opts: {
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
     `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
+    '12. Before using any tool during the call, first say one short plain-language sentence telling the caller what you are about to do, such as "I\'ll check that now." Then make the tool call. Do not leave the caller in silence while a tool runs.',
     "</voice_call_control>",
   );
 
@@ -307,8 +321,13 @@ export async function startVoiceTurn(
     onError: (message) => {
       opts.onError?.(message);
     },
-    onToolUse: (toolName, input) => {
-      log.debug({ toolName, input }, "Voice turn tool_use event");
+    onToolUse: (toolName, input, toolUseId) => {
+      log.debug({ toolName, input, toolUseId }, "Voice turn tool_use event");
+      opts.onToolUse?.(toolName, input, toolUseId);
+    },
+    onToolResult: (toolName, toolUseId) => {
+      log.debug({ toolName, toolUseId }, "Voice turn tool_result event");
+      opts.onToolResult?.(toolName, toolUseId);
     },
   };
 
@@ -581,7 +600,13 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
-            eventSink.onToolUse(msg.toolName, msg.input);
+            eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
+          } else if (
+            // guard:allow-tool-result-only — web_search_tool_result is a persisted
+            // content block, not a ServerMessage emitted by the live voice turn.
+            msg.type === "tool_result"
+          ) {
+            eventSink.onToolResult(msg.toolName, msg.toolUseId);
           }
           // Note: tool_use_preview_start is intentionally not handled here.
           // Voice only reacts to the definitive tool_use_start event.

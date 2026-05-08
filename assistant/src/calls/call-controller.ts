@@ -32,6 +32,7 @@ import {
   getUserConsultationTimeoutMs,
 } from "./call-constants.js";
 import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import { speakSystemPrompt } from "./call-speech-output.js";
 import {
   fireCallQuestionNotifier,
   fireCallTranscriptNotifier,
@@ -71,6 +72,28 @@ import {
 const log = getLogger("call-controller");
 
 type ControllerState = "idle" | "processing" | "speaking";
+
+const VOICE_TOOL_STILL_WORKING_DELAY_MS = 20_000;
+const VOICE_TOOL_STILL_WORKING_MESSAGE = "I'm still working on that.";
+
+const VOICE_TOOL_PRELUDE_ACTIONS: Record<string, string> = {
+  web_search: "look that up",
+  web_fetch: "open that page",
+  file_read: "check the file",
+  skill_load: "load the relevant skill",
+  skill_execute: "run the skill",
+  recall: "check what I remember",
+  remember: "make a note of that",
+  call_status: "check the call status",
+  call_end: "end the call",
+};
+
+function formatVoiceToolPrelude(toolName: string): string {
+  const action =
+    VOICE_TOOL_PRELUDE_ACTIONS[toolName] ??
+    `use ${toolName.replace(/_/g, " ")}`;
+  return `I'm going to ${action} now.`;
+}
 
 /**
  * Tracks a pending guardian input request independently of the controller's
@@ -601,6 +624,29 @@ export class CallController {
     // could be the start of a control marker.
     let ttsBuffer = "";
     let fullResponseText = "";
+    let assistantSpeechQueued = false;
+    let fallbackToolPreludeSpoken = false;
+    let activeToolCallCount = 0;
+    let stillWorkingTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearStillWorkingTimer = (): void => {
+      if (!stillWorkingTimer) return;
+      clearTimeout(stillWorkingTimer);
+      stillWorkingTimer = null;
+    };
+
+    const armStillWorkingTimer = (): void => {
+      clearStillWorkingTimer();
+      stillWorkingTimer = setTimeout(() => {
+        stillWorkingTimer = null;
+        if (!this.isCurrentRun(runVersion)) return;
+        if (runSignal.aborted || activeToolCallCount <= 0) return;
+        void speakSystemPrompt(
+          this.transport,
+          VOICE_TOOL_STILL_WORKING_MESSAGE,
+        );
+      }, VOICE_TOOL_STILL_WORKING_DELAY_MS);
+    };
 
     // When using the synthesized path, we accumulate all text and synthesize
     // the complete response at the end of the turn (better prosody).
@@ -610,6 +656,7 @@ export class CallController {
     const emitSafeChunk = (safeText: string): void => {
       const cleaned = sanitizeForTts(safeText);
       if (cleaned.length === 0) return;
+      assistantSpeechQueued = true;
       if (useSynthesizedPath) {
         synthesizedTextBuffer += cleaned;
       } else {
@@ -671,6 +718,25 @@ export class CallController {
         reject(new Error(message));
       };
 
+      const onToolUse = (toolName: string): void => {
+        if (!this.isCurrentRun(runVersion)) return;
+        activeToolCallCount++;
+        armStillWorkingTimer();
+        if (assistantSpeechQueued || fallbackToolPreludeSpoken) return;
+        fallbackToolPreludeSpoken = true;
+        void speakSystemPrompt(
+          this.transport,
+          formatVoiceToolPrelude(toolName),
+        );
+      };
+
+      const onToolResult = (): void => {
+        activeToolCallCount = Math.max(0, activeToolCallCount - 1);
+        if (activeToolCallCount === 0) {
+          clearStillWorkingTimer();
+        }
+      };
+
       // Start the voice turn through the session bridge
       startVoiceTurn({
         conversationId: this.conversationId,
@@ -682,6 +748,8 @@ export class CallController {
         task: this.task,
         skipDisclosure: this.skipDisclosure,
         onTextDelta,
+        onToolUse,
+        onToolResult,
         onComplete,
         onError,
         signal: runSignal,
@@ -715,7 +783,11 @@ export class CallController {
     // inside the Promise constructor before this await adds its handler.
     // The await below still re-throws, caught by the outer try-catch.
     turnComplete.catch(() => {});
-    await turnComplete;
+    try {
+      await turnComplete;
+    } finally {
+      clearStillWorkingTimer();
+    }
     if (!this.isCurrentRun(runVersion)) return fullResponseText;
 
     // Final sweep: strip any remaining control markers from the buffer
