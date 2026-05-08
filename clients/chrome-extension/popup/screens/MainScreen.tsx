@@ -12,7 +12,7 @@ import { StatusCard } from './main/StatusCard.js';
  * controls for cloud or self-hosted operation.
  */
 export function MainScreen() {
-  const { mode, operationCount, selfHostedPaired, setScreen, onSignOut } = useAppContext();
+  const { mode, operationCount, selfHostedPaired, assistantsError, setScreen, onSignOut, onRetryAssistants } = useAppContext();
 
   const [paired, setPaired] = useState(selfHostedPaired);
   const [assistantName, setAssistantName] = useState('');
@@ -60,6 +60,21 @@ export function MainScreen() {
           assistantName={assistantName || 'Assistant'}
           accountEmail={accountEmail}
         />
+      )}
+
+      {assistantsError && (
+        <div className="mx-0 mb-2.5 rounded-xl border border-red-300 bg-red-50 px-4 py-3 dark:border-red-700 dark:bg-red-950">
+          <p className="text-[13px] text-red-700 dark:text-red-300">
+            {assistantsError}
+          </p>
+          <button
+            type="button"
+            onClick={onRetryAssistants}
+            className="mt-2 cursor-pointer rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+          >
+            Retry
+          </button>
+        </div>
       )}
 
       {showConnectedState && <StatusCard />}

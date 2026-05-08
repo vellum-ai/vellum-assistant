@@ -1,12 +1,28 @@
+import { useEffect, useState } from 'react';
+
 import { useBranding } from '../hooks/use-branding.js';
 
 export interface WelcomeScreenProps {
   onSignIn: () => void;
   onSelfHosted: () => void;
+  signingIn?: boolean;
+  signInError?: string | null;
 }
 
-export function WelcomeScreen({ onSignIn, onSelfHosted }: WelcomeScreenProps) {
+export function WelcomeScreen({ onSignIn, onSelfHosted, signingIn, signInError }: WelcomeScreenProps) {
   const branding = useBranding();
+  const [visibleError, setVisibleError] = useState<string | null>(null);
+
+  // Show error for 4 seconds then clear
+  useEffect(() => {
+    if (!signInError) {
+      setVisibleError(null);
+      return;
+    }
+    setVisibleError(signInError);
+    const timer = setTimeout(() => setVisibleError(null), 4000);
+    return () => clearTimeout(timer);
+  }, [signInError]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[320px] px-4 pt-8 pb-4 text-center">
@@ -35,18 +51,26 @@ export function WelcomeScreen({ onSignIn, onSelfHosted }: WelcomeScreenProps) {
         <button
           type="button"
           onClick={onSignIn}
-          className="bg-fg text-bg rounded-lg px-4 py-2.5 text-sm font-medium w-full hover:opacity-90 transition-opacity cursor-pointer"
+          disabled={signingIn}
+          className="bg-fg text-bg rounded-lg px-4 py-2.5 text-sm font-medium w-full hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          Sign in with Vellum
+          {signingIn ? 'Signing in...' : 'Sign in with Vellum'}
         </button>
         <button
           type="button"
           onClick={onSelfHosted}
-          className="bg-transparent text-fg-muted border border-edge rounded-lg px-4 py-2.5 text-sm w-full hover:border-edge-hover hover:text-fg transition-colors cursor-pointer"
+          disabled={signingIn}
+          className="bg-transparent text-fg-muted border border-edge rounded-lg px-4 py-2.5 text-sm w-full hover:border-edge-hover hover:text-fg transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
         >
           Connect to self-hosted
         </button>
       </div>
+
+      {visibleError && (
+        <p className="text-xs text-red-500 mt-3 max-w-[240px]">
+          {visibleError}
+        </p>
+      )}
 
       <p className="text-xs text-fg-subtle mt-auto pt-4">
         &copy; 2026 Vellum Inc.
