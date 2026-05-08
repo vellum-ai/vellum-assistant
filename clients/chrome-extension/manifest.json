@@ -20,7 +20,7 @@
     "type": "module"
   },
   "action": {
-    "default_popup": "popup/popup.html",
+    "default_popup": "popup/index.html",
     "default_title": "Vellum Assistant"
   },
   "icons": {
