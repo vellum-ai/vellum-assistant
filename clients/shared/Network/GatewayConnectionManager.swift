@@ -540,6 +540,7 @@ public final class GatewayConnectionManager {
             isUpdateInProgress = false
             // Preserve updateTargetVersion — only the authoritative
             // .serviceGroupUpdateComplete SSE event or timeout clears it.
+            updateExpectedDowntimeSeconds = nil
             updateExpiresAt = nil
             updateStatusMessage = nil
             eventStreamClient.resetSSEReconnectDelay()

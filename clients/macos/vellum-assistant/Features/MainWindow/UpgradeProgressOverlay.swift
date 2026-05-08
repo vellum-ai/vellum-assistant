@@ -19,6 +19,9 @@ struct UpgradeProgressOverlay: View {
     @State private var progressAtCompletion: Double?
     /// Timestamp when the upgrade completed (success or failure via SSE).
     @State private var completionTime: Date?
+    /// Captured estimated duration at progress start, so it survives the
+    /// observable being cleared when the upgrade completes.
+    @State private var capturedEstimatedDuration: TimeInterval = 60
 
     /// Whether to show the outcome card (success/failure) before auto-dismissing.
     @State private var showOutcome: Bool = false
@@ -51,7 +54,7 @@ struct UpgradeProgressOverlay: View {
                     // ease-out ramp to 100% from the current position.
                     if let start = progressStartDate {
                         let elapsed = max(0, Date().timeIntervalSince(start))
-                        progressAtCompletion = 0.95 * (1.0 - exp(-elapsed / estimatedDuration))
+                        progressAtCompletion = 0.95 * (1.0 - exp(-elapsed / capturedEstimatedDuration))
                         completionTime = Date()
                     }
 
@@ -139,10 +142,6 @@ struct UpgradeProgressOverlay: View {
 
     // MARK: - Progress Computation
 
-    private var estimatedDuration: TimeInterval {
-        connectionManager.updateExpectedDowntimeSeconds ?? defaultEstimatedDuration
-    }
-
     /// Computes progress using an asymptotic curve based on elapsed time and
     /// estimated duration. Called at display refresh rate via `TimelineView`.
     ///
@@ -162,10 +161,11 @@ struct UpgradeProgressOverlay: View {
         // Asymptotic time-based progress: never reaches 95% no matter how long,
         // so the bar always appears to be moving.
         let elapsed = max(0, date.timeIntervalSince(startDate))
-        return 0.95 * (1.0 - exp(-elapsed / estimatedDuration))
+        return 0.95 * (1.0 - exp(-elapsed / capturedEstimatedDuration))
     }
 
     private func startProgress() {
+        capturedEstimatedDuration = connectionManager.updateExpectedDowntimeSeconds ?? defaultEstimatedDuration
         progressStartDate = Date()
         progressAtCompletion = nil
         completionTime = nil
