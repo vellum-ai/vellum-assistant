@@ -61,6 +61,7 @@ type SetupOutcome =
       assistantId: string;
       fromNumber: string;
       displayName: string;
+      isGuardian: boolean;
     }
   | { action: "deny"; message: string; logReason: string };
 
@@ -263,6 +264,7 @@ export function routeSetup(ctx: SetupContext): {
           assistantId,
           fromNumber: ctx.from,
           displayName: actorTrust.memberRecord!.contact.displayName,
+          isGuardian: actorTrust.memberRecord!.contact.role === "guardian",
         },
         resolved,
       };

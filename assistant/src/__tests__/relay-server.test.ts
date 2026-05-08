@@ -2305,10 +2305,10 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
-  test("inbound voice: known caller with unverified channel gets verification guidance", async () => {
-    ensureConversation("conv-unverified-caller");
+  test("inbound voice: guardian's unverified channel gets self-verify guidance", async () => {
+    ensureConversation("conv-unverified-guardian");
     const session = createCallSession({
-      conversationId: "conv-unverified-caller",
+      conversationId: "conv-unverified-guardian",
       provider: "twilio",
       fromNumber: "+15558886666",
       toNumber: "+15551111111",
@@ -2319,6 +2319,7 @@ describe("relay-server", () => {
       externalUserId: "+15558886666",
       externalChatId: "+15558886666",
       displayName: "Vargas",
+      role: "guardian",
       status: "unverified",
       policy: "allow",
     });
@@ -2328,7 +2329,7 @@ describe("relay-server", () => {
     await relay.handleMessage(
       JSON.stringify({
         type: "setup",
-        callSid: "CA_unverified_caller",
+        callSid: "CA_unverified_guardian",
         from: "+15558886666",
         to: "+15551111111",
       }),
@@ -2348,11 +2349,17 @@ describe("relay-server", () => {
     expect(promptText).toContain("Vargas");
     expect(promptText).toContain("has not been verified yet");
     expect(promptText).toContain("contacts page");
+    expect(promptText).not.toContain("reach out to the account guardian");
     expect(promptText).not.toContain("don't recognize");
 
     const events = getCallEvents(session.id);
+    const aclEvent = events.find(
+      (e) => e.eventType === "inbound_acl_unverified_caller",
+    );
+    expect(aclEvent).toBeTruthy();
     expect(
-      events.some((e) => e.eventType === "inbound_acl_unverified_caller"),
+      (JSON.parse(aclEvent!.payloadJson) as { isGuardian?: boolean })
+        .isGuardian,
     ).toBe(true);
 
     // Let delayed endSession callback flush
@@ -2361,10 +2368,10 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
-  test("inbound voice: known caller with pending channel gets verification guidance", async () => {
-    ensureConversation("conv-pending-caller");
+  test("inbound voice: non-guardian contact with pending channel gets reach-out copy", async () => {
+    ensureConversation("conv-pending-contact");
     const session = createCallSession({
-      conversationId: "conv-pending-caller",
+      conversationId: "conv-pending-contact",
       provider: "twilio",
       fromNumber: "+15558887777",
       toNumber: "+15551111111",
@@ -2375,6 +2382,7 @@ describe("relay-server", () => {
       externalUserId: "+15558887777",
       externalChatId: "+15558887777",
       displayName: "Pending Pat",
+      // role defaults to "contact" — exercises the non-guardian branch
       status: "pending",
       policy: "allow",
     });
@@ -2384,7 +2392,7 @@ describe("relay-server", () => {
     await relay.handleMessage(
       JSON.stringify({
         type: "setup",
-        callSid: "CA_pending_caller",
+        callSid: "CA_pending_contact",
         from: "+15558887777",
         to: "+15551111111",
       }),
@@ -2398,6 +2406,18 @@ describe("relay-server", () => {
     const promptText = textMessages.map((m) => m.token ?? "").join("");
     expect(promptText).toContain("Pending Pat");
     expect(promptText).toContain("has not been verified yet");
+    expect(promptText).toContain("reach out to the account guardian");
+    expect(promptText).not.toContain("contacts page");
+
+    const events = getCallEvents(session.id);
+    const aclEvent = events.find(
+      (e) => e.eventType === "inbound_acl_unverified_caller",
+    );
+    expect(aclEvent).toBeTruthy();
+    expect(
+      (JSON.parse(aclEvent!.payloadJson) as { isGuardian?: boolean })
+        .isGuardian,
+    ).toBe(false);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
     relay.destroy();
