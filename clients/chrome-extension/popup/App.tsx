@@ -18,6 +18,7 @@ export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'welcome' });
   const [mode, setMode] = useState<'self-hosted' | 'cloud' | null>(null);
   const [operationCount, setOperationCount] = useState(0);
+  const [selfHostedPaired, setSelfHostedPaired] = useState(false);
 
   const _branding = useBranding();
 
@@ -27,6 +28,7 @@ export function App() {
 
     if (session.mode === 'self-hosted') {
       setMode('self-hosted');
+      setSelfHostedPaired(!!session.selfHostedPaired);
       setScreen({ name: 'main' });
       if (session.selfHostedPaired) {
         sendMessage({ type: 'connect' });
@@ -178,11 +180,12 @@ export function App() {
       healthDetail,
       authProfile,
       operationCount,
+      selfHostedPaired,
       setScreen,
       sendMessage,
       onSignOut: handleSignOut,
     }),
-    [mode, health, healthDetail, authProfile, operationCount, handleSignOut],
+    [mode, health, healthDetail, authProfile, operationCount, selfHostedPaired, handleSignOut],
   );
 
   if (session.loading) {
