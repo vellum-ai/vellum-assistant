@@ -121,37 +121,12 @@ export const contactChannels = sqliteTable(
   ],
 );
 
-// ---------------------------------------------------------------------------
-// Ingress invites
-// ---------------------------------------------------------------------------
-//
-// Sits in the gateway DB so future PRs can move invite redemption
-// (currently in assistant/src/runtime/invite-redemption-service.ts) into
-// the gateway process. With contacts/contact_channels already gateway-side,
-// invite redemption can do a single LOCAL gateway-DB transaction
-// (contact-channel upsert + invite use record) instead of round-tripping
-// through the assistant DB.
-//
-// The table is empty at install time; it begins receiving writes when the
-// invite-creation and invite-redemption code paths are migrated. No data
-// migration from the assistant DB — voice invites are short-lived (TTL
-// ≤24h) and aging out is acceptable during the cutover window.
-//
-// Channel-agnostic by design. Channel-specific lookup (e.g. matching a
-// caller to their pending invite) goes through contact_channels rather
-// than embedded columns here.
-
 export const ingressInvites = sqliteTable(
   "ingress_invites",
   {
     id: text("id").primaryKey(),
     sourceChannel: text("source_channel").notNull(),
-    // Hash of the long opaque token in the invite URL (e.g. vellum.me/i/<token>).
-    // Always set — every invite has a URL form.
-    tokenHash: text("token_hash").notNull(),
-    // Hash of the optional short human-typeable code (e.g. 6-digit). Nullable
-    // because not every invite is issued with a typeable fallback.
-    inviteCodeHash: text("invite_code_hash"),
+    inviteCodeHash: text("invite_code_hash").notNull(),
     note: text("note"),
     maxUses: integer("max_uses").notNull().default(1),
     useCount: integer("use_count").notNull().default(0),
@@ -167,16 +142,10 @@ export const ingressInvites = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    // Short-code redemption: filter by (invite_code_hash, source_channel,
-    // status='active'). Channel scoping required because 6-digit codes
-    // can collide across channels.
     index("idx_ingress_invites_code_lookup").on(
       table.inviteCodeHash,
       table.sourceChannel,
     ),
-    // URL-token redemption: filter by token_hash.
-    index("idx_ingress_invites_token_hash").on(table.tokenHash),
-    // Contact-scoped lookups (e.g. listing invites for a contact).
     index("idx_ingress_invites_contact").on(table.contactId),
   ],
 );
