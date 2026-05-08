@@ -612,6 +612,9 @@ export class RelayConnection {
         );
         this.startNameCapture(outcome.assistantId, outcome.fromNumber);
         return;
+      case "unverified_caller":
+        await this.handleUnverifiedCaller(outcome.displayName);
+        return;
       case "verification":
         if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
           this.controller.setTrustContext(
@@ -670,6 +673,26 @@ export class RelayConnection {
   }
 
   /** Deny an inbound call with a TTS message and schedule disconnect. */
+  private async handleUnverifiedCaller(displayName: string): Promise<void> {
+    recordCallEvent(this.callSessionId, "inbound_acl_unverified_caller", {
+      callSessionId: this.callSessionId,
+    });
+    this.connectionState = "disconnecting";
+    updateCallSession(this.callSessionId, {
+      status: "failed",
+      endedAt: Date.now(),
+      lastError: "Inbound voice ACL: caller channel unverified",
+    });
+    const message =
+      `This number is registered as ${displayName}'s phone but has not been verified yet. ` +
+      `To verify, open your assistant's contacts page, click Verify next to the phone channel, ` +
+      `and follow the prompts. Then call back once the verification session is active.`;
+    await speakSystemPrompt(this, message);
+    setTimeout(() => {
+      this.endSession("Inbound voice ACL: caller channel unverified");
+    }, getTtsPlaybackDelayMs());
+  }
+
   private async denyInboundCall(
     from: string,
     resolved: SetupResolved,

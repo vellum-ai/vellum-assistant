@@ -2305,6 +2305,104 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
+  test("inbound voice: known caller with unverified channel gets verification guidance", async () => {
+    ensureConversation("conv-unverified-caller");
+    const session = createCallSession({
+      conversationId: "conv-unverified-caller",
+      provider: "twilio",
+      fromNumber: "+15558886666",
+      toNumber: "+15551111111",
+    });
+
+    upsertContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15558886666",
+      externalChatId: "+15558886666",
+      displayName: "Vargas",
+      status: "unverified",
+      policy: "allow",
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_unverified_caller",
+        from: "+15558886666",
+        to: "+15551111111",
+      }),
+    );
+
+    // Should be disconnecting (not awaiting_name, not normal_call)
+    expect(relay.getConnectionState()).toBe("disconnecting");
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("failed");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    const promptText = textMessages.map((m) => m.token ?? "").join("");
+    expect(promptText).toContain("Vargas");
+    expect(promptText).toContain("has not been verified yet");
+    expect(promptText).toContain("contacts page");
+    expect(promptText).not.toContain("don't recognize");
+
+    const events = getCallEvents(session.id);
+    expect(
+      events.some((e) => e.eventType === "inbound_acl_unverified_caller"),
+    ).toBe(true);
+
+    // Let delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    relay.destroy();
+  });
+
+  test("inbound voice: known caller with pending channel gets verification guidance", async () => {
+    ensureConversation("conv-pending-caller");
+    const session = createCallSession({
+      conversationId: "conv-pending-caller",
+      provider: "twilio",
+      fromNumber: "+15558887777",
+      toNumber: "+15551111111",
+    });
+
+    upsertContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15558887777",
+      externalChatId: "+15558887777",
+      displayName: "Pending Pat",
+      status: "pending",
+      policy: "allow",
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_pending_caller",
+        from: "+15558887777",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("disconnecting");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    const promptText = textMessages.map((m) => m.token ?? "").join("");
+    expect(promptText).toContain("Pending Pat");
+    expect(promptText).toContain("has not been verified yet");
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    relay.destroy();
+  });
+
   test("inbound voice: unknown caller name capture uses fallback when assistant name is unavailable", async () => {
     const prevName = mockAssistantName;
     mockAssistantName = null;
