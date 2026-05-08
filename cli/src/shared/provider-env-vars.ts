@@ -22,6 +22,7 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   openai: "OPENAI_API_KEY",
   gemini: "GEMINI_API_KEY",
   fireworks: "FIREWORKS_API_KEY",
+  minimax: "MINIMAX_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
 };
 

@@ -45,6 +45,10 @@ export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
     name: "fireworks",
     managed: false,
   },
+  minimax: {
+    name: "minimax",
+    managed: false,
+  },
   openrouter: {
     name: "openrouter",
     managed: false,

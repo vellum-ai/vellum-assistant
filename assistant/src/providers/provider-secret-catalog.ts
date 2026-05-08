@@ -38,6 +38,7 @@ const LLM_AND_SEARCH_API_KEY_PROVIDERS = [
   "gemini",
   "ollama",
   "fireworks",
+  "minimax",
   "openrouter",
   "brave",
   "perplexity",

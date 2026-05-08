@@ -57,6 +57,7 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MINIKUBE_STORAGE_SIZE",
   "VELLUM_BACKUP_DIR",
   "VELLUM_BACKUP_KEY_PATH",
+  "MINIMAX_BASE_URL",
 ] as const;
 
 /**

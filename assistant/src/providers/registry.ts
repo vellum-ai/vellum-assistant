@@ -7,6 +7,7 @@ import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "./managed-proxy/context.js";
+import { MiniMaxProvider } from "./minimax/client.js";
 import { isModelInCatalog } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import { OllamaProvider } from "./ollama/client.js";
@@ -245,6 +246,23 @@ export async function initializeProviders(
       ),
     );
     routingSources.set("fireworks", "user-key");
+  }
+
+  // MiniMax
+  const minimaxKey = await getProviderKeyAsync("minimax");
+  if (minimaxKey) {
+    const model = resolveModel(config, "minimax");
+    const minimaxBaseURL = process.env.MINIMAX_BASE_URL?.trim();
+    registerProvider(
+      "minimax",
+      new RetryProvider(
+        new MiniMaxProvider(minimaxKey, model, {
+          streamTimeoutMs,
+          ...(minimaxBaseURL ? { baseURL: minimaxBaseURL } : {}),
+        }),
+      ),
+    );
+    routingSources.set("minimax", "user-key");
   }
 
   // OpenRouter

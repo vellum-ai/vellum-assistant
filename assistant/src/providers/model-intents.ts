@@ -40,6 +40,12 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     "quality-optimized": "accounts/fireworks/models/kimi-k2p5",
     "vision-optimized": "accounts/fireworks/models/kimi-k2p5",
   },
+  minimax: {
+    balanced: "MiniMax-M1",
+    "latency-optimized": "abab6.5s-chat",
+    "quality-optimized": "MiniMax-M1",
+    "vision-optimized": "MiniMax-M1",
+  },
   openrouter: {
     balanced: "anthropic/claude-sonnet-4.6",
     "latency-optimized": "anthropic/claude-haiku-4.5",

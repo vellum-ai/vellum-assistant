@@ -484,6 +484,67 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "fw_...",
   },
   {
+    id: "minimax",
+    displayName: "MiniMax",
+    subtitle:
+      "MiniMax-M1 / M2 reasoning models via OpenAI-compatible API. Requires a MiniMax API key.",
+    setupMode: "api-key",
+    setupHint:
+      "Enter your MiniMax API key from platform.minimax.io. International endpoint is used by default; set MINIMAX_BASE_URL to https://api.minimaxi.com/v1 for the China endpoint.",
+    envVar: "MINIMAX_API_KEY",
+    credentialsGuide: {
+      description:
+        "Sign in to the MiniMax platform console and create an API key under API Keys.",
+      url: "https://platform.minimax.io/user-center/basic-information/interface-key",
+      linkLabel: "Open MiniMax Console",
+    },
+    models: [
+      {
+        id: "MiniMax-M1",
+        displayName: "MiniMax-M1",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 40000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+      {
+        id: "MiniMax-M2",
+        displayName: "MiniMax-M2",
+        contextWindowTokens: 200000,
+        maxOutputTokens: 40000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+      {
+        id: "abab6.5-chat",
+        displayName: "abab6.5-chat",
+        contextWindowTokens: 245760,
+        maxOutputTokens: 8192,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+      {
+        id: "abab6.5s-chat",
+        displayName: "abab6.5s-chat",
+        contextWindowTokens: 245760,
+        maxOutputTokens: 8192,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+    ],
+    defaultModel: "MiniMax-M1",
+    apiKeyUrl:
+      "https://platform.minimax.io/user-center/basic-information/interface-key",
+  },
+  {
     id: "openrouter",
     displayName: "OpenRouter",
     subtitle: "Route to many LLM providers via a single OpenRouter API key.",
