@@ -379,7 +379,12 @@ export async function resolveCatalog(
         const localIds = new Set(local.map((s) => s.id));
         const merged = [...local, ...remote.filter((s) => !localIds.has(s.id))];
         log.info(
-          { skillId, source: "merged", localCount: local.length, remoteCount: remote.length },
+          {
+            skillId,
+            source: "merged",
+            localCount: local.length,
+            remoteCount: remote.length,
+          },
           "Resolved skills catalog from local+remote merge",
         );
         return merged;
@@ -393,7 +398,10 @@ export async function resolveCatalog(
     }
   }
 
-  log.info({ skillId, source: "remote" }, "Resolved skills catalog from platform API");
+  log.info(
+    { skillId, source: "remote" },
+    "Resolved skills catalog from platform API",
+  );
   return fetchCatalog();
 }
 
@@ -434,7 +442,10 @@ export async function autoInstallFromCatalog(
   // of attempting a fresh install that would fail.
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
   if (existsSync(join(skillDir, "SKILL.md"))) {
-    log.info({ skillId, source: "disk-reindex" }, "Skill already on disk, re-indexing");
+    log.info(
+      { skillId, source: "disk-reindex" },
+      "Skill already on disk, re-indexing",
+    );
     upsertSkillsIndex(skillId);
     return true;
   }
@@ -443,4 +454,79 @@ export async function autoInstallFromCatalog(
   await installSkillLocally(skillId, entry, false);
 
   return true;
+}
+
+// ─── Import skill from ZIP/tar.gz (drag-n-drop) ──────────────────────────────
+
+/**
+ * Import a skill from a base64-encoded ZIP or tar.gz file.
+ * This is the "escape hatch" for users who want to install custom skills
+ * that are not available in any public catalog.
+ */
+export async function importSkillFromFile(
+  fileName: string,
+  fileContentBase64: string,
+): Promise<
+  { success: true; skillId: string } | { success: false; error: string }
+> {
+  try {
+    const buffer = Buffer.from(fileContentBase64, "base64");
+
+    // Detect format and decompress if needed
+    let tarBuffer: Buffer;
+    const isGzip = buffer[0] === 0x1f && buffer[1] === 0x8b;
+    if (isGzip) {
+      tarBuffer = gunzipSync(buffer);
+    } else {
+      tarBuffer = buffer;
+    }
+
+    // Use fileName (without extension) as candidate skillId
+    const baseName = fileName
+      .replace(/\.(tar\.gz|tgz|zip|tar)$/i, "")
+      .replace(/[^a-zA-Z0-9._-]/g, "-")
+      .toLowerCase();
+    const skillId = baseName || "imported-skill";
+    const skillDir = join(getWorkspaceSkillsDir(), skillId);
+
+    // Remove existing dir if present (overwrite)
+    if (existsSync(skillDir)) {
+      rmSync(skillDir, { recursive: true, force: true });
+    }
+    mkdirSync(skillDir, { recursive: true });
+
+    const foundSkillMd = extractTarToDir(tarBuffer, skillDir);
+    if (!foundSkillMd) {
+      rmSync(skillDir, { recursive: true, force: true });
+      return {
+        success: false,
+        error:
+          "No SKILL.md found in uploaded archive. Please include a SKILL.md file.",
+      };
+    }
+
+    // Install dependencies if package.json exists
+    if (existsSync(join(skillDir, "package.json"))) {
+      const bunPath = `${homedir()}/.bun/bin`;
+      execSync("bun install", {
+        cwd: skillDir,
+        stdio: "inherit",
+        env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+      });
+    }
+
+    // Write install metadata
+    writeInstallMeta(skillDir, {
+      origin: "custom",
+      installedAt: new Date().toISOString(),
+      contentHash: computeSkillHash(skillDir) ?? undefined,
+    });
+
+    upsertSkillsIndex(skillId);
+
+    return { success: true, skillId };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, error: message };
+  }
 }

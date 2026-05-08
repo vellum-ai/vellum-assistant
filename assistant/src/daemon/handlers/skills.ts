@@ -47,6 +47,7 @@ import {
 } from "../../skills/catalog-files.js";
 import {
   type CatalogSkill,
+  importSkillFromFile,
   installSkillLocally,
   upsertSkillsIndex,
 } from "../../skills/catalog-install.js";
@@ -1639,4 +1640,35 @@ export async function createSkill(
     log.error({ err }, "Failed to create skill");
     return { success: false, error: message };
   }
+}
+
+export async function importSkill(params: {
+  fileName: string;
+  fileContent: string;
+  contactId?: string;
+}): Promise<
+  { success: true; skillId: string } | { success: false; error: string }
+> {
+  const result = await importSkillFromFile(params.fileName, params.fileContent);
+  if (!result.success) return result;
+
+  const { skillId } = result;
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
+
+  // Auto-enable the imported skill
+  try {
+    const raw = loadRawConfig();
+    ensureSkillEntry(raw, skillId).enabled = true;
+    saveConfigWithSuppression(raw);
+    broadcastMessage({
+      type: "skills_state_changed",
+      name: skillId,
+      state: "installed",
+    });
+  } catch (err) {
+    log.warn({ err, skillId }, "Failed to auto-enable imported skill");
+  }
+
+  postInstallSkill(skillId, skillDir);
+  return { success: true, skillId };
 }
