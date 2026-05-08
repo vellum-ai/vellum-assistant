@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { CloudAssistant } from '../background/cloud-api.js';
 import type { OperationEntry } from '../background/event-log.js';
@@ -22,6 +22,8 @@ export function App() {
   const [signInError, setSignInError] = useState<string | null>(null);
   const [assistantsError, setAssistantsError] = useState<string | null>(null);
   const [cloudEmail, setCloudEmail] = useState<string | undefined>(undefined);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
   // Determine initial screen from session state once loading completes
   useEffect(() => {
@@ -46,6 +48,7 @@ export function App() {
           assistants?: CloudAssistant[];
           error?: string;
         }>({ type: 'list-assistants' }).then((response) => {
+          if (modeRef.current !== 'cloud') return;
           if (response?.ok && response.assistants) {
             setScreen({
               name: 'picker',
@@ -107,6 +110,7 @@ export function App() {
   const handleSignIn = useCallback(() => {
     setSigningIn(true);
     setSignInError(null);
+    setAssistantsError(null);
 
     sendMessage<{
       ok: boolean;
@@ -179,6 +183,7 @@ export function App() {
     const msgType = mode === 'self-hosted' ? 'self-hosted-disconnect' : 'cloud-logout';
     sendMessage({ type: msgType }).then(() => {
       setMode(null);
+      setAssistantsError(null);
       setScreen({ name: 'welcome' });
     });
   }, [mode]);
