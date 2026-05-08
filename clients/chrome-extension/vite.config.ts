@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   root: 'popup',
+  base: './',
   build: {
     outDir: '../dist/popup',
     emptyOutDir: true,
