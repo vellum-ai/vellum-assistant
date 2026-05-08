@@ -458,14 +458,13 @@ private struct PinnedLatestTurnSection: View {
     let thinkingLabel: String
 
     // Filtered scroll-container visible height published by `MessageListView`
-    // (see `ScrollViewportHeightKey` in `MessageListView.swift`). Reading it
-    // here lets us size the section's `topAlignedMinHeight` floor against the
-    // viewport without a second `containerRelativeFrame` + `onGeometryChange`
-    // probe — which would feed an independent `@State` and add another full
-    // layout pass through the eager transcript stack on every viewport change.
-    // `nil` until `OnScrollGeometryChange` lands its first measurement, in
-    // which case `topAlignedMinHeight(nil)` is a no-op and the section sits
-    // at its natural height for the initial frame.
+    // (see `ScrollViewportHeightKey` in `MessageListView.swift`). Used to
+    // size the section's `topAlignedMinHeight` floor against the viewport.
+    // `nil` until the first scroll-geometry callback lands.
+    //
+    // Read via `@Environment` so the value reaches us without going through
+    // `MessageListContentView`'s `Equatable` props — keeps the `.equatable()`
+    // barrier upstream intact while still letting this section react.
     @Environment(\.scrollViewportHeight) private var scrollViewportHeight: CGFloat?
 
     private var hasResponseContent: Bool {
@@ -482,15 +481,14 @@ private struct PinnedLatestTurnSection: View {
     /// window/split-view collapse — negative minimums cause layout
     /// warnings and unstable pinned-turn rendering.
     ///
-    /// Falls back to `0` (instead of `nil`) before the first
-    /// `OnScrollGeometryChange` measurement lands so `topAlignedMinHeight`
-    /// always wraps the section in `TopAlignedMinHeightLayout`. The
-    /// modifier's `@ViewBuilder` returns `self` unwrapped on `nil` and
-    /// `TopAlignedMinHeightLayout { self }` otherwise, so a `nil → value`
-    /// transition would change the section's structural identity and
-    /// rebuild every transcript row inside on the first measurement —
-    /// matching the old `@State viewportMinHeight: CGFloat = 0` default
-    /// keeps identity stable across that transition.
+    /// Defaults to `0` (not `nil`) before the first scroll measurement
+    /// lands so `topAlignedMinHeight` always wraps the section in
+    /// `TopAlignedMinHeightLayout`. The modifier is `@ViewBuilder` with
+    /// `if let minHeight`, so a `nil → value` transition would flip the
+    /// section's structural identity and rebuild every transcript row
+    /// inside on the first measurement; pinning the initial value to
+    /// `0` (sizing-equivalent to no floor since content is non-negative)
+    /// keeps identity stable.
     private var viewportMinHeight: CGFloat {
         scrollViewportHeight.map { max(0, $0 - VSpacing.md * 2) } ?? 0
     }
