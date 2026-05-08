@@ -19,8 +19,10 @@ export interface AppContextValue {
   authProfile: AssistantAuthProfile | null;
   operationCount: number;
   selfHostedPaired: boolean;
+  assistantsError: string | null;
   setScreen: (screen: Screen) => void;
   onSignOut: () => void;
+  onRetryAssistants: () => void;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);

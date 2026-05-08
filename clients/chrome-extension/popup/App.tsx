@@ -18,6 +18,10 @@ export function App() {
   const [mode, setMode] = useState<'self-hosted' | 'cloud' | null>(null);
   const [operationCount, setOperationCount] = useState(0);
   const [selfHostedPaired, setSelfHostedPaired] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
+  const [assistantsError, setAssistantsError] = useState<string | null>(null);
+  const [cloudEmail, setCloudEmail] = useState<string | undefined>(undefined);
 
   // Determine initial screen from session state once loading completes
   useEffect(() => {
@@ -32,6 +36,9 @@ export function App() {
       }
     } else if (session.mode === 'cloud') {
       setMode('cloud');
+      if (session.session?.email) {
+        setCloudEmail(session.session.email);
+      }
       if (session.session && !session.selectedAssistant) {
         // Signed in but no assistant chosen — go to picker
         sendMessage<{
@@ -61,7 +68,7 @@ export function App() {
   // Poll status when on the main screen
   const { health, healthDetail, authProfile } = useStatusPoll(screen.name === 'main');
 
-  // Refresh activity count when on the main screen
+  // Refresh activity count when on the main screen (poll every 2s)
   useEffect(() => {
     if (screen.name !== 'main') return;
 
@@ -76,6 +83,8 @@ export function App() {
     }
 
     refreshCount();
+    const interval = setInterval(refreshCount, 2000);
+    return () => clearInterval(interval);
   }, [screen.name]);
 
   // Navigate to picker when assistant is removed
@@ -88,14 +97,17 @@ export function App() {
       error?: string;
     }>({ type: 'list-assistants' }).then((response) => {
       if (response?.ok && response.assistants) {
-        setScreen({ name: 'picker', assistants: response.assistants });
+        setScreen({ name: 'picker', assistants: response.assistants, email: cloudEmail });
       }
     });
-  }, [health]);
+  }, [health, cloudEmail]);
 
   // Navigation callbacks
 
   const handleSignIn = useCallback(() => {
+    setSigningIn(true);
+    setSignInError(null);
+
     sendMessage<{
       ok: boolean;
       session?: { email: string };
@@ -103,12 +115,24 @@ export function App() {
       assistantsError?: string;
       error?: string;
     }>({ type: 'cloud-login' }).then((response) => {
-      if (!response?.ok) return;
+      setSigningIn(false);
+
+      if (!response?.ok) {
+        setSignInError(response?.error ?? 'Sign-in failed. Please try again.');
+        return;
+      }
 
       setMode('cloud');
+      if (response.session?.email) {
+        setCloudEmail(response.session.email);
+      }
       const assistants = response.assistants ?? [];
 
-      if (response.assistantsError || assistants.length === 0) {
+      if (response.assistantsError) {
+        setAssistantsError(response.assistantsError);
+        setScreen({ name: 'main' });
+        sendMessage({ type: 'connect' });
+      } else if (assistants.length === 0) {
         setScreen({ name: 'main' });
         sendMessage({ type: 'connect' });
       } else if (assistants.length === 1) {
@@ -129,6 +153,11 @@ export function App() {
       }
     });
   }, []);
+
+  const handleRetryAssistants = useCallback(() => {
+    setAssistantsError(null);
+    handleSignIn();
+  }, [handleSignIn]);
 
   const handleSelfHosted = useCallback(() => {
     setMode('self-hosted');
@@ -178,10 +207,12 @@ export function App() {
       authProfile,
       operationCount,
       selfHostedPaired,
+      assistantsError,
       setScreen,
       onSignOut: handleSignOut,
+      onRetryAssistants: handleRetryAssistants,
     }),
-    [mode, health, healthDetail, authProfile, operationCount, selfHostedPaired, handleSignOut],
+    [mode, health, healthDetail, authProfile, operationCount, selfHostedPaired, assistantsError, handleSignOut, handleRetryAssistants],
   );
 
   if (session.loading) {
@@ -197,6 +228,8 @@ export function App() {
               <WelcomeScreen
                 onSignIn={handleSignIn}
                 onSelfHosted={handleSelfHosted}
+                signingIn={signingIn}
+                signInError={signInError}
               />
             );
           case 'picker':
