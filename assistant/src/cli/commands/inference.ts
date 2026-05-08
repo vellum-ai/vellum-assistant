@@ -158,7 +158,7 @@ Examples:
 
 /**
  * Register `inference` and `llm` command groups on the top-level program.
- * Both expose the same subcommands — `llm` is an alias for `inference`.
+ * Both expose `send`. Profile management is only available under `inference`.
  */
 export function registerInferenceCommand(program: Command): void {
   const inference = program
@@ -183,13 +183,14 @@ Examples:
 
   const llm = program
     .command("llm")
-    .description("LLM inference operations (alias for 'inference')");
+    .description("LLM inference operations (alias for 'inference send')");
 
   llm.addHelpText(
     "after",
     `
-The llm command group is an alias for 'inference'. It sends requests to your
-configured LLM provider, resolved from your assistant config (llm.default.provider).
+The llm command group is a shorthand for 'assistant inference send'. It sends
+requests to your configured LLM provider, resolved from your assistant config
+(llm.default.provider). For profile management, use 'assistant inference profile'.
 
 Examples:
   $ assistant llm send "What is the capital of France?"

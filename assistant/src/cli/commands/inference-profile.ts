@@ -123,7 +123,7 @@ Examples:
       `
 Opens a profile session that pins the given profile to the current
 conversation. The session expires after --ttl, or is sticky if
---ttl never is specified. If --ttl is omitted the daemon applies
+--ttl never is specified. If --ttl is omitted the assistant applies
 its configured default TTL.
 
 Examples:
@@ -238,12 +238,12 @@ Examples:
           );
         } else {
           // Human-readable output
-          if (resultTtlSeconds === null && expiresAt === null) {
+          if (resultTtlSeconds == null) {
             writeLine(`profile ${profileName} active (sticky, no expiry)`);
           } else {
-            const expireStr = expiresAt ? formatLocalTime(expiresAt) : "?";
+            const expireStr = expiresAt != null ? formatLocalTime(expiresAt) : "?";
             writeLine(
-              `profile ${profileName} active for ${formatDuration(resultTtlSeconds!)} (until ${expireStr})`,
+              `profile ${profileName} active for ${formatDuration(resultTtlSeconds)} (until ${expireStr})`,
             );
           }
 
@@ -384,7 +384,7 @@ Examples:
             ok: true,
             sessions: sessions.map((s) => ({
               ...s,
-              expiresAt: new Date(s.expiresAt).toISOString(),
+              expiresAt: s.expiresAt != null ? new Date(s.expiresAt).toISOString() : null,
             })),
           }) + "\n",
         );
