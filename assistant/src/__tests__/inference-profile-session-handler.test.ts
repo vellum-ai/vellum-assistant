@@ -16,9 +16,11 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-// Stub the event hub so tests don't need a running event bus
+// Stub the event hub so tests don't need a running event bus.
+// Exposed as a `mock(...)` so individual tests can assert publish calls.
+const publishMock = mock(async () => {});
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  assistantEventHub: { publish: async () => {} },
+  assistantEventHub: { publish: publishMock },
 }));
 
 // Stub buildAssistantEvent to be an identity pass-through for the event object
@@ -80,6 +82,7 @@ describe("setInferenceProfileSession", () => {
     resetDb();
     mockProfiles = { balanced: {}, "cost-optimized": {} };
     mockMaxTtl = undefined; // reset to default 43200
+    publishMock.mockClear();
   });
 
   test("open with ttlSeconds=600 — returns UUID sessionId and expiresAt ≈ now + 600_000", async () => {
@@ -192,6 +195,65 @@ describe("setInferenceProfileSession", () => {
     expect(row?.inferenceProfile).toBeNull();
     expect(row?.inferenceProfileSessionId).toBeNull();
     expect(row?.inferenceProfileExpiresAt).toBeNull();
+  });
+
+  test("clear is idempotent — repeated clears on already-empty row do not write or publish", async () => {
+    const conv = createConversation("sess-handler-clear-noop");
+
+    // Sanity: the freshly-created row is fully clear.
+    const before = getConversation(conv.id);
+    expect(before?.inferenceProfile).toBeNull();
+    expect(before?.inferenceProfileSessionId).toBeNull();
+    expect(before?.inferenceProfileExpiresAt).toBeNull();
+    const updatedAtBefore = before?.updatedAt;
+
+    publishMock.mockClear();
+    const result = await setInferenceProfileSession({
+      conversationId: conv.id,
+      profile: null,
+    });
+
+    // Returned shape matches a clear, with no replaced session.
+    expect(result.profile).toBeNull();
+    expect(result.sessionId).toBeNull();
+    expect(result.expiresAt).toBeNull();
+    expect(result.replaced).toBeNull();
+
+    // No event was published — this is the load-bearing assertion for the
+    // idempotency guard (Codex P2 on PR #29913).
+    expect(publishMock).not.toHaveBeenCalled();
+
+    // No DB write occurred — `updatedAt` is unchanged.
+    const after = getConversation(conv.id);
+    expect(after?.updatedAt).toBe(updatedAtBefore as number);
+  });
+
+  test("clear after sticky non-session override — still writes and publishes", async () => {
+    const conv = createConversation("sess-handler-clear-sticky");
+
+    // Open a sticky (no-TTL) override — sessionId stays null, expiresAt stays null,
+    // but inferenceProfile is set. This is NOT the noop case.
+    await setInferenceProfileSession({
+      conversationId: conv.id,
+      profile: "balanced",
+      ttlSeconds: null,
+    });
+
+    publishMock.mockClear();
+    const result = await setInferenceProfileSession({
+      conversationId: conv.id,
+      profile: null,
+    });
+
+    expect(result.profile).toBeNull();
+    // No prior active SESSION (sessionId was null), so replaced is null even
+    // though the sticky profile was cleared.
+    expect(result.replaced).toBeNull();
+
+    // The clear DID happen — DB row reflects it and an event was published.
+    expect(publishMock).toHaveBeenCalledTimes(1);
+    const row = getConversation(conv.id);
+    expect(row?.inferenceProfile).toBeNull();
   });
 
   test("open with unknown profile — throws BadRequestError", async () => {

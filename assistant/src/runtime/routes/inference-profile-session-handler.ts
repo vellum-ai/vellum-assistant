@@ -100,6 +100,25 @@ export async function setInferenceProfileSession({
 
   // --- Clear path ---
   if (profile === null) {
+    // Idempotency: skip the write and event when the row is already fully
+    // cleared (no profile, no session, no expiry). This keeps `updatedAt`
+    // stable and avoids emitting duplicate `conversation_inference_profile_updated`
+    // events for retried/repeated clears, matching the behavior of
+    // `closeInferenceProfileSession` when there is no active session.
+    if (
+      conversation.inferenceProfile == null &&
+      conversation.inferenceProfileSessionId == null &&
+      conversation.inferenceProfileExpiresAt == null
+    ) {
+      return {
+        conversationId: resolvedId,
+        profile: null,
+        sessionId: null,
+        expiresAt: null,
+        ttlSeconds: null,
+        replaced: null,
+      };
+    }
     setConversationInferenceProfileSession(resolvedId, null, null, null);
     await assistantEventHub
       .publish(
