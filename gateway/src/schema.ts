@@ -1559,6 +1559,38 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/contact-channels/{contactChannelId}/verify": {
+        post: {
+          summary: "Mark a contact channel as verified by guardian attestation",
+          description:
+            "Guardian-only endpoint that attests a contact channel as verified without exchanging a challenge code. The caller must be the bound guardian — verified either by JWT actor principal (laptop / docker) or by `X-Vellum-User-Id` matching the stored platform user id (platform-managed). Idempotent: an already-verified channel returns 200 without re-writing. Mutation is gateway-DB-local and does not touch the assistant runtime.",
+          operationId: "contactsChannelVerify",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "contactChannelId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Contact channel marked as verified" },
+            "401": {
+              description:
+                "Unauthorized — missing or invalid bearer token, or missing X-Vellum-User-Id when DISABLE_HTTP_AUTH=true",
+            },
+            "403": {
+              description: "Forbidden — caller is not the bound guardian",
+            },
+            "404": { description: "Channel not found" },
+            "503": {
+              description:
+                "Service unavailable — guardian binding could not be resolved",
+            },
+          },
+        },
+      },
       "/v1/contacts/{contactId}": {
         get: {
           summary: "Get a contact by ID",

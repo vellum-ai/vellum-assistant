@@ -1,9 +1,13 @@
 import type { Server } from "bun";
 
-import { validateEdgeToken } from "../../auth/token-exchange.js";
+import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
+import { parseSub } from "../../auth/subject.js";
+import { validateEdgeToken } from "../../auth/token-exchange.js";
 import type { Scope } from "../../auth/types.js";
 import type { AuthRateLimiter } from "../../auth-rate-limiter.js";
+import { credentialKey } from "../../credential-key.js";
+import { readCredential } from "../../credential-reader.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackPeer } from "../../util/is-loopback-address.js";
 
@@ -27,6 +31,14 @@ export function isHttpAuthDisabled(): boolean {
       process.env.DISABLE_HTTP_AUTH?.trim().toLowerCase() === "true";
   }
   return _httpAuthDisabled;
+}
+
+/**
+ * Test-only: clear the cached `_httpAuthDisabled` so the next call re-reads
+ * the env var. Production code should never call this.
+ */
+export function __resetHttpAuthDisabledCacheForTesting(): void {
+  _httpAuthDisabled = undefined;
 }
 
 /**
@@ -136,7 +148,144 @@ export function createAuthMiddleware(
     return null;
   }
 
-  return { requireEdgeAuth, requireEdgeAuthWithScope };
+  /**
+   * Assert that the caller is the assistant's bound vellum guardian.
+   *
+   * Two auth modes — pick whichever applies to the deployment:
+   *
+   * 1. **DISABLE_HTTP_AUTH=true (platform-managed):** vembda has already
+   *    authenticated the caller upstream. We require the platform to
+   *    forward `X-Vellum-User-Id` and we cross-reference it with the
+   *    stored `vellum:platform_user_id` credential. If they match, the
+   *    caller is the guardian.
+   *
+   * 2. **Default (laptop / docker / bare-metal):** validate the edge JWT
+   *    and require the caller's actor principal to match the bound
+   *    vellum guardian's principal id (looked up via
+   *    `findVellumGuardian()`).
+   *
+   * Loopback peers bypass entirely (consistent with sibling guards).
+   */
+  async function requireEdgeGuardianAuth(
+    req: Request,
+    server?: Server<unknown>,
+  ): Promise<Response | null> {
+    if (server && isLoopbackPeer(server, req)) return null;
+
+    if (isHttpAuthDisabled()) {
+      return requireEdgeGuardianAuthByPlatformHeader(req);
+    }
+
+    return requireEdgeGuardianAuthByActorPrincipal(req);
+  }
+
+  /**
+   * Platform-managed path — caller's identity is asserted via
+   * `X-Vellum-User-Id` (forwarded by vembda) cross-referenced against the
+   * locally-stored `vellum:platform_user_id` credential.
+   */
+  async function requireEdgeGuardianAuthByPlatformHeader(
+    req: Request,
+  ): Promise<Response | null> {
+    const headerUserId = req.headers.get("x-vellum-user-id");
+    if (!headerUserId) {
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Guardian edge auth rejected: missing X-Vellum-User-Id (DISABLE_HTTP_AUTH=true)",
+      );
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    let storedUserId: string | undefined;
+    try {
+      storedUserId = await readCredential(
+        credentialKey("vellum", "platform_user_id"),
+      );
+    } catch (err) {
+      log.error(
+        { path: new URL(req.url).pathname, err },
+        "Guardian edge auth: platform_user_id credential lookup failed",
+      );
+      return Response.json({ error: "Service Unavailable" }, { status: 503 });
+    }
+    if (!storedUserId) {
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Guardian edge auth rejected: no platform_user_id stored on this assistant",
+      );
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (storedUserId !== headerUserId) {
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Guardian edge auth rejected: X-Vellum-User-Id does not match stored platform_user_id",
+      );
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+    return null;
+  }
+
+  /**
+   * Default path — validate JWT, require actor principal, assert it matches
+   * the bound vellum guardian.
+   */
+  async function requireEdgeGuardianAuthByActorPrincipal(
+    req: Request,
+  ): Promise<Response | null> {
+    const token = extractBearerToken(req);
+    if (!token) {
+      authRateLimiter.recordFailure(getClientIp());
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Guardian edge auth rejected: missing or malformed Authorization header",
+      );
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const result = validateEdgeToken(token);
+    if (!result.ok) {
+      authRateLimiter.recordFailure(getClientIp());
+      log.warn(
+        { path: new URL(req.url).pathname, reason: result.reason },
+        "Guardian edge auth rejected: token validation failed",
+      );
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const parsed = parseSub(result.claims.sub);
+    if (
+      !parsed.ok ||
+      parsed.principalType !== "actor" ||
+      !parsed.actorPrincipalId
+    ) {
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Guardian edge auth rejected: caller is not an actor principal",
+      );
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+    let guardian: { principalId: string } | null;
+    try {
+      guardian = await findVellumGuardian();
+    } catch (err) {
+      log.error(
+        { path: new URL(req.url).pathname, err },
+        "Guardian edge auth: findVellumGuardian failed",
+      );
+      return Response.json({ error: "Service Unavailable" }, { status: 503 });
+    }
+    if (!guardian || guardian.principalId !== parsed.actorPrincipalId) {
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Guardian edge auth rejected: caller is not the bound guardian",
+      );
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+    return null;
+  }
+
+  return {
+    requireEdgeAuth,
+    requireEdgeAuthWithScope,
+    requireEdgeGuardianAuth,
+  };
 }
 
 /**

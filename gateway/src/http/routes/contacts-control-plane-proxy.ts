@@ -15,6 +15,7 @@ import {
   assistantDbRun,
 } from "../../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../../db/connection.js";
+import { ContactStore } from "../../db/contact-store.js";
 import { contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
 import { ipcCallAssistant } from "../../ipc/assistant-client.js";
@@ -117,6 +118,44 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       contactChannelId: string,
     ): Promise<Response> {
       return forward(req, `/v1/contact-channels/${contactChannelId}`);
+    },
+
+    /**
+     * POST /v1/contact-channels/:id/verify — guardian-only manual verify.
+     *
+     * Gateway-native: the channel mutation happens entirely in the gateway
+     * DB. We do **not** forward to the assistant runtime and we do **not**
+     * touch the assistant DB. The auth layer (`edge-guardian` strategy)
+     * has already proven the caller is the bound guardian.
+     *
+     * Idempotent: a row that's already active+verifiedVia=manual returns
+     * the same shape (200 with channel) but no second write occurs.
+     */
+    handleVerifyContactChannel(
+      _req: Request,
+      contactChannelId: string,
+    ): Response {
+      const result = new ContactStore().markChannelVerified(contactChannelId);
+      if (!result) {
+        return Response.json(
+          {
+            error: {
+              code: "NOT_FOUND",
+              message: `Channel "${contactChannelId}" not found`,
+            },
+          },
+          { status: 404 },
+        );
+      }
+      log.info(
+        {
+          contactChannelId,
+          didWrite: result.didWrite,
+          status: result.channel.status,
+        },
+        "manual_verify: channel attested verified by guardian",
+      );
+      return Response.json({ ok: true, channel: result.channel });
     },
 
     // ── Invite routes ──
