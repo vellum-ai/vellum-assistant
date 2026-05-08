@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+body {
+  font-family: "Share Tech Mono", ui-monospace, monospace;
+  color: theme("colors.hud.accent");
+}
+
+.hud-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      rgba(95, 222, 255, 0.18),
+      transparent 60%
+    ),
+    radial-gradient(
+      circle at 50% 100%,
+      rgba(0, 30, 60, 0.85),
+      transparent 60%
+    ),
+    linear-gradient(180deg, rgba(2, 6, 12, 0.92), rgba(2, 6, 12, 0.96));
+  border-radius: 18px;
+  border: 1px solid theme("colors.hud.panelBorder");
+  box-shadow: theme("boxShadow.panel");
+  overflow: hidden;
+  -webkit-app-region: drag;
+}
+
+.hud-shell button,
+.hud-shell input,
+.hud-shell textarea,
+.hud-shell .no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.scanlines::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(95, 222, 255, 0.02) 0,
+    rgba(95, 222, 255, 0.02) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  pointer-events: none;
+}
+
+.scanline-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 8%;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(95, 222, 255, 0.18),
+    transparent
+  );
+  animation: scanline 6s linear infinite;
+  pointer-events: none;
+}
+
+.font-display {
+  font-family: "Orbitron", sans-serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}

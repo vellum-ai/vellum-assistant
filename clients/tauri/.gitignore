@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.vite/
+*.log
+.env
+.env.local
+
+# Tauri build output is excluded by src-tauri/.gitignore

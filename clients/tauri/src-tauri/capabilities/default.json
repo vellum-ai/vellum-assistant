@@ -1,0 +1,31 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability set granted to the main HUD window.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "core:app:allow-app-show",
+    "core:app:allow-app-hide",
+    "fs:allow-read-text-file",
+    "fs:allow-exists",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$HOME/.vellum.lock.json" },
+        { "path": "$HOME/.vellum.lockfile.json" }
+      ]
+    },
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered",
+    "os:allow-platform",
+    "os:allow-version"
+  ]
+}

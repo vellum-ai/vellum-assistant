@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "productName": "Eli HUD",
+  "version": "0.1.0",
+  "identifier": "ai.vellum.eli.hud",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Eli",
+        "width": 480,
+        "height": 720,
+        "minWidth": 360,
+        "minHeight": 480,
+        "resizable": true,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "backgroundColor": "#00000000",
+        "shadow": false,
+        "fullscreen": false,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval' blob: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; img-src 'self' data: blob:; worker-src 'self' blob:"
+    },
+    "trayIcon": {
+      "id": "main-tray",
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": false,
+      "tooltip": "Eli"
+    }
+  },
+  "plugins": {
+    "fs": {
+      "scope": ["$HOME/.vellum*", "$HOME/.vellum.lock.json", "$HOME/.vellum.lockfile.json"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Productivity",
+    "shortDescription": "Eli — always-on assistant HUD",
+    "longDescription": "Eli is a Jarvis-style HUD frontend for the Vellum assistant. It listens for the wake word, surfaces transcripts and assistant state, and renders a cinematic arc-reactor listener orb."
+  }
+}
