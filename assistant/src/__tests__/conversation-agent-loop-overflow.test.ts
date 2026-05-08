@@ -7,8 +7,9 @@
  *   2. Token estimation significantly underestimates actual token count
  *   3. No mid-loop budget check to prevent hitting the provider limit
  *
- * All tests are test.todo — they document expected behavior for bugs
+ * Most tests are test.todo — they document expected behavior for bugs
  * to be fixed in subsequent PRs (PR 2 for tests 1–5, PR 3 for tests 6–7).
+ * Tests 2, 8, 9, and 10 are now active and passing against current code.
  */
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
