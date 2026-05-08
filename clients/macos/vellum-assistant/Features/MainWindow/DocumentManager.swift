@@ -35,6 +35,9 @@ final class DocumentManager {
     /// Debounced auto-save task cancelled and rescheduled on every content update
     @ObservationIgnored private var autoSaveTask: Task<Void, Never>?
 
+    /// In-flight PDF export task, cancelled on document close
+    @ObservationIgnored private var pdfExportTask: Task<Void, Never>?
+
     /// Reference to daemon client for saving documents
     @ObservationIgnored weak var connectionManager: GatewayConnectionManager?
     @ObservationIgnored private let documentClient: DocumentClientProtocol = DocumentClient()
@@ -134,6 +137,8 @@ final class DocumentManager {
         save()
         autoSaveTask?.cancel()
         autoSaveTask = nil
+        pdfExportTask?.cancel()
+        pdfExportTask = nil
         hasActiveDocument = false
         surfaceId = nil
         conversationId = nil
@@ -169,9 +174,12 @@ final class DocumentManager {
         let wordCountToSave = wordCount
         let client = documentClient
         isExportingPDF = true
-        Task {
-            defer { isExportingPDF = false }
-            // Await the save so the server has the latest content before rendering
+        pdfExportTask?.cancel()
+        pdfExportTask = Task { [weak self] in
+            defer {
+                guard let self, self.surfaceId == surfaceId else { return }
+                self.isExportingPDF = false
+            }
             _ = await client.saveDocument(
                 surfaceId: surfaceId,
                 conversationId: conversationId,
@@ -179,10 +187,12 @@ final class DocumentManager {
                 content: contentToSave,
                 wordCount: wordCountToSave
             )
+            guard !Task.isCancelled else { return }
             guard let pdfData = await client.exportDocumentPDF(surfaceId: surfaceId) else {
                 log.error("PDF export failed: no data returned")
                 return
             }
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 let panel = NSSavePanel()
                 panel.nameFieldStringValue = sanitizedFilename(from: titleForFile) + ".pdf"
