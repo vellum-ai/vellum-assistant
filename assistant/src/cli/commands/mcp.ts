@@ -335,6 +335,10 @@ Examples:
     .option("-c, --command <cmd>", "Command to run (for stdio)")
     .option("-a, --args <args...>", "Command arguments (for stdio)")
     .option(
+      "-e, --env <pairs...>",
+      "Environment variables for stdio servers as KEY=VALUE pairs (repeatable)",
+    )
+    .option(
       "-r, --risk <level>",
       "Default risk level: low, medium, or high",
       "high",
@@ -360,6 +364,7 @@ existing server first with "assistant mcp remove <name>".
 
 Examples:
   $ assistant mcp add my-server -t stdio -c npx -a my-mcp-server
+  $ assistant mcp add slack -t stdio -c npx -a -y -a slack-mcp-server@latest -a --transport -a stdio -e SLACK_MCP_XOXP_TOKEN=xoxp-...
   $ assistant mcp add remote-api -t streamable-http -u https://api.example.com/mcp -r medium
   $ assistant mcp add legacy-sse -t sse -u https://old.example.com/events --disabled`,
     )
@@ -371,6 +376,7 @@ Examples:
           url?: string;
           command?: string;
           args?: string[];
+          env?: string[];
           risk: string;
           disabled?: boolean;
         },
@@ -391,18 +397,36 @@ Examples:
 
         let transport: Record<string, unknown>;
         switch (opts.transportType) {
-          case "stdio":
+          case "stdio": {
             if (!opts.command) {
               log.error("--command is required for stdio transport");
               process.exitCode = 1;
               return;
             }
+            const envEntries: Record<string, string> = {};
+            for (const pair of opts.env ?? []) {
+              const eqIdx = pair.indexOf("=");
+              if (eqIdx <= 0) {
+                log.error(
+                  `--env entries must be KEY=VALUE pairs (got "${pair}")`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              const key = pair.slice(0, eqIdx);
+              const value = pair.slice(eqIdx + 1);
+              envEntries[key] = value;
+            }
             transport = {
               type: "stdio",
               command: opts.command,
               args: opts.args ?? [],
+              ...(Object.keys(envEntries).length > 0
+                ? { env: envEntries }
+                : {}),
             };
             break;
+          }
           case "sse":
           case "streamable-http":
             if (!opts.url) {
@@ -438,7 +462,9 @@ Examples:
 
         saveRawConfig(raw);
         log.info(`Added MCP server "${name}" (${opts.transportType})`);
-        const reloadResult = await cliIpcCall("internal_mcp_reload", { body: {} });
+        const reloadResult = await cliIpcCall("internal_mcp_reload", {
+          body: {},
+        });
         if (!reloadResult.ok) {
           log.warn(
             `Could not signal reload: ${reloadResult.error}. ` +

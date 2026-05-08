@@ -364,6 +364,46 @@ describe("assistant mcp add", () => {
     expect(transport.args).toEqual(["-y", "some-server"]);
   });
 
+  test("adds a stdio server with --env KEY=VALUE pairs", async () => {
+    const { exitCode } = await runMcpAdd("test-env", [
+      "-t",
+      "stdio",
+      "-c",
+      "npx",
+      "-a",
+      "-y",
+      "slack-mcp-server@latest",
+      "-e",
+      "SLACK_MCP_XOXP_TOKEN=xoxp-redacted",
+      "-e",
+      "SLACK_MCP_LOG_LEVEL=info",
+    ]);
+    expect(exitCode).toBe(0);
+
+    const updated = readConfig();
+    const servers = (updated.mcp as Record<string, unknown> | undefined)
+      ?.servers as Record<string, unknown> | undefined;
+    const server = servers?.["test-env"] as Record<string, unknown>;
+    const transport = server.transport as Record<string, unknown>;
+    expect(transport.env).toEqual({
+      SLACK_MCP_XOXP_TOKEN: "xoxp-redacted",
+      SLACK_MCP_LOG_LEVEL: "info",
+    });
+  });
+
+  test("rejects malformed --env entries", async () => {
+    const { stderr, exitCode } = await runMcpAdd("bad-env", [
+      "-t",
+      "stdio",
+      "-c",
+      "npx",
+      "-e",
+      "MISSING_EQUALS",
+    ]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("KEY=VALUE");
+  });
+
   test("adds server as disabled with --disabled flag", async () => {
     const { exitCode } = await runMcpAdd("test-disabled", [
       "-t",
