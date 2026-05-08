@@ -475,8 +475,15 @@ export async function importSkillFromFile(
     // Detect format and decompress if needed
     let tarBuffer: Buffer;
     const isGzip = buffer[0] === 0x1f && buffer[1] === 0x8b;
+    const isZip = buffer[0] === 0x50 && buffer[1] === 0x4b;
     if (isGzip) {
       tarBuffer = gunzipSync(buffer);
+    } else if (isZip) {
+      return {
+        success: false,
+        error:
+          "ZIP format is not yet supported. Please upload a .tar.gz or .tgz archive.",
+      };
     } else {
       tarBuffer = buffer;
     }
@@ -489,21 +496,24 @@ export async function importSkillFromFile(
     const skillId = baseName || "imported-skill";
     const skillDir = join(getWorkspaceSkillsDir(), skillId);
 
-    // Remove existing dir if present (overwrite)
-    if (existsSync(skillDir)) {
-      rmSync(skillDir, { recursive: true, force: true });
-    }
-    mkdirSync(skillDir, { recursive: true });
+    // Extract to temp dir first to validate before touching existing install
+    const tmpDir = join(getWorkspaceSkillsDir(), `.tmp-import-${randomUUID()}`);
+    mkdirSync(tmpDir, { recursive: true });
 
-    const foundSkillMd = extractTarToDir(tarBuffer, skillDir);
+    const foundSkillMd = extractTarToDir(tarBuffer, tmpDir);
     if (!foundSkillMd) {
-      rmSync(skillDir, { recursive: true, force: true });
+      rmSync(tmpDir, { recursive: true, force: true });
       return {
         success: false,
         error:
           "No SKILL.md found in uploaded archive. Please include a SKILL.md file.",
       };
     }
+    // Validation passed — atomically replace existing skill directory
+    if (existsSync(skillDir)) {
+      rmSync(skillDir, { recursive: true, force: true });
+    }
+    renameSync(tmpDir, skillDir);
 
     // Install dependencies if package.json exists
     if (existsSync(join(skillDir, "package.json"))) {
