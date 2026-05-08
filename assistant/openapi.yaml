@@ -8436,6 +8436,12 @@ paths:
                     - single_channel
                     - multi_channel
                     - all_channels
+                conversationAffinityHint:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: string
                 dedupeKey:
                   type: string
                 throwOnError:
