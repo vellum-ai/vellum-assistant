@@ -901,53 +901,8 @@ function disconnect(): void {
 }
 
 // ── Keep-alive (MV3 service-worker liveness) ─────────────────────────
-//
-// Chrome MV3 service workers are unloaded after ~30 s of inactivity.
-// The SSE bridge to the cloud assistant (or local gateway) lives in
-// this worker, so when the worker is unloaded the bridge dies and
-// the cloud assistant can no longer reach the extension. The most
-// common trigger is the popup closing: with no active port the worker
-// goes idle within seconds of the popup window dismissing.
-//
-// We use `chrome.alarms` to fire a periodic event that resets the
-// idle timer while we expect the connection to be live. The alarm
-// firing itself is enough — the listener body is a defensive belt
-// that kicks a reconnect if the SSE is closed but should be open
-// (e.g. the prior reconnect timer was lost when the worker briefly
-// suspended before this alarm woke it).
-//
-// Native alternatives considered:
-//   - Chrome 116+ extends SW lifetime on active fetches in theory,
-//     but our SSE's 7 s heartbeat comments do not reliably keep the
-//     worker alive in practice. MV3 also caps active-fetch SW
-//     lifetime at 5 minutes.
-//   - `chrome.runtime.connect` ports keep the SW alive while the
-//     popup is open — doesn't help when the popup closes.
-//   - Offscreen documents avoid SW suspension entirely but require
-//     more code; they are the upgrade path if the 5 min hard cap
-//     becomes a problem (e.g. when the cloud assistant runs a long
-//     host_browser session with the popup closed throughout).
-//
-// The alarm is created on first connect and cleared on pause so
-// idle (paused) installs don't pay a wake-up cost every 30 s.
 
 const KEEPALIVE_ALARM_NAME = "vellum-relay-keepalive";
-/**
- * Chrome 120+ allows `periodInMinutes` as low as 0.5 (30 s) for
- * extension alarms. Pre-120 the floor was 1 minute, which is too
- * coarse to keep an MV3 service worker alive across its 30 s idle
- * timeout — so the manifest's `minimum_chrome_version` is pinned
- * to 120 alongside this constant. Smaller values are silently
- * rounded up to 0.5 in production.
- *
- * The alarm firing itself counts as "extension API activity" and
- * resets the 30 s SW idle timer, so the period needs to be at-or-
- * below the idle threshold for the worker to stay alive across
- * popup closures. 0.5 is the tightest safe value.
- *
- * Note: in development (unpacked extension), Chrome allows shorter
- * periods, but we set 0.5 here for parity with shipped builds.
- */
 const KEEPALIVE_PERIOD_MIN = 0.5;
 
 async function ensureKeepaliveAlarm(): Promise<void> {
@@ -964,11 +919,6 @@ async function clearKeepaliveAlarm(): Promise<void> {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM_NAME) return;
-  // Defensive belt: if we expect to be connected but the SSE is
-  // closed (e.g. a reconnect timer was lost while the worker was
-  // briefly suspended before this alarm woke it), kick a non-
-  // interactive reconnect. The connect() function dedups against
-  // an in-flight connect, so racing with bootstrap() is safe.
   if (shouldConnect && !(sseConnection?.isOpen() ?? false)) {
     void connect({ interactive: false }).catch((err) => {
       const detail = err instanceof Error ? err.message : String(err);
@@ -990,10 +940,6 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-// On browser startup, ensure the alarm is in place if we want to
-// auto-connect. The bootstrap() call below also does this, but the
-// listener is a belt for cases where bootstrap fails before reaching
-// it (e.g. storage error).
 chrome.runtime.onStartup.addListener(() => {
   void chrome.storage.local.get(AUTO_CONNECT_KEY).then((result) => {
     if (result[AUTO_CONNECT_KEY] === true) {
@@ -1016,8 +962,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         // was in-flight — their pause intent takes precedence.
         if (shouldConnect) {
           await setAutoConnect(true);
-          // Start the keep-alive alarm so the worker stays alive
-          // when the popup closes — see "Keep-alive" section above.
           await ensureKeepaliveAlarm();
         }
         sendResponseFn({ ok: true });
@@ -1031,8 +975,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         // must not leave the flag set, otherwise the next bootstrap
         // would retry a doomed connect.
         await setAutoConnect(false);
-        // Failed connect: clear the keep-alive alarm so a doomed
-        // install doesn't burn a wake-up every 30 s.
         await clearKeepaliveAlarm();
         const serializedError = serializeWorkerError(err);
         const errorMessage = serializedError.error;
@@ -1059,8 +1001,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   if (message.type === "pause" || message.type === "disconnect") {
     shouldConnect = false;
     setConnectionHealth("paused");
-    // Clear the keep-alive alarm now that the user has explicitly
-    // stopped — let the worker idle out instead of waking every 30 s.
     void clearKeepaliveAlarm();
     // Await the storage write so MV3 can't terminate the worker before
     // the autoConnect flag is persisted to false.
@@ -1442,9 +1382,6 @@ async function bootstrap(): Promise<void> {
   const result = await chrome.storage.local.get(AUTO_CONNECT_KEY);
   if (result[AUTO_CONNECT_KEY] !== true) return;
   shouldConnect = true;
-  // Ensure the keep-alive alarm is in place before kicking off the
-  // auto-connect — if the connect blocks for a while, the alarm
-  // will already be firing to keep the worker alive.
   await ensureKeepaliveAlarm();
   try {
     await connect({ interactive: false });
@@ -1454,8 +1391,6 @@ async function bootstrap(): Promise<void> {
     // sign in / pair to try again. Persist the error detail exactly
     // once so the popup can surface it, then stop retrying.
     shouldConnect = false;
-    // Clear the keep-alive alarm — auto-connect won't be retried,
-    // so there's no reason to keep the worker awake.
     void clearKeepaliveAlarm();
     if (err instanceof MissingTokenError) {
       console.warn(`[vellum-relay] Skipping auto-connect: ${err.message}`);

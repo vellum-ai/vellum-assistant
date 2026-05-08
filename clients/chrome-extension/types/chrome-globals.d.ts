@@ -141,9 +141,7 @@ interface ChromeRuntimeNamespace {
   readonly lastError: ChromeRuntimeLastError | undefined;
   connectNative(application: string): ChromeRuntimePort;
   onMessage: ChromeRuntimeOnMessageEvent;
-  /** Fired when the extension is first installed, updated, or when Chrome itself is updated. */
   onInstalled: ChromeRuntimeOnInstalledEvent;
-  /** Fired when a profile that has this extension installed first starts up. */
   onStartup: ChromeRuntimeOnStartupEvent;
   // Generic over the response type so callers can narrow the callback
   // argument without casting. Matches the de-facto shape used by the
@@ -164,11 +162,8 @@ interface ChromeAlarm {
 }
 
 interface ChromeAlarmCreateInfo {
-  /** Absolute time (epoch ms) at which the first alarm should fire. */
   when?: number;
-  /** Delay before the first alarm fires, in minutes. Mutually exclusive with `when`. */
   delayInMinutes?: number;
-  /** If set, the alarm fires repeatedly at this interval after the first fire. */
   periodInMinutes?: number;
 }
 
