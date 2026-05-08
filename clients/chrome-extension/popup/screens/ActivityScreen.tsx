@@ -2,20 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { OperationEntry } from '../../background/event-log.js';
 import { sendMessage } from '../lib/chrome-message.js';
+import { formatDuration, formatTime } from '../lib/format.js';
 
 export interface ActivityScreenProps {
   onBack: () => void;
   onSelectOperation: (op: OperationEntry) => void;
-}
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 export function ActivityScreen({

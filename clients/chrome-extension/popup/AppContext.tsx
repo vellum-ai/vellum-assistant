@@ -20,7 +20,6 @@ export interface AppContextValue {
   operationCount: number;
   selfHostedPaired: boolean;
   setScreen: (screen: Screen) => void;
-  sendMessage: <T>(message: Record<string, unknown>) => Promise<T>;
   onSignOut: () => void;
 }
 

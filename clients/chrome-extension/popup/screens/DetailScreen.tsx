@@ -1,23 +1,11 @@
 import { useState } from 'react';
 
 import type { OperationEntry } from '../../background/event-log.js';
+import { formatDuration, formatTime } from '../lib/format.js';
 
 export interface DetailScreenProps {
   operation: OperationEntry;
   onBack: () => void;
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function formatResponseContent(operation: OperationEntry): string {
