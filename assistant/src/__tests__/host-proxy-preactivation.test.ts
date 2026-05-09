@@ -37,9 +37,9 @@ mock.module("../util/logger.js", () => ({
 
 import type { HostProxyCapability } from "../channels/types.js";
 import {
+  type HostProxyPreactivationTarget,
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
-  type HostProxyPreactivationTarget,
 } from "../daemon/host-proxy-preactivation.js";
 
 // ---------------------------------------------------------------------------
