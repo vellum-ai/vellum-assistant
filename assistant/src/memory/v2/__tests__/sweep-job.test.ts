@@ -166,6 +166,7 @@ function extractFirstUserText(msgs: { content: unknown }[]): string {
 function seedMessages(
   conversationId: string,
   rows: Array<{ role: string; content: string; offsetMs: number }>,
+  conversationType: "standard" | "background" | "scheduled" = "standard",
 ): void {
   const db = getDb();
   const now = Date.now();
@@ -175,6 +176,7 @@ function seedMessages(
       title: null,
       createdAt: now - 60_000,
       updatedAt: now,
+      conversationType,
     })
     .run();
   for (let i = 0; i < rows.length; i++) {
@@ -416,6 +418,53 @@ describe("memoryV2SweepJob — recent messages", () => {
     const written = await memoryV2SweepJob(makeJob(), CONFIG);
 
     expect(written).toBe(0);
+  });
+});
+
+describe("memoryV2SweepJob — background/scheduled conversation filter", () => {
+  test("excludes background/scheduled conversation content from sweep input", async () => {
+    seedMessages(
+      `conv-bg-${++convCounter}`,
+      [
+        {
+          role: "assistant",
+          content:
+            "[heartbeat] internal automation chatter that should not leak",
+          offsetMs: -60_000,
+        },
+      ],
+      "background",
+    );
+    seedMessages(
+      `conv-sched-${++convCounter}`,
+      [
+        {
+          role: "assistant",
+          content:
+            "[scheduled] scheduled-job chatter that should not leak either",
+          offsetMs: -45_000,
+        },
+      ],
+      "scheduled",
+    );
+    seedMessages(`conv-user-${++convCounter}`, [
+      {
+        role: "user",
+        content: "Bob mentioned he prefers dark mode.",
+        offsetMs: -30_000,
+      },
+    ]);
+
+    providerStub = makeEntriesProvider(["Bob prefers dark mode."]);
+
+    const written = await memoryV2SweepJob(makeJob(), CONFIG);
+
+    expect(written).toBe(1);
+    expect(providerCalls).toHaveLength(1);
+    const [{ userText }] = providerCalls;
+    expect(userText).toContain("Bob mentioned he prefers dark mode.");
+    expect(userText).not.toContain("internal automation chatter");
+    expect(userText).not.toContain("scheduled-job chatter");
   });
 });
 

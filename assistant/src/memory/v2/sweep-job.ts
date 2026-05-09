@@ -22,7 +22,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { desc, gt } from "drizzle-orm";
+import { and, desc, eq, gt, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../config/types.js";
@@ -41,7 +41,7 @@ import {
   formatRememberEntry,
 } from "../graph/tool-handlers.js";
 import type { MemoryJob } from "../jobs-store.js";
-import { messages } from "../schema.js";
+import { conversations, messages } from "../schema.js";
 import { renderSweepPrompt } from "./prompts/sweep.js";
 
 const log = getLogger("memory-v2-sweep");
@@ -219,14 +219,22 @@ function loadRecentMessagesText(nowMs: number): string {
   const db = getDb();
   // Pull newest-first then reverse for chronological output. Bounding the
   // initial limit (1000) defends against pathological busy windows where a
-  // naive scan would touch every recent message.
+  // naive scan would touch every recent message. Joining conversations and
+  // excluding background/scheduled types keeps automation chatter
+  // (heartbeats, filing, update bulletins, scheduled jobs) out of buffer.md.
   const rows = db
     .select({
       role: messages.role,
       content: messages.content,
     })
     .from(messages)
-    .where(gt(messages.createdAt, cutoff))
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        gt(messages.createdAt, cutoff),
+        notInArray(conversations.conversationType, ["background", "scheduled"]),
+      ),
+    )
     .orderBy(desc(messages.createdAt))
     .limit(1000)
     .all();
