@@ -277,8 +277,11 @@ function computeMaxSparse<T>(
  * operator-configured dense/sparse balance is preserved. Returns
  * `undefined` when neither channel hit — a signal the half had no match
  * at all, so the caller can fall back to the other half cleanly.
+ *
+ * Exported so the context-search adapter can reuse the same fusion math
+ * for its own activation pipeline.
  */
-function fuseHalf(
+export function fuseHalf(
   denseScore: number | undefined,
   sparseScore: number | undefined,
   maxSparse: number,
