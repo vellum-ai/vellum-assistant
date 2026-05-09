@@ -19,8 +19,13 @@ import type {
   HostAppControlResultPayload,
   HostAppControlState,
 } from "../../daemon/message-types/host-app-control.js";
+import {
+  enforceSameActorOrThrow,
+  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+} from "../auth/same-actor.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError } from "./errors.js";
+import { BadRequestError, ForbiddenError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const VALID_STATES: ReadonlySet<HostAppControlState> = new Set([
@@ -33,7 +38,7 @@ const VALID_STATES: ReadonlySet<HostAppControlState> = new Set([
 // POST /v1/host-app-control-result
 // ---------------------------------------------------------------------------
 
-function handleHostAppControlResult({ body }: RouteHandlerArgs) {
+function handleHostAppControlResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -70,6 +75,34 @@ function handleHostAppControlResult({ body }: RouteHandlerArgs) {
   const peeked = pendingInteractions.get(requestId);
   if (!peeked || peeked.kind !== "host_app_control") {
     return { accepted: true };
+  }
+
+  // Same-actor binding: when the pending interaction has a targetClientId,
+  // validate the submitting client matches and the actor principals align.
+  // Mirrors host-browser / host-cu / host-bash result routes.
+  if (peeked.targetClientId != null) {
+    const headerMap = headers ?? {};
+    const submittingClientId =
+      headerMap["x-vellum-client-id"]?.trim() || undefined;
+    if (!submittingClientId) {
+      throw new BadRequestError(
+        "x-vellum-client-id header is missing for a targeted host app-control request.",
+      );
+    }
+    if (submittingClientId !== peeked.targetClientId) {
+      throw new ForbiddenError(
+        `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
+      );
+    }
+    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+    );
+    enforceSameActorOrThrow({
+      sourceActorPrincipalId: submittingActorPrincipalId,
+      targetActorPrincipalId: peeked.targetActorPrincipalId,
+      targetClientId: peeked.targetClientId,
+      op: "host_app_control",
+    });
   }
 
   const interaction = pendingInteractions.resolve(requestId)!;
@@ -129,6 +162,15 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted host app-control request.",
+      },
+      "403": {
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+      },
+    },
     handler: handleHostAppControlResult,
   },
 ];
