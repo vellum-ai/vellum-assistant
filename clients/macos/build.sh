@@ -140,7 +140,7 @@ swift_with_retry() {
         # Common on hosted CI runners with rotated/partial caches.
         if [ "$_artifact_cleaned" -eq 0 ] && grep -q "already exists in file system" "$_stderr_log" 2>/dev/null; then
             echo "warning: stale SPM binary artifact detected, cleaning and retrying..."
-            sed -nE 's/.*: (\/[^[:space:]]+) already exists in file system.*/\1/p' "$_stderr_log" 2>/dev/null \
+            sed -nE 's/.*: (\/.+) already exists in file system.*/\1/p' "$_stderr_log" 2>/dev/null \
                 | sort -u \
                 | while IFS= read -r _stale_path; do
                     [ -n "$_stale_path" ] && rm -rf "$_stale_path"
