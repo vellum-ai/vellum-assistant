@@ -42,6 +42,10 @@ import {
   augmentMcpSetupDescription,
   buildSkillContent,
 } from "./skill-content.js";
+import {
+  generateBm25DocEmbedding,
+  getConceptPageCorpusStats,
+} from "./sparse-bm25.js";
 import type { SkillEntry } from "./types.js";
 
 const log = getLogger("memory-v2-skill-store");
@@ -182,13 +186,26 @@ async function runSeedOnce(): Promise<void> {
         ),
       );
 
+      // Match the doc-side encoding written by `embed-concept-page.ts` so
+      // skill points score consistently with concept pages under the unified
+      // sparse query path. Falls back to legacy TF-only when corpus stats
+      // aren't built yet (cold daemon); the next reembed pass overwrites.
+      const corpusStats = getConceptPageCorpusStats();
+      const encodeSparse = (input: string) =>
+        corpusStats
+          ? generateBm25DocEmbedding(input, corpusStats, {
+              k1: config.memory.v2.bm25_k1,
+              b: config.memory.v2.bm25_b,
+            })
+          : generateSparseEmbedding(input);
+
       const now = Date.now();
       await Promise.all(
         seeds.map((seed, i) =>
           upsertConceptPageEmbedding({
             slug: skillSlugFor(seed.id),
             dense: denseVectors[i],
-            sparse: generateSparseEmbedding(seed.content),
+            sparse: encodeSparse(seed.content),
             updatedAt: now,
           }),
         ),
