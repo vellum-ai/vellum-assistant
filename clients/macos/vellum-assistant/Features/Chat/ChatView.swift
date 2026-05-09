@@ -516,19 +516,22 @@ struct ChatView: View {
 
     /// Bundles the inference-profile pill state for ``ComposerView``. Returns
     /// `nil` when no manager is wired (preview/testing) so the pill stays
-    /// hidden until a real persistence path exists.
+    /// hidden until a real persistence path exists, and also when the
+    /// conversation has been promoted out of draft state but the daemon-side
+    /// conversation ID has not yet been backfilled — in that window
+    /// ``ConversationManager.setConversationInferenceProfile`` would silently
+    /// no-op. Drafts remain enabled because the manager routes draft
+    /// selections through ``ChatViewModel.pendingInferenceProfile``.
     private var inferenceProfilePicker: ChatProfilePickerConfiguration? {
-        guard let conversationManager else { return nil }
+        guard let conversationManager, let conversationId else { return nil }
+        let isDraft = conversationManager.draftLocalId == conversationId
+        let isPersisted = currentConversation?.conversationId != nil
+        guard isDraft || isPersisted else { return nil }
         return ChatProfilePickerConfiguration(
             current: currentConversation?.inferenceProfile ?? viewModel.pendingInferenceProfile,
             profiles: inferenceProfiles,
             activeProfile: activeInferenceProfile,
             onSelect: { profile in
-                if conversationId == nil {
-                    viewModel.pendingInferenceProfile = profile
-                    return
-                }
-                guard let conversationId else { return }
                 Task { @MainActor in
                     await conversationManager.setConversationInferenceProfile(
                         id: conversationId,
