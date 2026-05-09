@@ -177,7 +177,7 @@ these subcommands remain useful operator tools regardless of whether
 v2 is currently active.
 
 Subcommands split into asynchronous mutators (return a jobId enqueued
-on the memory job queue), synchronous mutators (run inside the daemon
+on the memory job queue), synchronous mutators (run inside the assistant
 and return when done), read-only diagnostics, and one-shot calibration
 fits whose results persist across runs.
 
@@ -259,7 +259,7 @@ prefix). Useful after editing a skill's SKILL.md, after a feature-flag flip
 changes the enabled-skill set, or to recover corrupted skill embeddings.
 
 Unlike 'reembed' (concept pages), this runs synchronously inside the
-daemon — the command returns only once the seed completes. Requires
+assistant — the command returns only once the seed completes. Requires
 memory.v2.enabled to be true.
 
 Examples:

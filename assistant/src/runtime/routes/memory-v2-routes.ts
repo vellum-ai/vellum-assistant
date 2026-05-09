@@ -317,8 +317,10 @@ async function handleReembedSkills({
 
   // Unlike the queued backfill jobs above, this is a CLI-driven sync
   // request: the operator wants the cache replaced before the next prompt
-  // assembly, so we await the seed inline rather than enqueueing it.
-  await seedV2SkillEntries();
+  // assembly, so we await the seed inline rather than enqueueing it. Pass
+  // `throwOnError` so embedding/Qdrant failures surface to the CLI instead
+  // of being swallowed by the default best-effort behavior.
+  await seedV2SkillEntries({ throwOnError: true });
 
   return { success: true };
 }

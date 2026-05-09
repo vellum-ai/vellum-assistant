@@ -68,25 +68,35 @@ let entries: Map<string, SkillEntry> | null = null;
 
 /**
  * Seed (or re-seed) skill embeddings into the unified concept-page collection.
- * Idempotent and best-effort — never throws.
+ * Idempotent. Defaults to best-effort (errors are logged but swallowed) for
+ * background callers like daemon startup; pass `{ throwOnError: true }` from
+ * synchronous CLI-driven paths that need to surface failures to the operator.
  *
  * Single-flight + coalesced: at most one seed runs at a time, and concurrent
  * callers are coalesced into one follow-up re-snapshot that runs after the
  * in-flight seed completes. Without this, an older snapshot can finish after
- * a newer one and overwrite the newer skill state.
+ * a newer one and overwrite the newer skill state. Strict callers observe
+ * the most recent run's outcome via `lastSeedError`.
  */
 let seedTail: Promise<void> = Promise.resolve();
 let seedPending: Promise<void> | null = null;
+let lastSeedError: unknown = null;
 
-export function seedV2SkillEntries(): Promise<void> {
-  if (seedPending) return seedPending;
-  const next = seedTail.then(async () => {
-    seedPending = null;
-    await runSeedOnce();
-  });
-  seedTail = next.catch(() => {});
-  seedPending = next;
-  return next;
+export async function seedV2SkillEntries(
+  opts: { throwOnError?: boolean } = {},
+): Promise<void> {
+  if (!seedPending) {
+    const next = seedTail.then(async () => {
+      seedPending = null;
+      await runSeedOnce();
+    });
+    seedTail = next.catch(() => {});
+    seedPending = next;
+  }
+  await seedPending;
+  if (opts.throwOnError && lastSeedError) {
+    throw lastSeedError;
+  }
 }
 
 /**
@@ -205,7 +215,9 @@ async function runSeedOnce(): Promise<void> {
 
     // Atomically replace the cache only after every step above succeeds.
     entries = nextEntries;
+    lastSeedError = null;
   } catch (err) {
+    lastSeedError = err;
     log.warn({ err }, "Failed to seed v2 skill entries");
   }
 }
@@ -236,4 +248,5 @@ export function _resetSkillStoreForTests(): void {
   entries = null;
   seedTail = Promise.resolve();
   seedPending = null;
+  lastSeedError = null;
 }

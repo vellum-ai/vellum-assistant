@@ -157,6 +157,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v2 migrate",
   "memory v2 rebuild-edges",
   "memory v2 reembed",
+  "memory v2 reembed-skills",
   "memory v2 activation",
   "memory v2 validate",
   "notifications",
@@ -443,6 +444,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "memory v2 reembed",
     risk: "medium",
     reason: "Enqueues bulk re-embedding of every concept page",
+  },
+  {
+    path: "memory v2 reembed-skills",
+    risk: "medium",
+    reason:
+      "Synchronously re-seeds the v2 skill catalog into the concept-page collection",
   },
   {
     path: "memory v2 activation",
