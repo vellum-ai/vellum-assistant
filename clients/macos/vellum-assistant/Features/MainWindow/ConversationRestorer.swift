@@ -399,6 +399,7 @@ final class ConversationRestorer {
                 existing.conversationType = session.conversationType
                 existing.originChannel = session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
                 existing.inferenceProfile = session.inferenceProfile
+                existing.scheduleJobId = session.scheduleJobId
                 delegate.conversations[existingIdx] = existing
                 // Attention merge must go through mergeAssistantAttention so that
                 // pendingAttentionOverrides are reconciled (e.g. a notification
