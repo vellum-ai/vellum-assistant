@@ -265,9 +265,9 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     const hint = wakeLastArgs?.hint as string;
     expect(hint).toContain("memory consolidation");
     expect(hint).not.toContain(CUTOFF_PLACEHOLDER);
-    // Cutoff is an ISO-8601 timestamp — check the year prefix matches the
-    // current year so we know the substitution actually happened.
-    expect(hint).toContain(`${new Date().getFullYear()}`);
+    // Cutoff is a buffer-entry-format timestamp (`Mon D, h:mm AM/PM`) so it
+    // compares like-with-like against `buffer.md` lines at minute precision.
+    expect(hint).toMatch(/\b[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)\b/);
   });
 
   test("honors memory.v2.consolidation_prompt_path override when set", async () => {
@@ -285,7 +285,9 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
 
     expect(result.kind).toBe("invoked");
     const hint = wakeLastArgs?.hint as string;
-    expect(hint).toMatch(/^CUSTOM CONSOLIDATION at \d{4}-/);
+    expect(hint).toMatch(
+      /^CUSTOM CONSOLIDATION at [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)$/m,
+    );
     expect(hint).not.toContain("You are running memory consolidation");
     expect(hint).not.toContain(CUTOFF_PLACEHOLDER);
   });

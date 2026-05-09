@@ -6,9 +6,11 @@
  * runs with its full system prompt + tool surface; the text below is supplied
  * as the wake hint.
  *
- * The single placeholder `{{CUTOFF}}` is substituted at runtime with an
- * ISO-8601 timestamp captured at job dispatch. Anything appended to
- * `memory/buffer.md` after that timestamp is the next pass's problem.
+ * The single placeholder `{{CUTOFF}}` is substituted at runtime with a
+ * timestamp captured at job dispatch in the same `Mon D, h:mm AM/PM` shape
+ * that `buffer.md` entries use, so the agent's "timestamp ≥ cutoff" check
+ * compares like-with-like. Anything appended after that minute is the next
+ * pass's problem.
  *
  * Kept under `prompts/` rather than inlined in `consolidation-job.ts` so the
  * prompt body is reviewable on its own and the job module stays focused on
@@ -432,10 +434,10 @@ For each article you touched:
 This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgment, voice. Your voice. Your wiki.`;
 
 /**
- * Resolve `CONSOLIDATION_PROMPT` with `{{CUTOFF}}` substituted. The cutoff
- * format is the caller's choice — the prompt treats it as opaque text and
- * uses string comparison, so any total-order timestamp format works (ISO-8601
- * is the convention).
+ * Resolve `CONSOLIDATION_PROMPT` with `{{CUTOFF}}` substituted. The prompt
+ * treats the cutoff as opaque text — callers pass a `Mon D, h:mm AM/PM`
+ * timestamp matching the `buffer.md` entry format so the agent compares
+ * like-with-like.
  */
 export function renderConsolidationPrompt(cutoff: string): string {
   return CONSOLIDATION_PROMPT.replaceAll(CUTOFF_PLACEHOLDER, cutoff);

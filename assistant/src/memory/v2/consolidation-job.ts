@@ -61,6 +61,7 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import { isProcessAlive } from "../../util/process-liveness.js";
 import { bootstrapConversation } from "../conversation-bootstrap.js";
 import { deleteConversation } from "../conversation-crud.js";
+import { formatBufferTimestamp } from "../graph/tool-handlers.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
@@ -121,11 +122,13 @@ export async function memoryV2ConsolidateJob(
   }
 
   try {
-    // Step 2: capture cutoff. ISO-8601 is the convention; it's a total order
-    // string that compares correctly via lexicographic <, which is all the
-    // prompt asks the agent to do. Captured here (not at enqueue time) so
-    // late-claimed rows still get a fresh cutoff.
-    const cutoff = new Date().toISOString();
+    // Step 2: capture cutoff. Formatted to match `buffer.md` entry timestamps
+    // (`Mon D, h:mm AM/PM`, see `formatBufferTimestamp`) so the agent's
+    // "timestamp ≥ cutoff" check compares like-with-like at minute precision.
+    // Same-minute entries land on the next pass — conservative but loss-free.
+    // Captured here (not at enqueue time) so late-claimed rows get a fresh
+    // cutoff.
+    const cutoff = formatBufferTimestamp(new Date());
 
     // Step 3: bail on empty buffer. Nothing for the agent to consolidate.
     // The lock is released in finally below.
