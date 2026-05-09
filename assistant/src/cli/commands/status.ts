@@ -31,8 +31,8 @@ export function registerStatusCommand(program: Command): void {
           const socketPath = getAssistantSocketPath();
           const socketExists = existsSync(socketPath);
           const workspace = getWorkspaceDirDisplay();
-          console.log(socketExists ? "Daemon: running" : "Daemon: down");
-          console.log(`Workspace: ${workspace}`);
+          process.stdout.write((socketExists ? "Daemon: running" : "Daemon: down") + "\n");
+          process.stdout.write(`Workspace: ${workspace}\n`);
           process.exit(0);
         }
 
@@ -54,10 +54,10 @@ export function registerStatusCommand(program: Command): void {
         );
         for (const [label, value] of rows) {
           if (!label) {
-            console.log("");
+            process.stdout.write("\n");
             continue;
           }
-          console.log(`${label.padEnd(labelWidth)}  ${value}`);
+          process.stdout.write(`${label.padEnd(labelWidth)}  ${value}\n`);
         }
       });
     },
