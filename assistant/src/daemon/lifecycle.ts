@@ -836,6 +836,26 @@ export async function runDaemon(): Promise<void> {
             );
           }
         })();
+
+        // Validate every concept page's frontmatter against the strict
+        // schema and emit a `warn` per offender. Surfaces schema drift
+        // (unknown keys, type mismatches) at boot time instead of waiting
+        // for the failure to manifest as a silent V2 retrieval no-op when
+        // a bad page first lands in a conversation's top-K. Fire-and-forget
+        // and the sweep itself never throws — defense in depth via the
+        // outer try/catch.
+        void (async () => {
+          try {
+            const { sweepConceptPageFrontmatter } =
+              await import("../memory/v2/frontmatter-sweep.js");
+            await sweepConceptPageFrontmatter(getWorkspaceDir());
+          } catch (err) {
+            log.warn(
+              { err },
+              "Concept page frontmatter sweep threw — continuing startup",
+            );
+          }
+        })();
       }
 
       log.info("Daemon startup: starting memory worker");
