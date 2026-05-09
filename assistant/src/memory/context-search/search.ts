@@ -1,3 +1,4 @@
+import { isAbortReason } from "../../util/abort-reasons.js";
 import {
   ALL_RECALL_SOURCES,
   type NormalizedRecallInput,
@@ -72,6 +73,7 @@ export async function runDeterministicRecallSearch(
       );
       appendEvidence(evidenceBySource, "pkb", contextEvidence);
     } catch (err) {
+      if (isAbortLikeError(err)) throw err;
       errorsBySource.set("pkb", errorToMessage(err));
     }
   }
@@ -88,17 +90,20 @@ export async function runDeterministicRecallSearch(
     ),
   );
 
-  adapterResults.forEach((settledResult, index) => {
+  for (const [index, settledResult] of adapterResults.entries()) {
     const source = selectedAdapters[index]?.source;
-    if (!source) return;
+    if (!source) continue;
 
     if (settledResult.status === "fulfilled") {
       appendEvidence(evidenceBySource, source, settledResult.value.evidence);
-      return;
+      continue;
     }
 
+    if (isAbortLikeError(settledResult.reason)) {
+      throw settledResult.reason;
+    }
     errorsBySource.set(source, errorToMessage(settledResult.reason));
-  });
+  }
 
   const evidence = capEvidence(
     dedupeEvidence(sortEvidence([...evidenceBySource.values()].flat())),
@@ -384,4 +389,16 @@ function errorToMessage(err: unknown): string {
     return err.message;
   }
   return String(err);
+}
+
+function isAbortLikeError(err: unknown): boolean {
+  if (err instanceof Error && err.name === "AbortError") return true;
+  if (
+    typeof DOMException !== "undefined" &&
+    err instanceof DOMException &&
+    err.name === "AbortError"
+  ) {
+    return true;
+  }
+  return isAbortReason(err);
 }
