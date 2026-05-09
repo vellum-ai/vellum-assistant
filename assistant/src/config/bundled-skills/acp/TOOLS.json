@@ -11,7 +11,7 @@
         "properties": {
           "agent": {
             "type": "string",
-            "description": "Which agent to spawn (e.g. 'claude', 'codex', 'gemini'). Defaults to 'claude'."
+            "description": "Which agent to spawn (e.g. 'claude', 'codex'). Defaults to 'claude'."
           },
           "task": {
             "type": "string",
