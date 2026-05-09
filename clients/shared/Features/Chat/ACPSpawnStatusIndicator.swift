@@ -3,20 +3,13 @@ import SwiftUI
 // MARK: - ACPSpawnStatusIndicator
 
 /// Render decision for the leading status indicator on the inline
-/// `acp_spawn` deep-link row used by both macOS (`ACPSpawnStatusDot`
-/// inside `AssistantProgressView.swift`) and iOS
-/// (`ACPSpawnStatusIndicatorView` inside `ToolCallProgressBar.swift`).
-/// Resolved as a pure function from the live store status (when present)
-/// so unit tests can pin-point each visual state without standing up the
-/// SwiftUI view tree, and so both platforms render the same lifecycle
-/// from the same input.
+/// `acp_spawn` deep-link row used by macOS (`ACPSpawnStatusDot` inside
+/// `AssistantProgressView.swift`). Resolved as a pure function from the
+/// live store status so unit tests can pin-point each visual state
+/// without standing up the SwiftUI view tree.
 ///
-/// Lives in `clients/shared/` so the macOS dot view and the iOS indicator
-/// view consume one canonical resolver — previously each platform had its
-/// own subtly different contract (iOS read `ToolCallData.isComplete` /
-/// `isError` directly, ignoring the live `ACPSessionStore`, so it missed
-/// running → completed transitions and the "history cleared while running"
-/// edge case the macOS resolver covers).
+/// Lives in `clients/shared/` because the macOS dot view consumes it
+/// from the shared module.
 public enum ACPSpawnStatusIndicator: Equatable {
     /// The session is still working — render a pulsing dot. Both
     /// `.running` and `.initializing` map to this state since neither is a
@@ -32,8 +25,6 @@ public enum ACPSpawnStatusIndicator: Equatable {
         case xmark
         case dash
 
-        /// Lucide glyph backing this case. Lives on the enum so both
-        /// platforms render the same icon for the same state.
         public var icon: VIcon {
             switch self {
             case .check: return .circleCheck
@@ -51,8 +42,6 @@ public enum ACPSpawnStatusIndicator: Equatable {
         /// Cancelled / unknown / muted terminal — gray dash.
         case muted
 
-        /// Semantic color for this role. Lives on the enum so both
-        /// platforms apply the same tone to the same state.
         public var color: Color {
             switch self {
             case .positive: return VColor.primaryBase
@@ -92,22 +81,5 @@ public enum ACPSpawnStatusIndicator: Equatable {
             // id" semantics rather than stalling on a ghost pulse.
             return .icon(glyph: .check, role: .positive)
         }
-    }
-
-    /// Tool-call-only fallback used when no live store entry exists yet
-    /// (early launch, test harness, missing bridge). Mirrors the
-    /// pre-shared iOS behavior so a row that lands before the store is
-    /// wired still renders a sensible terminal glyph the moment the tool
-    /// call itself finishes. Callers should prefer ``resolve(forStatus:)``
-    /// against the live store and fall back to this only when the store
-    /// lookup yields no entry.
-    public static func resolve(forToolCall toolCall: ToolCallData) -> ACPSpawnStatusIndicator {
-        if toolCall.isError {
-            return .icon(glyph: .xmark, role: .negative)
-        }
-        if toolCall.isComplete {
-            return .icon(glyph: .check, role: .positive)
-        }
-        return .pulsing
     }
 }
