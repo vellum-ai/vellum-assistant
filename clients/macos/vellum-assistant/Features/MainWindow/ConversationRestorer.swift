@@ -108,7 +108,11 @@ final class ConversationRestorer {
             for await message in self.eventStreamClient.subscribe() {
                 switch message {
                 case .conversationListResponse(let response):
-                    self.handleConversationListResponse(response)
+                    // SSE-pushed responses don't have the foreground/background
+                    // separation that fetchConversationList enforces, so they
+                    // must not touch serverOffset (which paginates the
+                    // foreground endpoint only).
+                    self.handleConversationListResponse(response, updateServerOffset: false)
                 case .historyResponse(let response):
                     self.handleHistoryResponse(response)
                 case .conversationTitleUpdated(let response):
