@@ -788,6 +788,30 @@
       "updatedAt": "2026-04-22T16:45:04-04:00"
     },
     {
+      "id": "vellum-memory-v2-migration",
+      "name": "vellum-memory-v2-migration",
+      "description": "Hand-write a memory v2 backfill from /workspace/pkb/ + memory/buffer.md and bring v2 online. Use for first-time memory v2 setup when concepts/ is empty and v2.enabled is false.",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🧠",
+        "vellum": {
+          "display-name": "Memory v2 Migration",
+          "user-invocable": true,
+          "activation-hints": [
+            "When the user asks to migrate to memory v2, set up the memory wiki, or do a v2 backfill",
+            "When /workspace/memory/concepts/ is empty or near-empty and memory.v2.enabled is false",
+            "When /workspace/pkb/ or /workspace/memory/buffer.md has substantive content that needs to become the wiki"
+          ],
+          "avoid-when": [
+            "When concept pages are already populated and memory.v2.enabled is already true",
+            "When /workspace/pkb/ and /workspace/memory/buffer.md are both empty (nothing to migrate)",
+            "Never run `assistant memory v2 migrate` during this skill — it overwrites hand-written pages"
+          ]
+        }
+      },
+      "updatedAt": "2026-05-09T14:50:00-04:00"
+    },
+    {
       "id": "vellum-oauth-integrations",
       "name": "vellum-oauth-integrations",
       "description": "Act on behalf of your user in any third-party software that supports OAuth 2.0",
