@@ -47,8 +47,16 @@ export interface RunBackgroundJobOptions {
   jobName: string;
   /** Conversation `source` field (free-form, propagated to clients). */
   source: string;
-  /** Prompt sent both as `systemHint` to bootstrap and as the first message. */
+  /** Prompt sent as the first message of the conversation. */
   prompt: string;
+  /**
+   * Short, human-readable hint passed to `bootstrapConversation` for title
+   * generation and as the fallback title. Defaults to `prompt` when omitted,
+   * but callers with multi-paragraph prompts should supply a concise label
+   * (e.g. `"Knowledge base filing"`) — otherwise a fallback title would echo
+   * the entire prompt and title-generation requests waste tokens.
+   */
+  systemHint?: string;
   /** Trust context applied to the agent turn. */
   trustContext: TrustContext;
   /** LLM call-site identifier — drives provider/model/effort/etc. resolution. */
@@ -143,7 +151,7 @@ export async function runBackgroundJob(
     conversationType: opts.conversationType ?? "background",
     source: opts.source,
     origin: opts.origin,
-    systemHint: opts.prompt,
+    systemHint: opts.systemHint ?? opts.prompt,
     groupId: opts.groupId ?? DEFAULT_GROUP_ID,
     ...(opts.scheduleJobId ? { scheduleJobId: opts.scheduleJobId } : {}),
   });
