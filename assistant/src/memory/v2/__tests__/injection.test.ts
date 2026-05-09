@@ -909,9 +909,10 @@ describe("injectMemoryV2Block", () => {
 
   test("skill slugs whose entry is missing from the cache are dropped silently", async () => {
     // The skill ranks into top-K but the in-process cache no longer knows
-    // its content (skill uninstalled mid-run). The render path drops it
-    // without surfacing it as a `missingSlugs` page-missing event — that
-    // status is reserved for on-disk concept pages, not catalog-derived
+    // its content (skill uninstalled mid-run, or a startup race where the
+    // Qdrant row landed before the skill cache was seeded). The render path
+    // drops it without surfacing it as a `missingSlugs` page-missing event —
+    // that status is reserved for on-disk concept pages, not catalog-derived
     // skill entries.
     stageTurn([{ slug: "skills/missing-skill", denseScore: 0.9 }]);
     // No `stageSkills` call — cache stays empty.
@@ -927,10 +928,16 @@ describe("injectMemoryV2Block", () => {
       config: makeConfig(),
     });
 
-    // `toInject` still records the slug (it ranked into top-K) but the
-    // block collapses to null because the only entry was a cache miss.
-    expect(result.toInject).toEqual(["skills/missing-skill"]);
+    // The skill is excluded from `toInject` (and `everInjected`) so future
+    // per-turn runs re-attempt the attach once the cache is populated.
+    // `block` collapses to null because the only candidate was a cache miss.
+    expect(result.toInject).toEqual([]);
     expect(result.block).toBeNull();
+
+    // Persisted `everInjected` must not record the missing skill — that
+    // would block retry on a later turn until compaction-driven eviction.
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([]);
   });
 
   test("returns null when both concept pages and skills are empty", async () => {
