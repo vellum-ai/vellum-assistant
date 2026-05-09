@@ -51,9 +51,13 @@ export function listConversations(
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
+  // 'private' is excluded defensively: in-place snapshot restore swaps the
+  // SQLite file without running migrations in-process, so legacy private rows
+  // can briefly exist before migration cleanup. Hide them from foreground
+  // lists until the next migration pass deletes them.
   const typeCond = backgroundOnly
     ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`;
+    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`;
   const where = includeArchived
     ? typeCond
     : sql`${typeCond} AND ${conversations.archivedAt} IS NULL`;
@@ -80,7 +84,7 @@ export function listPinnedConversations(): ConversationRow[] {
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`,
+        sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
         sql`is_pinned = 1`,
       ),
     )

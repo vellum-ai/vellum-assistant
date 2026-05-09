@@ -1243,6 +1243,15 @@ export async function handleSendMessage(
     );
   }
 
+  // Reject the legacy "private" mode explicitly rather than silently coercing
+  // it to "standard" — clients that still populate this field expect privacy
+  // semantics that no longer exist.
+  if (body.conversationType === "private") {
+    throw new BadRequestError(
+      "Private conversations are no longer supported. Update your client to omit conversationType or send 'standard'.",
+    );
+  }
+
   // Desktop messages are always from the guardian — reset the heartbeat
   // timer so the next heartbeat is a full interval after this interaction.
   HeartbeatService.getInstance()?.resetTimer();
