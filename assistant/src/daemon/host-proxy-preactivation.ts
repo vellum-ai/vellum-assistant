@@ -28,6 +28,7 @@
 
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
 import { supportsHostProxy } from "../channels/types.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 
 /**
  * Subset of Conversation/ProcessConversationContext that
@@ -61,6 +62,29 @@ export const HOST_PROXY_SKILL_PREACTIVATIONS: ReadonlyArray<{
 ];
 
 /**
+ * Returns true when a host-proxy for the given capability should be attached
+ * (instantiated and preactivated) for the current turn. Two cases qualify:
+ *
+ *  1. The source interface natively supports the capability (e.g. macOS → host_cu).
+ *  2. The source interface doesn't support the capability natively but at least
+ *     one connected client does — cross-client routing. `chrome-extension` is
+ *     excluded as a security boundary: it is its own executor context and cannot
+ *     broker cross-client routing to a macOS client.
+ *
+ * This is the single source of truth for both preactivation and proxy
+ * instantiation, so the two decisions stay in sync.
+ */
+export function shouldAttachHostProxyForCapability(
+  capability: HostProxyCapability,
+  sourceInterface: InterfaceId | undefined,
+): boolean {
+  if (!sourceInterface) return false;
+  if (supportsHostProxy(sourceInterface, capability)) return true;
+  if (sourceInterface === "chrome-extension") return false;
+  return assistantEventHub.listClientsByCapability(capability).length > 0;
+}
+
+/**
  * Preactivate every host-proxy-backed skill that the given source interface
  * supports. No-op when `sourceInterface` is undefined.
  *
@@ -75,7 +99,7 @@ export function preactivateHostProxySkills(
 ): void {
   if (!sourceInterface) return;
   for (const { capability, skillId } of HOST_PROXY_SKILL_PREACTIVATIONS) {
-    if (supportsHostProxy(sourceInterface, capability)) {
+    if (shouldAttachHostProxyForCapability(capability, sourceInterface)) {
       conversation.addPreactivatedSkillId(skillId);
     }
   }
