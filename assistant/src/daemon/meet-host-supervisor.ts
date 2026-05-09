@@ -14,10 +14,11 @@
  *   - `ensureRunning()` — idempotent. First caller triggers
  *     `child_process.spawn`, subsequent concurrent callers await the
  *     same in-flight promise. Resolves once the child dials
- *     `assistant-skill.sock` and sends a handshake frame (via
- *     `notifyHandshake`) whose reported source-tree hash matches the
- *     shipped manifest's hash. A mismatch kills the spawn and throws
- *     a clear error pointing the user at regenerating the manifest.
+ *     `assistant-skill.sock` and the first `host.registries.register_*`
+ *     frame lands (which calls {@link setActiveConnection}). Source-hash
+ *     drift is not validated on this path — `notifyHandshake` exists for
+ *     a future explicit handshake frame that ships the skill's
+ *     runtime-computed hash, but no production caller invokes it today.
  *
  *   - `reportSessionStarted(id)` / `reportSessionEnded(id)` — mutate
  *     the active-session counter, called by the
@@ -278,15 +279,14 @@ export class MeetHostSupervisor {
   }
 
   /**
-   * Called by the IPC route handler when the child sends its
-   * `host.registries.register_tools` / `ready` frame. The supervisor
-   * validates the reported source hash against the shipped manifest
-   * and either resolves or rejects the in-flight `ensureRunning()`
-   * promise accordingly.
-   *
-   * Intentionally public so PR 24's `host.registries.*` route (which
-   * owns the IPC socket) can forward the payload without the
-   * supervisor owning any socket state itself.
+   * Validate a handshake payload's reported source hash against the
+   * shipped manifest and resolve or reject the in-flight
+   * `ensureRunning()` promise accordingly. Currently dormant on the
+   * production path — readiness is signalled by the first
+   * `host.registries.register_*` frame (see {@link setActiveConnection})
+   * which carries no hash. This method is preserved as the integration
+   * point for a future explicit handshake frame whose payload ships the
+   * skill's runtime-computed hash; only tests exercise it today.
    */
   notifyHandshake(payload: MeetHostHandshakePayload): void {
     if (!this.handshakeResolve || !this.handshakeReject) {
@@ -374,8 +374,8 @@ export class MeetHostSupervisor {
     // The first `host.registries.register_*` frame doubles as the
     // readiness signal: it means `register(client)` ran to completion and
     // the IPC socket is healthy. Resolve any in-flight handshake so
-    // `ensureRunning()` unblocks. `notifyHandshake` remains the path for
-    // callers that send a dedicated hash-bearing handshake frame.
+    // `ensureRunning()` unblocks. No source-hash check happens here —
+    // see {@link notifyHandshake} for the dormant validation path.
     this.handshakeResolve?.();
   }
 
