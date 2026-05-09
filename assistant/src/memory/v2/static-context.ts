@@ -66,13 +66,18 @@ export function readMemoryV2StaticContent(): string | null {
  * can be prompt-injected into reciting private memory. Internal flows
  * (`sourceChannel: "vellum"`) and turns with no trust context pass through
  * unchanged; this gate exists only to keep remote untrusted actors out.
+ *
+ * This is the trust-only gate. Cadence (first-turn / post-compaction) is
+ * applied separately by the caller so that `currentMemoryV2Static` remains
+ * available for re-injection after a mid-turn reducer-triggered compaction
+ * — the initial-injection turn may not have been a `shouldInjectNowAndPkb`
+ * turn, but compaction strips the existing `<memory>` block and we still
+ * need the freshest content to re-inject.
  */
 export function shouldLoadMemoryV2Static(args: {
-  shouldInjectNowAndPkb: boolean;
   sourceChannel: ChannelId | undefined;
   isTrustedActor: boolean;
 }): boolean {
-  if (!args.shouldInjectNowAndPkb) return false;
   const isRemoteUntrustedActor =
     args.sourceChannel !== undefined &&
     args.sourceChannel !== "vellum" &&

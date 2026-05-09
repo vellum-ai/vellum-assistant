@@ -1425,20 +1425,21 @@ export async function runAgentLoopImpl(
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
-    // V2 static memory block (essentials/threads/recent/buffer). Same
-    // first-turn / post-compaction cadence as PKB. `shouldLoadMemoryV2Static`
-    // also blocks remote-channel non-guardian actors from inducing the
-    // model to recite private memory; `readMemoryV2StaticContent` self-gates
-    // on the v2 flag + config and returns null when v2 is off, so the file
-    // reads are skipped on non-injection turns.
+    // V2 static memory block (essentials/threads/recent/buffer).
+    // `currentMemoryV2Static` is the trust-gated content reused by every
+    // re-injection path — it stays non-null on non-full-mode turns so
+    // that mid-turn reducer compaction (which strips the prior `<memory>`
+    // block) can restore the freshest content. `memoryV2Static` is the
+    // first-turn / post-compaction cadence-gated value for initial
+    // injection only. `readMemoryV2StaticContent` self-gates on the v2
+    // flag + config and returns null when v2 is off.
     const currentMemoryV2Static = shouldLoadMemoryV2Static({
-      shouldInjectNowAndPkb,
       sourceChannel: ctx.trustContext?.sourceChannel,
       isTrustedActor,
     })
       ? readMemoryV2StaticContent()
       : null;
-    const memoryV2Static = currentMemoryV2Static;
+    const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;
 
     // PKB relevance-hint inputs. Resolved once per turn and reused across
     // re-injections so post-compaction rebuilds pick up fresh hints against
