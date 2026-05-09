@@ -15,9 +15,11 @@
  * session at a time, and that session is bound to a specific target app.
  * The lock is module-level (`activeAppControlSession`) because the session
  * targets the user's actual desktop application, which is a host-wide
- * resource. It is acquired on a successful `app_control_start` (storing
- * `(conversationId, app)`) and released when the owning proxy's
- * `dispose()` fires.
+ * resource. It is acquired optimistically when `app_control_start` is
+ * dispatched (storing `(conversationId, app)`) so that the synchronous
+ * guard and the asynchronous host round-trip cannot race; it is released
+ * when the host returns a non-running state, the dispatch fails, or the
+ * owning proxy's `dispose()` fires.
  *
  * `app_control_start` is the only tool that can acquire the lock — the
  * user's medium-risk approval at start time is the consent boundary. All
@@ -235,7 +237,7 @@ export class HostAppControlProxy extends HostProxyBase<
     if (input.tool === "start") {
       if (
         activeAppControlSession != null &&
-        activeAppControlSession.conversationId !== conversationId
+        activeAppControlSession.conversationId !== this.conversationId
       ) {
         return {
           content:
@@ -245,8 +247,21 @@ export class HostAppControlProxy extends HostProxyBase<
           isError: true,
         };
       }
+      // Acquire optimistically to close the TOCTOU window between this
+      // synchronous guard and the asynchronous `dispatchRequest` below. Two
+      // concurrent starts from different conversations would otherwise both
+      // see `activeAppControlSession == null` and both pass the guard. The
+      // lock is released below if dispatch fails or the host returns a
+      // non-running state.
+      activeAppControlSession = {
+        conversationId: this.conversationId,
+        app: input.app,
+      };
     } else {
-      const sessionError = checkNonStartAuthorization(input, conversationId);
+      const sessionError = checkNonStartAuthorization(
+        input,
+        this.conversationId,
+      );
       if (sessionError != null) {
         return sessionError;
       }
@@ -261,6 +276,9 @@ export class HostAppControlProxy extends HostProxyBase<
       );
       return this.handleSuccess(input, payload);
     } catch (err) {
+      if (input.tool === "start") {
+        this.releaseSessionIfHeld();
+      }
       if (err instanceof HostProxyRequestError) {
         if (err.reason === "timeout") {
           log.warn({ toolName }, "Host app-control proxy request timed out");
@@ -276,6 +294,12 @@ export class HostAppControlProxy extends HostProxyBase<
       }
       // `disposed` and any other unexpected errors propagate.
       throw err;
+    }
+  }
+
+  private releaseSessionIfHeld(): void {
+    if (activeAppControlSession?.conversationId === this.conversationId) {
+      activeAppControlSession = undefined;
     }
   }
 
@@ -304,13 +328,12 @@ export class HostAppControlProxy extends HostProxyBase<
       }
     }
 
-    // Store the exact `app` form for validation against subsequent
-    // non-start tool calls.
-    if (input.tool === "start" && payload.state === "running") {
-      activeAppControlSession = {
-        conversationId: this.conversationId,
-        app: input.app,
-      };
+    // The optimistic lock acquired in `request()` for `start` stays held
+    // only when the host confirms the session is running. Non-running
+    // outcomes (missing/minimized) release it so a retry or another
+    // conversation can acquire.
+    if (input.tool === "start" && payload.state !== "running") {
+      this.releaseSessionIfHeld();
     }
 
     return this.formatResult(payload, stuck);
@@ -382,8 +405,6 @@ export class HostAppControlProxy extends HostProxyBase<
    */
   override dispose(): void {
     super.dispose();
-    if (activeAppControlSession?.conversationId === this.conversationId) {
-      activeAppControlSession = undefined;
-    }
+    this.releaseSessionIfHeld();
   }
 }
