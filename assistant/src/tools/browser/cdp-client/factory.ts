@@ -302,6 +302,52 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
   const candidates: BackendCandidate[] = [];
   const hostBrowserProxy = HostBrowserProxy.instance;
 
+  // When a specific host client is targeted, only the extension proxy can
+  // route to it. Skip the fallback chain entirely: if the extension is
+  // unavailable, fail loudly rather than silently routing to a different
+  // browser.
+  if (targetClientId != null) {
+    if (!hostBrowserProxy.hasExtensionClient()) {
+      throw new CdpError(
+        "transport_error",
+        `Cannot reach target_client_id "${targetClientId}": no Chrome Extension connected`,
+        {
+          attemptDiagnostics: [
+            {
+              candidateKind: "extension",
+              inclusionReason: "target_client_id requires extension proxy",
+              stage: "candidate_selection",
+              errorCode: "transport_error",
+              errorMessage: "no Chrome Extension connected",
+            },
+          ],
+        },
+      );
+    }
+    return [
+      {
+        kind: "extension",
+        reason: `target_client_id override: ${targetClientId}`,
+        create() {
+          const client = createExtensionCdpClient(
+            hostBrowserProxy,
+            conversationId,
+            undefined,
+            sourceActorPrincipalId,
+            targetClientId,
+          );
+          const backend = createExtensionBackend({
+            isAvailable: () => true,
+            sendCdp: (command, signal) =>
+              dispatchThroughClient(client, command, signal),
+            dispose: () => client.dispose(),
+          });
+          return { client, backend };
+        },
+      },
+    ];
+  }
+
   // 1. Extension -- preferred when a Chrome Extension client is connected.
   if (hostBrowserProxy.hasExtensionClient()) {
     candidates.push({

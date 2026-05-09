@@ -386,8 +386,12 @@ function acquireCdpClientWithMode(
   const rememberedKind = browserManager.getPreferredBackendKind(
     context.conversationId,
   );
+  // target_client_id requires the extension proxy path — bypass any sticky
+  // backend remembered from prior turns so the explicit target always wins.
   const effectiveMode: BrowserMode =
-    browserMode === "auto" && rememberedKind !== null
+    targetClientId != null
+      ? "extension"
+      : browserMode === "auto" && rememberedKind !== null
       ? rememberedKind
       : browserMode;
 
@@ -400,7 +404,9 @@ function acquireCdpClientWithMode(
     // a remembered backend kind that has since become unavailable. Drop
     // the stale memo and retry with fresh auto selection so a dead
     // sticky preference doesn't surface as a hard failure.
-    if (browserMode === "auto" && effectiveMode !== "auto") {
+    // Do not apply this fallback when target_client_id is set — a targeting
+    // failure must surface as an error, not silently route elsewhere.
+    if (browserMode === "auto" && effectiveMode !== "auto" && targetClientId == null) {
       browserManager.clearPreferredBackendKind(context.conversationId);
       try {
         const raw = getCdpClient(context, { mode: "auto", targetClientId });
