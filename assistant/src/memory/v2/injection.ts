@@ -94,8 +94,12 @@ export interface InjectMemoryV2BlockResult {
    */
   block: string | null;
   /**
-   * Slugs that were freshly attached on this turn. Empty when `block` is
-   * null. Returned for telemetry / debug logging by the call site.
+   * Slugs we attempted to attach this turn (top-K minus everInjected).
+   * Always populated even when `block` is `null` — phantom slugs whose
+   * backing page is missing on disk land here and are recorded in
+   * `everInjected` so we don't infinite-retry next turn. Callers using
+   * this for "we injected N slugs" telemetry should cross-reference
+   * `block !== null` (or the activation log's `page_missing` status).
    */
   toInject: string[];
 }
