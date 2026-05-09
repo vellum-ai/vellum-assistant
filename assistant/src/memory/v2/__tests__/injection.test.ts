@@ -41,6 +41,7 @@ import {
 } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { z } from "zod";
 
 import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../../../config/types.js";
@@ -176,6 +177,61 @@ mock.module("../../memory-v2-activation-log-store.js", () => ({
       throw new Error("simulated telemetry write failure");
     }
     telemetryState.recordCalls.push(params);
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Page-store mock — pass-through with optional per-slug failure injection
+// ---------------------------------------------------------------------------
+//
+// Most tests want the real `readPage` (it walks the temp workspace seeded in
+// `beforeAll`). The error-isolation tests stage a slug whose `readPage` call
+// must throw — typically a Zod validation error mimicking the real-world
+// "unrecognized frontmatter key" failure that motivated this work. Tests
+// stage entries via `pageStoreState.failingSlugs` and reset in `resetState`.
+//
+// Bun's `mock.module` mutates the module's exports object in place, so
+// `realPageStore.readPage` AFTER the mock applies would resolve to the mock
+// itself — calling it would recurse. We capture the original function value
+// (not a property lookup) before installing the mock so the pass-through
+// path has a real reference to the underlying implementation.
+
+const realPageStoreModule = await import("../page-store.js");
+const realReadPage = realPageStoreModule.readPage;
+const pageStoreState = {
+  failingSlugs: new Map<string, Error>(),
+};
+mock.module("../page-store.js", () => ({
+  ...realPageStoreModule,
+  readPage: async (workspaceDir: string, slug: string) => {
+    const err = pageStoreState.failingSlugs.get(slug);
+    if (err) throw err;
+    return realReadPage(workspaceDir, slug);
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Activation-store mock — pass-through with optional `save` failure injection
+// ---------------------------------------------------------------------------
+//
+// One regression test forces `save` to throw to exercise the
+// `injectMemoryV2Block` outer try/finally — telemetry must still be flushed
+// (with `mode: "errored"`) and the error must propagate. Default behavior
+// delegates to the real activation-store so the rest of the suite stays
+// untouched. Same pre-mock function-capture trick as `readPage` above.
+
+const realActivationStoreModule = await import("../activation-store.js");
+const realSave = realActivationStoreModule.save;
+const activationStoreState = {
+  saveShouldThrow: false,
+};
+mock.module("../activation-store.js", () => ({
+  ...realActivationStoreModule,
+  save: async (...args: Parameters<typeof realSave>) => {
+    if (activationStoreState.saveShouldThrow) {
+      throw new Error("simulated activation-store save failure");
+    }
+    return realSave(...args);
   },
 }));
 
@@ -390,6 +446,8 @@ function resetState(): void {
   skillState.entries.clear();
   telemetryState.recordCalls.length = 0;
   telemetryState.recordShouldThrow = false;
+  pageStoreState.failingSlugs.clear();
+  activationStoreState.saveShouldThrow = false;
   // The qdrant module caches its client; the cached client may be a
   // MockQdrantClient instance from a sibling test file. Reset to force a
   // fresh `new QdrantClient()` against this file's mock.
@@ -1295,5 +1353,116 @@ describe("injectMemoryV2Block", () => {
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 1 },
     ]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-page error isolation + on-throw telemetry
+  // ---------------------------------------------------------------------------
+
+  test("one slug's page-read failing isolates the error — other slugs still render and the corrupt slug records `status: corrupt`", async () => {
+    // Two slugs rank into top-K together. Carol's page reads cleanly; alice's
+    // `readPage` throws a ZodError mimicking the real "unrecognized
+    // frontmatter key" failure that motivated this work. Before the fix, the
+    // bare `Promise.all` rejected and the entire turn lost its block AND its
+    // activation log row. With per-page isolation, carol still renders and
+    // the activation log row marks alice as `corrupt` (telemetry remains
+    // observable for triage).
+    const zodErr = z.object({ x: z.string() }).safeParse({ x: 1 }).error!;
+    pageStoreState.failingSlugs.set("alice-vscode", zodErr);
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.95 },
+      { slug: "carol-jazz", denseScore: 0.9 },
+    ]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "music and editors",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // (a) Block is non-null and contains content from the OTHER slug; alice
+    // is dropped from the rendered block but does not poison the batch.
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain("# memory/concepts/carol-jazz.md");
+    expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
+
+    // (b) Activation log row exists with carol `injected` and alice
+    // `corrupt`. Status `corrupt` is reserved for read-time throws and is
+    // distinct from `page_missing` (which is null-return / file vanished).
+    expect(telemetryState.recordCalls.length).toBe(1);
+    const row = telemetryState.recordCalls[0] as {
+      mode: string;
+      concepts: Array<{ slug: string; status: string }>;
+    };
+    expect(row.mode).toBe("per-turn");
+    const byslug = new Map(row.concepts.map((c) => [c.slug, c]));
+    expect(byslug.get("alice-vscode")!.status).toBe("corrupt");
+    expect(byslug.get("carol-jazz")!.status).toBe("injected");
+
+    // (c) Both slugs land in `toInject` and `everInjected` — same handling
+    // as `page_missing` (see the phantom-slug test): the slug was attempted
+    // this turn, telemetry records the outcome, and we don't keep re-trying
+    // a stale Qdrant / edge-index entry on every subsequent turn.
+    expect(new Set(result.toInject)).toEqual(
+      new Set(["alice-vscode", "carol-jazz"]),
+    );
+    const persisted = await hydrate(db, "conv-1");
+    const everInjectedSlugs = persisted!.everInjected.map((e) => e.slug);
+    expect(new Set(everInjectedSlugs)).toEqual(
+      new Set(["alice-vscode", "carol-jazz"]),
+    );
+  });
+
+  test("a throw before renderInjectionBlock still flushes telemetry as `mode: errored` and re-throws", async () => {
+    // The activation-state save throws — the most realistic non-render
+    // failure mode (transient SQLite write error mid-injection). The
+    // `injectMemoryV2Block` outer try/finally must (a) flush an activation
+    // log row tagged `mode: "errored"` so silent failures stay observable
+    // in the database, and (b) re-throw so callers (e.g. `prepareMemory`'s
+    // outer catch) see the original error and can degrade gracefully.
+    activationStoreState.saveShouldThrow = true;
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    let threw: unknown = undefined;
+    try {
+      await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-1",
+        currentTurn: 1,
+        userMessage: "Alice's editor",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig(),
+      });
+    } catch (err) {
+      threw = err;
+    }
+
+    // The original error propagates to the caller.
+    expect(threw).toBeInstanceOf(Error);
+    expect((threw as Error).message).toContain(
+      "simulated activation-store save failure",
+    );
+
+    // A telemetry row was still written, tagged `errored`. `concepts` is
+    // empty because the throw fired before the row-builder ran — that's
+    // expected and documented as part of the contract.
+    expect(telemetryState.recordCalls.length).toBe(1);
+    const row = telemetryState.recordCalls[0] as {
+      mode: string;
+      conversationId: string;
+      turn: number;
+      concepts: unknown[];
+    };
+    expect(row.mode).toBe("errored");
+    expect(row.conversationId).toBe("conv-1");
+    expect(row.turn).toBe(1);
+    expect(row.concepts).toEqual([]);
   });
 });

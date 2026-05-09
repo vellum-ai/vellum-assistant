@@ -117,6 +117,7 @@ describe("memory-v2-concept-frequency", () => {
       in_context: 1,
       not_injected: 0,
       page_missing: 0,
+      corrupt: 0,
     });
     expect(bySlug.get("alice")!.totalEvaluations).toBe(3);
     expect(bySlug.get("alice")!.onDisk).toBe(true);
@@ -127,6 +128,7 @@ describe("memory-v2-concept-frequency", () => {
       in_context: 0,
       not_injected: 1,
       page_missing: 0,
+      corrupt: 0,
     });
     expect(bySlug.get("bob")!.totalEvaluations).toBe(2);
     expect(bySlug.get("bob")!.onDisk).toBe(true);
@@ -136,6 +138,7 @@ describe("memory-v2-concept-frequency", () => {
       in_context: 0,
       not_injected: 0,
       page_missing: 1,
+      corrupt: 0,
     });
     expect(bySlug.get("charlie")!.onDisk).toBe(false);
     expect(bySlug.get("charlie")!.lastInjectedAt).toBeNull();

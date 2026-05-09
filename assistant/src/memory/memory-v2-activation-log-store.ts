@@ -40,7 +40,25 @@ export interface MemoryV2ConceptRowRecord {
   inRerankPool: boolean;
   spreadContribution: number;
   source: "prior_state" | "ann_top50" | "both";
-  status: "in_context" | "injected" | "not_injected" | "page_missing";
+  /**
+   * Per-turn outcome for this slug:
+   *   - `in_context`  — already injected on a prior turn; cached attachment
+   *     remains visible without re-rendering.
+   *   - `injected`    — freshly rendered into this turn's user message.
+   *   - `not_injected`— a candidate that didn't make `slugsToRender`.
+   *   - `page_missing`— would-have-been-injected, but `readPage` returned
+   *     null (file vanished between selection and render — stale Qdrant
+   *     or edge-index entry).
+   *   - `corrupt`     — would-have-been-injected, but `readPage` threw
+   *     (e.g. malformed frontmatter). Other slugs in the same batch
+   *     rendered normally.
+   */
+  status:
+    | "in_context"
+    | "injected"
+    | "not_injected"
+    | "page_missing"
+    | "corrupt";
 }
 
 export interface MemoryV2ConfigSnapshot {
@@ -57,7 +75,14 @@ export interface MemoryV2ConfigSnapshot {
 export interface RecordMemoryV2ActivationLogParams {
   conversationId: string;
   turn: number;
-  mode: "context-load" | "per-turn";
+  /**
+   * Call-site mode: `context-load` for fresh / post-compaction loads,
+   * `per-turn` for normal append injections, `errored` when `injectMemoryV2Block`
+   * threw before completing — telemetry is still written so silent failures
+   * are observable in the database, with whatever `concepts` rows had been
+   * built so far (possibly empty).
+   */
+  mode: "context-load" | "per-turn" | "errored";
   concepts: MemoryV2ConceptRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
@@ -105,7 +130,7 @@ export function backfillMemoryV2ActivationMessageId(
 export interface MemoryV2ActivationLog {
   conversationId: string;
   turn: number;
-  mode: "context-load" | "per-turn";
+  mode: "context-load" | "per-turn" | "errored";
   concepts: MemoryV2ConceptRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
@@ -126,7 +151,7 @@ export function getMemoryV2ActivationLogByMessageIds(
   return {
     conversationId: row.conversationId,
     turn: row.turn,
-    mode: row.mode as "context-load" | "per-turn",
+    mode: row.mode as "context-load" | "per-turn" | "errored",
     concepts: JSON.parse(row.conceptsJson) as MemoryV2ConceptRowRecord[],
     config: JSON.parse(row.configJson) as MemoryV2ConfigSnapshot,
   };

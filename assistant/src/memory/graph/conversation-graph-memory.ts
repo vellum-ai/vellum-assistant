@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
+import { z } from "zod";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
@@ -390,8 +391,15 @@ export class ConversationGraphMemory {
 
       return await this.runPerTurn(messages, config, abortSignal);
     } catch (err) {
+      const errCode =
+        err instanceof z.ZodError ? err.issues[0]?.code : undefined;
       log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
+        {
+          err: err instanceof Error ? err.message : String(err),
+          conversationId: this.conversationId,
+          turn: this.tracker.getTurn(),
+          errCode,
+        },
         "Memory retrieval failed (non-fatal)",
       );
       return noopResult;
