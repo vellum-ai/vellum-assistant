@@ -17,6 +17,7 @@ import { ROUTES as AUDIO_ROUTES } from "./audio-routes.js";
 import { ROUTES as AVATAR_ROUTES } from "./avatar-routes.js";
 import { ROUTES as BACKGROUND_TOOL_ROUTES } from "./background-tool-routes.js";
 import { ROUTES as BACKUP_ROUTES } from "./backup-routes.js";
+import { ROUTES as BOOKMARK_ROUTES } from "./bookmark-routes.js";
 import { ROUTES as BRAIN_GRAPH_ROUTES } from "./brain-graph-routes.js";
 import { ROUTES as BROWSER_ROUTES } from "./browser-routes.js";
 import { ROUTES as BTW_ROUTES } from "./btw-routes.js";
@@ -120,6 +121,7 @@ export const ROUTES: RouteDefinition[] = [
   ...AVATAR_ROUTES,
   ...BACKGROUND_TOOL_ROUTES,
   ...BACKUP_ROUTES,
+  ...BOOKMARK_ROUTES,
   ...CACHE_ROUTES,
   ...CALL_ROUTES,
   ...CHANNEL_ROUTES,

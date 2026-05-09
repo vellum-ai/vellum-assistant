@@ -79,6 +79,46 @@ export function listBookmarks(db: DrizzleDb): BookmarkSummary[] {
 }
 
 /**
+ * Fetch a single bookmark by id in the same JOIN-shaped form as
+ * {@link listBookmarks}. Returns `null` if no row matches.
+ */
+export function getBookmarkSummary(
+  db: DrizzleDb,
+  id: string,
+): BookmarkSummary | null {
+  const row = db
+    .select({
+      id: messageBookmarks.id,
+      messageId: messageBookmarks.messageId,
+      conversationId: messageBookmarks.conversationId,
+      createdAt: messageBookmarks.createdAt,
+      conversationTitle: conversations.title,
+      messageContent: messages.content,
+      messageRole: messages.role,
+      messageCreatedAt: messages.createdAt,
+    })
+    .from(messageBookmarks)
+    .innerJoin(messages, eq(messages.id, messageBookmarks.messageId))
+    .innerJoin(
+      conversations,
+      eq(conversations.id, messageBookmarks.conversationId),
+    )
+    .where(eq(messageBookmarks.id, id))
+    .get();
+  if (!row) return null;
+  return {
+    id: row.id,
+    messageId: row.messageId,
+    conversationId: row.conversationId,
+    conversationTitle: row.conversationTitle,
+    messagePreview: buildPreview(row.messageContent),
+    messageRole: row.messageRole,
+    messageCreatedAt: row.messageCreatedAt,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
  * Create a bookmark for the given message, returning the row. Idempotent
  * on the unique `message_id` index — if a bookmark already exists for
  * `messageId`, the existing row is returned and no new row is inserted.
