@@ -99,6 +99,10 @@ final class VoiceModeManager {
     @ObservationIgnored private var liveVoiceStartTask: Task<Void, Never>?
     @ObservationIgnored private var liveFallbackAttemptedForSession = false
     @ObservationIgnored private var liveVoicePausedForPermission = false
+    /// True when the user explicitly muted the live channel from `.listening`.
+    /// Suppresses the `.idle` auto-resume so the channel stays muted until the
+    /// user opts back in via `startListening` / `interruptLiveVoiceAndStartListening`.
+    @ObservationIgnored private var liveVoicePausedByUser = false
 
     init(
         voiceService: any VoiceServiceProtocol = OpenAIVoiceService(),
@@ -183,6 +187,7 @@ final class VoiceModeManager {
         activeVoicePath = .turnBased
         liveFallbackAttemptedForSession = false
         liveVoicePausedForPermission = false
+        liveVoicePausedByUser = false
 
         // Provide the conversation ID to the voice service so the gateway TTS
         // endpoint can resolve the correct provider context.
@@ -264,6 +269,7 @@ final class VoiceModeManager {
         activeVoicePath = .turnBased
         liveFallbackAttemptedForSession = false
         liveVoicePausedForPermission = false
+        liveVoicePausedByUser = false
 
         // Fully shut down audio engine to release the microphone
         voiceService.shutdown()
@@ -357,6 +363,7 @@ final class VoiceModeManager {
         guard state == .listening else { return }
 
         if activeVoicePath == .liveChannel {
+            liveVoicePausedByUser = true
             let liveVoiceChannelManager = liveVoiceChannelManager
             Task { @MainActor in
                 guard let liveVoiceChannelManager else { return }
@@ -417,6 +424,7 @@ final class VoiceModeManager {
         activeVoicePath = .liveChannel
         liveFallbackAttemptedForSession = false
         liveVoicePausedForPermission = false
+        liveVoicePausedByUser = false
         partialTranscription = ""
         liveTranscription = ""
         inputAmplitude = 0
@@ -486,6 +494,7 @@ final class VoiceModeManager {
             let wasListening = state == .listening
             state = .idle
             if !wasListening,
+               !liveVoicePausedByUser,
                canStartLiveVoiceSession(for: chatViewModel),
                let conversationId = liveVoiceConversationId(for: chatViewModel) {
                 startLiveVoiceListening(conversationId: conversationId)
@@ -1078,6 +1087,7 @@ final class VoiceModeManager {
         liveTranscription = ""
         errorMessage = ""
         activeVoicePath = .liveChannel
+        liveVoicePausedByUser = false
         state = .listening
         startLiveVoiceObservation()
 
