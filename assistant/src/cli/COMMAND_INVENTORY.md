@@ -1,0 +1,76 @@
+# CLI Command Inventory
+
+Source of truth for all `assistant` CLI commands. Every `.ts` file under
+`src/cli/commands/` (excluding `__tests__/`) must appear in this table.
+Run `bun run lint:inventory` to validate.
+
+## Status enum
+| Value | Meaning |
+|---|---|
+| `THIN` | Already a thin IPC wrapper — calls cliIpcCall, no daemon-internal imports |
+| `LOCAL` | Touches only local files/config — daemon need not be running |
+| `LEGACY` | Not yet migrated — contains daemon-internal imports (see Sections C–I) |
+
+## Commands
+
+| Command | Subcommands | Class | Operation IDs | Status | Notes |
+|---|---|---|---|---|---|
+| `attachment` | `register`, `lookup` | `ipc` | `attachment_register`, `attachment_lookup` | `THIN` | |
+| `bash` | _(positional command arg)_ | `ipc` | `debug_bash` | `THIN` | Debug tool; requires VELLUM_DEBUG=1 |
+| `browser` | `navigate`, `snapshot`, `click`, `type`, `screenshot`, `scroll`, `press-key`, `select`, `hover`, `drag`, `wait`, `close`, `status`, _(dynamic from BROWSER_OPERATION_META)_ | `ipc` | `browser_execute` | `THIN` | Subcommands generated from BROWSER_OPERATION_META |
+| `cache` | `set`, `get`, `delete` | `ipc` | `cache_set`, `cache_get`, `cache_delete` | `THIN` | |
+| `clients` | `list`, `disconnect` | `ipc` | `list_clients`, `disconnect_client` | `THIN` | |
+| `conversations-defer` | _(positional: defer)_, `list`, `cancel` | `ipc` | `defer_create`, `defer_list`, `defer_cancel` | `THIN` | Registered as `defer` under `conversations` namespace |
+| `gateway` | `logs tail` | `ipc` | `gateway_logs_tail` | `THIN` | |
+| `mcp` | `list`, `reload`, `add`, `auth`, `remove` | `ipc` | `internal_mcp_auth_status`, `internal_mcp_reload`, `internal_mcp_auth_start` | `THIN` | `list`/`add`/`remove` also touch config directly |
+| `memory-v2` | `migrate`, `reembed`, `reembed-skills`, `activation`, `explain`, `rebuild-corpus-stats`, `fit-anisotropy`, `validate` | `ipc` | `memory_v2_backfill`, `memory_v2_validate`, `memory_v2_reembed_skills`, `memory_v2_explain_similarity`, `memory_v2_rebuild_corpus_stats`, `memory_v2_fit_anisotropy` | `THIN` | Registered as `v2` subgroup under `memory` |
+| `notifications` | `send`, `list` | `ipc` | `emit_notification_signal`, `list_notification_events` | `THIN` | |
+| `pending` | `list` | `ipc` | `pending_interactions` | `THIN` | **Canonical example** |
+| `status` | _(none)_ | `ipc` | `health` | `THIN` | Has daemon-down fallback (§3.7) |
+| `task` | `save`, `list`, `run`, `delete`, `queue show`, `queue add`, `queue update`, `queue remove`, `queue run` | `ipc` | `task_save`, `task_list`, `task_run`, `task_delete`, `task_queue_show`, `task_queue_add`, `task_queue_update`, `task_queue_remove`, `task_queue_run` | `THIN` | |
+| `trust` | `list` | `ipc` | `trust_rules_list` | `THIN` | |
+| `watchers` | `list`, `create`, `update`, `delete`, `digest` | `ipc` | `watcher_list`, `watcher_create`, `watcher_update`, `watcher_delete`, `watcher_digest` | `THIN` | |
+| `autonomy` | `get`, `set` | `local` | _(none — file I/O only)_ | `LOCAL` | JARVIS-745: no daemon consumer |
+| `cache-fs` | _(utility)_ | `local` | _(none)_ | `LOCAL` | **Moved to lib/cache-fs.ts** — test-isolation re-export |
+| `completions` | _(positional shell arg)_ | `local` | _(none)_ | `LOCAL` | Shell completion generation |
+| `config` | `get`, `set`, `list`, `schema`, `validate-allowlist` | `local` | _(none)_ | `LOCAL` | Config file r/w |
+| `credential-execution` | `grants list`, `grants revoke`, `audit list` | `local` | _(none)_ | `LOCAL` | Secure key storage; communicates via CES RPC |
+| `default-action` | _(none — root program.action)_ | `local` | _(none)_ | `LOCAL` | Root default action; uses program.action(), not program.command() |
+| `keys` | `list`, `set`, `delete` | `local` | _(none)_ | `LOCAL` | Secure key storage via daemon credential client |
+| `audit` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `auth` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `avatar` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `backup` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `channel-verification-sessions` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `contacts` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `conversations` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `conversations-import` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `credentials` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `domain` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `email` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `image-generation` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `inference` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `inference-session` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `memory` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `routes` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `sequence` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `skills` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `stt` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `tts` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `ui` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `usage` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `webhooks` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `oauth/index` | _(namespace registrar)_ | `ipc` | _(pending migration)_ | `LEGACY` | Registers all oauth/* subcommands |
+| `oauth/apps` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `oauth/connect` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `oauth/disconnect` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `oauth/mode` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `oauth/ping` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `oauth/providers` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `oauth/request` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `oauth/shared` | _(shared utilities, no direct subcommands)_ | `ipc` | _(none — utility module)_ | `LEGACY` | Utility helpers for oauth commands |
+| `oauth/status` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `oauth/token` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `platform/index` | _(namespace registrar)_ | `ipc` | _(pending migration)_ | `LEGACY` | Registers platform/* subcommands |
+| `platform/connect` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
+| `platform/disconnect` | _(pending migration)_ | `ipc` | _(pending migration)_ | `LEGACY` | |
