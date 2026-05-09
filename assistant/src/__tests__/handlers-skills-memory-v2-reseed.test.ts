@@ -245,12 +245,4 @@ describe("v2 skill re-seed gating in skill handlers", () => {
     expect(mockMaybeSeedMemoryV2Skills).toHaveBeenCalledTimes(1);
     expect(callOrder).toEqual(["v1"]);
   });
-
-  // Note: "seed rejection swallowed" is now an internal concern of
-  // `maybeSeedMemoryV2Skills` — it dispatches the seed call as a
-  // fire-and-forget promise with `.catch(log.warn)`. That behavior is
-  // covered by `lifecycle-memory-v2-seed.test.ts`. From the handler's
-  // perspective, we only need to verify the helper is invoked
-  // synchronously with the correct config — which the cases above already
-  // exercise.
 });
