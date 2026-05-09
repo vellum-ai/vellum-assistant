@@ -194,6 +194,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "bookmarks",
+      "scope": "client",
+      "key": "bookmarks",
+      "label": "Message Bookmarks",
+      "description": "Show the bookmark icon on messages and enable the Bookmarks tab in Settings",
+      "defaultEnabled": false
+    },
+    {
       "id": "fork-from-message",
       "scope": "client",
       "key": "fork-from-message",
