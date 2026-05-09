@@ -214,6 +214,25 @@ describe("recall agent validation helpers", () => {
         citationIds: [],
       },
     });
+
+    expect(
+      validateFinishRecallPayload(
+        {
+          answer: "Confident answer with no supporting evidence.",
+          confidence: "high",
+          citation_ids: [],
+        },
+        [makeEvidence("ev-1")],
+      ),
+    ).toMatchObject({
+      ok: false,
+      reason: "missing_citations",
+      finish: {
+        answer: "No reliable answer could be produced by the recall agent.",
+        confidence: "low",
+        citationIds: [],
+      },
+    });
   });
 
   test("defaults to all source descriptions when available sources are omitted", () => {

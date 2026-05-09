@@ -34,6 +34,7 @@ type RecallFinishFallbackReason =
   | "malformed_finish_payload"
   | "invalid_confidence"
   | "invalid_citation_ids"
+  | "missing_citations"
   | "unknown_citation_ids"
   | "empty_answer";
 
@@ -291,6 +292,10 @@ export function validateFinishRecallPayload(
 
   if (!isStringArray(payload.citation_ids)) {
     return fallbackFinish("invalid_citation_ids");
+  }
+
+  if (payload.citation_ids.length === 0) {
+    return fallbackFinish("missing_citations");
   }
 
   const citationValidation = validateRecallCitationIds(
