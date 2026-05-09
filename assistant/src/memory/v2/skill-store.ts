@@ -137,32 +137,36 @@ export async function seedV2SkillEntries(): Promise<void> {
       );
     }
 
-    // Embed all content strings in one batched call. Sparse vectors are
-    // computed in-process (no network).
-    const embedded = await embedWithBackend(
-      config,
-      seeds.map((s) => s.content),
-    );
-    const denseVectors = await Promise.all(
-      embedded.vectors.map((v) =>
-        applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),
-      ),
-    );
-
-    const now = Date.now();
+    // Embed all content strings in one batched call when there is anything to
+    // embed. Skipping the call when `seeds` is empty avoids throwing on an
+    // unavailable embedding backend in the all-disabled case, so pruning and
+    // cache replacement still run and clear stale state.
     const nextEntries = new Map<string, SkillEntry>();
-    await Promise.all(
-      seeds.map((seed, i) =>
-        upsertConceptPageEmbedding({
-          slug: skillSlugFor(seed.id),
-          dense: denseVectors[i],
-          sparse: generateSparseEmbedding(seed.content),
-          updatedAt: now,
-        }),
-      ),
-    );
-    for (const seed of seeds) {
-      nextEntries.set(seed.id, seed);
+    if (seeds.length > 0) {
+      const embedded = await embedWithBackend(
+        config,
+        seeds.map((s) => s.content),
+      );
+      const denseVectors = await Promise.all(
+        embedded.vectors.map((v) =>
+          applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),
+        ),
+      );
+
+      const now = Date.now();
+      await Promise.all(
+        seeds.map((seed, i) =>
+          upsertConceptPageEmbedding({
+            slug: skillSlugFor(seed.id),
+            dense: denseVectors[i],
+            sparse: generateSparseEmbedding(seed.content),
+            updatedAt: now,
+          }),
+        ),
+      );
+      for (const seed of seeds) {
+        nextEntries.set(seed.id, seed);
+      }
     }
 
     // Prune stale skill slugs. When the catalog is unavailable (empty array
