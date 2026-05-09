@@ -40,6 +40,7 @@ import {
   renderPageContent,
 } from "../../memory/v2/page-store.js";
 import {
+  conceptPageCollectionExists,
   hybridQueryConceptPages,
   sampleConceptPageDenseVectors,
 } from "../../memory/v2/qdrant.js";
@@ -498,6 +499,18 @@ async function handleExplainSimilarity({
   const config = loadConfig();
   const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
     config.memory.v2;
+
+  // Read-only diagnostic: refuse to bootstrap the v2 collection just by
+  // inspecting it. `hybridQueryConceptPages` would otherwise call
+  // `ensureConceptPageCollection()` and silently create state on a fresh
+  // workspace.
+  if (!(await conceptPageCollectionExists())) {
+    throw new RouteError(
+      "Memory v2 concept-page collection does not exist. Run 'assistant memory v2 migrate' (or 'reembed' on an existing workspace) to populate it before running explain.",
+      "MEMORY_V2_COLLECTION_MISSING",
+      409,
+    );
+  }
 
   const channels: MemoryV2ExplainSimilarityChannel[] = [];
   channels.push(

@@ -188,7 +188,8 @@ Examples:
   $ assistant memory v2 reembed
   $ assistant memory v2 reembed-skills
   $ assistant memory v2 activation
-  $ assistant memory v2 fit-anisotropy`,
+  $ assistant memory v2 fit-anisotropy
+  $ assistant memory v2 explain --text "..."`,
   );
 
   // ── migrate ───────────────────────────────────────────────────────────
