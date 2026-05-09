@@ -48,7 +48,7 @@ mock.module("../../../util/logger.js", () => ({
   }),
 }));
 
-mock.module("../../config/loader.js", () => ({
+mock.module("../../../config/loader.js", () => ({
   loadConfig: () => ({ llm: { profileSession: { defaultTtlSeconds: 1800 } } }),
   getConfigReadOnly: () => ({ llm: { profileSession: { defaultTtlSeconds: 1800 } } }),
 }));
