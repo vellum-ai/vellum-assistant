@@ -159,6 +159,7 @@ export class AssistantIpcServer {
    * their accept loops drain.
    */
   private legacyServers = new Set<Server>();
+  private abortControllers = new Map<string, AbortController>();
 
   constructor(options?: AssistantIpcServerOptions) {
     const resolution = resolveIpcSocketPath("assistant");
@@ -182,6 +183,12 @@ export class AssistantIpcServer {
     this.methods.set("db_proxy_transaction", (params) =>
       handleDbProxyTransaction(params as unknown as DbProxyTransactionParams),
     );
+
+    this.methods.set("$cancel", (params) => {
+      const targetId = (params as { targetId?: string }).targetId;
+      if (targetId) this.abortControllers.get(targetId)?.abort();
+      return null;
+    });
 
     this.watchdog = new SocketWatchdog({
       socketPath: this.socketPath,
@@ -220,6 +227,9 @@ export class AssistantIpcServer {
   /** Stop the server and disconnect all clients. */
   stop(): void {
     this.watchdog.stop();
+
+    for (const ctrl of this.abortControllers.values()) ctrl.abort();
+    this.abortControllers.clear();
 
     for (const client of this.clients) {
       if (!client.destroyed) client.destroy();
@@ -324,16 +334,33 @@ export class AssistantIpcServer {
 
     void binary;
 
+    // Skip AbortController for the $cancel meta-method itself
+    const needsAbortTracking = req.method !== "$cancel";
+    let abortController: AbortController | undefined;
+    if (needsAbortTracking) {
+      abortController = new AbortController();
+      this.abortControllers.set(req.id, abortController);
+    }
+
     try {
-      const handlerArgs = injectLocalActorHeader(req.params);
+      const handlerArgs = {
+        ...injectLocalActorHeader(req.params),
+        ...(abortController && { abortSignal: abortController.signal }),
+      };
       const result = handler(handlerArgs);
 
       if (result instanceof Promise) {
         result
           .then((value) => {
+            // For streaming responses, keep the AbortController alive until the
+            // stream ends — sendStreamingResponse deletes it on completion/error.
+            if (!isIpcStreamingResponse(value)) {
+              this.abortControllers.delete(req.id);
+            }
             this.sendResult(socket, reader, req.id, value);
           })
           .catch((err) => {
+            this.abortControllers.delete(req.id);
             log.warn({ err, method: req.method }, "IPC handler error");
             this.sendResponse(
               socket,
@@ -342,9 +369,13 @@ export class AssistantIpcServer {
             );
           });
       } else {
+        if (!isIpcStreamingResponse(result)) {
+          this.abortControllers.delete(req.id);
+        }
         this.sendResult(socket, reader, req.id, result);
       }
     } catch (err) {
+      this.abortControllers.delete(req.id);
       log.warn({ err, method: req.method }, "IPC handler error");
       this.sendResponse(socket, reader, this.buildErrorResponse(req.id, err));
     }
@@ -434,10 +465,12 @@ export class AssistantIpcServer {
         .read()
         .then(({ done, value }) => {
           if (socket.destroyed) {
+            this.abortControllers.delete(requestId);
             streamReader.cancel().catch(() => {});
             return;
           }
           if (done) {
+            this.abortControllers.delete(requestId);
             writeStreamEnd(socket);
             return;
           }
@@ -445,6 +478,7 @@ export class AssistantIpcServer {
           pump();
         })
         .catch((err) => {
+          this.abortControllers.delete(requestId);
           log.warn({ err }, "IPC stream read error");
           if (!socket.destroyed) {
             writeStreamEnd(socket);

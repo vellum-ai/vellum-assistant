@@ -171,3 +171,280 @@ export async function cliIpcCall<T = unknown>(
     socket.connect(socketPath);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Binary one-shot client
+// ---------------------------------------------------------------------------
+
+const DEFAULT_BINARY_TIMEOUT_MS = 60_000;
+
+/**
+ * One-shot IPC call that expects a single binary frame response.
+ *
+ * Use when the route returns an IpcBinaryResponse (content-length header
+ * + one binary data frame). Returns the headers and raw bytes.
+ *
+ * @example
+ * const r = await cliIpcCallBinary("export_file", { id: "abc" });
+ * if (!r.ok) return exitFromIpcResult(r, cmd);
+ * fs.writeFileSync("out.bin", Buffer.from(r.bytes));
+ */
+export async function cliIpcCallBinary(
+  method: string,
+  params?: Record<string, unknown>,
+  opts?: { timeoutMs?: number; signal?: AbortSignal },
+): Promise<
+  | { ok: true; headers: Record<string, string>; bytes: Uint8Array }
+  | { ok: false; error: string; statusCode?: number; errorCode?: string; errorDetails?: unknown }
+> {
+  const socketPath = getAssistantSocketPath();
+  const callTimeoutMs = opts?.timeoutMs ?? DEFAULT_BINARY_TIMEOUT_MS;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let callTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (
+      result:
+        | { ok: true; headers: Record<string, string>; bytes: Uint8Array }
+        | { ok: false; error: string; statusCode?: number; errorCode?: string; errorDetails?: unknown },
+    ) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(connectTimer);
+      if (callTimer) clearTimeout(callTimer);
+      socket.destroy();
+      resolve(result);
+    };
+
+    const connectTimer = setTimeout(() => {
+      log.debug({ method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS }, "CLI IPC binary connect timed out");
+      finish({ ok: false, error: `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.` });
+    }, CONNECT_TIMEOUT_MS);
+
+    const socket = new Socket();
+    socket.unref();
+
+    socket.on("error", (err) => {
+      const code = (err as NodeJS.ErrnoException).code;
+      log.debug({ err, code, method, socketPath }, "CLI IPC binary socket error");
+      finish({
+        ok: false,
+        error:
+          code === "ENOENT" || code === "ECONNREFUSED"
+            ? `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`
+            : `Connection error: ${code ?? err.message}`,
+      });
+    });
+
+    socket.on("close", (hadError) => {
+      if (!settled) {
+        finish({
+          ok: false,
+          error: hadError
+            ? `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`
+            : "Connection closed before response",
+        });
+      }
+    });
+
+    const reqId = crypto.randomUUID();
+
+    opts?.signal?.addEventListener("abort", () => {
+      finish({ ok: false, error: "Request aborted" });
+    }, { once: true });
+
+    const reader = new IpcFrameReader(
+      (envelope, binary) => {
+        if (envelope.id !== reqId) return;
+        const msg = envelope as IpcResponse;
+        if (msg.error) {
+          finish({ ok: false, error: msg.error,
+            ...(msg.statusCode != null && { statusCode: msg.statusCode }),
+            ...(msg.errorCode != null && { errorCode: msg.errorCode }),
+            ...(msg.errorDetails != null && { errorDetails: msg.errorDetails }) });
+        } else if (binary === undefined) {
+          finish({ ok: false, error: "Expected binary frame but received JSON-only response" });
+        } else {
+          finish({ ok: true, headers: (envelope.headers ?? {}) as Record<string, string>, bytes: binary });
+        }
+      },
+      (err) => finish({ ok: false, error: err.message }),
+    );
+
+    socket.on("connect", () => {
+      clearTimeout(connectTimer);
+      writeMessage(socket, { id: reqId, method, params });
+
+      callTimer = setTimeout(() => {
+        log.debug({ method, socketPath, timeoutMs: callTimeoutMs }, "CLI IPC binary call timed out");
+        finish({ ok: false, error: "Request timed out" });
+      }, callTimeoutMs);
+
+      socket.on("data", (chunk) => {
+        reader.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+    });
+
+    socket.connect(socketPath);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Streaming client
+// ---------------------------------------------------------------------------
+
+const DEFAULT_FIRST_BYTE_TIMEOUT_MS = 30_000;
+
+/**
+ * Streaming IPC call. Returns a ReadableStream of binary chunks.
+ *
+ * The promise resolves once the opening envelope arrives (or fails). The
+ * stream body is delivered asynchronously afterward. Call abort() to
+ * cancel mid-stream — this sends a $cancel envelope to the server.
+ *
+ * No total timeout. Only a first-byte timeout (default 30s).
+ *
+ * @example
+ * const r = await cliIpcCallStream("export_stream", { id: "abc" });
+ * if (!r.ok) return exitFromIpcResult(r, cmd);
+ * for await (const chunk of r.body) process.stdout.write(chunk);
+ */
+export async function cliIpcCallStream(
+  method: string,
+  params?: Record<string, unknown>,
+  opts?: { firstByteTimeoutMs?: number; signal?: AbortSignal },
+): Promise<
+  | { ok: true; headers: Record<string, string>; body: ReadableStream<Uint8Array>; abort: () => void }
+  | { ok: false; error: string; statusCode?: number; errorCode?: string; errorDetails?: unknown }
+> {
+  const socketPath = getAssistantSocketPath();
+  const firstByteTimeoutMs = opts?.firstByteTimeoutMs ?? DEFAULT_FIRST_BYTE_TIMEOUT_MS;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let firstByteTimer: ReturnType<typeof setTimeout> | undefined;
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+
+    const finishError = (
+      result: { ok: false; error: string; statusCode?: number; errorCode?: string; errorDetails?: unknown },
+    ) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(connectTimer);
+      clearTimeout(firstByteTimer);
+      socket.destroy();
+      resolve(result);
+    };
+
+    const abort = () => {
+      if (settled && streamController) {
+        streamController.error(new DOMException("Aborted", "AbortError"));
+        streamController = undefined;
+      }
+      if (!socket.destroyed) {
+        writeMessage(socket, {
+          id: crypto.randomUUID(),
+          method: "$cancel",
+          params: { targetId: reqId },
+        });
+        // Use end() not destroy() so the $cancel frame flushes before the FIN.
+        socket.end();
+      }
+    };
+
+    const connectTimer = setTimeout(() => {
+      log.debug({ method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS }, "CLI IPC stream connect timed out");
+      finishError({ ok: false, error: `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.` });
+    }, CONNECT_TIMEOUT_MS);
+
+    const socket = new Socket();
+    socket.unref();
+
+    socket.on("error", (err) => {
+      const code = (err as NodeJS.ErrnoException).code;
+      log.debug({ err, code, method, socketPath }, "CLI IPC stream socket error");
+      if (!settled) {
+        finishError({
+          ok: false,
+          error:
+            code === "ENOENT" || code === "ECONNREFUSED"
+              ? `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`
+              : `Connection error: ${code ?? err.message}`,
+        });
+      } else {
+        streamController?.error(err);
+        streamController = undefined;
+      }
+    });
+
+    socket.on("close", (hadError) => {
+      if (!settled) {
+        finishError({
+          ok: false,
+          error: hadError
+            ? `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`
+            : "Connection closed before response",
+        });
+      } else if (streamController) {
+        streamController.error(new Error("Connection closed before stream ended"));
+        streamController = undefined;
+      }
+    });
+
+    const reqId = crypto.randomUUID();
+
+    opts?.signal?.addEventListener("abort", () => { abort(); }, { once: true });
+
+    const reader = new IpcFrameReader(
+      (envelope) => {
+        // Non-streaming envelope with error (e.g. method not found, auth failure)
+        if (envelope.id !== reqId) return;
+        const msg = envelope as IpcResponse;
+        finishError({ ok: false, error: msg.error ?? "Unexpected non-streaming response",
+          ...(msg.statusCode != null && { statusCode: msg.statusCode }),
+          ...(msg.errorCode != null && { errorCode: msg.errorCode }),
+          ...(msg.errorDetails != null && { errorDetails: msg.errorDetails }) });
+      },
+      (err) => finishError({ ok: false, error: err.message }),
+      {
+        onStreamStart: (envelope) => {
+          if (envelope.id !== reqId) return;
+          clearTimeout(firstByteTimer);
+          const body = new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              streamController = ctrl;
+            },
+          });
+          settled = true;
+          clearTimeout(connectTimer);
+          resolve({ ok: true, headers: (envelope.headers ?? {}) as Record<string, string>, body, abort });
+        },
+        onStreamChunk: (chunk) => {
+          streamController?.enqueue(chunk);
+        },
+        onStreamEnd: () => {
+          streamController?.close();
+          streamController = undefined;
+          socket.destroy();
+        },
+      },
+    );
+
+    socket.on("connect", () => {
+      clearTimeout(connectTimer);
+      writeMessage(socket, { id: reqId, method, params });
+
+      firstByteTimer = setTimeout(() => {
+        log.debug({ method, socketPath, timeoutMs: firstByteTimeoutMs }, "CLI IPC stream first-byte timeout");
+        finishError({ ok: false, error: "Stream timed out waiting for first byte" });
+      }, firstByteTimeoutMs);
+
+      socket.on("data", (chunk) => {
+        reader.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+    });
+
+    socket.connect(socketPath);
+  });
+}
