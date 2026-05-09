@@ -5,11 +5,11 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../../memory/db-connection.js";
 import * as schema from "../../../memory/schema.js";
+import { migrateInferenceProviders } from "../001-providers.js";
 import {
   downInferenceModelProfiles,
   migrateInferenceModelProfiles,
 } from "../002-model-profiles.js";
-import { migrateInferenceProviders } from "../001-providers.js";
 
 interface ColumnRow {
   name: string;

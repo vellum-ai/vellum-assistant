@@ -9,16 +9,16 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { getLogger } from "../util/logger.js";
-import { ensureDataDir, getDbPath } from "../util/platform.js";
-import { backfillAppConversationIds } from "./app-store.js";
-import { getDb, getSqlite } from "./db-connection.js";
-import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
   migrateInferenceModelProfiles,
   migrateInferenceProviders,
   migrateInferenceRateCards,
 } from "../inference/migrations/index.js";
+import { getLogger } from "../util/logger.js";
+import { ensureDataDir, getDbPath } from "../util/platform.js";
+import { backfillAppConversationIds } from "./app-store.js";
+import { getDb, getSqlite } from "./db-connection.js";
+import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
   addCoreColumns,
   createApprovalPromptTsTrackerTable,

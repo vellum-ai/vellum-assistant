@@ -1,9 +1,9 @@
-import type { DrizzleDb } from "../db-connection.js";
 import {
   downInferenceModelProfiles,
   downInferenceProviders,
   downInferenceRateCards,
 } from "../../inference/migrations/index.js";
+import type { DrizzleDb } from "../db-connection.js";
 import { downJobDeferrals } from "./001-job-deferrals.js";
 import { downMemoryEntityRelationDedup } from "./004-entity-relation-dedup.js";
 import { downMemoryItemsFingerprintScopeUnique } from "./005-fingerprint-scope-unique.js";

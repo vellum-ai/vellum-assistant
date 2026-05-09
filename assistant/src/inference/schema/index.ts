@@ -1,3 +1,4 @@
+export { modelProfiles } from "./model-profiles.js";
 export {
   ProviderAuth,
   ProviderAuthApiKey,
@@ -5,5 +6,4 @@ export {
   ProviderAuthPlatform,
   providers,
 } from "./providers.js";
-export { modelProfiles } from "./model-profiles.js";
 export { rateCards } from "./rate-cards.js";
