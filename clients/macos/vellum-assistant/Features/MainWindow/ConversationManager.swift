@@ -6,6 +6,15 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationManager")
 
+/// Paired snapshot of the `ChatViewModel` signals that
+/// `prepareActiveConversationForVoiceMode` waits on. Wrapping them in a single
+/// `Equatable & Sendable` value lets one `observationStream` yield on either
+/// transition without spinning up a second observation task.
+private struct VoiceBootstrapSnapshot: Equatable, Sendable {
+    let hasConversationId: Bool
+    let isBootstrapping: Bool
+}
+
 // MARK: - Conversation Client Protocol
 
 /// Abstraction for direct conversation mutations, decoupled from GatewayConnectionManager.
@@ -574,7 +583,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     }
 
     @discardableResult
-    func prepareActiveConversationForVoiceMode(timeoutSeconds: TimeInterval = 3.0) async -> ChatViewModel? {
+    func prepareActiveConversationForVoiceMode(timeoutSeconds: TimeInterval = 10.0) async -> ChatViewModel? {
         if activeViewModel == nil {
             enterDraftMode()
         }
@@ -591,15 +600,30 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         viewModel.createConversationIfNeeded()
 
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while Date() < deadline {
-            if viewModel.conversationId != nil {
-                return viewModel
+        // Wait for bootstrap to settle: either `conversationId` becomes
+        // non-nil (success) or `isBootstrapping` flips to false (failure).
+        // The timeout is a safety net for a stuck state machine; it must
+        // exceed the gateway health-check window so cold-start bootstraps
+        // are not falsely reported as failed.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor [weak viewModel] in
+                guard let viewModel else { return }
+                for await snapshot in observationStream({
+                    VoiceBootstrapSnapshot(
+                        hasConversationId: viewModel.conversationId != nil,
+                        isBootstrapping: viewModel.isBootstrapping
+                    )
+                }) {
+                    if snapshot.hasConversationId || !snapshot.isBootstrapping {
+                        return
+                    }
+                }
             }
-            if !viewModel.isBootstrapping {
-                break
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
             }
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            await group.next()
+            group.cancelAll()
         }
 
         return viewModel.conversationId == nil ? nil : viewModel
