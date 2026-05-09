@@ -430,6 +430,12 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Queued message deletion
   { endpoint: "messages/queued", scopes: ["chat.write"] },
 
+  // Bookmarks (DELETE /bookmarks/:id strips the :id segment to "bookmarks")
+  { endpoint: "bookmarks:GET", scopes: ["chat.read"] },
+  { endpoint: "bookmarks:POST", scopes: ["chat.write"] },
+  { endpoint: "bookmarks:DELETE", scopes: ["chat.write"] },
+  { endpoint: "bookmarks/by-message:DELETE", scopes: ["chat.write"] },
+
   // Interfaces
   { endpoint: "interfaces", scopes: ["settings.read"] },
 
