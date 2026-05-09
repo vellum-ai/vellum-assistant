@@ -306,7 +306,12 @@ struct ACPSessionDetailView: View {
                 .onPreferenceChange(ACPSessionDetailScrollOffsetKey.self) { contentMinY in
                     handleScrollOffsetChange(contentMinY)
                 }
-                .onChange(of: session.events.count) {
+                .onChange(of: session.events.last?.id) {
+                    // `events.count` plateaus at `ACPSessionStore.eventsCapPerSession`
+                    // (the ring buffer trims oldest entries on append), so a count-keyed
+                    // `.onChange` would silently stop firing for long sessions. Observe
+                    // the last event's id instead — each `ACPSessionUpdateMessage`
+                    // carries a unique UUID, so this fires on every append.
                     if autoScrollEnabled {
                         // .easeOut keeps the jump readable when many events
                         // arrive at once.
@@ -314,6 +319,17 @@ struct ACPSessionDetailView: View {
                             proxy.scrollTo(Self.bottomAnchorId, anchor: .bottom)
                         }
                     }
+                }
+                .onChange(of: session.events.first?.id) {
+                    // Oldest event changed — content was trimmed from the head of
+                    // the ring buffer, which shrinks total content height and shifts
+                    // the offset baseline. Without resetting the watermark here,
+                    // `returnedToBottom` would never be satisfied again (the stored
+                    // max stays beyond the new actual bottom) and auto-scroll would
+                    // permanently lock out. The next offset reading re-establishes
+                    // both values for the now-shorter content.
+                    lastMaxScrollOffset = 0
+                    lastScrollOffset = 0
                 }
                 .onAppear {
                     // First-paint: park at the bottom so the user lands on
@@ -349,12 +365,17 @@ struct ACPSessionDetailView: View {
         let currentOffset = -contentMinY
         defer { lastScrollOffset = currentOffset }
 
+        let movedUp = currentOffset < lastScrollOffset - Self.scrollAtBottomTolerance
+        // Evaluate against the *prior* high-water mark, before bumping it.
+        // If we updated the mark first, any offset that exceeds it (e.g. the
+        // user scrolling partway down into newly-arrived content) would
+        // immediately satisfy `abs(0) < tolerance` and re-engage auto-scroll
+        // — yanking the user away from where they were reading.
+        let returnedToBottom = abs(currentOffset - lastMaxScrollOffset) < Self.scrollAtBottomTolerance
+
         if currentOffset > lastMaxScrollOffset {
             lastMaxScrollOffset = currentOffset
         }
-
-        let movedUp = currentOffset < lastScrollOffset - Self.scrollAtBottomTolerance
-        let returnedToBottom = abs(currentOffset - lastMaxScrollOffset) < Self.scrollAtBottomTolerance
 
         if movedUp {
             autoScrollEnabled = false
