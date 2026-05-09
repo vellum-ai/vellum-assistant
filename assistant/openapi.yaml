@@ -1630,6 +1630,168 @@ paths:
               required:
                 - path
               additionalProperties: false
+  /v1/bookmarks:
+    get:
+      operationId: bookmarks_get
+      summary: List bookmarks
+      description: Return all bookmarks (newest first), joined with their parent message and conversation.
+      tags:
+        - bookmarks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookmarks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        messageId:
+                          type: string
+                        conversationId:
+                          type: string
+                        conversationTitle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        messagePreview:
+                          type: string
+                        messageRole:
+                          type: string
+                        messageCreatedAt:
+                          type: number
+                        createdAt:
+                          type: number
+                      required:
+                        - id
+                        - messageId
+                        - conversationId
+                        - conversationTitle
+                        - messagePreview
+                        - messageRole
+                        - messageCreatedAt
+                        - createdAt
+                      additionalProperties: false
+                required:
+                  - bookmarks
+                additionalProperties: false
+    post:
+      operationId: bookmarks_post
+      summary: Create a bookmark
+      description: Bookmark the given message. Idempotent on `messageId` — calling twice returns the same bookmark.
+      tags:
+        - bookmarks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  messageId:
+                    type: string
+                  conversationId:
+                    type: string
+                  conversationTitle:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  messagePreview:
+                    type: string
+                  messageRole:
+                    type: string
+                  messageCreatedAt:
+                    type: number
+                  createdAt:
+                    type: number
+                required:
+                  - id
+                  - messageId
+                  - conversationId
+                  - conversationTitle
+                  - messagePreview
+                  - messageRole
+                  - messageCreatedAt
+                  - createdAt
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                messageId:
+                  type: string
+                conversationId:
+                  type: string
+              required:
+                - messageId
+                - conversationId
+              additionalProperties: false
+  /v1/bookmarks/{id}:
+    delete:
+      operationId: bookmarks_by_id_delete
+      summary: Delete a bookmark
+      description: Delete a bookmark by id. Succeeds even if no row matched.
+      tags:
+        - bookmarks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/bookmarks/by-message/{messageId}:
+    delete:
+      operationId: bookmarks_bymessage_by_messageId_delete
+      summary: Delete a bookmark by message id
+      description: Delete the bookmark (if any) attached to the given message. Succeeds even if no row matched.
+      tags:
+        - bookmarks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/brain-graph:
     get:
       operationId: braingraph_get
