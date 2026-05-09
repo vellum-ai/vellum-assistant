@@ -307,7 +307,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         )}`,
       });
       this.state = "transcriber_closed";
-      this.transcriber = null;
     }
     await this.startAssistantTurnIfReady();
     await this.drainOutboundFrames();
