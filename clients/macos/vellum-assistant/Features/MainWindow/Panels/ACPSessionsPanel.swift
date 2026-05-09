@@ -83,6 +83,9 @@ struct ACPSessionsPanel: View {
         .onChange(of: store.selectedSessionId) {
             consumeSelectedSessionIdIfPresent()
         }
+        .onChange(of: store.sessionOrder.count) {
+            consumeSelectedSessionIdIfPresent()
+        }
         .alert("Clear completed history?", isPresented: $showClearCompletedConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
@@ -104,8 +107,9 @@ struct ACPSessionsPanel: View {
     /// top of the stack, we still clear the store field but skip the push
     /// to avoid stacking duplicate detail views. Resilient to a deep-link
     /// arriving before its matching SSE `acp_session_spawned` event — the
-    /// field stays set so a subsequent consume (driven by the next
-    /// `onChange` tick or panel mount) can flush once the row appears.
+    /// field stays set, and a separate `onChange(of: store.sessionOrder.count)`
+    /// observer re-runs this helper when the store's session set mutates so
+    /// the pending id is flushed once the row appears.
     func consumeSelectedSessionIdIfPresent() {
         Self.consumeSelectedSessionIdIfPresent(store: store, path: &navigationPath)
     }
