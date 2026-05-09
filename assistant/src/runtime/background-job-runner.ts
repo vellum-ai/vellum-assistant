@@ -147,36 +147,41 @@ function classifyError(err: unknown): BackgroundJobErrorKind {
 export async function runBackgroundJob(
   opts: RunBackgroundJobOptions,
 ): Promise<RunBackgroundJobResult> {
-  const conversation = bootstrapConversation({
-    conversationType: opts.conversationType ?? "background",
-    source: opts.source,
-    origin: opts.origin,
-    systemHint: opts.systemHint ?? opts.prompt,
-    groupId: opts.groupId ?? DEFAULT_GROUP_ID,
-    ...(opts.scheduleJobId ? { scheduleJobId: opts.scheduleJobId } : {}),
-  });
-
-  // Fire the sidebar-creation callback synchronously after bootstrap so
-  // connected clients (macOS sidebar, etc.) see the conversation appear
-  // immediately rather than after `processMessage` returns. Wrapped so a
-  // callback throw cannot abort the job.
-  if (opts.onConversationCreated) {
-    try {
-      opts.onConversationCreated(conversation.id);
-    } catch (cbErr) {
-      log.warn(
-        {
-          err: cbErr instanceof Error ? cbErr.message : String(cbErr),
-          jobName: opts.jobName,
-          conversationId: conversation.id,
-        },
-        "onConversationCreated callback threw; continuing job",
-      );
-    }
-  }
-
+  let conversation: ReturnType<typeof bootstrapConversation> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    // Bootstrap inside the try so that a `createConversation` /
+    // `queueGenerateConversationTitle` failure is caught and surfaced as a
+    // structured `{ ok: false }` result rather than re-thrown to the caller —
+    // the documented contract of this runner.
+    conversation = bootstrapConversation({
+      conversationType: opts.conversationType ?? "background",
+      source: opts.source,
+      origin: opts.origin,
+      systemHint: opts.systemHint ?? opts.prompt,
+      groupId: opts.groupId ?? DEFAULT_GROUP_ID,
+      ...(opts.scheduleJobId ? { scheduleJobId: opts.scheduleJobId } : {}),
+    });
+
+    // Fire the sidebar-creation callback synchronously after bootstrap so
+    // connected clients (macOS sidebar, etc.) see the conversation appear
+    // immediately rather than after `processMessage` returns. Wrapped so a
+    // callback throw cannot abort the job.
+    if (opts.onConversationCreated) {
+      try {
+        opts.onConversationCreated(conversation.id);
+      } catch (cbErr) {
+        log.warn(
+          {
+            err: cbErr instanceof Error ? cbErr.message : String(cbErr),
+            jobName: opts.jobName,
+            conversationId: conversation.id,
+          },
+          "onConversationCreated callback threw; continuing job",
+        );
+      }
+    }
+
     // SECURITY: Optional anti-injection sandwich. Attacker-controllable data
     // is wrapped in an assistant-role message between two static user-role
     // messages. The LLM treats assistant-role content as its own prior
@@ -230,13 +235,16 @@ export async function runBackgroundJob(
   } catch (err) {
     const errorKind = classifyError(err);
     const error = err instanceof Error ? err : new Error(String(err));
+    // Bootstrap can fail before `conversation` is assigned; fall back to ""
+    // so the structured failure result still flows to the caller.
+    const conversationId = conversation?.id ?? "";
 
     log.error(
       {
         err: error.message,
         errorKind,
         jobName: opts.jobName,
-        conversationId: conversation.id,
+        conversationId,
       },
       "Background job failed",
     );
@@ -256,7 +264,7 @@ export async function runBackgroundJob(
       const dedupeKey = `activity-failed:${opts.jobName}:${day}`;
       emitNotificationSignal({
         sourceChannel: "assistant_tool",
-        sourceContextId: conversation.id,
+        sourceContextId: conversationId,
         sourceEventName: "activity.failed",
         dedupeKey,
         contextPayload: {
@@ -270,7 +278,7 @@ export async function runBackgroundJob(
           {
             err: emitErr instanceof Error ? emitErr.message : String(emitErr),
             jobName: opts.jobName,
-            conversationId: conversation.id,
+            conversationId,
           },
           "Failed to emit activity.failed notification for background job",
         );
@@ -278,7 +286,7 @@ export async function runBackgroundJob(
     }
 
     return {
-      conversationId: conversation.id,
+      conversationId,
       ok: false,
       error,
       errorKind,
