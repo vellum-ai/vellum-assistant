@@ -63,16 +63,19 @@ public enum ACPSpawnStatusIndicator: Equatable {
     }
 
     /// Map a live ``ACPSessionState/Status`` into a render decision.
-    /// Falls back to a static "completed" check when the store has no
-    /// entry for the session id (`status` is nil) — for an `acp_spawn`
-    /// row to render at all the tool call already succeeded, so a
-    /// missing-from-store entry is almost always "history was cleared
-    /// after a successful run" rather than "something unobservable went
-    /// wrong". Treating it as completed keeps the inline block honest
-    /// instead of perpetually pulsing on a stale id.
+    /// Falls back to a muted dashed glyph when the store has no entry for
+    /// the session id (`status` is nil). Two distinct cases land here and
+    /// neither warrants a positive terminal check: (1) the store hasn't
+    /// yet observed the `acp_session_spawned` event for a freshly spawned
+    /// session — claiming "completed" in that race window would be wrong
+    /// and would visibly flip backward to pulsing once the entry arrives;
+    /// (2) history was cleared after a successful run — the spawn tool
+    /// itself did succeed, but we can no longer prove the session's
+    /// terminal disposition. A muted indeterminate glyph honestly conveys
+    /// "we don't know" without pulsing indefinitely on a stale id.
     public static func resolve(forStatus status: ACPSessionState.Status?) -> ACPSpawnStatusIndicator {
         guard let status else {
-            return .icon(glyph: .check, role: .positive)
+            return .icon(glyph: .dash, role: .muted)
         }
         switch status {
         case .running, .initializing:

@@ -457,14 +457,18 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
         )
     }
 
-    /// Nil (no entry in the store — history was cleared, daemon
-    /// restarted) falls back to the static "completed" indicator. Same
-    /// reasoning as `.unknown`: the row only renders when the tool call
-    /// itself succeeded.
-    func test_acpSpawnStatusIndicator_missingStoreEntryFallsBackToCompleted() {
+    /// Nil (no entry in the store) falls back to a muted dashed glyph.
+    /// Two cases land here — the spawn-event race window before the store
+    /// observes `acp_session_spawned`, and history-cleared-after-success.
+    /// Neither justifies a positive terminal check: the race case would
+    /// flip backward to pulsing once the entry arrives, and the cleared
+    /// case can no longer prove the session's terminal disposition. A
+    /// muted indeterminate glyph honestly conveys "we don't know" without
+    /// pulsing indefinitely.
+    func test_acpSpawnStatusIndicator_missingStoreEntryFallsBackToMuted() {
         XCTAssertEqual(
             ACPSpawnStatusIndicator.resolve(forStatus: nil),
-            .icon(glyph: .check, role: .positive)
+            .icon(glyph: .dash, role: .muted)
         )
     }
 
