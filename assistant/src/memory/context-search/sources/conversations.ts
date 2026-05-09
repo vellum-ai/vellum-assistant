@@ -149,6 +149,7 @@ function searchWithFts(
     WHERE messages_fts MATCH ?
       AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
       AND c.id != ?
+      AND c.conversation_type != 'private'
     ORDER BY bm25(messages_fts), m.created_at DESC
     LIMIT ?
     `,
@@ -180,6 +181,7 @@ function searchWithLike(
     WHERE m.content LIKE ? ESCAPE '\\'
       AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
       AND c.id != ?
+      AND c.conversation_type != 'private'
     ORDER BY m.created_at DESC
     LIMIT ?
     `,

@@ -121,6 +121,31 @@ describe("searchConversationSource", () => {
     ]);
   });
 
+  test("excludes legacy private conversations as defense-in-depth", async () => {
+    const visible = await seedConversation({
+      title: "Visible conversation",
+      content: "privatetoken belongs to a normal conversation.",
+    });
+    const legacyPrivate = await seedConversation({
+      title: "Legacy private conversation",
+      content: "privatetoken belongs to legacy private history.",
+    });
+    rawRun(
+      "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
+      legacyPrivate.conversation.id,
+    );
+
+    const result = await searchConversationSource(
+      "privatetoken",
+      makeContext(),
+      10,
+    );
+
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      `${visible.conversation.id}#${visible.message.id}`,
+    ]);
+  });
+
   test("includes archived, scheduled, and background conversations", async () => {
     const archived = await seedConversation({
       title: "Archived conversation",
