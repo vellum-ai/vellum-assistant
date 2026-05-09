@@ -156,17 +156,31 @@ async function processEnrollment(
     jobName: "sequence-step",
     source: "sequence",
     prompt,
+    systemHint: `Sequence: ${sequence.name} — Step ${step.index + 1}`,
     trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
     callSite: "mainAgent",
     timeoutMs: STEP_TIMEOUT_MS,
     origin: "sequence",
   });
 
-  // Re-throw on failure so `runSequencesOnce` reschedules the enrollment
-  // for retry. The runner does not throw on failure (it returns a
-  // structured result), but the existing retry path in the outer loop
-  // expects an exception to trigger `rescheduleEnrollment`.
   if (!result.ok) {
+    // Timeouts do not cancel the in-flight `processMessage`, so retrying
+    // could double-send. Exit the enrollment instead of rescheduling.
+    if (result.errorKind === "timeout") {
+      log.error(
+        {
+          enrollmentId: enrollment.id,
+          sequenceId: sequence.id,
+          step: step.index,
+        },
+        "Sequence step timed out — exiting enrollment to prevent duplicate outreach",
+      );
+      recordEvent(sequence.id, enrollment.id, "fail", step.index, {
+        reason: "step_timeout",
+      });
+      exitEnrollment(enrollment.id, "failed");
+      return;
+    }
     throw (
       result.error ?? new Error(`Background job failed: ${result.errorKind}`)
     );
