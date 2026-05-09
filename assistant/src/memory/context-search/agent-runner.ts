@@ -694,6 +694,13 @@ function finishRecallFromToolUse(
   }
 
   const citedEvidence = selectCitedEvidence(promptEvidence, finish.citationIds);
+  if (citedEvidence.length === 0) {
+    return {
+      ok: false,
+      reason: "citation_validation_failed",
+      detail: "finish_recall returned no resolvable citations",
+    };
+  }
   debug.finish = {
     confidence: finish.confidence,
     citationIds: finish.citationIds,
