@@ -557,6 +557,7 @@ export class ContactStore {
     } else {
       const userFile = await this.resolveAssistantUserFileSlug(
         params.displayName,
+        params.principalId ?? null,
       );
       await assistantDbRun(
         `INSERT INTO contacts
@@ -668,12 +669,32 @@ export class ContactStore {
 
   /**
    * Compute a unique `user_file` slug for a new contact in the assistant DB.
-   * Mirrors the assistant's slug logic: lowercase kebab from displayName,
-   * collision-suffixed with `-2`, `-3`, etc.
+   *
+   * Mirrors the assistant's slug logic in two ways:
+   *  1. Sibling contacts that share a `principalId` reuse the existing
+   *     `userFile` of any sibling — every channel for one principal must
+   *     resolve to the same persona + journal slug.
+   *  2. Otherwise: lowercase kebab from `displayName`, collision-suffixed
+   *     with `-2`, `-3`, etc.
    */
   private async resolveAssistantUserFileSlug(
     displayName: string,
+    principalId: string | null,
   ): Promise<string> {
+    if (principalId) {
+      const sibling = await assistantDbQuery<{ userFile: string | null }>(
+        `SELECT user_file AS userFile
+           FROM contacts
+          WHERE principal_id = ?
+            AND user_file IS NOT NULL
+          LIMIT 1`,
+        [principalId],
+      );
+      if (sibling.length && sibling[0].userFile) {
+        return sibling[0].userFile;
+      }
+    }
+
     const slug =
       displayName
         .toLowerCase()
