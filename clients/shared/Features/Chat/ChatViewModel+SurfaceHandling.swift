@@ -440,6 +440,13 @@ extension ChatViewModel {
     /// Handle a `ui_surface_dismiss` event: remove an inline surface widget.
     func handleSurfaceDismiss(_ msg: UiSurfaceDismissMessage) {
         guard belongsToConversation(msg.conversationId) else { return }
+        #if os(macOS)
+        // If the dismissed surface is currently popped out, close the floating
+        // overlay immediately so it doesn't orphan after the surface is gone.
+        if TaskProgressOverlayManager.shared.activeSurfaceId == msg.surfaceId {
+            TaskProgressOverlayManager.shared.close()
+        }
+        #endif
         // Find and remove the inline surface across all messages
         for msgIndex in messages.indices {
             if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
