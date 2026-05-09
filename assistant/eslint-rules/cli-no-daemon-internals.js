@@ -1,0 +1,176 @@
+const ALLOWED_PREFIXES = {
+  ipc: [
+    "node:",
+    "bun:",
+    "commander",
+    "../../ipc/cli-client",
+    "../logger",
+    "../output",
+    "../lib/",
+  ],
+  local: [
+    "node:",
+    "bun:",
+    "commander",
+    "../../config/loader",
+    "../../config/schema",
+    "../../util/platform",
+    "../lib/",
+  ],
+  bootstrap: [
+    "node:",
+    "bun:",
+    "commander",
+    "../../config/loader",
+    "../../config/schema",
+    "../../util/platform",
+    "../lib/",
+  ],
+};
+
+function findTransport(program) {
+  const worklist = [...program.body];
+  const seen = new WeakSet();
+
+  while (worklist.length > 0) {
+    const node = worklist.pop();
+
+    if (!node || typeof node !== "object" || seen.has(node)) {
+      continue;
+    }
+    seen.add(node);
+
+    if (
+      node.type === "CallExpression" &&
+      node.callee.type === "Identifier" &&
+      node.callee.name === "registerCommand"
+    ) {
+      for (const arg of node.arguments) {
+        if (arg.type === "ObjectExpression") {
+          for (const prop of arg.properties) {
+            if (
+              prop.type === "Property" &&
+              prop.key.type === "Identifier" &&
+              prop.key.name === "transport" &&
+              prop.value.type === "Literal" &&
+              typeof prop.value.value === "string"
+            ) {
+              return prop.value.value;
+            }
+          }
+        }
+      }
+    }
+
+    switch (node.type) {
+      case "ExpressionStatement":
+        worklist.push(node.expression);
+        break;
+      case "CallExpression":
+        for (const arg of node.arguments) {
+          worklist.push(arg);
+        }
+        break;
+      case "FunctionDeclaration":
+      case "FunctionExpression":
+      case "ArrowFunctionExpression":
+        if (node.body) worklist.push(node.body);
+        break;
+      case "BlockStatement":
+        for (const stmt of node.body) {
+          worklist.push(stmt);
+        }
+        break;
+      case "ReturnStatement":
+        if (node.argument) worklist.push(node.argument);
+        break;
+      case "ExportNamedDeclaration":
+      case "ExportDefaultDeclaration":
+        if (node.declaration) worklist.push(node.declaration);
+        break;
+      case "VariableDeclaration":
+        for (const decl of node.declarations) {
+          if (decl.init) worklist.push(decl.init);
+        }
+        break;
+      case "ObjectExpression":
+        for (const prop of node.properties) {
+          if (prop.type === "Property") {
+            worklist.push(prop.value);
+          }
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  return null;
+}
+
+const rule = {
+  meta: {
+    type: "suggestion",
+    docs: {
+      description:
+        "Enforce import allowlists for CLI commands by transport class",
+    },
+    messages: {
+      missingTransport:
+        "CLI command file must call registerCommand({ transport: ... }) to declare its transport class.",
+      forbiddenImport:
+        "'{{transport}}'-tagged CLI command imports forbidden module '{{source}}'. See DESIGN.md §3.1 for allowed imports.",
+    },
+    schema: [],
+  },
+
+  create(context) {
+    const importNodes = [];
+
+    return {
+      ImportDeclaration(node) {
+        importNodes.push(node);
+      },
+
+      "Program:exit"(program) {
+        if (importNodes.length === 0) {
+          return;
+        }
+
+        const transport = findTransport(program);
+
+        if (transport === null) {
+          context.report({
+            node: program,
+            messageId: "missingTransport",
+          });
+          return;
+        }
+
+        const allowedPrefixes = ALLOWED_PREFIXES[transport];
+        if (!allowedPrefixes) {
+          return;
+        }
+
+        for (const importNode of importNodes) {
+          const source = importNode.source.value;
+          const allowed = allowedPrefixes.some((prefix) =>
+            source.startsWith(prefix),
+          );
+          if (!allowed) {
+            context.report({
+              node: importNode,
+              messageId: "forbiddenImport",
+              data: {
+                transport,
+                source,
+              },
+            });
+          }
+        }
+      },
+    };
+  },
+};
+
+export default rule;
