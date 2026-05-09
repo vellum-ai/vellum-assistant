@@ -677,6 +677,23 @@ describe("OpenAIResponsesProvider", () => {
     expect(lastStreamParams!.text).toEqual({ verbosity: "high" });
   });
 
+  test("verbosity is forwarded for GPT-5 fine-tune IDs", async () => {
+    const ftProvider = new OpenAIResponsesProvider(
+      "sk-test",
+      "ft:gpt-5.2:acme::abc123",
+    );
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await ftProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { verbosity: "low" } },
+    );
+
+    expect(lastStreamParams!.text).toEqual({ verbosity: "low" });
+  });
+
   // -----------------------------------------------------------------------
   // Model override
   // -----------------------------------------------------------------------
