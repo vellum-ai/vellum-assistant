@@ -441,7 +441,11 @@ export class AssistantIpcServer {
     requestId: string,
     response: IpcStreamingResponse,
   ): void {
-    if (socket.destroyed) return;
+    if (socket.destroyed) {
+      this.abortControllers.get(requestId)?.abort();
+      this.abortControllers.delete(requestId);
+      return;
+    }
 
     // Legacy clients can't handle chunked streaming — fall back to
     // buffering the full stream and sending as a single binary response.

@@ -427,6 +427,13 @@ export async function cliIpcCallStream(
             start(ctrl) {
               streamController = ctrl;
             },
+            cancel() {
+              // Consumer cancelled (reader.cancel(), for-await break, pipe abort).
+              // Clear the controller reference first so abort() skips the
+              // already-closing stream's error() call, then send $cancel.
+              streamController = undefined;
+              abort();
+            },
           });
           settled = true;
           clearTimeout(connectTimer);
