@@ -215,8 +215,8 @@ describe("rerankCandidates", () => {
     expect(backendState.calls).toHaveLength(1);
   });
 
-  test("passage construction caps at 240 chars after slug newline", async () => {
-    const longBody = "a".repeat(500);
+  test("passage construction caps at 1500 chars after slug newline", async () => {
+    const longBody = "a".repeat(2000);
     pageState.pages.set("slug", { body: longBody });
     backendState.scores = [0.5];
 
@@ -224,9 +224,9 @@ describe("rerankCandidates", () => {
 
     expect(backendState.calls).toHaveLength(1);
     const passage = backendState.calls[0].passages[0];
-    // "slug\n" prefix + 240 chars of body
+    // "slug\n" prefix + 1500 chars of body
     expect(passage.startsWith("slug\n")).toBe(true);
-    expect(passage.length).toBeLessThanOrEqual(5 + 240);
+    expect(passage.length).toBeLessThanOrEqual(5 + 1500);
   });
 
   test("first paragraph is taken (body truncated at blank line)", async () => {
