@@ -115,6 +115,7 @@ import {
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
   migrateMemoryV2ActivationLogs,
+  migrateMessageBookmarks,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -414,6 +415,7 @@ export function initializeDb(): void {
     migrateScheduleRetryPolicy,
     migrateTraceEventsCreatedAtIndex,
     migrateConversationInferenceProfileSession,
+    migrateMessageBookmarks,
   ];
 
   // Run each migration step, catching and logging individual failures so one
