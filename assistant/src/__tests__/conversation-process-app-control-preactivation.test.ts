@@ -28,6 +28,13 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  assistantEventHub: {
+    listClientsByCapability: () => [],
+  },
+  broadcastMessage: () => {},
+}));
+
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
@@ -145,6 +152,7 @@ function makeFakeContext(opts: {
     },
     setTransportHints() {},
     applyHostEnvFromTransport() {},
+    ensureHostProxiesForTurn() {},
   } as unknown as ProcessConversationContext & FakeRecord;
   return ctx;
 }

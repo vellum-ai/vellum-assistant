@@ -119,8 +119,9 @@ import {
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { canonicalizeTimeZone } from "./date-context.js";
-import type { HostAppControlProxy } from "./host-app-control-proxy.js";
+import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
+import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -949,6 +950,23 @@ export class Conversation {
       this.hostAppControlProxy.dispose();
     }
     this.hostAppControlProxy = proxy;
+  }
+
+  ensureHostProxiesForTurn(
+    sourceInterface: import("../channels/types.js").InterfaceId | undefined,
+  ): void {
+    if (
+      shouldAttachHostProxyForCapability("host_cu", sourceInterface) &&
+      !this.hostCuProxy
+    ) {
+      this.setHostCuProxy(new HostCuProxy());
+    }
+    if (
+      shouldAttachHostProxyForCapability("host_app_control", sourceInterface) &&
+      !this.hostAppControlProxy
+    ) {
+      this.setHostAppControlProxy(new HostAppControlProxy(this.conversationId));
+    }
   }
 
   // ── Server-authoritative state signals ─────────────────────────────
