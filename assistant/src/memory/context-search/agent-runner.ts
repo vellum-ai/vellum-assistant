@@ -1291,7 +1291,9 @@ function withFallbackEvidence(
   result: DeterministicRecallSearchResult,
   evidence: readonly RecallEvidence[],
 ): DeterministicRecallSearchResult {
-  const orderedEvidence = demoteAutoInjectedContextEvidence(evidence);
+  const orderedEvidence = demoteAutoInjectedContextEvidence(
+    dedupeEvidenceByContent(evidence),
+  );
   const evidenceCountBySource = new Map<RecallSource, number>();
   for (const item of orderedEvidence) {
     evidenceCountBySource.set(
@@ -1308,6 +1310,29 @@ function withFallbackEvidence(
       evidenceCount: evidenceCountBySource.get(note.source) ?? 0,
     })),
   };
+}
+
+function dedupeEvidenceByContent(
+  evidence: readonly RecallEvidence[],
+): RecallEvidence[] {
+  const seenIds = new Set<string>();
+  const seenContent = new Set<string>();
+  const deduped: RecallEvidence[] = [];
+
+  for (const item of evidence) {
+    if (seenIds.has(item.id)) {
+      continue;
+    }
+    const contentKey = `${item.source}\0${item.locator}\0${item.excerpt}`;
+    if (seenContent.has(contentKey)) {
+      continue;
+    }
+    seenIds.add(item.id);
+    seenContent.add(contentKey);
+    deduped.push(item);
+  }
+
+  return deduped;
 }
 
 function deterministicFallback(
