@@ -279,10 +279,17 @@ export async function upsertConceptPageEmbedding(params: {
   sparse: SparseEmbedding;
   summary?: { dense: number[]; sparse: SparseEmbedding };
   updatedAt: number;
+  /**
+   * Optional payload discriminator. Used to distinguish skill-seeded points
+   * (`kind: "skill"`) from user-authored concept pages so namespace pruning
+   * via {@link pruneSlugsWithPrefixExcept} can scope deletes to a single kind.
+   * Omitted for plain concept pages.
+   */
+  kind?: string;
 }): Promise<void> {
   await ensureConceptPageCollection();
 
-  const { slug, dense, sparse, summary, updatedAt } = params;
+  const { slug, dense, sparse, summary, updatedAt, kind } = params;
   const client = getClient();
   const pointId = pointIdForSlug(slug);
 
@@ -296,6 +303,9 @@ export async function upsertConceptPageEmbedding(params: {
     vector.summary_sparse = summary.sparse;
   }
 
+  const payload: Record<string, unknown> = { slug, updated_at: updatedAt };
+  if (kind !== undefined) payload.kind = kind;
+
   const upsertOnce = () =>
     client.upsert(MEMORY_V2_COLLECTION, {
       wait: true,
@@ -303,7 +313,7 @@ export async function upsertConceptPageEmbedding(params: {
         {
           id: pointId,
           vector,
-          payload: { slug, updated_at: updatedAt },
+          payload,
         },
       ],
     });
@@ -352,17 +362,25 @@ export async function deleteConceptPageEmbedding(slug: string): Promise<void> {
  * since skills now share the concept-page collection rather than living in a
  * dedicated one.
  *
+ * `kind` scopes pruning to a payload discriminator: only points whose
+ * `payload.kind` matches are eligible for deletion. This is critical because
+ * `validateSlug` permits user-authored concept pages slugged like
+ * `skills/foo`; without a kind filter they would collide with the skill
+ * namespace and be repeatedly pruned every seed run.
+ *
  * Idempotent: when the live `<prefix>*` slugs already match `activeSuffixes`,
  * the function performs a single scroll and no deletes.
  */
 export async function pruneSlugsWithPrefixExcept(
   prefix: string,
   activeSuffixes: readonly string[],
+  options: { kind?: string } = {},
 ): Promise<void> {
   await ensureConceptPageCollection();
 
   const client = getClient();
   const activeSet = new Set(activeSuffixes);
+  const requiredKind = options.kind;
 
   const doPrune = async (): Promise<void> => {
     const stalePointIds: Array<string | number> = [];
@@ -377,9 +395,15 @@ export async function pruneSlugsWithPrefixExcept(
         ...(offset !== undefined ? { offset } : {}),
       });
       for (const point of result.points) {
-        const slug = (point.payload as { slug?: unknown } | null)?.slug;
+        const payload = point.payload as {
+          slug?: unknown;
+          kind?: unknown;
+        } | null;
+        const slug = payload?.slug;
         if (typeof slug !== "string") continue;
         if (!slug.startsWith(prefix)) continue;
+        if (requiredKind !== undefined && payload?.kind !== requiredKind)
+          continue;
         const suffix = slug.slice(prefix.length);
         if (!activeSet.has(suffix)) {
           stalePointIds.push(point.id);

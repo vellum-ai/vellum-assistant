@@ -58,6 +58,14 @@ const log = getLogger("memory-v2-skill-store");
  */
 export const SKILL_SLUG_PREFIX = "skills/";
 
+/**
+ * Payload discriminator written on every skill-seeded Qdrant point. Keeps
+ * skill rows distinguishable from user-authored concept pages that happen to
+ * be slugged under `skills/...`, so prefix pruning never deletes a hand-
+ * authored page sitting in the same namespace.
+ */
+const SKILL_PAYLOAD_KIND = "skill";
+
 /** Compose the unified-collection slug for a skill id. */
 export function skillSlugFor(id: string): string {
   return `${SKILL_SLUG_PREFIX}${id}`;
@@ -210,6 +218,7 @@ async function runSeedOnce(): Promise<void> {
             dense: denseVectors[i],
             sparse: encodeSparse(seed.content),
             updatedAt: now,
+            kind: SKILL_PAYLOAD_KIND,
           }),
         ),
       );
@@ -226,6 +235,7 @@ async function runSeedOnce(): Promise<void> {
       await pruneSlugsWithPrefixExcept(
         SKILL_SLUG_PREFIX,
         seeds.map((s) => s.id),
+        { kind: SKILL_PAYLOAD_KIND },
       );
     } else {
       log.info(

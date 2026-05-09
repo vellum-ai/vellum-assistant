@@ -210,9 +210,21 @@ export async function injectMemoryV2Block(
   // like concept slugs — once attached on a turn, the cached attachment lives
   // on that user message and the agent keeps seeing it across subsequent turns
   // until compaction evicts the turn.
+  //
+  // Skill slugs whose in-process cache entry is missing (e.g. startup race
+  // between the skill seed and the first turn, or stale Qdrant index pointing
+  // at an uninstalled skill) are excluded from `everInjected` so future
+  // per-turn runs re-attempt attachment once the cache is populated. Without
+  // this, the slug would be marked injected even though `renderInjectionBlock`
+  // silently dropped it.
+  const missingSkillSlugs = new Set(
+    slugsToRender.filter(
+      (slug) => isSkillSlug(slug) && !getSkillCapability(slug),
+    ),
+  );
   const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
   const newlyInjected = slugsToRender.filter(
-    (slug) => !everInjectedSet.has(slug),
+    (slug) => !everInjectedSet.has(slug) && !missingSkillSlugs.has(slug),
   );
   const nextEverInjected: EverInjectedEntry[] = [
     ...priorEverInjected,
