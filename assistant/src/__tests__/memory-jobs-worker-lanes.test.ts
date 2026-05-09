@@ -3,7 +3,7 @@
  *
  * Before this fix, all non-embed jobs ran through a single bounded worker
  * pool, so a long-running `graph_consolidate` LLM call would pin every slot
- * and starve fast-lane jobs (e.g. `embed_concept_page` consolidation pages)
+ * and starve fast-lane jobs (e.g. `memory_v2_activation_recompute`)
  * for the duration of that call.
  *
  * The new scheduler runs slow / fast / embed lanes in parallel pools, each
@@ -87,16 +87,19 @@ mock.module("../memory/graph/consolidation.js", () => ({
 
 // Fast-lane handler: resolves on the next microtask. The test fires this
 // many times in parallel; nothing should block.
-mock.module("../memory/jobs/embed-concept-page.js", () => ({
-  embedConceptPageJob: async (job: {
-    payload: { slug?: string };
-  }): Promise<void> => {
+mock.module("../memory/v2/backfill-jobs.js", () => ({
+  memoryV2ActivationRecomputeJob: async (job: {
+    payload: { scopeId?: string };
+  }): Promise<number> => {
     completions.push({
-      type: "embed_concept_page",
-      conversationId: job.payload.slug ?? "",
+      type: "memory_v2_activation_recompute",
+      conversationId: job.payload.scopeId ?? "",
       completedAt: Date.now(),
     });
+    return 0;
   },
+  memoryV2MigrateJob: async (): Promise<void> => {},
+  memoryV2ReembedJob: async (): Promise<void> => {},
 }));
 
 // Stub remaining heavy boundaries that we never exercise but that get pulled
@@ -128,18 +131,22 @@ describe("memory jobs worker lane scheduling", () => {
 
   test("fast lane completes before slow lane releases its slot", async () => {
     // 5 slow `graph_consolidate` jobs across distinct scopes (so they would
-    // serialize behind a single shared pool) plus 5 fast `embed_concept_page`
-    // jobs across distinct slugs.
+    // serialize behind a single shared pool) plus 5 fast
+    // `memory_v2_activation_recompute` jobs across distinct scopes.
     for (let i = 0; i < 5; i++) {
       enqueueMemoryJob("graph_consolidate", { scopeId: `slow-${i}` });
     }
     for (let i = 0; i < 5; i++) {
-      enqueueMemoryJob("embed_concept_page", { slug: `fast-${i}` });
+      enqueueMemoryJob("memory_v2_activation_recompute", {
+        scopeId: `fast-${i}`,
+      });
     }
 
     await runMemoryJobsOnce();
 
-    const fastDone = completions.filter((c) => c.type === "embed_concept_page");
+    const fastDone = completions.filter(
+      (c) => c.type === "memory_v2_activation_recompute",
+    );
     const slowDone = completions.filter((c) => c.type === "graph_consolidate");
 
     // Slow lane is capped at 1 in this test, so only 1 slow job ran in this

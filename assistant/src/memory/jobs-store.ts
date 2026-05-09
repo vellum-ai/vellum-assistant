@@ -52,6 +52,7 @@ export const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_graph_node",
   "embed_pkb_file",
   "graph_trigger_embed",
+  "embed_concept_page",
 ];
 
 export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
