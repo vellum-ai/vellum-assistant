@@ -449,6 +449,11 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "medium",
     reason: "Enqueues recompute of persisted activation state",
   },
+  {
+    path: "memory v2 validate",
+    risk: "low",
+    reason: "Read-only diagnostic walk over concept pages and edges",
+  },
   { path: "notifications send", risk: "low" },
   {
     path: "oauth request",
