@@ -33,11 +33,13 @@ import { z } from "zod";
  * the summary field still parse — those fall back to full-page injection and
  * full-page-only similarity.
  */
-export const ConceptPageFrontmatterSchema = z.object({
-  edges: z.array(z.string()).default([]),
-  ref_files: z.array(z.string()).default([]),
-  summary: z.string().optional(),
-});
+export const ConceptPageFrontmatterSchema = z
+  .object({
+    edges: z.array(z.string()).default([]),
+    ref_files: z.array(z.string()).default([]),
+    summary: z.string().optional(),
+  })
+  .strict();
 
 export type ConceptPageFrontmatter = z.infer<
   typeof ConceptPageFrontmatterSchema

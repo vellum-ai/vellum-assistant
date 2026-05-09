@@ -238,6 +238,19 @@ describe("writePage + readPage round-trip", () => {
     expect(read!.body).toBe(body);
   });
 
+  test("readPage throws on unknown frontmatter keys instead of silently dropping them", async () => {
+    const slug = "extra-keys";
+    const raw =
+      "---\nedges: []\nref_files: []\nunknown_field: oops\n---\nbody\n";
+    writeFileSync(
+      join(workspaceDir, "memory", "concepts", `${slug}.md`),
+      raw,
+      "utf-8",
+    );
+
+    await expect(readPage(workspaceDir, slug)).rejects.toThrow();
+  });
+
   test("writePage overwrites an existing page", async () => {
     const page1 = makePage({ body: "first version\n" });
     await writePage(workspaceDir, page1);
