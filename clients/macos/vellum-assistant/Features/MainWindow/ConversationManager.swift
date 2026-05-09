@@ -169,6 +169,11 @@ final class ConversationManager: ConversationRestorerDelegate {
         set { selectionStore.pendingAnchorMessageId = newValue }
     }
 
+    var pendingAnchorDaemonMessageId: String? {
+        get { selectionStore.pendingAnchorDaemonMessageId }
+        set { selectionStore.pendingAnchorDaemonMessageId = newValue }
+    }
+
     var highlightedMessageId: UUID? {
         get { selectionStore.highlightedMessageId }
         set { selectionStore.highlightedMessageId = newValue }

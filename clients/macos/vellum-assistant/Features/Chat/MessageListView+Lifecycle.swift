@@ -6,6 +6,14 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageListView")
 
+/// Compound `task(id:)` key so the daemon-message-ID resolver re-fires both
+/// when the requested daemon ID changes and when the messages list grows
+/// (the matching row may not exist yet at the time the binding is set).
+struct AnchorDaemonResolveKey: Hashable {
+    let daemonId: String?
+    let messageCount: Int
+}
+
 extension MessageListView {
 
     // MARK: - onAppear
@@ -226,6 +234,18 @@ extension MessageListView {
                 scrollState.anchorTimeoutTask = nil
             }
         }
+    }
+
+    /// Resolves a daemon message ID to its client `UUID` once the messages list
+    /// contains a matching message, then assigns `anchorMessageId` to defer to
+    /// the existing UUID-based scroll-and-flash path. Cross-conversation jumps
+    /// from settings deep-links (e.g. Bookmarks) only have daemon IDs, not the
+    /// client-generated UUIDs that the scroll machinery expects.
+    func handleAnchorDaemonMessageIdTask() async {
+        guard let daemonId = anchorDaemonMessageId.wrappedValue else { return }
+        guard let match = messages.first(where: { $0.daemonMessageId == daemonId }) else { return }
+        anchorDaemonMessageId.wrappedValue = nil
+        anchorMessageId = match.id
     }
 
     // MARK: - Latest-turn pinning

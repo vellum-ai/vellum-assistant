@@ -72,6 +72,12 @@ struct MessageListView: View {
     /// When set, scroll to this message ID and clear the binding.
     /// Used by notification deep links to anchor the view to a specific message.
     @Binding var anchorMessageId: UUID?
+    /// When set, resolves a daemon message ID to its client `UUID` once the
+    /// matching message is loaded, then assigns `anchorMessageId` to trigger
+    /// the existing scroll-and-flash code path. Used by cross-conversation
+    /// deep links from settings panes (e.g. Bookmarks) that only have the
+    /// daemon (server-side) message ID, not the client-generated `UUID`.
+    var anchorDaemonMessageId: Binding<String?> = .constant(nil)
     /// Message ID to visually highlight after an anchor scroll completes.
     @Binding var highlightedMessageId: UUID?
     /// When false, disables interactive controls (buttons, actions) inside the
@@ -260,6 +266,9 @@ struct MessageListView: View {
                 #endif
             }
             .task(id: anchorMessageId) { await handleAnchorMessageTask() }
+            .task(id: AnchorDaemonResolveKey(daemonId: anchorDaemonMessageId.wrappedValue, messageCount: messages.count)) {
+                await handleAnchorDaemonMessageIdTask()
+            }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
                 if let requestId = activePendingRequestId, scrollState.lastAutoFocusedRequestId != requestId,
                    let window = notification.object as? NSWindow,
