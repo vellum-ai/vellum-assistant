@@ -114,6 +114,9 @@ export async function searchPkbSource(
       );
     }
   } catch (err) {
+    if (isAbortError(err) || context.signal?.aborted) {
+      throw err;
+    }
     log.warn(
       { err },
       "Semantic PKB recall source failed; using lexical fallback",
@@ -124,6 +127,9 @@ export async function searchPkbSource(
   try {
     lexicalEvidence = await searchPkbLexicalFallback(query, context, limit * 2);
   } catch (err) {
+    if (isAbortError(err) || context.signal?.aborted) {
+      throw err;
+    }
     log.warn({ err }, "Lexical PKB recall fallback failed");
   }
 
@@ -473,4 +479,8 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw signal.reason ?? new Error("PKB recall search aborted");
   }
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
 }
