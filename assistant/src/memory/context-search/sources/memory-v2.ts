@@ -295,11 +295,13 @@ async function lexicalEvidence(
   if (!conceptsRoot) return [];
 
   const matches: MemoryV2LexicalMatch[] = [];
+  const visitedDirectories = new Set<string>([conceptsRoot]);
   await walkConceptsDirectory(
     conceptsRoot,
     conceptsRoot,
     queryTerms,
     matches,
+    visitedDirectories,
     context.signal,
   );
 
@@ -330,6 +332,7 @@ async function walkConceptsDirectory(
   conceptsRoot: string,
   queryTerms: ReadonlySet<string>,
   matches: MemoryV2LexicalMatch[],
+  visitedDirectories: Set<string>,
   signal: AbortSignal | undefined,
 ): Promise<void> {
   throwIfAborted(signal);
@@ -364,11 +367,14 @@ async function walkConceptsDirectory(
     }
 
     if (entryStats.isDirectory()) {
+      if (visitedDirectories.has(entryRealPath)) continue;
+      visitedDirectories.add(entryRealPath);
       await walkConceptsDirectory(
         entryRealPath,
         conceptsRoot,
         queryTerms,
         matches,
+        visitedDirectories,
         signal,
       );
       continue;
