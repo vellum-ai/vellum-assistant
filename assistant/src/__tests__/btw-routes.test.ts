@@ -320,6 +320,7 @@ describe("POST /v1/btw", () => {
     expect(mockBuildSystemPrompt).toHaveBeenCalledWith({
       channelPersona: null,
       excludeBootstrap: true,
+      excludeCustomPrefix: true,
       userPersona: null,
       userSlug: null,
     });
