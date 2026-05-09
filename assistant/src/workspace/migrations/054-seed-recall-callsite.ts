@@ -38,8 +38,17 @@ export const seedRecallCallsiteMigration: WorkspaceMigration = {
     const callSites = readObject(llm.callSites) ?? {};
     if (readObject(callSites.recall) !== null) return;
 
+    // Migration 052 seeds empty `{}` profile shells for non-Anthropic
+    // workspaces, so a present-but-empty `cost-optimized` profile would set
+    // `profile: "cost-optimized"` here without a model and fall back to
+    // `llm.default.model` — defeating the cost-optimization goal. Require the
+    // profile to actually carry a model before pointing the call site at it.
     const profiles = readObject(llm.profiles) ?? {};
-    if (readObject(profiles["cost-optimized"]) !== null) {
+    const costOptimized = readObject(profiles["cost-optimized"]);
+    if (
+      costOptimized !== null &&
+      readString(costOptimized.model) !== undefined
+    ) {
       callSites.recall = {
         profile: "cost-optimized",
         ...RECALL_LOW_COST_LEAVES,
