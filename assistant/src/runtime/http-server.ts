@@ -565,7 +565,6 @@ export class RuntimeHttpServer {
       return handleReadyz();
     }
 
-
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
     if (
@@ -1021,8 +1020,9 @@ export class RuntimeHttpServer {
     ws: ServerWebSocket<LiveVoiceWebSocketData>,
     frame: LiveVoiceServerFrame,
   ): void {
-    ws.data.lastSeq = Math.max(ws.data.lastSeq, frame.seq);
-    ws.send(JSON.stringify(frame));
+    const seq = Math.max(ws.data.lastSeq + 1, frame.seq);
+    ws.data.lastSeq = seq;
+    ws.send(JSON.stringify({ ...frame, seq }));
   }
 
   private releaseLiveVoiceSession(
