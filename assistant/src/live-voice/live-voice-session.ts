@@ -470,16 +470,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           },
         },
         onError: (message) => {
-          if (!this.isActiveAssistantTurn(token)) return;
+          const activeTurn = this.activeAssistantTurn;
+          if (
+            !this.isActiveAssistantTurn(token) ||
+            activeTurn?.assistantCompleted
+          ) {
+            return;
+          }
           void (async () => {
             await this.sendFrame({
               type: "error",
               code: LiveVoiceProtocolErrorCode.InvalidField,
               message,
             });
-            const activeTurn = this.activeAssistantTurn;
-            if (activeTurn?.token !== token) return;
-            await this.finalizeAssistantTurn(activeTurn, "cancelled", "error");
+            const currentTurn = this.activeAssistantTurn;
+            if (currentTurn?.token !== token) return;
+            await this.finalizeAssistantTurn(currentTurn, "cancelled", "error");
           })();
         },
       });
