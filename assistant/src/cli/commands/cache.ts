@@ -8,8 +8,8 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import { registerCommand } from "../lib/register-command.js";
 import { existsSync, readFileSync } from "../lib/cache-fs.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ── Constants ─────────────────────────────────────────────────────────

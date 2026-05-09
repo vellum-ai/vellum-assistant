@@ -1,8 +1,8 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import { registerCommand } from "../lib/register-command.js";
 import { optsToQueryParams } from "../lib/ipc-params.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { Command } from "commander";
 
 import { type CommandTransport, registerCommand } from "../register-command.js";
