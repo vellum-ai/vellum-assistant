@@ -217,6 +217,13 @@ export class FilingService {
       return false;
     }
 
+    if (this.activeCompactionRun) {
+      log.debug(
+        "Compaction run in progress, skipping filing to avoid concurrent PKB writes",
+      );
+      return false;
+    }
+
     // Skip if buffer is empty — no work to do
     if (!force && !this.hasBufferContent()) {
       log.debug("Buffer is empty, skipping filing");
@@ -268,6 +275,13 @@ export class FilingService {
 
     if (this.activeCompactionRun) {
       log.debug("Previous compaction run still active, skipping");
+      return false;
+    }
+
+    if (this.activeRun) {
+      log.debug(
+        "Filing run in progress, skipping compaction to avoid concurrent PKB writes",
+      );
       return false;
     }
 
