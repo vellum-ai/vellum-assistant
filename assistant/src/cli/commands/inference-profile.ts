@@ -214,7 +214,7 @@ Examples:
           process.stdout.write(
             JSON.stringify({
               ok: true,
-              conversationId,
+              conversationId: result.conversationId,
               profile: profileName,
               sessionId,
               expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
@@ -322,7 +322,7 @@ Examples:
           process.stdout.write(
             JSON.stringify({
               ok: true,
-              conversationId,
+              conversationId: result.conversationId,
               closed: result.closed,
               noop: result.noop,
             }) + "\n",
