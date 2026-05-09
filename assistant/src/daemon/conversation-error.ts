@@ -379,7 +379,7 @@ function classifyCore(
       }
       if (isImageDimensionsTooLarge(message)) {
         return {
-          code: "PROVIDER_API",
+          code: "IMAGE_TOO_LARGE",
           userMessage:
             "An attached image is too large for the AI provider — image dimensions must be under 8000 pixels per side. Resize the image and try again.",
           retryable: false,

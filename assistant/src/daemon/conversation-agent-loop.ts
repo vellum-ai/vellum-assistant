@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import { v4 as uuid } from "uuid";
 
+import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type {
   AgentEvent,
   AgentLoop,
@@ -2238,6 +2239,83 @@ export async function runAgentLoopImpl(
           { phase: "retry" },
           "Deep-repair retry also failed with ordering error. Consider starting a new conversation if this persists.",
         );
+      }
+    }
+
+    // ── Image-dimension overflow recovery ──────────────────────────
+    // When the provider rejects because an image block exceeds its pixel
+    // cap, strip every image block from ctx.messages and retry once.
+    // optimizeImageForTransport already ran at upload time; if sips was
+    // unavailable (non-macOS) it returns the same bytes unchanged.  In
+    // that case we swap the block for a text note so the model can tell
+    // the user what happened instead of hard-failing with a red banner.
+    if (state.imageTooLargeDetected) {
+      state.imageTooLargeDetected = false;
+      rlog.warn(
+        { phase: "image-recovery" },
+        "Image too large — stripping oversized image blocks and retrying",
+      );
+      ctx.messages = ctx.messages.map((msg) => {
+        if (!Array.isArray(msg.content)) return msg;
+        if (!msg.content.some((b) => b.type === "image")) return msg;
+        return {
+          ...msg,
+          content: msg.content.flatMap((b): ContentBlock[] => {
+            if (b.type !== "image") return [b];
+            const resized = optimizeImageForTransport(
+              b.source.data,
+              b.source.media_type,
+            );
+            if (resized.data !== b.source.data) {
+              // sips managed to downscale — use the smaller version
+              return [
+                {
+                  ...b,
+                  source: {
+                    type: "base64" as const,
+                    media_type: resized.mediaType,
+                    data: resized.data,
+                  },
+                },
+              ];
+            }
+            // Can't resize — replace with a text annotation so the model
+            // can explain the situation rather than silently dropping context
+            return [
+              {
+                type: "text" as const,
+                text: "(An image was attached but could not be sent — its dimensions exceed the provider limit and automatic resize was not available. Please resize the image and try again.)",
+              },
+            ];
+          }),
+        };
+      });
+      runMessages = ctx.messages;
+      updatedHistory = await ctx.agentLoop.run(
+        runMessages,
+        eventHandler,
+        abortController.signal,
+        reqId,
+        onCheckpoint,
+        turnCallSite,
+        loopTurnCtx,
+        turnOverrideProfile,
+        effectiveContextWindow.maxInputTokens,
+      );
+      if (state.imageTooLargeDetected) {
+        rlog.error(
+          { phase: "image-recovery" },
+          "Image-recovery retry also failed — surfacing error to user",
+        );
+        const classified = classifyConversationError(
+          new Error("Image dimensions too large"),
+          { phase: "agent_loop" },
+        );
+        deps.onEvent(
+          buildConversationErrorMessage(deps.ctx.conversationId, classified),
+        );
+        state.providerErrorUserMessage = classified.userMessage;
+        state.imageTooLargeDetected = false;
       }
     }
 

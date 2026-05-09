@@ -313,7 +313,7 @@ describe("classifyConversationError", () => {
         400,
       );
       const result = classifyConversationError(err, baseCtx);
-      expect(result.code).toBe("PROVIDER_API");
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
       expect(result.errorCategory).toBe("image_dimensions_too_large");
       expect(result.retryable).toBe(false);
       expect(result.userMessage).toContain("image");
