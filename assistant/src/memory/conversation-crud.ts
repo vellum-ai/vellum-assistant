@@ -1287,23 +1287,31 @@ export function clearExpiredInferenceProfiles(
   // Two-step approach: SELECT to get pre-clear sessionIds, then UPDATE.
   // The UPDATE re-applies the WHERE condition for CAS safety.
   // RETURNING the id lets us know which rows were actually cleared.
-  const expired = raw.prepare(`
+  const expired = raw
+    .prepare(
+      `
     SELECT id AS conversationId, inference_profile_session_id AS sessionId
     FROM conversations
     WHERE inference_profile_expires_at IS NOT NULL AND inference_profile_expires_at <= ?
-  `).all(now) as Array<{ conversationId: string; sessionId: string | null }>;
+  `,
+    )
+    .all(now) as Array<{ conversationId: string; sessionId: string | null }>;
 
   if (expired.length === 0) return [];
 
   const ids = expired.map((r) => r.conversationId);
   const placeholders = ids.map(() => "?").join(", ");
 
-  const actuallyCleared = raw.prepare(`
+  const actuallyCleared = raw
+    .prepare(
+      `
     UPDATE conversations
     SET inference_profile = NULL, inference_profile_session_id = NULL, inference_profile_expires_at = NULL
     WHERE id IN (${placeholders}) AND inference_profile_expires_at IS NOT NULL AND inference_profile_expires_at <= ?
     RETURNING id AS conversationId
-  `).all(...ids, now) as Array<{ conversationId: string }>;
+  `,
+    )
+    .all(...ids, now) as Array<{ conversationId: string }>;
 
   const clearedSet = new Set(actuallyCleared.map((r) => r.conversationId));
   return expired.filter((r) => clearedSet.has(r.conversationId));
@@ -1344,20 +1352,20 @@ export function listActiveInferenceProfileSessions(
     .from(conversations)
     .where(and(...baseConditions))
     .all() as Array<{
-      conversationId: string;
-      conversationTitle: string | null;
-      profile: string;
-      sessionId: string;
-      expiresAt: number;
-    }>;
+    conversationId: string;
+    conversationTitle: string | null;
+    profile: string;
+    sessionId: string;
+    expiresAt: number;
+  }>;
 }
 
 /**
  * Resolve the per-turn inference-profile override from an already-loaded
- * conversation row. Returns the row's `inferenceProfile` for non-background
- * conversations, `undefined` otherwise — background turns (subagent fan-out,
- * scheduled tasks, update bulletins) run on the workspace defaults rather
- * than inheriting an interactive override.
+ * conversation row. Returns the row's `inferenceProfile` for interactive
+ * conversations, `undefined` for automation threads (subagent fan-out,
+ * scheduled tasks, update bulletins) so they run on the workspace defaults
+ * rather than inheriting an interactive override.
  *
  * Prefer this row-based form when the caller already needs to read the
  * conversation row for other reasons (e.g. the agent loop's title check).
@@ -1365,7 +1373,12 @@ export function listActiveInferenceProfileSessions(
 export function getConversationOverrideProfileFromRow(
   conv: ConversationRow | null,
 ): string | undefined {
-  if (conv?.conversationType === "background") return undefined;
+  if (
+    conv?.conversationType === "background" ||
+    conv?.conversationType === "scheduled"
+  ) {
+    return undefined;
+  }
   // Treat an expired session as if the override is absent. The eager reaper
   // clears the row and emits the update event; the lazy check here ensures
   // correctness on read paths before the reaper fires.

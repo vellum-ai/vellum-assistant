@@ -118,9 +118,37 @@ describe("getConversationOverrideProfileFromRow — lazy expiry check", () => {
 
   test("returns the profile when no expiry is set (non-session override)", () => {
     const conv = createConversation("inference-profile-no-expiry");
-    setConversationInferenceProfileSession(conv.id, "quality-optimized", null, null);
+    setConversationInferenceProfileSession(
+      conv.id,
+      "quality-optimized",
+      null,
+      null,
+    );
     const row = getConversation(conv.id);
     expect(row).not.toBeNull();
-    expect(getConversationOverrideProfileFromRow(row)).toBe("quality-optimized");
+    expect(getConversationOverrideProfileFromRow(row)).toBe(
+      "quality-optimized",
+    );
   });
+
+  test.each<"background" | "scheduled">(["background", "scheduled"])(
+    "returns undefined for %s conversations even when a profile is pinned",
+    (conversationType) => {
+      const conv = createConversation({
+        title: `inference-profile-${conversationType}`,
+        conversationType,
+      });
+      setConversationInferenceProfileSession(
+        conv.id,
+        "quality-optimized",
+        null,
+        null,
+      );
+      const row = getConversation(conv.id);
+      expect(row).not.toBeNull();
+      expect(row?.conversationType).toBe(conversationType);
+      expect(row?.inferenceProfile).toBe("quality-optimized");
+      expect(getConversationOverrideProfileFromRow(row)).toBeUndefined();
+    },
+  );
 });
