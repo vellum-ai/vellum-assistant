@@ -18,9 +18,6 @@
 // the same code paths exercised by tests of those modules run unchanged when
 // a backfill kicks them off.
 
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -40,6 +37,7 @@ import {
   MigrationAlreadyAppliedError,
   runMemoryV2Migration,
 } from "./migration.js";
+import { loadNowText } from "./now-text.js";
 import { listPages } from "./page-store.js";
 
 const log = getLogger("memory-v2-backfill");
@@ -316,28 +314,4 @@ function stringifyMessageContent(stored: string): string {
     }
   }
   return parts.join("\n").trim();
-}
-
-/**
- * Read the prose meta files that compose the "NOW" context the activation
- * pipeline correlates against. Mirrors the autoload order in
- * `system-prompt.ts` so the same prose drives both injection and recompute.
- * Missing or unreadable files are treated as empty.
- */
-async function loadNowText(workspaceDir: string): Promise<string> {
-  const filenames = ["essentials.md", "threads.md", "recent.md"];
-  const reads = await Promise.all(
-    filenames.map(async (filename) => {
-      try {
-        const text = await readFile(
-          join(workspaceDir, "memory", filename),
-          "utf-8",
-        );
-        return text.trim();
-      } catch {
-        return "";
-      }
-    }),
-  );
-  return reads.filter((part) => part.length > 0).join("\n\n");
 }
