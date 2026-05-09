@@ -124,16 +124,24 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
         enableScheduledCleanup: true,
       });
       if (processed > 0) {
-        currentIntervalMs = POLL_INTERVAL_MIN_MS;
+        // Per-tick claim budget equals the lane caps, so when a tick
+        // processed work the next tick must run immediately to drain any
+        // remaining backlog. Holding the 1.5s floor between ticks would cap
+        // sustained throughput at lane-cap jobs per 1.5s and starve large
+        // backlogs of short jobs.
+        currentIntervalMs = 0;
       } else {
         currentIntervalMs = Math.min(
-          currentIntervalMs * 2,
+          Math.max(currentIntervalMs * 2, POLL_INTERVAL_MIN_MS),
           POLL_INTERVAL_MAX_MS,
         );
       }
     } catch (err) {
       log.error({ err }, "Memory worker tick failed");
-      currentIntervalMs = Math.min(currentIntervalMs * 2, POLL_INTERVAL_MAX_MS);
+      currentIntervalMs = Math.min(
+        Math.max(currentIntervalMs * 2, POLL_INTERVAL_MIN_MS),
+        POLL_INTERVAL_MAX_MS,
+      );
     } finally {
       tickRunning = false;
     }
