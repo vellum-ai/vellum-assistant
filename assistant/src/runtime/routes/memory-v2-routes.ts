@@ -50,6 +50,7 @@ import {
   getConceptPageCorpusStats,
   rebuildConceptPageCorpusStats,
 } from "../../memory/v2/sparse-bm25.js";
+import { mapCosineToUnit } from "../../memory/validation.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { RouteError } from "./errors.js";
@@ -341,7 +342,7 @@ export interface MemoryV2ExplainSimilarityRow {
   sparseRaw: number | null;
   /** Sparse score divided by the per-batch max, in [0, 1]. */
   sparseNorm: number | null;
-  /** `clamp01(dense_weight·dense + sparse_weight·sparseNorm)` — the simBatch fused value. */
+  /** `clamp01(dense_weight·denseUnit + sparse_weight·sparseNorm)` where `denseUnit = (cosine + 1) / 2` — the simBatch fused value. */
   fused: number;
 }
 
@@ -439,12 +440,14 @@ async function scoreChannel(
   } = effectiveWeights(hits, maxSparse, denseWeight, sparseWeight, config);
 
   const rows: MemoryV2ExplainSimilarityRow[] = hits.map((hit) => {
-    const dense = hit.denseScore ?? 0;
+    // Map cosine [-1, 1] → unit [0, 1] before fusion to mirror simBatch.
+    const denseUnit =
+      hit.denseScore !== undefined ? mapCosineToUnit(hit.denseScore) : 0;
     const sparseNorm =
       hit.sparseScore !== undefined && maxSparse > 0
         ? hit.sparseScore / maxSparse
         : 0;
-    const fusedRaw = effDense * dense + effSparse * sparseNorm;
+    const fusedRaw = effDense * denseUnit + effSparse * sparseNorm;
     const fused = Math.max(0, Math.min(1, fusedRaw));
     return {
       slug: hit.slug,

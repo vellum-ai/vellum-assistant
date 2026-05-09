@@ -17,18 +17,22 @@
 //   channel separately and fuses with the configured `dense_weight` /
 //   `sparse_weight` (which the schema validates sum to 1.0).
 //
-// Sparse normalization:
-//   Dense cosine similarity is already in [0, 1]. Qdrant's sparse score is
-//   on a different, unbounded scale (it depends on query and document term
+// Score normalization:
+//   Qdrant returns cosine similarity in [-1, 1]; we map it to [0, 1] via
+//   `mapCosineToUnit` before fusing. Skipping this step systematically
+//   depresses dense contributions for near-zero or negative cosines and
+//   skews ordering toward sparse-only matches. Qdrant's sparse score is on
+//   a different, unbounded scale (it depends on query and document term
 //   weights), so we divide by the per-batch maximum sparse score to bring
 //   it into [0, 1] before fusing. This is the design doc's choice (§4) —
-//   batch-relative normalization is sufficient because the score is consumed
-//   only as a per-turn ordering signal, not compared across turns.
+//   batch-relative normalization is sufficient because the score is
+//   consumed only as a per-turn ordering signal, not compared across
+//   turns.
 
 import type { AssistantConfig } from "../../config/types.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embedding-backend.js";
-import { clampUnitInterval } from "../validation.js";
+import { clampUnitInterval, mapCosineToUnit } from "../validation.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
 import { generateBm25QueryEmbedding } from "./sparse-bm25.js";
 
@@ -264,9 +268,10 @@ function computeMaxSparse<T>(
 
 /**
  * Fuse one half of a hit (body or summary) into a normalized [0, 1] score
- * via `clamp01(dense_weight · dense + sparse_weight · sparse/maxSparse)`.
- * Returns `undefined` when neither channel hit — a signal the half had no
- * match at all, so the caller can fall back to the other half cleanly.
+ * via `clamp01(dense_weight · denseUnit + sparse_weight · sparse/maxSparse)`,
+ * where `denseUnit = (cosine + 1) / 2`. Returns `undefined` when neither
+ * channel hit — a signal the half had no match at all, so the caller can
+ * fall back to the other half cleanly.
  */
 function fuseHalf(
   denseScore: number | undefined,
@@ -276,7 +281,7 @@ function fuseHalf(
   sparseWeight: number,
 ): number | undefined {
   if (denseScore === undefined && sparseScore === undefined) return undefined;
-  const dense = denseScore ?? 0;
+  const dense = denseScore !== undefined ? mapCosineToUnit(denseScore) : 0;
   const sparseNormalized =
     sparseScore !== undefined && maxSparse > 0 ? sparseScore / maxSparse : 0;
   return clamp01(denseWeight * dense + sparseWeight * sparseNormalized);

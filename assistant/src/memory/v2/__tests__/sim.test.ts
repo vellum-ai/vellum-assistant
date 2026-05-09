@@ -433,8 +433,8 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["dense-only-page"], config);
 
-    // 0.7 * 0.5 + 0.3 * 0 = 0.35
-    expect(out.get("dense-only-page")).toBeCloseTo(0.35, 6);
+    // cosine 0.5 → unit 0.75; 0.7 * 0.75 + 0.3 * 0 = 0.525
+    expect(out.get("dense-only-page")).toBeCloseTo(0.525, 6);
   });
 
   test("sparse-only hit gets dense contribution of 0; sparse normalized to 1.0", async () => {
@@ -475,10 +475,11 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["alice", "bob"], config);
 
-    // alice: 0.4 * 0.5 + 0.6 * 1.0 = 0.8
-    // bob:   0.4 * 0.25 + 0.6 * 0.5 = 0.4
-    expect(out.get("alice")).toBeCloseTo(0.8, 6);
-    expect(out.get("bob")).toBeCloseTo(0.4, 6);
+    // cosine→unit: alice 0.5 → 0.75, bob 0.25 → 0.625.
+    // alice: 0.4 * 0.75 + 0.6 * 1.0 = 0.9
+    // bob:   0.4 * 0.625 + 0.6 * 0.5 = 0.55
+    expect(out.get("alice")).toBeCloseTo(0.9, 6);
+    expect(out.get("bob")).toBeCloseTo(0.55, 6);
   });
 
   test("scores are clamped into [0, 1] even when fused values overshoot", async () => {
@@ -537,7 +538,8 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["alice"], config);
 
-    expect(out.get("alice")).toBeCloseTo(0.7, 6);
+    // cosine 0.7 → unit 0.85; cosine 0.3 → unit 0.65; max = 0.85.
+    expect(out.get("alice")).toBeCloseTo(0.85, 6);
   });
 
   test("takes max(body, summary) per slug — body higher than summary wins", async () => {
@@ -553,7 +555,8 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["alice"], config);
 
-    expect(out.get("alice")).toBeCloseTo(0.9, 6);
+    // cosine 0.9 → unit 0.95; cosine 0.4 → unit 0.7; max = 0.95.
+    expect(out.get("alice")).toBeCloseTo(0.95, 6);
   });
 
   test("falls back to body-only when the page has no summary embedding", async () => {
@@ -570,7 +573,8 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["legacy-page"], config);
 
-    expect(out.get("legacy-page")).toBeCloseTo(0.6, 6);
+    // cosine 0.6 → unit 0.8.
+    expect(out.get("legacy-page")).toBeCloseTo(0.8, 6);
   });
 
   test("normalizes body and summary sparse channels independently", async () => {
@@ -605,6 +609,21 @@ describe("simBatch", () => {
     // Body side has only bob's tiny sparse=0.5 against the body batch max
     // of 100 → ~0.005. The max picks the summary side.
     expect(out.get("bob")).toBeCloseTo(1.0, 6);
+  });
+
+  test("negative cosine maps to a non-negative dense contribution", async () => {
+    // Qdrant cosine search returns scores in [-1, 1]. A near-zero or
+    // negative cosine must not yield a negative dense contribution that
+    // depresses the fused score below the sparse-only floor.
+    const config = configWithWeights(0.7, 0.3);
+    stageHybridResponse([
+      { slug: "anti-match", denseScore: -1.0, sparseScore: 1 },
+    ]);
+
+    const out = await simBatch("query", ["anti-match"], config);
+
+    // cosine -1 → unit 0; sparse-norm = 1.0; fused = 0.7*0 + 0.3*1 = 0.3.
+    expect(out.get("anti-match")).toBeCloseTo(0.3, 6);
   });
 
   test("returned scores are always in [0, 1] for arbitrary inputs", async () => {
