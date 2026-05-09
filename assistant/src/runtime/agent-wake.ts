@@ -56,6 +56,7 @@ import {
 } from "../daemon/disk-pressure-policy.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
+import { recordRequestLog } from "../memory/llm-request-log-store.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -539,6 +540,24 @@ export async function wakeAgentForOpportunity(
       }
     };
     const onEvent = (event: AgentEvent): void => {
+      // Replicates the recordRequestLog side-effect in `handleUsage` because
+      // wakes own their own onEvent and never reach `dispatchAgentEvent`.
+      if (event.type === "usage" && event.rawRequest && event.rawResponse) {
+        try {
+          recordRequestLog(
+            conversationId,
+            JSON.stringify(event.rawRequest),
+            JSON.stringify(event.rawResponse),
+            undefined,
+            event.actualProvider,
+          );
+        } catch (err) {
+          log.warn(
+            { err, conversationId, source },
+            "agent-wake: failed to persist LLM request log (non-fatal)",
+          );
+        }
+      }
       if (mode === "buffering") {
         buffered.push(event);
         return;

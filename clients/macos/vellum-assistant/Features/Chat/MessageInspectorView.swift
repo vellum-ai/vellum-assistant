@@ -163,14 +163,7 @@ struct MessageInspectorView: View {
     }
 
     private var emptyStateSubtitle: String {
-        switch viewState.conversationKind {
-        case .backgroundMemoryConsolidation:
-            return "Per-call LLM context isn't currently captured for memory consolidation runs."
-        case .background, .scheduled:
-            return "Per-call LLM context isn't currently captured for this conversation type."
-        case .user, nil:
-            return "This message does not have any recorded LLM context to inspect."
-        }
+        "This message does not have any recorded LLM context to inspect."
     }
 
     private var failedState: some View {
