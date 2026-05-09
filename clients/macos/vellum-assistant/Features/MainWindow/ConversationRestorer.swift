@@ -94,6 +94,9 @@ final class ConversationRestorer {
         fetchConversationListTask?.cancel()
         invalidationRefetchTask?.cancel()
         reconnectHistoryDrainTask?.cancel()
+        for entry in inFlightHistoryReconstructionTasks {
+            entry.task.cancel()
+        }
         if let daemonReconnectObserver {
             NotificationCenter.default.removeObserver(daemonReconnectObserver)
         }
