@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { providers } from "./providers.js";
 
@@ -19,7 +19,7 @@ export const rateCards = sqliteTable(
     source: text("source").notNull(),
   },
   (table) => [
-    index("idx_rate_cards_provider_model_effective_from").on(
+    uniqueIndex("idx_rate_cards_provider_model_effective_from").on(
       table.providerId,
       table.model,
       table.effectiveFrom,

@@ -22,7 +22,7 @@ export function migrateInferenceRateCards(database: DrizzleDb): void {
       )
     `);
     raw.exec(/*sql*/ `
-      CREATE INDEX IF NOT EXISTS idx_rate_cards_provider_model_effective_from
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_cards_provider_model_effective_from
         ON rate_cards (provider_id, model, effective_from)
     `);
   });

@@ -100,6 +100,37 @@ describe("rate_cards migration", () => {
     }
   });
 
+  test("(provider_id, model, effective_from) UNIQUE constraint is enforced", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrapCheckpointsTable(raw);
+    migrateInferenceProviders(db);
+    migrateInferenceRateCards(db);
+
+    const now = Date.now();
+    raw
+      .query(
+        `INSERT INTO providers (id, name, contract, base_url, auth, created_at, updated_at)
+         VALUES ('prov1', 'anthropic-managed', 'anthropic_messages', 'https://api.anthropic.com', '{"type":"platform"}', ?, ?)`,
+      )
+      .run(now, now);
+    raw
+      .query(
+        `INSERT INTO rate_cards (id, provider_id, model, input_token_cost_per_1m, output_token_cost_per_1m, effective_from, source)
+         VALUES ('rc1', 'prov1', 'claude-sonnet-4.5', 3.0, 15.0, ?, 'manifest')`,
+      )
+      .run(now);
+
+    expect(() =>
+      raw
+        .query(
+          `INSERT INTO rate_cards (id, provider_id, model, input_token_cost_per_1m, output_token_cost_per_1m, effective_from, source)
+           VALUES ('rc2', 'prov1', 'claude-sonnet-4.5', 4.0, 20.0, ?, 'user_override')`,
+        )
+        .run(now),
+    ).toThrow();
+  });
+
   test("provider_id FK enforces referential integrity", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
