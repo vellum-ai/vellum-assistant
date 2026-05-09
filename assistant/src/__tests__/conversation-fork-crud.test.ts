@@ -39,16 +39,23 @@ import {
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import {
+  loadGraphMemoryState,
+  saveGraphMemoryState,
+} from "../memory/graph/graph-memory-state-store.js";
 import { getRequestLogsByMessageId } from "../memory/llm-request-log-store.js";
 import {
+  activationState,
   channelInboundEvents,
   conversationAssistantAttentionState,
+  conversationGraphMemoryState,
   conversations,
   externalConversationBindings,
   llmRequestLogs,
   memoryJobs,
   toolInvocations,
 } from "../memory/schema.js";
+import { hydrate as hydrateActivationState } from "../memory/v2/activation-store.js";
 
 initializeDb();
 
@@ -57,6 +64,8 @@ function resetTables(): void {
   db.delete(channelInboundEvents).run();
   db.delete(externalConversationBindings).run();
   db.delete(conversationAssistantAttentionState).run();
+  db.delete(activationState).run();
+  db.delete(conversationGraphMemoryState).run();
   db.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   db.delete(memoryJobs).run();
@@ -136,7 +145,6 @@ describe("forkConversation", () => {
       ),
     ).toBe(true);
   });
-
 
   test("preserves source order when source messages share a timestamp", () => {
     const source = createConversation("Equal timestamp thread");
@@ -499,5 +507,99 @@ describe("forkConversation", () => {
     expect(forkToolInvocationCount).toBe(0);
     expect(forkInboundEventCount).toBe(0);
     expect(forkQueuedWorkCount).toBe(0);
+  });
+
+  test("copies the parent's v2 activation state into the fork", async () => {
+    const source = createConversation("Activation thread");
+    const sourceMessage = await addMessage(
+      source.id,
+      "user",
+      "Tell me about the Q3 launch plan",
+      undefined,
+      { skipIndexing: true },
+    );
+
+    const db = getDb();
+    db.insert(activationState)
+      .values({
+        conversationId: source.id,
+        messageId: sourceMessage.id,
+        stateJson: JSON.stringify({
+          "concepts/q3-launch-plan": 0.71,
+          "concepts/marketing-ops": 0.34,
+        }),
+        everInjectedJson: JSON.stringify([
+          { slug: "concepts/q3-launch-plan", turn: 1 },
+          { slug: "concepts/marketing-ops", turn: 1 },
+        ]),
+        currentTurn: 2,
+        updatedAt: 1_700_000_000_000,
+      })
+      .run();
+
+    const fork = forkConversation({ conversationId: source.id });
+
+    const childState = await hydrateActivationState(db, fork.id);
+    expect(childState).toEqual({
+      messageId: sourceMessage.id,
+      state: {
+        "concepts/q3-launch-plan": 0.71,
+        "concepts/marketing-ops": 0.34,
+      },
+      everInjected: [
+        { slug: "concepts/q3-launch-plan", turn: 1 },
+        { slug: "concepts/marketing-ops", turn: 1 },
+      ],
+      currentTurn: 2,
+      updatedAt: 1_700_000_000_000,
+    });
+
+    // Parent state is untouched.
+    const parentState = await hydrateActivationState(db, source.id);
+    expect(parentState?.currentTurn).toBe(2);
+  });
+
+  test("copies the parent's v1 graph memory state into the fork", async () => {
+    const source = createConversation("Graph tracker thread");
+    await addMessage(
+      source.id,
+      "user",
+      "Look up alice's preferences",
+      undefined,
+      {
+        skipIndexing: true,
+      },
+    );
+
+    const trackerSnapshot = JSON.stringify({
+      initialized: true,
+      needsReload: false,
+      inContext: ["node-alice", "node-bob"],
+      log: [
+        { nodeId: "node-alice", turn: 1 },
+        { nodeId: "node-bob", turn: 2 },
+      ],
+      currentTurn: 3,
+    });
+    saveGraphMemoryState(source.id, trackerSnapshot);
+
+    const fork = forkConversation({ conversationId: source.id });
+
+    expect(loadGraphMemoryState(fork.id)).toBe(trackerSnapshot);
+    // Parent row is untouched.
+    expect(loadGraphMemoryState(source.id)).toBe(trackerSnapshot);
+  });
+
+  test("leaves both memory state tables empty when the parent has none", async () => {
+    const source = createConversation("Pristine thread");
+    await addMessage(source.id, "user", "first message", undefined, {
+      skipIndexing: true,
+    });
+
+    const fork = forkConversation({ conversationId: source.id });
+
+    const db = getDb();
+    expect(await hydrateActivationState(db, fork.id)).toBeNull();
+    expect(loadGraphMemoryState(fork.id)).toBeNull();
   });
 });

@@ -47,6 +47,7 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { getDb, getSqliteFrom } from "./db-connection.js";
+import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
@@ -61,6 +62,7 @@ import {
   toolInvocations,
 } from "./schema.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
+import { forkActivationState } from "./v2/activation-store.js";
 
 const log = getLogger("conversation-store");
 
@@ -665,6 +667,12 @@ export function forkConversation(params: {
       latestAssistantMessageId: latestForkedAssistant?.messageId ?? null,
       latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
     });
+
+    // Carry the parent's per-conversation memory state into the child so the
+    // forked thread resumes with the same activation/injection log and
+    // in-context tracker the parent had at fork time.
+    forkActivationState(db, sourceConversation.id, fc.id);
+    forkGraphMemoryState(sourceConversation.id, fc.id);
 
     return fc;
   });
