@@ -9,15 +9,18 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { resolveConversationId } from "../utils/conversation-id.js";
 
 // ── Registration ──────────────────────────────────────────────────────
 
 export function registerTaskCommand(program: Command): void {
-  const task = program
-    .command("task")
-    .description("Manage task templates and work queue items");
+  registerCommand(program, {
+    name: "task",
+    transport: "ipc",
+    description: "Manage task templates and work queue items",
+    build: (task) => {
 
   task.addHelpText(
     "after",
@@ -763,4 +766,6 @@ Examples:
         }
       },
     );
+    },
+  });
 }

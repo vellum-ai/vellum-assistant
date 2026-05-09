@@ -1,7 +1,11 @@
+import { existsSync } from "node:fs";
+
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { getAssistantSocketPath } from "../../ipc/socket-path.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 interface HealthResponse {
@@ -16,42 +20,51 @@ function fmtMb(mb: number): string {
 }
 
 export function registerStatusCommand(program: Command): void {
-  program
-    .command("status")
-    .description("Show assistant version, workspace, and runtime health")
-    .action(async () => {
-      const result = await cliIpcCall<HealthResponse>("health");
+  registerCommand(program, {
+    name: "status",
+    transport: "ipc",
+    description: "Show assistant version, workspace, and runtime health",
+    build: (cmd) => {
+      cmd.action(async () => {
+        const result = await cliIpcCall<HealthResponse>("health");
 
-      if (!result.ok || !result.result) {
-        log.error(
-          result.error ??
-            "Assistant not running — could not connect to IPC socket.",
-        );
-        process.exit(1);
-      }
-
-      const h = result.result;
-      const workspace = getWorkspaceDirDisplay();
-
-      const rows: [string, string][] = [
-        ["Version", h.version],
-        ["Workspace", workspace],
-        ["", ""],
-        ["Memory", `${fmtMb(h.memory.currentMb)} / ${fmtMb(h.memory.maxMb)}`],
-        ...(h.disk
-          ? ([["Disk", `${fmtMb(h.disk.freeMb)} free`]] as [string, string][])
-          : []),
-      ];
-
-      const labelWidth = Math.max(
-        ...rows.filter(([l]) => l).map(([l]) => l.length),
-      );
-      for (const [label, value] of rows) {
-        if (!label) {
-          log.info("");
-          continue;
+        if (!result.ok || !result.result) {
+          const socketPath = getAssistantSocketPath();
+          const socketExists = existsSync(socketPath);
+          const workspace = getWorkspaceDirDisplay();
+          if (socketExists) {
+            log.info("Daemon: running");
+          } else {
+            log.info("Daemon: down");
+          }
+          log.info(`Workspace: ${workspace}`);
+          process.exit(0);
         }
-        log.info(`${label.padEnd(labelWidth)}  ${value}`);
-      }
-    });
+
+        const h = result.result;
+        const workspace = getWorkspaceDirDisplay();
+
+        const rows: [string, string][] = [
+          ["Version", h.version],
+          ["Workspace", workspace],
+          ["", ""],
+          ["Memory", `${fmtMb(h.memory.currentMb)} / ${fmtMb(h.memory.maxMb)}`],
+          ...(h.disk
+            ? ([["Disk", `${fmtMb(h.disk.freeMb)} free`]] as [string, string][])
+            : []),
+        ];
+
+        const labelWidth = Math.max(
+          ...rows.filter(([l]) => l).map(([l]) => l.length),
+        );
+        for (const [label, value] of rows) {
+          if (!label) {
+            log.info("");
+            continue;
+          }
+          log.info(`${label.padEnd(labelWidth)}  ${value}`);
+        }
+      });
+    },
+  });
 }

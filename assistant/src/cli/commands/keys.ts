@@ -7,6 +7,7 @@ import {
   deleteSecureKeyViaDaemon,
   setSecureKeyViaDaemon,
 } from "../lib/daemon-credential-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -28,9 +29,11 @@ const UNTRUSTED_SHELL_ERROR =
   "API key management is restricted when running under CES shell lockdown.";
 
 export function registerKeysCommand(program: Command): void {
-  const keys = program
-    .command("keys")
-    .description("Manage API keys in secure storage");
+  registerCommand(program, {
+    name: "keys",
+    transport: "local",
+    description: "Manage API keys in secure storage",
+    build: (keys) => {
 
   keys.addHelpText(
     "after",
@@ -147,4 +150,6 @@ Examples:
         process.exit(1);
       }
     });
+    },
+  });
 }

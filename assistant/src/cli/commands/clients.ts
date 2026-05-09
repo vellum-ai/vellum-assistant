@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { optsToQueryParams } from "../lib/ipc-params.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
@@ -23,9 +24,11 @@ interface DisconnectClientResponse {
 }
 
 export function registerClientsCommand(program: Command): void {
-  const clients = program
-    .command("clients")
-    .description("Discover and manage connected clients");
+  registerCommand(program, {
+    name: "clients",
+    transport: "ipc",
+    description: "Discover and manage connected clients",
+    build: (clients) => {
 
   clients.addHelpText(
     "after",
@@ -178,6 +181,8 @@ $ assistant clients disconnect a1a30bde-6679-406c-bc32-d5a0d2a7a99e --json`,
         );
       },
     );
+    },
+  });
 }
 
 function formatRelativeTime(iso: string): string {

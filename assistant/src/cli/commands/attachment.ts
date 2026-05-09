@@ -8,15 +8,18 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
 // ── Registration ──────────────────────────────────────────────────────
 
 export function registerAttachmentCommand(program: Command): void {
-  const attachment = program
-    .command("attachment")
-    .description("Manage file attachments for conversations");
+  registerCommand(program, {
+    name: "attachment",
+    transport: "ipc",
+    description: "Manage file attachments for conversations",
+    build: (attachment) => {
 
   attachment.addHelpText(
     "after",
@@ -183,4 +186,6 @@ Examples:
         }
       },
     );
+    },
+  });
 }

@@ -99,7 +99,7 @@ export async function cliIpcCall<T = unknown>(
       );
       finish({
         ok: false,
-        error: `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`,
+        error: `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`,
       });
     }, CONNECT_TIMEOUT_MS);
 
@@ -116,7 +116,7 @@ export async function cliIpcCall<T = unknown>(
         ok: false,
         error:
           code === "ENOENT" || code === "ECONNREFUSED"
-            ? `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`
+            ? `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`
             : `Connection error: ${code ?? err.message}`,
       });
     });
@@ -127,7 +127,7 @@ export async function cliIpcCall<T = unknown>(
           ok: false,
           // hadError is true when close follows a socket error (e.g. ENOENT).
           error: hadError
-            ? `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`
+            ? `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`
             : "Connection closed before response",
         });
       }
@@ -227,7 +227,7 @@ export async function cliIpcCallBinary(
 
     const connectTimer = setTimeout(() => {
       log.debug({ method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS }, "CLI IPC binary connect timed out");
-      finish({ ok: false, error: `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.` });
+      finish({ ok: false, error: `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.` });
     }, CONNECT_TIMEOUT_MS);
 
     const socket = new Socket();
@@ -240,7 +240,7 @@ export async function cliIpcCallBinary(
         ok: false,
         error:
           code === "ENOENT" || code === "ECONNREFUSED"
-            ? `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`
+            ? `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`
             : `Connection error: ${code ?? err.message}`,
       });
     });
@@ -250,7 +250,7 @@ export async function cliIpcCallBinary(
         finish({
           ok: false,
           error: hadError
-            ? `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`
+            ? `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`
             : "Connection closed before response",
         });
       }
@@ -367,7 +367,7 @@ export async function cliIpcCallStream(
 
     const connectTimer = setTimeout(() => {
       log.debug({ method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS }, "CLI IPC stream connect timed out");
-      finishError({ ok: false, error: `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.` });
+      finishError({ ok: false, error: `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.` });
     }, CONNECT_TIMEOUT_MS);
 
     const socket = new Socket();
@@ -381,7 +381,7 @@ export async function cliIpcCallStream(
           ok: false,
           error:
             code === "ENOENT" || code === "ECONNREFUSED"
-              ? `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`
+              ? `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`
               : `Connection error: ${code ?? err.message}`,
         });
       } else {
@@ -395,7 +395,7 @@ export async function cliIpcCallStream(
         finishError({
           ok: false,
           error: hadError
-            ? `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`
+            ? `Could not connect to assistant daemon at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start the daemon.`
             : "Connection closed before response",
         });
       } else if (streamController) {
