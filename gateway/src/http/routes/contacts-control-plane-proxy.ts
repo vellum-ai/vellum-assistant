@@ -11,7 +11,6 @@ import { eq } from "drizzle-orm";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import {
-  type SqliteValue,
   assistantDbQuery,
   assistantDbRun,
 } from "../../db/assistant-db-proxy.js";
@@ -29,7 +28,7 @@ const log = getLogger("contacts-control-plane-proxy");
 // ---------------------------------------------------------------------------
 
 const VALID_CONTACT_TYPES = ["human", "assistant"] as const;
-const VALID_ASSISTANT_SPECIES = ["vellum", "openclaw"] as const;
+const VALID_ASSISTANT_SPECIES = ["vellum"] as const;
 const VALID_CHANNEL_STATUSES = [
   "active",
   "pending",
@@ -57,172 +56,26 @@ function isChannelPolicy(v: unknown): v is ChannelPolicy {
   return VALID_CHANNEL_POLICIES.includes(v as ChannelPolicy);
 }
 
-// ---------------------------------------------------------------------------
-// userFile slug helper
-// ---------------------------------------------------------------------------
-
 /**
- * Compute a unique `user_file` slug for a new contact.
- *
- * Mirrors the assistant's generateUserFileSlug: converts displayName to a
- * lowercase kebab slug, queries the assistant DB for collisions, and adds a
- * numeric suffix if necessary.
+ * Validate that metadata matches the expected shape for the given species.
+ * Mirrors `validateSpeciesMetadata` in `assistant/src/contacts/contact-store.ts`.
  */
-async function resolveAssistantUserFileSlug(
-  displayName: string,
-): Promise<string> {
-  const slug =
-    displayName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 100) || "user";
+function validateSpeciesMetadata(
+  species: AssistantSpecies,
+  metadata: Record<string, unknown> | null | undefined,
+): string | null {
+  if (metadata == null) return null;
 
-  const rows = await assistantDbQuery<{ userFile: string | null }>(
-    "SELECT user_file AS userFile FROM contacts WHERE user_file LIKE ?",
-    [`${slug}%`],
-  );
-  const taken = new Set(
-    rows.map((r) => r.userFile?.toLowerCase()).filter(Boolean),
-  );
-
-  const base = `${slug}.md`;
-  if (!taken.has(base)) return base;
-
-  for (let i = 2; i <= 100; i++) {
-    const candidate = `${slug}-${i}.md`;
-    if (!taken.has(candidate)) return candidate;
+  if (species === "vellum") {
+    if (typeof metadata.assistantId !== "string" || !metadata.assistantId) {
+      return 'Vellum assistant metadata requires a non-empty "assistantId" string';
+    }
+    if (typeof metadata.gatewayUrl !== "string" || !metadata.gatewayUrl) {
+      return 'Vellum assistant metadata requires a non-empty "gatewayUrl" string';
+    }
   }
-  return `${slug}-${crypto.randomUUID().slice(0, 8)}.md`;
-}
 
-// ---------------------------------------------------------------------------
-// Assistant DB response builder
-// ---------------------------------------------------------------------------
-
-interface AssistantContactRow {
-  id: string;
-  displayName: string;
-  notes: string | null;
-  role: string;
-  contactType: string;
-  principalId: string | null;
-  userFile: string | null;
-  createdAt: number;
-  updatedAt: number;
-  channelId: string | null;
-  channelType: string | null;
-  address: string | null;
-  isPrimary: number | null;
-  externalUserId: string | null;
-  externalChatId: string | null;
-  channelStatus: string | null;
-  channelPolicy: string | null;
-  verifiedAt: number | null;
-  verifiedVia: string | null;
-  inviteId: string | null;
-  revokedReason: string | null;
-  blockedReason: string | null;
-  lastSeenAt: number | null;
-  interactionCount: number | null;
-  lastInteraction: number | null;
-  channelCreatedAt: number | null;
-  channelUpdatedAt: number | null;
-}
-
-/**
- * Read a contact + channels from the assistant DB and build the
- * ContactWithChannels response shape that callers expect.
- */
-async function readAssistantContact(
-  contactId: string,
-): Promise<Record<string, unknown> | null> {
-  const rows = await assistantDbQuery<AssistantContactRow>(
-    `SELECT c.id,
-            c.display_name      AS displayName,
-            c.notes,
-            c.role,
-            c.contact_type      AS contactType,
-            c.principal_id      AS principalId,
-            c.user_file         AS userFile,
-            c.created_at        AS createdAt,
-            c.updated_at        AS updatedAt,
-            cc.id               AS channelId,
-            cc.type             AS channelType,
-            cc.address,
-            cc.is_primary       AS isPrimary,
-            cc.external_user_id AS externalUserId,
-            cc.external_chat_id AS externalChatId,
-            cc.status           AS channelStatus,
-            cc.policy           AS channelPolicy,
-            cc.verified_at      AS verifiedAt,
-            cc.verified_via     AS verifiedVia,
-            cc.invite_id        AS inviteId,
-            cc.revoked_reason   AS revokedReason,
-            cc.blocked_reason   AS blockedReason,
-            cc.last_seen_at     AS lastSeenAt,
-            cc.interaction_count AS interactionCount,
-            cc.last_interaction  AS lastInteraction,
-            cc.created_at       AS channelCreatedAt,
-            cc.updated_at       AS channelUpdatedAt
-     FROM contacts c
-     LEFT JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.id = ?
-     ORDER BY cc.is_primary DESC, cc.created_at ASC`,
-    [contactId],
-  );
-
-  if (!rows.length) return null;
-
-  const first = rows[0];
-  const channels = rows
-    .filter((r) => r.channelId !== null)
-    .map((r) => ({
-      id: r.channelId!,
-      contactId,
-      type: r.channelType!,
-      address: r.address!,
-      isPrimary: Boolean(r.isPrimary),
-      externalUserId: r.externalUserId,
-      externalChatId: r.externalChatId,
-      status: r.channelStatus,
-      policy: r.channelPolicy,
-      verifiedAt: r.verifiedAt,
-      verifiedVia: r.verifiedVia,
-      inviteId: r.inviteId,
-      revokedReason: r.revokedReason,
-      blockedReason: r.blockedReason,
-      lastSeenAt: r.lastSeenAt,
-      interactionCount: r.interactionCount ?? 0,
-      lastInteraction: r.lastInteraction,
-      createdAt: r.channelCreatedAt,
-      updatedAt: r.channelUpdatedAt,
-    }));
-
-  const interactionCount = channels.reduce(
-    (sum, ch) => sum + (ch.interactionCount ?? 0),
-    0,
-  );
-  const lastInteraction =
-    channels.reduce(
-      (max, ch) => Math.max(max, ch.lastInteraction ?? 0),
-      0,
-    ) || null;
-
-  return {
-    id: first.id,
-    displayName: first.displayName,
-    notes: first.notes,
-    role: first.role,
-    contactType: first.contactType,
-    principalId: first.principalId,
-    userFile: first.userFile,
-    createdAt: first.createdAt,
-    updatedAt: first.updatedAt,
-    interactionCount,
-    lastInteraction,
-    channels,
-  };
+  return null;
 }
 
 export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
@@ -359,6 +212,19 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
             { status: 400 },
           );
         }
+        const speciesError = validateSpeciesMetadata(
+          assistantMeta.species,
+          assistantMeta.metadata as
+            | Record<string, unknown>
+            | null
+            | undefined,
+        );
+        if (speciesError) {
+          return Response.json(
+            { error: { code: "BAD_REQUEST", message: speciesError } },
+            { status: 400 },
+          );
+        }
       }
       if (body.contactType === "human" && assistantMeta) {
         return Response.json(
@@ -409,6 +275,30 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           );
         }
         for (const ch of channelInputs) {
+          if (typeof ch?.type !== "string" || !ch.type.trim()) {
+            return Response.json(
+              {
+                error: {
+                  code: "BAD_REQUEST",
+                  message:
+                    "channel.type is required and must be a non-empty string",
+                },
+              },
+              { status: 400 },
+            );
+          }
+          if (typeof ch?.address !== "string" || !ch.address.trim()) {
+            return Response.json(
+              {
+                error: {
+                  code: "BAD_REQUEST",
+                  message:
+                    "channel.address is required and must be a non-empty string",
+                },
+              },
+              { status: 400 },
+            );
+          }
           if (ch.status !== undefined && !isChannelStatus(ch.status)) {
             return Response.json(
               {
@@ -434,13 +324,26 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         }
       }
 
-      // ── Gateway DB write ─────────────────────────────────────────────
+      // ── Service-layer write (gateway DB + assistant DB dual-write) ───
       const store = new ContactStore();
-      const { contact, created } = store.upsertContact({
+      const { contact, created } = await store.upsertContact({
         id: body.id as string | undefined,
         displayName,
         role: body.role as string | undefined,
         principalId: body.principalId as string | null | undefined,
+        notes: body.notes as string | null | undefined,
+        contactType: body.contactType as string | undefined,
+        assistantMetadata:
+          body.contactType === "assistant" && assistantMeta
+            ? {
+                species: assistantMeta.species as string,
+                metadata:
+                  (assistantMeta.metadata as
+                    | Record<string, unknown>
+                    | null
+                    | undefined) ?? null,
+              }
+            : undefined,
         channels: channelInputs?.map((ch) => ({
           type: ch.type,
           address: ch.address,
@@ -451,179 +354,14 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           policy: ch.policy,
         })),
       });
-      const contactId = contact.id;
-      const now = Date.now();
-
-      // ── Assistant DB dual-write ──────────────────────────────────────
-      try {
-        // Check whether the contact already exists in the assistant DB so we
-        // know whether to INSERT or UPDATE (and whether to compute userFile).
-        const existing = await assistantDbQuery<{ userFile: string | null }>(
-          "SELECT user_file AS userFile FROM contacts WHERE id = ?",
-          [contactId],
-        );
-
-        if (existing.length) {
-          // UPDATE — preserve user_file and created_at.
-          await assistantDbRun(
-            `UPDATE contacts
-               SET display_name = ?,
-                   notes        = ?,
-                   role         = ?,
-                   contact_type = ?,
-                   principal_id = ?,
-                   updated_at   = ?
-             WHERE id = ?`,
-            [
-              displayName,
-              (body.notes as string | null | undefined) ?? null,
-              (body.role as string | undefined) ?? "contact",
-              (body.contactType as string | undefined) ?? "human",
-              (body.principalId as string | null | undefined) ?? null,
-              now,
-              contactId,
-            ],
-          );
-        } else {
-          // INSERT — compute a unique user_file slug.
-          const userFile = await resolveAssistantUserFileSlug(displayName);
-          await assistantDbRun(
-            `INSERT INTO contacts
-               (id, display_name, notes, role, contact_type, principal_id,
-                user_file, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              contactId,
-              displayName,
-              (body.notes as string | null | undefined) ?? null,
-              (body.role as string | undefined) ?? "contact",
-              (body.contactType as string | undefined) ?? "human",
-              (body.principalId as string | null | undefined) ?? null,
-              userFile,
-              now,
-              now,
-            ],
-          );
-        }
-
-        // Assistant contact metadata (assistant-type contacts only).
-        if (body.contactType === "assistant" && assistantMeta) {
-          await assistantDbRun(
-            `INSERT INTO assistant_contact_metadata (contact_id, species, metadata)
-             VALUES (?, ?, ?)
-             ON CONFLICT(contact_id) DO UPDATE SET
-               species  = excluded.species,
-               metadata = excluded.metadata`,
-            [
-              contactId,
-              assistantMeta.species as string,
-              assistantMeta.metadata != null
-                ? JSON.stringify(assistantMeta.metadata)
-                : null,
-            ],
-          );
-        }
-
-        // Sync channels to assistant DB.
-        for (const ch of channelInputs ?? []) {
-          const address = ch.address.toLowerCase();
-
-          const existingCh = await assistantDbQuery<{
-            id: string;
-            status: string;
-          }>(
-            "SELECT id, status FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ?",
-            [contactId, ch.type, address],
-          );
-
-          if (existingCh.length) {
-            const isBlocked = existingCh[0].status === "blocked";
-            const setParts: string[] = [
-              "external_user_id = ?",
-              "external_chat_id = ?",
-              "updated_at = ?",
-            ];
-            const setParams: SqliteValue[] = [
-              ch.externalUserId ?? null,
-              ch.externalChatId ?? null,
-              now,
-            ];
-            if (!isBlocked) {
-              if (ch.status !== undefined) {
-                setParts.push("status = ?");
-                setParams.push(ch.status);
-              }
-              if (ch.policy !== undefined) {
-                setParts.push("policy = ?");
-                setParams.push(ch.policy);
-              }
-            }
-            setParams.push(existingCh[0].id);
-            await assistantDbRun(
-              `UPDATE contact_channels SET ${setParts.join(", ")} WHERE id = ?`,
-              setParams,
-            );
-          } else {
-            // Skip if an address conflict exists on a different contact.
-            const conflict = await assistantDbQuery<{ id: string }>(
-              "SELECT id FROM contact_channels WHERE type = ? AND address = ?",
-              [ch.type, address],
-            );
-            if (conflict.length) continue;
-
-            await assistantDbRun(
-              `INSERT INTO contact_channels
-                 (id, contact_id, type, address, is_primary,
-                  external_user_id, external_chat_id,
-                  status, policy, interaction_count, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-              [
-                crypto.randomUUID(),
-                contactId,
-                ch.type,
-                address,
-                ch.isPrimary ? 1 : 0,
-                ch.externalUserId ?? null,
-                ch.externalChatId ?? null,
-                ch.status ?? "unverified",
-                ch.policy ?? "allow",
-                now,
-                now,
-              ],
-            );
-          }
-        }
-      } catch (err) {
-        log.warn(
-          { contactId, err },
-          "upsert_contact: assistant DB dual-write failed (best-effort)",
-        );
-      }
 
       // ── Emit contacts_changed ────────────────────────────────────────
       void ipcCallAssistant("emit_event", {
         body: { kind: "contacts_changed" },
       } as unknown as Record<string, unknown>).catch(() => {});
 
-      // ── Build response from assistant DB ─────────────────────────────
-      const fullContact = await readAssistantContact(contactId);
-      const responseContact = fullContact ?? {
-        id: contact.id,
-        displayName: contact.displayName,
-        role: contact.role,
-        principalId: contact.principalId,
-        notes: null,
-        contactType: (body.contactType as string | undefined) ?? "human",
-        userFile: null,
-        createdAt: contact.createdAt,
-        updatedAt: contact.updatedAt,
-        interactionCount: 0,
-        lastInteraction: null,
-        channels: [],
-      };
-
-      log.info({ contactId, created }, "upsert_contact: handled natively");
-      return Response.json({ ok: true, contact: responseContact });
+      log.info({ contactId: contact.id, created }, "upsert_contact: handled natively");
+      return Response.json({ ok: true, contact });
     },
 
     async handleGetContact(req: Request, contactId: string): Promise<Response> {

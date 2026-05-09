@@ -38,20 +38,27 @@ mock.module("../ipc/assistant-client.js", () => ({
 }));
 
 // ── ContactStore mock ─────────────────────────────────────────────────────────
+// upsertContact is now async and returns a full ContactWithChannels shape; the
+// service layer owns the assistant-DB dual-write internally.
 const DEFAULT_MOCK_CONTACT = {
   id: "ct_mock",
   displayName: "Mock Contact",
+  notes: null as string | null,
   role: "contact",
-  principalId: null,
+  contactType: "human",
+  principalId: null as string | null,
+  userFile: null as string | null,
   createdAt: 1000000,
   updatedAt: 1000000,
+  interactionCount: 0,
+  lastInteraction: null as number | null,
+  channels: [] as unknown[],
 };
 
-type UpsertResult = { contact: typeof DEFAULT_MOCK_CONTACT; channels: unknown[]; created: boolean };
-type UpsertFn = (params: unknown) => UpsertResult;
-let contactStoreUpsertMock: ReturnType<typeof mock<UpsertFn>> = mock(() => ({
+type UpsertResult = { contact: typeof DEFAULT_MOCK_CONTACT; created: boolean };
+type UpsertFn = (params: unknown) => Promise<UpsertResult>;
+let contactStoreUpsertMock: ReturnType<typeof mock<UpsertFn>> = mock(async () => ({
   contact: DEFAULT_MOCK_CONTACT,
-  channels: [],
   created: false,
 }));
 
@@ -99,9 +106,8 @@ afterEach(() => {
   assistantDbQueryMock = mock(async () => []);
   assistantDbRunMock = mock(async () => {});
   ipcCallAssistantMock = mock(async () => ({}));
-  contactStoreUpsertMock = mock(() => ({
+  contactStoreUpsertMock = mock(async () => ({
     contact: DEFAULT_MOCK_CONTACT,
-    channels: [],
     created: false,
   }));
 });
@@ -355,20 +361,14 @@ describe("handleUpsertContact (gateway-native)", () => {
 
   test("creates contact natively and returns contact shape", async () => {
     const mockContact = {
+      ...DEFAULT_MOCK_CONTACT,
       id: "ct_abc123",
       displayName: "Alice",
-      role: "contact",
-      principalId: null,
-      createdAt: 1000000,
-      updatedAt: 1000000,
     };
-    contactStoreUpsertMock = mock(() => ({
+    contactStoreUpsertMock = mock(async () => ({
       contact: mockContact,
-      channels: [],
       created: true,
     }));
-    // assistantDbQueryMock returns [] by default: new contact (triggers INSERT),
-    // no slug collisions, and readAssistantContact returns null (fallback shape).
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleUpsertContact(
@@ -385,10 +385,12 @@ describe("handleUpsertContact (gateway-native)", () => {
     expect(body.contact.id).toBe("ct_abc123");
     expect(body.contact.displayName).toBe("Alice");
     expect(body.contact.channels).toEqual([]);
-    // ContactStore was called with the right displayName.
+    // Service layer owns the upsert + dual-write.
     expect(contactStoreUpsertMock).toHaveBeenCalledTimes(1);
-    // assistant DB INSERT was issued (assistantDbRun called).
-    expect(assistantDbRunMock).toHaveBeenCalled();
+    const [params] = contactStoreUpsertMock.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(params.displayName).toBe("Alice");
   });
 
   test("returns 400 when body is invalid JSON", async () => {
@@ -404,5 +406,157 @@ describe("handleUpsertContact (gateway-native)", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.code).toBe("BAD_REQUEST");
+  });
+
+  test("returns 400 when channel.type is missing", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Alice",
+          channels: [{ address: "alice@example.com" }],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/channel\.type/);
+    expect(contactStoreUpsertMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 when channel.address is missing", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Alice",
+          channels: [{ type: "email" }],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/channel\.address/);
+    expect(contactStoreUpsertMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 when channel.address is empty/whitespace", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Alice",
+          channels: [{ type: "email", address: "   " }],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/channel\.address/);
+    expect(contactStoreUpsertMock).not.toHaveBeenCalled();
+  });
+
+  test("rejects unsupported species (e.g. openclaw)", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Some Bot",
+          contactType: "assistant",
+          assistantMetadata: { species: "openclaw", metadata: {} },
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/species/);
+    expect(contactStoreUpsertMock).not.toHaveBeenCalled();
+  });
+
+  test("rejects vellum metadata missing assistantId", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Vellum Bot",
+          contactType: "assistant",
+          assistantMetadata: {
+            species: "vellum",
+            metadata: { gatewayUrl: "https://x.example" },
+          },
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/assistantId/);
+    expect(contactStoreUpsertMock).not.toHaveBeenCalled();
+  });
+
+  test("rejects vellum metadata missing gatewayUrl", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Vellum Bot",
+          contactType: "assistant",
+          assistantMetadata: {
+            species: "vellum",
+            metadata: { assistantId: "asst_123" },
+          },
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/gatewayUrl/);
+    expect(contactStoreUpsertMock).not.toHaveBeenCalled();
+  });
+
+  test("accepts vellum assistant with full metadata", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Vellum Bot",
+          contactType: "assistant",
+          assistantMetadata: {
+            species: "vellum",
+            metadata: {
+              assistantId: "asst_123",
+              gatewayUrl: "https://gw.example.com",
+            },
+          },
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(contactStoreUpsertMock).toHaveBeenCalledTimes(1);
+    const [params] = contactStoreUpsertMock.mock.calls[0] as [
+      { assistantMetadata?: { species: string; metadata?: Record<string, unknown> } },
+    ];
+    expect(params.assistantMetadata?.species).toBe("vellum");
+    expect(params.assistantMetadata?.metadata?.assistantId).toBe("asst_123");
   });
 });
