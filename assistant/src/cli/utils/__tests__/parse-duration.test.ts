@@ -34,4 +34,16 @@ describe("parseDuration", () => {
   test("empty string → throws Error", () => {
     expect(() => parseDuration("")).toThrow();
   });
+
+  test('"1hxyz" (partial parse) → throws with "Invalid duration"', () => {
+    expect(() => parseDuration("1hxyz")).toThrow("Invalid duration");
+  });
+
+  test('"1h-30m" (partial parse with dash) → throws with "Invalid duration"', () => {
+    expect(() => parseDuration("1h-30m")).toThrow("Invalid duration");
+  });
+
+  test('"30mxyz" (partial parse) → throws with "Invalid duration"', () => {
+    expect(() => parseDuration("30mxyz")).toThrow("Invalid duration");
+  });
 });

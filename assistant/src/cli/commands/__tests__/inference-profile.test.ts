@@ -158,15 +158,15 @@ describe("profile open", () => {
     });
   });
 
-  test("no --ttl → IPC body has NO ttlSeconds key", async () => {
+  test("no --ttl → IPC body has ttlSeconds: 1800 (default)", async () => {
     mockIpcResult = {
       ok: true,
       result: {
         conversationId: "conv-test-123",
         profile: "balanced",
         sessionId: "sess-abc",
-        expiresAt: Date.now() + 3600 * 1000,
-        ttlSeconds: 3600,
+        expiresAt: Date.now() + 1800 * 1000,
+        ttlSeconds: 1800,
         replaced: null,
       },
     };
@@ -175,13 +175,7 @@ describe("profile open", () => {
 
     expect(lastIpcCall).not.toBeNull();
     expect(lastIpcCall!.method).toBe("inference_profile_open");
-    // ttlSeconds must NOT be in the body
-    expect(
-      Object.prototype.hasOwnProperty.call(
-        lastIpcCall!.params?.body,
-        "ttlSeconds",
-      ),
-    ).toBe(false);
+    expect(lastIpcCall!.params?.body?.ttlSeconds).toBe(1800);
   });
 
   test("--ttl never → IPC body has ttlSeconds: null", async () => {

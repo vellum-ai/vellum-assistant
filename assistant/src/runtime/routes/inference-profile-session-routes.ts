@@ -68,7 +68,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       conversationId: z.string().min(1),
       profile: z.string().min(1),
-      ttlSeconds: z.number().positive().optional(),
+      ttlSeconds: z.number().positive().nullable().optional(),
       sessionId: z.string().uuid().optional(),
     }),
     responseBody: z.object({

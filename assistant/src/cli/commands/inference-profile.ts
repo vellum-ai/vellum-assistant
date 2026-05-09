@@ -11,14 +11,11 @@
 
 import type { Command } from "commander";
 
+import { loadConfig } from "../../config/loader.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import { log } from "../logger.js";
 import { resolveConversationId } from "../utils/conversation-id.js";
 import { parseDuration } from "../utils/parse-duration.js";
-
-// ── Constants ─────────────────────────────────────────────────────────
-
-const DEFAULT_TTL_SECONDS = 1800; // 30 minutes
 
 const CONV_ID_HELP =
   "No conversation ID available.\n" +
@@ -113,7 +110,7 @@ Examples:
     .description("Open a profile session for the current conversation")
     .option(
       "--ttl <duration>",
-      'Session TTL (e.g. 30m, 1h, "never" for sticky; default: 30m)',
+      'Session TTL (e.g. 30m, 1h, "never" for sticky; default: configured llm.profileSession.defaultTtlSeconds (30m if unset))',
     )
     .option(
       "--conversation-id <id>",
@@ -126,7 +123,7 @@ Examples:
 Opens a profile session that pins the given profile to the current
 conversation. The session expires after --ttl, or is sticky (no
 expiry) if --ttl never is specified. If --ttl is omitted, the session
-defaults to 30 minutes.
+defaults to llm.profileSession.defaultTtlSeconds (30m if unset).
 
 Examples:
   $ assistant inference profile open balanced --ttl 30m
@@ -184,7 +181,10 @@ Examples:
           }
         }
 
-        const effectiveTtlSeconds = ttlSeconds !== undefined ? ttlSeconds : DEFAULT_TTL_SECONDS;
+        const defaultTtlSeconds =
+          loadConfig().llm?.profileSession?.defaultTtlSeconds ?? 1800;
+        const effectiveTtlSeconds =
+          ttlSeconds !== undefined ? ttlSeconds : defaultTtlSeconds;
         const body: Record<string, unknown> = {
           conversationId,
           profile: profileName,
