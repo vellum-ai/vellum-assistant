@@ -36,15 +36,13 @@
 
 import type { AssistantConfig } from "../../config/types.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
-import {
-  embedWithBackend,
-  generateSparseEmbedding,
-} from "../embedding-backend.js";
+import { embedWithBackend } from "../embedding-backend.js";
 import { clampUnitInterval } from "../validation.js";
 import type { EdgeIndex } from "./edge-index.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
 import { rerankCandidates } from "./reranker.js";
 import { simBatch } from "./sim.js";
+import { generateBm25QueryEmbedding } from "./sparse-bm25.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 /**
@@ -142,7 +140,7 @@ export async function selectCandidates(
       denseResult.model,
     );
     throwIfAborted(signal);
-    const sparse = generateSparseEmbedding(annQueryText);
+    const sparse = generateBm25QueryEmbedding(annQueryText);
     const limit =
       config.memory.v2.ann_candidate_limit ?? UNLIMITED_ANN_CANDIDATE_LIMIT;
     const hits = await hybridQueryConceptPages(dense, sparse, limit);

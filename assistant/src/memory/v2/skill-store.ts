@@ -42,6 +42,10 @@ import {
   augmentMcpSetupDescription,
   buildSkillContent,
 } from "./skill-content.js";
+import {
+  generateBm25DocEmbedding,
+  getConceptPageCorpusStats,
+} from "./sparse-bm25.js";
 import type { SkillEntry } from "./types.js";
 
 const log = getLogger("memory-v2-skill-store");
@@ -182,13 +186,29 @@ async function runSeedOnce(): Promise<void> {
         ),
       );
 
+      // Skills share the concept-page Qdrant collection, so the sparse vector
+      // must use the same stemmed BM25 encoding the concept-page documents
+      // carry — otherwise the stemmed BM25 query vectors used by callers (see
+      // `simBatch`, `activation.selectCandidates`, recall) hash to different
+      // buckets than the stored skill vectors and skip the sparse channel
+      // entirely. Fall back to the legacy TF encoder only during the cold-start
+      // window before corpus stats finish building.
+      const corpusStats = getConceptPageCorpusStats();
+      const encodeSparse = (input: string) =>
+        corpusStats
+          ? generateBm25DocEmbedding(input, corpusStats, {
+              k1: config.memory.v2.bm25_k1,
+              b: config.memory.v2.bm25_b,
+            })
+          : generateSparseEmbedding(input);
+
       const now = Date.now();
       await Promise.all(
         seeds.map((seed, i) =>
           upsertConceptPageEmbedding({
             slug: skillSlugFor(seed.id),
             dense: denseVectors[i],
-            sparse: generateSparseEmbedding(seed.content),
+            sparse: encodeSparse(seed.content),
             updatedAt: now,
           }),
         ),

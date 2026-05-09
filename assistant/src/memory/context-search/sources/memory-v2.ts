@@ -28,7 +28,6 @@ import { extname, isAbsolute, join, relative } from "node:path";
 
 import { getLogger } from "../../../util/logger.js";
 import { embedWithRetry } from "../../embed.js";
-import { generateSparseEmbedding } from "../../embedding-backend.js";
 import { spreadActivation } from "../../v2/activation.js";
 import { getEdgeIndex } from "../../v2/edge-index.js";
 import {
@@ -37,6 +36,7 @@ import {
   slugFromConceptPath,
 } from "../../v2/page-store.js";
 import { hybridQueryConceptPages } from "../../v2/qdrant.js";
+import { generateBm25QueryEmbedding } from "../../v2/sparse-bm25.js";
 import { clampUnitInterval } from "../../validation.js";
 import type {
   RecallEvidence,
@@ -173,7 +173,7 @@ async function activationEvidence(
   });
   const denseVector = denseResult.vectors[0];
   if (!denseVector || denseVector.length === 0) return [];
-  const sparseVector = generateSparseEmbedding(trimmedQuery);
+  const sparseVector = generateBm25QueryEmbedding(trimmedQuery);
 
   const annLimit =
     context.config.memory.v2.ann_candidate_limit ??
