@@ -428,10 +428,27 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "memory rebuild-index", risk: "low" },
   { path: "memory re-extract", risk: "low" },
   { path: "memory compact", risk: "low" },
-  { path: "memory v2 migrate", risk: "low" },
-  { path: "memory v2 rebuild-edges", risk: "low" },
-  { path: "memory v2 reembed", risk: "low" },
-  { path: "memory v2 activation", risk: "low" },
+  {
+    path: "memory v2 migrate",
+    risk: "medium",
+    reason:
+      "Enqueues a v1->v2 synthesis job; --force overwrites the existing v2 state",
+  },
+  {
+    path: "memory v2 rebuild-edges",
+    risk: "medium",
+    reason: "Retired subcommand; kept for registry coverage",
+  },
+  {
+    path: "memory v2 reembed",
+    risk: "medium",
+    reason: "Enqueues bulk re-embedding of every concept page",
+  },
+  {
+    path: "memory v2 activation",
+    risk: "medium",
+    reason: "Enqueues recompute of persisted activation state",
+  },
   { path: "notifications send", risk: "low" },
   {
     path: "oauth request",

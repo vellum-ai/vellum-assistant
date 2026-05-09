@@ -95,6 +95,7 @@ async function runCommand(
   args: string[],
 ): Promise<{ stdout: string; exitCode: number }> {
   const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
   const stdoutChunks: string[] = [];
 
   process.stdout.write = ((chunk: unknown) => {
@@ -113,6 +114,7 @@ async function runCommand(
     if (process.exitCode === 0) process.exitCode = 1;
   } finally {
     process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
   }
 
   const exitCode = process.exitCode ?? 0;

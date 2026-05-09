@@ -176,24 +176,10 @@ retrieval. v2 is gated behind the memory.v2.enabled config field —
 these subcommands remain useful operator tools regardless of whether
 v2 is currently active.
 
-Subcommands fall into three groups:
-
-  Mutating (return a jobId enqueued on the memory job queue):
-    migrate          One-shot v1->v2 synthesis. Refuses to overwrite an
-                     existing v2 state without --force.
-    reembed          Refresh dense + sparse vectors for every concept page.
-    activation       Refresh persisted activation state for every conversation.
-
-  Mutating (synchronous — runs inside the daemon and returns when done):
-    reembed-skills   Re-seed v2 skill entries from the current skill catalog.
-
-  Read-only:
-    validate         Print a diagnostic report of orphan outgoing-edge
-                     targets, oversized pages, and parse failures.
-
-  Calibration:
-    fit-anisotropy   Fit Mu & Viswanath's all-but-the-top correction so
-                     embedding cosines stop clustering in a narrow band.
+Subcommands split into asynchronous mutators (return a jobId enqueued
+on the memory job queue), synchronous mutators (run inside the daemon
+and return when done), read-only diagnostics, and one-shot calibration
+fits whose results persist across runs.
 
 Examples:
   $ assistant memory v2 validate
