@@ -10,12 +10,14 @@ enum ChatButtonColorRole: Equatable, Hashable {
     case contentTertiary
     case systemPositiveStrong
     case systemNegativeStrong
+    case primaryBase
 
     var resolved: Color {
         switch self {
         case .contentTertiary: VColor.contentTertiary
         case .systemPositiveStrong: VColor.systemPositiveStrong
         case .systemNegativeStrong: VColor.systemNegativeStrong
+        case .primaryBase: VColor.primaryBase
         }
     }
 }

@@ -47,6 +47,8 @@ struct MessageListContentView: View, Equatable {
             && lhs.assistantStatusText == rhs.assistantStatusText
             && lhs.pinnedLatestTurnAnchorMessageId == rhs.pinnedLatestTurnAnchorMessageId
             && lhs.searchQuery == rhs.searchQuery
+            && lhs.bookmarkStore === rhs.bookmarkStore
+            && lhs.bookmarkConversationId == rhs.bookmarkConversationId
     }
 
     // MARK: - Data properties (compared in ==)
@@ -72,6 +74,8 @@ struct MessageListContentView: View, Equatable {
     let assistantStatusText: String?
     let pinnedLatestTurnAnchorMessageId: UUID?
     let searchQuery: String
+    let bookmarkStore: BookmarkStore?
+    let bookmarkConversationId: String?
 
     // MARK: - Closures (skipped in ==)
 
@@ -84,6 +88,7 @@ struct MessageListContentView: View, Equatable {
     var onDismissDocumentWidget: ((String) -> Void)?
     var onForkFromMessage: ((String) -> Void)?
     var onInspectMessage: ((String?) -> Void)?
+    var onToggleBookmark: ((String, String) -> Void)?
     var onRehydrateMessage: ((UUID) -> Void)?
     var onSurfaceRefetch: ((String, String) -> Void)?
     var onRetryFailedMessage: ((UUID) -> Void)?
@@ -240,6 +245,9 @@ struct MessageListContentView: View, Equatable {
                     showInspectButton: showInspectButton,
                     isTTSEnabled: isTTSEnabled,
                     onInspectMessage: onInspectMessage,
+                    onToggleBookmark: onToggleBookmark,
+                    bookmarkStore: bookmarkStore,
+                    bookmarkConversationId: bookmarkConversationId,
                     onRehydrateMessage: onRehydrateMessage,
                     onSurfaceRefetch: onSurfaceRefetch,
                     onRetryFailedMessage: onRetryFailedMessage,

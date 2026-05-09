@@ -749,6 +749,7 @@ extension MainWindowView {
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 conversationManager: conversationManager,
+                bookmarkStore: bookmarkStore,
                 diskPressureStatusStore: diskPressureStatusStore,
                 onMicrophoneToggle: onMicrophoneToggle,
                 isReadonly: activeConversation?.isChannelConversation ?? false,
@@ -981,6 +982,7 @@ struct ActiveChatViewWrapper: View {
     var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
+    let bookmarkStore: BookmarkStore
     let diskPressureStatusStore: DiskPressureStatusStore
     let onMicrophoneToggle: () -> Void
     var isReadonly: Bool = false
@@ -1023,6 +1025,13 @@ struct ActiveChatViewWrapper: View {
                     }
                 },
                 onInspectMessage: { presentInspector(for: $0) },
+                onToggleBookmark: isReadonly ? nil : { [bookmarkStore] daemonMessageId, conversationId in
+                    Task { @MainActor in
+                        await bookmarkStore.toggle(messageId: daemonMessageId, conversationId: conversationId)
+                    }
+                },
+                bookmarkStore: bookmarkStore,
+                bookmarkConversationId: viewModel.conversationId,
                 onSubagentTap: { windowState.selectedSubagentId = $0 },
                 onAddFunds: {
                     settingsStore.pendingSettingsTab = .billing

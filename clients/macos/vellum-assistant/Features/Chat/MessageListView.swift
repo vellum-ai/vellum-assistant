@@ -34,6 +34,9 @@ struct MessageListView: View {
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
     var onInspectMessage: ((String?) -> Void)?
+    var onToggleBookmark: ((String, String) -> Void)?
+    var bookmarkStore: BookmarkStore?
+    var bookmarkConversationId: String?
     let mediaEmbedSettings: MediaEmbedResolverSettings?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?

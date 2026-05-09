@@ -40,6 +40,9 @@ struct ChatView: View {
     let onMicrophoneToggle: () -> Void
     var onForkFromMessage: ((String) -> Void)? = nil
     var onInspectMessage: ((String?) -> Void)?
+    var onToggleBookmark: ((String, String) -> Void)?
+    var bookmarkStore: BookmarkStore?
+    var bookmarkConversationId: String?
     var onSubagentTap: ((String) -> Void)?
     var onAddFunds: (() -> Void)? = nil
     var onOpenModelsAndServices: (() -> Void)? = nil
@@ -324,6 +327,9 @@ struct ChatView: View {
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 onInspectMessage: onInspectMessage,
+                onToggleBookmark: onToggleBookmark,
+                bookmarkStore: bookmarkStore,
+                bookmarkConversationId: bookmarkConversationId,
                 mediaEmbedSettings: mediaEmbedSettings,
                 onAbortSubagent: { subagentId in
                     Task { await viewModel.abortSubagent(subagentId) }
