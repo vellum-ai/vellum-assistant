@@ -452,13 +452,24 @@ export class RuntimeHttpServer {
     }
 
     if (isHttpAuthDisabled()) {
+      // Refuse to start if the runtime is reachable from outside the local
+      // host while auth is disabled. The bypass is only safe when peers are
+      // guaranteed to be loopback (local dev, or the gateway sidecar in
+      // platform deployments).
+      if (!isLoopbackHost(this.hostname)) {
+        throw new Error(
+          "Refusing to start: DISABLE_HTTP_AUTH=true is set but RUNTIME_HTTP_HOST " +
+            `(${this.hostname}) is not loopback. Either bind to 127.0.0.1/::1 ` +
+            "or unset DISABLE_HTTP_AUTH.",
+        );
+      }
       if (getIsPlatform()) {
         log.info(
-          "DISABLE_HTTP_AUTH is set — HTTP auth disabled (expected: platform handles auth)",
+          "DISABLE_HTTP_AUTH is set on a loopback-bound runtime — HTTP auth disabled (expected: platform handles auth)",
         );
       } else {
         log.warn(
-          "DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token.",
+          "DISABLE_HTTP_AUTH is set on a loopback-bound runtime — HTTP API authentication is DISABLED for local callers.",
         );
       }
     }

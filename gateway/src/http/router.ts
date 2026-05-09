@@ -121,9 +121,10 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuth(req, server);
-          if (authError) return authError;
-          return route.handler(req, matchResult.params, getClientIp);
+          return requireEdgeAuth(req, server).then(
+            (authError) =>
+              authError ?? route.handler(req, matchResult.params, getClientIp),
+          );
         }
 
         case "edge-scoped": {
@@ -131,9 +132,10 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuthWithScope(req, route.scope!, server);
-          if (authError) return authError;
-          return route.handler(req, matchResult.params, getClientIp);
+          return requireEdgeAuthWithScope(req, route.scope!, server).then(
+            (authError) =>
+              authError ?? route.handler(req, matchResult.params, getClientIp),
+          );
         }
 
         case "edge-guardian": {
