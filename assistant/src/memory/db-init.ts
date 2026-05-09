@@ -173,11 +173,13 @@ import {
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
+  migrateCreateProviderConnections,
   recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
   validateMigrationState,
 } from "./migrations/index.js";
+import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 
 // ---------------------------------------------------------------------------
 // Test DB template — run migrations once, reuse across test files
@@ -416,6 +418,7 @@ export function initializeDb(): void {
     migrateTraceEventsCreatedAtIndex,
     migrateConversationInferenceProfileSession,
     migrateMessageBookmarks,
+    migrateCreateProviderConnections,
   ];
 
   // Run each migration step, catching and logging individual failures so one
@@ -447,6 +450,11 @@ export function initializeDb(): void {
   } catch (err) {
     log.error({ err }, "validateMigrationState failed");
   }
+
+  // Run provider_connections backfill: seeds canonical connections and
+  // adds provider_connection to any profiles that still have only
+  // provider + source. Errors are caught and logged inside.
+  runProviderConnectionsBackfill(database);
 
   if (process.env.BUN_TEST === "1") {
     saveTemplate();
