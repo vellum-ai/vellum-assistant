@@ -61,14 +61,15 @@ const { RouteError } = await import("../runtime/routes/errors.js");
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildProgramWithStubParent(): Command {
+function buildProgram(): Command {
   const program = new Command();
   program.exitOverride();
   program.configureOutput({
     writeErr: () => {},
     writeOut: () => {},
   });
-  program.command("memory").description("Stub parent for tests");
+  // The registrar creates the `memory` parent itself, so callers don't
+  // need to stub one.
   registerMemoryV2Command(program);
   return program;
 }
@@ -82,7 +83,7 @@ async function runCommand(args: string[]): Promise<{ exitCode: number }> {
 
   process.exitCode = 0;
   try {
-    const program = buildProgramWithStubParent();
+    const program = buildProgram();
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
     if (process.exitCode === 0) process.exitCode = 1;
@@ -203,10 +204,7 @@ describe("all memory v2 routes — MEMORY_V2_DISABLED gate", () => {
     memory_v2_validate: {},
     memory_v2_get_concept_page: { slug: "any" },
     memory_v2_list_concept_pages: {},
-    memory_v2_rebuild_corpus_stats: {},
-    memory_v2_explain_similarity: { userText: "hello" },
     memory_v2_concept_frequency: {},
-    memory_v2_fit_anisotropy: {},
   };
 
   const GATE_OFF_CASES = [
