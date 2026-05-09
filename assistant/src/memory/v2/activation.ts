@@ -285,13 +285,16 @@ export async function computeOwnActivation(
       .slice(0, rerankCfg.top_k)
       .map((e) => e.slug);
     if (topSlugs.length > 0) {
-      inPoolSet = new Set(topSlugs);
       const [userScores, assistantScores] = await rerankCandidates(
         [userText, assistantText],
         topSlugs,
         config,
       );
       throwIfAborted(signal);
+      // Build the pool from slugs the cross-encoder actually scored, so a
+      // backend failure (which yields empty maps) doesn't mislabel candidates
+      // as `inRerankPool` in the inspector.
+      inPoolSet = new Set([...userScores.keys(), ...assistantScores.keys()]);
       userRerankBoost = normalizeRerankScores(userScores, rerankCfg.alpha);
       assistantRerankBoost = normalizeRerankScores(
         assistantScores,
