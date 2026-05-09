@@ -51,11 +51,21 @@ final class ConversationActivityStore {
     /// only fire on discrete transitions, not on every streaming delta.
     @ObservationIgnored private var previousInteractionStates: [UUID: ConversationInteractionState] = [:]
 
-    /// Last observed `turnCompletionTick` per conversation. The `task_complete`
-    /// sound fires on increments, which correspond to the daemon's
-    /// `message_complete` event — not to derived idle-state transitions that
-    /// also fire between tool calls within a single turn.
+    /// Last observed `turnCompletionTick` per conversation. Increments fire
+    /// the `onTurnComplete` callback (used for the inactive-app local
+    /// notification) and correspond to every non-aux non-cancel-ack daemon
+    /// `message_complete` — including daemon-initiated wakes. The
+    /// `task_complete` chime is gated separately on the interactive tick
+    /// below so background/scheduled turns don't trigger sound.
     @ObservationIgnored private var previousTurnCompletionTicks: [UUID: UInt64] = [:]
+
+    /// Last observed `interactiveTurnCompletionTick` per conversation. The
+    /// `task_complete` chime fires only on increments here, which match
+    /// `message_complete` events that closed a user-typed send from this
+    /// client. Daemon-initiated turns (subagents, schedulers, watchers,
+    /// opportunity wakes) bump `turnCompletionTick` but not this tick, so
+    /// they stay silent.
+    @ObservationIgnored private var previousInteractiveTurnCompletionTicks: [UUID: UInt64] = [:]
 
     /// Whether the initial interaction state has been observed for each
     /// conversation. Prevents sounds from firing on initial subscription
@@ -125,6 +135,7 @@ final class ConversationActivityStore {
         hasInitialInteractionState[conversationId] = false
         previousInteractionStates.removeValue(forKey: conversationId)
         previousTurnCompletionTicks.removeValue(forKey: conversationId)
+        previousInteractiveTurnCompletionTicks.removeValue(forKey: conversationId)
         observeInteractionStateLoop(
             conversationId: conversationId,
             messageManager: messageManager,
@@ -208,6 +219,7 @@ final class ConversationActivityStore {
         conversationInteractionStates.removeValue(forKey: conversationId)
         previousInteractionStates.removeValue(forKey: conversationId)
         previousTurnCompletionTicks.removeValue(forKey: conversationId)
+        previousInteractiveTurnCompletionTicks.removeValue(forKey: conversationId)
         hasInitialInteractionState.removeValue(forKey: conversationId)
         latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
     }
@@ -258,11 +270,13 @@ final class ConversationActivityStore {
 
         var state = ConversationInteractionState.idle
         var turnCompletionTick: UInt64 = 0
+        var interactiveTurnCompletionTick: UInt64 = 0
         withObservationTracking {
             let hasError = errorManager.errorText != nil || errorManager.conversationError != nil
             let hasPendingConfirmation = messageManager.hasPendingConfirmation
             let isBusy = messageManager.isSending || messageManager.isThinking || messageManager.pendingQueuedCount > 0
             turnCompletionTick = messageManager.turnCompletionTick
+            interactiveTurnCompletionTick = messageManager.interactiveTurnCompletionTick
 
             if hasError {
                 state = .error
@@ -285,9 +299,11 @@ final class ConversationActivityStore {
 
         let previous = previousInteractionStates[conversationId]
         let previousTick = previousTurnCompletionTicks[conversationId]
+        let previousInteractiveTick = previousInteractiveTurnCompletionTicks[conversationId]
         let isInitial = hasInitialInteractionState[conversationId] != true
         hasInitialInteractionState[conversationId] = true
         previousTurnCompletionTicks[conversationId] = turnCompletionTick
+        previousInteractiveTurnCompletionTicks[conversationId] = interactiveTurnCompletionTick
 
         let stateChanged = state != previous || isInitial
         if stateChanged {
@@ -303,13 +319,21 @@ final class ConversationActivityStore {
         // conversation loads in an error state or carries a stale tick.
         guard !isInitial else { return }
 
-        // `task_complete` is driven by the daemon's `message_complete` signal
-        // (surfaced as `turnCompletionTick`) rather than by the derived
-        // processing → idle transition — that transition also fires between
-        // tool calls within a single turn, which produced duplicate sounds.
+        // `onTurnComplete` is driven by every non-aux non-cancel-ack
+        // `message_complete` (including daemon-initiated wakes) so the
+        // inactive-app local notification still posts for autonomous turns
+        // that the user might want to know about — `postTurnCompleteNotificationIfNeeded`
+        // applies its own conversationType-based suppression.
         if let previousTick, turnCompletionTick > previousTick {
-            SoundManager.shared.play(.taskComplete)
             onTurnComplete?(conversationId)
+        }
+        // The `task_complete` chime is gated to user-typed sends from this
+        // client. Daemon-initiated turns (subagents, schedulers, watchers)
+        // bump `turnCompletionTick` but not `interactiveTurnCompletionTick`,
+        // so they stay silent. A user manually sending a message inside a
+        // background or scheduled conversation still chimes here.
+        if let previousInteractiveTick, interactiveTurnCompletionTick > previousInteractiveTick {
+            SoundManager.shared.play(.taskComplete)
         }
         if stateChanged {
             switch state {
