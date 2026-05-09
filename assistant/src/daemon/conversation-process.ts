@@ -1318,7 +1318,11 @@ export async function processMessage(
       );
       conversation.messages.push(assistantMsg);
 
-      onEvent({ type: "assistant_text_delta", text: replyText });
+      onEvent({
+        type: "assistant_text_delta",
+        text: replyText,
+        conversationId: conversation.conversationId,
+      });
       onEvent({
         type: "message_complete",
         conversationId: conversation.conversationId,
