@@ -9,6 +9,7 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { log } from "../logger.js";
+import { attachConnectionsSubcommand } from "./inference-connections.js";
 import { attachSessionSubcommand } from "./inference-session.js";
 
 /**
@@ -218,6 +219,7 @@ Examples:
 
   attachSendSubcommand(inference);
   attachSessionSubcommand(inference);
+  attachConnectionsSubcommand(inference);
 
   const llm = program
     .command("llm")
