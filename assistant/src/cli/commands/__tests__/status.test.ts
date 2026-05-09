@@ -165,7 +165,7 @@ describe("status command — daemon down", () => {
     const { stdout, stderr } = await runStatusCommand();
     const combined = stdout + stderr;
 
-    expect(combined).toContain("Daemon: down");
+    expect(combined).toContain("Assistant: down");
   });
 
   test('prints "Daemon: running" when socket file exists but IPC fails', async () => {
@@ -175,7 +175,7 @@ describe("status command — daemon down", () => {
     const { stdout, stderr } = await runStatusCommand();
     const combined = stdout + stderr;
 
-    expect(combined).toContain("Daemon: running");
+    expect(combined).toContain("Assistant: running");
   });
 
   test("does not print version or memory when daemon is down", async () => {

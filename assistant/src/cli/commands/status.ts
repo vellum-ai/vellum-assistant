@@ -31,7 +31,7 @@ export function registerStatusCommand(program: Command): void {
           const socketPath = getAssistantSocketPath();
           const socketExists = existsSync(socketPath);
           const workspace = getWorkspaceDirDisplay();
-          process.stdout.write((socketExists ? "Daemon: running" : "Daemon: down") + "\n");
+          process.stdout.write((socketExists ? "Assistant: running" : "Assistant: down") + "\n");
           process.stdout.write(`Workspace: ${workspace}\n`);
           process.exit(0);
         }
