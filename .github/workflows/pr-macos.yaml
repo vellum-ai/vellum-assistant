@@ -19,7 +19,12 @@ on:
       - '.github/workflows/pr-macos.yaml'
 
 concurrency:
-  group: pr-macos-${{ github.event.pull_request.number }}
+  # `synchronize` events share a group so rapid pushes cancel each other.
+  # All other events (`opened`, `labeled`, `reopened`) get a unique group
+  # (keyed on run_id) so they never cancel each other — important for the
+  # common case of creating a PR and immediately adding the `preview` label,
+  # which fires two pull_request events within the same second.
+  group: pr-macos-${{ github.event.pull_request.number }}-${{ github.event.action == 'synchronize' && 'sync' || github.run_id }}
   cancel-in-progress: true
 
 jobs:
