@@ -224,6 +224,8 @@ export class HostAppControlProxy extends HostProxyBase<
     input: HostAppControlInput,
     conversationId: string,
     signal: AbortSignal,
+    sourceActorPrincipalId?: string,
+    targetClientId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal.aborted) {
       return { content: "Aborted", isError: true };
@@ -273,6 +275,8 @@ export class HostAppControlProxy extends HostProxyBase<
         input,
         conversationId,
         signal,
+        undefined,
+        targetClientId,
       );
       return this.handleSuccess(input, payload);
     } catch (err) {
