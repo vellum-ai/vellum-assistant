@@ -1587,7 +1587,8 @@ export async function runAgentLoopImpl(
       injection.blocks.pkbSystemReminder ||
       injection.blocks.workspaceBlock ||
       injection.blocks.nowScratchpadBlock ||
-      injection.blocks.pkbContextBlock
+      injection.blocks.pkbContextBlock ||
+      injection.blocks.memoryV2StaticBlock
     ) {
       try {
         const metadataUpdates: Record<string, unknown> = {};
@@ -1608,6 +1609,10 @@ export async function runAgentLoopImpl(
         }
         if (injection.blocks.pkbContextBlock) {
           metadataUpdates.pkbContextBlock = injection.blocks.pkbContextBlock;
+        }
+        if (injection.blocks.memoryV2StaticBlock) {
+          metadataUpdates.memoryV2StaticBlock =
+            injection.blocks.memoryV2StaticBlock;
         }
         await runPipeline<PersistArgs, PersistResult>(
           "persistence",

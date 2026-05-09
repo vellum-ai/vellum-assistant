@@ -1739,6 +1739,7 @@ export interface RuntimeInjectionBlocks {
   workspaceBlock?: string;
   nowScratchpadBlock?: string;
   pkbContextBlock?: string;
+  memoryV2StaticBlock?: string;
   /**
    * Composed output of every plugin-registered {@link Injector}, concatenated
    * in ascending `order`. Empty string when every injector opted out (returned
@@ -2156,6 +2157,7 @@ export async function applyRuntimeInjections(
   let nowScratchpadCaptured: string | undefined;
   let pkbContextCaptured: string | undefined;
   let pkbSystemReminderCaptured: string | undefined;
+  let memoryV2StaticCaptured: string | undefined;
   const initialTail = runMessages[runMessages.length - 1];
   const initialTailIsUser = !!initialTail && initialTail.role === "user";
   if (initialTailIsUser) {
@@ -2175,6 +2177,9 @@ export async function applyRuntimeInjections(
           break;
         case "pkb-reminder":
           pkbSystemReminderCaptured = block.text;
+          break;
+        case "memory-v2-static":
+          memoryV2StaticCaptured = block.text;
           break;
       }
     }
@@ -2357,6 +2362,7 @@ export async function applyRuntimeInjections(
       workspaceBlock: workspaceCaptured,
       nowScratchpadBlock: nowScratchpadCaptured,
       pkbContextBlock: pkbContextCaptured,
+      memoryV2StaticBlock: memoryV2StaticCaptured,
       injectorChainBlock,
     },
   };

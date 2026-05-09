@@ -41,7 +41,7 @@ describe("clearStrippedInjectionMetadataForConversation", () => {
     resetTables();
   });
 
-  test("removes all three stripped-block fields and preserves the rest", async () => {
+  test("removes all stripped-block fields and preserves the rest", async () => {
     const conv = createConversation("Strip metadata test");
     await addMessage(
       conv.id,
@@ -56,6 +56,8 @@ describe("clearStrippedInjectionMetadataForConversation", () => {
         pkbContextBlock: "<knowledge_base>\npkb body\n</knowledge_base>",
         pkbSystemReminderBlock:
           "<system_reminder>\nreminder body\n</system_reminder>",
+        memoryV2StaticBlock:
+          "<memory>\n## Essentials\n\nstatic body\n</memory>",
       },
       { skipIndexing: true },
     );
@@ -68,12 +70,35 @@ describe("clearStrippedInjectionMetadataForConversation", () => {
     expect(meta.pkbSystemReminderBlock).toBeUndefined();
     expect(meta.nowScratchpadBlock).toBeUndefined();
     expect(meta.pkbContextBlock).toBeUndefined();
+    expect(meta.memoryV2StaticBlock).toBeUndefined();
 
     // Non-stripped fields must survive — these back blocks that
     // `stripInjectionsForCompaction` intentionally leaves in-memory.
     expect(meta.memoryInjectedBlock).toBe("mem payload");
     expect(meta.turnContextBlock).toBe("<turn_context>\nctx\n</turn_context>");
     expect(meta.workspaceBlock).toBe("<workspace>\nws\n</workspace>");
+  });
+
+  test("clears memoryV2StaticBlock alone when it is the only stripped field present", async () => {
+    const conv = createConversation("Strip v2 static only");
+    await addMessage(
+      conv.id,
+      "user",
+      "turn 1",
+      {
+        memoryInjectedBlock: "keep me",
+        memoryV2StaticBlock:
+          "<memory>\n## Essentials\n\nstatic body\n</memory>",
+      },
+      { skipIndexing: true },
+    );
+
+    clearStrippedInjectionMetadataForConversation(conv.id);
+
+    const [row] = getMessages(conv.id);
+    const meta = JSON.parse(row.metadata ?? "{}");
+    expect(meta.memoryV2StaticBlock).toBeUndefined();
+    expect(meta.memoryInjectedBlock).toBe("keep me");
   });
 
   test("is idempotent — re-running is a no-op on already-cleared rows", async () => {

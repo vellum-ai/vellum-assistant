@@ -183,6 +183,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
   }
 
+  const personalMemoryAllowed = !isUntrustedTrustClass(trustClass);
   const parsedMessages: Message[] = dbMessages
     .slice(ctx.contextCompactedMessageCount)
     .map((m, index, arr) => {
@@ -215,7 +216,8 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           // shape right-to-left, since each prepend shifts previously-
           // prepended blocks one slot right:
           //   [<workspace>, <turn_context>, <NOW.md>, <memory __injected>,
-          //    <system_reminder>, <knowledge_base>, ...original]
+          //    <memory>\n…</memory>, <system_reminder>, <knowledge_base>,
+          //    ...original]
           //
           // Persisted non-tail rows rehydrate the full set so Anthropic's
           // prefix cache keeps matching msg[0] across daemon restarts and
@@ -234,6 +236,23 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
             content = [
               { type: "text" as const, text: meta.pkbSystemReminderBlock },
+              ...content,
+            ];
+          }
+
+          // The v2 static memory block (essentials/threads/recent/buffer
+          // wrapped in `<memory>…</memory>`) carries personal user memory.
+          // Trust-gated to mirror `shouldExposePersonalMemory` at injection
+          // time — untrusted-actor views must not read persisted personal
+          // memory back through metadata. Skipped on the tail row because
+          // the next turn re-injects fresh content on full-mode turns.
+          if (
+            !isTail &&
+            personalMemoryAllowed &&
+            typeof meta.memoryV2StaticBlock === "string"
+          ) {
+            content = [
+              { type: "text" as const, text: meta.memoryV2StaticBlock },
               ...content,
             ];
           }

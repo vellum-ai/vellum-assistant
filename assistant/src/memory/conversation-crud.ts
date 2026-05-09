@@ -115,6 +115,7 @@ export const messageMetadataSchema = z
     workspaceBlock: z.string().optional(),
     nowScratchpadBlock: z.string().optional(),
     pkbContextBlock: z.string().optional(),
+    memoryV2StaticBlock: z.string().optional(),
   })
   .passthrough();
 
@@ -1631,8 +1632,10 @@ export function updateMessageMetadata(
 /**
  * Bulk-remove the metadata fields that back the blocks stripped by
  * `stripInjectionsForCompaction` — currently `pkbSystemReminderBlock`
- * (`<system_reminder>`), `nowScratchpadBlock` (`<NOW.md …>`), and
- * `pkbContextBlock` (`<knowledge_base>`). Called from compaction-strip
+ * (`<system_reminder>`), `nowScratchpadBlock` (`<NOW.md …>`),
+ * `pkbContextBlock` (`<knowledge_base>`), and `memoryV2StaticBlock`
+ * (the static `<memory>\n…</memory>` block matched by the `<memory>\n`
+ * prefix in `RUNTIME_INJECTION_PREFIXES`). Called from compaction-strip
  * sites so post-restart rehydration stays consistent with the in-memory
  * state produced by `stripInjectionsForCompaction` (which removes those
  * tags from live messages but cannot touch the DB). Fields backing
@@ -1648,7 +1651,8 @@ export function clearStrippedInjectionMetadataForConversation(
           metadata,
           '$.pkbSystemReminderBlock',
           '$.nowScratchpadBlock',
-          '$.pkbContextBlock'
+          '$.pkbContextBlock',
+          '$.memoryV2StaticBlock'
         )
       WHERE conversation_id = ?
         AND role = 'user'
@@ -1657,6 +1661,7 @@ export function clearStrippedInjectionMetadataForConversation(
           json_extract(metadata, '$.pkbSystemReminderBlock') IS NOT NULL
           OR json_extract(metadata, '$.nowScratchpadBlock') IS NOT NULL
           OR json_extract(metadata, '$.pkbContextBlock') IS NOT NULL
+          OR json_extract(metadata, '$.memoryV2StaticBlock') IS NOT NULL
         )`,
     conversationId,
   );
