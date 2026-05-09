@@ -11,17 +11,16 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { HostProxyCapability } from "../channels/types.js";
-
 // ---------------------------------------------------------------------------
-// Mock the event hub — controls which clients are "connected"
+// Mock the event hub — controls which clients are "connected".
+// Declared before mocks so the lambda captures it by reference.
 // ---------------------------------------------------------------------------
 
-let mockClientsByCapability: Map<HostProxyCapability, unknown[]> = new Map();
+let mockClientsByCapability: Map<string, unknown[]> = new Map();
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
-    listClientsByCapability: (cap: HostProxyCapability) =>
+    listClientsByCapability: (cap: string) =>
       mockClientsByCapability.get(cap) ?? [],
   },
   broadcastMessage: () => {},
@@ -36,6 +35,7 @@ mock.module("../util/logger.js", () => ({
 // Imports under test (after mocks are registered)
 // ---------------------------------------------------------------------------
 
+import type { HostProxyCapability } from "../channels/types.js";
 import {
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
