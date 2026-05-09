@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
+import { getConfigReadOnly } from "../../config/loader.js";
 import {
   extractAllText,
   getConfiguredProvider,
@@ -20,6 +21,10 @@ function attachSendSubcommand(group: Command): void {
     .description("Send a message to the configured LLM and print the response")
     .option("--system-prompt <text>", "System prompt for the model")
     .option("--model <model-id>", "Model override")
+    .option(
+      "--profile <name>",
+      "Apply a named inference profile from llm.profiles for this single call",
+    )
     .option("--max-tokens <n>", "Max response tokens", undefined)
     .option("--json", "Output structured JSON")
     .argument("[message...]", "User message (joined with spaces)")
@@ -29,13 +34,18 @@ function attachSendSubcommand(group: Command): void {
 Behavioral notes:
   - If no message argument is provided, reads from stdin.
   - If --model is omitted, uses the configured default model.
+  - --profile applies a named profile from llm.profiles for this single call
+    only. It does NOT open a session — to pin a profile to a conversation,
+    use 'assistant inference profile open <name>'.
+  - --profile layers below --model: --model still wins on the model field.
   - Requires a configured LLM provider (see 'assistant config set').
 
 Examples:
   $ assistant inference send "What is 2+2?"
   $ echo "Summarize this" | assistant inference send
   $ assistant llm send --system-prompt "You are a poet" "Write a haiku"
-  $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"`,
+  $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"
+  $ assistant inference send --profile balanced "Explain RFC 1149"`,
     )
     .action(
       async (
@@ -43,11 +53,12 @@ Examples:
         opts: {
           systemPrompt?: string;
           model?: string;
+          profile?: string;
           maxTokens?: string;
           json?: boolean;
         },
       ) => {
-        const { systemPrompt, model, json: jsonOutput } = opts;
+        const { systemPrompt, model, profile, json: jsonOutput } = opts;
         const maxTokens = opts.maxTokens
           ? parseInt(opts.maxTokens, 10)
           : undefined;
@@ -66,6 +77,30 @@ Examples:
           }
           process.exitCode = 1;
           return;
+        }
+
+        // Validate --profile against the configured profile catalog.
+        // The resolver silently falls through on unknown profile names, so
+        // we surface a useful error here instead of a silent default.
+        if (profile !== undefined) {
+          const profiles = getConfigReadOnly().llm?.profiles ?? {};
+          if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
+            const available = Object.keys(profiles).sort();
+            const hint =
+              available.length > 0
+                ? ` Available profiles: ${available.join(", ")}.`
+                : " No profiles defined in llm.profiles.";
+            const msg = `Profile "${profile}" is not defined in llm.profiles.${hint}`;
+            if (jsonOutput) {
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: msg }) + "\n",
+              );
+            } else {
+              log.error(msg);
+            }
+            process.exitCode = 1;
+            return;
+          }
         }
 
         // Determine user message: positional args or stdin.
@@ -93,8 +128,10 @@ Examples:
           return;
         }
 
-        // Resolve provider.
-        const provider = await getConfiguredProvider("inference");
+        // Resolve provider, optionally layering a one-shot profile override.
+        const provider = await getConfiguredProvider("inference", {
+          overrideProfile: profile,
+        });
         if (!provider) {
           const msg =
             "No LLM provider is configured. Run 'assistant config set llm.default.provider <provider>' to set one up.";
@@ -175,7 +212,8 @@ Examples:
   $ assistant inference send "What is the capital of France?"
   $ echo "Explain quantum computing" | assistant inference send
   $ assistant llm send --system-prompt "Be concise" "What is TCP?"
-  $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"`,
+  $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"
+  $ assistant inference send --profile balanced "Explain RFC 1149"`,
   );
 
   attachSendSubcommand(inference);
@@ -196,7 +234,8 @@ Examples:
   $ assistant llm send "What is the capital of France?"
   $ echo "Explain quantum computing" | assistant llm send
   $ assistant llm send --system-prompt "Be concise" "What is TCP?"
-  $ assistant llm send --model claude-sonnet-4-20250514 --json "Hello"`,
+  $ assistant llm send --model claude-sonnet-4-20250514 --json "Hello"
+  $ assistant llm send --profile balanced "Explain RFC 1149"`,
   );
 
   attachSendSubcommand(llm);
