@@ -10,6 +10,7 @@ enum SettingsTab: String {
     case permissionsAndPrivacy = "Permissions & Privacy"
     case billing = "Billing"
     case archivedConversations = "Archive"
+    case bookmarks = "Bookmarks"
     case schedules = "Schedules"
     case debug = "Debug"
     case developer = "Developer"
@@ -25,6 +26,7 @@ enum SettingsTab: String {
         case .permissionsAndPrivacy: return .shieldCheck
         case .billing: return .creditCard
         case .archivedConversations: return .archive
+        case .bookmarks: return .bookmark
         case .schedules: return .calendar
         case .debug: return .bug
         case .developer: return .terminal
@@ -35,7 +37,8 @@ enum SettingsTab: String {
     static func sidebarTopTabs(
         soundsEnabled: Bool = true,
         debugEnabled: Bool = false,
-        includeCompactionPlayground: Bool = false
+        includeCompactionPlayground: Bool = false,
+        bookmarksEnabled: Bool = false
     ) -> [SettingsTab] {
         var tabs: [SettingsTab] = []
         if includeCompactionPlayground {
@@ -47,6 +50,7 @@ enum SettingsTab: String {
         tabs.append(.billing)
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
+        if bookmarksEnabled { tabs.append(.bookmarks) }
         tabs.append(.schedules)
         if debugEnabled { tabs.append(.debug) }
         return tabs
@@ -103,6 +107,9 @@ struct SettingsPanel: View {
         let soundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
         _isSoundsEnabled = State(initialValue: soundsEnabled)
 
+        let bookmarksEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.bookmarksFeatureFlagKey)
+        _isBookmarksEnabled = State(initialValue: bookmarksEnabled)
+
         // Derive the initial tab from the pending deep-link at construction
         // time. Previous attempts set selectedTab in onAppear / onChange, but
         // those fire *after* the first render and are susceptible to timing
@@ -121,7 +128,8 @@ struct SettingsPanel: View {
             var visibleTabs = SettingsTab.sidebarTopTabs(
                 soundsEnabled: soundsEnabled,
                 debugEnabled: debugEnabled,
-                includeCompactionPlayground: false
+                includeCompactionPlayground: false,
+                bookmarksEnabled: bookmarksEnabled
             )
             if developerEnabled { visibleTabs.append(.developer) }
             if visibleTabs.contains(pending) {
@@ -155,6 +163,7 @@ struct SettingsPanel: View {
     @State private var isDeveloperEnabled: Bool = false
     @State private var isCompactionPlaygroundEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
+    @State private var isBookmarksEnabled: Bool = false
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var isEmailChannelEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
@@ -166,6 +175,7 @@ struct SettingsPanel: View {
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
+    private static let bookmarksFeatureFlagKey = "bookmarks"
     private static let deferredDeepLinkTabs: Set<SettingsTab> = [.compactionPlayground]
 
     var body: some View {
@@ -234,6 +244,7 @@ struct SettingsPanel: View {
         .onAppear {
             isDeveloperEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.developerFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
+            isBookmarksEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.bookmarksFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -271,6 +282,9 @@ struct SettingsPanel: View {
             handleSidebarVisibilityChanged()
         }
         .onChange(of: isCompactionPlaygroundVisible) { _, _ in
+            handleSidebarVisibilityChanged()
+        }
+        .onChange(of: isBookmarksEnabled) { _, _ in
             handleSidebarVisibilityChanged()
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
@@ -379,7 +393,8 @@ struct SettingsPanel: View {
         SettingsTab.sidebarTopTabs(
             soundsEnabled: isSoundsEnabled,
             debugEnabled: isDebugVisible,
-            includeCompactionPlayground: isCompactionPlaygroundVisible
+            includeCompactionPlayground: isCompactionPlaygroundVisible,
+            bookmarksEnabled: isBookmarksEnabled
         )
     }
 
@@ -454,6 +469,16 @@ struct SettingsPanel: View {
             )
         case .archivedConversations:
             SettingsArchivedConversationsTab(conversationManager: conversationManager)
+        case .bookmarks:
+            SettingsBookmarksTab(
+                bookmarkStore: bookmarkStore,
+                conversationManager: conversationManager,
+                openMessage: { conversationId, daemonMessageId in
+                    _ = conversationManager.selectConversationByConversationId(conversationId)
+                    conversationManager.pendingAnchorDaemonMessageId = daemonMessageId
+                },
+                onClose: onClose
+            )
         case .schedules:
             SettingsSchedulesTab()
         case .debug:
