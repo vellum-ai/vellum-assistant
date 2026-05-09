@@ -515,9 +515,18 @@ final class VoiceModeManager {
 
         liveFallbackAttemptedForSession = true
         activeVoicePath = .turnBased
-        errorMessage = "Live voice is unavailable. Using standard voice mode."
         state = .idle
         log.warning("Voice mode: live channel failed, falling back to standard voice mode — \(fallbackMessage, privacy: .public)")
+
+        if !STTProviderRegistry.isServiceConfigured {
+            let speechStatus = speechRecognizerAdapter.authorizationStatus()
+            if speechStatus != .authorized && speechStatus != .notDetermined {
+                errorMessage = "Live voice is unavailable, and speech recognition permission is required for standard voice mode."
+                return
+            }
+        }
+
+        errorMessage = "Live voice is unavailable. Using standard voice mode."
         startTurnBasedListeningWithAuthorization()
     }
 
