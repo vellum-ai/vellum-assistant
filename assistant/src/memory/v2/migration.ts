@@ -31,7 +31,7 @@ import type { Provider } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { enqueueMemoryJob } from "../jobs-store.js";
-import { slugify, writePage } from "./page-store.js";
+import { deletePage, listPages, slugify, writePage } from "./page-store.js";
 import type { ConceptPage } from "./types.js";
 
 const log = getLogger("memory-v2-migration");
@@ -111,6 +111,9 @@ export function gatherV1State(
   // domain layer (which v2 will eventually replace). We only need id /
   // content / type / significance / event_date — everything else is unused
   // by the migration.
+  // Soft-deleted nodes (`fidelity = 'gone'`) are excluded so deleted memories
+  // don't get resurrected into v2 concept pages. The rest of the codebase uses
+  // the same filter when reading live graph state.
   const nodeRows = raw
     .query<
       {
@@ -122,10 +125,12 @@ export function gatherV1State(
       },
       []
     >(
-      /*sql*/ `SELECT id, content, type, significance, event_date FROM memory_graph_nodes`,
+      /*sql*/ `SELECT id, content, type, significance, event_date FROM memory_graph_nodes WHERE fidelity != 'gone'`,
     )
     .all();
+  const liveNodeIds = new Set<string>();
   for (const row of nodeRows) {
+    liveNodeIds.add(row.id);
     items.push({
       id: row.id,
       text: row.content,
@@ -138,16 +143,23 @@ export function gatherV1State(
   }
 
   // -- Graph edges --
+  // Edges with either endpoint pointing at a soft-deleted node are dropped to
+  // stay consistent with the node filter above.
   const edgeRows = raw
     .query<
       { source_node_id: string; target_node_id: string },
       []
     >(/*sql*/ `SELECT source_node_id, target_node_id FROM memory_graph_edges`)
     .all();
-  const edges: V1Edge[] = edgeRows.map((row) => ({
-    sourceNodeId: row.source_node_id,
-    targetNodeId: row.target_node_id,
-  }));
+  const edges: V1Edge[] = [];
+  for (const row of edgeRows) {
+    if (!liveNodeIds.has(row.source_node_id)) continue;
+    if (!liveNodeIds.has(row.target_node_id)) continue;
+    edges.push({
+      sourceNodeId: row.source_node_id,
+      targetNodeId: row.target_node_id,
+    });
+  }
 
   // -- PKB content --
   const pkbDir = join(workspaceDir, "pkb");
@@ -234,10 +246,10 @@ export interface Cluster {
 /**
  * Group v1 items into proposed concept pages.
  *
- * The heuristic is intentionally simple — embedding-cluster is on the
- * "follow-up improvements" list (see plan §11), but for the v1-of-v2 cutover
- * file-based grouping for PKB plus per-graph-node singletons gives a
- * reasonable starting set that the LLM can refine in stage 3:
+ * The heuristic is intentionally simple — embedding-based clustering is a
+ * planned follow-up. For the v1-of-v2 cutover, file-based grouping for PKB
+ * plus per-graph-node singletons gives a reasonable starting set that the LLM
+ * can refine in stage 3:
  *
  *   - Each `pkb_topic` file becomes its own cluster (slug derived from
  *     filename — that's literally what topic files were already keyed on).
@@ -447,13 +459,23 @@ export function collapseEdges(
 // ---------------------------------------------------------------------------
 
 /**
- * Enqueue an `embed_concept_page` job for each newly-written slug. The job
- * itself lands in PR 13 — we just stage the queue here, so the embeddings
+ * Enqueue an `embed_concept_page` job for each newly-written slug. The handler
+ * is implemented separately — we just stage the queue here so the embeddings
  * are ready by the time activation needs them.
+ *
+ * `database` is threaded through to `enqueueMemoryJob` as the override DB
+ * handle. Without this, jobs would be written to the global `getDb()` instead
+ * of the migration's DB — which is wrong for tests, isolated runners, and
+ * multi-workspace processes that pass an explicit `database`.
  */
-export function enqueueEmbeds(slugs: string[]): number {
+export function enqueueEmbeds(slugs: string[], database: DrizzleDb): number {
   for (const slug of slugs) {
-    enqueueMemoryJob("embed_concept_page", { slug });
+    enqueueMemoryJob(
+      "embed_concept_page",
+      { slug },
+      undefined,
+      database as never,
+    );
   }
   return slugs.length;
 }
@@ -570,15 +592,37 @@ export async function runMemoryV2Migration(
     };
   });
 
+  // On force-rerun, drop pre-existing pages whose slugs aren't produced by
+  // this run. `writePage` is an atomic per-slug overwrite, so without this
+  // step a force rerun would leave orphan pages on disk from earlier slugs
+  // that no longer match any v1 cluster.
+  if (force) {
+    const newSlugs = new Set(finalizedPages.map((p) => p.slug));
+    const existingSlugs = await listPages(workspaceDir);
+    await Promise.all(
+      existingSlugs
+        .filter((slug) => !newSlugs.has(slug))
+        .map((slug) => deletePage(workspaceDir, slug)),
+    );
+  }
+
   // Page writes hit different filenames so they're safe to fan out.
   await Promise.all(
     finalizedPages.map((page) => writePage(workspaceDir, page)),
   );
 
   const promotions = derivePromotions(items);
+  if (force) {
+    // Strip any prior migration block so force-reruns re-emit fresh
+    // promotions instead of being skipped by the in-file marker guard.
+    await stripPromotionMarkerBlocks(workspaceDir);
+  }
   await appendPromotions(workspaceDir, promotions);
 
-  const embedsEnqueued = enqueueEmbeds(finalizedPages.map((p) => p.slug));
+  const embedsEnqueued = enqueueEmbeds(
+    finalizedPages.map((p) => p.slug),
+    database,
+  );
 
   await writeSentinel(workspaceDir);
 
@@ -599,9 +643,17 @@ export async function runMemoryV2Migration(
 }
 
 /**
+ * HTML marker embedded in each appended block so a crash-recovery rerun can
+ * detect already-applied promotions and skip the append. `appendLines` is a
+ * read-modify-write — without this, a crash between `appendPromotions` and
+ * `writeSentinel` would let the next boot duplicate every promotion line.
+ */
+const PROMOTION_MARKER = "<!-- migration:v1-to-v2 -->";
+
+/**
  * Append each promotion bucket to its target file. Files are created if
- * absent — the workspace migration in PR 3 (`060-memory-v2-init`) seeds
- * empty placeholders, so this is mostly belt-and-suspenders.
+ * absent — the `060-memory-v2-init` workspace migration seeds empty
+ * placeholders, so this is mostly belt-and-suspenders.
  */
 async function appendPromotions(
   workspaceDir: string,
@@ -626,7 +678,11 @@ async function appendPromotions(
   }
 }
 
-/** Append `lines` to `path`, creating it (with a trailing newline) if absent. */
+/**
+ * Append `lines` to `path`, creating it (with a trailing newline) if absent.
+ * If the file already contains `PROMOTION_MARKER`, the append is skipped — a
+ * prior partially-completed migration already wrote this block.
+ */
 async function appendLines(path: string, lines: string[]): Promise<void> {
   let existing = "";
   try {
@@ -634,8 +690,49 @@ async function appendLines(path: string, lines: string[]): Promise<void> {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
+  if (existing.includes(PROMOTION_MARKER)) return;
   const trailing = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
-  const next = `${existing}${trailing}${lines.join("\n")}\n`;
+  const next = `${existing}${trailing}${PROMOTION_MARKER}\n${lines.join("\n")}\n`;
+  await writeFile(path, next, "utf-8");
+}
+
+/**
+ * Strip any prior migration-block (everything from the marker line through
+ * end of file) from each promotion target. Called on force-reruns so the
+ * marker guard in `appendLines` doesn't skip the new promotions.
+ */
+async function stripPromotionMarkerBlocks(workspaceDir: string): Promise<void> {
+  const memoryDir = join(workspaceDir, "memory");
+  const candidates: string[] = [
+    join(memoryDir, "essentials.md"),
+    join(memoryDir, "threads.md"),
+  ];
+  const archiveDir = join(memoryDir, "archive");
+  if (existsSync(archiveDir)) {
+    for (const name of readdirSync(archiveDir)) {
+      if (name.startsWith("migrated-") && name.endsWith(".md")) {
+        candidates.push(join(archiveDir, name));
+      }
+    }
+  }
+  await Promise.all(candidates.map(stripMarkerBlock));
+}
+
+async function stripMarkerBlock(path: string): Promise<void> {
+  let existing: string;
+  try {
+    existing = await readFile(path, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+  const idx = existing.indexOf(PROMOTION_MARKER);
+  if (idx === -1) return;
+  // Cut from the start of the marker line. `idx` already points at the marker,
+  // which `appendLines` always wrote at the start of its own line, so a plain
+  // slice here also drops the leading newline that preceded it (if any).
+  const trimmed = existing.slice(0, idx).replace(/\n+$/, "");
+  const next = trimmed.length === 0 ? "" : `${trimmed}\n`;
   await writeFile(path, next, "utf-8");
 }
 
