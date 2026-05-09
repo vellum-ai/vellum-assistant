@@ -19,6 +19,8 @@ import type {
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getDb } from "../db-connection.js";
+import { embedWithRetry } from "../embed.js";
+import { generateSparseEmbedding } from "../embedding-backend.js";
 import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
@@ -422,10 +424,19 @@ export class ConversationGraphMemory {
       "",
       signal,
     );
-    this.initialized = true;
-    this.needsReload = false;
 
     if (v2.routed) {
+      // Surface a user-query embedding so PKB hint search still runs on v2
+      // turns. v1's `loadContextMemory` produced these as a side effect of
+      // hybrid retrieval; the v2 path skips that retrieval, so embed
+      // explicitly here.
+      const userQueryEmbed = await this.computeQueryVectors(
+        rawUserText ?? userQuery ?? "",
+        config,
+        signal,
+      );
+      this.initialized = true;
+      this.needsReload = false;
       this.lastInjectedBlock = v2.injectedBlockText;
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
@@ -438,6 +449,8 @@ export class ConversationGraphMemory {
         mode: "context-load" as const,
         injectedBlockText: v2.injectedBlockText,
         metrics: null,
+        userQueryVector: userQueryEmbed.dense,
+        userQuerySparseVector: userQueryEmbed.sparse,
       };
     }
 
@@ -449,6 +462,12 @@ export class ConversationGraphMemory {
       config,
       signal,
     });
+    // Set initialized only after v1 retrieval succeeds. If `loadContextMemory`
+    // throws (transient DB/Qdrant failure), `prepareMemory` catches and
+    // returns noop, but we want the next turn to retry the bootstrap path
+    // rather than be stuck in per-turn mode.
+    this.initialized = true;
+    this.needsReload = false;
 
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
@@ -569,6 +588,14 @@ export class ConversationGraphMemory {
       signal,
     );
     if (v2.routed) {
+      // Surface a per-turn query embedding so PKB hint search still runs
+      // on v2 turns. v1's `retrieveForTurn` produced these as a side effect;
+      // the v2 path skips that retrieval, so embed explicitly here.
+      const perTurnEmbed = await this.computeQueryVectors(
+        userLast,
+        config,
+        signal,
+      );
       this.lastInjectedBlock = v2.injectedBlockText;
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
@@ -581,6 +608,8 @@ export class ConversationGraphMemory {
         mode: "per-turn" as const,
         injectedBlockText: v2.injectedBlockText,
         metrics: null,
+        queryVector: perTurnEmbed.dense,
+        sparseVector: perTurnEmbed.sparse,
       };
     }
 
@@ -650,6 +679,35 @@ export class ConversationGraphMemory {
       queryVector: result.queryVector,
       sparseVector: result.sparseVector,
     };
+  }
+
+  /**
+   * Embed a query string for PKB hint search on v2 turns. v1 retrieval
+   * produced these vectors as a side effect; on v2 we skip retrieval, so
+   * the agent loop loses the dense/sparse pair it needs to drive
+   * `buildPkbReminderWithHints`. Failures here degrade PKB hints to the
+   * static fallback rather than blocking the turn.
+   */
+  private async computeQueryVectors(
+    text: string,
+    config: AssistantConfig,
+    signal: AbortSignal,
+  ): Promise<{ dense?: number[]; sparse?: QdrantSparseVector }> {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return {};
+    let dense: number[] | undefined;
+    try {
+      const result = await embedWithRetry(config, [trimmed], { signal });
+      dense = result.vectors[0];
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Failed to embed query for PKB hints on v2 path",
+      );
+    }
+    const sparseRaw = generateSparseEmbedding(trimmed);
+    const sparse = sparseRaw.indices.length > 0 ? sparseRaw : undefined;
+    return { dense, sparse };
   }
 
   /**
