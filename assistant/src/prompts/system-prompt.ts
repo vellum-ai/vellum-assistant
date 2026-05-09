@@ -219,6 +219,7 @@ export function ensurePromptFiles(): void {
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
+  excludeCustomPrefix?: boolean;
   userPersona?: string | null;
   channelPersona?: string | null;
   userSlug?: string | null;
@@ -242,7 +243,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // (IDENTITY.md, SOUL.md, users/<slug>.md, etc.) are edited between turns.
   const staticParts: string[] = [];
   const customPrefix = readCustomSystemPromptPrefix();
-  if (customPrefix) staticParts.push(customPrefix);
+  if (customPrefix && !options?.excludeCustomPrefix)
+    staticParts.push(customPrefix);
   staticParts.push(buildParallelToolCallsSection());
   if (getIsContainerized()) staticParts.push(buildContainerizedSection());
   staticParts.push(buildCliReferenceSection());
