@@ -2011,7 +2011,7 @@ async function generateLlmSuggestion(
     systemPrompt,
     {
       config: {
-        callSite: "conversationStarters",
+        callSite: "replySuggestion",
         max_tokens: 60,
         stop_sequences: ["</reply>"],
         temperature: 0.7,
@@ -2140,7 +2140,7 @@ export async function handleGetSuggestion(
     }
 
     // Try LLM suggestion using the configured provider
-    const provider = await getConfiguredProvider("conversationStarters");
+    const provider = await getConfiguredProvider("replySuggestion");
     if (provider) {
       try {
         // Deduplicate concurrent requests

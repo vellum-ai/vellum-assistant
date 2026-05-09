@@ -532,7 +532,7 @@ describe("GET /v1/suggestion", () => {
     );
   });
 
-  test("uses conversationStarters call site", async () => {
+  test("uses replySuggestion call site", async () => {
     const provider = makeMockProvider("Quick reply");
     mockGetConfiguredProvider.mockImplementation(async () => provider);
     mockGetConversationByKey.mockImplementation(() => ({
@@ -558,7 +558,7 @@ describe("GET /v1/suggestion", () => {
     const options = callArgs[3] as
       | { config?: { callSite?: string } }
       | undefined;
-    expect(options?.config?.callSite).toBe("conversationStarters");
+    expect(options?.config?.callSite).toBe("replySuggestion");
   });
 
   test("disables thinking and zeros effort to avoid Anthropic temp/thinking 400", async () => {
@@ -612,7 +612,7 @@ describe("GET /v1/suggestion", () => {
     // whenever the request triggers extended thinking (e.g. Opus 4.x at
     // `effort: "xhigh"`). The suggestion generator must only send a
     // single user-role message so it stays compatible with every
-    // possible `conversationStarters` call-site config.
+    // possible `replySuggestion` call-site config.
     const provider = makeMockProvider("<reply>Sure, works for me</reply>");
     mockGetConfiguredProvider.mockImplementation(async () => provider);
     mockGetConversationByKey.mockImplementation(() => ({

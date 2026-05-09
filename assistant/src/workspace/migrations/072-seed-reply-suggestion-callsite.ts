@@ -4,30 +4,30 @@ import { join } from "node:path";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
- * Seed a latency-optimized default for the `conversationStarters` LLM
- * call site.
+ * Seed a latency-optimized default for the `replySuggestion` LLM call site.
  *
- * `conversationStarters` drives the personalized starter chips rendered
- * on the empty conversation page in the macOS client. Without this seed
- * the call site falls through to `llm.default` — on workspaces where the
- * default is a high-effort / extended-thinking configured model
- * (e.g. Opus 4.x at `effort: "xhigh"`), chip generation kicks off an
- * expensive reasoning call that adds noticeable cost and latency.
+ * `replySuggestion` drives the tab-to-accept ghost-text reply hint rendered in
+ * the chat composer after every assistant turn (`GET /v1/suggestion`). It was
+ * split out of `conversationStarters` so the empty-state chip generator and
+ * the inline reply hint can be tuned independently. Without this seed the
+ * call site falls through to `llm.default` — on workspaces with a
+ * high-effort / extended-thinking default, every turn would kick off an
+ * expensive reasoning call and reject the assistant prefill.
  *
- * Follows the same contract as `040-seed-latency-callsite-defaults`:
+ * Mirrors `046-seed-conversation-starters-callsite`:
  *   - Skip entirely when `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH` is set
  *     (platform overlay owns call-site seeds).
- *   - Skip when the resolved provider is not Anthropic (the seeded
- *     model IDs are Anthropic-shaped, so mixing with another provider
- *     would guarantee invalid-model errors).
- *   - No-op when `llm.callSites.conversationStarters` is already set.
+ *   - Skip when the resolved provider is not Anthropic or OpenRouter (the
+ *     seeded model IDs are Anthropic-shaped, so mixing with another
+ *     provider would guarantee invalid-model errors).
+ *   - No-op when `llm.callSites.replySuggestion` is already set.
  *
- * Idempotent, append-only — existing 040 entries are untouched.
+ * Idempotent, append-only — existing entries are untouched.
  */
-export const seedConversationStartersCallsiteMigration: WorkspaceMigration = {
-  id: "046-seed-conversation-starters-callsite",
+export const seedReplySuggestionCallsiteMigration: WorkspaceMigration = {
+  id: "072-seed-reply-suggestion-callsite",
   description:
-    "Seed latency-optimized default for conversationStarters LLM call site",
+    "Seed latency-optimized default for replySuggestion LLM call site",
   run(workspaceDir: string): void {
     if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
 
@@ -61,9 +61,9 @@ export const seedConversationStartersCallsiteMigration: WorkspaceMigration = {
     if (fastModel === undefined) return;
 
     const callSites = readObject(llm.callSites) ?? {};
-    if (readObject(callSites.conversationStarters) !== null) return;
+    if (readObject(callSites.replySuggestion) !== null) return;
 
-    callSites.conversationStarters = {
+    callSites.replySuggestion = {
       model: fastModel,
       effort: "low",
       thinking: { enabled: false },
@@ -75,8 +75,7 @@ export const seedConversationStartersCallsiteMigration: WorkspaceMigration = {
   },
   down(_workspaceDir: string): void {
     // Forward-only: removing the seeded default would reintroduce the
-    // cost/latency regression and the assistant-prefill 400 that this
-    // migration fixes.
+    // cost/latency regression that this migration fixes.
   },
 };
 

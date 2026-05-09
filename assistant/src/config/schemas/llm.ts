@@ -52,6 +52,7 @@ export const LLMCallSiteEnum = z.enum([
   "patternScan",
   "conversationSummarization",
   "conversationStarters",
+  "replySuggestion",
   "conversationTitle",
   "commitMessage",
   "identityIntro",

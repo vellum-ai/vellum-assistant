@@ -152,7 +152,14 @@ const CATALOG_RECORD: CatalogRecord = {
     id: "conversationStarters",
     displayName: "Conversation Starters",
     description:
-      "Generates suggested conversation openers for the home screen.",
+      "Generates the personalized starter chips on the empty conversation page.",
+    domain: "ui",
+  },
+  replySuggestion: {
+    id: "replySuggestion",
+    displayName: "Reply Suggestion",
+    description:
+      "Generates the tab-to-accept reply hint shown in the chat composer after each assistant turn.",
     domain: "ui",
   },
   conversationTitle: {
