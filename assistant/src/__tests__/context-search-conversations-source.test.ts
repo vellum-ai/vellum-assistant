@@ -68,7 +68,7 @@ describe("searchConversationSource", () => {
     ]);
   });
 
-  test("does not return derived subagent or auto-analysis conversations", async () => {
+  test("does not return derived subagent, auto-analysis, or notification conversations", async () => {
     const visible = await seedConversation({
       title: "User conversation",
       content: "derivedtoken belongs to a user-authored conversation.",
@@ -83,6 +83,11 @@ describe("searchConversationSource", () => {
       source: "auto-analysis",
       content: "derivedtoken should not include auto-analysis output.",
     });
+    await seedConversation({
+      title: "Notification conversation",
+      source: "notification",
+      content: "derivedtoken should not include notification seed output.",
+    });
 
     const result = await searchConversationSource(
       "derivedtoken",
@@ -92,6 +97,27 @@ describe("searchConversationSource", () => {
 
     expect(result.evidence.map((item) => item.locator)).toEqual([
       `${visible.conversation.id}#${visible.message.id}`,
+    ]);
+  });
+
+  test("excludes the current conversation from recall results", async () => {
+    const other = await seedConversation({
+      title: "Other conversation",
+      content: "currenttoken appears in another conversation.",
+    });
+    const current = await seedConversation({
+      title: "Current conversation",
+      content: "currenttoken appears in the active conversation.",
+    });
+
+    const result = await searchConversationSource(
+      "currenttoken",
+      makeContext({ conversationId: current.conversation.id }),
+      10,
+    );
+
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      `${other.conversation.id}#${other.message.id}`,
     ]);
   });
 

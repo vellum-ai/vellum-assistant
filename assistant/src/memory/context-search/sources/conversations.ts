@@ -7,6 +7,7 @@ import { rawAll } from "../../raw-query.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
 const SUBAGENT_SOURCE = "subagent";
+const NOTIFICATION_SOURCE = "notification";
 
 interface ConversationEvidenceRow {
   message_id: string;
@@ -88,7 +89,10 @@ export async function searchConversationSource(
 
   for (const ftsMatch of ftsMatches) {
     try {
-      rows = mergeConversationRows(rows, searchWithFts(ftsMatch, queryLimit));
+      rows = mergeConversationRows(
+        rows,
+        searchWithFts(ftsMatch, queryLimit, context.conversationId),
+      );
     } catch {
       // Try the next, broader query shape.
     }
@@ -97,7 +101,7 @@ export async function searchConversationSource(
   }
 
   if (rows.length === 0) {
-    rows = searchWithLike(trimmedQuery, queryLimit);
+    rows = searchWithLike(trimmedQuery, queryLimit, context.conversationId);
   }
 
   const sortedRows = rows
@@ -128,6 +132,7 @@ export async function searchConversationSource(
 function searchWithFts(
   ftsMatch: string,
   limit: number,
+  excludedConversationId: string,
 ): ConversationEvidenceRow[] {
   return rawAll<ConversationEvidenceRow>(
     `
@@ -143,13 +148,16 @@ function searchWithFts(
     JOIN conversations c ON c.id = m.conversation_id
     WHERE messages_fts MATCH ?
       AND (c.conversation_type IS NULL OR c.conversation_type != 'private')
-      AND (c.source IS NULL OR c.source NOT IN (?, ?))
+      AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
+      AND c.id != ?
     ORDER BY bm25(messages_fts), m.created_at DESC
     LIMIT ?
     `,
     ftsMatch,
     SUBAGENT_SOURCE,
     AUTO_ANALYSIS_SOURCE,
+    NOTIFICATION_SOURCE,
+    excludedConversationId,
     limit,
   );
 }
@@ -157,6 +165,7 @@ function searchWithFts(
 function searchWithLike(
   query: string,
   limit: number,
+  excludedConversationId: string,
 ): ConversationEvidenceRow[] {
   return rawAll<ConversationEvidenceRow>(
     `
@@ -171,13 +180,16 @@ function searchWithLike(
     JOIN conversations c ON c.id = m.conversation_id
     WHERE m.content LIKE ? ESCAPE '\\'
       AND (c.conversation_type IS NULL OR c.conversation_type != 'private')
-      AND (c.source IS NULL OR c.source NOT IN (?, ?))
+      AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
+      AND c.id != ?
     ORDER BY m.created_at DESC
     LIMIT ?
     `,
     buildLikePattern(query),
     SUBAGENT_SOURCE,
     AUTO_ANALYSIS_SOURCE,
+    NOTIFICATION_SOURCE,
+    excludedConversationId,
     limit,
   );
 }
