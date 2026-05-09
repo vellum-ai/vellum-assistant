@@ -2,6 +2,8 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import simpleImportSort from "eslint-plugin-simple-import-sort";
 import tseslint from "typescript-eslint";
 
+import cliNoDaemonInternals from "./eslint-rules/cli-no-daemon-internals.js";
+
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
   globalIgnores(["dist/**", "drizzle/**"]),
@@ -42,6 +44,12 @@ const eslintConfig = defineConfig([
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
     },
+  },
+  {
+    files: ["src/cli/commands/**/*.ts"],
+    ignores: ["src/cli/commands/**/__tests__/**"],
+    plugins: { cli: { rules: { "no-daemon-internals": cliNoDaemonInternals } } },
+    rules: { "cli/no-daemon-internals": "warn" },
   },
 ]);
 
