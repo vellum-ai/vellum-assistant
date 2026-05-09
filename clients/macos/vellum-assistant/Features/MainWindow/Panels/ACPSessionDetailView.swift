@@ -624,7 +624,21 @@ struct ACPSessionDetailView: View {
         // (`acp/:id/steer`) accepts and the store keys its dictionary by.
         // `state.acpSessionId` is the protocol-level handle and would
         // miss the lookup for any session past initialization.
-        Task { await store.steer(id: session.state.id, instruction: instruction) }
+        let id = session.state.id
+        let acpSessionId = session.state.acpSessionId
+        Task { @MainActor in
+            let result = await store.steer(id: id, instruction: instruction)
+            // Surface a failure follow-up so the optimistic "→ steered: …"
+            // row above isn't misread as confirmation when the daemon
+            // rejected the instruction (transport error, session ended, etc.).
+            if case .failure = result {
+                session.appendEvent(ACPSessionUpdateMessage(
+                    acpSessionId: acpSessionId,
+                    updateType: .userMessageChunk,
+                    content: "→ steer failed — the session may have ended."
+                ))
+            }
+        }
     }
 
     // MARK: - Delete Footer
