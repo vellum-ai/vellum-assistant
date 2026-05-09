@@ -7,9 +7,10 @@ import type { WorkspaceMigration } from "./types.js";
  * Repair stale Gemini model IDs that earlier workspace migrations could seed.
  *
  * `gemini-3-flash` is no longer a catalog model ID. Repair only known LLM
- * config leaves where migrations write model IDs, and only when the value is
- * an exact stale match so unrelated user config and substring values are left
- * untouched.
+ * config leaves where migrations write model IDs, only when the value is an
+ * exact stale match, and only when the effective provider context is Gemini —
+ * a custom Ollama/OpenRouter config that happens to use the literal
+ * `"gemini-3-flash"` string must be left untouched.
  */
 export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
   id: "057-repair-stale-gemini-model-ids",
@@ -33,7 +34,9 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
     let changed = false;
 
     const defaultBlock = readObject(llm.default);
-    if (defaultBlock !== null) {
+    const defaultProvider = readProvider(defaultBlock);
+
+    if (defaultBlock !== null && isGeminiBlock(defaultBlock, defaultProvider)) {
       changed = repairModel(defaultBlock, DEFAULT_REPLACEMENT_MODEL) || changed;
     }
 
@@ -42,6 +45,7 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
       for (const [site, rawConfig] of Object.entries(callSites)) {
         const callSiteConfig = readObject(rawConfig);
         if (callSiteConfig === null) continue;
+        if (!isGeminiBlock(callSiteConfig, defaultProvider)) continue;
         const replacement = LATENCY_CALL_SITES.has(site)
           ? LATENCY_REPLACEMENT_MODEL
           : DEFAULT_REPLACEMENT_MODEL;
@@ -54,6 +58,7 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
       for (const rawProfile of Object.values(profiles)) {
         const profile = readObject(rawProfile);
         if (profile === null) continue;
+        if (!isGeminiBlock(profile, defaultProvider)) continue;
         changed = repairModel(profile, DEFAULT_REPLACEMENT_MODEL) || changed;
       }
     }
@@ -95,4 +100,23 @@ function readObject(value: unknown): Record<string, unknown> | null {
     return null;
   }
   return value as Record<string, unknown>;
+}
+
+function readProvider(
+  block: Record<string, unknown> | null,
+): string | undefined {
+  if (block === null) return undefined;
+  return typeof block.provider === "string" ? block.provider : undefined;
+}
+
+// A block targets Gemini if it explicitly sets provider="gemini", or if it has
+// no provider field and the default block resolves to Gemini. An explicit
+// non-Gemini provider blocks the rewrite.
+function isGeminiBlock(
+  block: Record<string, unknown>,
+  defaultProvider: string | undefined,
+): boolean {
+  const local = readProvider(block);
+  const effective = local ?? defaultProvider;
+  return effective === undefined || effective === "gemini";
 }
