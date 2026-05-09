@@ -75,7 +75,7 @@ import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import {
   readMemoryV2StaticContent,
-  shouldLoadMemoryV2Static,
+  shouldExposePersonalMemory,
 } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
@@ -1412,16 +1412,29 @@ export async function runAgentLoopImpl(
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
 
+    // Personal-memory trust gate: PKB, NOW.md, and v2 static blocks all
+    // hold private user content. Block exposure to non-guardian actors
+    // arriving over a remote channel; internal/local flows pass through.
+    // See `shouldExposePersonalMemory` for the threat model.
+    const personalMemoryAllowed = shouldExposePersonalMemory({
+      sourceChannel: ctx.trustContext?.sourceChannel,
+      isTrustedActor,
+    });
+
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
     // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
     // so plugins can override either source without touching the agent loop.
-    const currentNowContent = memoryResult.nowContent;
+    const currentNowContent = personalMemoryAllowed
+      ? memoryResult.nowContent
+      : null;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
-    const currentPkbContent = memoryResult.pkbContent;
+    const currentPkbContent = personalMemoryAllowed
+      ? memoryResult.pkbContent
+      : null;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
@@ -1433,10 +1446,7 @@ export async function runAgentLoopImpl(
     // first-turn / post-compaction cadence-gated value for initial
     // injection only. `readMemoryV2StaticContent` self-gates on the v2
     // flag + config and returns null when v2 is off.
-    const currentMemoryV2Static = shouldLoadMemoryV2Static({
-      sourceChannel: ctx.trustContext?.sourceChannel,
-      isTrustedActor,
-    })
+    const currentMemoryV2Static = personalMemoryAllowed
       ? readMemoryV2StaticContent()
       : null;
     const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;

@@ -45,7 +45,7 @@ mock.module("../../../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-const { readMemoryV2StaticContent, shouldLoadMemoryV2Static } =
+const { readMemoryV2StaticContent, shouldExposePersonalMemory } =
   await import("../static-context.js");
 
 const MEMORY_FILES = [
@@ -140,10 +140,10 @@ describe("readMemoryV2StaticContent", () => {
   });
 });
 
-describe("shouldLoadMemoryV2Static", () => {
+describe("shouldExposePersonalMemory", () => {
   test("allows guardian-trusted local conversations", () => {
     expect(
-      shouldLoadMemoryV2Static({
+      shouldExposePersonalMemory({
         sourceChannel: "vellum",
         isTrustedActor: true,
       }),
@@ -152,7 +152,7 @@ describe("shouldLoadMemoryV2Static", () => {
 
   test("allows local-channel conversations even when trust class is unknown (analyze runs, dev)", () => {
     expect(
-      shouldLoadMemoryV2Static({
+      shouldExposePersonalMemory({
         sourceChannel: "vellum",
         isTrustedActor: false,
       }),
@@ -161,7 +161,7 @@ describe("shouldLoadMemoryV2Static", () => {
 
   test("allows turns with no trust context (work-item task runs, internal background)", () => {
     expect(
-      shouldLoadMemoryV2Static({
+      shouldExposePersonalMemory({
         sourceChannel: undefined,
         isTrustedActor: false,
       }),
@@ -179,7 +179,7 @@ describe("shouldLoadMemoryV2Static", () => {
   test("allows guardian-trusted remote channels (user's own phone/Slack)", () => {
     for (const channel of REMOTE_CHANNELS) {
       expect(
-        shouldLoadMemoryV2Static({
+        shouldExposePersonalMemory({
           sourceChannel: channel,
           isTrustedActor: true,
         }),
@@ -190,7 +190,7 @@ describe("shouldLoadMemoryV2Static", () => {
   test("blocks non-guardian remote-channel actors (the leak this gate exists to prevent)", () => {
     for (const channel of REMOTE_CHANNELS) {
       expect(
-        shouldLoadMemoryV2Static({
+        shouldExposePersonalMemory({
           sourceChannel: channel,
           isTrustedActor: false,
         }),
