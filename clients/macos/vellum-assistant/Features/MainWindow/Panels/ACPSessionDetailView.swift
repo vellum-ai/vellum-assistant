@@ -35,7 +35,14 @@ struct ACPSessionDetailView: View {
     /// Pop-to-list callback fired after a successful "Delete from history".
     /// Hosting view (the panel's `NavigationStack`) is responsible for the
     /// actual back-pop; we just signal that the underlying row is gone.
+    /// When unset, we fall back to the environment's `dismiss` action so a
+    /// successful delete always returns the user to the list.
     var onDismiss: (() -> Void)? = nil
+
+    /// Fallback dismiss action used when no explicit `onDismiss` callback is
+    /// wired by the host. Resolves to the enclosing `NavigationStack`'s
+    /// pop action when this view is pushed via `navigationDestination`.
+    @Environment(\.dismiss) private var dismissEnvironment
 
     /// True while a cancel HTTP request is in flight. Disables the button and
     /// shows an inline spinner so the user can't double-tap.
@@ -688,7 +695,11 @@ struct ACPSessionDetailView: View {
             // to react if the daemon reports a 409 (still active) or other
             // failure — the row stays put and the button re-enables.
             if case .success = result {
-                onDismiss?()
+                if let onDismiss {
+                    onDismiss()
+                } else {
+                    dismissEnvironment()
+                }
             }
         }
     }
