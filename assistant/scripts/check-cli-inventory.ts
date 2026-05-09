@@ -7,7 +7,7 @@
  *   bun run lint:inventory       # exits 1 when mismatch exists
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 const assistantRoot = resolve(import.meta.dirname, "..");
