@@ -2023,14 +2023,6 @@ export async function surfaceProxyResolver(
 
   // Route app-control proxy tools (all app_control_* tool variants)
   if (toolName.startsWith("app_control_")) {
-    if (!ctx.hostAppControlProxy || !ctx.hostAppControlProxy.isAvailable()) {
-      return {
-        content:
-          "App control is not available — enable the `app-control` feature flag and connect a macOS client.",
-        isError: true,
-      };
-    }
-
     // `app_control_stop` resolves immediately: tear down the proxy without
     // a client round-trip. Mirrors CU's terminal-tool short-circuit
     // (`computer_use_done` / `computer_use_respond`). Clear the
@@ -2039,13 +2031,26 @@ export async function surfaceProxyResolver(
     // instead of dispatching against a torn-down proxy, and so a sibling
     // conversation can acquire the released singleton lock without the
     // disposed proxy still being addressable.
+    //
+    // Run this BEFORE the isAvailable() gate so a disconnected client
+    // doesn't strand the singleton lock — stop is local-only.
     if (toolName === "app_control_stop") {
-      if (ctx.setHostAppControlProxy) {
-        ctx.setHostAppControlProxy(undefined);
-      } else {
-        ctx.hostAppControlProxy.dispose();
+      if (ctx.hostAppControlProxy) {
+        if (ctx.setHostAppControlProxy) {
+          ctx.setHostAppControlProxy(undefined);
+        } else {
+          ctx.hostAppControlProxy.dispose();
+        }
       }
       return { content: "App control stopped.", isError: false };
+    }
+
+    if (!ctx.hostAppControlProxy || !ctx.hostAppControlProxy.isAvailable()) {
+      return {
+        content:
+          "App control is not available — enable the `app-control` feature flag and connect a macOS client.",
+        isError: true,
+      };
     }
 
     // The TS `HostAppControlInput` (and the Swift mirror) is a discriminated
