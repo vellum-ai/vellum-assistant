@@ -293,7 +293,11 @@ export async function startVoiceTurn(
     onMessageComplete: (msg) => {
       opts.onComplete?.();
       opts.callbacks?.message_complete?.(msg);
-      if (msg.type === "message_complete" && msg.messageId) {
+      if (
+        msg.type === "message_complete" &&
+        msg.messageId &&
+        msg.source !== "aux"
+      ) {
         try {
           opts.callbacks?.persisted_assistant_message_id?.(msg.messageId);
         } catch (err) {
