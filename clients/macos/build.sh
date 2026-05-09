@@ -958,6 +958,24 @@ for stale in "$SCRIPT_DIR/dist"/*.app; do
     [ "$stale" = "$APP_DIR" ] && continue
     stale_id=$(plutil -extract CFBundleIdentifier raw "$stale/Contents/Info.plist" 2>/dev/null || true)
     if [ "$stale_id" = "$BUNDLE_ID" ]; then
+        # Kill processes from this bundle before removing it — the `run`
+        # kill pass below matches by reading each PID's Info.plist, so
+        # deleting first would orphan a running sibling and leave a
+        # duplicate Dock entry.
+        stale_pids=""
+        while IFS= read -r line; do
+            read -r pid exe_path <<< "$line"
+            [ -n "$pid" ] || continue
+            case "$exe_path" in
+                "$stale"/Contents/MacOS/*) stale_pids+="$pid " ;;
+            esac
+        done < <(ps -ax -o pid=,comm=)
+        if [ -n "$stale_pids" ]; then
+            echo "Stopping process(es) inside stale bundle $stale: $stale_pids"
+            echo "$stale_pids" | xargs kill 2>/dev/null || true
+            sleep 0.3
+            echo "$stale_pids" | xargs kill -9 2>/dev/null || true
+        fi
         echo "Removing stale bundle with matching ID: $stale"
         rm -rf "$stale"
     fi
