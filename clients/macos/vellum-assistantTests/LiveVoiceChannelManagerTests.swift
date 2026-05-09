@@ -356,6 +356,28 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
         XCTAssertEqual(client.closeCallCount, 1)
     }
 
+    func testAudioCapturedDuringPostTtsDoneDrainIsNotForwarded() async {
+        await startReadySession()
+
+        client.emit(.thinking(turnId: "turn-123"))
+        client.emit(.ttsAudio(data: Data([9, 8]), mimeType: "audio/pcm", sampleRate: 16_000, seq: 4))
+        client.emit(.ttsDone(turnId: "turn-123"))
+        await flushAsyncTasks()
+
+        XCTAssertEqual(capture.stopCallCount, 1)
+
+        capture.emitChunk(data: Data([7, 7]), amplitude: 0.5)
+        await flushAsyncTasks()
+
+        XCTAssertFalse(client.audioFrames.contains(Data([7, 7])))
+
+        playback.finishPlayback()
+        await flushAsyncTasks()
+
+        XCTAssertEqual(manager.state, .idle)
+        XCTAssertEqual(client.closeCallCount, 1)
+    }
+
     func testTtsDoneWithoutQueuedPlaybackClosesSessionImmediately() async {
         await startReadySession()
         await manager.stopListening()
