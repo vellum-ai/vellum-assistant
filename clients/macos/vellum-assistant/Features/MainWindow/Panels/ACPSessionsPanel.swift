@@ -52,10 +52,10 @@ struct ACPSessionsPanel: View {
                 onClose: onClose,
                 pinnedContent: { headerBar }
             ) {
-                if store.sessionOrder.isEmpty {
+                if filteredSessions.isEmpty {
                     VEmptyState(
-                        title: "No coding agents yet",
-                        subtitle: "Ask the assistant to spawn Claude or Codex.",
+                        title: emptyStateTitle,
+                        subtitle: emptyStateSubtitle,
                         icon: "terminal"
                     )
                 } else {
@@ -222,6 +222,24 @@ struct ACPSessionsPanel: View {
     private var countLabel: String {
         let count = filteredSessions.count
         return count == 1 ? "1 agent" : "\(count) agents"
+    }
+
+    /// Empty-state title shown when ``filteredSessions`` is empty. When the
+    /// store has sessions in other conversations but none match the current
+    /// "This conversation" filter, the title calls that out so users
+    /// understand the list is filtered, not globally empty.
+    private var emptyStateTitle: String {
+        if !store.sessionOrder.isEmpty && activeFilter == .thisConversation {
+            return "No agents in this conversation"
+        }
+        return "No coding agents yet"
+    }
+
+    private var emptyStateSubtitle: String {
+        if !store.sessionOrder.isEmpty && activeFilter == .thisConversation {
+            return "Switch to All to see agents from other conversations."
+        }
+        return "Ask the assistant to spawn Claude or Codex."
     }
 
     /// Sessions that should appear in the list once the active filter is
