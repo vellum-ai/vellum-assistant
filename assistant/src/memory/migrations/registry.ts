@@ -1,4 +1,9 @@
 import type { DrizzleDb } from "../db-connection.js";
+import {
+  downInferenceModelProfiles,
+  downInferenceProviders,
+  downInferenceRateCards,
+} from "../../inference/migrations/index.js";
 import { downJobDeferrals } from "./001-job-deferrals.js";
 import { downMemoryEntityRelationDedup } from "./004-entity-relation-dedup.js";
 import { downMemoryItemsFingerprintScopeUnique } from "./005-fingerprint-scope-unique.js";
@@ -411,6 +416,29 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Create heartbeat_runs table for tracking heartbeat execution lifecycle with CAS state transitions",
     down: downHeartbeatRuns,
+  },
+  {
+    key: "migration_inference_providers_v1",
+    version: 48,
+    description:
+      "Create providers table for inference provider data model redesign (name, contract, base_url, auth, is_canonical, canonical_equivalent_id)",
+    down: downInferenceProviders,
+  },
+  {
+    key: "migration_inference_model_profiles_v1",
+    version: 49,
+    dependsOn: ["migration_inference_providers_v1"],
+    description:
+      "Create model_profiles table keyed to providers by FK (name, provider_id, model, system_prompt, temperature, max_tokens)",
+    down: downInferenceModelProfiles,
+  },
+  {
+    key: "migration_inference_rate_cards_v1",
+    version: 50,
+    dependsOn: ["migration_inference_providers_v1"],
+    description:
+      "Create rate_cards table for per-model cost tracking keyed to providers (input/output/cache token costs, effective_from for versioned history)",
+    down: downInferenceRateCards,
   },
 ];
 

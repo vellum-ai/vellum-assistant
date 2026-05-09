@@ -15,6 +15,11 @@ import { backfillAppConversationIds } from "./app-store.js";
 import { getDb, getSqlite } from "./db-connection.js";
 import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
+  migrateInferenceModelProfiles,
+  migrateInferenceProviders,
+  migrateInferenceRateCards,
+} from "../inference/migrations/index.js";
+import {
   addCoreColumns,
   createApprovalPromptTsTrackerTable,
   createAssistantInboxTables,
@@ -416,6 +421,9 @@ export function initializeDb(): void {
     migrateTraceEventsCreatedAtIndex,
     migrateConversationInferenceProfileSession,
     migrateMessageBookmarks,
+    migrateInferenceProviders,
+    migrateInferenceModelProfiles,
+    migrateInferenceRateCards,
   ];
 
   // Run each migration step, catching and logging individual failures so one
