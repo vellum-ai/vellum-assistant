@@ -98,7 +98,7 @@ describe("daemon-down message", () => {
     const r = await cliIpcCall("any_method", {}, { timeoutMs: 100 });
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.error).toContain("connect to the assistant at ");
+    expect(r.error).toContain("connect to assistant daemon at ");
     expect(r.error).toContain("assistant status");
   });
 });

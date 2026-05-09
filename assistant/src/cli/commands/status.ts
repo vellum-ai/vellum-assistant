@@ -6,7 +6,6 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import { getAssistantSocketPath } from "../../ipc/socket-path.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
 import { registerCommand } from "../lib/register-command.js";
-import { log } from "../logger.js";
 
 interface HealthResponse {
   version: string;
@@ -32,12 +31,8 @@ export function registerStatusCommand(program: Command): void {
           const socketPath = getAssistantSocketPath();
           const socketExists = existsSync(socketPath);
           const workspace = getWorkspaceDirDisplay();
-          if (socketExists) {
-            log.info("Daemon: running");
-          } else {
-            log.info("Daemon: down");
-          }
-          log.info(`Workspace: ${workspace}`);
+          console.log(socketExists ? "Daemon: running" : "Daemon: down");
+          console.log(`Workspace: ${workspace}`);
           process.exit(0);
         }
 
@@ -59,10 +54,10 @@ export function registerStatusCommand(program: Command): void {
         );
         for (const [label, value] of rows) {
           if (!label) {
-            log.info("");
+            console.log("");
             continue;
           }
-          log.info(`${label.padEnd(labelWidth)}  ${value}`);
+          console.log(`${label.padEnd(labelWidth)}  ${value}`);
         }
       });
     },
