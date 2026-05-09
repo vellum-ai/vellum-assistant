@@ -1738,33 +1738,6 @@ paths:
                 - messageId
                 - conversationId
               additionalProperties: false
-  /v1/bookmarks/{id}:
-    delete:
-      operationId: bookmarks_by_id_delete
-      summary: Delete a bookmark
-      description: Delete a bookmark by id. Succeeds even if no row matched.
-      tags:
-        - bookmarks
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    const: true
-                required:
-                  - success
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
   /v1/bookmarks/by-message/{messageId}:
     delete:
       operationId: bookmarks_bymessage_by_messageId_delete

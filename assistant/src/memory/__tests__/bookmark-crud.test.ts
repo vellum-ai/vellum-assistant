@@ -5,7 +5,6 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import {
   createBookmark,
-  deleteBookmark,
   deleteBookmarkByMessageId,
   listBookmarks,
 } from "../bookmark-crud.js";
@@ -196,11 +195,6 @@ describe("bookmark-crud", () => {
     const remaining = listBookmarks(db);
     expect(remaining.length).toBe(1);
     expect(remaining[0]?.conversationId).toBe("conv-keep");
-  });
-
-  test("deleteBookmark returns false when the id does not exist", () => {
-    const { db } = setupDb();
-    expect(deleteBookmark(db, "does-not-exist")).toBe(false);
   });
 
   test("deleteBookmarkByMessageId removes the matching row", () => {

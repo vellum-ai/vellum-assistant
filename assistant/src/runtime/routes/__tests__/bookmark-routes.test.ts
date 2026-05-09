@@ -5,7 +5,6 @@
  *   - POST + GET round-trip
  *   - POST idempotency (no duplicate row, same id returned)
  *   - POST FK validation (unknown messageId → 4xx)
- *   - DELETE /:id
  *   - DELETE /by-message/:messageId
  *   - SSE event publication on create AND delete
  */
@@ -53,7 +52,6 @@ function findHandler(operationId: string): RouteDefinition["handler"] {
 
 const listHandler = findHandler("bookmarks_list");
 const createHandler = findHandler("bookmarks_create");
-const deleteHandler = findHandler("bookmarks_delete");
 const deleteByMessageHandler = findHandler("bookmarks_delete_by_message");
 
 function clearDb(): void {
@@ -191,24 +189,6 @@ describe("bookmark routes", () => {
     ).toBe(true);
   });
 
-  test("DELETE /:id removes the row", async () => {
-    seedConversationAndMessage({
-      conversationId: "conv-4",
-      messageId: "msg-4",
-    });
-    const created = (await call(createHandler, {
-      body: { messageId: "msg-4", conversationId: "conv-4" },
-    })) as { id: string };
-
-    const result = (await call(deleteHandler, {
-      pathParams: { id: created.id },
-    })) as { success: boolean };
-    expect(result.success).toBe(true);
-
-    const listed = (await call(listHandler, {})) as { bookmarks: unknown[] };
-    expect(listed.bookmarks).toHaveLength(0);
-  });
-
   test("DELETE /by-message/:messageId removes the row", async () => {
     seedConversationAndMessage({
       conversationId: "conv-5",
@@ -251,18 +231,20 @@ describe("bookmark routes", () => {
 
     publishCalls.length = 0;
 
-    await call(deleteHandler, { pathParams: { id: created.id } });
+    await call(deleteByMessageHandler, { pathParams: { messageId: "msg-6" } });
     await new Promise((r) => setTimeout(r, 0));
 
     expect(publishedTypes()).toEqual(["bookmark.deleted"]);
     const deletedEvent = publishCalls[0] as EventEnvelope;
-    expect((deletedEvent.message as unknown as { id?: string }).id).toBe(
-      created.id,
-    );
+    expect(
+      (deletedEvent.message as unknown as { messageId?: string }).messageId,
+    ).toBe("msg-6");
   });
 
-  test("DELETE on a non-existent id does not publish", async () => {
-    await call(deleteHandler, { pathParams: { id: "does-not-exist" } });
+  test("DELETE on a non-existent messageId does not publish", async () => {
+    await call(deleteByMessageHandler, {
+      pathParams: { messageId: "does-not-exist" },
+    });
     await new Promise((r) => setTimeout(r, 0));
     expect(publishCalls).toHaveLength(0);
   });

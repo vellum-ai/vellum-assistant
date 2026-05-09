@@ -14,7 +14,10 @@ import VellumAssistantShared
 struct SettingsBookmarksTab: View {
     @Bindable var bookmarkStore: BookmarkStore
     var conversationManager: ConversationManager
-    var openMessage: (_ conversationId: String, _ daemonMessageId: String) -> Void
+    /// Async so the caller can fetch (and unarchive) conversations that are
+    /// not in the current sidebar slice. The closure owns dismissal on
+    /// success and toast surfacing on failure.
+    var openMessage: (_ conversationId: String, _ daemonMessageId: String) async -> Void
     var onClose: () -> Void
 
     @State private var hoveredBookmarkId: String? = nil
@@ -48,8 +51,9 @@ struct SettingsBookmarksTab: View {
                                 }
                             },
                             onOpen: {
-                                openMessage(bookmark.conversationId, bookmark.messageId)
-                                onClose()
+                                Task {
+                                    await openMessage(bookmark.conversationId, bookmark.messageId)
+                                }
                             },
                             onRemove: {
                                 Task {

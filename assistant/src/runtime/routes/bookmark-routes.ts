@@ -3,7 +3,6 @@
  *
  * GET    /v1/bookmarks                      — list all bookmarks (newest first)
  * POST   /v1/bookmarks                      — bookmark a message (idempotent)
- * DELETE /v1/bookmarks/:id                  — remove a bookmark by id
  * DELETE /v1/bookmarks/by-message/:messageId — remove the bookmark for a given message
  *
  * Mutating routes publish `bookmark.created` / `bookmark.deleted` events
@@ -16,7 +15,6 @@ import { z } from "zod";
 import {
   type BookmarkSummary,
   createBookmark,
-  deleteBookmark,
   deleteBookmarkByMessageId,
   listBookmarks,
 } from "../../memory/bookmark-crud.js";
@@ -89,20 +87,6 @@ function handleCreateBookmark({
   return summary;
 }
 
-function handleDeleteBookmark({ pathParams = {} }: RouteHandlerArgs): {
-  success: true;
-} {
-  const id = pathParams.id;
-  if (!id) {
-    throw new BadRequestError("id is required");
-  }
-  const removed = deleteBookmark(getDb(), id);
-  if (removed) {
-    publishBookmarkDeleted({ id });
-  }
-  return { success: true };
-}
-
 function handleDeleteBookmarkByMessage({ pathParams = {} }: RouteHandlerArgs): {
   success: true;
 } {
@@ -158,16 +142,6 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: bookmarkSummarySchema,
     handler: handleCreateBookmark,
-  },
-  {
-    operationId: "bookmarks_delete",
-    endpoint: "bookmarks/:id",
-    method: "DELETE",
-    summary: "Delete a bookmark",
-    description: "Delete a bookmark by id. Succeeds even if no row matched.",
-    tags: ["bookmarks"],
-    responseBody: z.object({ success: z.literal(true) }),
-    handler: handleDeleteBookmark,
   },
   {
     operationId: "bookmarks_delete_by_message",

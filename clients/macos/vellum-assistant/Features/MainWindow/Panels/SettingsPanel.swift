@@ -474,8 +474,15 @@ struct SettingsPanel: View {
                 bookmarkStore: bookmarkStore,
                 conversationManager: conversationManager,
                 openMessage: { conversationId, daemonMessageId in
-                    guard conversationManager.selectConversationByConversationId(conversationId),
-                          let activeLocalId = conversationManager.activeConversationId else { return }
+                    // Async path so archived / paginated-out conversations
+                    // are fetched (and unarchived) instead of silently
+                    // no-oping when the conversation is not in the current
+                    // sidebar slice.
+                    let opened = await conversationManager.selectConversationByConversationIdAsync(conversationId)
+                    guard opened, let activeLocalId = conversationManager.activeConversationId else {
+                        showToast("Couldn't open bookmark — conversation is no longer available.", .error)
+                        return
+                    }
                     // Recording the conversation alongside the daemon ID lets
                     // ConversationSelectionStore's stale-anchor cleanup fire
                     // if the user switches away before the resolver runs.
@@ -483,6 +490,7 @@ struct SettingsPanel: View {
                         conversationId: activeLocalId,
                         daemonMessageId: daemonMessageId
                     )
+                    onClose()
                 },
                 onClose: onClose
             )

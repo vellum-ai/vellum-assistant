@@ -155,26 +155,12 @@ function readBookmarkSummaryOrThrow(
 }
 
 /**
- * Delete a bookmark by id. Returns true iff a row was removed.
+ * Delete the bookmark (if any) attached to the given `messageId`.
+ * Returns true iff a row was removed.
  *
  * Drizzle's high-level `.run()` is typed as `void` for the sync sqlite
  * driver, so we check existence with a follow-up SELECT instead of
  * relying on a row-count from the delete statement.
- */
-export function deleteBookmark(db: DrizzleDb, id: string): boolean {
-  const existed = db
-    .select({ id: messageBookmarks.id })
-    .from(messageBookmarks)
-    .where(eq(messageBookmarks.id, id))
-    .get();
-  if (!existed) return false;
-  db.delete(messageBookmarks).where(eq(messageBookmarks.id, id)).run();
-  return true;
-}
-
-/**
- * Delete the bookmark (if any) attached to the given `messageId`.
- * Returns true iff a row was removed.
  */
 export function deleteBookmarkByMessageId(
   db: DrizzleDb,
