@@ -7,10 +7,10 @@
  */
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import { credentialKey } from "../../security/credential-key.js";
 import type { DrizzleDb } from "../../memory/db-connection.js";
-import { createConnection, getConnection, seedCanonicalConnections } from "./connections.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
+import { createConnection, getConnection, seedCanonicalConnections } from "./connections.js";
 
 const log = getLogger("provider-connections-backfill");
 

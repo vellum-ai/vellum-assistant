@@ -2,7 +2,14 @@ import { eq } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../memory/db-connection.js";
 import { providerConnections } from "../../memory/schema/inference.js";
-import { AuthSchema, type Auth, type ProviderConnection, VALID_CONNECTION_PROVIDERS } from "./auth.js";
+import {
+  type Auth,
+  AuthSchema,
+  type ConnectionProvider,
+  ConnectionProviderSchema,
+  type ProviderConnection,
+  VALID_CONNECTION_PROVIDERS,
+} from "./auth.js";
 
 // ---------------------------------------------------------------------------
 // Read
@@ -19,7 +26,9 @@ export function listConnections(
   return rows.flatMap((row) => {
     const auth = AuthSchema.safeParse(JSON.parse(row.auth));
     if (!auth.success) return [];
-    return [{ ...row, auth: auth.data }];
+    const provider = ConnectionProviderSchema.safeParse(row.provider);
+    if (!provider.success) return [];
+    return [{ ...row, auth: auth.data, provider: provider.data }];
   });
 }
 
@@ -36,7 +45,9 @@ export function getConnection(
   if (!row) return null;
   const auth = AuthSchema.safeParse(JSON.parse(row.auth));
   if (!auth.success) return null;
-  return { ...row, auth: auth.data };
+  const provider = ConnectionProviderSchema.safeParse(row.provider);
+  if (!provider.success) return null;
+  return { ...row, auth: auth.data, provider: provider.data };
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +84,8 @@ export function createConnection(
   if (!VALID_CONNECTION_PROVIDERS.includes(input.provider as never)) {
     return { ok: false, error: { code: "invalid_provider", provider: input.provider } };
   }
+  // Safe cast: VALID_CONNECTION_PROVIDERS.includes() guards above.
+  const provider = input.provider as ConnectionProvider;
 
   const authResult = AuthSchema.safeParse(input.auth);
   if (!authResult.success) {
@@ -91,7 +104,7 @@ export function createConnection(
   const now = Date.now();
   db.insert(providerConnections).values({
     name: input.name,
-    provider: input.provider,
+    provider,
     auth: JSON.stringify(authResult.data),
     createdAt: now,
     updatedAt: now,
@@ -101,7 +114,7 @@ export function createConnection(
     ok: true,
     connection: {
       name: input.name,
-      provider: input.provider,
+      provider,
       auth: authResult.data,
       createdAt: now,
       updatedAt: now,
@@ -114,12 +127,7 @@ export function updateConnection(
   name: string,
   input: UpdateConnectionInput,
 ): { ok: true; connection: ProviderConnection } | { ok: false; error: ConnectionUpdateError } {
-  const existing = db
-    .select()
-    .from(providerConnections)
-    .where(eq(providerConnections.name, name))
-    .get();
-
+  const existing = getConnection(db, name);
   if (!existing) {
     return { ok: false, error: { code: "not_found" } };
   }
@@ -135,16 +143,9 @@ export function updateConnection(
     .where(eq(providerConnections.name, name))
     .run();
 
-  const existingAuth = AuthSchema.safeParse(JSON.parse(existing.auth));
   return {
     ok: true,
-    connection: {
-      name: existing.name,
-      provider: existing.provider,
-      auth: authResult.data,
-      createdAt: existing.createdAt,
-      updatedAt: now,
-    },
+    connection: { ...existing, auth: authResult.data, updatedAt: now },
   };
 }
 

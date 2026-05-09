@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { getLogger } from "../util/logger.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { backfillAppConversationIds } from "./app-store.js";
@@ -73,6 +74,7 @@ import {
   migrateCreateMemoryGraphNodeEdits,
   migrateCreateMemoryGraphTables,
   migrateCreateMemoryRecallLogs,
+  migrateCreateProviderConnections,
   migrateCreateThreadStartersTable,
   migrateCreateTraceEventsTable,
   migrateDeletePrivateConversations,
@@ -173,13 +175,11 @@ import {
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
-  migrateCreateProviderConnections,
   recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
   validateMigrationState,
 } from "./migrations/index.js";
-import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 
 // ---------------------------------------------------------------------------
 // Test DB template — run migrations once, reuse across test files

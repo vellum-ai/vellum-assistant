@@ -4,6 +4,12 @@ import { getLogger } from "../util/logger.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { GeminiProvider } from "./gemini/client.js";
+import { createAdapterFromConnection } from "./inference/adapter-factory.js";
+// ---------------------------------------------------------------------------
+// Per-connection provider cache (mix-and-match support)
+// ---------------------------------------------------------------------------
+import type { ProviderConnection } from "./inference/auth.js";
+import { resolveAuth } from "./inference/resolve-auth.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
@@ -16,15 +22,6 @@ import { OpenRouterProvider } from "./openrouter/client.js";
 import { RetryProvider } from "./retry.js";
 import type { Provider } from "./types.js";
 import { UsageTrackingProvider } from "./usage-tracking.js";
-
-// ---------------------------------------------------------------------------
-// Per-connection provider cache (mix-and-match support)
-// ---------------------------------------------------------------------------
-
-import type { ProviderConnection } from "./inference/auth.js";
-import { createAdapterFromConnection } from "./inference/adapter-factory.js";
-import { resolveAuth } from "./inference/resolve-auth.js";
-import { getLogger as _getLogger } from "../util/logger.js";
 
 const log = getLogger("provider-registry");
 

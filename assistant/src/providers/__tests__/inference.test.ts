@@ -1,12 +1,18 @@
 /**
- * Tests for provider_connections: migration, CRUD, dispatcher, and
+ * Tests for provider_connections: migration, CRUD, and
  * mix-and-match E2E (two profiles, same provider, different connections).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
 
-import { initializeDb } from "../../memory/db-init.js";
-import { getDb } from "../../memory/db-connection.js";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import type { DrizzleDb } from "../../memory/db-connection.js";
+import { getSqliteFrom } from "../../memory/db-connection.js";
+import { migrateCreateProviderConnections } from "../../memory/migrations/243-provider-connections.js";
+import * as schema from "../../memory/schema.js";
+import { AuthSchema } from "../inference/auth.js";
 import {
   createConnection,
   deleteConnection,
@@ -15,17 +21,20 @@ import {
   seedCanonicalConnections,
   updateConnection,
 } from "../inference/connections.js";
-import { AuthSchema } from "../inference/auth.js";
 
 // ---------------------------------------------------------------------------
-// Setup — each test gets a fresh in-memory DB via initializeDb()
+// Setup — each test gets a fresh in-memory DB
 // ---------------------------------------------------------------------------
 
-beforeEach(() => {
-  // The test environment sets BUN_TEST=1 which makes initializeDb use a
-  // template DB. But we call it here so each test module gets a working DB.
-  initializeDb();
-});
+function setupDb(): { db: DrizzleDb; raw: Database } {
+  const sqlite = new Database(":memory:");
+  sqlite.exec("PRAGMA journal_mode=WAL");
+  sqlite.exec("PRAGMA foreign_keys = ON");
+  const db = drizzle(sqlite, { schema });
+  const raw = getSqliteFrom(db);
+  migrateCreateProviderConnections(db);
+  return { db, raw };
+}
 
 // ---------------------------------------------------------------------------
 // Migration idempotency
@@ -33,14 +42,13 @@ beforeEach(() => {
 
 describe("migrateCreateProviderConnections", () => {
   test("creates the provider_connections table", () => {
-    const db = getDb();
-    // If the table was created, we should be able to query it
-    const rows = db.all("SELECT name FROM provider_connections") as { name: string }[];
+    const { raw } = setupDb();
+    const rows = raw.query("SELECT name FROM provider_connections").all() as { name: string }[];
     expect(Array.isArray(rows)).toBe(true);
   });
 
   test("seeds canonical connections on first run", () => {
-    const db = getDb();
+    const { db } = setupDb();
     const canonicals = ["anthropic-managed", "openai-managed", "gemini-managed", "ollama-local"];
     for (const name of canonicals) {
       const conn = getConnection(db, name);
@@ -49,7 +57,7 @@ describe("migrateCreateProviderConnections", () => {
   });
 
   test("canonical connections have correct auth types", () => {
-    const db = getDb();
+    const { db } = setupDb();
     expect(getConnection(db, "anthropic-managed")?.auth.type).toBe("platform");
     expect(getConnection(db, "openai-managed")?.auth.type).toBe("platform");
     expect(getConnection(db, "gemini-managed")?.auth.type).toBe("platform");
@@ -57,7 +65,7 @@ describe("migrateCreateProviderConnections", () => {
   });
 
   test("seedCanonicalConnections is idempotent", () => {
-    const db = getDb();
+    const { db } = setupDb();
     // Run twice — should not throw or create duplicates
     seedCanonicalConnections(db);
     seedCanonicalConnections(db);
@@ -72,7 +80,7 @@ describe("migrateCreateProviderConnections", () => {
 
 describe("Connection CRUD", () => {
   test("createConnection — happy path", () => {
-    const db = getDb();
+    const { db } = setupDb();
     const result = createConnection(db, {
       name: "my-anthropic",
       provider: "anthropic",
@@ -86,7 +94,7 @@ describe("Connection CRUD", () => {
   });
 
   test("createConnection — rejects unknown provider", () => {
-    const db = getDb();
+    const { db } = setupDb();
     const result = createConnection(db, {
       name: "bad-conn",
       provider: "unknown-llm" as never,
@@ -98,7 +106,7 @@ describe("Connection CRUD", () => {
   });
 
   test("createConnection — rejects duplicate name", () => {
-    const db = getDb();
+    const { db } = setupDb();
     createConnection(db, {
       name: "dup-conn",
       provider: "openai",
@@ -115,12 +123,12 @@ describe("Connection CRUD", () => {
   });
 
   test("getConnection — returns null for unknown name", () => {
-    const db = getDb();
+    const { db } = setupDb();
     expect(getConnection(db, "nonexistent")).toBeNull();
   });
 
   test("listConnections — filters by provider", () => {
-    const db = getDb();
+    const { db } = setupDb();
     createConnection(db, {
       name: "test-openai",
       provider: "openai",
@@ -131,7 +139,7 @@ describe("Connection CRUD", () => {
   });
 
   test("updateConnection — happy path", () => {
-    const db = getDb();
+    const { db } = setupDb();
     createConnection(db, {
       name: "updatable",
       provider: "anthropic",
@@ -148,7 +156,7 @@ describe("Connection CRUD", () => {
   });
 
   test("updateConnection — rejects unknown name", () => {
-    const db = getDb();
+    const { db } = setupDb();
     const result = updateConnection(db, "ghost", { auth: { type: "none" } });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -156,7 +164,7 @@ describe("Connection CRUD", () => {
   });
 
   test("deleteConnection — happy path", () => {
-    const db = getDb();
+    const { db } = setupDb();
     createConnection(db, {
       name: "to-delete",
       provider: "gemini",
@@ -168,7 +176,7 @@ describe("Connection CRUD", () => {
   });
 
   test("deleteConnection — rejects unknown name", () => {
-    const db = getDb();
+    const { db } = setupDb();
     const result = deleteConnection(db, "ghost");
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -176,7 +184,7 @@ describe("Connection CRUD", () => {
   });
 
   test("deleteConnection — rejects when profiles reference it (no --force)", () => {
-    const db = getDb();
+    const { db } = setupDb();
     createConnection(db, {
       name: "referenced",
       provider: "anthropic",
@@ -189,11 +197,12 @@ describe("Connection CRUD", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("has_references");
+    if (result.error.code !== "has_references") return;
     expect(result.error.count).toBe(2);
   });
 
   test("deleteConnection --force removes even with references", () => {
-    const db = getDb();
+    const { db } = setupDb();
     createConnection(db, {
       name: "force-delete",
       provider: "anthropic",
@@ -247,7 +256,7 @@ describe("AuthSchema", () => {
 
 describe("Mix-and-match: two profiles, same provider, different connections", () => {
   test("getConnection returns the right auth for each connection name", () => {
-    const db = getDb();
+    const { db } = setupDb();
 
     // anthropic-managed already exists (canonical seed) with platform auth.
     const managedConn = getConnection(db, "anthropic-managed");

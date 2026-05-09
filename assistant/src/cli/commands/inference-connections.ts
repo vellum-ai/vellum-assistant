@@ -11,6 +11,7 @@
 
 import type { Command } from "commander";
 
+import { getConfig } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import { AuthSchema, VALID_CONNECTION_PROVIDERS } from "../../providers/inference/auth.js";
 import {
@@ -21,7 +22,6 @@ import {
   updateConnection,
 } from "../../providers/inference/connections.js";
 import { log } from "../logger.js";
-import { getConfig } from "../../config/loader.js";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
