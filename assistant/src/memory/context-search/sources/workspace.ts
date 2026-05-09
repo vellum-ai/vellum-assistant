@@ -66,6 +66,9 @@ const SECRET_SEGMENT_NAMES = new Set([
   "ces-security",
 ]);
 
+const SECRET_TOKEN_PATTERN =
+  /(?:^|[-_.])(?:keys?|secrets?|tokens?)(?:[-_.]|$)/i;
+
 const QUERY_STOP_WORDS = new Set([
   "a",
   "about",
@@ -591,8 +594,13 @@ async function maybeSearchResolvedFile(
   matches: WorkspaceMatch[],
   state: WalkState,
 ): Promise<void> {
+  if (state.scannedRelativePaths.has(relativePath)) {
+    return;
+  }
+  state.scannedRelativePaths.add(relativePath);
+  state.scannedFiles += 1;
+
   if (
-    state.scannedRelativePaths.has(relativePath) ||
     shouldSkipWorkspaceFile(relativePath) ||
     shouldSkipFilePath(relativePath) ||
     fileSizeBytes > WORKSPACE_SOURCE_MAX_FILE_SIZE_BYTES
@@ -600,8 +608,6 @@ async function maybeSearchResolvedFile(
     return;
   }
 
-  state.scannedRelativePaths.add(relativePath);
-  state.scannedFiles += 1;
   matches.push(
     ...(await searchFile(realPath, relativePath, fileSizeBytes, queryTerms)),
   );
@@ -1181,9 +1187,7 @@ function shouldSkipSegmentName(name: string): boolean {
   return (
     GENERATED_OR_DEPENDENCY_DIR_NAMES.has(lowerName) ||
     lowerName.startsWith(".env") ||
-    lowerName.includes("key") ||
-    lowerName.includes("secret") ||
-    lowerName.includes("token") ||
+    SECRET_TOKEN_PATTERN.test(lowerName) ||
     lowerName.startsWith("credentials") ||
     SECRET_SEGMENT_NAMES.has(lowerName)
   );
