@@ -1193,7 +1193,9 @@ function shouldSkipSegmentName(name: string): boolean {
   );
 }
 
-function normalizeWorkspacePathLiteral(pathLiteral: string): string | null {
+export function normalizeWorkspacePathLiteral(
+  pathLiteral: string,
+): string | null {
   const trimmed = pathLiteral
     .trim()
     .replace(/^["'`]+|["'`.,;:)>\]}]+$/g, "")
