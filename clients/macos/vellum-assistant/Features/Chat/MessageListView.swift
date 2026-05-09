@@ -5,6 +5,30 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Scroll Viewport Height Environment
+
+/// The current visible height of the scroll container that hosts the
+/// transcript, in points. `nil` until the first scroll-geometry callback
+/// lands (initial render, or right after a conversation switch resets
+/// the value).
+///
+/// Published by `MessageListView` from its filtered `viewportHeight` so
+/// descendants can size against the viewport without taking their own
+/// measurement. Routing through `EnvironmentValues` rather than as a
+/// prop on the equatable `MessageListContentView` preserves its
+/// `.equatable()` barrier — only descendants that read
+/// `\.scrollViewportHeight` re-evaluate on viewport changes.
+private struct ScrollViewportHeightKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+extension EnvironmentValues {
+    var scrollViewportHeight: CGFloat? {
+        get { self[ScrollViewportHeightKey.self] }
+        set { self[ScrollViewportHeightKey.self] = newValue }
+    }
+}
+
 struct MessageListView: View {
 
     let messages: [ChatMessage]
@@ -205,6 +229,11 @@ struct MessageListView: View {
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
             .environment(\.messageHeightCache, messageHeightCache)
+            // Publish the same filtered viewport height `bottomAlignedMinHeight`
+            // consumes so descendant sections can size against the viewport
+            // without taking their own measurement. See
+            // `ScrollViewportHeightKey` at the top of this file.
+            .environment(\.scrollViewportHeight, viewportHeight.isFinite ? viewportHeight : nil)
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .fixedWidth(widths.scrollSurfaceWidth)
             .id(conversationId)
