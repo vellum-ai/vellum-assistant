@@ -448,3 +448,37 @@ export async function cliIpcCallStream(
     socket.connect(socketPath);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Exit helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Map an IPC error result to a process exit code and terminate.
+ *
+ * Exit code matrix (DESIGN.md §3.6):
+ *   0  — success (not reached via this helper; call process.exit(0) directly)
+ *   1  — generic CLI error (fallback for unexpected status codes)
+ *   2  — daemon returned 4xx (bad params, not found, unauthorized)
+ *   3  — daemon returned 5xx (server-side error)
+ *   10 — IPC transport error (can't connect, timeout, closed before response)
+ *
+ * @example
+ * const r = await cliIpcCall<FooResponse>("foo", params);
+ * if (!r.ok) return exitFromIpcResult(r, cmd);
+ */
+export function exitFromIpcResult(
+  r: { ok: false; error?: string; statusCode?: number },
+  _cmd?: unknown,
+): never {
+  process.stderr.write((r.error ?? "Unknown error") + "\n");
+  if (r.statusCode === undefined) {
+    process.exit(10);
+  } else if (r.statusCode >= 500) {
+    process.exit(3);
+  } else if (r.statusCode >= 400) {
+    process.exit(2);
+  } else {
+    process.exit(1);
+  }
+}
