@@ -115,6 +115,13 @@ public final class SettingsStore: ObservableObject {
     /// so the UI renders predictable state before the first config push.
     @Published var activeProfile: String = "balanced"
 
+    /// Last value of `activeProfile` that was confirmed by the daemon —
+    /// either pushed in via a config load or returned successfully from a
+    /// `setActiveProfile` PATCH. Used as the rollback target when an
+    /// optimistic write fails, so a failed pick never reverts to a sibling
+    /// optimistic value that itself never landed on the daemon.
+    private var lastConfirmedActiveProfile: String = "balanced"
+
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
@@ -3292,6 +3299,7 @@ public final class SettingsStore: ObservableObject {
         self.profiles = orderedNames.compactMap { profilesByName[$0] }
         if let active = (llm?["activeProfile"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) {
             self.activeProfile = active
+            self.lastConfirmedActiveProfile = active
         }
     }
 
@@ -3327,20 +3335,23 @@ public final class SettingsStore: ObservableObject {
     /// the await so SwiftUI bindings reading the published value (e.g.
     /// the dropdown selection in `InferenceServiceCard`) see the new
     /// value on the next render cycle without waiting for the network
-    /// round-trip. Reverts on failure, but only when the current state
-    /// still matches the optimistic write — a newer call that has
-    /// already overwritten the value owns the published state and must
-    /// not be stomped by a stale revert.
+    /// round-trip. Reverts on failure to `lastConfirmedActiveProfile` —
+    /// the last daemon-confirmed value — so a failed pick never reverts
+    /// to a sibling optimistic value that itself never landed on the
+    /// daemon. The current-value guard ensures a newer call that has
+    /// already overwritten the published state is not stomped by a
+    /// stale revert.
     @discardableResult
     func setActiveProfile(_ name: String) async -> Bool {
-        let previous = self.activeProfile
         self.activeProfile = name
         let success = await settingsClient.patchConfig([
             "llm": ["activeProfile": name]
         ])
-        if !success {
+        if success {
+            lastConfirmedActiveProfile = name
+        } else {
             if self.activeProfile == name {
-                self.activeProfile = previous
+                self.activeProfile = lastConfirmedActiveProfile
             }
             log.error("Failed to patch config for llm.activeProfile")
         }
