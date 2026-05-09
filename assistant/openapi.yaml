@@ -3977,8 +3977,10 @@ paths:
                   type: string
                   minLength: 1
                 ttlSeconds:
-                  type: number
-                  exclusiveMinimum: 0
+                  anyOf:
+                    - type: number
+                      exclusiveMinimum: 0
+                    - type: "null"
                 sessionId:
                   type: string
                   format: uuid
