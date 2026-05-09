@@ -706,13 +706,6 @@ struct MessageInspectorViewState {
                || !orderedLogs.contains(where: { $0.id == selectedLogID }) {
                 selectedLogID = orderedLogs.last?.id
             }
-        case .empty:
-            logs = []
-            memoryRecall = nil
-            memoryV2Activation = nil
-            conversationKind = nil
-            loadState = .empty
-            selectedLogID = nil
         case .failed:
             logs = []
             memoryRecall = nil
