@@ -471,6 +471,15 @@ struct InferenceProfilesSheet: View {
         // would accept them but the row would render unusably.
         guard !name.isEmpty else { return }
 
+        // Reserve the call-site picker's Custom sentinel: a profile with
+        // this name would collide with the synthetic option in
+        // `CallSiteOverrideRow`'s VDropdown (same value identity), making
+        // the profile unselectable as itself.
+        if name == CallSiteOverrideRow.customSentinel {
+            actionError = "\"\(name)\" is reserved. Pick a different name."
+            return
+        }
+
         // Defense-in-depth: the UI disables Edit for managed profiles, but
         // guard here in case the method is reached through an unexpected
         // path. The daemon also rejects writes to managed profiles.
