@@ -345,7 +345,7 @@ export async function synthesizeConceptPage(
 
   return {
     slug: slugify(cluster.slugHint),
-    frontmatter: { edges: [], ref_files: [] },
+    frontmatter: { edges: [], ref_files: [], ref_urls: [] },
     body: body.endsWith("\n") ? body : `${body}\n`,
   };
 }

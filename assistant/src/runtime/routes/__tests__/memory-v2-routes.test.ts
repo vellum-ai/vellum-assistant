@@ -67,17 +67,17 @@ describe("memory_v2_list_concept_pages handler", () => {
     const pages: ConceptPage[] = [
       {
         slug: "alice",
-        frontmatter: { edges: ["bob", "carol"], ref_files: [] },
+        frontmatter: { edges: ["bob", "carol"], ref_files: [], ref_urls: [] },
         body: "Alice prefers VS Code.\n",
       },
       {
         slug: "bob",
-        frontmatter: { edges: [], ref_files: [] },
+        frontmatter: { edges: [], ref_files: [], ref_urls: [] },
         body: "Bob ships at end of day.\nLikes async standups.\n",
       },
       {
         slug: "people/carol",
-        frontmatter: { edges: ["alice"], ref_files: [] },
+        frontmatter: { edges: ["alice"], ref_files: [], ref_urls: [] },
         body: "Carol leads the platform team.\n",
       },
     ];
@@ -122,7 +122,7 @@ describe("memory_v2_list_concept_pages handler", () => {
   test("tolerates a single corrupt page — returns valid pages and skips the broken one", async () => {
     await writePage(workspaceDir, {
       slug: "valid-page",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Body of the valid page.\n",
     });
 

@@ -62,7 +62,7 @@ afterEach(() => {
 function makePage(overrides: Partial<ConceptPage> = {}): ConceptPage {
   return {
     slug: "alice-preferences",
-    frontmatter: { edges: ["bob-handoff"], ref_files: [] },
+    frontmatter: { edges: ["bob-handoff"], ref_files: [], ref_urls: [] },
     body: "Alice prefers VS Code over Vim.\nShe ships at end of day.\n",
     ...overrides,
   };

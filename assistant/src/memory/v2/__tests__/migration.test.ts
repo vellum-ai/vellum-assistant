@@ -403,7 +403,11 @@ describe("synthesizeConceptPage", () => {
     );
     const page = await synthesizeConceptPage(cluster, null, provider);
     expect(page.slug).toBe("alice-ides");
-    expect(page.frontmatter).toEqual({ edges: [], ref_files: [] });
+    expect(page.frontmatter).toEqual({
+      edges: [],
+      ref_files: [],
+      ref_urls: [],
+    });
     expect(page.body).toContain("VS Code");
     expect(page.body.endsWith("\n")).toBe(true);
   });

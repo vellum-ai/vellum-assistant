@@ -323,12 +323,12 @@ describe("memoryV2ReembedJob", () => {
   test("returns N (one per concept page) and writes that many job rows", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Alice.\n",
     });
     await writePage(tmpWorkspace, {
       slug: "bob",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Bob.\n",
     });
 
@@ -373,7 +373,7 @@ describe("memoryV2ReembedJob", () => {
     // (`[a-z0-9][a-z0-9-]*`), so the reembed fan-out must not enqueue them.
     await writePage(tmpWorkspace, {
       slug: "alice",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Alice.\n",
     });
 

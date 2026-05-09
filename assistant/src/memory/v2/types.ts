@@ -25,7 +25,8 @@ import { z } from "zod";
  * `edges:` means "activating A pulls in B" — activation flows A → B but not
  * B → A. The full graph is the union of every page's `edges:` list — there
  * is no separate edges-index file. `ref_files` lists paths to attached media
- * (images, audio, etc.).
+ * (images, audio, etc.). `ref_urls` lists external URL references (e.g.
+ * citations, source links).
  *
  * `summary` is a 1-4 sentence prose description of the page. When present,
  * retrieval injects the path + summary instead of the full page so the agent
@@ -37,6 +38,7 @@ export const ConceptPageFrontmatterSchema = z
   .object({
     edges: z.array(z.string()).default([]),
     ref_files: z.array(z.string()).default([]),
+    ref_urls: z.array(z.string().url()).default([]),
     summary: z.string().optional(),
   })
   .strict();
