@@ -319,6 +319,7 @@ export class FilingService {
   private executeRun(): Promise<void> {
     return this.executeBackgroundJob({
       jobName: "filing",
+      systemHint: "Knowledge base filing",
       prompt: FILING_PROMPT_TEMPLATE,
       callSite: "filingAgent",
     });
@@ -327,6 +328,7 @@ export class FilingService {
   private executeCompactionRun(): Promise<void> {
     return this.executeBackgroundJob({
       jobName: "compaction",
+      systemHint: "Knowledge base compaction",
       prompt: COMPACTION_PROMPT_TEMPLATE,
       callSite: "compactionAgent",
     });
@@ -334,6 +336,7 @@ export class FilingService {
 
   private async executeBackgroundJob(opts: {
     jobName: string;
+    systemHint: string;
     prompt: string;
     callSite: LLMCallSite;
   }): Promise<void> {
@@ -342,6 +345,7 @@ export class FilingService {
     const result = await runBackgroundJob({
       jobName: opts.jobName,
       source: "filing",
+      systemHint: opts.systemHint,
       prompt: opts.prompt,
       trustContext: {
         sourceChannel: "vellum",
