@@ -1759,8 +1759,6 @@ paths:
                   minLength: 1
               required:
                 - operation
-                - input
-                - sessionId
               additionalProperties: false
   /v1/btw:
     post:
@@ -3250,8 +3248,6 @@ paths:
                     - guardian
                     - trusted-contact
                     - unknown
-              required:
-                - role
               additionalProperties: false
   /v1/contacts/search:
     post:
@@ -4314,7 +4310,6 @@ paths:
               required:
                 - conversationId
                 - hint
-                - source
               additionalProperties: false
   /v1/conversations/wipe:
     post:
@@ -7870,7 +7865,6 @@ paths:
                   maximum: 9007199254740991
               required:
                 - userText
-                - top
               additionalProperties: false
   /v1/memory/v2/fit-anisotropy:
     post:
@@ -7903,9 +7897,6 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 100000
-              required:
-                - k
-                - sample
               additionalProperties: false
   /v1/memory/v2/list-concept-pages:
     post:
@@ -9027,7 +9018,6 @@ paths:
                   maxLength: 120
               required:
                 - turns
-                - avgTokensPerTurn
               additionalProperties: false
   /v1/playground/seeded-conversations:
     delete:
@@ -12749,9 +12739,6 @@ paths:
                   type: integer
                   exclusiveMinimum: 0
                   maximum: 9007199254740991
-              required:
-                - hours
-                - limit
               additionalProperties: false
   /v1/watchers/list:
     post:
@@ -12781,8 +12768,6 @@ paths:
                 enabled_only:
                   default: false
                   type: boolean
-              required:
-                - enabled_only
               additionalProperties: false
   /v1/watchers/update:
     post:
