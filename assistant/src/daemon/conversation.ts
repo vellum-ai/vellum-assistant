@@ -233,6 +233,14 @@ export class Conversation {
   };
   /** @internal */ surfaceActionRequestIds = new Set<string>();
   /** @internal */ approvedViaPromptThisTurn = false;
+  /**
+   * When true, side-effect tools must prompt even if a trust/allow rule
+   * would auto-allow. Set by non-interactive callers (e.g. non-guardian
+   * phone voice) so their auto-deny handler reliably sees a
+   * `confirmation_request` event. See ToolSetupContext.forcePromptSideEffects.
+   * @internal
+   */
+  forcePromptSideEffects = false;
   /** @internal */ pendingSurfaceActions = new Map<
     string,
     { surfaceType: SurfaceType }

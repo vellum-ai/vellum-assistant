@@ -41,6 +41,15 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
   approvedViaPromptThisTurn?: boolean;
   /**
+   * When true, side-effect tools must prompt for confirmation even if a
+   * trust/allow rule would auto-allow them. Set by callers without an
+   * interactive approval UI (e.g. non-guardian phone voice turns) to force
+   * a `confirmation_request` event that the caller's auto-deny / scoped-grant
+   * handler can intercept. Provides a second layer of defense against broad
+   * trust rules auto-executing side-effect tools in non-interactive contexts.
+   */
+  forcePromptSideEffects?: boolean;
+  /**
    * Per-turn snapshot of the resolved inference-profile override, set by
    * `runAgentLoopImpl`. Propagated into `ToolContext.overrideProfile` so
    * tools that spawn nested invocations (e.g. `subagent_spawn`) can forward

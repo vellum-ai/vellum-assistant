@@ -314,7 +314,8 @@ export async function startVoiceTurn(
 
   // Phone voice has no interactive permission/secret UI, so apply explicit
   // per-role policies by default. Local live voice opts into the normal
-  // client approval path instead.
+  // client approval path instead. Side-effect double-defense is wired
+  // below at the conversation-configure point.
   const trustClass = opts.trustContext?.trustClass;
   const isGuardian = trustClass === "guardian";
   const approvalMode = opts.approvalMode ?? "phone-call";
@@ -386,7 +387,13 @@ export async function startVoiceTurn(
     }
   }
 
-  // Configure conversation for this voice turn
+  // Non-guardian phone voice forces side-effect tools to prompt so the
+  // auto-deny handler below reliably sees a confirmation_request. Without
+  // this, a broad allow trust rule (e.g. wildcard bash) would let
+  // side-effect tools execute without ever emitting an event for the
+  // auto-deny / scoped-grant handler to intercept.
+  conversation.forcePromptSideEffects =
+    !isGuardian && !usesLocalInteractiveApprovals;
   conversation.setAssistantId(opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
   conversation.callSessionId = voiceSessionId;
   conversation.setTrustContext(opts.trustContext ?? null);
@@ -549,6 +556,7 @@ export async function startVoiceTurn(
     conversation.setAssistantId("self");
     conversation.setVoiceCallControlPrompt(null);
     conversation.callSessionId = undefined;
+    conversation.forcePromptSideEffects = false;
     // Reset the conversation's client callback to a no-op so the stale
     // closure doesn't intercept events from future turns on the same conversation.
     conversation.updateClient(() => {}, true);
