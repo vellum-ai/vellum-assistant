@@ -7,7 +7,6 @@ import {
   createBookmark,
   deleteBookmark,
   deleteBookmarkByMessageId,
-  isMessageBookmarked,
   listBookmarks,
 } from "../bookmark-crud.js";
 import type { DrizzleDb } from "../db-connection.js";
@@ -111,6 +110,27 @@ describe("bookmark-crud", () => {
     expect(all.length).toBe(1);
   });
 
+  test("createBookmark returns the JOIN-shaped summary directly", () => {
+    const { db, raw } = setupDb();
+    seedConversationAndMessage(raw, {
+      conversationId: "conv-summary",
+      messageId: "msg-summary",
+      conversationTitle: "Title goes here",
+      messageContent: "summary body",
+      messageRole: "assistant",
+    });
+
+    const summary = createBookmark(db, {
+      messageId: "msg-summary",
+      conversationId: "conv-summary",
+    });
+
+    expect(summary.conversationTitle).toBe("Title goes here");
+    expect(summary.messagePreview).toBe("summary body");
+    expect(summary.messageRole).toBe("assistant");
+    expect(typeof summary.messageCreatedAt).toBe("number");
+  });
+
   test("listBookmarks returns rows newest-first and includes joined fields", () => {
     const { db, raw } = setupDb();
     seedConversationAndMessage(raw, {
@@ -198,17 +218,47 @@ describe("bookmark-crud", () => {
     expect(deleteBookmarkByMessageId(db, "msg-d")).toBe(false);
   });
 
-  test("isMessageBookmarked is true after create, false after delete", () => {
+  test("messagePreview decodes JSON-serialized ContentBlock[] rows", () => {
     const { db, raw } = setupDb();
     seedConversationAndMessage(raw, {
-      conversationId: "conv-x",
-      messageId: "msg-x",
+      conversationId: "conv-blocks",
+      messageId: "msg-blocks",
+      messageContent: JSON.stringify([
+        { type: "text", text: "Hello, can you help with…" },
+      ]),
+      messageRole: "user",
     });
 
-    expect(isMessageBookmarked(db, "msg-x")).toBe(false);
-    createBookmark(db, { messageId: "msg-x", conversationId: "conv-x" });
-    expect(isMessageBookmarked(db, "msg-x")).toBe(true);
-    expect(deleteBookmarkByMessageId(db, "msg-x")).toBe(true);
-    expect(isMessageBookmarked(db, "msg-x")).toBe(false);
+    const summary = createBookmark(db, {
+      messageId: "msg-blocks",
+      conversationId: "conv-blocks",
+    });
+
+    // Without the decode step, this would render as the raw JSON literal
+    // (`[{"type":"text","text":"…"}]`) rather than the spoken text.
+    expect(summary.messagePreview).toBe("Hello, can you help with…");
+    const listed = listBookmarks(db);
+    expect(listed[0]?.messagePreview).toBe("Hello, can you help with…");
+  });
+
+  test("messagePreview concatenates multi-text blocks and drops non-text blocks", () => {
+    const { db, raw } = setupDb();
+    seedConversationAndMessage(raw, {
+      conversationId: "conv-multi",
+      messageId: "msg-multi",
+      messageContent: JSON.stringify([
+        { type: "text", text: "first paragraph" },
+        { type: "tool_use", id: "x", name: "noop", input: {} },
+        { type: "text", text: "second paragraph" },
+      ]),
+      messageRole: "assistant",
+    });
+
+    const summary = createBookmark(db, {
+      messageId: "msg-multi",
+      conversationId: "conv-multi",
+    });
+
+    expect(summary.messagePreview).toBe("first paragraph\nsecond paragraph");
   });
 });

@@ -26,6 +26,7 @@ import { listConversations } from "../conversation-queries.js";
 import { getDb } from "../db-connection.js";
 import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
 import type { MemoryJob } from "../jobs-store.js";
+import { stringifyMessageContent } from "../message-content.js";
 import {
   computeOwnActivation,
   selectCandidates,
@@ -286,32 +287,4 @@ function lastExchangeTexts(conversationId: string): {
     if (userText && assistantText) break;
   }
   return { userText, assistantText };
-}
-
-/**
- * Coerce stored message content (JSON-serialized `ContentBlock[]` *or* plain
- * string in legacy rows) into a single text string. Image / tool blocks are
- * dropped — recompute only needs the spoken text.
- */
-function stringifyMessageContent(stored: string): string {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stored);
-  } catch {
-    return stored.trim();
-  }
-  if (typeof parsed === "string") return parsed.trim();
-  if (!Array.isArray(parsed)) return "";
-  const parts: string[] = [];
-  for (const block of parsed) {
-    if (
-      block &&
-      typeof block === "object" &&
-      (block as { type?: string }).type === "text" &&
-      typeof (block as { text?: unknown }).text === "string"
-    ) {
-      parts.push((block as { text: string }).text);
-    }
-  }
-  return parts.join("\n").trim();
 }

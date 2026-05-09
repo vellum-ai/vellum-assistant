@@ -2,12 +2,8 @@ import { desc, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { DrizzleDb } from "./db-connection.js";
-import {
-  conversations,
-  type MessageBookmarkRow,
-  messageBookmarks,
-  messages,
-} from "./schema.js";
+import { stringifyMessageContent } from "./message-content.js";
+import { conversations, messageBookmarks, messages } from "./schema.js";
 
 /**
  * Wire-shape representation of a bookmark, joined with the bookmarked
@@ -32,80 +28,46 @@ export interface BookmarkSummary {
 
 const PREVIEW_MAX_CHARS = 240;
 
+/**
+ * Decode the on-disk message content (legacy plain string OR JSON-serialized
+ * `ContentBlock[]`) into a single text string and cap it at
+ * `PREVIEW_MAX_CHARS`. Without the decode step, modern rows would render as
+ * raw JSON in the bookmark list.
+ */
 function buildPreview(content: string): string {
-  return content.length > PREVIEW_MAX_CHARS
-    ? content.slice(0, PREVIEW_MAX_CHARS)
-    : content;
+  const text = stringifyMessageContent(content);
+  return text.length > PREVIEW_MAX_CHARS
+    ? text.slice(0, PREVIEW_MAX_CHARS)
+    : text;
 }
 
 /**
- * List all bookmarks newest-first, joined against `messages` and
- * `conversations`. Bookmarks whose parent message or conversation has
- * been deleted are naturally excluded by the inner-join semantics; the
- * `ON DELETE CASCADE` on the FKs means rows should never end up in this
- * orphan state, but the join provides a defense-in-depth guarantee.
+ * Shared SELECT shape used by the JOIN-based readers. Pulling this out
+ * avoids duplicating the column list and the row-mapping below.
  */
-export function listBookmarks(db: DrizzleDb): BookmarkSummary[] {
-  const rows = db
-    .select({
-      id: messageBookmarks.id,
-      messageId: messageBookmarks.messageId,
-      conversationId: messageBookmarks.conversationId,
-      createdAt: messageBookmarks.createdAt,
-      conversationTitle: conversations.title,
-      messageContent: messages.content,
-      messageRole: messages.role,
-      messageCreatedAt: messages.createdAt,
-    })
-    .from(messageBookmarks)
-    .innerJoin(messages, eq(messages.id, messageBookmarks.messageId))
-    .innerJoin(
-      conversations,
-      eq(conversations.id, messageBookmarks.conversationId),
-    )
-    .orderBy(desc(messageBookmarks.createdAt))
-    .all();
+const BOOKMARK_JOIN_COLUMNS = {
+  id: messageBookmarks.id,
+  messageId: messageBookmarks.messageId,
+  conversationId: messageBookmarks.conversationId,
+  createdAt: messageBookmarks.createdAt,
+  conversationTitle: conversations.title,
+  messageContent: messages.content,
+  messageRole: messages.role,
+  messageCreatedAt: messages.createdAt,
+} as const;
 
-  return rows.map((row) => ({
-    id: row.id,
-    messageId: row.messageId,
-    conversationId: row.conversationId,
-    conversationTitle: row.conversationTitle,
-    messagePreview: buildPreview(row.messageContent),
-    messageRole: row.messageRole,
-    messageCreatedAt: row.messageCreatedAt,
-    createdAt: row.createdAt,
-  }));
-}
+type BookmarkJoinRow = {
+  id: string;
+  messageId: string;
+  conversationId: string;
+  createdAt: number;
+  conversationTitle: string | null;
+  messageContent: string;
+  messageRole: string;
+  messageCreatedAt: number;
+};
 
-/**
- * Fetch a single bookmark by id in the same JOIN-shaped form as
- * {@link listBookmarks}. Returns `null` if no row matches.
- */
-export function getBookmarkSummary(
-  db: DrizzleDb,
-  id: string,
-): BookmarkSummary | null {
-  const row = db
-    .select({
-      id: messageBookmarks.id,
-      messageId: messageBookmarks.messageId,
-      conversationId: messageBookmarks.conversationId,
-      createdAt: messageBookmarks.createdAt,
-      conversationTitle: conversations.title,
-      messageContent: messages.content,
-      messageRole: messages.role,
-      messageCreatedAt: messages.createdAt,
-    })
-    .from(messageBookmarks)
-    .innerJoin(messages, eq(messages.id, messageBookmarks.messageId))
-    .innerJoin(
-      conversations,
-      eq(conversations.id, messageBookmarks.conversationId),
-    )
-    .where(eq(messageBookmarks.id, id))
-    .get();
-  if (!row) return null;
+function rowToSummary(row: BookmarkJoinRow): BookmarkSummary {
   return {
     id: row.id,
     messageId: row.messageId,
@@ -118,43 +80,78 @@ export function getBookmarkSummary(
   };
 }
 
+function selectBookmarkJoin(db: DrizzleDb) {
+  return db
+    .select(BOOKMARK_JOIN_COLUMNS)
+    .from(messageBookmarks)
+    .innerJoin(messages, eq(messages.id, messageBookmarks.messageId))
+    .innerJoin(
+      conversations,
+      eq(conversations.id, messageBookmarks.conversationId),
+    );
+}
+
 /**
- * Create a bookmark for the given message, returning the row. Idempotent
- * on the unique `message_id` index — if a bookmark already exists for
- * `messageId`, the existing row is returned and no new row is inserted.
+ * List all bookmarks newest-first, joined against `messages` and
+ * `conversations`. Bookmarks whose parent message or conversation has
+ * been deleted are naturally excluded by the inner-join semantics; the
+ * `ON DELETE CASCADE` on the FKs means rows should never end up in this
+ * orphan state, but the join provides a defense-in-depth guarantee.
+ */
+export function listBookmarks(db: DrizzleDb): BookmarkSummary[] {
+  const rows = selectBookmarkJoin(db)
+    .orderBy(desc(messageBookmarks.createdAt))
+    .all();
+  return rows.map(rowToSummary);
+}
+
+/**
+ * Create a bookmark for the given message and return its JOIN-shaped
+ * {@link BookmarkSummary}. Idempotent on the unique `message_id` index —
+ * if a bookmark already exists for `messageId`, the existing summary is
+ * returned and no new row is inserted.
  */
 export function createBookmark(
   db: DrizzleDb,
   params: { messageId: string; conversationId: string },
-): MessageBookmarkRow {
+): BookmarkSummary {
   const { messageId, conversationId } = params;
   const existing = db
-    .select()
+    .select({ id: messageBookmarks.id })
     .from(messageBookmarks)
     .where(eq(messageBookmarks.messageId, messageId))
     .get();
-  if (existing) return existing;
+  if (existing) return readBookmarkSummaryOrThrow(db, existing.id);
 
-  const row: MessageBookmarkRow = {
-    id: uuid(),
-    messageId,
-    conversationId,
-    createdAt: Date.now(),
-  };
-
+  const id = uuid();
   try {
-    db.insert(messageBookmarks).values(row).run();
-    return row;
+    db.insert(messageBookmarks)
+      .values({ id, messageId, conversationId, createdAt: Date.now() })
+      .run();
   } catch (err) {
-    // Lost a race against a concurrent create — fall back to fetch.
+    // Lost a race against a concurrent create — fall back to fetch by
+    // messageId so we still return the winning row.
     const winner = db
-      .select()
+      .select({ id: messageBookmarks.id })
       .from(messageBookmarks)
       .where(eq(messageBookmarks.messageId, messageId))
       .get();
-    if (winner) return winner;
-    throw err;
+    if (!winner) throw err;
+    return readBookmarkSummaryOrThrow(db, winner.id);
   }
+  return readBookmarkSummaryOrThrow(db, id);
+}
+
+function readBookmarkSummaryOrThrow(
+  db: DrizzleDb,
+  id: string,
+): BookmarkSummary {
+  const row = selectBookmarkJoin(db).where(eq(messageBookmarks.id, id)).get();
+  if (!row) {
+    // Unreachable: caller just observed (or inserted) this id.
+    throw new Error(`Bookmark ${id} disappeared between insert and read`);
+  }
+  return rowToSummary(row);
 }
 
 /**
@@ -193,16 +190,4 @@ export function deleteBookmarkByMessageId(
     .where(eq(messageBookmarks.messageId, messageId))
     .run();
   return true;
-}
-
-/**
- * True iff a bookmark exists for the given `messageId`.
- */
-export function isMessageBookmarked(db: DrizzleDb, messageId: string): boolean {
-  const row = db
-    .select({ id: messageBookmarks.id })
-    .from(messageBookmarks)
-    .where(eq(messageBookmarks.messageId, messageId))
-    .get();
-  return row != null;
 }

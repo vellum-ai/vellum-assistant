@@ -18,7 +18,6 @@ import {
   createBookmark,
   deleteBookmark,
   deleteBookmarkByMessageId,
-  getBookmarkSummary,
   listBookmarks,
 } from "../../memory/bookmark-crud.js";
 import { getMessageById } from "../../memory/conversation-crud.js";
@@ -85,13 +84,7 @@ function handleCreateBookmark({
     );
   }
 
-  const db = getDb();
-  const row = createBookmark(db, { messageId, conversationId });
-  const summary = getBookmarkSummary(db, row.id);
-  if (!summary) {
-    // Unreachable: we just inserted (or fetched) this row.
-    throw new Error(`Bookmark ${row.id} disappeared between insert and read`);
-  }
+  const summary = createBookmark(getDb(), { messageId, conversationId });
   publishBookmarkCreated(summary);
   return summary;
 }
