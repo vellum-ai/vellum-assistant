@@ -22,9 +22,16 @@ const CACHE_TTL_MS = 2 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 64;
 const cache = new Map<string, CacheEntry>();
 
-function cacheKey(query: string, slugs: readonly string[]): string {
+function cacheKey(
+  query: string,
+  slugs: readonly string[],
+  model: string,
+  dtype: string,
+): string {
   const sorted = [...slugs].sort().join("\0");
-  return createHash("sha256").update(`${query}\0${sorted}`).digest("hex");
+  return createHash("sha256")
+    .update(`${model}\0${dtype}\0${query}\0${sorted}`)
+    .digest("hex");
 }
 
 function evictExpired(now: number): void {
@@ -73,6 +80,7 @@ export async function rerankCandidates(
   if (queries.length === 0) return [];
   if (candidates.length === 0) return queries.map(() => new Map());
 
+  const { model, dtype } = config.memory.v2.rerank;
   const now = Date.now();
   evictExpired(now);
 
@@ -84,7 +92,7 @@ export async function rerankCandidates(
       results[i] = new Map();
       continue;
     }
-    const key = cacheKey(q, candidates);
+    const key = cacheKey(q, candidates, model, dtype);
     const cached = cache.get(key);
     if (cached) {
       // Refresh insertion order so frequently-hit entries survive eviction.
@@ -137,7 +145,6 @@ export async function rerankCandidates(
     }
   }
 
-  const { model, dtype } = config.memory.v2.rerank;
   let scores: number[];
   try {
     const backend = getOrCreateRerankBackend(model, dtype);
@@ -162,7 +169,7 @@ export async function rerankCandidates(
       result.set(slugsForPassages[i], Math.max(0, Math.min(1, s)));
     }
     results[qi] = result;
-    cache.set(cacheKey(queries[qi], candidates), {
+    cache.set(cacheKey(queries[qi], candidates, model, dtype), {
       scores: new Map(result),
       ts: now,
     });
