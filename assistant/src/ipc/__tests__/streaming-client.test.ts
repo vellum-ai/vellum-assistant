@@ -5,8 +5,8 @@
  * Pattern mirrors cli-ipc.test.ts.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
 import { Socket } from "node:net";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // Ensure tests use a workspace-based socket path rather than any pre-existing
 // system socket (e.g. stale root-owned /run/assistant-ipc/assistant.sock).
