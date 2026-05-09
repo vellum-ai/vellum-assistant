@@ -97,7 +97,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-08T11:54:33Z"
+      "updatedAt": "2026-05-08T10:16:16-04:00"
     },
     {
       "id": "document-writer",
@@ -741,7 +741,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T16:30:23-04:00"
+      "updatedAt": "2026-05-09T03:26:59Z"
     },
     {
       "id": "vellum-conversation-management",
