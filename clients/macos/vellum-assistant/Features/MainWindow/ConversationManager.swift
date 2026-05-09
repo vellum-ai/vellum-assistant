@@ -501,8 +501,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         if conversation.shouldSuppressUnreadIndicator { return }
         guard let daemonConversationId = conversation.conversationId else { return }
         guard let vm = selectionStore.chatViewModels[conversationId] else { return }
-        // Voice path posts its own VOICE_RESPONSE_COMPLETE notification; skip to avoid duplicates.
-        if vm.isVoiceModeActive { return }
 
         let lastAssistantText = vm.messages.last(where: { $0.role == .assistant })?.text ?? ""
         let bodyText = lastAssistantText.isEmpty ? "Response complete" : String(lastAssistantText.prefix(200))
