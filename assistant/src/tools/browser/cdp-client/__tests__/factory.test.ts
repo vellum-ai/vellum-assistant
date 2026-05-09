@@ -248,13 +248,13 @@ describe("getCdpClient", () => {
     );
     expect(result).toEqual({ ok: true, via: "extension" });
     expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
-    // Call signature includes optional cdpSessionId and sourceActorPrincipalId
-    // (both undefined here — no pinned session id, no actor binding in this
-    // legacy ctx). The `sourceActorPrincipalId` param exists so the proxy
-    // can refuse cross-user dispatch under cross-client exposure.
+    // Call signature includes optional cdpSessionId, sourceActorPrincipalId,
+    // and targetClientId (all undefined here — no pinned session id, no actor
+    // binding, no explicit client target in this legacy ctx).
     expect(createExtensionCdpClientMock).toHaveBeenCalledWith(
       fakeProxy,
       "test-convo",
+      undefined,
       undefined,
       undefined,
     );
@@ -700,6 +700,28 @@ describe("getCdpClient", () => {
       "actor-bound",
       undefined,
       "user-actor-1",
+      undefined,
+    );
+  });
+
+  test("threads targetClientId from options into createExtensionCdpClient", async () => {
+    const fakeProxy = makeAvailableProxy();
+    mockSingletonProxy = fakeProxy;
+    const ctx = makeContext({
+      conversationId: "targeted-client",
+      sourceActorPrincipalId: "user-actor-1",
+    });
+
+    const client = getCdpClient(ctx, { targetClientId: "specific-ext-client" });
+    await client.send("Page.navigate");
+
+    expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createExtensionCdpClientMock).toHaveBeenCalledWith(
+      fakeProxy,
+      "targeted-client",
+      undefined,
+      "user-actor-1",
+      "specific-ext-client",
     );
   });
 });

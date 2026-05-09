@@ -394,9 +394,9 @@ describe("HostBrowserProxy", () => {
   // ---------------------------------------------------------------------------
   // Same-actor binding (cross-user enforcement)
   //
-  // The host-browser proxy is auto-resolved (the LLM-facing tool does not
-  // expose `target_client_id`), so same-user enforcement runs on the
-  // resolved candidate before we register the pending interaction:
+  // When the caller does not supply `targetClientId`, the proxy auto-resolves
+  // using `resolveTargetClient(sourceActorPrincipalId)` which filters clients
+  // to the same actor before applying the interface-preference order:
   //
   //   1. `resolveTargetClient(sourceActorPrincipalId)` filters candidate
   //      clients to those owned by the caller's actor before applying the
@@ -584,6 +584,163 @@ describe("HostBrowserProxy", () => {
         "no active extension connection",
       );
       expect(getPublishedMessages()).toHaveLength(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Explicit targetClientId routing
+  //
+  // When `targetClientId` is supplied, the proxy skips the interface-preference
+  // sort and routes directly to the named client (subject to the same-actor
+  // enforcement that runs on all host-proxy requests).
+  // ---------------------------------------------------------------------------
+
+  describe("explicit targetClientId routing", () => {
+    test("routes to the named client and persists targetClientId in pending state", async () => {
+      mockClients = [
+        {
+          clientId: "macos-client",
+          interfaceId: "macos",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      // Explicitly target the macOS client even though chrome-extension
+      // would win under normal interface-preference ordering.
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+        "macos-client",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const sent = getPublishedMessages()[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      const pending = pendingInteractions.get(requestId);
+      expect(pending?.targetClientId).toBe("macos-client");
+
+      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("rejects when targetClientId does not match any connected client", async () => {
+      mockClients = [
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+        "nonexistent-client",
+      );
+
+      await expect(resultPromise).rejects.toThrow(
+        "no active extension connection",
+      );
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("rejects when targetClientId points to a client without host_browser capability", async () => {
+      // The client exists but is not in the host_browser roster, so
+      // listClientsByCapability("host_browser") does not return it.
+      mockClients = [
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_bash"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+        "ext-client",
+      );
+
+      await expect(resultPromise).rejects.toThrow(
+        "no active extension connection",
+      );
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("same-actor check rejects targetClientId that belongs to a different actor", async () => {
+      mockClients = [
+        {
+          clientId: "other-user-ext",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-2",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      // actor user-1 explicitly targets user-2's client — same-actor gate
+      // should fire and return an isError result (not reject the promise).
+      const result = await proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+        "other-user-ext",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Submitting actor does not match");
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("no targetClientId falls back to interface-preference order (regression guard)", async () => {
+      mockClients = [
+        {
+          clientId: "macos-client",
+          interfaceId: "macos",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      // No targetClientId — should auto-resolve to chrome-extension (higher priority).
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+        // targetClientId omitted
+      );
+
+      const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
+        .requestId as string;
+      const pending = pendingInteractions.get(requestId);
+      expect(pending?.targetClientId).toBe("ext-client");
+
+      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      await resultPromise;
     });
   });
 });

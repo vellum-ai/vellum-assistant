@@ -97,6 +97,12 @@ export interface GetCdpClientOptions {
    * and disables failover.
    */
   mode?: BrowserMode;
+  /**
+   * Explicit target client id. When provided, the extension backend routes
+   * to this specific client instead of applying the interface-preference
+   * order. Mirrors the `target_client_id` pattern on host_bash/host_file/host_cu.
+   */
+  targetClientId?: string;
 }
 
 /**
@@ -151,10 +157,11 @@ export function getCdpClient(
   options?: GetCdpClientOptions,
 ): ScopedCdpClient {
   const mode: BrowserMode = options?.mode ?? "auto";
+  const targetClientId = options?.targetClientId;
   const candidates =
     mode === "auto"
-      ? buildCandidateList(context)
-      : buildPinnedCandidateList(context, mode);
+      ? buildCandidateList(context, targetClientId)
+      : buildPinnedCandidateList(context, mode, targetClientId);
 
   log.debug(
     {
@@ -182,6 +189,7 @@ export function getCdpClient(
 export function buildPinnedCandidateList(
   context: ToolContext,
   mode: Exclude<BrowserMode, "auto">,
+  targetClientId?: string,
 ): BackendCandidate[] {
   const { conversationId, sourceActorPrincipalId } = context;
 
@@ -215,6 +223,7 @@ export function buildPinnedCandidateList(
               conversationId,
               undefined,
               sourceActorPrincipalId,
+              targetClientId,
             );
             const backend = createExtensionBackend({
               isAvailable: () => true,
@@ -288,7 +297,7 @@ export function buildPinnedCandidateList(
  *
  * Exported for testing.
  */
-export function buildCandidateList(context: ToolContext): BackendCandidate[] {
+export function buildCandidateList(context: ToolContext, targetClientId?: string): BackendCandidate[] {
   const { conversationId, sourceActorPrincipalId } = context;
   const candidates: BackendCandidate[] = [];
   const hostBrowserProxy = HostBrowserProxy.instance;
@@ -304,6 +313,7 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
           conversationId,
           undefined,
           sourceActorPrincipalId,
+          targetClientId,
         );
         const backend = createExtensionBackend({
           isAvailable: () => true,

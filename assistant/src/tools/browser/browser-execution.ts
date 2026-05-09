@@ -378,6 +378,11 @@ function acquireCdpClientWithMode(
   }
   const browserMode = modeResult.mode;
 
+  const targetClientId =
+    typeof input.target_client_id === "string" && input.target_client_id !== ""
+      ? input.target_client_id
+      : undefined;
+
   const rememberedKind = browserManager.getPreferredBackendKind(
     context.conversationId,
   );
@@ -387,7 +392,7 @@ function acquireCdpClientWithMode(
       : browserMode;
 
   try {
-    const raw = getCdpClient(context, { mode: effectiveMode });
+    const raw = getCdpClient(context, { mode: effectiveMode, targetClientId });
     const cdp = wrapWithKindMemo(raw, context.conversationId);
     return { cdp, browserMode };
   } catch (err) {
@@ -398,7 +403,7 @@ function acquireCdpClientWithMode(
     if (browserMode === "auto" && effectiveMode !== "auto") {
       browserManager.clearPreferredBackendKind(context.conversationId);
       try {
-        const raw = getCdpClient(context, { mode: "auto" });
+        const raw = getCdpClient(context, { mode: "auto", targetClientId });
         const cdp = wrapWithKindMemo(raw, context.conversationId);
         return { cdp, browserMode };
       } catch (retryErr) {

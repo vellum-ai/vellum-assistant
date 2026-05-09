@@ -34,17 +34,30 @@ const HOST_BROWSER_INTERFACE_PREFERENCE: InterfaceId[] = [
 /**
  * Pick the host_browser-capable client to dispatch to.
  *
- * When a `sourceActorPrincipalId` is supplied, candidate clients are
- * filtered down to those owned by the same actor before applying the
- * interface-preference order. Returns `undefined` when no same-actor
- * client is connected; the caller surfaces this as the existing
- * "no active extension connection" rejection.
+ * When `targetClientId` is supplied, the client with that id is looked
+ * up directly in the `host_browser`-capable roster. The same-actor check
+ * in `request()` still runs on the returned client when
+ * `sourceActorPrincipalId` is present.
  *
- * When `sourceActorPrincipalId` is undefined (legacy callers without a
- * resolved actor identity), falls through to the prior behavior so the
- * registry singleton continues to work as before.
+ * When `sourceActorPrincipalId` is supplied (and no explicit target),
+ * candidate clients are filtered down to those owned by the same actor
+ * before applying the interface-preference order. Returns `undefined`
+ * when no same-actor client is connected; the caller surfaces this as
+ * the existing "no active extension connection" rejection.
+ *
+ * When neither is supplied (legacy callers without a resolved actor
+ * identity), falls through to the prior behavior so the registry
+ * singleton continues to work as before.
  */
-function resolveTargetClient(sourceActorPrincipalId: string | undefined) {
+function resolveTargetClient(
+  sourceActorPrincipalId: string | undefined,
+  targetClientId?: string,
+) {
+  if (targetClientId != null) {
+    const clients = assistantEventHub.listClientsByCapability("host_browser");
+    return clients.find((c) => c.clientId === targetClientId);
+  }
+
   if (sourceActorPrincipalId == null) {
     return assistantEventHub.getPreferredClientByCapability(
       "host_browser",
@@ -126,10 +139,15 @@ export class HostBrowserProxy {
   /**
    * Send a host_browser request to the connected extension/macOS bridge.
    *
+   * When `targetClientId` is supplied, the proxy dispatches to that specific
+   * client (subject to the `host_browser` capability check and the same-actor
+   * gate below). This mirrors the `target_client_id` pattern on `host_bash`,
+   * `host_file_*`, and `host_cu`.
+   *
    * When `sourceActorPrincipalId` is supplied, the proxy refuses to dispatch
    * to a client owned by a different actor — same-user enforcement is the
    * authoritative gate against routing one actor's CDP request onto another
-   * actor's connected extension. The auto-resolved target's `clientId` and
+   * actor's connected extension. The resolved target's `clientId` and
    * `actorPrincipalId` are then persisted alongside the pending interaction
    * so that the result-route's same-actor check can verify the submitting
    * client at result time.
@@ -143,6 +161,7 @@ export class HostBrowserProxy {
     conversationId: string,
     signal?: AbortSignal,
     sourceActorPrincipalId?: string,
+    targetClientId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({ content: "Aborted", isError: true });
@@ -152,7 +171,7 @@ export class HostBrowserProxy {
     // alongside the pending interaction registration. Same shape as
     // host-cu-proxy: the result-route same-actor check compares the
     // submitting client's actor against this captured value.
-    const preferredClient = resolveTargetClient(sourceActorPrincipalId);
+    const preferredClient = resolveTargetClient(sourceActorPrincipalId, targetClientId);
 
     // Same-user enforcement: when the caller's actor is known, refuse to
     // dispatch to a client owned by a different actor. This covers the
@@ -172,7 +191,7 @@ export class HostBrowserProxy {
       if (rejection) return Promise.resolve(rejection);
     }
 
-    const targetClientId = preferredClient?.clientId;
+    const resolvedClientId = preferredClient?.clientId;
     const targetActorPrincipalId = preferredClient?.actorPrincipalId;
     const requestId = uuid();
 
@@ -216,7 +235,7 @@ export class HostBrowserProxy {
       pendingInteractions.register(requestId, {
         conversationId,
         kind: "host_browser",
-        targetClientId,
+        targetClientId: resolvedClientId,
         targetActorPrincipalId,
         rpcResolve: resolve as (v: unknown) => void,
         rpcReject: reject,

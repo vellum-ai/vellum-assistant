@@ -51,6 +51,11 @@ export class ExtensionCdpClient implements ScopedCdpClient {
      * boundary.
      */
     private readonly sourceActorPrincipalId?: string,
+    /**
+     * Explicit target client id. When provided, the proxy routes directly to
+     * that client instead of applying the interface-preference order.
+     */
+    private readonly targetClientId?: string,
   ) {}
 
   async send<T = unknown>(
@@ -82,6 +87,7 @@ export class ExtensionCdpClient implements ScopedCdpClient {
         this.conversationId,
         signal,
         this.sourceActorPrincipalId,
+        this.targetClientId,
       );
     } catch (err) {
       throw new CdpError(
@@ -203,11 +209,13 @@ export function createExtensionCdpClient(
   conversationId: string,
   cdpSessionId?: string,
   sourceActorPrincipalId?: string,
+  targetClientId?: string,
 ): ExtensionCdpClient {
   return new ExtensionCdpClient(
     proxy,
     conversationId,
     cdpSessionId,
     sourceActorPrincipalId,
+    targetClientId,
   );
 }
