@@ -493,7 +493,11 @@ struct InferenceProfilesSheet: View {
         // Profile saves are upserts keyed by name, so committing under a
         // name that already belongs to a different profile would silently
         // overwrite that profile. Reject the collision and surface a
-        // user-facing error before clobbering anything.
+        // user-facing error before clobbering anything. The collision check
+        // skips the case where we already saved under `name` on a previous
+        // attempt — `editorOriginalName` is bumped to `name` post-save so a
+        // retry after a partial-failure (e.g. retarget/delete threw) does
+        // not see its own write as a foreign collision and trap the user.
         if name != originalName, store.profiles.contains(where: { $0.name == name }) {
             actionError = "A profile named \"\(name)\" already exists. Pick a different name."
             return
@@ -517,6 +521,11 @@ struct InferenceProfilesSheet: View {
         // `.blockedBy*` in those cases — leaving a stale duplicate and
         // dangling references.
         if let originalName, originalName != name {
+            // Bump editor anchor so a retry after a partial failure below
+            // skips the collision check (the new-name profile now exists
+            // because we just saved it). Without this, the user is trapped
+            // in the editor with a misleading "already exists" error.
+            editorOriginalName = name
             if store.activeProfile == originalName {
                 let switched = await store.setActiveProfile(name)
                 guard switched else {
@@ -527,13 +536,13 @@ struct InferenceProfilesSheet: View {
             let referencingCallSites = store.callSiteOverrides
                 .filter { $0.profile == originalName }
                 .map(\.id)
+            // Use `setCallSiteOverride` (partial PATCH) rather than
+            // `replaceCallSiteOverride` so per-call-site `provider`,
+            // `model`, and non-UI leaves (`maxTokens`, `effort`,
+            // `thinking`, `contextWindow`, …) survive the rename. We only
+            // want the profile pointer to move.
             let retargetTasks = referencingCallSites.map { id in
-                store.replaceCallSiteOverride(
-                    id,
-                    provider: nil,
-                    model: nil,
-                    profile: name
-                )
+                store.setCallSiteOverride(id, profile: name)
             }
             for task in retargetTasks {
                 guard await task.value else {
@@ -605,18 +614,17 @@ struct InferenceProfilesSheet: View {
         case .callSites(let name, let ids):
             blockedName = name
             // Issue all reassignments concurrently, then await each so a
-            // failure aborts before the delete. `replaceCallSiteOverride`
+            // failure aborts before the delete. `setCallSiteOverride`
             // updates the local cache synchronously, which means the
             // local reference scan in `deleteProfile` would otherwise
             // pass even when the daemon-side PATCH failed — leaving call
-            // sites pointing at a deleted profile.
+            // sites pointing at a deleted profile. `setCallSiteOverride`
+            // (partial PATCH) is used over `replaceCallSiteOverride` so
+            // per-call-site `provider`, `model`, and non-UI leaves
+            // (`maxTokens`, `effort`, `thinking`, `contextWindow`, …)
+            // are preserved — only the profile pointer should move.
             let tasks = ids.map { id in
-                store.replaceCallSiteOverride(
-                    id,
-                    provider: nil,
-                    model: nil,
-                    profile: replacement
-                )
+                store.setCallSiteOverride(id, profile: replacement)
             }
             for task in tasks {
                 let success = await task.value
