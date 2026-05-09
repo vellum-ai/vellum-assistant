@@ -433,8 +433,8 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["dense-only-page"], config);
 
-    // cosine 0.5 → unit 0.75; 0.7 * 0.75 + 0.3 * 0 = 0.525
-    expect(out.get("dense-only-page")).toBeCloseTo(0.525, 6);
+    // cosine 0.5 (positive, passes through); 0.7 * 0.5 + 0.3 * 0 = 0.35
+    expect(out.get("dense-only-page")).toBeCloseTo(0.35, 6);
   });
 
   test("sparse-only hit gets dense contribution of 0; sparse normalized to 1.0", async () => {
@@ -475,11 +475,11 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["alice", "bob"], config);
 
-    // cosine→unit: alice 0.5 → 0.75, bob 0.25 → 0.625.
-    // alice: 0.4 * 0.75 + 0.6 * 1.0 = 0.9
-    // bob:   0.4 * 0.625 + 0.6 * 0.5 = 0.55
-    expect(out.get("alice")).toBeCloseTo(0.9, 6);
-    expect(out.get("bob")).toBeCloseTo(0.55, 6);
+    // Positive cosines pass through unchanged.
+    // alice: 0.4 * 0.5 + 0.6 * 1.0 = 0.8
+    // bob:   0.4 * 0.25 + 0.6 * 0.5 = 0.4
+    expect(out.get("alice")).toBeCloseTo(0.8, 6);
+    expect(out.get("bob")).toBeCloseTo(0.4, 6);
   });
 
   test("scores are clamped into [0, 1] even when fused values overshoot", async () => {
@@ -538,8 +538,8 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["alice"], config);
 
-    // cosine 0.7 → unit 0.85; cosine 0.3 → unit 0.65; max = 0.85.
-    expect(out.get("alice")).toBeCloseTo(0.85, 6);
+    // Positive cosines pass through unchanged: max(0.3, 0.7) = 0.7.
+    expect(out.get("alice")).toBeCloseTo(0.7, 6);
   });
 
   test("takes max(body, summary) per slug — body higher than summary wins", async () => {
@@ -555,8 +555,8 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["alice"], config);
 
-    // cosine 0.9 → unit 0.95; cosine 0.4 → unit 0.7; max = 0.95.
-    expect(out.get("alice")).toBeCloseTo(0.95, 6);
+    // Positive cosines pass through unchanged: max(0.9, 0.4) = 0.9.
+    expect(out.get("alice")).toBeCloseTo(0.9, 6);
   });
 
   test("falls back to body-only when the page has no summary embedding", async () => {
@@ -573,8 +573,8 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["legacy-page"], config);
 
-    // cosine 0.6 → unit 0.8.
-    expect(out.get("legacy-page")).toBeCloseTo(0.8, 6);
+    // Positive cosine 0.6 passes through unchanged.
+    expect(out.get("legacy-page")).toBeCloseTo(0.6, 6);
   });
 
   test("normalizes body and summary sparse channels independently", async () => {
@@ -611,6 +611,31 @@ describe("simBatch", () => {
     expect(out.get("bob")).toBeCloseTo(1.0, 6);
   });
 
+  test("dense-favored config keeps the dense-strong candidate above the sparse-strong one", async () => {
+    // Regression guard: an earlier fix mapped cosines into [0, 1] via
+    // `(cos + 1) / 2` before fusion, which halved every pairwise dense
+    // difference and silently shifted ranking toward sparse. With dense
+    // weighted higher than sparse, the dense-only hit must outrank the
+    // sparse-only hit even though sparse normalizes to 1.0.
+    const config = configWithWeights(0.7, 0.3);
+    stageHybridResponse([
+      { slug: "dense-strong", denseScore: 0.5 /* sparseScore omitted */ },
+      { slug: "sparse-strong", denseScore: 0.0, sparseScore: 1 },
+    ]);
+
+    const out = await simBatch(
+      "query",
+      ["dense-strong", "sparse-strong"],
+      config,
+    );
+
+    // dense-strong: 0.7 * max(0, 0.5) + 0.3 * 0 = 0.35
+    // sparse-strong: 0.7 * max(0, 0.0) + 0.3 * 1.0 = 0.30
+    expect(out.get("dense-strong")).toBeCloseTo(0.35, 6);
+    expect(out.get("sparse-strong")).toBeCloseTo(0.3, 6);
+    expect(out.get("dense-strong")!).toBeGreaterThan(out.get("sparse-strong")!);
+  });
+
   test("negative cosine maps to a non-negative dense contribution", async () => {
     // Qdrant cosine search returns scores in [-1, 1]. A near-zero or
     // negative cosine must not yield a negative dense contribution that
@@ -622,7 +647,7 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["anti-match"], config);
 
-    // cosine -1 → unit 0; sparse-norm = 1.0; fused = 0.7*0 + 0.3*1 = 0.3.
+    // cosine -1 → clamped to 0; sparse-norm = 1.0; fused = 0.7*0 + 0.3*1 = 0.3.
     expect(out.get("anti-match")).toBeCloseTo(0.3, 6);
   });
 
