@@ -71,6 +71,7 @@ import { memoryV2SummarySchemaRebuildMigration } from "./070-memory-v2-summary-s
 import { removeSafeStorageReleaseNoteMigration } from "./071-remove-safe-storage-release-note.js";
 import { seedReplySuggestionCallsiteMigration } from "./072-seed-reply-suggestion-callsite.js";
 import { repairRecallCallsiteEmptyProfileMigration } from "./073-repair-recall-callsite-empty-profile.js";
+import { dropDeprecatedSecretDetectionKeysMigration } from "./074-drop-deprecated-secret-detection-keys.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -153,4 +154,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   removeSafeStorageReleaseNoteMigration,
   seedReplySuggestionCallsiteMigration,
   repairRecallCallsiteEmptyProfileMigration,
+  dropDeprecatedSecretDetectionKeysMigration,
 ];
