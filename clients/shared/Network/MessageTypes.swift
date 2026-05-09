@@ -2280,18 +2280,15 @@ public struct BookmarkCreatedMessage: Decodable, Sendable, Equatable {
     }
 }
 
-/// An existing bookmark was deleted on the daemon. Either `id` (delete by
-/// primary key) or `messageId` (delete by message id) will be set; clients
-/// that need to react to a specific bookmark removal can prefer whichever
-/// identifier they already have indexed.
+/// An existing bookmark was deleted on the daemon, identified by the message
+/// it was attached to. Clients typically just refresh their bookmark list on
+/// receipt; the id is included for clients that index by message.
 public struct BookmarkDeletedMessage: Decodable, Sendable, Equatable {
     public let type: String
-    public let id: String?
-    public let messageId: String?
+    public let messageId: String
 
-    public init(type: String, id: String? = nil, messageId: String? = nil) {
+    public init(type: String, messageId: String) {
         self.type = type
-        self.id = id
         self.messageId = messageId
     }
 }

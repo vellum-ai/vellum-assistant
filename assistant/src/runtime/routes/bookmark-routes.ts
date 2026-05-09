@@ -40,10 +40,7 @@ function publishBookmarkCreated(bookmark: BookmarkSummary): void {
     });
 }
 
-function publishBookmarkDeleted(payload: {
-  id?: string;
-  messageId?: string;
-}): void {
+function publishBookmarkDeleted(payload: { messageId: string }): void {
   assistantEventHub
     .publish(buildAssistantEvent({ type: "bookmark.deleted", ...payload }))
     .catch((err) => {

@@ -10,10 +10,7 @@ export interface BookmarkCreated {
 
 export interface BookmarkDeleted {
   type: "bookmark.deleted";
-  /** Bookmark id when the delete happened by primary key. */
-  id?: string;
-  /** Message id when the delete happened by message id. */
-  messageId?: string;
+  messageId: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
