@@ -41,13 +41,9 @@ public final class AppServices {
                 featureFlagStore.isEnabled(key)
             }
         )
-        // Hydrate bookmarks once at bootstrap so hover-time lookups via
-        // ``bookmarkedMessageIds`` are warm by the time the chat surface
-        // renders. Subsequent updates flow through the SSE-driven
-        // ``bookmarkDidChange`` notification.
-        Task { @MainActor in
-            await bookmarkStore.reload()
-        }
+        // Bookmark hydration is deferred until the gateway is connected
+        // (see ``AppDelegate+ConnectionSetup``) so it doesn't race auth
+        // bootstrap and 401.
     }
 
     /// Reconfigure the connection for a new assistant.

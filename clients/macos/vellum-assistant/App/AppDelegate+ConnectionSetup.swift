@@ -199,6 +199,13 @@ extension AppDelegate {
                     await flagReloadTask.value
                     self?.diskPressureStatusStore.refreshForCurrentAssistant()
                 }
+                // Hydrate the bookmark mirror so hover-time
+                // `bookmarkedMessageIds` lookups are warm by the time the
+                // chat surface renders. Deferred to here (instead of
+                // `AppServices.init`) to avoid racing auth bootstrap.
+                Task { @MainActor [weak self] in
+                    await self?.bookmarkStore.reload()
+                }
             }
         }
     }

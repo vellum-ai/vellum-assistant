@@ -3,19 +3,6 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "BookmarkClient")
 
-/// Focused client for message-bookmark operations routed through the gateway.
-///
-/// Wraps `GET/POST/DELETE /v1/bookmarks` plus the
-/// `DELETE /v1/bookmarks/by-message/{messageId}` convenience route exposed by
-/// the daemon. Mirrors the structure of ``FeatureFlagClient`` so neighboring
-/// stores can adopt either client interchangeably.
-public protocol BookmarkClientProtocol {
-    func listBookmarks() async throws -> [BookmarkSummary]
-    func createBookmark(messageId: String, conversationId: String) async throws -> BookmarkSummary
-    func deleteBookmark(id: String) async throws -> Bool
-    func deleteBookmarkByMessageId(_ messageId: String) async throws -> Bool
-}
-
 public enum BookmarkClientError: Error, LocalizedError {
     case requestFailed(Int)
 
@@ -27,10 +14,12 @@ public enum BookmarkClientError: Error, LocalizedError {
     }
 }
 
-// MARK: - Gateway-Backed Implementation
-
-/// Gateway-backed implementation of ``BookmarkClientProtocol``.
-public struct BookmarkClient: BookmarkClientProtocol {
+/// Focused client for message-bookmark operations routed through the gateway.
+///
+/// Wraps `GET/POST /v1/bookmarks` plus the
+/// `DELETE /v1/bookmarks/by-message/{messageId}` convenience route exposed by
+/// the daemon.
+public struct BookmarkClient {
     nonisolated public init() {}
 
     public func listBookmarks() async throws -> [BookmarkSummary] {
@@ -58,18 +47,7 @@ public struct BookmarkClient: BookmarkClientProtocol {
         return try JSONDecoder().decode(BookmarkSummary.self, from: response.data)
     }
 
-    public func deleteBookmark(id: String) async throws -> Bool {
-        let response = try await GatewayHTTPClient.delete(
-            path: "bookmarks/\(id)", timeout: 10
-        )
-        guard response.isSuccess else {
-            log.error("deleteBookmark failed (HTTP \(response.statusCode))")
-            throw BookmarkClientError.requestFailed(response.statusCode)
-        }
-        return true
-    }
-
-    public func deleteBookmarkByMessageId(_ messageId: String) async throws -> Bool {
+    public func deleteBookmarkByMessageId(_ messageId: String) async throws {
         let response = try await GatewayHTTPClient.delete(
             path: "bookmarks/by-message/\(messageId)", timeout: 10
         )
@@ -77,6 +55,5 @@ public struct BookmarkClient: BookmarkClientProtocol {
             log.error("deleteBookmarkByMessageId failed (HTTP \(response.statusCode))")
             throw BookmarkClientError.requestFailed(response.statusCode)
         }
-        return true
     }
 }

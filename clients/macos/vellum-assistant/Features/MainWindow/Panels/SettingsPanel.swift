@@ -474,8 +474,15 @@ struct SettingsPanel: View {
                 bookmarkStore: bookmarkStore,
                 conversationManager: conversationManager,
                 openMessage: { conversationId, daemonMessageId in
-                    _ = conversationManager.selectConversationByConversationId(conversationId)
-                    conversationManager.pendingAnchorDaemonMessageId = daemonMessageId
+                    guard conversationManager.selectConversationByConversationId(conversationId),
+                          let activeLocalId = conversationManager.activeConversationId else { return }
+                    // Recording the conversation alongside the daemon ID lets
+                    // ConversationSelectionStore's stale-anchor cleanup fire
+                    // if the user switches away before the resolver runs.
+                    conversationManager.setPendingAnchorDaemonMessage(
+                        conversationId: activeLocalId,
+                        daemonMessageId: daemonMessageId
+                    )
                 },
                 onClose: onClose
             )

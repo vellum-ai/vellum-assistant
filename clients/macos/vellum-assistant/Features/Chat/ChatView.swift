@@ -73,6 +73,14 @@ struct ChatView: View {
 
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
+    /// When set, MessageListView resolves the daemon (server-side) message
+    /// ID to its client `UUID` once the matching message is loaded, then
+    /// triggers the existing UUID-based scroll-and-flash. Used by deep
+    /// links from settings panes (e.g. Bookmarks) that only have the
+    /// daemon ID, not the client-generated `UUID`. Defaults to a constant
+    /// nil binding so non-bookmark hosts (e.g. `ThreadWindow`) don't need
+    /// to allocate a `@State` they never write to.
+    var anchorDaemonMessageId: Binding<String?> = .constant(nil)
     /// Message ID to visually highlight after an anchor scroll completes.
     @Binding var highlightedMessageId: UUID?
 
@@ -352,6 +360,7 @@ struct ChatView: View {
                 // -- Scroll state inputs --
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
+                anchorDaemonMessageId: anchorDaemonMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 isInteractionEnabled: isInteractionEnabled,
                 containerWidth: containerWidth,

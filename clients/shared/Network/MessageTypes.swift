@@ -2262,10 +2262,12 @@ public struct MeetSpeakingEndedMessage: Decodable, Sendable, Equatable {
 //
 // Wire-compatible mirror of `assistant/src/daemon/message-types/bookmarks.ts`.
 // Emitted by `bookmark-routes.ts` after every mutation so other connected
-// clients (e.g. a second macOS window) can refresh their `BookmarkStore` in
+// clients (e.g. a second macOS window) can refresh their bookmark cache in
 // lock-step. The dotted `type` strings (`bookmark.created` / `bookmark.deleted`)
-// match the daemon's serialization; the SSE router translates them into
-// `.bookmarkDidChange` notifications and `BookmarkStore` reloads on receipt.
+// match the daemon's serialization. Each platform client decides how to react
+// — see the platform-specific event subscriber for the translation
+// (e.g. `AppDelegate+ConnectionSetup.swift` on macOS posts a
+// `.bookmarkDidChange` NotificationCenter event).
 
 /// A new bookmark was created on the daemon.
 public struct BookmarkCreatedMessage: Decodable, Sendable, Equatable {

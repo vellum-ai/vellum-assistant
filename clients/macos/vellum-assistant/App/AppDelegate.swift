@@ -101,6 +101,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var contactPromptManager: ContactPromptManager { services.contactPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
     var featureFlagStore: AssistantFeatureFlagStore { services.featureFlagStore }
+    var bookmarkStore: BookmarkStore { services.bookmarkStore }
     var diskPressureStatusStore: DiskPressureStatusStore { services.diskPressureStatusStore }
 
     let conversationListClient: any ConversationListClientProtocol = ConversationListClient()

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Observation
 import VellumAssistantShared
@@ -14,39 +15,41 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Bookm
 ///
 /// SSE events from the daemon (`bookmark.created` / `bookmark.deleted`,
 /// emitted by `bookmark-routes.ts` via `assistantEventHub`) are forwarded by
-/// the SSE router as ``Notification/Name/bookmarkDidChange`` posts so a
-/// second window mutating the list keeps every connected client in sync.
+/// the app-layer SSE subscriber as ``Notification/Name/bookmarkDidChange``
+/// posts so a second window mutating the list keeps every connected client
+/// in sync.
 ///
-/// Mirrors the ``AssistantFeatureFlagStore`` Observable + NotificationCenter
-/// pattern so SwiftUI views are only invalidated when the specific properties
-/// they read change.
+/// Mirrors the ``AssistantFeatureFlagStore`` Observable + Combine
+/// `AnyCancellable` pattern. Holding the NotificationCenter subscription in
+/// an `@ObservationIgnored` cancellable lets it tear down automatically and
+/// avoids a manual `removeObserver` call from the `nonisolated` deinit
+/// (which can't read the actor-isolated stored property under Swift 6
+/// strict concurrency).
 @MainActor
 @Observable
 public final class BookmarkStore {
     public private(set) var bookmarks: [BookmarkSummary] = []
     public private(set) var bookmarkedMessageIds: Set<String> = []
-    public private(set) var isLoading: Bool = false
 
-    @ObservationIgnored private let client: BookmarkClientProtocol
-    @ObservationIgnored private var sseObserver: NSObjectProtocol?
+    @ObservationIgnored private let client: BookmarkClient
+    @ObservationIgnored private var sseChangeCancellable: AnyCancellable?
 
-    public init(client: BookmarkClientProtocol = BookmarkClient()) {
+    public init(
+        client: BookmarkClient = BookmarkClient(),
+        notificationCenter: NotificationCenter = .default
+    ) {
         self.client = client
-        subscribeToSSE()
-    }
-
-    deinit {
-        if let sseObserver {
-            NotificationCenter.default.removeObserver(sseObserver)
-        }
+        sseChangeCancellable = notificationCenter.publisher(for: .bookmarkDidChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { await self?.reload() }
+            }
     }
 
     /// Fetch the authoritative bookmark list from the daemon and replace
-    /// local state. Call once at bootstrap, and whenever a `bookmark.*` SSE
-    /// event arrives from another window.
+    /// local state. Call once the gateway connection is established, and
+    /// whenever a `bookmark.*` SSE event arrives from another window.
     public func reload() async {
-        isLoading = true
-        defer { isLoading = false }
         do {
             let fetched = try await client.listBookmarks()
             bookmarks = fetched
@@ -64,44 +67,40 @@ public final class BookmarkStore {
             bookmarkedMessageIds.remove(messageId)
             bookmarks.removeAll { $0.messageId == messageId }
             do {
-                _ = try await client.deleteBookmarkByMessageId(messageId)
+                try await client.deleteBookmarkByMessageId(messageId)
             } catch {
                 log.warning("Bookmark delete failed: \(error.localizedDescription, privacy: .public)")
                 await reload()
             }
         } else {
+            // Optimistic flip so the icon updates in the same frame as the
+            // click — symmetric with the delete branch above. The full row
+            // (with daemon-assigned summary fields) is appended once
+            // `createBookmark` returns.
+            bookmarkedMessageIds.insert(messageId)
             do {
                 let created = try await client.createBookmark(
                     messageId: messageId,
                     conversationId: conversationId
                 )
-                // Idempotent insert: an SSE-driven reload may have landed the
-                // same row first, so guard against the duplicate.
-                if !bookmarkedMessageIds.contains(created.messageId) {
-                    bookmarkedMessageIds.insert(created.messageId)
+                // Guard against a duplicate row if an SSE-driven reload
+                // landed the same record first.
+                if !bookmarks.contains(where: { $0.messageId == created.messageId }) {
                     bookmarks.insert(created, at: 0)
                 }
             } catch {
                 log.warning("Bookmark create failed: \(error.localizedDescription, privacy: .public)")
+                bookmarkedMessageIds.remove(messageId)
                 await reload()
             }
-        }
-    }
-
-    private func subscribeToSSE() {
-        sseObserver = NotificationCenter.default.addObserver(
-            forName: .bookmarkDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { await self?.reload() }
         }
     }
 }
 
 extension Notification.Name {
-    /// Posted by the SSE router when the daemon emits `bookmark.created` or
-    /// `bookmark.deleted`. ``BookmarkStore`` listens for this and triggers a
-    /// full reload so every window stays in sync with the daemon.
+    /// Posted by the app-layer SSE subscriber when the daemon emits
+    /// `bookmark.created` or `bookmark.deleted`. ``BookmarkStore`` listens for
+    /// this and triggers a full reload so every window stays in sync with the
+    /// daemon.
     public static let bookmarkDidChange = Notification.Name("bookmarkDidChange")
 }

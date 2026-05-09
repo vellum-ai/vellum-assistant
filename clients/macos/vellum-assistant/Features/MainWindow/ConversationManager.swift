@@ -1329,6 +1329,19 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.pendingAnchorConversationId = conversationId
     }
 
+    /// Set the pending anchor by daemon (server-side) message ID. Used by
+    /// callers that only know the daemon ID — the MessageListView resolver
+    /// maps it to the client `UUID` once the message has loaded. Recording
+    /// `pendingAnchorConversationId` here is essential: without it, the
+    /// `ConversationSelectionStore.activeConversationId` didSet won't clear
+    /// a stale daemon-id when the user switches conversations before the
+    /// resolver fires.
+    func setPendingAnchorDaemonMessage(conversationId: UUID, daemonMessageId: String) {
+        guard selectionStore.activeConversationId == conversationId else { return }
+        selectionStore.pendingAnchorDaemonMessageId = daemonMessageId
+        selectionStore.pendingAnchorConversationId = conversationId
+    }
+
     // MARK: - Delegated Activity Operations
 
     func isConversationBusy(_ conversationId: UUID) -> Bool {
