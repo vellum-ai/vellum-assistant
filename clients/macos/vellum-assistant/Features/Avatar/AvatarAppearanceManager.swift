@@ -560,19 +560,24 @@ final class AvatarAppearanceManager {
     /// `applicationIconImage` is set at runtime and already includes all
     /// system-resolved representations.
     ///
-    /// Marked `nonisolated` to opt this static out of the enclosing
-    /// `@MainActor` isolation so the background prefetch in `start()` can
-    /// trigger the lazy initializer off the main thread without crossing
-    /// an actor boundary. The initializer is safe to run on any thread:
-    /// `NSWorkspace.icon(forFile:)` is documented thread-safe, and the
-    /// resulting `NSImage` is treated as a single immutable value for the
-    /// life of the process.
+    /// Loaded directly from `AppIcon.icns` rather than via
+    /// `NSWorkspace.icon(forFile: bundlePath)` because `updateDockIcon()`
+    /// writes a custom Finder icon (`Icon\r`) onto the `.app` bundle to
+    /// override the notification daemon's icon. That custom file persists
+    /// across launches, so reading the bundle's Finder icon would capture
+    /// the stale avatar from a previous session and cause `restoreBundleIcon()`
+    /// to "restore" it instead of the real Vellum logo. Reading the `.icns`
+    /// resource bypasses Finder metadata entirely.
     ///
-    /// References:
-    /// - https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
-    /// - https://github.com/swiftlang/swift-evolution/blob/main/proposals/0434-global-actor-isolated-types-usability.md
+    /// Marked `nonisolated` so the background prefetch in `start()` can
+    /// trigger the lazy initializer off the main thread without crossing
+    /// the enclosing `@MainActor` boundary.
     private nonisolated static let bundledAppIcon: NSImage = {
-        NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            return image
+        }
+        return NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
     }()
 
     /// Restores the dock icon to the default Vellum logo.
