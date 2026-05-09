@@ -3511,6 +3511,22 @@ paths:
       responses:
         "202":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  cancelled:
+                    type: boolean
+                  conversationId:
+                    type: string
+                required:
+                  - ok
+                  - cancelled
+                  - conversationId
+                additionalProperties: false
       parameters:
         - name: id
           in: path

@@ -132,4 +132,9 @@ describe("POST /v1/conversations/:id/cancel", () => {
     });
     expect(cancelledId!).toBe(directId);
   });
+
+  test("route definition advertises the cancellation response body", () => {
+    expect(cancelRoute.responseStatus).toBe("202");
+    expect(cancelRoute.responseBody).toBeDefined();
+  });
 });

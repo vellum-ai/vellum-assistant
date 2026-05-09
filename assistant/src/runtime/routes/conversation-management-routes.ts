@@ -600,6 +600,11 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["conversations"],
     pathParams: [{ name: "id" }],
     responseStatus: "202",
+    responseBody: z.object({
+      ok: z.boolean(),
+      cancelled: z.boolean(),
+      conversationId: z.string(),
+    }),
     handler: handleCancelGeneration,
   },
   {
