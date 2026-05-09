@@ -429,10 +429,11 @@ final class LiveVoiceChannelManager {
 
             self.sessionGeneration &+= 1
             self.stopCapture()
+            self.state = .ending
+            await completedClient?.close()
             self.resetIgnoredSessionState()
             self.sessionId = nil
             self.state = .idle
-            await completedClient?.close()
         }
     }
 
