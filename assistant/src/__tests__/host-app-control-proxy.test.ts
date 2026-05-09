@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 const sentMessages: unknown[] = [];
 const resolvedInteractionIds: string[] = [];
 let mockHasClient = false;
+// clientId → actorPrincipalId for the hub mock
+const mockActorMap = new Map<string, string>();
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: unknown) => sentMessages.push(msg),
@@ -11,11 +13,24 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       cap === "host_app_control" && mockHasClient
         ? { id: "mock-client" }
         : null,
+    getActorPrincipalIdForClient: (clientId: string) =>
+      mockActorMap.get(clientId),
   },
 }));
 
+interface RegisteredInteraction {
+  conversationId: string;
+  kind: string;
+  targetClientId?: string;
+  targetActorPrincipalId?: string;
+}
+const registeredInteractions: RegisteredInteraction[] = [];
+
 mock.module("../runtime/pending-interactions.js", () => ({
-  register: () => undefined,
+  register: (
+    _requestId: string,
+    entry: RegisteredInteraction,
+  ) => registeredInteractions.push(entry),
   resolve: (requestId: string) => {
     resolvedInteractionIds.push(requestId);
     return undefined;
@@ -58,7 +73,9 @@ describe("HostAppControlProxy", () => {
   beforeEach(() => {
     sentMessages.length = 0;
     resolvedInteractionIds.length = 0;
+    registeredInteractions.length = 0;
     mockHasClient = false;
+    mockActorMap.clear();
     _resetActiveAppControlSession();
   });
 
@@ -766,6 +783,97 @@ describe("HostAppControlProxy", () => {
       const proxy = new HostAppControlProxy("conv-1");
       mockHasClient = true;
       expect(proxy.isAvailable()).toBe(true);
+      proxy.dispose();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // (g) sourceActorPrincipalId + targetClientId plumbing
+  // -------------------------------------------------------------------------
+
+  describe("actor principal + targetClientId plumbing", () => {
+    test("request() accepts sourceActorPrincipalId and targetClientId without crashing", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.app",
+      });
+
+      const resultPromise = proxy.request(
+        "app_control_observe",
+        { tool: "observe", app: "com.example.app" },
+        "conv-1",
+        ctrl.signal,
+        "actor-principal-1",    // sourceActorPrincipalId
+        "client-A",             // targetClientId
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_app_control_request");
+      // targetClientId propagates to the broadcast envelope
+      expect(sent.targetClientId).toBe("client-A");
+
+      // pending interactions registers targetClientId
+      expect(registeredInteractions).toHaveLength(1);
+      expect(registeredInteractions[0].targetClientId).toBe("client-A");
+
+      // Resolve to unblock the promise
+      proxy.resolve(sent.requestId as string, payload({ pngBase64: PNG_A }));
+      await resultPromise;
+
+      proxy.dispose();
+    });
+
+    test("request() with targetClientId + known actor: registers targetActorPrincipalId", async () => {
+      mockActorMap.set("client-A", "user-1");
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.app",
+      });
+
+      const resultPromise = proxy.request(
+        "app_control_observe",
+        { tool: "observe", app: "com.example.app" },
+        "conv-1",
+        ctrl.signal,
+        "user-1",    // sourceActorPrincipalId
+        "client-A",  // targetClientId → hub resolves actorPrincipalId = "user-1"
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      // targetActorPrincipalId was looked up from hub and stored
+      expect(registeredInteractions[0].targetActorPrincipalId).toBe("user-1");
+
+      proxy.resolve(sent.requestId as string, payload({ pngBase64: PNG_A }));
+      await resultPromise;
+
+      proxy.dispose();
+    });
+
+    test("request() without targetClientId: does not register targetActorPrincipalId", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      const resultPromise = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.app" },
+        "conv-1",
+        ctrl.signal,
+        "user-1",    // sourceActorPrincipalId
+        undefined,   // no targetClientId
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(registeredInteractions[0].targetClientId).toBeUndefined();
+      expect(registeredInteractions[0].targetActorPrincipalId).toBeUndefined();
+
+      proxy.resolve(sent.requestId as string, payload({ pngBase64: PNG_A }));
+      await resultPromise;
+
       proxy.dispose();
     });
   });
