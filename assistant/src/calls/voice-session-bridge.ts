@@ -539,7 +539,14 @@ export async function startVoiceTurn(
         return;
       }
     } else if (msg.type === "secret_request") {
-      // Voice has no secret-entry UI, so resolve immediately
+      if (usesLocalInteractiveApprovals) {
+        // Local live voice runs alongside the desktop client, which has a
+        // secret-entry UI (SecretPromptManager). Forward the broadcast and
+        // let the prompter's existing registration handle the response.
+        broadcastMessage(msg);
+        return;
+      }
+      // Phone voice has no secret-entry UI, so resolve immediately.
       log.info(
         { turnId, service: msg.service, field: msg.field },
         "Auto-resolving secret request for voice turn (no secret-entry UI)",
