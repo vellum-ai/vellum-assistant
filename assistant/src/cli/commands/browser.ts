@@ -17,6 +17,7 @@ import type {
   OperationField,
 } from "../../browser/types.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ── Naming helpers ───────────────────────────────────────────────────
@@ -357,9 +358,12 @@ const BROWSER_MODES = [
 ] as const;
 
 export function registerBrowserCommand(program: Command): void {
-  const browser = program
-    .command("browser")
-    .description("Control the browser via the running assistant.")
+  registerCommand(program, {
+    name: "browser",
+    transport: "ipc",
+    description: "Control the browser via the running assistant.",
+    build: (browser) => {
+      browser
     .option(
       "--session <id>",
       "Session ID to preserve browser state across invocations.",
@@ -408,4 +412,6 @@ Examples:
   for (const meta of BROWSER_OPERATION_META) {
     buildSubcommand(browser, meta);
   }
+    },
+  });
 }

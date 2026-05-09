@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 interface PendingInteractionEntry {
@@ -16,13 +17,12 @@ interface PendingInteractionsResponse {
 }
 
 export function registerPendingCommand(program: Command): void {
-  const pending = program
-    .command("pending")
-    .description(
-      "Inspect pending interactions (confirmations, secrets, host proxy requests)",
-    );
-
-  pending
+  registerCommand(program, {
+    name: "pending",
+    transport: "ipc",
+    description: "Inspect pending interactions (confirmations, secrets, host proxy requests)",
+    build: (pending) => {
+      pending
     .command("list")
     .alias("ls")
     .description("List all pending interactions across all conversations")
@@ -99,4 +99,6 @@ export function registerPendingCommand(program: Command): void {
         }
       },
     );
+    },
+  });
 }

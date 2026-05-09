@@ -43,6 +43,7 @@ import type {
   MemoryV2ReembedSkillsResult,
   MemoryV2ValidateResult,
 } from "../../runtime/routes/memory-v2-routes.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -163,9 +164,11 @@ export function registerMemoryV2Command(program: Command): void {
     );
   }
 
-  const v2 = memory
-    .command("v2")
-    .description("Memory v2 subsystem operations (concept-page model)");
+  registerCommand(memory, {
+    name: "v2",
+    transport: "ipc",
+    description: "Memory v2 subsystem operations (concept-page model)",
+    build: (v2) => {
 
   v2.addHelpText(
     "after",
@@ -595,4 +598,6 @@ Examples:
         }
       }
     });
+    },
+  });
 }

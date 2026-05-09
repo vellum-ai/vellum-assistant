@@ -6,6 +6,7 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import { McpClient } from "../../mcp/client.js";
 import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
 import { openInHostBrowser } from "../../util/browser.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 const HEALTH_CHECK_TIMEOUT_MS = 10_000;
@@ -102,9 +103,11 @@ export async function checkServerHealth(
 }
 
 export function registerMcpCommand(program: Command): void {
-  const mcp = program
-    .command("mcp")
-    .description("Manage MCP (Model Context Protocol) servers");
+  registerCommand(program, {
+    name: "mcp",
+    transport: "ipc",
+    description: "Manage MCP (Model Context Protocol) servers",
+    build: (mcp) => {
 
   mcp.addHelpText(
     "after",
@@ -616,4 +619,6 @@ Examples:
           "Or run 'vellum mcp reload' to apply now.",
       );
     });
+    },
+  });
 }

@@ -9,6 +9,7 @@ import {
 } from "../../config/loader.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { requirePlatformConnection } from "./oauth/shared.js";
 
@@ -39,7 +40,11 @@ function flattenConfig(
 const SERVICE_MODE_PATH_RE = /^services\.[^.]+\.mode$/;
 
 export function registerConfigCommand(program: Command): void {
-  const config = program.command("config").description("Manage configuration");
+  registerCommand(program, {
+    name: "config",
+    transport: "local",
+    description: "Manage configuration",
+    build: (config) => {
 
   config.addHelpText(
     "after",
@@ -277,4 +282,6 @@ Examples:
         process.exit(1);
       }
     });
+    },
+  });
 }

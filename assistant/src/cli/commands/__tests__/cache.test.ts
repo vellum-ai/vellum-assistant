@@ -87,7 +87,7 @@ mock.module("../../../util/logger.js", () => ({
   }),
 }));
 
-mock.module("../cache-fs.js", () => ({
+mock.module("../../lib/cache-fs.js", () => ({
   readFileSync: (path: string, encoding?: BufferEncoding) => {
     if (path === "/dev/stdin") {
       if (mockStdinContent === null) {

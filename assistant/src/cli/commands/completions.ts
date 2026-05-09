@@ -1,14 +1,16 @@
 import type { Command } from "commander";
 
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 export function registerCompletionsCommand(program: Command): void {
-  program
-    .command("completions")
+  registerCommand(program, {
+    name: "completions",
+    transport: "local",
+    description: "Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)",
+    build: (cmd) => {
+      cmd
     .argument("<shell>", "Shell type: bash, zsh, or fish")
-    .description(
-      "Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)",
-    )
     .addHelpText(
       "after",
       `
@@ -73,6 +75,8 @@ Examples:
           process.exit(1);
       }
     });
+    },
+  });
 }
 
 function generateBashCompletion(
