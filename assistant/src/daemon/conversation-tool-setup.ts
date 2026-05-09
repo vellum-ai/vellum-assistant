@@ -383,8 +383,9 @@ export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
  *   exposure with same-actor guard at proxy dispatch and result route)
  *
  * Exclusions:
- * - host_app_control, host_cu: not in HOST_TOOL_TO_CAPABILITY
- *   (skill-routed; cross-client preactivation is a separate workstream).
+ * - host_app_control, host_cu: not in HOST_TOOL_TO_CAPABILITY (skill-routed).
+ *   Their cross-client exposure is handled at the skill preactivation layer
+ *   via `preactivateHostProxySkills` — see host-proxy-preactivation.ts.
  */
 const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
   "host_bash",
