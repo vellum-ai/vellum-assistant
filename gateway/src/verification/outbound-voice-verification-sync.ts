@@ -70,14 +70,20 @@ async function syncOutboundVoiceVerifications(): Promise<void> {
   // Outbound guardian sessions have expected_phone_e164 set (populated by
   // startOutboundVoice). We filter by verification_purpose = 'guardian' to
   // skip trusted-contact sessions, which have their own activation path.
+  //
+  // ORDER BY updated_at ASC matters: when multiple consumed sessions appear
+  // in the same poll (e.g. startup lookback or two verifications inside the
+  // 5s window), the conflict path below revokes any existing binding. Oldest
+  // first guarantees the most recent verification wins.
   const result = (await ipcCallAssistant("db_proxy", {
-    sql: `SELECT consumed_by_external_user_id, consumed_by_chat_id
+    sql: `SELECT consumed_by_external_user_id, consumed_by_chat_id, updated_at
           FROM channel_verification_sessions
           WHERE channel = 'phone'
             AND status = 'consumed'
             AND verification_purpose = 'guardian'
             AND expected_phone_e164 IS NOT NULL
-            AND updated_at > ?`,
+            AND updated_at > ?
+          ORDER BY updated_at ASC`,
     mode: "query",
     bind: [since],
   })) as DbProxyResult;
@@ -92,23 +98,42 @@ async function syncOutboundVoiceVerifications(): Promise<void> {
     "Outbound voice verification sync: found consumed sessions",
   );
 
+  // Track the highest updated_at we successfully processed. On any failure
+  // we keep lastSyncAt at the predecessor watermark so the failing row is
+  // re-queried next pass. createPhoneGuardianBinding is idempotent — already-
+  // bound rows short-circuit, so retried successes are a no-op.
+  let highWatermark = since;
+  let anyFailed = false;
+
   for (const row of result.rows) {
     const phoneNumber = row.consumed_by_external_user_id as string | null;
-    if (!phoneNumber) continue;
+    const rowUpdatedAt = (row.updated_at as number | null) ?? since;
+
+    if (!phoneNumber) {
+      // Malformed row — never going to succeed, advance past it.
+      highWatermark = Math.max(highWatermark, rowUpdatedAt);
+      continue;
+    }
 
     const chatId = (row.consumed_by_chat_id as string | null) ?? phoneNumber;
 
     try {
       await createPhoneGuardianBinding(phoneNumber, chatId);
+      highWatermark = Math.max(highWatermark, rowUpdatedAt);
     } catch (err) {
+      anyFailed = true;
       log.warn(
         { err, phoneNumber },
-        "Outbound voice verification sync: binding creation failed",
+        "Outbound voice verification sync: binding creation failed; will retry",
       );
+      // Stop advancing the watermark past this row — we want the next poll
+      // to re-select it. Subsequent rows in this batch may still process,
+      // but we won't advance lastSyncAt past the failure point.
+      break;
     }
   }
 
-  lastSyncAt = now;
+  lastSyncAt = anyFailed ? highWatermark : now;
 }
 
 async function createPhoneGuardianBinding(
@@ -131,6 +156,14 @@ async function createPhoneGuardianBinding(
     }
 
     // A different number holds the phone guardian binding — revoke it first.
+    //
+    // This is an intentional behavioral difference from the inbound path
+    // (twilio-voice-verify-callback.ts), which logs and skips on conflict.
+    // Outbound calls are guardian-initiated by definition: only the trusted
+    // guardian can command the assistant to dial a specific number with
+    // expected_phone_e164 set. So an outbound code-redemption is always a
+    // deliberate rebind. Inbound's conservative skip exists because anyone
+    // could call in with a stolen code; outbound has no such attack surface.
     log.warn(
       { phoneNumber, existingGuardian: existingBinding.externalUserId },
       "Outbound voice verification sync: revoking conflicting phone guardian binding",
