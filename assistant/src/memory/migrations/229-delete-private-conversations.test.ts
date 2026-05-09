@@ -1109,4 +1109,48 @@ describe("migrateDeletePrivateConversations", () => {
       ),
     ).toBe(1);
   });
+
+  test("removes orphan attachments left by prior runs that deleted private messages", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    const now = Date.now();
+
+    bootstrapTables(raw);
+    seedConversation(raw, "conv-standard", "standard");
+    raw.exec(/*sql*/ `
+      INSERT INTO attachments (
+        id,
+        original_filename,
+        mime_type,
+        size_bytes,
+        kind,
+        data_base64,
+        created_at
+      ) VALUES (
+        'orphan-private-attachment',
+        'leaked.txt',
+        'text/plain',
+        1,
+        'text',
+        'eA==',
+        ${now}
+      );
+    `);
+
+    expect(
+      countWhere(raw, "attachments", `id = 'orphan-private-attachment'`),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "attachments", `id = 'conv-standard-attachment'`),
+    ).toBe(1);
+
+    migrateDeletePrivateConversations(db);
+
+    expect(
+      countWhere(raw, "attachments", `id = 'orphan-private-attachment'`),
+    ).toBe(0);
+    expect(
+      countWhere(raw, "attachments", `id = 'conv-standard-attachment'`),
+    ).toBe(1);
+  });
 });

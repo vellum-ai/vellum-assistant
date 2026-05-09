@@ -198,6 +198,14 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
     WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
   `);
   database.run(/*sql*/ `
+    DELETE FROM attachments
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM message_attachments ma
+      WHERE ma.attachment_id = attachments.id
+    )
+  `);
+  database.run(/*sql*/ `
     DELETE FROM memory_summaries
     WHERE scope_id LIKE 'private:%'
   `);
