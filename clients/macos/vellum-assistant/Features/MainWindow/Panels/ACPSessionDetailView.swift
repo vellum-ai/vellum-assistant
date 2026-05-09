@@ -331,6 +331,16 @@ struct ACPSessionDetailView: View {
                     lastMaxScrollOffset = 0
                     lastScrollOffset = 0
                 }
+                .onChange(of: showThoughts) {
+                    // Toggling thought visibility shrinks/grows the timeline,
+                    // which moves the bottom offset. Reset the watermark for
+                    // the same reason as the ring-buffer trim above and
+                    // re-engage auto-scroll so users who flip the toggle while
+                    // parked at the bottom keep getting new events pinned.
+                    lastMaxScrollOffset = 0
+                    lastScrollOffset = 0
+                    autoScrollEnabled = true
+                }
                 .onAppear {
                     // First-paint: park at the bottom so the user lands on
                     // the latest activity instead of the start of the log.
@@ -531,11 +541,11 @@ struct ACPSessionDetailView: View {
         HStack(spacing: 0) {
             HStack(alignment: .top, spacing: VSpacing.xs) {
                 VIconView(.lightbulb, size: 12)
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .padding(.top, 2)
                 Text(content)
                     .font(VFont.bodyMediumDefault.italic())
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .textSelection(.enabled)
             }
             .padding(VSpacing.sm)
