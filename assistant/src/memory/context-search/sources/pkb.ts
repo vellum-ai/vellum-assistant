@@ -124,13 +124,19 @@ export async function searchPkbSource(
   }
 
   let lexicalEvidence: RecallEvidence[] = [];
-  try {
-    lexicalEvidence = await searchPkbLexicalFallback(query, context, limit * 2);
-  } catch (err) {
-    if (isAbortError(err) || context.signal?.aborted) {
-      throw err;
+  if (semanticEvidence.length < limit) {
+    try {
+      lexicalEvidence = await searchPkbLexicalFallback(
+        query,
+        context,
+        limit * 2,
+      );
+    } catch (err) {
+      if (isAbortError(err) || context.signal?.aborted) {
+        throw err;
+      }
+      log.warn({ err }, "Lexical PKB recall fallback failed");
     }
-    log.warn({ err }, "Lexical PKB recall fallback failed");
   }
 
   return {
@@ -201,7 +207,15 @@ async function searchPkbLexicalFallback(
   }
 
   const matches: PkbLexicalMatch[] = [];
-  await walkPkbDirectory(pkbRoot, pkbRoot, queryTerms, matches, context.signal);
+  const visitedDirs = new Set<string>([pkbRoot]);
+  await walkPkbDirectory(
+    pkbRoot,
+    pkbRoot,
+    queryTerms,
+    matches,
+    visitedDirs,
+    context.signal,
+  );
 
   return matches
     .sort(comparePkbLexicalMatches)
@@ -231,6 +245,7 @@ async function walkPkbDirectory(
   pkbRoot: string,
   queryTerms: ReadonlySet<string>,
   matches: PkbLexicalMatch[],
+  visitedDirs: Set<string>,
   signal: AbortSignal | undefined,
 ): Promise<void> {
   throwIfAborted(signal);
@@ -267,11 +282,16 @@ async function walkPkbDirectory(
     }
 
     if (entryStats.isDirectory()) {
+      if (visitedDirs.has(entryRealPath)) {
+        continue;
+      }
+      visitedDirs.add(entryRealPath);
       await walkPkbDirectory(
         entryRealPath,
         pkbRoot,
         queryTerms,
         matches,
+        visitedDirs,
         signal,
       );
       continue;

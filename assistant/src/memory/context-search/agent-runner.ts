@@ -499,7 +499,7 @@ async function runSeedRecallSearch(
       context,
       searchOptions,
     );
-    evidence = mergeEvidence(expansionResult.evidence, evidence);
+    evidence = mergeEvidence(evidence, expansionResult.evidence);
   }
 
   return withFallbackEvidence(baseResult, evidence);
