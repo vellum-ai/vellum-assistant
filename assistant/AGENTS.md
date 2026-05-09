@@ -34,6 +34,17 @@ Routes in `src/runtime/routes/` are being migrated to a **shared `ROUTES` array*
 - **Dual exposure is intentional.** Every route in the shared `ROUTES` array is served over both HTTP and IPC. This is by design — it enables the gateway to call the daemon over IPC instead of HTTP, eliminating JWT token exchange on those paths (ATL-309 → ATL-311). Do not flag IPC exposure of shared routes as unintentional surface area.
 - **`RouteDefinition` carries everything:** `operationId`, `endpoint`, `method`, `handler`, `policyKey?`, `summary?`, `description?`, `tags?`, `responseBody?`. The HTTP adapter reads all fields; the IPC adapter only needs `operationId` and `handler`.
 
+### CLI ↔ daemon communication protocol
+
+The CLI and daemon communicate over a Unix domain socket using **length-prefixed binary framing**: each frame is a 4-byte big-endian length followed by a payload. Messages use a JSON envelope `{ id, method, params?, headers? }` for requests and `{ id, result?, error?, headers? }` for responses.
+
+Three response shapes are supported:
+- **JSON-only**: a single JSON frame (no `content-length` or `transfer-encoding` header).
+- **Binary**: a JSON envelope with `headers: { "content-length": "<n>" }` followed by one binary frame of exactly `n` bytes.
+- **Chunked streaming**: a JSON envelope with `headers: { "transfer-encoding": "chunked" }` followed by one or more binary frames, terminated by a zero-length frame.
+
+The server auto-detects legacy newline-delimited JSON from old CLI clients and handles it transparently. New code must use length-prefixed framing via `writeMessage()` / `IpcFrameReader` in `src/ipc/ipc-framing.ts`.
+
 ### CLI ↔ daemon version skew
 
 The CLI and daemon are always shipped and upgraded together — there is no version skew between them. When migrating a route to the shared `ROUTES` array and updating the CLI to send structured params, backward compatibility with older CLI versions is **not required**. Do not add compat shims for flat-param callers that no longer exist.
