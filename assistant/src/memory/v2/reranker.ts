@@ -10,8 +10,8 @@ import { readPage } from "./page-store.js";
 
 const log = getLogger("memory-v2-reranker");
 
-// ~512-token model context for bge-reranker-base; cap input to bound payload.
-const PASSAGE_CHAR_CAP = 240;
+// Cap passage input to bound batched payload size and tokenization cost.
+const PASSAGE_CHAR_CAP = 1500;
 
 interface CacheEntry {
   scores: Map<string, number>;
