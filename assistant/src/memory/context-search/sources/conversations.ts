@@ -147,7 +147,6 @@ function searchWithFts(
     JOIN messages m ON m.id = messages_fts.message_id
     JOIN conversations c ON c.id = m.conversation_id
     WHERE messages_fts MATCH ?
-      AND (c.conversation_type IS NULL OR c.conversation_type != 'private')
       AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
       AND c.id != ?
     ORDER BY bm25(messages_fts), m.created_at DESC
@@ -179,7 +178,6 @@ function searchWithLike(
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
     WHERE m.content LIKE ? ESCAPE '\\'
-      AND (c.conversation_type IS NULL OR c.conversation_type != 'private')
       AND (c.source IS NULL OR c.source NOT IN (?, ?, ?))
       AND c.id != ?
     ORDER BY m.created_at DESC

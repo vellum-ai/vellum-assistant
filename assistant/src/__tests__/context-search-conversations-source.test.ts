@@ -121,52 +121,6 @@ describe("searchConversationSource", () => {
     ]);
   });
 
-  test("does not return legacy private conversations through the FTS path", async () => {
-    const visible = await seedConversation({
-      title: "Visible conversation",
-      content: "privatesecret belongs to a normal conversation.",
-    });
-    const hidden = await seedConversation({
-      title: "Private conversation",
-      content: "privatesecret belongs to a private conversation.",
-    });
-    rawRun(
-      "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
-      hidden.conversation.id,
-    );
-
-    const result = await searchConversationSource(
-      "privatesecret",
-      makeContext(),
-      10,
-    );
-
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${visible.conversation.id}#${visible.message.id}`,
-    ]);
-  });
-
-  test("does not return legacy private conversations through the LIKE path", async () => {
-    const visible = await seedConversation({
-      title: "Visible short query conversation",
-      content: "zz appears in a normal conversation.",
-    });
-    const hidden = await seedConversation({
-      title: "Private short query conversation",
-      content: "zz appears in a private conversation.",
-    });
-    rawRun(
-      "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
-      hidden.conversation.id,
-    );
-
-    const result = await searchConversationSource("zz", makeContext(), 10);
-
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${visible.conversation.id}#${visible.message.id}`,
-    ]);
-  });
-
   test("includes archived, scheduled, and background conversations", async () => {
     const archived = await seedConversation({
       title: "Archived conversation",
