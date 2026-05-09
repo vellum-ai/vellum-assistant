@@ -53,7 +53,16 @@ struct ConceptPageContentView: View {
             guard state == .idle else { return }
             state = .loading
             let client = LLMContextClient()
-            if let rendered = await client.fetchConceptPage(slug: slug) {
+            let rendered = await client.fetchConceptPage(slug: slug)
+            // If the task was cancelled (e.g. user collapsed the row before
+            // the fetch returned), `fetchConceptPage` swallows the
+            // CancellationError and returns nil. Reset to `.idle` instead of
+            // `.missing` so a subsequent re-expand retries the load.
+            if Task.isCancelled {
+                state = .idle
+                return
+            }
+            if let rendered {
                 state = .loaded(rendered)
             } else {
                 state = .missing

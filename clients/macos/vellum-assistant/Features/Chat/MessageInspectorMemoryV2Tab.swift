@@ -337,6 +337,8 @@ private func statusColor(_ status: String) -> Color {
         return VColor.systemPositiveStrong
     case "not_injected":
         return VColor.contentDisabled
+    case "page_missing":
+        return VColor.systemMidStrong
     default:
         return VColor.contentTertiary
     }
@@ -350,6 +352,8 @@ private func statusLabel(_ status: String) -> String {
         return "Injected"
     case "not_injected":
         return "Not injected"
+    case "page_missing":
+        return "Page missing"
     default:
         return status
     }
