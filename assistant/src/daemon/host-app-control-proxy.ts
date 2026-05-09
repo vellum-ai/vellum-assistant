@@ -146,12 +146,12 @@ function checkNonStartAuthorization(
   // except `stop`, and `stop` short-circuits in conversation-surfaces and
   // does not reach this method in production. A stop reaching here would
   // be a defensive bug — surface it explicitly rather than dispatch.
-  const requestedApp = (input as { app?: string }).app;
-  if (requestedApp == null) {
+  const requestedApp = (input as { app?: unknown }).app;
+  if (typeof requestedApp !== "string") {
     return {
       content:
-        "Tool input missing required 'app' field; cannot validate against " +
-        "the active app-control session.",
+        "Tool input missing required string 'app' field; cannot validate " +
+        "against the active app-control session.",
       isError: true,
     };
   }
