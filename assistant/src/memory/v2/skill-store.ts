@@ -68,10 +68,29 @@ let entries: Map<string, SkillEntry> | null = null;
 
 /**
  * Seed (or re-seed) skill embeddings into the unified concept-page collection.
- * Idempotent: safe to call repeatedly. Best-effort: never throws — any
- * failure leaves the prior `entries` cache in place and logs a warning.
+ * Idempotent and best-effort — never throws.
  *
- * Steps:
+ * Single-flight + coalesced: at most one seed runs at a time, and concurrent
+ * callers are coalesced into one follow-up re-snapshot that runs after the
+ * in-flight seed completes. Without this, an older snapshot can finish after
+ * a newer one and overwrite the newer skill state.
+ */
+let seedTail: Promise<void> = Promise.resolve();
+let seedPending: Promise<void> | null = null;
+
+export function seedV2SkillEntries(): Promise<void> {
+  if (seedPending) return seedPending;
+  const next = seedTail.then(async () => {
+    seedPending = null;
+    await runSeedOnce();
+  });
+  seedTail = next.catch(() => {});
+  seedPending = next;
+  return next;
+}
+
+/**
+ * Steps (per run):
  *   1. Enumerate the local skill catalog and resolve each skill's enabled
  *      state (`resolveSkillStates`).
  *   2. Build a `SkillEntry` per enabled skill, applying the mcp-setup
@@ -90,7 +109,7 @@ let entries: Map<string, SkillEntry> | null = null;
  *      stale points from prior catalog state (e.g. uninstalled skills).
  *   7. Replace the module-level `entries` cache with the freshly built map.
  */
-export async function seedV2SkillEntries(): Promise<void> {
+async function runSeedOnce(): Promise<void> {
   try {
     const config = getConfig();
     const catalog = loadSkillCatalog();
@@ -211,4 +230,6 @@ export function isSkillSlug(slug: string): boolean {
 /** @internal Test-only: clear the module-level cache. */
 export function _resetSkillStoreForTests(): void {
   entries = null;
+  seedTail = Promise.resolve();
+  seedPending = null;
 }

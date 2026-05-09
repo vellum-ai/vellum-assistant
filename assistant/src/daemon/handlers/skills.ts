@@ -1209,6 +1209,10 @@ export async function uninstallSkill(
       state: "uninstalled",
     });
 
+    // Without this, an uninstalled skill remains queryable in v2 until the
+    // next incidental seed event (enable/disable/install).
+    maybeSeedMemoryV2Skills(getConfig());
+
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
