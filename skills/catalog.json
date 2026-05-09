@@ -86,18 +86,15 @@
     {
       "id": "discord-app-setup",
       "name": "discord-app-setup",
-      "description": "Connect a Discord bot to the Vellum Assistant via the Discord Gateway with guided application creation, intent configuration, and identity verification",
+      "description": "Connect a Discord bot to the assistant via the Discord Gateway with guided application creation and intent configuration",
       "metadata": {
         "emoji": "🎮",
         "vellum": {
-          "display-name": "Discord App Setup",
-          "includes": [
-            "guardian-verify-setup"
-          ]
+          "display-name": "Discord App Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-08T10:16:16-04:00"
+      "updatedAt": "2026-05-09T14:58:51Z"
     },
     {
       "id": "document-writer",
@@ -741,7 +738,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-09T03:26:59Z"
+      "updatedAt": "2026-05-09T07:42:34-04:00"
     },
     {
       "id": "vellum-conversation-management",
