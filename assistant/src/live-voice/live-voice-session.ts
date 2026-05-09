@@ -340,12 +340,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       case "error":
+        // Non-terminal: providers like OpenAI Whisper emit `error` for
+        // transient poll failures and continue streaming. Let `closed` /
+        // `final` drive turn lifecycle so we don't drain audio buffers or
+        // mark the turn cancelled prematurely.
         await this.sendFrame({
           type: "error",
           code: LiveVoiceProtocolErrorCode.InvalidField,
           message: event.message,
         });
-        await this.finalizePendingTurn("stt_error");
         return;
       case "closed":
         if (!this.isClosed) {
