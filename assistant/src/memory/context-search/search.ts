@@ -335,6 +335,9 @@ function getReservedAutoInjectedTextBudget(
   const sourceRemaining = autoInjectedSourceCap - sourceTextSize;
   const totalRemaining = RECALL_TOTAL_EVIDENCE_TEXT_CAP - state.totalTextSize;
   const remaining = Math.min(sourceRemaining, totalRemaining);
+  if (remaining <= 0) {
+    return 0;
+  }
   return Math.max(1, Math.floor(remaining / state.autoInjectedRemaining));
 }
 
