@@ -17,6 +17,52 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
+// ── Assistant DB proxy mocks ──────────────────────────────────────────────────
+type DbQueryFn = (sql: string, bind?: unknown[]) => Promise<Record<string, unknown>[]>;
+let assistantDbQueryMock: ReturnType<typeof mock<DbQueryFn>> = mock(async () => []);
+
+type DbRunFn = (sql: string, bind?: unknown[]) => Promise<void>;
+let assistantDbRunMock: ReturnType<typeof mock<DbRunFn>> = mock(async () => {});
+
+mock.module("../db/assistant-db-proxy.js", () => ({
+  assistantDbQuery: (...args: Parameters<DbQueryFn>) => assistantDbQueryMock(...args),
+  assistantDbRun: (...args: Parameters<DbRunFn>) => assistantDbRunMock(...args),
+}));
+
+// ── IPC assistant client mock ─────────────────────────────────────────────────
+type IpcCallFn = (method: string, params: unknown) => Promise<unknown>;
+let ipcCallAssistantMock: ReturnType<typeof mock<IpcCallFn>> = mock(async () => ({}));
+
+mock.module("../ipc/assistant-client.js", () => ({
+  ipcCallAssistant: (...args: Parameters<IpcCallFn>) => ipcCallAssistantMock(...args),
+}));
+
+// ── ContactStore mock ─────────────────────────────────────────────────────────
+const DEFAULT_MOCK_CONTACT = {
+  id: "ct_mock",
+  displayName: "Mock Contact",
+  role: "contact",
+  principalId: null,
+  createdAt: 1000000,
+  updatedAt: 1000000,
+};
+
+type UpsertResult = { contact: typeof DEFAULT_MOCK_CONTACT; channels: unknown[]; created: boolean };
+type UpsertFn = (params: unknown) => UpsertResult;
+let contactStoreUpsertMock: ReturnType<typeof mock<UpsertFn>> = mock(() => ({
+  contact: DEFAULT_MOCK_CONTACT,
+  channels: [],
+  created: false,
+}));
+
+mock.module("../db/contact-store.js", () => ({
+  ContactStore: class MockContactStore {
+    upsertContact(...args: Parameters<UpsertFn>) {
+      return contactStoreUpsertMock(...args);
+    }
+  },
+}));
+
 const { createContactsControlPlaneProxyHandler } =
   await import("../http/routes/contacts-control-plane-proxy.js");
 
@@ -50,6 +96,14 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 
 afterEach(() => {
   fetchMock = mock(async () => new Response());
+  assistantDbQueryMock = mock(async () => []);
+  assistantDbRunMock = mock(async () => {});
+  ipcCallAssistantMock = mock(async () => ({}));
+  contactStoreUpsertMock = mock(() => ({
+    contact: DEFAULT_MOCK_CONTACT,
+    channels: [],
+    created: false,
+  }));
 });
 
 describe("contacts control-plane proxy", () => {
@@ -67,9 +121,6 @@ describe("contacts control-plane proxy", () => {
 
     await handler.handleListContacts(
       new Request("http://localhost:7830/v1/contacts?limit=10"),
-    );
-    await handler.handleUpsertContact(
-      new Request("http://localhost:7830/v1/contacts", { method: "POST" }),
     );
     await handler.handleGetContact(
       new Request("http://localhost:7830/v1/contacts/ct_1"),
@@ -89,7 +140,6 @@ describe("contacts control-plane proxy", () => {
 
     expect(captured).toEqual([
       "http://localhost:7821/v1/contacts?limit=10",
-      "http://localhost:7821/v1/contacts",
       "http://localhost:7821/v1/contacts/ct_1",
       "http://localhost:7821/v1/contacts/merge",
       "http://localhost:7821/v1/contact-channels/ch_1",
@@ -259,13 +309,100 @@ describe("contacts control-plane proxy", () => {
     });
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleUpsertContact(
-      new Request("http://localhost:7830/v1/contacts", { method: "POST" }),
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
     );
 
     expect(res.status).toBe(200);
     expect(res.headers.has("connection")).toBe(false);
     expect(res.headers.has("keep-alive")).toBe(false);
     expect(res.headers.get("x-custom")).toBe("preserved");
+  });
+});
+
+describe("handleUpsertContact (gateway-native)", () => {
+  test("returns 400 when displayName is missing", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contactType: "human" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/displayName/);
+  });
+
+  test("returns 400 for invalid contactType", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName: "Alice", contactType: "robot" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/contactType/);
+  });
+
+  test("creates contact natively and returns contact shape", async () => {
+    const mockContact = {
+      id: "ct_abc123",
+      displayName: "Alice",
+      role: "contact",
+      principalId: null,
+      createdAt: 1000000,
+      updatedAt: 1000000,
+    };
+    contactStoreUpsertMock = mock(() => ({
+      contact: mockContact,
+      channels: [],
+      created: true,
+    }));
+    // assistantDbQueryMock returns [] by default: new contact (triggers INSERT),
+    // no slug collisions, and readAssistantContact returns null (fallback shape).
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName: "Alice" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contact.id).toBe("ct_abc123");
+    expect(body.contact.displayName).toBe("Alice");
+    expect(body.contact.channels).toEqual([]);
+    // ContactStore was called with the right displayName.
+    expect(contactStoreUpsertMock).toHaveBeenCalledTimes(1);
+    // assistant DB INSERT was issued (assistantDbRun called).
+    expect(assistantDbRunMock).toHaveBeenCalled();
+  });
+
+  test("returns 400 when body is invalid JSON", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "not-json",
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
   });
 });

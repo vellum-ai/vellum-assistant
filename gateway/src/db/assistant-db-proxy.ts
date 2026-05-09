@@ -18,7 +18,7 @@ import {
   ipcCallAssistant,
 } from "../ipc/assistant-client.js";
 
-type SqliteValue = string | number | null | Uint8Array;
+export type SqliteValue = string | number | null | Uint8Array;
 
 interface DbProxyResult {
   rows?: Record<string, SqliteValue>[];
