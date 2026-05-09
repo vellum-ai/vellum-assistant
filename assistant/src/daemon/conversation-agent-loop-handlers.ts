@@ -119,6 +119,12 @@ export interface EventHandlerState {
   deferredOrderingError: string | null;
   contextTooLargeDetected: boolean;
   /**
+   * Set when the provider rejects with an image-dimension error. The agent
+   * loop strips or downscales oversized image blocks from ctx.messages and
+   * retries once before surfacing an error to the user.
+   */
+  imageTooLargeDetected: boolean;
+  /**
    * The provider error object when context_too_large is detected, preserved
    * so `parseActualTokensFromError` can prefer the typed
    * `ContextOverflowError` fields over the string-regex fallback. The
@@ -225,6 +231,7 @@ export function createEventHandlerState(): EventHandlerState {
     orderingErrorDetected: false,
     deferredOrderingError: null,
     contextTooLargeDetected: false,
+    imageTooLargeDetected: false,
     contextTooLargeError: null,
     providerErrorUserMessage: null,
     firstAssistantMessageId: undefined,
@@ -793,6 +800,10 @@ function handleError(
     if (classified.code === "CONTEXT_TOO_LARGE") {
       state.contextTooLargeDetected = true;
       state.contextTooLargeError = event.error;
+    } else if (classified.code === "IMAGE_TOO_LARGE") {
+      // Trigger silent recovery: the agent loop will strip/downscale images
+      // in ctx.messages and retry once before surfacing an error.
+      state.imageTooLargeDetected = true;
     } else if (
       classified.code === "PROVIDER_ORDERING" ||
       classified.code === "PROVIDER_WEB_SEARCH"
