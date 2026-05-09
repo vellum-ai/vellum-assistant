@@ -258,7 +258,7 @@ export const MemoryV2ConfigSchema = z
       ),
   })
   .describe(
-    "Memory v2 — concept-page activation model with hourly LLM-driven consolidation",
+    "Memory v2 — concept-page activation model with periodic LLM-driven consolidation",
   )
   .superRefine((config, ctx) => {
     const activationSum =
