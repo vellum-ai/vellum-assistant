@@ -95,6 +95,12 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 
 import { MANAGED_PROFILE_NAMES } from "../../config/seed-inference-profiles.js";
 
+const RESERVED_PROFILE_NAMES = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
+
 const INFERENCE_PROFILE_UI_KEYS = new Set([
   "provider",
   "model",
@@ -449,6 +455,11 @@ function handleReplaceInferenceProfile({
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new BadRequestError("Body must be a JSON object");
+  }
+  if (RESERVED_PROFILE_NAMES.has(name)) {
+    throw new BadRequestError(
+      `Profile name "${name}" is reserved and cannot be used.`,
+    );
   }
   if (MANAGED_PROFILE_NAMES.has(name)) {
     throw new BadRequestError(

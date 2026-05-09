@@ -3433,6 +3433,23 @@ public final class SettingsStore: ObservableObject {
             name: name,
             fragment: fragment.toJSON()
         )
+        if success {
+            // Mirror the server state locally before attempting the order
+            // patch. If the order patch fails, the profile data is still
+            // saved on the server, so the local cache must reflect that to
+            // avoid a divergence where the user is told the save failed
+            // while the profile is in fact persisted.
+            var copy = fragment
+            copy.name = name
+            // Re-lookup post-await: a concurrent `loadInferenceProfiles`
+            // can replace `profiles` during the suspension above, so the
+            // captured `existingIndex` may be stale.
+            if let index = profiles.firstIndex(where: { $0.name == name }) {
+                profiles[index] = copy
+            } else {
+                profiles.append(copy)
+            }
+        }
         if success, let nextOrder {
             let orderSuccess = await settingsClient.patchConfig([
                 "llm": ["profileOrder": nextOrder]
@@ -3443,16 +3460,6 @@ public final class SettingsStore: ObservableObject {
             }
         }
         if success {
-            var copy = fragment
-            copy.name = name
-            // Re-lookup post-await: a concurrent `loadInferenceProfiles`
-            // can replace `profiles` during the two suspension points
-            // above, so the captured `existingIndex` may be stale.
-            if let index = profiles.firstIndex(where: { $0.name == name }) {
-                profiles[index] = copy
-            } else {
-                profiles.append(copy)
-            }
             if let nextOrder {
                 profileOrder = nextOrder
                 reorderPublishedProfiles(to: nextOrder)
