@@ -716,7 +716,11 @@ export class ConversationGraphMemory {
  * Count the leading content blocks on a user message that were added by
  * `injectMemoryBlock`. Memory-injected images use a 3-block pattern
  * (opening `<memory_image>` text + image + closing `</memory_image>` text),
- * followed by a `<memory>…</memory>` text block (legacy `<memory __injected>` is also accepted). A legacy
+ * followed by a `<memory>…</memory>` text block (legacy `<memory __injected>` is also accepted).
+ * The bare `<memory>` form is matched only when the block also ends with
+ * `\n</memory>`, so user-authored content that happens to begin with
+ * `<memory>` (for example, a message discussing the XML-like markup) is not
+ * mistaken for an injected prefix and stripped on re-injection. A legacy
  * 2-block image pattern (no closing tag) is also accepted for backward
  * compatibility. The injection prefix is always contiguous at the start,
  * so we stop at the first non-memory block.
@@ -729,7 +733,8 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
     const block = content[firstNonMemory];
     if (
       block.type === "text" &&
-      (block.text.startsWith("<memory>\n") ||
+      ((block.text.startsWith("<memory>\n") &&
+        block.text.endsWith("\n</memory>")) ||
         block.text.startsWith("<memory __injected>\n"))
     ) {
       firstNonMemory++;
