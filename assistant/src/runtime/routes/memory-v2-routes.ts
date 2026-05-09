@@ -148,7 +148,7 @@ async function handleValidate({
       const page = await readPage(workspaceDir, slug);
       if (!page) continue;
       knownSlugs.add(slug);
-      const chars = Buffer.byteLength(page.body, "utf8");
+      const chars = page.body.length;
       if (chars > maxPageChars) {
         oversizedPages.push({ slug, chars });
       }
