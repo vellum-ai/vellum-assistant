@@ -11,7 +11,7 @@
 
 import type { Command } from "commander";
 
-import { loadConfig } from "../../config/loader.js";
+import { getConfigReadOnly } from "../../config/loader.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import { log } from "../logger.js";
 import { resolveConversationId } from "../utils/conversation-id.js";
@@ -182,7 +182,7 @@ Examples:
         }
 
         const defaultTtlSeconds =
-          loadConfig().llm?.profileSession?.defaultTtlSeconds ?? 1800;
+          getConfigReadOnly().llm?.profileSession?.defaultTtlSeconds ?? 1800;
         const effectiveTtlSeconds =
           ttlSeconds !== undefined ? ttlSeconds : defaultTtlSeconds;
         const body: Record<string, unknown> = {
