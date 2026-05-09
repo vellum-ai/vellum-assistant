@@ -235,6 +235,65 @@ final class MarkdownSegmentViewTests: XCTestCase {
         XCTAssertNil(emojiObliqueness)
     }
 
+    /// Emoji wrapped in inline code (`` `🥺` ``) used to render as blank space:
+    /// the inline-code styling pass tinted every character in the span with
+    /// `.foregroundColor`, which on emoji grapheme clusters suppresses Core
+    /// Text's color-glyph fallback. The fix clears `.foregroundColor` on
+    /// emoji clusters so Apple Color Emoji renders.
+    func testEmojiInsideInlineCodeHasNoForegroundColorOverride() {
+        let segments = parseMarkdownSegments("oof `🥺` lol")
+        let source = MarkdownSegmentView.buildAttributedStringUncached(
+            from: segments,
+            secondaryTextColor: VColor.contentSecondary
+        )
+
+        let chars = source.characters
+        var idx = chars.startIndex
+        var foundEmoji = false
+        while idx < chars.endIndex {
+            let nextIdx = chars.index(after: idx)
+            if chars[idx].rendersAsEmoji {
+                foundEmoji = true
+                XCTAssertNil(
+                    source[idx..<nextIdx].foregroundColor,
+                    "Emoji inside inline-code must not carry the code foreground tint"
+                )
+            }
+            idx = nextIdx
+        }
+        XCTAssertTrue(foundEmoji, "Emoji must survive markdown parsing of an inline-code span")
+    }
+
+    /// Regression check: non-emoji characters in the same inline-code span keep
+    /// the code foreground tint — the emoji-strip is targeted, not global.
+    func testNonEmojiInsideInlineCodeKeepsCodeForegroundColor() {
+        let segments = parseMarkdownSegments("look at `flag 🥺 thing` ok")
+        let source = MarkdownSegmentView.buildAttributedStringUncached(
+            from: segments,
+            secondaryTextColor: VColor.contentSecondary
+        )
+
+        let chars = source.characters
+        var idx = chars.startIndex
+        var sawTintedAlpha = false
+        while idx < chars.endIndex {
+            let nextIdx = chars.index(after: idx)
+            let char = chars[idx]
+            let foreground = source[idx..<nextIdx].foregroundColor
+            if char.isLetter, foreground == VColor.systemNegativeStrong {
+                sawTintedAlpha = true
+            }
+            if char.rendersAsEmoji {
+                XCTAssertNil(foreground, "Emoji inside inline-code must not carry the code foreground tint")
+            }
+            idx = nextIdx
+        }
+        XCTAssertTrue(
+            sawTintedAlpha,
+            "At least one non-emoji letter inside the inline-code span must keep the code foreground tint"
+        )
+    }
+
     func testInvalidEmphasisFontsSkipMeasurementCaching() throws {
         #if DEBUG
         VFont._chatMarkdownFontSetOverride = { size in
