@@ -364,8 +364,8 @@ function handleUnarchiveConversation({ pathParams = {} }: RouteHandlerArgs) {
 
 function handleCancelGeneration({ pathParams = {} }: RouteHandlerArgs) {
   const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
-  cancelGeneration(resolvedId);
-  return undefined;
+  const cancelled = cancelGeneration(resolvedId);
+  return { ok: true, cancelled, conversationId: resolvedId };
 }
 
 async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
