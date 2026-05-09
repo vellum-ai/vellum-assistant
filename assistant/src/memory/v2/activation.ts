@@ -125,12 +125,13 @@ export async function selectCandidates(
 
   // (2) ANN top-50 against the concatenated turn text. Pure whitespace joins
   // (no separators) keep the embedding behavior aligned with how callers
-  // would naturally read the three texts together.
+  // would naturally read the three texts together. Whitespace-only channels
+  // contribute no semantic content, so trim before deciding whether to embed.
   const annQueryText = [userText, assistantText, nowText]
-    .filter((s) => s.length > 0)
+    .filter((s) => s.trim().length > 0)
     .join("\n");
 
-  if (annQueryText.length > 0) {
+  if (annQueryText.trim().length > 0) {
     throwIfAborted(signal);
     const denseResult = await embedWithBackend(config, [annQueryText], {
       signal,
