@@ -15,7 +15,6 @@ import {
   type InterfaceId,
   parseChannelId,
   parseInterfaceId,
-  supportsHostProxy,
 } from "../channels/types.js";
 import {
   getAttachmentsByIds,
@@ -47,7 +46,10 @@ import {
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
-import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
+import {
+  preactivateHostProxySkills,
+  shouldAttachHostProxyForCapability,
+} from "./host-proxy-preactivation.js";
 
 const log = getLogger("process-message");
 
@@ -154,7 +156,7 @@ async function prepareConversationForMessage(
     );
   }
   // CU is per-conversation (owns step count, AX tree history, loop detection).
-  if (supportsHostProxy(resolvedInterface, "host_cu")) {
+  if (shouldAttachHostProxyForCapability("host_cu", resolvedInterface)) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
@@ -162,10 +164,10 @@ async function prepareConversationForMessage(
     conversation.setHostCuProxy(undefined);
   }
   // App-control mirrors CU's per-conversation lifecycle. The proxy attaches
-  // unconditionally when the client supports the capability — feature-flag
-  // gating is enforced by the skill-projection layer via SKILL.md
-  // frontmatter, so an attached proxy is harmless when the flag is off.
-  if (supportsHostProxy(resolvedInterface, "host_app_control")) {
+  // unconditionally when the capability is reachable — feature-flag gating
+  // is enforced by the skill-projection layer via SKILL.md frontmatter, so
+  // an attached proxy is harmless when the flag is off.
+  if (shouldAttachHostProxyForCapability("host_app_control", resolvedInterface)) {
     if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
       conversation.setHostAppControlProxy(
         new HostAppControlProxy(conversationId),

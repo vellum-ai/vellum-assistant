@@ -47,7 +47,10 @@ import {
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
-import { preactivateHostProxySkills } from "../../daemon/host-proxy-preactivation.js";
+import {
+  preactivateHostProxySkills,
+  shouldAttachHostProxyForCapability,
+} from "../../daemon/host-proxy-preactivation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -1406,7 +1409,7 @@ export async function handleSendMessage(
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).
-  if (supportsHostProxy(sourceInterface, "host_cu")) {
+  if (shouldAttachHostProxyForCapability("host_cu", sourceInterface)) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
@@ -1415,11 +1418,11 @@ export async function handleSendMessage(
   }
   // App-control mirrors CU's per-conversation lifecycle: the proxy owns a
   // singleton lock plus per-session loop tracking. Instantiation is
-  // unconditional when the client supports the capability — feature-flag
-  // gating lives in the skill-projection layer (which reads the
-  // `feature-flag: app-control` declaration in SKILL.md frontmatter), so
-  // an attached proxy is harmless when the flag resolves to off.
-  if (supportsHostProxy(sourceInterface, "host_app_control")) {
+  // unconditional when the capability is reachable — feature-flag gating
+  // lives in the skill-projection layer (which reads the `feature-flag:
+  // app-control` declaration in SKILL.md frontmatter), so an attached proxy
+  // is harmless when the flag resolves to off.
+  if (shouldAttachHostProxyForCapability("host_app_control", sourceInterface)) {
     if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
       conversation.setHostAppControlProxy(
         new HostAppControlProxy(mapping.conversationId),
