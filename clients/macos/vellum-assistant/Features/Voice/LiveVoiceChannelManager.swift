@@ -371,7 +371,10 @@ final class LiveVoiceChannelManager {
             return
         }
 
-        guard speechDurationInCurrentUtterance >= minimumSpeechDurationBeforeRelease else { return }
+        guard speechDurationInCurrentUtterance >= minimumSpeechDurationBeforeRelease else {
+            speechDurationInCurrentUtterance = 0
+            return
+        }
         silenceDurationAfterSpeech += chunkDuration
 
         guard silenceDurationAfterSpeech >= silenceDurationBeforeRelease else { return }
