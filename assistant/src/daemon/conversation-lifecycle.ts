@@ -242,11 +242,16 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           // Strip any pre-existing wrapper before re-wrapping so historical
           // rows persisted with the wrapper (v2 path before the
           // injectedBlockText contract was unified with v1's unwrapped form)
-          // don't render double-wrapped after rehydrate.
+          // don't render double-wrapped after rehydrate. Only unwrap when
+          // the full <memory>...</memory> pair is present so we don't mutate
+          // legitimate unwrapped payloads that happen to start with
+          // "<memory>\n" or end with "\n</memory>".
           if (typeof meta.memoryInjectedBlock === "string") {
-            const inner = meta.memoryInjectedBlock
-              .replace(/^<memory>\n/, "")
-              .replace(/\n<\/memory>$/, "");
+            const block = meta.memoryInjectedBlock;
+            const inner =
+              block.startsWith("<memory>\n") && block.endsWith("\n</memory>")
+                ? block.slice("<memory>\n".length, -"\n</memory>".length)
+                : block;
             content = [
               {
                 type: "text" as const,
