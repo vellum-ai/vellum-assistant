@@ -327,8 +327,6 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Background feature flag init failed"),
     );
 
-    maybeSeedMemoryV2Skills(loadConfig());
-
     seedInterfaceFiles();
 
     log.info("Daemon startup: initializing DB");
