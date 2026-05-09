@@ -65,6 +65,15 @@ Host browser allows the assistant to proxy CDP (Chrome DevTools Protocol) JSON-R
   - `POST /v1/host-browser-result` — `{ requestId, content, isError }`
 - **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_browser"`. Registration happens in `conversation-routes.ts` and the route handler is in `host-browser-routes.ts`.
 
+### Host app-control (desktop proxy native-app control)
+
+Host app-control allows the assistant to proxy app-control actions (target a specific application by bundle ID or process name, capture window screenshots, drive UI) to the desktop host via the client, following the same pattern as host bash, host file, host CU, and host browser. App-control sessions are per-conversation, so the proxy reference lives on `Conversation.hostAppControlProxy` rather than as a singleton.
+
+- **Discovery**: Clients discover pending host app-control requests via SSE events (`host_app_control_request`) which include a `requestId`.
+- **Resolution**: Clients execute the app-control action on the host and respond via:
+  - `POST /v1/host-app-control-result` — `{ requestId, state, pngBase64?, windowBounds?, executionResult?, executionError? }`. `state` is one of `"running" | "missing" | "minimized"`.
+- **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_app_control"`. The route handler is in `host-app-control-routes.ts` and forwards the payload to the owning conversation's `hostAppControlProxy.resolve()`. Late delivery is tolerated — the route returns 200 even when no pending interaction matches (e.g. the conversation was disposed before the client reported back).
+
 ### `chrome-extension` interface (Phase 2)
 
 The `chrome-extension` interface in `INTERFACE_IDS` is a non-interactive transport that supports only the `host_browser` capability — it does NOT support `host_bash`, `host_file`, or `host_cu`. This is encoded in `supportsHostProxy(id, capability)`: passing a capability argument returns `true` for `chrome-extension` only when the capability is `host_browser`; the no-arg form returns `false` for `chrome-extension` (so legacy desktop-only call sites that assume full-desktop proxy availability continue to gate correctly).
@@ -83,11 +92,11 @@ See `docs/browser-use-architecture-phase2.md` for the full wire diagram and comp
 
 On macOS-originated turns, the CDP factory (`tools/browser/cdp-client/factory.ts`) evaluates three browser backends in strict priority order. Each candidate is tried lazily; if the first command fails with a transport-level error, the factory falls over to the next candidate. CDP protocol errors (the browser understood the command but rejected it) do NOT trigger failover.
 
-| Priority | Backend                    | Condition                                                                                                                                                                                                | Transport                                                                                              |
-| -------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| 1        | **Extension / host proxy** | `hostBrowserProxy` present AND `isAvailable()` returns `true`. On macOS, the proxy is always provisioned. On other interfaces, requires an active hub subscriber with `host_browser` capability | WS via `ChromeExtensionRegistry` (self-hosted), SSE via `assistantEventHub` with `targetCapability: "host_browser"` (cloud extension or macOS) |
-| 2        | **cdp-inspect**            | (a) `hostBrowser.cdpInspect.enabled` is `true` in config, OR (b) `transportInterface === "macos"` AND `desktopAuto.enabled` is `true` (default) AND the cooldown from a prior failure is not active      | Direct CDP WebSocket to `localhost:9222`                                                               |
-| 3        | **Local**                  | Always present as the final fallback                                                                                                                                                                     | In-process Playwright CDP via `browserManager`                                                         |
+| Priority | Backend                    | Condition                                                                                                                                                                                           | Transport                                                                                                                                      |
+| -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | **Extension / host proxy** | `hostBrowserProxy` present AND `isAvailable()` returns `true`. On macOS, the proxy is always provisioned. On other interfaces, requires an active hub subscriber with `host_browser` capability     | WS via `ChromeExtensionRegistry` (self-hosted), SSE via `assistantEventHub` with `targetCapability: "host_browser"` (cloud extension or macOS) |
+| 2        | **cdp-inspect**            | (a) `hostBrowser.cdpInspect.enabled` is `true` in config, OR (b) `transportInterface === "macos"` AND `desktopAuto.enabled` is `true` (default) AND the cooldown from a prior failure is not active | Direct CDP WebSocket to `localhost:9222`                                                                                                       |
+| 3        | **Local**                  | Always present as the final fallback                                                                                                                                                                | In-process Playwright CDP via `browserManager`                                                                                                 |
 
 **Transport selection for the extension/host-proxy backend:**
 
