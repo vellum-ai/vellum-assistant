@@ -712,11 +712,13 @@ describe("injectMemoryV2Block", () => {
   });
 
   test("persists sparse state — only slugs above epsilon survive", async () => {
-    // Carol scores high; alice/bob essentially zero. After saving, only
-    // carol should appear in the persisted state map.
+    // Carol scores high; alice essentially zero. After saving, only carol
+    // should appear in the persisted state map. denseScore is the raw
+    // Qdrant cosine in [-1, 1]; alice uses -1 so the post `(x+1)/2`
+    // unit-mapping pins her fused score to 0 — below epsilon.
     stageTurn([
       { slug: "carol-jazz", denseScore: 1.0 },
-      { slug: "alice-vscode", denseScore: 0.0 },
+      { slug: "alice-vscode", denseScore: -1.0 },
     ]);
     await injectMemoryV2Block({
       database: db,
