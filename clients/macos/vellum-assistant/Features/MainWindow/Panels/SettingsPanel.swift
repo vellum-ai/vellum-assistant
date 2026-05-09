@@ -62,6 +62,10 @@ struct SettingsPanel: View {
     var conversationManager: ConversationManager
     var authManager: AuthManager
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    /// Threaded through ahead of the dedicated bookmarks settings tab
+    /// landing in PR 12 so this PR doesn't have to revisit every call
+    /// site at the same time.
+    var bookmarkStore: BookmarkStore
     var showToast: (String, ToastInfo.Style) -> Void
     var onEnableIntegration: (() -> Void)?
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
@@ -75,6 +79,7 @@ struct SettingsPanel: View {
         conversationManager: ConversationManager,
         authManager: AuthManager,
         assistantFeatureFlagStore: AssistantFeatureFlagStore,
+        bookmarkStore: BookmarkStore,
         showToast: @escaping (String, ToastInfo.Style) -> Void,
         onEnableIntegration: (() -> Void)? = nil,
         featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
@@ -85,6 +90,7 @@ struct SettingsPanel: View {
         self.conversationManager = conversationManager
         self.authManager = authManager
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
+        self.bookmarkStore = bookmarkStore
         self.showToast = showToast
         self.onEnableIntegration = onEnableIntegration
         self.featureFlagClient = featureFlagClient

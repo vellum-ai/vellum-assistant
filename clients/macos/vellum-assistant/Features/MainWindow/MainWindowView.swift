@@ -42,6 +42,11 @@ struct MainWindowView: View {
     /// invalidation policy — Observation still tracks property granularly.
     @Bindable var windowState: MainWindowState
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    /// Long-lived ``BookmarkStore`` shared across panels. UI consumers
+    /// (hover star, sidebar bookmarks list, settings tab) wire up in
+    /// PRs 9-12; the dependency is threaded here ahead of time so those
+    /// PRs only have to add the read sites.
+    var bookmarkStore: BookmarkStore
     var diskPressureStatusStore: DiskPressureStatusStore
     @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
@@ -122,7 +127,7 @@ struct MainWindowView: View {
     /// inside ``HomePageView``) so the selection survives any @ViewBuilder
     /// rebuild of the Home panel wrapper.
     @State var activeHomeDetailPanel: HomeDetailPanelKind? = nil
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, diskPressureStatusStore: DiskPressureStatusStore, documentManager: DocumentManager, acpSessionStore: ACPSessionStore, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, bookmarkStore: BookmarkStore, diskPressureStatusStore: DiskPressureStatusStore, documentManager: DocumentManager, acpSessionStore: ACPSessionStore, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
         self.conversationManager = conversationManager
         self.listStore = conversationManager.listStore
         self.appListManager = appListManager
@@ -137,6 +142,7 @@ struct MainWindowView: View {
         self.authManager = authManager
         self.windowState = windowState
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
+        self.bookmarkStore = bookmarkStore
         self.diskPressureStatusStore = diskPressureStatusStore
         self.documentManager = documentManager
         self.acpSessionStore = acpSessionStore

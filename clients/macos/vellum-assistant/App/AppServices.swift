@@ -6,6 +6,7 @@ import VellumAssistantShared
 public final class AppServices {
     public let connectionManager: GatewayConnectionManager
     let featureFlagStore: AssistantFeatureFlagStore
+    let bookmarkStore: BookmarkStore
     let diskPressureStatusStore: DiskPressureStatusStore
 
     public let authManager = AuthManager()
@@ -30,14 +31,23 @@ public final class AppServices {
     public init() {
         let connectionManager = GatewayConnectionManager()
         let featureFlagStore = AssistantFeatureFlagStore()
+        let bookmarkStore = BookmarkStore()
         self.connectionManager = connectionManager
         self.featureFlagStore = featureFlagStore
+        self.bookmarkStore = bookmarkStore
         diskPressureStatusStore = DiskPressureStatusStore(
             eventStreamClient: connectionManager.eventStreamClient,
             featureFlagEnabled: { key in
                 featureFlagStore.isEnabled(key)
             }
         )
+        // Hydrate bookmarks once at bootstrap so hover-time lookups via
+        // ``bookmarkedMessageIds`` are warm by the time the chat surface
+        // renders. Subsequent updates flow through the SSE-driven
+        // ``bookmarkDidChange`` notification.
+        Task { @MainActor in
+            await bookmarkStore.reload()
+        }
     }
 
     /// Reconfigure the connection for a new assistant.

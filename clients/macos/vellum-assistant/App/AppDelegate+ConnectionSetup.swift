@@ -371,6 +371,11 @@ extension AppDelegate {
                         await flagReloadTask.value
                         self?.diskPressureStatusStore.refreshForCurrentAssistant()
                     }
+                case .bookmarkCreated, .bookmarkDeleted:
+                    // Forward to BookmarkStore via NotificationCenter so any
+                    // BookmarkStore instance (in this window or another) can
+                    // refresh from the daemon's authoritative list.
+                    NotificationCenter.default.post(name: .bookmarkDidChange, object: nil)
                 // Host tool execution — run locally and post results back
                 case .hostBashRequest(let msg):
                     // Accept if the request is explicitly targeted at this client, OR if

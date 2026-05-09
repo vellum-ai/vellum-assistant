@@ -56,7 +56,7 @@ extension MainWindowView {
         case .chat:
             chatView
         case .settings:
-            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, bookmarkStore: bookmarkStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
                     conversationManager.openConversation(
                         message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
                         forceNew: true
@@ -793,7 +793,7 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, bookmarkStore: bookmarkStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
                     conversationManager.openConversation(
                         message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
                         forceNew: true

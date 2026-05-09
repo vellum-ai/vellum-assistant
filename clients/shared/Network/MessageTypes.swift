@@ -2258,6 +2258,42 @@ public struct MeetSpeakingEndedMessage: Decodable, Sendable, Equatable {
     }
 }
 
+// MARK: - Bookmark events
+//
+// Wire-compatible mirror of `assistant/src/daemon/message-types/bookmarks.ts`.
+// Emitted by `bookmark-routes.ts` after every mutation so other connected
+// clients (e.g. a second macOS window) can refresh their `BookmarkStore` in
+// lock-step. The dotted `type` strings (`bookmark.created` / `bookmark.deleted`)
+// match the daemon's serialization; the SSE router translates them into
+// `.bookmarkDidChange` notifications and `BookmarkStore` reloads on receipt.
+
+/// A new bookmark was created on the daemon.
+public struct BookmarkCreatedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let bookmark: BookmarkSummary
+
+    public init(type: String, bookmark: BookmarkSummary) {
+        self.type = type
+        self.bookmark = bookmark
+    }
+}
+
+/// An existing bookmark was deleted on the daemon. Either `id` (delete by
+/// primary key) or `messageId` (delete by message id) will be set; clients
+/// that need to react to a specific bookmark removal can prefer whichever
+/// identifier they already have indexed.
+public struct BookmarkDeletedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let id: String?
+    public let messageId: String?
+
+    public init(type: String, id: String? = nil, messageId: String? = nil) {
+        self.type = type
+        self.id = id
+        self.messageId = messageId
+    }
+}
+
 /// Payload posted back to the daemon with the result of a host CU action execution.
 public struct HostCuResultPayload: Codable, Sendable {
     public let requestId: String
@@ -2986,6 +3022,8 @@ public enum ServerMessage: Decodable, Sendable {
     case meetError(MeetErrorMessage)
     case meetSpeakingStarted(MeetSpeakingStartedMessage)
     case meetSpeakingEnded(MeetSpeakingEndedMessage)
+    case bookmarkCreated(BookmarkCreatedMessage)
+    case bookmarkDeleted(BookmarkDeletedMessage)
     case contextCompacted(ContextCompacted)
     case usageUpdate(UsageUpdate)
     case compactionCircuitOpen(CompactionCircuitOpen)
@@ -3542,6 +3580,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "meet.speaking_ended":
             let message = try MeetSpeakingEndedMessage(from: decoder)
             self = .meetSpeakingEnded(message)
+        case "bookmark.created":
+            let message = try BookmarkCreatedMessage(from: decoder)
+            self = .bookmarkCreated(message)
+        case "bookmark.deleted":
+            let message = try BookmarkDeletedMessage(from: decoder)
+            self = .bookmarkDeleted(message)
         case "relationship_state_updated":
             let payloadContainer = try decoder.container(keyedBy: InlinePayloadKeys.self)
             let updatedAt = try payloadContainer.decode(String.self, forKey: .updatedAt)
