@@ -465,6 +465,7 @@ export class AssistantIpcServer {
         .read()
         .then(({ done, value }) => {
           if (socket.destroyed) {
+            this.abortControllers.get(requestId)?.abort();
             this.abortControllers.delete(requestId);
             streamReader.cancel().catch(() => {});
             return;
@@ -506,6 +507,7 @@ export class AssistantIpcServer {
         .read()
         .then(({ done, value }) => {
           if (done) {
+            this.abortControllers.delete(requestId);
             const totalLength = chunks.reduce(
               (sum, c) => sum + c.byteLength,
               0,
@@ -530,6 +532,7 @@ export class AssistantIpcServer {
           pump();
         })
         .catch((err) => {
+          this.abortControllers.delete(requestId);
           log.warn({ err }, "IPC legacy stream buffer error");
           this.sendResponse(socket, reader, {
             id: requestId,
