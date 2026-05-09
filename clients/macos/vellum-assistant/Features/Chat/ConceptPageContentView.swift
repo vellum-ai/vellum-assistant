@@ -46,11 +46,9 @@ struct ConceptPageContentView: View {
         .padding(isDetailPane ? VSpacing.lg : 0)
         .background(isDetailPane ? VColor.surfaceBase : Color.clear)
         .task(id: slug) {
-            // SwiftUI fires `.task` when this view first renders inside the
-            // disclosed body (inspector) or when the panel selection changes.
-            // The load runs once per slug; cached `state` is reused across
-            // re-renders of the same slug.
-            guard state == .idle else { return }
+            // `.task(id: slug)` handles deduplication: the closure only re-fires
+            // when slug changes, so always reset to loading at the start to
+            // refetch when the slug changes.
             state = .loading
             let client = LLMContextClient()
             let rendered = await client.fetchConceptPage(slug: slug)
