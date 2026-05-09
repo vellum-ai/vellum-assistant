@@ -130,15 +130,18 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       proxy.dispose();
     });
 
-    test("returns isError for app_control_stop when no proxy is attached", async () => {
+    test("app_control_stop succeeds idempotently when no proxy is attached", async () => {
+      // Stop is local-only and runs BEFORE the isAvailable() gate so a
+      // disconnected client cannot strand the singleton lock. With no proxy
+      // attached at all, it must still succeed as a no-op without dispatching.
       const ctx = buildMockContext();
 
       const result = await surfaceProxyResolver(ctx, "app_control_stop", {
         tool: "stop",
       });
 
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("not available");
+      expect(result.isError).toBe(false);
+      expect(result.content.toLowerCase()).toContain("stopped");
       expect(sentMessages).toHaveLength(0);
     });
   });
