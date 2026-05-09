@@ -72,6 +72,7 @@ import { removeSafeStorageReleaseNoteMigration } from "./071-remove-safe-storage
 import { seedReplySuggestionCallsiteMigration } from "./072-seed-reply-suggestion-callsite.js";
 import { repairRecallCallsiteEmptyProfileMigration } from "./073-repair-recall-callsite-empty-profile.js";
 import { dropDeprecatedSecretDetectionKeysMigration } from "./074-drop-deprecated-secret-detection-keys.js";
+import { memoryV2Bm25BDefaultReembedMigration } from "./075-memory-v2-bm25-b-default-reembed.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -155,4 +156,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedReplySuggestionCallsiteMigration,
   repairRecallCallsiteEmptyProfileMigration,
   dropDeprecatedSecretDetectionKeysMigration,
+  memoryV2Bm25BDefaultReembedMigration,
 ];
