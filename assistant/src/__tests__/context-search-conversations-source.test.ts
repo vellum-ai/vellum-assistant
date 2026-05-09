@@ -146,6 +146,27 @@ describe("searchConversationSource", () => {
     ]);
   });
 
+  test("excludes legacy private conversations through the LIKE fallback", async () => {
+    const visible = await seedConversation({
+      title: "Visible non-ASCII conversation",
+      content: "東京 appears in a normal conversation.",
+    });
+    const legacyPrivate = await seedConversation({
+      title: "Legacy private non-ASCII conversation",
+      content: "東京 appears in a private conversation.",
+    });
+    rawRun(
+      "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
+      legacyPrivate.conversation.id,
+    );
+
+    const result = await searchConversationSource("東京", makeContext(), 10);
+
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      `${visible.conversation.id}#${visible.message.id}`,
+    ]);
+  });
+
   test("includes archived, scheduled, and background conversations", async () => {
     const archived = await seedConversation({
       title: "Archived conversation",

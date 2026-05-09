@@ -262,7 +262,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'scheduled') AND c.archived_at IS NULL
+        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND c.archived_at IS NULL
         LIMIT 1000
       `,
         ftsMatch,
@@ -287,7 +287,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'scheduled') AND c.archived_at IS NULL
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND c.archived_at IS NULL
       LIMIT 1000
     `,
       likePattern,
@@ -301,7 +301,7 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`,
+        sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
         sql`${conversations.archivedAt} IS NULL`,
       ),
