@@ -538,6 +538,12 @@ final class VoiceModeManager {
         liveVoiceStartTask = nil
         activeVoicePath = .turnBased
         liveVoicePausedForPermission = true
+
+        if let liveVoiceChannelManager {
+            Task { @MainActor [weak liveVoiceChannelManager] in
+                await liveVoiceChannelManager?.end()
+            }
+        }
     }
 
     private func resumeLiveVoiceAfterPermissionIfNeeded() {
