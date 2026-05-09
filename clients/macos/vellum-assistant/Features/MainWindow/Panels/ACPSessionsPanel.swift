@@ -153,7 +153,7 @@ struct ACPSessionsPanel: View {
             filterPicker
         }
 
-        Divider().background(VColor.borderBase)
+        Divider().background(VColor.borderBase).accessibilityHidden(true)
     }
 
     /// Header overflow ("…") menu. Currently only houses the destructive
@@ -257,7 +257,7 @@ struct ACPSessionsPanel: View {
                 }
                 .buttonStyle(.plain)
                 if viewModel.id != visible.last?.id {
-                    Divider().background(VColor.borderBase)
+                    Divider().background(VColor.borderBase).accessibilityHidden(true)
                 }
             }
         }
