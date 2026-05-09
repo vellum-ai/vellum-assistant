@@ -32,7 +32,8 @@ enum AppKeyboard {
             "escape": CGKeyCode(kVK_Escape),
             "space": CGKeyCode(kVK_Space),
             "backspace": CGKeyCode(kVK_Delete),
-            "delete": CGKeyCode(kVK_ForwardDelete),
+            "delete": CGKeyCode(kVK_Delete),
+            "forwarddelete": CGKeyCode(kVK_ForwardDelete),
             "up": CGKeyCode(kVK_UpArrow),
             "down": CGKeyCode(kVK_DownArrow),
             "left": CGKeyCode(kVK_LeftArrow),
@@ -122,38 +123,52 @@ enum AppKeyboard {
         postKeyUp(pid: pid, keyCode: keyCode, flags: flags)
     }
 
-    /// Hold multiple keys simultaneously (game-style combo) for `durationMs`,
-    /// then release in reverse order. Modifiers are intentionally not applied —
-    /// callers wanting modifier-based shortcuts should use `press` instead.
+    /// Hold multiple keys simultaneously for `durationMs`, then release in
+    /// reverse order. Modifier tokens (`cmd`, `shift`, `option`/`alt`,
+    /// `control`/`ctrl`, `fn`) inside `keys` are folded into the event flags
+    /// applied to each non-modifier key, so callers can pass a combined
+    /// shortcut like `["cmd", "shift", "4"]`.
     ///
-    /// On `Task` cancellation all held keys are released (in reverse order)
-    /// before re-throwing, so a cancelled combo never leaves keys stuck down.
+    /// On `Task` cancellation any keys that were successfully pressed are
+    /// released (in reverse order) before re-throwing, so a cancelled combo
+    /// never leaves keys stuck down.
     static func combo(pid: pid_t, keys: [String], durationMs: Int) async throws {
+        var modifierTokens: [String] = []
         var keyCodes: [CGKeyCode] = []
         keyCodes.reserveCapacity(keys.count)
         for key in keys {
-            guard let code = keyMap[key.lowercased()] else {
+            let lower = key.lowercased()
+            if isModifierToken(lower) {
+                modifierTokens.append(lower)
+                continue
+            }
+            guard let code = keyMap[lower] else {
                 throw Error.unknownKey(key)
             }
             keyCodes.append(code)
         }
+        let flags = modifierFlags(modifierTokens)
 
+        var pressedCodes: [CGKeyCode] = []
+        pressedCodes.reserveCapacity(keyCodes.count)
         for code in keyCodes {
             guard let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true) else {
-                releaseAll(pid: pid, keyCodes: keyCodes)
+                releaseAll(pid: pid, keyCodes: pressedCodes, flags: flags)
                 throw Error.eventCreationFailed
             }
+            down.flags = flags
             down.postToPid(pid)
+            pressedCodes.append(code)
         }
 
         do {
             try await Task.sleep(nanoseconds: UInt64(max(0, durationMs)) * 1_000_000)
         } catch {
-            releaseAll(pid: pid, keyCodes: keyCodes)
+            releaseAll(pid: pid, keyCodes: pressedCodes, flags: flags)
             throw error
         }
 
-        releaseAll(pid: pid, keyCodes: keyCodes)
+        releaseAll(pid: pid, keyCodes: pressedCodes, flags: flags)
     }
 
     /// Type a Unicode string by posting per-character key events with
@@ -178,9 +193,18 @@ enum AppKeyboard {
         up.postToPid(pid)
     }
 
-    private static func releaseAll(pid: pid_t, keyCodes: [CGKeyCode]) {
+    private static func releaseAll(pid: pid_t, keyCodes: [CGKeyCode], flags: CGEventFlags = []) {
         for code in keyCodes.reversed() {
-            postKeyUp(pid: pid, keyCode: code, flags: [])
+            postKeyUp(pid: pid, keyCode: code, flags: flags)
+        }
+    }
+
+    private static func isModifierToken(_ lowercased: String) -> Bool {
+        switch lowercased {
+        case "cmd", "command", "shift", "option", "alt", "control", "ctrl", "fn":
+            return true
+        default:
+            return false
         }
     }
 
