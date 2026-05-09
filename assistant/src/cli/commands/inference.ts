@@ -8,7 +8,7 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { log } from "../logger.js";
-import { attachProfileSubcommand } from "./inference-profile.js";
+import { attachSessionSubcommand } from "./inference-session.js";
 
 /**
  * Attach the `send` subcommand to the given command group (`inference` or
@@ -179,7 +179,7 @@ Examples:
   );
 
   attachSendSubcommand(inference);
-  attachProfileSubcommand(inference);
+  attachSessionSubcommand(inference);
 
   const llm = program
     .command("llm")
@@ -190,7 +190,7 @@ Examples:
     `
 The llm command group is a shorthand for 'assistant inference send'. It sends
 requests to your configured LLM provider, resolved from your assistant config
-(llm.default.provider). For profile management, use 'assistant inference profile'.
+(llm.default.provider). For profile session management, use 'assistant inference session'.
 
 Examples:
   $ assistant llm send "What is the capital of France?"

@@ -1,10 +1,10 @@
 /**
- * `assistant inference profile` CLI namespace.
+ * `assistant inference session` CLI namespace.
  *
  * Subcommands:
- *   - `assistant inference profile open <profileName>`  — Open a profile session
- *   - `assistant inference profile close`               — Close the active profile session
- *   - `assistant inference profile list`                — List active profile sessions
+ *   - `assistant inference session open <profileName>`  — Open a profile session
+ *   - `assistant inference session close`               — Close the active profile session
+ *   - `assistant inference session list`                — List active profile sessions
  *
  * All commands delegate to the daemon via IPC.
  */
@@ -85,27 +85,27 @@ function writeLine(msg: string): void {
 
 // ── Registration ─────────────────────────────────────────────────────
 
-export function attachProfileSubcommand(parent: Command): void {
-  const profile = parent
-    .command("profile")
+export function attachSessionSubcommand(parent: Command): void {
+  const session = parent
+    .command("session")
     .description("Manage conversation-scoped inference profile sessions");
 
-  profile.addHelpText(
+  session.addHelpText(
     "after",
     `
 Inference profile sessions pin a named model profile to a specific
 conversation for the duration of the session.
 
 Examples:
-  $ assistant inference profile open balanced --ttl 30m
-  $ assistant inference profile open fast --ttl never
-  $ assistant inference profile close
-  $ assistant inference profile list`,
+  $ assistant inference session open balanced --ttl 30m
+  $ assistant inference session open fast --ttl never
+  $ assistant inference session close
+  $ assistant inference session list`,
   );
 
   // ── profile open ──────────────────────────────────────────────────
 
-  profile
+  session
     .command("open <profileName>")
     .description("Open a profile session for the current conversation")
     .option(
@@ -126,10 +126,10 @@ expiry) if --ttl never is specified. If --ttl is omitted, the session
 defaults to llm.profileSession.defaultTtlSeconds (30m if unset).
 
 Examples:
-  $ assistant inference profile open balanced --ttl 30m
-  $ assistant inference profile open fast --ttl never
-  $ assistant inference profile open balanced            # uses default 30m TTL
-  $ assistant inference profile open balanced --json`,
+  $ assistant inference session open balanced --ttl 30m
+  $ assistant inference session open fast --ttl never
+  $ assistant inference session open balanced            # uses default 30m TTL
+  $ assistant inference session open balanced --json`,
     )
     .action(
       async (
@@ -263,7 +263,7 @@ Examples:
 
   // ── profile close ─────────────────────────────────────────────────
 
-  profile
+  session
     .command("close")
     .description("Close the active profile session for the current conversation")
     .option(
@@ -279,8 +279,8 @@ idempotent — if no session is active the command succeeds with
 a "no active profile session" message.
 
 Examples:
-  $ assistant inference profile close
-  $ assistant inference profile close --json`,
+  $ assistant inference session close
+  $ assistant inference session close --json`,
     )
     .action(
       async (opts: { conversationId?: string; json?: boolean }) => {
@@ -339,7 +339,7 @@ Examples:
 
   // ── profile list ──────────────────────────────────────────────────
 
-  profile
+  session
     .command("list")
     .description("List active profile sessions")
     .option(
@@ -354,9 +354,9 @@ Lists all active inference profile sessions. Optionally filter by
 conversation ID.
 
 Examples:
-  $ assistant inference profile list
-  $ assistant inference profile list --conversation-id conv-abc123
-  $ assistant inference profile list --json`,
+  $ assistant inference session list
+  $ assistant inference session list --conversation-id conv-abc123
+  $ assistant inference session list --json`,
     )
     .action(async (opts: { conversationId?: string; json?: boolean }) => {
       const ipcResult = await cliIpcCall<ListResult>(

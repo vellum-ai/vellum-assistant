@@ -1,5 +1,5 @@
 /**
- * Tests for `assistant inference profile` CLI subcommands.
+ * Tests for `assistant inference session` CLI subcommands.
  *
  * Validates:
  *   - open: TTL parsing (--ttl 30m, no --ttl, --ttl never), clamping warning, replaced session
@@ -57,7 +57,7 @@ mock.module("../../../config/loader.js", () => ({
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
 
-const { attachProfileSubcommand } = await import("../inference-profile.js");
+const { attachSessionSubcommand } = await import("../inference-session.js");
 
 // ---------------------------------------------------------------------------
 // Env var helpers
@@ -115,7 +115,7 @@ async function runCommand(
     const program = new Command();
     program.exitOverride();
     const inferenceCmd = program.command("inference");
-    attachProfileSubcommand(inferenceCmd);
+    attachSessionSubcommand(inferenceCmd);
     await program.parseAsync(["node", "assistant", "inference", ...args]);
   } catch (err: unknown) {
     if (err instanceof Error && err.message.startsWith("(outputHelp)")) {
@@ -133,10 +133,10 @@ async function runCommand(
 }
 
 // ===========================================================================
-// profile open
+// session open
 // ===========================================================================
 
-describe("profile open", () => {
+describe("session open", () => {
   test("--ttl 30m → IPC called with ttlSeconds: 1800", async () => {
     mockIpcResult = {
       ok: true,
@@ -150,7 +150,7 @@ describe("profile open", () => {
       },
     };
 
-    await runCommand(["profile", "open", "balanced", "--ttl", "30m"]);
+    await runCommand(["session", "open", "balanced", "--ttl", "30m"]);
 
     expect(lastIpcCall).not.toBeNull();
     expect(lastIpcCall!.method).toBe("inference_profile_open");
@@ -176,7 +176,7 @@ describe("profile open", () => {
       },
     };
 
-    await runCommand(["profile", "open", "balanced"]);
+    await runCommand(["session", "open", "balanced"]);
 
     expect(lastIpcCall).not.toBeNull();
     expect(lastIpcCall!.method).toBe("inference_profile_open");
@@ -196,7 +196,7 @@ describe("profile open", () => {
       },
     };
 
-    await runCommand(["profile", "open", "balanced", "--ttl", "never"]);
+    await runCommand(["session", "open", "balanced", "--ttl", "never"]);
 
     expect(lastIpcCall).not.toBeNull();
     expect(lastIpcCall!.params?.body?.ttlSeconds).toBeNull();
@@ -216,7 +216,7 @@ describe("profile open", () => {
     };
 
     const { stdout } = await runCommand([
-      "profile",
+      "session",
       "open",
       "balanced",
       "--ttl",
@@ -244,7 +244,7 @@ describe("profile open", () => {
     };
 
     const { stdout } = await runCommand([
-      "profile",
+      "session",
       "open",
       "balanced",
       "--ttl",
@@ -270,7 +270,7 @@ describe("profile open", () => {
     };
 
     const { stdout } = await runCommand([
-      "profile",
+      "session",
       "open",
       "balanced",
       "--ttl",
@@ -302,7 +302,7 @@ describe("profile open", () => {
     };
 
     const { stdout } = await runCommand([
-      "profile",
+      "session",
       "open",
       "balanced",
       "--ttl",
@@ -314,10 +314,10 @@ describe("profile open", () => {
 });
 
 // ===========================================================================
-// profile close
+// session close
 // ===========================================================================
 
-describe("profile close", () => {
+describe("session close", () => {
   test("happy path (closed != null, noop: false) → prints 'closed profile balanced'", async () => {
     mockIpcResult = {
       ok: true,
@@ -328,7 +328,7 @@ describe("profile close", () => {
       },
     };
 
-    const { stdout } = await runCommand(["profile", "close"]);
+    const { stdout } = await runCommand(["session", "close"]);
 
     expect(stdout).toContain("closed profile balanced");
   });
@@ -343,24 +343,24 @@ describe("profile close", () => {
       },
     };
 
-    const { stdout } = await runCommand(["profile", "close"]);
+    const { stdout } = await runCommand(["session", "close"]);
 
     expect(stdout).toContain("no active profile session");
   });
 });
 
 // ===========================================================================
-// profile list
+// session list
 // ===========================================================================
 
-describe("profile list", () => {
+describe("session list", () => {
   test("default (no --conversation-id) → IPC called with { queryParams: {} }", async () => {
     mockIpcResult = {
       ok: true,
       result: { sessions: [] },
     };
 
-    await runCommand(["profile", "list"]);
+    await runCommand(["session", "list"]);
 
     expect(lastIpcCall).not.toBeNull();
     expect(lastIpcCall!.method).toBe("inference_profile_list");
@@ -374,7 +374,7 @@ describe("profile list", () => {
     };
 
     await runCommand([
-      "profile",
+      "session",
       "list",
       "--conversation-id",
       "conv-xyz",
@@ -392,7 +392,7 @@ describe("profile list", () => {
       result: { sessions: [] },
     };
 
-    const { stdout } = await runCommand(["profile", "list"]);
+    const { stdout } = await runCommand(["session", "list"]);
 
     expect(stdout).toContain("no active profile sessions");
   });
@@ -414,7 +414,7 @@ describe("profile list", () => {
       },
     };
 
-    const { stdout } = await runCommand(["profile", "list"]);
+    const { stdout } = await runCommand(["session", "list"]);
 
     expect(stdout).toContain("active session(s)");
     expect(stdout).toContain("balanced");
