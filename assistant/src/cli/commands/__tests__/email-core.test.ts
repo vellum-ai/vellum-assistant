@@ -103,7 +103,7 @@ describe("email register", () => {
     registerEmailCmd(program);
     await program.parseAsync(["node", "assistant", "email", "register", "mybot"]);
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith("email_register", { username: "mybot" });
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_register", { body: { username: "mybot" } });
   });
 
   test("--json outputs structured response", async () => {
@@ -231,9 +231,11 @@ describe("email send", () => {
     expect(mockIpcCallFn).toHaveBeenCalledWith(
       "email_send",
       expect.objectContaining({
-        to: ["user@example.com"],
-        subject: "Hello",
-        text: "Hi there",
+        body: expect.objectContaining({
+          to: ["user@example.com"],
+          subject: "Hello",
+          text: "Hi there",
+        }),
       }),
     );
   });
@@ -274,8 +276,10 @@ describe("email send", () => {
     expect(mockIpcCallFn).toHaveBeenCalledWith(
       "email_send",
       expect.objectContaining({
-        cc: ["cc@example.com"],
-        bcc: ["bcc@example.com"],
+        body: expect.objectContaining({
+          cc: ["cc@example.com"],
+          bcc: ["bcc@example.com"],
+        }),
       }),
     );
   });
@@ -314,7 +318,7 @@ describe("email send", () => {
 
     expect(mockIpcCallFn).toHaveBeenCalledWith(
       "email_send",
-      expect.objectContaining({ reply_to: "msg_abc" }),
+      expect.objectContaining({ body: expect.objectContaining({ reply_to: "msg_abc" }) }),
     );
   });
 });
@@ -350,7 +354,7 @@ describe("email list", () => {
     registerEmailCmd(program);
     await program.parseAsync(["node", "assistant", "email", "list"]);
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith("email_list", {});
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_list", { queryParams: {} });
   });
 
   test("passes direction param when --direction given", async () => {
@@ -383,7 +387,7 @@ describe("email list", () => {
 
     expect(mockIpcCallFn).toHaveBeenCalledWith(
       "email_list",
-      expect.objectContaining({ direction: "inbound" }),
+      expect.objectContaining({ queryParams: expect.objectContaining({ direction: "inbound" }) }),
     );
   });
 
@@ -419,7 +423,7 @@ describe("email list", () => {
 
     expect(mockIpcCallFn).toHaveBeenCalledWith(
       "email_list",
-      expect.objectContaining({ limit: "5", since: "2026-01-01" }),
+      expect.objectContaining({ queryParams: expect.objectContaining({ limit: "5", since: "2026-01-01" }) }),
     );
   });
 });
@@ -569,7 +573,7 @@ describe("email download", () => {
 
     expect(mockIpcCallFn).toHaveBeenCalledWith(
       "email_download",
-      { messageId: "msg_1" },
+      { queryParams: { messageId: "msg_1" } },
     );
   });
-});
+});    

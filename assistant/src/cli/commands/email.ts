@@ -16,6 +16,25 @@ import { shouldOutputJson, writeOutput } from "../output.js";
 
 const log = getCliLogger("email");
 
+/**
+ * Handle an IPC error in the email command. In --json mode, writes a
+ * `{"error": "..."}` envelope to stdout so callers can parse it. In all
+ * modes, sets a non-zero exit code without calling process.exit() so tests
+ * using runAssistantCommandFull can inspect the exit code after the call.
+ */
+function handleEmailIpcError(
+  r: { ok: false; error?: string; statusCode?: number },
+  cmd: Command,
+): void {
+  const exitCode = r.statusCode == null ? 10 : r.statusCode >= 500 ? 3 : r.statusCode >= 400 ? 2 : 1;
+  if (shouldOutputJson(cmd)) {
+    process.stdout.write(JSON.stringify({ error: r.error ?? "Unknown error" }) + "\n");
+    process.exitCode = exitCode;
+    return;
+  }
+  exitFromIpcResult(r, cmd);
+}
+
 export function registerEmailCommand(program: Command): void {
   const domain = getAssistantDomain();
   registerCommand(program, {
@@ -66,9 +85,9 @@ Examples:
         .action(async (username: string, _opts: unknown, cmd: Command) => {
           const r = await cliIpcCall<{ id: string; address: string; created_at: string }>(
             "email_register",
-            { username },
+            { body: { username } },
           );
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
           } else {
@@ -121,7 +140,7 @@ Examples:
             "email_unregister",
             {},
           );
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
           } else {
@@ -163,7 +182,7 @@ Examples:
               received_this_month: number;
             };
           }>("email_status", {});
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           const statusData = r.result!;
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, statusData);
@@ -234,8 +253,8 @@ Examples:
                 created_at: string;
               }[];
               count: number;
-            }>("email_list", params);
-            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+            }>("email_list", { queryParams: params });
+            if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
             const data = r.result!;
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
@@ -314,8 +333,8 @@ Examples:
               in_reply_to: string;
               references: string[];
               created_at: string;
-            }>("email_download", { messageId });
-            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+            }>("email_download", { queryParams: { messageId } });
+            if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
             const msg = r.result!;
 
             const fmt = opts.format ?? "text";
@@ -462,9 +481,9 @@ Examples:
 
             const r = await cliIpcCall<{ delivery_id: string; status: string }>(
               "email_send",
-              params,
+              { body: params },
             );
-            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+            if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
             const data = r.result!;
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
@@ -519,9 +538,9 @@ $ assistant email attachment msg_abc1 --list --json`,
               // List mode — show attachment metadata without downloading
               const r = await cliIpcCall<{ results: AttachmentMeta[] }>(
                 "email_attachment_list",
-                { messageId },
+                { queryParams: { messageId } },
               );
-              if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+              if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
               const data = r.result!;
               if (shouldOutputJson(cmd)) {
                 writeOutput(cmd, data);
@@ -557,9 +576,9 @@ $ assistant email attachment msg_abc1 --list --json`,
               // Download all attachments — list first to get filenames
               const listR = await cliIpcCall<{ results: AttachmentMeta[] }>(
                 "email_attachment_list",
-                { messageId },
+                { queryParams: { messageId } },
               );
-              if (!listR.ok) return exitFromIpcResult({ ok: false, error: listR.error, statusCode: listR.statusCode }, cmd);
+              if (!listR.ok) return handleEmailIpcError({ ok: false, error: listR.error, statusCode: listR.statusCode }, cmd);
               const attachments = listR.result!.results ?? [];
               if (attachments.length === 0) {
                 log.error("No attachments for this message.");
@@ -590,9 +609,9 @@ $ assistant email attachment msg_abc1 --list --json`,
               // Download single attachment — look up metadata from the list first
               const listR = await cliIpcCall<{ results: AttachmentMeta[] }>(
                 "email_attachment_list",
-                { messageId },
+                { queryParams: { messageId } },
               );
-              if (!listR.ok) return exitFromIpcResult({ ok: false, error: listR.error, statusCode: listR.statusCode }, cmd);
+              if (!listR.ok) return handleEmailIpcError({ ok: false, error: listR.error, statusCode: listR.statusCode }, cmd);
               const meta = (listR.result!.results ?? []).find(
                 (a) => a.id === attachmentId,
               );
@@ -646,8 +665,7 @@ async function streamDownloadAttachment(
   dest: string,
 ): Promise<void> {
   const r = await cliIpcCallStream("email_attachment_get", {
-    messageId,
-    attachmentId,
+    queryParams: { messageId, attachmentId },
   });
   if (!r.ok) throw new Error(r.error ?? "Stream failed");
 

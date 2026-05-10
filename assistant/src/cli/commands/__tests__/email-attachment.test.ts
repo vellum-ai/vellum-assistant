@@ -167,9 +167,9 @@ describe("email attachment (IPC)", () => {
     await runAttachment("msg_1", "--list");
 
     expect(mockIpcCallFn.mock.calls.length).toBeGreaterThan(0);
-    const [method, params] = mockIpcCallFn.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    const [method, params] = mockIpcCallFn.mock.calls[0] as unknown as [string, { queryParams: Record<string, unknown> }];
     expect(method).toBe("email_attachment_list");
-    expect(params.messageId).toBe("msg_1");
+    expect(params.queryParams.messageId).toBe("msg_1");
   });
 
   test("--list displays attachment metadata", async () => {
@@ -232,15 +232,15 @@ describe("email attachment (IPC)", () => {
     await runAttachment("msg_1", "att-001", "-o", tmpDir);
 
     // The list call should come first
-    const listCall = mockIpcCallFn.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    const listCall = mockIpcCallFn.mock.calls[0] as unknown as [string, { queryParams: Record<string, unknown> }];
     expect(listCall[0]).toBe("email_attachment_list");
-    expect(listCall[1].messageId).toBe("msg_1");
+    expect(listCall[1].queryParams.messageId).toBe("msg_1");
 
     // Stream call should use the correct attachmentId and messageId
-    const streamCall = mockIpcCallStreamFn.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    const streamCall = mockIpcCallStreamFn.mock.calls[0] as unknown as [string, { queryParams: Record<string, unknown> }];
     expect(streamCall[0]).toBe("email_attachment_get");
-    expect(streamCall[1].attachmentId).toBe("att-001");
-    expect(streamCall[1].messageId).toBe("msg_1");
+    expect(streamCall[1].queryParams.attachmentId).toBe("att-001");
+    expect(streamCall[1].queryParams.messageId).toBe("msg_1");
 
     expect(process.exitCode).toBe(0);
   });
@@ -294,8 +294,8 @@ describe("email attachment (IPC)", () => {
 
     // Two stream calls — one per attachment
     expect(mockIpcCallStreamFn.mock.calls.length).toBe(2);
-    const ids = (mockIpcCallStreamFn.mock.calls as unknown as [string, Record<string, unknown>][]).map(
-      ([, p]) => p.attachmentId,
+    const ids = (mockIpcCallStreamFn.mock.calls as unknown as [string, { queryParams: Record<string, unknown> }][]).map(
+      ([, p]) => p.queryParams.attachmentId,
     );
     expect(ids).toContain("att-001");
     expect(ids).toContain("att-002");
@@ -396,4 +396,4 @@ describe("email attachment (IPC)", () => {
     expect(out).toContain("2.4 MB");
     expect(process.exitCode).toBe(0);
   });
-});
+});  
