@@ -158,7 +158,7 @@ Examples:
           }
 
           const r = await cliIpcCall<ImportResult>("conversations_import", {
-            conversations: payload.conversations as unknown as Record<string, unknown>[],
+            body: { conversations: payload.conversations as unknown as Record<string, unknown>[] },
           });
           if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number });
 

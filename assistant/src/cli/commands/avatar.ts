@@ -74,7 +74,7 @@ Examples:
         .action(async (opts: { description: string }, cmd: Command) => {
           const r = await cliIpcCall<{ ok: boolean; message: string }>(
             "avatar_generate",
-            { description: opts.description },
+            { body: { description: opts.description } },
           );
           if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           log.info(r.result!.message);
@@ -113,7 +113,7 @@ Examples:
           }
 
           const r = await cliIpcCall<{ ok: boolean }>("avatar_set", {
-            imagePath: resolvedSource,
+            body: { imagePath: resolvedSource },
           });
           if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           log.info(`Avatar set from: ${resolvedSource}`);
@@ -178,7 +178,7 @@ Examples:
             exists: boolean;
             path?: string;
             base64?: string;
-          }>("avatar_get", { format: opts.format });
+          }>("avatar_get", { body: { format: opts.format } });
           if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
 
           if (!r.result!.exists) {
@@ -265,9 +265,11 @@ Examples:
             const r = await cliIpcCall<{ ok: boolean }>(
               "avatar_render_from_traits",
               {
-                bodyShape: opts.bodyShape,
-                eyeStyle: opts.eyeStyle,
-                color: opts.color,
+                body: {
+                  bodyShape: opts.bodyShape,
+                  eyeStyle: opts.eyeStyle,
+                  color: opts.color,
+                },
               },
             );
             if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
@@ -370,7 +372,7 @@ Examples:
 
           const r = await cliIpcCall<{ ascii: string }>(
             "avatar_character_ascii",
-            { width: opts.width },
+            { body: { width: opts.width } },
           );
           if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           process.stdout.write(r.result!.ascii + "\n");

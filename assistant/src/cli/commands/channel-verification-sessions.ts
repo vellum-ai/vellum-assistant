@@ -162,13 +162,15 @@ Examples:
             if (channel === false) return;
 
             const r = await cliIpcCall("channel_verification_sessions_create", {
-              channel,
-              destination: opts.destination,
-              rebind: opts.rebind,
-              conversationId: opts.conversationId,
-              originConversationId: opts.originConversationId,
-              purpose: opts.purpose ?? "guardian",
-              contactChannelId: opts.contactChannelId,
+              body: {
+                channel,
+                destination: opts.destination,
+                rebind: opts.rebind,
+                conversationId: opts.conversationId,
+                originConversationId: opts.originConversationId,
+                purpose: opts.purpose ?? "guardian",
+                contactChannelId: opts.contactChannelId,
+              },
             });
             if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
             writeOutput(cmd, r.result);
@@ -205,7 +207,7 @@ Examples:
           if (channel === false) return;
 
           const r = await cliIpcCall("channel_verification_sessions_status", {
-            channel,
+            body: { channel },
           });
           if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           writeOutput(cmd, r.result);
@@ -251,8 +253,10 @@ Examples:
             const r = await cliIpcCall(
               "channel_verification_sessions_resend",
               {
-                channel,
-                originConversationId: opts.originConversationId,
+                body: {
+                  channel,
+                  originConversationId: opts.originConversationId,
+                },
               },
             );
             if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
@@ -291,7 +295,7 @@ Examples:
           if (channel === false) return;
 
           const r = await cliIpcCall("channel_verification_sessions_cancel", {
-            channel,
+            body: { channel },
           });
           if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           writeOutput(cmd, r.result);
@@ -329,7 +333,7 @@ Examples:
           if (channel === false) return;
 
           const r = await cliIpcCall("channel_verification_sessions_revoke", {
-            channel,
+            body: { channel },
           });
           if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           writeOutput(cmd, r.result);
