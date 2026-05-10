@@ -2,6 +2,7 @@
  * Route handlers for app CRUD, bundling, sharing, versioning,
  * gallery, and signing operations.
  */
+import { randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -9,8 +10,8 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { stat, unlink } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { z } from "zod";
@@ -48,7 +49,11 @@ import {
 import { createSharedAppLink } from "../../memory/shared-app-links-store.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
-import { BadRequestError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  NotFoundError,
+  PayloadTooLargeError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("app-management-routes");
@@ -352,6 +357,153 @@ async function openBundle(filePath: string): Promise<Record<string, unknown>> {
   };
 }
 
+const MAX_IMPORT_BUNDLE_BYTES = 25 * 1024 * 1024; // 25 MB
+
+async function importBundle(
+  rawBody: Uint8Array,
+  headers: Record<string, string>,
+): Promise<{
+  success: true;
+  appId: string;
+  name: string;
+  scanResult: { passed: boolean; blocked: string[]; warnings: string[] };
+  signatureResult: {
+    trustTier: string;
+    signerKeyId?: string;
+    signerDisplayName?: string;
+    signerAccount?: string;
+  };
+}> {
+  const contentLength = headers["content-length"];
+  if (contentLength && Number(contentLength) > MAX_IMPORT_BUNDLE_BYTES) {
+    throw new PayloadTooLargeError(
+      `Bundle too large (limit: ${MAX_IMPORT_BUNDLE_BYTES / (1024 * 1024)} MB)`,
+    );
+  }
+
+  // Determine the actual bundle bytes based on content type
+  let bundleBytes: Uint8Array;
+  const contentType = headers["content-type"] ?? "";
+  if (contentType.includes("multipart/form-data")) {
+    // Reconstruct a Request to use the platform's multipart parser
+    const syntheticReq = new Request("http://localhost", {
+      method: "POST",
+      headers: { "content-type": contentType },
+      body: rawBody.buffer as ArrayBuffer,
+    });
+
+    let formData: FormData;
+    try {
+      formData = await syntheticReq.formData();
+    } catch {
+      throw new BadRequestError("Invalid multipart form data");
+    }
+
+    const file = formData.get("file");
+    if (!file || !(file instanceof Blob)) {
+      throw new BadRequestError(
+        'Multipart upload requires a "file" field containing the .vbundle',
+      );
+    }
+    bundleBytes = new Uint8Array(await file.arrayBuffer());
+  } else {
+    // application/octet-stream or any other content type — use raw body directly
+    bundleBytes = rawBody;
+  }
+
+  if (bundleBytes.length > MAX_IMPORT_BUNDLE_BYTES) {
+    throw new PayloadTooLargeError(
+      `Bundle too large (limit: ${MAX_IMPORT_BUNDLE_BYTES / (1024 * 1024)} MB)`,
+    );
+  }
+
+  // Write to temp file for scanning and signature verification
+  const tempPath = join(
+    tmpdir(),
+    `vellum-import-${randomBytes(8).toString("hex")}.vbundle`,
+  );
+  writeFileSync(tempPath, bundleBytes);
+
+  const [scanResult, signatureResult] = await Promise.all([
+    scanBundle(tempPath),
+    verifyBundleSignature(tempPath),
+  ]);
+
+  const blocked = scanResult.findings
+    .filter((f) => f.level === "block")
+    .map((f) => f.message);
+  const warnings = scanResult.findings
+    .filter((f) => f.level === "warn")
+    .map((f) => f.message);
+
+  if (!scanResult.passed) {
+    await unlink(tempPath);
+    throw new BadRequestError(
+      `Bundle blocked by security scan: ${blocked.join("; ")}`,
+    );
+  }
+
+  // Load the zip and extract contents
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(bundleBytes);
+
+  // Extract manifest
+  const manifestFile = zip.file("manifest.json");
+  let manifest: { name?: string; description?: string; entry?: string } = {};
+  if (manifestFile) {
+    const manifestText = await manifestFile.async("text");
+    manifest = JSON.parse(manifestText);
+  }
+
+  const appName = manifest.name ?? "Imported App";
+  const appDescription = manifest.description;
+  const entry = manifest.entry ?? "index.html";
+
+  // Extract entry HTML
+  const entryFile = zip.file(entry);
+  if (!entryFile) {
+    await unlink(tempPath);
+    throw new BadRequestError("Bundle missing entry file");
+  }
+  const htmlDefinition = await entryFile.async("text");
+
+  // Extract icon if present
+  let icon: string | undefined;
+  const iconFile = zip.file("icon.png");
+  if (iconFile) {
+    icon = await iconFile.async("base64");
+  }
+
+  // Create the local app
+  const newApp = createApp({
+    name: appName,
+    description: appDescription,
+    schemaJson: JSON.stringify({ type: "object", properties: {} }),
+    htmlDefinition,
+    icon,
+  });
+
+  // Clean up temp file (fire-and-forget)
+  void unlink(tempPath);
+
+  return {
+    success: true,
+    appId: newApp.id,
+    name: newApp.name,
+    scanResult: {
+      passed: scanResult.passed,
+      blocked,
+      warnings,
+    },
+    signatureResult: {
+      trustTier: signatureResult.trustTier,
+      signerKeyId: signatureResult.signerKeyId,
+      signerDisplayName: signatureResult.signerDisplayName,
+      signerAccount: signatureResult.signerAccount,
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Route handlers
 // ---------------------------------------------------------------------------
@@ -369,6 +521,15 @@ async function handleOpenBundle({ body }: RouteHandlerArgs) {
     throw new BadRequestError("filePath is required");
   }
   return openBundle(body.filePath as string);
+}
+
+async function handleImportBundle({ rawBody, headers }: RouteHandlerArgs) {
+  if (!rawBody || rawBody.length === 0) {
+    throw new BadRequestError(
+      "Request body is required — upload a .vbundle file",
+    );
+  }
+  return importBundle(rawBody, headers ?? {});
 }
 
 function handleListSharedApps() {
@@ -654,6 +815,34 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["apps"],
     responseBody: z.object({
       gallery: z.array(z.unknown()).describe("Gallery app entries"),
+    }),
+  },
+  {
+    operationId: "apps_import_bundle",
+    endpoint: "apps/import-bundle",
+    method: "POST",
+    policyKey: "apps/import-bundle",
+    handler: handleImportBundle,
+    summary: "Import a .vbundle file",
+    description:
+      "Upload, validate, and install a .vbundle archive as a new local app.",
+    tags: ["apps"],
+    rawBody: true,
+    responseBody: z.object({
+      success: z.boolean(),
+      appId: z.string(),
+      name: z.string(),
+      scanResult: z.object({
+        passed: z.boolean(),
+        blocked: z.array(z.string()),
+        warnings: z.array(z.string()),
+      }),
+      signatureResult: z.object({
+        trustTier: z.string(),
+        signerKeyId: z.string().optional(),
+        signerDisplayName: z.string().optional(),
+        signerAccount: z.string().optional(),
+      }),
     }),
   },
   {
