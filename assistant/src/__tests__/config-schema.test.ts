@@ -83,9 +83,9 @@ function writeConfig(obj: unknown): void {
 describe("AssistantConfigSchema", () => {
   test("parses empty object with full defaults", () => {
     const result = AssistantConfigSchema.parse({});
-    // services.inference now carries only `mode`; provider/model live under
-    // llm.default.{provider,model} (see PR 19 of unify-llm-callsites).
-    expect(result.services.inference.mode).toBe("your-own");
+    // services.inference is now an empty object; provider/model live under
+    // llm.default.{provider,model}, auth routing via provider_connections.
+    expect(result.services.inference).toEqual({});
     expect(result.llm.default.provider).toBe("anthropic");
     expect(result.llm.default.model).toBe("claude-opus-4-7");
     expect(result.services["image-generation"].provider).toBe("gemini");
