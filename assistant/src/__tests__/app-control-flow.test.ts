@@ -65,6 +65,13 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       cap === "host_app_control" && mockHasClient
         ? { id: "mock-client" }
         : null,
+    // Stubbed for the surfaceProxyResolver's target_client_id resolution
+    // path. The flow tests do not exercise multiple-client scenarios; they
+    // only need the resolver to fall through to proxy.request without
+    // throwing on undefined methods.
+    listClientsByCapability: () => [],
+    getClientById: () => undefined,
+    getActorPrincipalIdForClient: () => undefined,
   },
 }));
 
