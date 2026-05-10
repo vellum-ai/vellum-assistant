@@ -12872,6 +12872,28 @@ paths:
               required:
                 - watcher_id
               additionalProperties: false
+  /v1/webhooks:
+    get:
+      operationId: webhooks_get
+      summary: List registered webhook callback routes
+      description: Lists all webhook callback routes registered with the platform for this assistant.
+      tags:
+        - webhooks
+      responses:
+        "200":
+          description: Successful response
+  /v1/webhooks/register:
+    post:
+      operationId: webhooks_register_post
+      summary: Register a webhook callback URL
+      description:
+        Resolves a stable callback URL for a webhook type. On platform-managed assistants, registers the route with
+        the platform gateway. On self-hosted assistants, uses the configured ingress.publicBaseUrl.
+      tags:
+        - webhooks
+      responses:
+        "200":
+          description: Successful response
   /v1/work-items:
     get:
       operationId: workitems_get
