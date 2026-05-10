@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { seedMemoryRouterCallsiteMigration } from "../workspace/migrations/076-seed-memory-router-callsite.js";
+import { seedMemoryRouterCallsiteMigration } from "../workspace/migrations/077-seed-memory-router-callsite.js";
 
 let workspaceDir: string;
 
@@ -48,10 +48,10 @@ afterEach(() => {
   }
 });
 
-describe("076-seed-memory-router-callsite migration", () => {
+describe("077-seed-memory-router-callsite migration", () => {
   test("has correct migration id", () => {
     expect(seedMemoryRouterCallsiteMigration.id).toBe(
-      "076-seed-memory-router-callsite",
+      "077-seed-memory-router-callsite",
     );
   });
 

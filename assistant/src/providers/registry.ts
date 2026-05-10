@@ -55,9 +55,7 @@ export function getProviderRoutingSource(
 
 export interface ProvidersConfig {
   services: {
-    inference: {
-      mode: "managed" | "your-own";
-    };
+    inference: Record<string, never>;
     "image-generation": {
       mode: "managed" | "your-own";
       provider: string;
@@ -103,34 +101,19 @@ function resolveModel(config: ProvidersConfig, providerName: string): string {
 }
 
 /**
- * Resolve provider credentials using mode-aware logic.
- * In "managed" mode, routes through the platform proxy.
- * In "your-own" mode, uses the user's API key.
+ * Resolve provider credentials. User key takes precedence; managed proxy is
+ * used as a fallback when platform prerequisites are available.
+ *
+ * The routing decision is now derived from credential availability rather than
+ * the removed `services.inference.mode` config field.
  */
 async function resolveProviderCredentials(
   providerName: string,
-  mode: "managed" | "your-own",
 ): Promise<{
   apiKey: string;
   baseURL?: string;
   source: "user-key" | "managed-proxy";
 } | null> {
-  if (mode === "managed") {
-    const managedBaseUrl = await buildManagedBaseUrl(providerName);
-    if (managedBaseUrl) {
-      const ctx = await resolveManagedProxyContext();
-      return {
-        apiKey: ctx.assistantApiKey,
-        baseURL: managedBaseUrl,
-        source: "managed-proxy",
-      };
-    }
-    const userKey = await getProviderKeyAsync(providerName);
-    if (userKey) {
-      return { apiKey: userKey, source: "user-key" };
-    }
-    return null;
-  }
   const userKey = await getProviderKeyAsync(providerName);
   if (userKey) {
     return { apiKey: userKey, source: "user-key" };
@@ -138,11 +121,7 @@ async function resolveProviderCredentials(
   const managedBaseUrl = await buildManagedBaseUrl(providerName);
   if (managedBaseUrl) {
     const ctx = await resolveManagedProxyContext();
-    return {
-      apiKey: ctx.assistantApiKey,
-      baseURL: managedBaseUrl,
-      source: "managed-proxy",
-    };
+    return { apiKey: ctx.assistantApiKey, baseURL: managedBaseUrl, source: "managed-proxy" };
   }
   return null;
 }
@@ -156,15 +135,11 @@ export async function initializeProviders(
 
   const streamTimeoutMs =
     (config.timeouts?.providerStreamTimeoutSec ?? 1800) * 1000;
-  const inferenceMode = config.services.inference.mode;
   const useNativeWebSearch =
     config.services["web-search"].provider === "inference-provider-native";
 
   // Anthropic
-  const anthropicCreds = await resolveProviderCredentials(
-    "anthropic",
-    inferenceMode,
-  );
+  const anthropicCreds = await resolveProviderCredentials("anthropic");
   if (anthropicCreds) {
     const model = resolveModel(config, "anthropic");
     registerProvider(
@@ -173,21 +148,16 @@ export async function initializeProviders(
         new AnthropicProvider(anthropicCreds.apiKey, model, {
           useNativeWebSearch,
           streamTimeoutMs,
-          ...(anthropicCreds.baseURL
-            ? { baseURL: anthropicCreds.baseURL }
-            : {}),
+          ...(anthropicCreds.baseURL ? { baseURL: anthropicCreds.baseURL } : {}),
         }),
-        {
-          forwardUsageAttributionHeaders:
-            anthropicCreds.source === "managed-proxy",
-        },
+        { forwardUsageAttributionHeaders: anthropicCreds.source === "managed-proxy" },
       ),
     );
     routingSources.set("anthropic", anthropicCreds.source);
   }
 
   // OpenAI
-  const openaiCreds = await resolveProviderCredentials("openai", inferenceMode);
+  const openaiCreds = await resolveProviderCredentials("openai");
   if (openaiCreds) {
     const model = resolveModel(config, "openai");
     registerProvider(
@@ -198,17 +168,14 @@ export async function initializeProviders(
           streamTimeoutMs,
           ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
         }),
-        {
-          forwardUsageAttributionHeaders:
-            openaiCreds.source === "managed-proxy",
-        },
+        { forwardUsageAttributionHeaders: openaiCreds.source === "managed-proxy" },
       ),
     );
     routingSources.set("openai", openaiCreds.source);
   }
 
   // Gemini
-  const geminiCreds = await resolveProviderCredentials("gemini", inferenceMode);
+  const geminiCreds = await resolveProviderCredentials("gemini");
   if (geminiCreds) {
     const model = resolveModel(config, "gemini");
     registerProvider(
@@ -216,14 +183,9 @@ export async function initializeProviders(
       new RetryProvider(
         new GeminiProvider(geminiCreds.apiKey, model, {
           streamTimeoutMs,
-          ...(geminiCreds.baseURL
-            ? { managedBaseUrl: geminiCreds.baseURL }
-            : {}),
+          ...(geminiCreds.baseURL ? { managedBaseUrl: geminiCreds.baseURL } : {}),
         }),
-        {
-          forwardUsageAttributionHeaders:
-            geminiCreds.source === "managed-proxy",
-        },
+        { forwardUsageAttributionHeaders: geminiCreds.source === "managed-proxy" },
       ),
     );
     routingSources.set("gemini", geminiCreds.source);

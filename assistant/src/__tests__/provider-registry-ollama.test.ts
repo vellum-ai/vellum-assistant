@@ -17,9 +17,7 @@ describe("provider registry (ollama)", () => {
   test("registers ollama when selected provider has no API key", async () => {
     await initializeProviders({
       services: {
-        inference: {
-          mode: "your-own",
-        },
+        inference: {},
         "image-generation": {
           mode: "your-own",
           provider: "gemini",

@@ -40,11 +40,11 @@ let mockLlmConfig: Record<string, unknown> = {};
 mock.module("../../config/loader.js", () => ({
   getConfig: () => ({
     llm: mockLlmConfig,
-    services: { inference: { mode: "your-own" } },
+    services: { inference: {} },
   }),
   loadConfig: () => ({
     llm: mockLlmConfig,
-    services: { inference: { mode: "your-own" } },
+    services: { inference: {} },
   }),
 }));
 
@@ -164,7 +164,7 @@ function reset(): void {
 const providersConfigStub = {
   llm: { default: { provider: "anthropic", model: "claude-opus-4-7" } },
   services: {
-    inference: { mode: "your-own" as const },
+    inference: {},
     "image-generation": {
       mode: "managed" as const,
       provider: "openai",

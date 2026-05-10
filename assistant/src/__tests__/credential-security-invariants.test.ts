@@ -230,7 +230,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "meet/session-manager.ts", // Meet bot container provisioning (provider API key lookup for Deepgram/TTS)
       "credential-health/credential-health-service.ts", // credential health check reads access tokens for liveness pings
       "ipc/skill-routes/providers.ts", // skill IPC route exposes provider key lookup to hosted skills
-      "cli/commands/avatar.ts", // CLI avatar command credential lookup
+      "runtime/routes/avatar-routes.ts", // avatar generate route reads platform_base_url from credential store
       "cli/commands/credentials.ts", // CLI credential management commands
       "cli/commands/keys.ts", // CLI provider key management
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification

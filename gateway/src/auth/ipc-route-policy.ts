@@ -158,6 +158,13 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["inference_profile_list", ["chat.read"]],
   ["inference_profile_open", ["chat.write"]],
 
+  // Inference provider connections
+  ["inference_provider_connections_create", ["settings.write"]],
+  ["inference_provider_connections_delete", ["settings.write"]],
+  ["inference_provider_connections_get", ["settings.read"]],
+  ["inference_provider_connections_list", ["settings.read"]],
+  ["inference_provider_connections_update", ["settings.write"]],
+
   // Notification intent
   ["notificationintentresult_post", ["settings.write"]],
 

@@ -1,42 +1,30 @@
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  unlinkSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 
 import type { Command } from "commander";
 
-import { renderCharacterAscii } from "../../avatar/ascii-renderer.js";
-import { getCharacterComponents } from "../../avatar/character-components.js";
-import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
-import {
-  type CharacterTraits,
-  writeTraitsAndRenderAvatar,
-} from "../../avatar/traits-png-sync.js";
-import { setPlatformBaseUrl } from "../../config/env.js";
-import { credentialKey } from "../../security/credential-key.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
-import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
-import {
-  getAvatarDir,
-  getAvatarImagePath,
-  getWorkspaceDir,
-} from "../../util/platform.js";
-import { notifyAvatarUpdated } from "../lib/daemon-avatar-client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
 
-export function registerAvatarCommand(program: Command): void {
-  const avatar = program
-    .command("avatar")
-    .description("Manage the assistant's avatar");
+// Types returned by IPC routes
+interface CharacterComponents {
+  bodyShapes: Array<{ id: string }>;
+  eyeStyles: Array<{ id: string }>;
+  colors: Array<{ id: string; hex: string }>;
+}
 
-  avatar.addHelpText(
-    "after",
-    `
+export function registerAvatarCommand(program: Command): void {
+  registerCommand(program, {
+    name: "avatar",
+    transport: "ipc",
+    description: "Manage the assistant's avatar",
+    build: (avatar) => {
+      avatar.addHelpText(
+        "after",
+        `
 The avatar system supports two modes:
 
   1. Native character — a procedurally generated character with configurable
@@ -58,18 +46,18 @@ Examples:
   $ assistant avatar get --format base64
   $ assistant avatar character update --body-shape blob --eye-style curious --color green
   $ assistant avatar generate --description "a cute blue cat"`,
-  );
+      );
 
-  avatar
-    .command("generate")
-    .description("Generate an AI avatar from a text description")
-    .requiredOption(
-      "--description <text>",
-      "Description of the avatar to generate",
-    )
-    .addHelpText(
-      "after",
-      `
+      avatar
+        .command("generate")
+        .description("Generate an AI avatar from a text description")
+        .requiredOption(
+          "--description <text>",
+          "Description of the avatar to generate",
+        )
+        .addHelpText(
+          "after",
+          `
 Generates an avatar image using AI based on the provided text description
 and saves it as the assistant's avatar PNG. This replaces any existing
 native character avatar — the character traits and ASCII files are removed.
@@ -80,57 +68,30 @@ and removes character-traits.json and character-ascii.txt if they exist.
 Examples:
   $ assistant avatar generate --description "a cute blue cat"
   $ assistant avatar generate --description "a friendly robot with green eyes"`,
-    )
-    .action(async (opts: { description: string }) => {
-      // Rehydrate the platform base URL from the credential store so the
-      // managed proxy fallback works. The CLI runs as a separate process
-      // without the daemon's in-memory state.
-      try {
-        const key = credentialKey("vellum", "platform_base_url");
-        const persisted = await getSecureKeyAsync(key);
-        if (persisted) {
-          setPlatformBaseUrl(persisted);
-        }
-      } catch {
-        // Non-fatal — direct Gemini key may still work
-      }
+        )
+        .action(async (opts: { description: string }, cmd: Command) => {
+          const r = await cliIpcCall<{ ok: boolean; message: string }>(
+            "avatar_generate",
+            { body: { description: opts.description } },
+          );
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
+          log.info(r.result!.message);
+        });
 
-      const result = await generateAndSaveAvatar(opts.description);
-
-      if (result.isError) {
-        log.error(result.content);
-        process.exitCode = 1;
-        return;
-      }
-
-      // Remove native character files since AI-generated image takes precedence
-      const avatarDir = join(getWorkspaceDir(), "data", "avatar");
-      const traitsPath = join(avatarDir, "character-traits.json");
-      const asciiPath = join(avatarDir, "character-ascii.txt");
-      try {
-        if (existsSync(traitsPath)) unlinkSync(traitsPath);
-        if (existsSync(asciiPath)) unlinkSync(asciiPath);
-      } catch {
-        // Best-effort cleanup
-      }
-
-      // Clear IDENTITY.md avatar description so the assistant re-describes the new image
-      updateIdentityAvatarSection(null, log);
-      await notifyAvatarUpdated();
-
-      log.info(result.content);
-    });
-
-  avatar
-    .command("set")
-    .description("Set the assistant's avatar from an image file")
-    .requiredOption(
-      "--image <path>",
-      "Path to image file (absolute or relative to workspace)",
-    )
-    .addHelpText(
-      "after",
-      `
+      avatar
+        .command("set")
+        .description("Set the assistant's avatar from an image file")
+        .requiredOption(
+          "--image <path>",
+          "Path to image file (absolute or relative to workspace)",
+        )
+        .addHelpText(
+          "after",
+          `
 Sets the assistant's avatar by copying the provided image file to the
 canonical avatar location. This replaces any existing avatar image but
 preserves character-traits.json so the native character can be restored
@@ -141,41 +102,39 @@ The --image path can be absolute or relative to the workspace directory.
 Examples:
   $ assistant avatar set --image /path/to/photo.png
   $ assistant avatar set --image conversations/abc123/attachments/Dropped\\ Image.png`,
-    )
-    .action(async (opts: { image: string }) => {
-      const resolvedSource = opts.image.startsWith("/")
-        ? opts.image
-        : join(getWorkspaceDir(), opts.image);
+        )
+        .action(async (opts: { image: string }, cmd: Command) => {
+          const resolvedSource = isAbsolute(opts.image)
+            ? opts.image
+            : join(
+                process.env.VELLUM_WORKSPACE_DIR ||
+                  join(homedir(), ".vellum", "workspace"),
+                opts.image,
+              );
 
-      if (!existsSync(resolvedSource)) {
-        log.error(`Image file not found: ${resolvedSource}`);
-        process.exitCode = 1;
-        return;
-      }
+          if (!existsSync(resolvedSource)) {
+            log.error(`Image file not found: ${resolvedSource}`);
+            process.exitCode = 1;
+            return;
+          }
 
-      try {
-        const avatarPath = getAvatarImagePath();
-        mkdirSync(dirname(avatarPath), { recursive: true });
-        copyFileSync(resolvedSource, avatarPath);
+          const r = await cliIpcCall<{ ok: boolean }>("avatar_set", {
+            body: { imagePath: resolvedSource },
+          });
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
+          log.info(`Avatar set from: ${resolvedSource}`);
+        });
 
-        // Clear IDENTITY.md avatar description so the assistant re-describes the new image
-        updateIdentityAvatarSection(null, log);
-        await notifyAvatarUpdated();
-
-        log.info(`Avatar set from: ${resolvedSource}`);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.error(`Failed to set avatar: ${message}`);
-        process.exitCode = 1;
-      }
-    });
-
-  avatar
-    .command("remove")
-    .description("Remove custom avatar and restore character default")
-    .addHelpText(
-      "after",
-      `
+      avatar
+        .command("remove")
+        .description("Remove custom avatar and restore character default")
+        .addHelpText(
+          "after",
+          `
 Removes the custom avatar image. If a native character was previously
 configured (character-traits.json still exists), it will be automatically
 restored the next time the avatar is regenerated.
@@ -185,54 +144,30 @@ so it can be restored without reconfiguration.
 
 Examples:
   $ assistant avatar remove`,
-    )
-    .action(async () => {
-      const avatarPath = getAvatarImagePath();
-
-      if (!existsSync(avatarPath)) {
-        log.info("No custom avatar to remove — already using the default.");
-        return;
-      }
-
-      try {
-        unlinkSync(avatarPath);
-
-        // If native character traits exist, regenerate the PNG so consumers
-        // that read the file from disk see the restored character immediately.
-        const traitsPath = join(getAvatarDir(), "character-traits.json");
-        if (existsSync(traitsPath)) {
-          try {
-            const traits = JSON.parse(
-              readFileSync(traitsPath, "utf-8"),
-            ) as CharacterTraits;
-            writeTraitsAndRenderAvatar(traits);
-          } catch {
-            // Best-effort — the character will regenerate on next access
+        )
+        .action(async (_opts: object, cmd: Command) => {
+          const r = await cliIpcCall<{ ok: boolean; hadAvatar: boolean }>(
+            "avatar_remove",
+          );
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
+          if (!r.result!.hadAvatar) {
+            log.info("No custom avatar to remove — already using the default.");
+          } else {
+            log.info("Custom avatar removed.");
           }
-        }
+        });
 
-        // Update IDENTITY.md to reflect that no custom image is set
-        updateIdentityAvatarSection(
-          "Default character avatar (no custom image set)",
-          log,
-        );
-        await notifyAvatarUpdated();
-
-        log.info("Custom avatar removed.");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.error(`Failed to remove avatar: ${message}`);
-        process.exitCode = 1;
-      }
-    });
-
-  avatar
-    .command("get")
-    .description("Retrieve the current avatar")
-    .option("--format <format>", "Output format: path or base64", "path")
-    .addHelpText(
-      "after",
-      `
+      avatar
+        .command("get")
+        .description("Retrieve the current avatar")
+        .option("--format <format>", "Output format: path or base64", "path")
+        .addHelpText(
+          "after",
+          `
 Retrieves the current avatar. By default prints the absolute file path;
 with --format base64, prints the base64-encoded image content.
 
@@ -243,53 +178,48 @@ Examples:
   $ assistant avatar get
   $ assistant avatar get --format path
   $ assistant avatar get --format base64`,
-    )
-    .action(async (opts: { format: string }) => {
-      if (opts.format !== "path" && opts.format !== "base64") {
-        log.error(
-          `Invalid format: "${opts.format}". Must be "path" or "base64".`,
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      const avatarPath = getAvatarImagePath();
-
-      // If no image exists, try regenerating from character traits
-      if (!existsSync(avatarPath)) {
-        const traitsPath = join(getAvatarDir(), "character-traits.json");
-        if (existsSync(traitsPath)) {
-          try {
-            const raw = readFileSync(traitsPath, "utf-8");
-            writeTraitsAndRenderAvatar(JSON.parse(raw) as CharacterTraits);
-          } catch {
-            // Best-effort regeneration
+        )
+        .action(async (opts: { format: string }, cmd: Command) => {
+          if (opts.format !== "path" && opts.format !== "base64") {
+            log.error(
+              `Invalid format: "${opts.format}". Must be "path" or "base64".`,
+            );
+            process.exitCode = 1;
+            return;
           }
-        }
-      }
 
-      if (!existsSync(avatarPath)) {
-        log.info(
-          "No avatar is currently set — no custom image and no character traits found.",
-        );
-        return;
-      }
+          const r = await cliIpcCall<{
+            exists: boolean;
+            path?: string;
+            base64?: string;
+          }>("avatar_get", { body: { format: opts.format } });
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
 
-      if (opts.format === "path") {
-        process.stdout.write(avatarPath + "\n");
-      } else {
-        const base64 = readFileSync(avatarPath).toString("base64");
-        process.stdout.write(base64 + "\n");
-      }
-    });
+          if (!r.result!.exists) {
+            log.info(
+              "No avatar is currently set — no custom image and no character traits found.",
+            );
+            return;
+          }
 
-  const character = avatar
-    .command("character")
-    .description("Manage the native character avatar");
+          if (opts.format === "path") {
+            process.stdout.write(r.result!.path! + "\n");
+          } else {
+            process.stdout.write(r.result!.base64! + "\n");
+          }
+        });
 
-  character.addHelpText(
-    "after",
-    `
+      const character = avatar
+        .command("character")
+        .description("Manage the native character avatar");
+
+      character.addHelpText(
+        "after",
+        `
 A native character avatar is composed of three traits:
   - body shape: the silhouette of the character (e.g. blob, cloud, star)
   - eye style: the expression of the character's eyes (e.g. curious, gentle)
@@ -303,23 +233,26 @@ Examples:
   $ assistant avatar character update --body-shape blob --eye-style curious --color green
   $ assistant avatar character components --json
   $ assistant avatar character ascii --width 40`,
-  );
+      );
 
-  character
-    .command("update")
-    .description("Set character traits and regenerate avatar")
-    .requiredOption(
-      "--body-shape <shape>",
-      "Body shape (e.g. blob, cloud, star)",
-    )
-    .requiredOption(
-      "--eye-style <style>",
-      "Eye style (e.g. curious, gentle, goofy)",
-    )
-    .requiredOption("--color <color>", "Body color (e.g. green, purple, teal)")
-    .addHelpText(
-      "after",
-      `
+      character
+        .command("update")
+        .description("Set character traits and regenerate avatar")
+        .requiredOption(
+          "--body-shape <shape>",
+          "Body shape (e.g. blob, cloud, star)",
+        )
+        .requiredOption(
+          "--eye-style <style>",
+          "Eye style (e.g. curious, gentle, goofy)",
+        )
+        .requiredOption(
+          "--color <color>",
+          "Body color (e.g. green, purple, teal)",
+        )
+        .addHelpText(
+          "after",
+          `
 Sets the three character traits and regenerates avatar files (PNG image,
 traits JSON, and optionally ASCII art). Each trait value must be a valid ID from the
 component set — use "assistant avatar character components" to list valid IDs.
@@ -341,76 +274,40 @@ Examples:
   $ assistant avatar character update --body-shape blob --eye-style curious --color green
   $ assistant avatar character update --body-shape star --eye-style goofy --color purple
   $ assistant avatar character update --body-shape ghost --eye-style gentle --color teal`,
-    )
-    .action(
-      async (opts: { bodyShape: string; eyeStyle: string; color: string }) => {
-        const components = getCharacterComponents();
-
-        const validBodyShapes = components.bodyShapes.map((b) => b.id);
-        if (!validBodyShapes.includes(opts.bodyShape)) {
-          log.error(
-            `Invalid body shape: "${opts.bodyShape}". Valid options: ${validBodyShapes.join(", ")}`,
-          );
-          process.exitCode = 1;
-          return;
-        }
-
-        const validEyeStyles = components.eyeStyles.map((e) => e.id);
-        if (!validEyeStyles.includes(opts.eyeStyle)) {
-          log.error(
-            `Invalid eye style: "${opts.eyeStyle}". Valid options: ${validEyeStyles.join(", ")}`,
-          );
-          process.exitCode = 1;
-          return;
-        }
-
-        const validColors = components.colors.map((c) => c.id);
-        if (!validColors.includes(opts.color)) {
-          log.error(
-            `Invalid color: "${opts.color}". Valid options: ${validColors.join(", ")}`,
-          );
-          process.exitCode = 1;
-          return;
-        }
-
-        const result = writeTraitsAndRenderAvatar({
-          bodyShape: opts.bodyShape,
-          eyeStyle: opts.eyeStyle,
-          color: opts.color,
-        });
-
-        if (!result.ok) {
-          log.error(
-            `Failed to write traits and render avatar: ${result.message}`,
-          );
-          process.exitCode = 1;
-          return;
-        }
-
-        // Clear IDENTITY.md avatar description so the assistant re-describes the new character
-        updateIdentityAvatarSection(null, log);
-        await notifyAvatarUpdated();
-
-        const avatarDir = join(getWorkspaceDir(), "data", "avatar");
-        log.info(
-          `Avatar updated: ${opts.bodyShape} body, ${opts.eyeStyle} eyes, ${opts.color} color`,
+        )
+        .action(
+          async (
+            opts: { bodyShape: string; eyeStyle: string; color: string },
+            cmd: Command,
+          ) => {
+            const r = await cliIpcCall<{ ok: boolean }>(
+              "avatar_render_from_traits",
+              {
+                body: {
+                  bodyShape: opts.bodyShape,
+                  eyeStyle: opts.eyeStyle,
+                  color: opts.color,
+                },
+              },
+            );
+            if (!r.ok)
+              return exitFromIpcResult(
+                r as { ok: false; error?: string; statusCode?: number },
+                cmd,
+              );
+            log.info(
+              `Avatar updated: ${opts.bodyShape} body, ${opts.eyeStyle} eyes, ${opts.color} color`,
+            );
+          },
         );
-        log.info(`Files written to: ${avatarDir}`);
-        log.info(`  character-traits.json`);
-        log.info(`  avatar-image.png`);
-        if (result.asciiWritten) {
-          log.info(`  character-ascii.txt`);
-        }
-      },
-    );
 
-  character
-    .command("components")
-    .description("List available character traits")
-    .option("--json", "Machine-readable JSON output")
-    .addHelpText(
-      "after",
-      `
+      character
+        .command("components")
+        .description("List available character traits")
+        .option("--json", "Machine-readable JSON output")
+        .addHelpText(
+          "after",
+          `
 Lists all available values for each character trait: body shapes, eye styles,
 and colors. Each value is shown with its ID (the string you pass to
 "character update").
@@ -424,40 +321,48 @@ Without --json, prints a human-readable summary of IDs only.
 Examples:
   $ assistant avatar character components
   $ assistant avatar character components --json`,
-    )
-    .action((opts: { json?: boolean }, cmd: Command) => {
-      const components = getCharacterComponents();
+        )
+        .action(async (opts: { json?: boolean }, cmd: Command) => {
+          const r = await cliIpcCall<CharacterComponents>(
+            "avatar_character_components",
+          );
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
 
-      if (opts.json) {
-        writeOutput(cmd, components);
-        return;
-      }
+          if (opts.json) {
+            writeOutput(cmd, r.result);
+            return;
+          }
 
-      log.info("Body shapes:");
-      for (const shape of components.bodyShapes) {
-        log.info(`  ${shape.id}`);
-      }
+          const components = r.result!;
+          log.info("Body shapes:");
+          for (const shape of components.bodyShapes) {
+            log.info(`  ${shape.id}`);
+          }
 
-      log.info("");
-      log.info("Eye styles:");
-      for (const style of components.eyeStyles) {
-        log.info(`  ${style.id}`);
-      }
+          log.info("");
+          log.info("Eye styles:");
+          for (const style of components.eyeStyles) {
+            log.info(`  ${style.id}`);
+          }
 
-      log.info("");
-      log.info("Colors:");
-      for (const color of components.colors) {
-        log.info(`  ${color.id} (${color.hex})`);
-      }
-    });
+          log.info("");
+          log.info("Colors:");
+          for (const color of components.colors) {
+            log.info(`  ${color.id} (${color.hex})`);
+          }
+        });
 
-  character
-    .command("ascii")
-    .description("Print the current character as ASCII art")
-    .option("--width <n>", "Output width in characters", "60")
-    .addHelpText(
-      "after",
-      `
+      character
+        .command("ascii")
+        .description("Print the current character as ASCII art")
+        .option("--width <n>", "Output width in characters", "60")
+        .addHelpText(
+          "after",
+          `
 Reads the current character traits from character-traits.json and renders
 the character as ASCII art to stdout. The output uses a brightness ramp
 optimized for dark terminal backgrounds.
@@ -474,54 +379,35 @@ Examples:
   $ assistant avatar character ascii
   $ assistant avatar character ascii --width 40
   $ assistant avatar character ascii --width 80`,
-    )
-    .action(async (opts: { width: string }) => {
-      const avatarDir = join(getWorkspaceDir(), "data", "avatar");
-      const traitsPath = join(avatarDir, "character-traits.json");
+        )
+        .action(async (opts: { width: string }, cmd: Command) => {
+          if (!/^\d+$/.test(opts.width)) {
+            log.error(
+              `Invalid width: "${opts.width}". Must be a positive integer.`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+          const w = parseInt(opts.width, 10);
+          if (!Number.isFinite(w) || w < 1) {
+            log.error(
+              `Invalid width: "${opts.width}". Must be a positive integer.`,
+            );
+            process.exitCode = 1;
+            return;
+          }
 
-      if (!existsSync(traitsPath)) {
-        log.error(
-          "No native character set. Use `assistant avatar character update` first.",
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      let traits: CharacterTraits;
-      try {
-        const raw = readFileSync(traitsPath, "utf-8");
-        traits = JSON.parse(raw) as CharacterTraits;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.error(`Failed to read character traits: ${message}`);
-        process.exitCode = 1;
-        return;
-      }
-
-      if (!/^\d+$/.test(opts.width)) {
-        log.error(
-          `Invalid width: "${opts.width}". Must be a positive integer.`,
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      const width = parseInt(opts.width, 10);
-      if (!Number.isFinite(width) || width < 1) {
-        log.error(
-          `Invalid width: "${opts.width}". Must be a positive integer.`,
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      const asciiArt = renderCharacterAscii(
-        traits.bodyShape,
-        traits.eyeStyle,
-        traits.color,
-        width,
-      );
-
-      process.stdout.write(asciiArt + "\n");
-    });
+          const r = await cliIpcCall<{ ascii: string }>(
+            "avatar_character_ascii",
+            { body: { width: opts.width } },
+          );
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
+          process.stdout.write(r.result!.ascii + "\n");
+        });
+    },
+  });
 }

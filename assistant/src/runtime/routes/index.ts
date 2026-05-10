@@ -37,6 +37,7 @@ import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "./conversation-managem
 import { ROUTES as CONVERSATION_QUERY_ROUTES } from "./conversation-query-routes.js";
 import { ROUTES as CONVERSATION_MESSAGE_ROUTES } from "./conversation-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
+import { ROUTES as CONVERSATIONS_IMPORT_ROUTES } from "./conversations-import-routes.js";
 import { ROUTES as CREDENTIAL_PROMPT_ROUTES } from "./credential-prompt-routes.js";
 import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
@@ -62,6 +63,7 @@ import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as IMAGE_GENERATION_ROUTES } from "./image-generation-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-session-routes.js";
+import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-provider-connection-routes.js";
 import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
@@ -139,6 +141,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_LIST_ROUTES,
   ...CONVERSATION_MANAGEMENT_ROUTES,
+  ...CONVERSATIONS_IMPORT_ROUTES,
   ...CONVERSATION_MESSAGE_ROUTES,
   ...CONSOLIDATION_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
@@ -168,6 +171,7 @@ export const ROUTES: RouteDefinition[] = [
   ...HOST_TRANSFER_ROUTES,
   ...IDENTITY_ROUTES,
   ...INFERENCE_PROFILE_SESSION_ROUTES,
+  ...INFERENCE_PROVIDER_CONNECTION_ROUTES,
   ...INTERFACE_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
   ...MCP_AUTH_ROUTES,

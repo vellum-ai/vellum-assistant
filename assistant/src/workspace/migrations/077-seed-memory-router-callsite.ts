@@ -32,7 +32,7 @@ import type { WorkspaceMigration } from "./types.js";
  *     operator wants for the routing role).
  */
 export const seedMemoryRouterCallsiteMigration: WorkspaceMigration = {
-  id: "076-seed-memory-router-callsite",
+  id: "077-seed-memory-router-callsite",
   description:
     "Seed callSites.memoryRouter to claude-sonnet-4-6 + 1M context for Anthropic",
   run(workspaceDir: string): void {

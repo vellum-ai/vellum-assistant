@@ -63,7 +63,7 @@ mock.module("../security/secure-keys.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     llm: mockLlmConfig,
-    services: { inference: { mode: "your-own" } },
+    services: { inference: {} },
   }),
 }));
 
@@ -79,7 +79,7 @@ import {
 function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
   return {
     services: {
-      inference: { mode: "your-own" },
+      inference: {},
       "image-generation": {
         mode: "your-own",
         provider: "gemini",

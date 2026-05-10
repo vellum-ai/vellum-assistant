@@ -366,10 +366,15 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    // Seed canonical inference provider_connections and backfill any legacy
-    // profiles that pre-date the connection field. Idempotent — runs every
-    // boot so new canonicals propagate and manual config.json edits self-heal.
     if (dbReady) {
+      await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
+      log.info("Daemon startup: workspace migrations complete");
+
+      // Seed canonical inference provider_connections and backfill any legacy
+      // profiles that pre-date the connection field. Runs after workspace
+      // migrations so migration 076 has already stripped services.inference.mode
+      // before backfill reads config. Idempotent — runs every boot so new
+      // canonicals propagate and manual config.json edits self-heal.
       try {
         runProviderConnectionsBackfill(getDb());
       } catch (err) {
@@ -378,11 +383,6 @@ export async function runDaemon(): Promise<void> {
           "provider_connections backfill failed — continuing startup",
         );
       }
-    }
-
-    if (dbReady) {
-      await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
-      log.info("Daemon startup: workspace migrations complete");
 
       // Profiler retention sweep — prune completed profiler runs to stay
       // within configured byte-count, run-count, and free-space budgets.

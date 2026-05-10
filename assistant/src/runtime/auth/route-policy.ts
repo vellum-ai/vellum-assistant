@@ -155,6 +155,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations/attention", scopes: ["chat.read"] },
   { endpoint: "conversations/seen", scopes: ["chat.write"] },
   { endpoint: "conversations/unread", scopes: ["chat.write"] },
+  { endpoint: "conversations/import", scopes: ["chat.write"] },
   { endpoint: "search", scopes: ["chat.read"] },
   { endpoint: "search/global", scopes: ["chat.read"] },
   { endpoint: "suggestion", scopes: ["chat.read"] },
@@ -499,12 +500,24 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "backups/create", scopes: ["settings.write"] },
   { endpoint: "backups/restore", scopes: ["settings.write"] },
   { endpoint: "backups/verify", scopes: ["settings.read"] },
+  { endpoint: "backup/enable", scopes: ["settings.write"] },
+  { endpoint: "backup/disable", scopes: ["settings.write"] },
+  { endpoint: "backup/destinations", scopes: ["settings.read"] },
+  { endpoint: "backup/destinations/add", scopes: ["settings.write"] },
+  { endpoint: "backup/destinations/remove", scopes: ["settings.write"] },
+  { endpoint: "backup/destinations/set-encrypt", scopes: ["settings.write"] },
+  { endpoint: "backup/status", scopes: ["settings.read"] },
 
   // Settings (voice, avatar, client settings)
   { endpoint: "settings/voice", scopes: ["settings.write"] },
   { endpoint: "settings/avatar/generate", scopes: ["settings.write"] },
   { endpoint: "avatar/character-components", scopes: ["settings.read"] },
   { endpoint: "avatar/render-from-traits", scopes: ["settings.write"] },
+  { endpoint: "avatar/generate", scopes: ["settings.write"] },
+  { endpoint: "avatar/set", scopes: ["settings.write"] },
+  { endpoint: "avatar/remove", scopes: ["settings.write"] },
+  { endpoint: "avatar/get", scopes: ["settings.read"] },
+  { endpoint: "avatar/character/ascii", scopes: ["settings.read"] },
   { endpoint: "settings/client", scopes: ["settings.write"] },
 
   // Schedules
@@ -547,6 +560,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Speech-to-text
   { endpoint: "stt/providers", scopes: ["settings.read"] },
   { endpoint: "stt/transcribe", scopes: ["chat.write"] },
+
+  // Inference provider connections
+  { endpoint: "inference/provider-connections:GET", scopes: ["settings.read"] },
+  { endpoint: "inference/provider-connections:POST", scopes: ["settings.write"] },
+  { endpoint: "inference/provider-connections/detail:GET", scopes: ["settings.read"] },
+  { endpoint: "inference/provider-connections/detail:PATCH", scopes: ["settings.write"] },
+  { endpoint: "inference/provider-connections/detail:DELETE", scopes: ["settings.write"] },
 
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
@@ -821,6 +841,19 @@ registerPolicy("background-tools", {
 
 registerPolicy("background-tools/cancel", {
   requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// TTS CLI synthesis: local-only (CLI / IPC callers)
+registerPolicy("tts/synthesize-cli", {
+  requiredScopes: ["chat.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// STT file transcription: local-only — handler reads/transcodes an arbitrary
+// host filesystem path, so non-local callers cannot be allowed to drive it.
+registerPolicy("stt/transcribe-file", {
+  requiredScopes: ["chat.write"],
   allowedPrincipalTypes: ["local"],
 });
 
