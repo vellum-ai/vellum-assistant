@@ -384,7 +384,8 @@ Examples:
               log.error(
                 `Invalid --group-by value: '${opts.groupBy}'. Must be one of: ${USAGE_GROUP_BY_DIMENSIONS.join(", ")}`,
               );
-              process.exit(1);
+              process.exitCode = 1;
+              return;
             }
             const { from, to } = resolveRange(opts);
             const r = await cliIpcCall<{ breakdown: UsageGroupBreakdown[] }>(
@@ -425,21 +426,18 @@ function resolveRange(opts: { range: string; from?: string; to?: string }): {
     const from = opts.from !== undefined ? Number(opts.from) : 0;
     const to = opts.to !== undefined ? Number(opts.to) : Date.now();
     if (!Number.isFinite(from) || !Number.isFinite(to)) {
-      log.error("--from and --to must be valid epoch millisecond timestamps");
-      process.exit(1);
+      throw new Error("--from and --to must be valid epoch millisecond timestamps");
     }
     if (from > to) {
-      log.error("--from must be less than or equal to --to");
-      process.exit(1);
+      throw new Error("--from must be less than or equal to --to");
     }
     return { from, to };
   }
   const validPresets = new Set<string>(["today", "week", "month", "all"]);
   if (!validPresets.has(opts.range)) {
-    log.error(
+    throw new Error(
       `Invalid --range value: '${opts.range}'. Must be one of: today, week, month, all`,
     );
-    process.exit(1);
   }
   return resolveTimeRange(opts.range as RangePreset);
 }

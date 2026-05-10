@@ -30,6 +30,8 @@ let mockIpcResult: {
   statusCode?: number;
 } = { ok: true, result: {} };
 
+const logLines: string[] = [];
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -53,9 +55,9 @@ mock.module("../../../util/logger.js", () => ({
     debug: () => {},
   }),
   getCliLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
+    info: (message: string) => logLines.push(message),
+    warn: (message: string) => logLines.push(message),
+    error: (message: string) => logLines.push(message),
     debug: () => {},
   }),
 }));
@@ -101,6 +103,7 @@ async function runCommand(
 beforeEach(() => {
   lastIpcCall = null;
   mockIpcResult = { ok: true, result: {} };
+  logLines.length = 0;
   process.exitCode = 0;
 });
 
@@ -310,5 +313,108 @@ describe("usage breakdown", () => {
     ]);
 
     expect(exitCode).not.toBe(0);
+  });
+});
+
+
+// ===========================================================================
+// usage breakdown — output rendering (mock IPC, capture log)
+// ===========================================================================
+
+describe("usage breakdown — output rendering", () => {
+  test("--json passes through group and groupKey from IPC result", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        breakdown: [
+          {
+            group: "Main Agent",
+            groupId: "mainAgent",
+            groupKey: "mainAgent",
+            totalInputTokens: 100,
+            totalOutputTokens: 50,
+            totalCacheCreationTokens: 0,
+            totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.01,
+            eventCount: 1,
+          },
+          {
+            group: "Unknown Task",
+            groupId: null,
+            groupKey: null,
+            totalInputTokens: 200,
+            totalOutputTokens: 100,
+            totalCacheCreationTokens: 0,
+            totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.005,
+            eventCount: 1,
+          },
+        ],
+      },
+    };
+
+    const { exitCode } = await runCommand([
+      "usage",
+      "breakdown",
+      "--range",
+      "all",
+      "--group-by",
+      "call_site",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.method).toBe("usage_breakdown");
+    expect(lastIpcCall!.params!.queryParams.groupBy).toBe("call_site");
+
+    const output = logLines.join("\n");
+    const parsed = JSON.parse(output) as {
+      breakdown: Array<{ group: string; groupKey: string | null }>;
+    };
+    expect(parsed.breakdown.map((row) => row.group)).toEqual([
+      "Main Agent",
+      "Unknown Task",
+    ]);
+    expect(parsed.breakdown.map((row) => row.groupKey)).toEqual([
+      "mainAgent",
+      null,
+    ]);
+  });
+
+  test("table renders PROFILE header and pass-through Default / Unset row for inference_profile", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        breakdown: [
+          {
+            group: "Default / Unset",
+            groupId: null,
+            groupKey: null,
+            totalInputTokens: 100,
+            totalOutputTokens: 50,
+            totalCacheCreationTokens: 0,
+            totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.01,
+            eventCount: 1,
+          },
+        ],
+      },
+    };
+
+    const { exitCode } = await runCommand([
+      "usage",
+      "breakdown",
+      "--range",
+      "all",
+      "--group-by",
+      "inference_profile",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.params!.queryParams.groupBy).toBe("inference_profile");
+
+    const output = logLines.join("\n");
+    expect(output).toContain("PROFILE");
+    expect(output).toContain("Default / Unset");
   });
 });
