@@ -210,23 +210,33 @@ describe("avatar set", () => {
   test("resolves relative path to absolute before calling avatar_set", async () => {
     mockIpcResult = { ok: true, result: { ok: true } };
 
-    // Provide a path that exists on disk to bypass existsSync check
-    const { existsSync } = await import("node:fs");
-    const { resolve } = await import("node:path");
+    // avatar.ts resolves relative paths against VELLUM_WORKSPACE_DIR.
+    // Point the workspace root at cwd so a real file (./package.json) is reachable.
+    const originalWsDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = process.cwd();
+    try {
+      const { existsSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
 
-    // Use process.cwd() which always exists
-    const relPath = "./package.json";
-    const resolved = resolve(process.cwd(), relPath);
+      const relPath = "./package.json";
+      const resolved = resolve(process.cwd(), relPath);
 
-    if (existsSync(resolved)) {
-      await runCommand(["avatar", "set", "--image", relPath]);
+      if (existsSync(resolved)) {
+        await runCommand(["avatar", "set", "--image", relPath]);
 
-      expect(lastIpcCall).toBeDefined();
-      expect(lastIpcCall!.method).toBe("avatar_set");
-      // Path should be absolute
-      expect(((lastIpcCall!.params!.body as Record<string, unknown>).imagePath as string).startsWith("/")).toBe(true);
+        expect(lastIpcCall).toBeDefined();
+        expect(lastIpcCall!.method).toBe("avatar_set");
+        // Path should be absolute
+        expect(((lastIpcCall!.params!.body as Record<string, unknown>).imagePath as string).startsWith("/")).toBe(true);
+      }
+      // If the file doesn't exist we skip — the test is about path resolution
+    } finally {
+      if (originalWsDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWsDir;
+      }
     }
-    // If the file doesn't exist we skip — the test is about path resolution
   });
 
   test("exits 1 if image file not found (no IPC call)", async () => {
