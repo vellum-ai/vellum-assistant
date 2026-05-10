@@ -124,7 +124,6 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
   const managed = { mode: "managed" as const };
   return {
     services: {
-      inference: managed,
       "image-generation": managed,
       "web-search": managed,
       "google-oauth": managed,
