@@ -294,6 +294,84 @@ async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
   return data;
 }
 
+// ── Attachment handlers ───────────────────────────────────────────────
+
+interface AttachmentMeta {
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  content_id: string;
+  created_at: string;
+}
+
+async function handleEmailAttachmentList({ queryParams = {} }: RouteHandlerArgs) {
+  const client = await requireClient();
+  const { messageId } = queryParams;
+
+  const response = await client.fetch(
+    `/v1/assistants/${client.platformAssistantId}/emails/${messageId}/attachments/`,
+  );
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new NotFoundError(`Email message not found: ${messageId}`);
+    }
+    const respBody = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const detail = respBody.detail ?? `HTTP ${response.status}`;
+    throw new RouteError(String(detail), "LIST_FAILED", response.status);
+  }
+
+  const data = (await response.json()) as { results: AttachmentMeta[] };
+  return { results: data.results ?? [] };
+}
+
+async function handleEmailAttachmentGet({ queryParams = {} }: RouteHandlerArgs) {
+  const client = await requireClient();
+  const { messageId, attachmentId } = queryParams;
+
+  const response = await client.fetch(
+    `/v1/assistants/${client.platformAssistantId}/emails/${messageId}/attachments/${attachmentId}/download/`,
+  );
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new NotFoundError(`Attachment not found: ${attachmentId}`);
+    }
+    const respBody = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const detail = respBody.detail ?? `HTTP ${response.status}`;
+    throw new RouteError(String(detail), "DOWNLOAD_FAILED", response.status);
+  }
+
+  if (!response.body) {
+    throw new RouteError("Empty response body from download endpoint.", "EMPTY_BODY", 502);
+  }
+
+  // Extract filename from content-disposition header, falling back to attachmentId
+  const contentDisposition = response.headers.get("content-disposition") ?? "";
+  const filenameMatch = contentDisposition.match(/filename\*?=['"]?([^'";]+)['"]?/i);
+  const filename = filenameMatch?.[1]?.trim() ?? attachmentId;
+
+  const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+
+  // Return a streaming response — the IPC server pipes the ReadableStream as
+  // chunked binary frames to the client
+  return {
+    stream: response.body as ReadableStream<Uint8Array>,
+    headers: {
+      "content-type": contentType,
+      "transfer-encoding": "chunked",
+      "x-filename": filename,
+    },
+  };
+}
+
 // ── Routes ────────────────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -404,5 +482,42 @@ export const ROUTES: RouteDefinition[] = [
       delivery_id: z.string(),
       status: z.string(),
     }),
+  },
+  {
+    operationId: "email_attachment_list",
+    endpoint: "email/attachment-list",
+    method: "GET",
+    handler: handleEmailAttachmentList,
+    summary: "List attachments for an email message",
+    description: "Return attachment metadata (id, filename, content_type, size_bytes, content_id, created_at) for all attachments on a given email message.",
+    tags: ["email"],
+    queryParams: [
+      { name: "messageId", type: "string", required: true, description: "Email message ID" },
+    ],
+    responseBody: z.object({
+      results: z.array(
+        z.object({
+          id: z.string(),
+          filename: z.string(),
+          content_type: z.string(),
+          size_bytes: z.number(),
+          content_id: z.string(),
+          created_at: z.string(),
+        }),
+      ),
+    }),
+  },
+  {
+    operationId: "email_attachment_get",
+    endpoint: "email/attachment-get",
+    method: "GET",
+    handler: handleEmailAttachmentGet,
+    summary: "Stream-download an email attachment",
+    description: "Download the binary content of a specific email attachment as a chunked stream. Response headers include content-type from the upstream and x-filename derived from content-disposition.",
+    tags: ["email"],
+    queryParams: [
+      { name: "messageId", type: "string", required: true, description: "Email message ID" },
+      { name: "attachmentId", type: "string", required: true, description: "Attachment ID" },
+    ],
   },
 ];
