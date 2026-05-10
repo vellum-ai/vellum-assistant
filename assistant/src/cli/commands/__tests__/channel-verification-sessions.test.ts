@@ -165,8 +165,10 @@ describe("channel-verification-sessions create", () => {
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("channel_verification_sessions_create");
     expect(lastIpcCall!.params).toMatchObject({
-      channel: "telegram",
-      purpose: "guardian",
+      body: {
+        channel: "telegram",
+        purpose: "guardian",
+      },
     });
   });
 
@@ -182,9 +184,11 @@ describe("channel-verification-sessions create", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.params).toMatchObject({
-      channel: "telegram",
-      destination: "@handle",
-      purpose: "guardian",
+      body: {
+        channel: "telegram",
+        destination: "@handle",
+        purpose: "guardian",
+      },
     });
   });
 
@@ -200,8 +204,10 @@ describe("channel-verification-sessions create", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.params).toMatchObject({
-      purpose: "trusted_contact",
-      contactChannelId: "abc",
+      body: {
+        purpose: "trusted_contact",
+        contactChannelId: "abc",
+      },
     });
   });
 
@@ -216,8 +222,10 @@ describe("channel-verification-sessions create", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.params).toMatchObject({
-      channel: "telegram",
-      rebind: true,
+      body: {
+        channel: "telegram",
+        rebind: true,
+      },
     });
   });
 
@@ -279,7 +287,7 @@ describe("channel-verification-sessions status", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("channel_verification_sessions_status");
-    expect(lastIpcCall!.params).toMatchObject({ channel: undefined });
+    expect(lastIpcCall!.params).toMatchObject({ body: { channel: undefined } });
   });
 
   test("--channel phone sends channel: 'phone'", async () => {
@@ -291,7 +299,7 @@ describe("channel-verification-sessions status", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params).toMatchObject({ channel: "phone" });
+    expect(lastIpcCall!.params).toMatchObject({ body: { channel: "phone" } });
   });
 
   test("--channel fax sets exitCode 1 and does not call IPC", async () => {
@@ -350,7 +358,7 @@ describe("channel-verification-sessions resend", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("channel_verification_sessions_resend");
-    expect(lastIpcCall!.params).toMatchObject({ channel: "telegram" });
+    expect(lastIpcCall!.params).toMatchObject({ body: { channel: "telegram" } });
   });
 
   test("--origin-conversation-id is passed to IPC", async () => {
@@ -365,8 +373,10 @@ describe("channel-verification-sessions resend", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.params).toMatchObject({
-      channel: "telegram",
-      originConversationId: "conv-123",
+      body: {
+        channel: "telegram",
+        originConversationId: "conv-123",
+      },
     });
   });
 
@@ -399,7 +409,7 @@ describe("channel-verification-sessions cancel", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("channel_verification_sessions_cancel");
-    expect(lastIpcCall!.params).toMatchObject({ channel: "telegram" });
+    expect(lastIpcCall!.params).toMatchObject({ body: { channel: "telegram" } });
   });
 
   test("IPC error results in exit code 1", async () => {
@@ -448,7 +458,7 @@ describe("channel-verification-sessions revoke", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("channel_verification_sessions_revoke");
-    expect(lastIpcCall!.params).toMatchObject({ channel: undefined });
+    expect(lastIpcCall!.params).toMatchObject({ body: { channel: undefined } });
   });
 
   test("--channel phone sends channel: 'phone'", async () => {
@@ -460,7 +470,7 @@ describe("channel-verification-sessions revoke", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params).toMatchObject({ channel: "phone" });
+    expect(lastIpcCall!.params).toMatchObject({ body: { channel: "phone" } });
   });
 
   test("IPC error results in exit code 1", async () => {

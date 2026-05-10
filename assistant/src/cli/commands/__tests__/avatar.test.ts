@@ -169,7 +169,7 @@ describe("avatar generate", () => {
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("avatar_generate");
-    expect(lastIpcCall!.params).toEqual({ description: "blue cat" });
+    expect(lastIpcCall!.params).toEqual({ body: { description: "blue cat" } });
   });
 
   test("exits 1 on IPC error", async () => {
@@ -204,7 +204,7 @@ describe("avatar set", () => {
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("avatar_set");
-    expect(lastIpcCall!.params).toEqual({ imagePath: "/tmp" });
+    expect(lastIpcCall!.params).toEqual({ body: { imagePath: "/tmp" } });
   });
 
   test("resolves relative path to absolute before calling avatar_set", async () => {
@@ -224,7 +224,7 @@ describe("avatar set", () => {
       expect(lastIpcCall).toBeDefined();
       expect(lastIpcCall!.method).toBe("avatar_set");
       // Path should be absolute
-      expect((lastIpcCall!.params!.imagePath as string).startsWith("/")).toBe(true);
+      expect(((lastIpcCall!.params!.body as Record<string, unknown>).imagePath as string).startsWith("/")).toBe(true);
     }
     // If the file doesn't exist we skip — the test is about path resolution
   });
@@ -310,7 +310,7 @@ describe("avatar get", () => {
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("avatar_get");
-    expect(lastIpcCall!.params).toEqual({ format: "path" });
+    expect(lastIpcCall!.params).toEqual({ body: { format: "path" } });
   });
 
   test("calls avatar_get with format base64", async () => {
@@ -329,7 +329,7 @@ describe("avatar get", () => {
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("avatar_get");
-    expect(lastIpcCall!.params).toEqual({ format: "base64" });
+    expect(lastIpcCall!.params).toEqual({ body: { format: "base64" } });
   });
 
   test("exits 1 for invalid format (no IPC call)", async () => {
@@ -385,9 +385,11 @@ describe("avatar character update", () => {
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("avatar_render_from_traits");
     expect(lastIpcCall!.params).toEqual({
-      bodyShape: "blob",
-      eyeStyle: "curious",
-      color: "green",
+      body: {
+        bodyShape: "blob",
+        eyeStyle: "curious",
+        color: "green",
+      },
     });
   });
 
@@ -485,7 +487,7 @@ describe("avatar character ascii", () => {
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("avatar_character_ascii");
-    expect(lastIpcCall!.params).toEqual({ width: "60" });
+    expect(lastIpcCall!.params).toEqual({ body: { width: "60" } });
   });
 
   test("calls avatar_character_ascii with custom width 40", async () => {
@@ -502,7 +504,7 @@ describe("avatar character ascii", () => {
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("avatar_character_ascii");
-    expect(lastIpcCall!.params).toEqual({ width: "40" });
+    expect(lastIpcCall!.params).toEqual({ body: { width: "40" } });
   });
 
   test("exits 1 for non-numeric width (no IPC call)", async () => {

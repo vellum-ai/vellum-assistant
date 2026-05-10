@@ -181,7 +181,7 @@ describe("conversations import — valid input", () => {
     expect(lastIpcCall).not.toBeNull();
     expect(lastIpcCall!.method).toBe("conversations_import");
     expect(
-      (lastIpcCall!.params as Record<string, unknown>).conversations,
+      ((lastIpcCall!.params as Record<string, unknown>).body as Record<string, unknown>).conversations,
     ).toHaveLength(1);
   });
 
@@ -201,8 +201,8 @@ describe("conversations import — valid input", () => {
     await runCommand(["conversations", "import", "--file", filePath]);
 
     expect(lastIpcCall).not.toBeNull();
-    const convs = (lastIpcCall!.params as Record<string, unknown>)
-      .conversations as Array<Record<string, unknown>>;
+    const convs = ((lastIpcCall!.params as Record<string, unknown>)
+      .body as Record<string, unknown>).conversations as Array<Record<string, unknown>>;
     expect(convs[0]!.sourceKey).toBe("chatgpt:abc123");
     expect(convs[0]!.title).toBe("Exported Chat");
   });
