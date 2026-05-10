@@ -101,7 +101,7 @@ Examples:
         "listSkills",
         { queryParams: {} },
       );
-      if (!r.ok) return exitFromIpcResult(r, cmd);
+      if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
       const allSkills = (r.result!.skills).map((s) => ({
         id: s.id,
         name: s.name,
@@ -154,7 +154,7 @@ Examples:
         "skillsLocalInspect",
         { pathParams: { id: skillId } },
       );
-      if (!r.ok) return exitFromIpcResult(r, cmd);
+      if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
       const detail = r.result!;
       if (opts.json) {
         console.log(JSON.stringify({ ok: true, skill: detail }));
@@ -592,7 +592,7 @@ Examples:
     )
     .action(async (skillId: string, opts: { json?: boolean }, cmd) => {
       const r = await cliIpcCall<null>("deleteSkill", { pathParams: { id: skillId } });
-      if (!r.ok) return exitFromIpcResult(r, cmd);
+      if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
       if (opts.json) {
         console.log(JSON.stringify({ ok: true, skillId }));
       } else {

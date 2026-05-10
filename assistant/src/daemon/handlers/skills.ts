@@ -736,7 +736,7 @@ export function getSkillLocalDetail(
       toolManifest: summary.toolManifest
         ? { valid: summary.toolManifest.valid, toolCount: summary.toolManifest.toolCount, toolNames: summary.toolManifest.toolNames }
         : null,
-      installMeta: installMeta ? (installMeta as Record<string, unknown>) : null,
+      installMeta: installMeta ? (installMeta as unknown as Record<string, unknown>) : null,
       config: configEntry
         ? {
             enabled: configEntry.enabled !== false,
