@@ -542,6 +542,37 @@ async function main() {
     }
     if (existing !== yamlOutput) {
       console.error("openapi.yaml is stale. Run: bun run generate:openapi");
+      // TEMP diagnostic: print first divergence to debug CI failure
+      const existingLines = existing.split("\n");
+      const generatedLines = yamlOutput.split("\n");
+      const maxLines = Math.max(existingLines.length, generatedLines.length);
+      let firstDiff = -1;
+      for (let i = 0; i < maxLines; i++) {
+        if (existingLines[i] !== generatedLines[i]) {
+          firstDiff = i;
+          break;
+        }
+      }
+      console.error(
+        `existing: ${existingLines.length} lines, ${existing.length} bytes`,
+      );
+      console.error(
+        `generated: ${generatedLines.length} lines, ${yamlOutput.length} bytes`,
+      );
+      if (firstDiff >= 0) {
+        const start = Math.max(0, firstDiff - 2);
+        const end = Math.min(maxLines, firstDiff + 80);
+        console.error(`first diff at line ${firstDiff + 1}:`);
+        for (let i = start; i < end; i++) {
+          const e = existingLines[i] ?? "<EOF>";
+          const g = generatedLines[i] ?? "<EOF>";
+          if (e === g) console.error(`  ${i + 1}: ${e}`);
+          else {
+            console.error(`- ${i + 1}: ${e}`);
+            console.error(`+ ${i + 1}: ${g}`);
+          }
+        }
+      }
       process.exit(1);
     }
     console.log("openapi.yaml is up to date.");
