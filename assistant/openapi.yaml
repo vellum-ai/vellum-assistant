@@ -3551,11 +3551,14 @@ paths:
                     type: string
                   created:
                     type: boolean
+                  title:
+                    type: string
                 required:
                   - id
                   - conversationKey
                   - conversationType
                   - created
+                  - title
                 additionalProperties: false
       requestBody:
         required: true
@@ -3565,14 +3568,15 @@ paths:
               type: object
               properties:
                 conversationKey:
+                  description: Idempotency key for the conversation; auto-generated when omitted
                   type: string
-                  description: Idempotency key for the conversation
                 conversationType:
                   description: Only standard conversations are created by this endpoint
                   type: string
                   const: standard
-              required:
-                - conversationKey
+                title:
+                  description: Optional conversation title; defaults to "New Conversation" when omitted or blank
+                  type: string
               additionalProperties: false
   /v1/conversations/{id}:
     delete:
@@ -3663,6 +3667,22 @@ paths:
                   - cancelled
                   - conversationId
                 additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/conversations/{id}/export:
+    get:
+      operationId: conversations_by_id_export_get
+      summary: Export a conversation
+      description: Return the full conversation with all messages for export. Supports prefix matching on conversation ID.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
       parameters:
         - name: id
           in: path
@@ -4493,6 +4513,146 @@ paths:
               required:
                 - conversationId
               additionalProperties: false
+  /v1/credentials:
+    get:
+      operationId: credentials_get
+      summary: List all stored credentials
+      description: Returns local credentials and platform-managed credentials. Supports optional search filtering.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter credentials by case-insensitive substring match on service, field, label, or description
+    post:
+      operationId: credentials_post
+      summary: Store or update a credential
+      description: Stores a secret value and creates or updates associated metadata.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  credentialId:
+                    type: string
+                  service:
+                    type: string
+                  field:
+                    type: string
+                required:
+                  - ok
+                  - credentialId
+                  - service
+                  - field
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                field:
+                  type: string
+                value:
+                  type: string
+                label:
+                  type: string
+                description:
+                  type: string
+                allowedTools:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - service
+                - field
+                - value
+              additionalProperties: false
+  /v1/credentials/delete:
+    post:
+      operationId: credentials_delete_post
+      summary: Delete a credential
+      description:
+        Removes the encrypted secret, its metadata, and any associated OAuth connection. Uses POST to carry body
+        params cleanly over IPC.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  service:
+                    type: string
+                  field:
+                    type: string
+                required:
+                  - ok
+                  - service
+                  - field
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                field:
+                  type: string
+              required:
+                - service
+                - field
+              additionalProperties: false
+  /v1/credentials/inspect:
+    get:
+      operationId: credentials_inspect_get
+      summary: Inspect a credential
+      description: Show metadata and a masked preview of a stored credential. Look up by service+field or by credential UUID.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: service
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: field
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
   /v1/credentials/prompt:
     post:
       operationId: credentials_prompt_post
@@ -4575,6 +4735,42 @@ paths:
                 - field
                 - label
               additionalProperties: false
+  /v1/credentials/reveal:
+    get:
+      operationId: credentials_reveal_get
+      summary: Reveal a credential's plaintext value
+      description: Returns the raw secret value. IPC socket is Unix-domain (local only); plaintext access is safe.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: service
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: field
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+  /v1/credentials/status:
+    get:
+      operationId: credentials_status_get
+      summary: Show credential backend status
+      description: Returns the active credential storage backend and its configuration details.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
   /v1/debug:
     get:
       operationId: debug_get

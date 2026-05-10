@@ -46,6 +46,7 @@ import {
   setConversationKeyIfAbsent,
 } from "../../memory/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
+import { getQdrantClient } from "../../memory/qdrant-client.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -103,11 +104,13 @@ function cancelScheduleIfLast(conversationId: string): void {
 function handleCreateConversation({ body = {} }: RouteHandlerArgs) {
   const conversationKey =
     (body.conversationKey as string | undefined) ?? crypto.randomUUID();
+  const title = body.title as string | undefined;
+  const resolvedTitle = title?.trim() ? title : "New Conversation";
   const result = getOrCreateConversation(conversationKey, {
     conversationType: "standard",
   });
   if (result.created) {
-    updateConversationTitle(result.conversationId, "New Conversation");
+    updateConversationTitle(result.conversationId, resolvedTitle);
   }
   log.info(
     {
@@ -122,6 +125,7 @@ function handleCreateConversation({ body = {} }: RouteHandlerArgs) {
     conversationKey,
     conversationType: normalizeConversationType(result.conversationType),
     created: result.created,
+    title: resolvedTitle,
   };
 }
 
@@ -240,8 +244,12 @@ function handleRenameConversation({
   return { ok: true };
 }
 
-function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
-  const confirm = headers["x-confirm-destructive"];
+async function handleClearAllConversations({
+  headers = {},
+  body = {},
+}: RouteHandlerArgs) {
+  const confirm = (headers["x-confirm-destructive"] as string | undefined)
+    ?? (body as Record<string, unknown>).confirm;
   if (confirm !== "clear-all-conversations") {
     throw new BadRequestError(
       "DELETE /v1/conversations permanently deletes ALL conversations, messages, and memory. " +
@@ -249,6 +257,29 @@ function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
     );
   }
   clearAllConversations();
+
+  // Drop the Qdrant collection so vector data does not survive the clear.
+  // Mirrors the pre-thin-IPC CLI behavior, which initialised a Qdrant client
+  // and called deleteCollection() after the SQLite wipe. The daemon already
+  // owns an initialised client; deleteCollection() is internally defensive
+  // (returns false when the collection is missing or Qdrant is unreachable),
+  // and ensureCollection() will recreate the collection on next use.
+  try {
+    const qdrant = getQdrantClient();
+    const deleted = await qdrant.deleteCollection();
+    log.info(
+      { qdrantDeleted: deleted },
+      deleted
+        ? "Cleared Qdrant vector collection after clearAllConversations"
+        : "Qdrant vector collection not found or unreachable — skipped",
+    );
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to clear Qdrant collection after clearAllConversations — skipped",
+    );
+  }
+
   return undefined;
 }
 
@@ -407,17 +438,27 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       conversationKey: z
         .string()
-        .describe("Idempotency key for the conversation"),
+        .optional()
+        .describe(
+          "Idempotency key for the conversation; auto-generated when omitted",
+        ),
       conversationType: z
         .literal("standard")
         .optional()
         .describe("Only standard conversations are created by this endpoint"),
+      title: z
+        .string()
+        .optional()
+        .describe(
+          "Optional conversation title; defaults to \"New Conversation\" when omitted or blank",
+        ),
     }),
     responseBody: z.object({
       id: z.string(),
       conversationKey: z.string(),
       conversationType: z.string(),
       created: z.boolean(),
+      title: z.string(),
     }),
     handler: handleCreateConversation,
   },
