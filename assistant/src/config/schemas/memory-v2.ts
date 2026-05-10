@@ -256,6 +256,28 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Cross-encoder rerank configuration. When enabled, picks the top-K candidates by pre-rerank A_o, runs the cross-encoder once per channel (user, assistant) on that unified set, and adds an alpha-weighted normalized boost to A_o for each scored slug.",
       ),
+    router: z
+      .object({
+        enabled: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Whether to use the LLM router as the per-turn page-selection mechanism in place of spreading activation. Disabled by default — opt in once the router orchestration and dispatcher land.",
+          ),
+        max_page_ids: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .default(25)
+          .describe(
+            "Upper bound on the number of concept-page ids the router may return per turn. Caps both prompt size and downstream injection budget.",
+          ),
+      })
+      .default({ enabled: false, max_page_ids: 25 })
+      .describe(
+        "LLM router configuration. When enabled, a single Sonnet router call replaces spreading activation for per-turn page selection.",
+      ),
   })
   .describe(
     "Memory v2 — concept-page activation model with periodic LLM-driven consolidation",
