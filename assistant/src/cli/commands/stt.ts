@@ -124,7 +124,7 @@ Examples:
               process.exitCode = 1;
               return;
             }
-            return exitFromIpcResult(r);
+            return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number });
           }
 
           const { transcript, provider, durationSeconds } = r.result!;
