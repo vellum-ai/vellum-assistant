@@ -10979,10 +10979,9 @@ paths:
             type: string
   /v1/skills/{id}/local-inspect:
     get:
-      operationId: skills_by_id_local_inspect_get
+      operationId: skills_by_id_localinspect_get
       summary: Local skill inspect
-      description: "Return full local detail for an installed or bundled skill:\
-        \ featureFlag, toolManifest, installMeta, configEntry, directoryPath."
+      description: Return full local detail for an installed or bundled skill, including featureFlag, toolManifest, installMeta, configEntry, and directoryPath.
       tags:
         - skills
       responses:

@@ -564,7 +564,7 @@ export const ROUTES: RouteDefinition[] = [
     policyKey: "skills",
     requirePolicyEnforcement: true,
     summary: "Local skill inspect",
-    description: "Return full local detail for an installed or bundled skill: featureFlag, toolManifest, installMeta, configEntry, directoryPath.",
+    description: "Return full local detail for an installed or bundled skill, including featureFlag, toolManifest, installMeta, configEntry, and directoryPath.",
     tags: ["skills"],
     handler: ({ pathParams }: RouteHandlerArgs) => {
       const result = getSkillLocalDetail(pathParams!.id);
