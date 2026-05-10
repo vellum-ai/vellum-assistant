@@ -2,8 +2,8 @@ import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import type { ContactPromptResult } from "../../runtime/routes/contact-prompt-routes.js";
-import { shouldOutputJson, writeOutput } from "../output.js";
 import { registerCommand } from "../lib/register-command.js";
+import { shouldOutputJson, writeOutput } from "../output.js";
 
 // ---------------------------------------------------------------------------
 // Human-readable formatters
@@ -210,7 +210,7 @@ Examples:
               if (opts.channelAddress) queryParams.channelAddress = opts.channelAddress;
               if (opts.channelType) queryParams.channelType = opts.channelType;
               const r = await cliIpcCall<{ ok: true; contacts: Record<string, unknown>[] }>("listContacts", { queryParams });
-              if (!r.ok) return exitFromIpcResult(r, cmd);
+              if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
               const contacts = r.result!.contacts;
               if (shouldOutputJson(cmd)) { writeOutput(cmd, { ok: true, contacts }); return; }
               if (contacts.length === 0) { process.stdout.write("No contacts found.\n"); return; }
@@ -243,7 +243,7 @@ Examples:
         .action(async (id: string, _opts: unknown, cmd: Command) => {
           try {
             const r = await cliIpcCall<{ ok: true; contact: Record<string, unknown>; assistantMetadata?: Record<string, unknown> }>("getContact", { pathParams: { id } });
-            if (!r.ok) return exitFromIpcResult(r, cmd);
+            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
             if (shouldOutputJson(cmd)) { writeOutput(cmd, r.result); return; }
             process.stdout.write(formatContactDetail(r.result!.contact, r.result!.assistantMetadata) + "\n");
           } catch (err) {
@@ -275,7 +275,7 @@ Examples:
           async (keepId: string, mergeId: string, _opts: unknown, cmd: Command) => {
             try {
               const r = await cliIpcCall<{ ok: true; contact: Record<string, unknown> }>("merge_contacts", { body: { keepId, mergeId } });
-              if (!r.ok) return exitFromIpcResult(r, cmd);
+              if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
               if (shouldOutputJson(cmd)) { writeOutput(cmd, { ok: true, contact: r.result!.contact }); return; }
               process.stdout.write(`Merged ${mergeId} into ${keepId}\n` + formatContactDetail(r.result!.contact) + "\n");
             } catch (err) {
@@ -344,7 +344,7 @@ Examples:
               const r = await cliIpcCall<{ ok: true; contact: Record<string, unknown> }>("upsert_contact", {
                 body: { contactId: opts.id, displayName: opts.displayName, notes: opts.notes, role: opts.role, contactType: opts.contactType, channels },
               });
-              if (!r.ok) return exitFromIpcResult(r, cmd);
+              if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
               if (shouldOutputJson(cmd)) { writeOutput(cmd, { ok: true, contact: r.result!.contact }); return; }
               process.stdout.write(formatContactDetail(r.result!.contact) + "\n");
             } catch (err) {
@@ -491,7 +491,7 @@ Examples:
                 pathParams: { contactChannelId: channelId },
                 body: { status: opts.status, policy: opts.policy, reason: opts.reason },
               });
-              if (!r.ok) return exitFromIpcResult(r, cmd);
+              if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
               if (shouldOutputJson(cmd)) { writeOutput(cmd, { ok: true, channel: r.result!.channel }); return; }
               if (r.result!.channel) process.stdout.write(formatChannelDetail(r.result!.channel) + "\n");
             } catch (err) {
@@ -548,7 +548,7 @@ Examples:
               if (opts.sourceChannel) queryParams.sourceChannel = opts.sourceChannel;
               if (opts.status) queryParams.status = opts.status;
               const r = await cliIpcCall<{ ok: true; invites: Record<string, unknown>[] }>("invites_list", { queryParams });
-              if (!r.ok) return exitFromIpcResult(r, cmd);
+              if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
               const invites = r.result!.invites;
               if (shouldOutputJson(cmd)) { writeOutput(cmd, { ok: true, invites }); return; }
               if (invites.length === 0) { process.stdout.write("No invites found.\n"); return; }
@@ -632,7 +632,7 @@ Examples:
               const r = await cliIpcCall<{ ok: true; invite: Record<string, unknown> }>("invites_create", {
                 body: { contactId: opts.contactId, sourceChannel: opts.sourceChannel, note: opts.note, maxUses, expiresInMs, contactName: opts.contactName, expectedExternalUserId: opts.expectedExternalUserId, friendName: opts.friendName, guardianName: opts.guardianName },
               });
-              if (!r.ok) return exitFromIpcResult(r, cmd);
+              if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
               if (shouldOutputJson(cmd)) { writeOutput(cmd, { ok: true, invite: r.result!.invite }); return; }
               const invite = r.result!.invite;
               process.stdout.write(`Created invite ${invite.id} (${invite.sourceChannel})\n`);
@@ -663,7 +663,7 @@ Examples:
         .action(async (inviteId: string, _opts: unknown, cmd: Command) => {
           try {
             const r = await cliIpcCall<{ ok: true; invite: Record<string, unknown> }>("invites_revoke", { pathParams: { id: inviteId } });
-            if (!r.ok) return exitFromIpcResult(r, cmd);
+            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
             if (shouldOutputJson(cmd)) { writeOutput(cmd, { ok: true, invite: r.result!.invite }); return; }
             process.stdout.write(`Revoked invite ${inviteId}\n`);
           } catch (err) {
@@ -720,7 +720,7 @@ Examples:
               const r = await cliIpcCall<{ ok: true; invite?: Record<string, unknown>; type?: string; memberId?: string }>("invites_redeem", {
                 body: { token: opts.token, sourceChannel: opts.sourceChannel, externalUserId: opts.externalUserId, externalChatId: opts.externalChatId, code: opts.code, callerExternalUserId: opts.callerExternalUserId, assistantId: opts.assistantId },
               });
-              if (!r.ok) return exitFromIpcResult(r, cmd);
+              if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
               const result = r.result!;
               if (shouldOutputJson(cmd)) {
                 if (result.type) { writeOutput(cmd, { ok: true, type: result.type, memberId: result.memberId }); }
