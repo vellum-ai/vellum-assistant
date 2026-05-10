@@ -114,6 +114,13 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Background sweep pass for V2 memory maintenance.",
     domain: "memory",
   },
+  memoryV2Consolidation: {
+    id: "memoryV2Consolidation",
+    displayName: "Memory V2 Consolidation",
+    description:
+      "Routes accumulated buffer entries into concept pages and rewrites the recent summary during V2 memory maintenance.",
+    domain: "memory",
+  },
   recall: {
     id: "recall",
     displayName: "Recall",
