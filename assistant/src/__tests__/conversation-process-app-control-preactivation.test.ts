@@ -15,7 +15,7 @@
  * instantiation block use at first-message time.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Module mocks for downstream side effects (DB writes, slash resolution,
@@ -28,9 +28,16 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
+/**
+ * Per-test capability client roster. Set in individual tests to simulate
+ * a connected macOS client for cross-client drain-path coverage. Reset in
+ * afterEach so tests don't bleed state.
+ */
+let mockCapabilityClients: Array<{ clientId: string; actorPrincipalId?: string }> = [];
+
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
-    listClientsByCapability: () => [],
+    listClientsByCapability: () => mockCapabilityClients,
   },
   broadcastMessage: () => {},
 }));
@@ -178,6 +185,10 @@ function makeQueuedMessage(opts: {
 // ---------------------------------------------------------------------------
 
 describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
+  afterEach(() => {
+    mockCapabilityClients = [];
+  });
+
   test("drainSingleMessage re-adds 'app-control' for macOS-sourced queued message", async () => {
     const queue = new MessageQueue();
     const ifCtx: TurnInterfaceContext = {
@@ -287,5 +298,85 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
     // turns even on macOS.
     expect(ctx.preactivatedSkillIdCalls).not.toContain("computer-use");
     expect(ctx.preactivatedSkillIdCalls).not.toContain("app-control");
+  });
+
+  // ── Cross-client drain-path: web source + macOS client connected ──────
+
+  test("drainSingleMessage re-adds 'app-control' for web-sourced message when macOS client is connected", async () => {
+    mockCapabilityClients = [
+      { clientId: "macos-client-1", actorPrincipalId: "user-1" },
+    ];
+    const queue = new MessageQueue();
+    const ifCtx: TurnInterfaceContext = {
+      userMessageInterface: "web",
+      assistantMessageInterface: "web",
+    };
+    queue.push(
+      makeQueuedMessage({ requestId: "req-web-1", turnInterfaceContext: ifCtx }),
+    );
+    const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
+
+    await drainQueue(ctx);
+
+    // web natively supports neither host_cu nor host_app_control, but the
+    // connected macOS client provides both via cross-client routing — so
+    // both skills must be re-preactivated.
+    expect(ctx.preactivatedSkillIdCalls).toContain("app-control");
+    expect(ctx.preactivatedSkillIds).toContain("app-control");
+    expect(ctx.preactivatedSkillIdCalls).toContain("computer-use");
+  });
+
+  test("drainSingleMessage does NOT re-add 'app-control' for web-sourced message when no capable client is connected", async () => {
+    // mockCapabilityClients remains [] (reset by afterEach from prior test)
+    const queue = new MessageQueue();
+    const ifCtx: TurnInterfaceContext = {
+      userMessageInterface: "web",
+      assistantMessageInterface: "web",
+    };
+    queue.push(
+      makeQueuedMessage({ requestId: "req-web-2", turnInterfaceContext: ifCtx }),
+    );
+    const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
+
+    await drainQueue(ctx);
+
+    expect(ctx.preactivatedSkillIdCalls).not.toContain("app-control");
+    expect(ctx.preactivatedSkillIdCalls).not.toContain("computer-use");
+  });
+
+  test("drainSingleMessage re-adds 'computer-use' for web-sourced message when macOS client is connected", async () => {
+    mockCapabilityClients = [
+      { clientId: "macos-client-1", actorPrincipalId: "user-1" },
+    ];
+    const queue = new MessageQueue();
+    const ifCtx: TurnInterfaceContext = {
+      userMessageInterface: "web",
+      assistantMessageInterface: "web",
+    };
+    queue.push(
+      makeQueuedMessage({ requestId: "req-web-3", turnInterfaceContext: ifCtx }),
+    );
+    const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
+
+    await drainQueue(ctx);
+
+    expect(ctx.preactivatedSkillIdCalls).toContain("computer-use");
+    expect(ctx.preactivatedSkillIds).toContain("computer-use");
+  });
+
+  test("drainSingleMessage does NOT re-add 'computer-use' for web-sourced message when no capable client is connected", async () => {
+    const queue = new MessageQueue();
+    const ifCtx: TurnInterfaceContext = {
+      userMessageInterface: "web",
+      assistantMessageInterface: "web",
+    };
+    queue.push(
+      makeQueuedMessage({ requestId: "req-web-4", turnInterfaceContext: ifCtx }),
+    );
+    const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
+
+    await drainQueue(ctx);
+
+    expect(ctx.preactivatedSkillIdCalls).not.toContain("computer-use");
   });
 });
