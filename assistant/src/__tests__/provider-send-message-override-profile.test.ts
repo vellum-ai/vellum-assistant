@@ -144,11 +144,15 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     expect(captured?.callSite).toBeUndefined();
   });
 
-  test("CallSiteRoutingProvider switches transport when overrideProfile changes the provider", async () => {
+  test("CallSiteRoutingProvider switches transport when overrideProfile changes the provider (via provider_connection)", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
-        fast: { provider: "openai", model: "gpt-5.4" },
+        fast: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.4",
+        },
       },
     });
 
@@ -168,8 +172,10 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       },
     };
 
-    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) =>
-      name === "openai" ? altProvider : undefined,
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      async (connectionName) =>
+        connectionName === "openai-conn" ? altProvider : null,
     );
 
     const response = await wrapped.sendMessage(

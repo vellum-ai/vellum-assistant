@@ -11,15 +11,14 @@ mock.module("../util/logger.js", () => ({
 
 /** Events published through the mock event hub. */
 let publishedEvents: unknown[] = [];
-let mockHasConnection = true;
 
 /**
- * Per-test client roster used by the same-actor binding tests below.
- *
- * When non-empty, `listClientsByCapability` and `getActorPrincipalIdForClient`
- * read from this list. The legacy `mockHasConnection` boolean continues to
- * drive `getPreferredClientByCapability`, which is the fallback path used
- * when the caller has no `sourceActorPrincipalId` (legacy/internal flows).
+ * Per-test client roster. Drives `listClientsByCapability` and
+ * `getMostRecentClientByCapability` — the two hub methods the proxy
+ * uses for client resolution. Order matters: the first entry whose
+ * capabilities include the requested cap is the "most recent", which
+ * matches the production `listClientsByCapability` contract of
+ * returning clients in `lastActiveAt`-desc order.
  */
 type MockClient = {
   clientId: string;
@@ -34,15 +33,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
     publish: async (event: unknown, _options?: unknown) => {
       publishedEvents.push(event);
     },
-    getPreferredClientByCapability: (cap: string, _preference?: unknown) =>
-      cap === "host_browser" && mockHasConnection
-        ? {
-            type: "client",
-            clientId: "test-client",
-            interfaceId: "macos",
-            capabilities: ["host_browser"],
-          }
-        : undefined,
+    getMostRecentClientByCapability: (cap: string) =>
+      mockClients.find((c) => c.capabilities.includes(cap)),
     listClientsByCapability: (cap: string) =>
       mockClients.filter((c) => c.capabilities.includes(cap)),
     getActorPrincipalIdForClient: (clientId: string) =>
@@ -81,12 +73,21 @@ function resolveResult(
 describe("HostBrowserProxy", () => {
   let proxy: InstanceType<typeof HostBrowserProxy>;
 
+  /**
+   * A single anonymous host_browser client, used as the default fixture
+   * for tests that don't care about actor identity.
+   */
+  const DEFAULT_CLIENT: MockClient = {
+    clientId: "test-client",
+    interfaceId: "macos",
+    capabilities: ["host_browser"],
+  };
+
   beforeEach(() => {
     HostBrowserProxy.reset();
     pendingInteractions.clear();
     publishedEvents = [];
-    mockHasConnection = true;
-    mockClients = [];
+    mockClients = [DEFAULT_CLIENT];
     proxy = HostBrowserProxy.instance;
   });
 
@@ -257,12 +258,12 @@ describe("HostBrowserProxy", () => {
 
   describe("isAvailable", () => {
     test("returns true when a connection exists in the registry", () => {
-      mockHasConnection = true;
+      mockClients = [DEFAULT_CLIENT];
       expect(proxy.isAvailable()).toBe(true);
     });
 
     test("returns false when no connection exists", () => {
-      mockHasConnection = false;
+      mockClients = [];
       expect(proxy.isAvailable()).toBe(false);
     });
   });
@@ -312,7 +313,7 @@ describe("HostBrowserProxy", () => {
 
   describe("send failure", () => {
     test("rejects when no connection exists at send time", async () => {
-      mockHasConnection = false;
+      mockClients = [];
 
       const resultPromise = proxy.request(
         { cdpMethod: "Page.navigate", cdpParams: { url: "https://x.test" } },
@@ -407,21 +408,21 @@ describe("HostBrowserProxy", () => {
   // ---------------------------------------------------------------------------
   // Same-actor binding (cross-user enforcement)
   //
-  // When the caller does not supply `targetClientId`, the proxy auto-resolves
-  // using `resolveTargetClient(sourceActorPrincipalId)` which filters clients
-  // to the same actor before applying the interface-preference order:
+  // When the caller does not supply `targetClientId`, the proxy auto-
+  // resolves using `resolveTargetClient(sourceActorPrincipalId)`:
   //
-  //   1. `resolveTargetClient(sourceActorPrincipalId)` filters candidate
-  //      clients to those owned by the caller's actor before applying the
-  //      chrome-extension-first interface preference. When the caller has
-  //      no actor (legacy/internal flow), it falls back to the legacy
-  //      `getPreferredClientByCapability` path used by other tests above.
+  //   1. Candidate clients are filtered to those owned by the caller's
+  //      actor; the first match (lastActiveAt-desc) wins. When the
+  //      caller has no actor, the resolver falls through to the most-
+  //      recently-active host_browser client without same-actor filtering.
   //   2. The proxy persists `targetClientId` and `targetActorPrincipalId`
-  //      on the pending interaction so the result-route's same-actor check
-  //      has authoritative bindings to compare against (mirrors host-cu).
+  //      on the pending interaction so the result-route's same-actor
+  //      check has authoritative bindings to compare against (mirrors
+  //      host-cu).
   //
-  // These tests focus on (1) and (2). Result-side guard coverage lives in
-  // `host-browser-routes.test.ts` (HTTP 400/403 against the same bindings).
+  // These tests focus on (1) and (2). Result-side guard coverage lives
+  // in `host-browser-routes.test.ts` (HTTP 400/403 against the same
+  // bindings).
   // ---------------------------------------------------------------------------
 
   describe("same-actor binding", () => {
@@ -482,7 +483,11 @@ describe("HostBrowserProxy", () => {
       expect(getPublishedMessages()).toHaveLength(0);
     });
 
-    test("prefers chrome-extension over macos among same-actor clients", async () => {
+    test("picks the most-recently-active same-actor client among multiple transports", async () => {
+      // Mock `listClientsByCapability` returns mockClients in array
+      // order, which mirrors production's `lastActiveAt`-desc ordering.
+      // The first same-actor entry wins regardless of transport; LLMs
+      // pin a specific transport via `target_client_id`.
       mockClients = [
         {
           clientId: "macos-client",
@@ -510,7 +515,7 @@ describe("HostBrowserProxy", () => {
       const requestId = sent.requestId as string;
 
       const pending = pendingInteractions.get(requestId);
-      expect(pending?.targetClientId).toBe("ext-client");
+      expect(pending?.targetClientId).toBe("macos-client");
 
       resolveResult(requestId, { content: "ok", isError: false });
       await resultPromise;
@@ -545,13 +550,13 @@ describe("HostBrowserProxy", () => {
       await resultPromise;
     });
 
-    test("legacy callers without a sourceActorPrincipalId use the unfiltered fallback path", async () => {
-      // No mockClients populated — but mockHasConnection is true, so the
-      // legacy `getPreferredClientByCapability` branch returns its default
-      // `test-client` candidate. The pending interaction binds to that
-      // client without an actor, preserving prior single-user behavior.
-      mockHasConnection = true;
-      mockClients = [];
+    test("legacy callers without a sourceActorPrincipalId fall through to the most-recently-active client", async () => {
+      // No `sourceActorPrincipalId` supplied — the proxy falls back to
+      // the unfiltered roster and picks the first entry. Mirrors the
+      // singleton-style behavior expected by registry-driven callers
+      // that haven't been threaded with an actor identity. The pending
+      // interaction binds to the resolved client without an actor.
+      mockClients = [DEFAULT_CLIENT];
 
       const resultPromise = proxy.request(
         { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
@@ -575,8 +580,9 @@ describe("HostBrowserProxy", () => {
     test("rejects when caller has actor but no host_browser-capable client is connected for that actor", async () => {
       // Same-user filter returns empty even though listClientsByCapability
       // would return a non-empty list (because that list is for a
-      // different actor). The legacy fallback IS NOT consulted in this
-      // branch — we don't want to silently broadcast to anyone.
+      // different actor). The unfiltered fallback path runs only when
+      // the caller has no actor — we don't silently broadcast to anyone
+      // when the caller IS authenticated to a specific actor.
       mockClients = [
         {
           clientId: "other-user-ext",
@@ -603,8 +609,8 @@ describe("HostBrowserProxy", () => {
   // ---------------------------------------------------------------------------
   // Explicit targetClientId routing
   //
-  // When `targetClientId` is supplied, the proxy skips the interface-preference
-  // sort and routes directly to the named client (subject to the same-actor
+  // When `targetClientId` is supplied, the proxy skips auto-resolution
+  // and routes directly to the named client (subject to the same-actor
   // enforcement that runs on all host-proxy requests).
   // ---------------------------------------------------------------------------
 
@@ -625,8 +631,9 @@ describe("HostBrowserProxy", () => {
         },
       ];
 
-      // Explicitly target the macOS client even though chrome-extension
-      // would win under normal interface-preference ordering.
+      // Explicitly target the macOS client even though it isn't the
+      // first entry in the roster — explicit targeting overrides
+      // auto-resolution.
       const resultPromise = proxy.request(
         { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
         "session-1",
@@ -722,7 +729,7 @@ describe("HostBrowserProxy", () => {
       expect(getPublishedMessages()).toHaveLength(0);
     });
 
-    test("no targetClientId falls back to interface-preference order (regression guard)", async () => {
+    test("no targetClientId auto-resolves to the most-recently-active same-actor client", async () => {
       mockClients = [
         {
           clientId: "macos-client",
@@ -738,7 +745,9 @@ describe("HostBrowserProxy", () => {
         },
       ];
 
-      // No targetClientId — should auto-resolve to chrome-extension (higher priority).
+      // No targetClientId — falls through to the first same-actor
+      // entry by lastActiveAt-desc. Mock array order is the proxy's
+      // input contract.
       const resultPromise = proxy.request(
         { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
         "session-1",
@@ -750,7 +759,7 @@ describe("HostBrowserProxy", () => {
       const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
         .requestId as string;
       const pending = pendingInteractions.get(requestId);
-      expect(pending?.targetClientId).toBe("ext-client");
+      expect(pending?.targetClientId).toBe("macos-client");
 
       resolveResult(requestId, { content: "ok", isError: false });
       await resultPromise;

@@ -570,6 +570,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Tools
   { endpoint: "tools", scopes: ["settings.read"] },
   { endpoint: "tools/simulate-permission", scopes: ["settings.read"] },
+
+  // Webhooks
+  { endpoint: "webhooks/register", scopes: ["settings.write"] },
+  { endpoint: "webhooks", scopes: ["settings.read"] },
+
+  // Image generation
+  { endpoint: "image-generation/generate", scopes: ["settings.write"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {

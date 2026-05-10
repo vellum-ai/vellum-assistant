@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { resolveConversationId } from "../utils/conversation-id.js";
 import { parseDuration } from "../utils/parse-duration.js";
@@ -12,9 +13,12 @@ export { parseDuration };
 // ---------------------------------------------------------------------------
 
 export function registerConversationsDeferCommand(parent: Command): void {
-  const defer = parent
-    .command("defer [conversationId]")
-    .description("Create a deferred wake for a conversation")
+  registerCommand(parent, {
+    name: "defer [conversationId]",
+    transport: "ipc",
+    description: "Create a deferred wake for a conversation",
+    build: (defer) => {
+      defer
     .option("--in <duration>", "Delay before firing (e.g. 60, 60s, 5m, 1h)")
     .option("--at <iso8601>", "Absolute ISO 8601 fire time")
     .option("--hint <text>", "Hint message for the wake")
@@ -303,4 +307,6 @@ Examples:
         }
       },
     );
+    },
+  });
 }

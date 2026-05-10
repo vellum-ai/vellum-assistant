@@ -1,6 +1,5 @@
 import { v4 as uuid } from "uuid";
 
-import type { InterfaceId } from "../channels/types.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -25,12 +24,6 @@ export type HostBrowserInput = DistributiveOmit<
 
 const log = getLogger("host-browser-proxy");
 
-/** Interface priority order for host_browser: Chrome Extension first, macOS SSE bridge second. */
-const HOST_BROWSER_INTERFACE_PREFERENCE: InterfaceId[] = [
-  "chrome-extension",
-  "macos",
-];
-
 /**
  * Pick the host_browser-capable client to dispatch to.
  *
@@ -40,14 +33,21 @@ const HOST_BROWSER_INTERFACE_PREFERENCE: InterfaceId[] = [
  * `sourceActorPrincipalId` is present.
  *
  * When `sourceActorPrincipalId` is supplied (and no explicit target),
- * candidate clients are filtered down to those owned by the same actor
- * before applying the interface-preference order. Returns `undefined`
- * when no same-actor client is connected; the caller surfaces this as
- * the existing "no active extension connection" rejection.
+ * candidate clients are filtered down to those owned by the same actor.
+ * Returns `undefined` when no same-actor client is connected; the
+ * caller surfaces this as the existing "no active extension connection"
+ * rejection.
  *
  * When neither is supplied (legacy callers without a resolved actor
- * identity), falls through to the prior behavior so the registry
- * singleton continues to work as before.
+ * identity), falls through to the most-recently-active host_browser
+ * client so the registry singleton continues to work for single-client
+ * setups.
+ *
+ * Within each branch, ties are broken by `lastActiveAt` descending —
+ * the natural order returned by `listClientsByCapability`. Callers that
+ * need a specific transport (e.g. Chrome Extension's `chrome.debugger`
+ * over the macOS CDP bridge) must pass `targetClientId` explicitly via
+ * the LLM-facing param added in #30066.
  */
 function resolveTargetClient(
   sourceActorPrincipalId: string | undefined,
@@ -58,28 +58,14 @@ function resolveTargetClient(
     return clients.find((c) => c.clientId === targetClientId);
   }
 
+  const candidates =
+    assistantEventHub.listClientsByCapability("host_browser");
   if (sourceActorPrincipalId == null) {
-    return assistantEventHub.getPreferredClientByCapability(
-      "host_browser",
-      HOST_BROWSER_INTERFACE_PREFERENCE,
-    );
+    return candidates[0];
   }
-
-  const sameActorClients = assistantEventHub
-    .listClientsByCapability("host_browser")
-    .filter((c) => c.actorPrincipalId === sourceActorPrincipalId);
-  if (sameActorClients.length === 0) return undefined;
-
-  // Stable sort by interface preference; lastActiveAt is the implicit
-  // tiebreaker because listClientsByCapability already returns clients
-  // in lastActiveAt-desc order.
-  return [...sameActorClients].sort((a, b) => {
-    const ai = HOST_BROWSER_INTERFACE_PREFERENCE.indexOf(a.interfaceId);
-    const bi = HOST_BROWSER_INTERFACE_PREFERENCE.indexOf(b.interfaceId);
-    const ea = ai === -1 ? HOST_BROWSER_INTERFACE_PREFERENCE.length : ai;
-    const eb = bi === -1 ? HOST_BROWSER_INTERFACE_PREFERENCE.length : bi;
-    return ea - eb;
-  })[0];
+  return candidates.find(
+    (c) => c.actorPrincipalId === sourceActorPrincipalId,
+  );
 }
 
 export class HostBrowserProxy {
@@ -119,10 +105,7 @@ export class HostBrowserProxy {
    */
   isAvailable(): boolean {
     return (
-      assistantEventHub.getPreferredClientByCapability(
-        "host_browser",
-        HOST_BROWSER_INTERFACE_PREFERENCE,
-      ) != null
+      assistantEventHub.getMostRecentClientByCapability("host_browser") != null
     );
   }
 
@@ -152,9 +135,10 @@ export class HostBrowserProxy {
    * so that the result-route's same-actor check can verify the submitting
    * client at result time.
    *
-   * When `sourceActorPrincipalId` is undefined (legacy/internal flows with
-   * no resolved actor identity), falls back to interface-preference
-   * resolution without an actor filter, preserving prior behavior.
+   * When `sourceActorPrincipalId` is undefined (legacy/internal flows
+   * with no resolved actor identity), falls back to the most-recently-
+   * active host_browser client without an actor filter so the registry
+   * singleton continues to work for single-client setups.
    */
   request(
     input: HostBrowserInput,

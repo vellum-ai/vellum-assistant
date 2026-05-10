@@ -60,6 +60,7 @@ import { ROUTES as HOST_CU_ROUTES } from "./host-cu-routes.js";
 import { ROUTES as HOST_FILE_ROUTES } from "./host-file-routes.js";
 import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
+import { ROUTES as IMAGE_GENERATION_ROUTES } from "./image-generation-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-session-routes.js";
 import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
@@ -106,6 +107,7 @@ import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
 import { ROUTES as USER_ROUTES } from "./user-routes.js";
 import { ROUTES as WAKE_CONVERSATION_ROUTES } from "./wake-conversation-routes.js";
 import { ROUTES as WATCHER_ROUTES } from "./watcher-routes.js";
+import { ROUTES as WEBHOOK_ROUTES } from "./webhook-routes.js";
 import { ROUTES as WIPE_CONVERSATION_ROUTES } from "./wipe-conversation-routes.js";
 import { ROUTES as WORK_ITEM_ROUTES } from "./work-items-routes.js";
 import { ROUTES as WORKSPACE_COMMIT_ROUTES } from "./workspace-commit-routes.js";
@@ -157,6 +159,7 @@ export const ROUTES: RouteDefinition[] = [
   ...HEARTBEAT_ROUTES,
   ...HOME_FEED_ROUTES,
   ...HOME_STATE_ROUTES,
+  ...IMAGE_GENERATION_ROUTES,
   ...HOST_APP_CONTROL_ROUTES,
   ...HOST_BASH_ROUTES,
   ...HOST_BROWSER_ROUTES,
@@ -208,6 +211,7 @@ export const ROUTES: RouteDefinition[] = [
   ...VERCEL_ROUTES,
   ...WORK_ITEM_ROUTES,
   ...WATCHER_ROUTES,
+  ...WEBHOOK_ROUTES,
   ...WIPE_CONVERSATION_ROUTES,
   ...WORKSPACE_COMMIT_ROUTES,
   ...WAKE_CONVERSATION_ROUTES,

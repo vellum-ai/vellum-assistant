@@ -258,6 +258,7 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(wakeCalls).toBe(1);
     expect(wakeLastArgs?.conversationId).toBe("conv-1");
     expect(wakeLastArgs?.source).toBe("memory_v2_consolidation");
+    expect(wakeLastArgs?.callSite).toBe("memoryV2Consolidation");
 
     // The hint must contain the prompt body with the cutoff timestamp
     // substituted in. Asserting the placeholder is GONE catches a regression

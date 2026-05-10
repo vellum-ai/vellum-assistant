@@ -48,6 +48,7 @@ export const LLMCallSiteEnum = z.enum([
   "memoryV2Migration",
   "memoryV2Sweep",
   "memoryRouter",
+  "memoryV2Consolidation",
   "recall",
   "narrativeRefinement",
   "patternScan",
@@ -283,6 +284,16 @@ const PricingOverrideSchema = z.object({
  */
 export const LLMConfigBase = z.object({
   provider: LLMProvider.default("anthropic"),
+  /**
+   * Name of a `provider_connections` row to use for this resolved config.
+   * Optional and additive: when set, the dispatcher resolves auth from the
+   * connection (mix-and-match managed/your-own per profile). When unset,
+   * the dispatcher falls back to the legacy `provider` lookup.
+   *
+   * Lives on the merged base type so it flows through `resolveCallSiteConfig`
+   * naturally — the underlying profile-level field is on `ProfileEntry`.
+   */
+  provider_connection: z.string().min(1).optional(),
   model: ModelSchema.default("claude-opus-4-7"),
   maxTokens: MaxTokensSchema.default(64000),
   effort: EffortEnum.default("max"),
@@ -325,6 +336,14 @@ export const ProfileEntry = LLMConfigFragment.extend({
   source: ProfileSource.optional(),
   label: z.string().min(1).optional(),
   description: z.string().optional(),
+  /**
+   * Name of a `provider_connections` row to use for this profile.
+   * When set, the dispatcher resolves auth from the connection instead of
+   * the global `services.inference.mode` toggle. Additive alongside the
+   * legacy `provider` + `source` fields; those remain as read-only
+   * deprecated fallbacks for profiles not yet backfilled.
+   */
+  provider_connection: z.string().min(1).optional(),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 

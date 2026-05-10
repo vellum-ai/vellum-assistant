@@ -18,7 +18,6 @@ import {
 import { getStateDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { loadGuardianToken } from "./guardian-token.js";
-import { getPlatformUrl } from "./platform-client.js";
 import { resolveImageRefs } from "./platform-releases.js";
 import { exec, execOutput } from "./step-runner.js";
 import { compareVersions } from "./version-compat.js";
@@ -481,42 +480,6 @@ export async function performDockerRollback(
   console.log("🔍 Resolving image references...");
   const { imageTags: targetImageTags } = await resolveImageRefs(targetVersion);
 
-  // Fetch target migration ceiling from releases API
-  let targetMigrationCeiling: {
-    dbVersion?: number;
-    workspaceMigrationId?: string;
-  } = {};
-  try {
-    const platformUrl = getPlatformUrl();
-    const releasesResp = await fetch(
-      `${platformUrl}/v1/releases/?stable=true`,
-      { signal: AbortSignal.timeout(10000) },
-    );
-    if (releasesResp.ok) {
-      const releases = (await releasesResp.json()) as Array<{
-        version: string;
-        db_migration_version?: number | null;
-        last_workspace_migration_id?: string;
-      }>;
-      const normalizedTag = targetVersion.replace(/^v/, "");
-      const targetRelease = releases.find(
-        (r) => r.version?.replace(/^v/, "") === normalizedTag,
-      );
-      if (
-        targetRelease?.db_migration_version != null ||
-        targetRelease?.last_workspace_migration_id
-      ) {
-        targetMigrationCeiling = {
-          dbVersion: targetRelease.db_migration_version ?? undefined,
-          workspaceMigrationId:
-            targetRelease.last_workspace_migration_id || undefined,
-        };
-      }
-    }
-  } catch {
-    // Best-effort — fall back to rollbackToRegistryCeiling post-swap
-  }
-
   // Capture current image digests for auto-rollback on failure
   console.log("📸 Capturing current image references for rollback...");
   const currentImageRefs = await captureImageRefs(res);
@@ -702,26 +665,6 @@ export async function performDockerRollback(
   }
   console.log("✅ Docker images pulled\n");
 
-  // Pre-swap migration rollback to target ceiling on the CURRENT (newer) daemon
-  let preSwapRollbackOk = true;
-  if (
-    targetMigrationCeiling.dbVersion !== undefined ||
-    targetMigrationCeiling.workspaceMigrationId !== undefined
-  ) {
-    console.log("🔄 Reverting database changes...");
-    await broadcastUpgradeEvent(
-      entry.runtimeUrl,
-      entry.assistantId,
-      buildProgressEvent(UPGRADE_PROGRESS.REVERTING_MIGRATIONS),
-    );
-    preSwapRollbackOk = await rollbackMigrations(
-      entry.runtimeUrl,
-      entry.assistantId,
-      targetMigrationCeiling.dbVersion,
-      targetMigrationCeiling.workspaceMigrationId,
-    );
-  }
-
   // Progress: switching version
   await broadcastUpgradeEvent(
     entry.runtimeUrl,
@@ -757,22 +700,15 @@ export async function performDockerRollback(
   if (ready) {
     // Success path
 
-    // Post-swap migration rollback fallback: if pre-swap rollback failed
-    // or no ceiling metadata was available, ask the now-running old daemon
-    // to roll back migrations above its own registry ceiling.
-    if (
-      !preSwapRollbackOk ||
-      (targetMigrationCeiling.dbVersion === undefined &&
-        targetMigrationCeiling.workspaceMigrationId === undefined)
-    ) {
-      await rollbackMigrations(
-        entry.runtimeUrl,
-        entry.assistantId,
-        undefined,
-        undefined,
-        true,
-      );
-    }
+    // Post-swap migration rollback: ask the now-running old daemon to roll
+    // back any migrations above its own registry ceiling.
+    await rollbackMigrations(
+      entry.runtimeUrl,
+      entry.assistantId,
+      undefined,
+      undefined,
+      true,
+    );
 
     // Capture new digests from the rolled-back containers
     const newDigests = await captureImageRefs(res);

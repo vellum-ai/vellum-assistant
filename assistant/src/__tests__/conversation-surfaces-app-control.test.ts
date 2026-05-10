@@ -11,6 +11,16 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const sentMessages: unknown[] = [];
 let mockHasClient = true;
+// Default principal id used for both ctx.trustContext and clients in the
+// existing single-user tests. Tests that exercise cross-user behaviour
+// override this on individual clients and on the SurfaceConversationContext.
+const DEFAULT_PRINCIPAL = "user-1";
+type MockClient = {
+  clientId: string;
+  capabilities: string[];
+  actorPrincipalId?: string;
+};
+let mockHubClients: MockClient[] = [];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: unknown) => sentMessages.push(msg),
@@ -19,6 +29,12 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       cap === "host_app_control" && mockHasClient
         ? { id: "mock-client" }
         : null,
+    listClientsByCapability: (cap: string) =>
+      mockHubClients.filter((c) => c.capabilities.includes(cap)),
+    getClientById: (id: string) =>
+      mockHubClients.find((c) => c.clientId === id),
+    getActorPrincipalIdForClient: (id: string) =>
+      mockHubClients.find((c) => c.clientId === id)?.actorPrincipalId,
   },
 }));
 
@@ -56,9 +72,18 @@ function buildMockContext(
   setHostAppControlProxy?: (
     proxy: InstanceType<typeof HostAppControlProxy> | undefined,
   ) => void,
+  trustGuardianPrincipalId: string | null = DEFAULT_PRINCIPAL,
 ): SurfaceConversationContext {
   return {
     conversationId,
+    trustContext:
+      trustGuardianPrincipalId != null
+        ? {
+            sourceChannel: "vellum",
+            trustClass: "guardian",
+            guardianPrincipalId: trustGuardianPrincipalId,
+          }
+        : undefined,
     traceEmitter: { emit: () => {} },
     sendToClient: () => {},
     pendingSurfaceActions: new Map(),
@@ -86,11 +111,13 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
   beforeEach(() => {
     sentMessages.length = 0;
     mockHasClient = true;
+    mockHubClients = [];
     _resetActiveAppControlSession();
   });
 
   afterEach(() => {
     _resetActiveAppControlSession();
+    mockHubClients = [];
   });
 
   // -------------------------------------------------------------------------
@@ -326,6 +353,296 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
 
       proxy.dispose();
       ownerProxy.dispose();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // target_client_id validation — mirrors host_cu's targetClientId tests in
+  // cu-unified-flow.test.ts. The resolver validates the explicit target
+  // before recordAction-equivalents so an invalid or cross-user id never
+  // reaches the proxy.
+  // -------------------------------------------------------------------------
+
+  describe("target_client_id validation", () => {
+    test("returns fast error when target_client_id does not match any connected client", async () => {
+      mockHubClients = [
+        {
+          clientId: "client-a",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const result = await surfaceProxyResolver(ctx, "app_control_observe", {
+        app: "com.example.editor",
+        target_client_id: "missing-client",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("missing-client");
+      expect(result.content).toContain("host_app_control");
+      // No envelope dispatched — fail-fast before request().
+      expect(sentMessages).toHaveLength(0);
+
+      proxy.dispose();
+    });
+
+    test("returns fast error when target_client_id points to a client without host_app_control capability", async () => {
+      mockHubClients = [
+        {
+          clientId: "wrong-cap-client",
+          capabilities: ["host_bash"], // not host_app_control
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const result = await surfaceProxyResolver(ctx, "app_control_observe", {
+        app: "com.example.editor",
+        target_client_id: "wrong-cap-client",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("wrong-cap-client");
+      expect(result.content).toContain("does not support host_app_control");
+      expect(sentMessages).toHaveLength(0);
+
+      proxy.dispose();
+    });
+
+    test("dispatches with targetClientId when target_client_id is valid", async () => {
+      mockHubClients = [
+        {
+          clientId: "client-a",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+        {
+          clientId: "client-b",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {
+        app: "com.example.editor",
+        target_client_id: "client-b",
+      });
+
+      // Exactly one envelope dispatched, addressed to client-b.
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_app_control_request");
+      expect(sent.targetClientId).toBe("client-b");
+
+      proxy.resolve(sent.requestId as string, {
+        requestId: "ignored-by-proxy",
+        state: "running",
+      });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+
+      proxy.dispose();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Multi-client ambiguity guard — when the LLM omits target_client_id and
+  // multiple same-user host_app_control clients are connected, the resolver
+  // must error rather than broadcast (one app-control session per client).
+  // -------------------------------------------------------------------------
+
+  describe("multi-client ambiguity guard", () => {
+    test("errors when multiple same-user clients connected and no target_client_id given", async () => {
+      mockHubClients = [
+        {
+          clientId: "client-a",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+        {
+          clientId: "client-b",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const result = await surfaceProxyResolver(ctx, "app_control_observe", {
+        app: "com.example.editor",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "multiple clients support host_app_control",
+      );
+      expect(result.content).toContain("target_client_id");
+      // No envelope dispatched.
+      expect(sentMessages).toHaveLength(0);
+
+      proxy.dispose();
+    });
+
+    test("auto-resolves to the unique same-user client when cross-user clients are also present", async () => {
+      mockHubClients = [
+        {
+          clientId: "client-mine",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+        {
+          clientId: "client-other",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: "user-2",
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {
+        app: "com.example.editor",
+      });
+
+      // Resolver must explicitly target the same-user client to prevent the
+      // proxy from broadcasting the action across the cross-user client too.
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("client-mine");
+
+      proxy.resolve(sent.requestId as string, {
+        requestId: "ignored-by-proxy",
+        state: "running",
+      });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+
+      proxy.dispose();
+    });
+
+    test("single same-user client with no target proceeds without forcing targetClientId", async () => {
+      mockHubClients = [
+        {
+          clientId: "only-client",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const resultPromise = surfaceProxyResolver(ctx, "app_control_observe", {
+        app: "com.example.editor",
+      });
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      // No cross-user ambiguity → resolver leaves targetClientId undefined,
+      // letting the proxy use its existing single-client routing.
+      expect(sent.targetClientId).toBeUndefined();
+
+      proxy.resolve(sent.requestId as string, {
+        requestId: "ignored-by-proxy",
+        state: "running",
+      });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+
+      proxy.dispose();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Same-user enforcement — even when target_client_id is provided, a
+  // cross-user client can never be addressed.
+  // -------------------------------------------------------------------------
+
+  describe("same-user enforcement", () => {
+    test("rejects targeted dispatch from a different actor principal", async () => {
+      mockHubClients = [
+        {
+          clientId: "other-user-client",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: "user-2",
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(proxy, "conv-1");
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const result = await surfaceProxyResolver(ctx, "app_control_observe", {
+        app: "com.example.editor",
+        target_client_id: "other-user-client",
+      });
+
+      expect(result.isError).toBe(true);
+      // No envelope dispatched.
+      expect(sentMessages).toHaveLength(0);
+
+      proxy.dispose();
+    });
+
+    test("rejects when the conversation has no source actor principal", async () => {
+      mockHubClients = [
+        {
+          clientId: "client-a",
+          capabilities: ["host_app_control"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctx = buildMockContext(
+        proxy,
+        "conv-1",
+        undefined,
+        /* trustGuardianPrincipalId */ null,
+      );
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.editor",
+      });
+
+      const result = await surfaceProxyResolver(ctx, "app_control_observe", {
+        app: "com.example.editor",
+        target_client_id: "client-a",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(sentMessages).toHaveLength(0);
+
+      proxy.dispose();
     });
   });
 });

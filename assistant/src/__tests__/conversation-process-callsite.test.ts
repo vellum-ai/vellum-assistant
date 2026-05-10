@@ -40,9 +40,28 @@ mock.module("../memory/guardian-action-store.js", () => ({
   resolveGuardianActionRequest: () => {},
 }));
 
+const mockProviderStub = { name: "mock-provider" };
 mock.module("../providers/registry.js", () => ({
-  getProvider: () => ({ name: "mock-provider" }),
+  getProvider: () => mockProviderStub,
   initializeProviders: () => {},
+  listProviders: () => ["anthropic", "openai", "gemini"],
+  resolveProviderFromConnection: async () => mockProviderStub,
+}));
+
+// Connection-aware resolver path: satisfy
+// `tryResolveProviderForConnectionName` lookups so resolveDefaultProvider
+// returns a usable provider for the inline `anthropic-conn` fixture.
+mock.module("../providers/inference/connections.js", () => ({
+  getConnection: (_db: unknown, name: string) => ({
+    id: 1,
+    name,
+    provider: "anthropic",
+    auth_strategy: "user_managed_credential",
+    credential_alias: null,
+    metadata_json: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }),
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -51,6 +70,7 @@ mock.module("../config/loader.js", () => ({
     llm: {
       default: {
         provider: "anthropic",
+        provider_connection: "anthropic-conn",
         model: "claude-opus-4-6",
         maxTokens: 4096,
         effort: "max" as const,

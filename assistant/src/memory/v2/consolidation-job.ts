@@ -140,9 +140,11 @@ export async function memoryV2ConsolidateJob(
 
     // Step 4: bootstrap a background conversation and wake the assistant
     // with the cutoff-templated prompt. Mirrors the UPDATES.md pattern in
-    // `runUpdateBulletinJobIfNeeded` — the wake runs `mainAgent` against
-    // the assistant's full system prompt, so consolidation thinks and
-    // writes in the assistant's voice.
+    // `runUpdateBulletinJobIfNeeded`, but routes through its own
+    // `memoryV2Consolidation` call site so operators can tune the
+    // model/profile and observability bucket independently of the user's
+    // chat selection. The wake still loads the assistant's full system
+    // prompt, so consolidation thinks and writes in the assistant's voice.
     const conversation = bootstrapConversation({
       conversationType: "background",
       source: MEMORY_V2_CONSOLIDATION_SOURCE,
@@ -162,6 +164,7 @@ export async function memoryV2ConsolidateJob(
         ),
         source: MEMORY_V2_CONSOLIDATION_SOURCE,
         trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+        callSite: "memoryV2Consolidation",
       });
       wakeInvoked = result.invoked;
       failureReason = result.reason;

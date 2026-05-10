@@ -9,6 +9,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // -- Types for IPC results ----------------------------------------------------
@@ -37,9 +38,11 @@ interface WatcherEvent {
 // -- Registration -------------------------------------------------------------
 
 export function registerWatchersCommand(program: Command): void {
-  const watchers = program
-    .command("watchers")
-    .description("Manage polling watchers that monitor external services");
+  registerCommand(program, {
+    name: "watchers",
+    transport: "ipc",
+    description: "Manage polling watchers that monitor external services",
+    build: (watchers) => {
 
   watchers.addHelpText(
     "after",
@@ -506,4 +509,6 @@ Examples:
         }
       },
     );
+    },
+  });
 }

@@ -115,7 +115,10 @@ const STUB_RUNTIME_CONFIG = {
 };
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => STUB_RUNTIME_CONFIG,
+  getConfigReadOnly: () => STUB_RUNTIME_CONFIG,
   loadConfig: () => STUB_RUNTIME_CONFIG,
+  loadRawConfig: () => ({}) as Record<string, unknown>,
+  saveRawConfig: () => {},
   invalidateConfigCache: () => {},
   applyNestedDefaults: () => STUB_RUNTIME_CONFIG,
 }));
