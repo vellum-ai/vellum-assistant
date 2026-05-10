@@ -5,10 +5,10 @@
  *   - list calls listSkills with empty queryParams
  *   - inspect calls skillsLocalInspect with pathParam id
  *   - uninstall calls deleteSkill with pathParam id
- *   - install makes 2 IPC calls (listSkills then installSkill)
- *   - install not-found sets exitCode 2 without calling installSkill
+ *   - install makes 1 IPC call (installSkill — handler does catalog lookup)
+ *   - install IPC failure sets exitCode 1
  *   - install --overwrite passes overwrite:true
- *   - add calls installSkill with slug=source
+ *   - add calls installSkill with slug=source and origin: "skillssh"
  *   - search makes 2 IPC calls (listSkills then searchSkills)
  */
 
@@ -226,68 +226,64 @@ describe("skills uninstall", () => {
 // ===========================================================================
 
 describe("skills install", () => {
-  test("found: makes 2 IPC calls in sequence (listSkills, installSkill)", async () => {
-    mockIpcResults = [
-      {
-        ok: true,
-        result: {
-          skills: [{ id: "weather", name: "Weather", origin: "vellum" }],
-        },
-      },
-      { ok: true, result: { ok: true, skillId: "weather" } },
-    ];
+  test("calls installSkill directly (no preflight) with overwrite:false default", async () => {
+    mockIpcResults = [{ ok: true, result: { ok: true, skillId: "weather" } }];
 
     await runCommand(["skills", "install", "weather"]);
 
-    expect(ipcCalls).toHaveLength(2);
-    expect(ipcCalls[0]!.method).toBe("listSkills");
-    expect(
-      (ipcCalls[0]!.params as { queryParams: unknown }).queryParams,
-    ).toEqual({ include: "catalog", q: "weather" });
-    expect(ipcCalls[1]!.method).toBe("installSkill");
-    expect((ipcCalls[1]!.params as { body: unknown }).body).toEqual({
+    // No preflight via listSkills — the daemon's installSkill handler does
+    // its own catalog lookup. Preflighting via listSkills(include=catalog)
+    // would falsely "not found" when a community skill shadows a catalog id.
+    expect(ipcCalls).toHaveLength(1);
+    expect(ipcCalls[0]!.method).toBe("installSkill");
+    expect((ipcCalls[0]!.params as { body: unknown }).body).toEqual({
       slug: "weather",
       overwrite: false,
     });
   });
 
-  test("not-found: exits code 2, no installSkill call", async () => {
-    mockIpcResults = [{ ok: true, result: { skills: [] } }];
+  test("install failure surfaces exitCode 1 (text mode emits error + search hint via log.error)", async () => {
+    mockIpcResults = [
+      { ok: false, error: `Skill "nonexistent" not found in any registry` },
+    ];
 
     const { exitCode } = await runCommand(["skills", "install", "nonexistent"]);
 
     expect(ipcCalls).toHaveLength(1);
-    expect(ipcCalls[0]!.method).toBe("listSkills");
-    expect(exitCode).toBe(2);
+    expect(ipcCalls[0]!.method).toBe("installSkill");
+    expect(exitCode).toBe(1);
+    // The text-mode error path calls log.error twice (raw error + recovery
+    // hint pointing at `skills search`). The mock logger swallows both — we
+    // assert on exitCode here and rely on integration tests for the user UX.
   });
 
   test("--overwrite passes overwrite:true", async () => {
-    mockIpcResults = [
-      {
-        ok: true,
-        result: {
-          skills: [{ id: "weather", name: "Weather", origin: "vellum" }],
-        },
-      },
-      { ok: true, result: { ok: true, skillId: "weather" } },
-    ];
+    mockIpcResults = [{ ok: true, result: { ok: true, skillId: "weather" } }];
 
     await runCommand(["skills", "install", "weather", "--overwrite"]);
 
-    expect(ipcCalls).toHaveLength(2);
-    expect((ipcCalls[1]!.params as { body: unknown }).body).toEqual({
+    expect(ipcCalls).toHaveLength(1);
+    expect((ipcCalls[0]!.params as { body: unknown }).body).toEqual({
       slug: "weather",
       overwrite: true,
     });
   });
 
-  test("catalog IPC failure sets exitCode 1 without calling installSkill", async () => {
+  test("--json install failure emits ok:false with error, exitCode 1", async () => {
     mockIpcResults = [{ ok: false, error: "Connection refused" }];
 
-    const { exitCode } = await runCommand(["skills", "install", "weather"]);
+    const { exitCode, stdout } = await runCommand([
+      "skills",
+      "install",
+      "weather",
+      "--json",
+    ]);
 
     expect(ipcCalls).toHaveLength(1);
-    expect(exitCode).not.toBe(0);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toBe("Connection refused");
   });
 });
 
@@ -296,7 +292,7 @@ describe("skills install", () => {
 // ===========================================================================
 
 describe("skills add", () => {
-  test("calls installSkill with slug=source", async () => {
+  test("calls installSkill with slug=source and origin: 'skillssh'", async () => {
     mockIpcResults = [
       { ok: true, result: { ok: true, skillId: "find-skills" } },
     ];
@@ -305,8 +301,27 @@ describe("skills add", () => {
 
     expect(ipcCalls).toHaveLength(1);
     expect(ipcCalls[0]!.method).toBe("installSkill");
+    // origin: "skillssh" is required so the daemon routes via resolveSkillSource
+    // for all skills.sh-flavoured sources — including the `@`-format which the
+    // auto-detect `looksLikeSkillsShSlug()` would otherwise miss (2 segments).
     expect((ipcCalls[0]!.params as { body: unknown }).body).toEqual({
       slug: "vercel-labs/skills@find-skills",
+      origin: "skillssh",
+      overwrite: false,
+    });
+  });
+
+  test("3-segment slug also passes origin: 'skillssh'", async () => {
+    mockIpcResults = [
+      { ok: true, result: { ok: true, skillId: "find-skills" } },
+    ];
+
+    await runCommand(["skills", "add", "vercel-labs/skills/find-skills"]);
+
+    expect(ipcCalls).toHaveLength(1);
+    expect((ipcCalls[0]!.params as { body: unknown }).body).toEqual({
+      slug: "vercel-labs/skills/find-skills",
+      origin: "skillssh",
       overwrite: false,
     });
   });
@@ -326,6 +341,7 @@ describe("skills add", () => {
     expect(ipcCalls).toHaveLength(1);
     expect((ipcCalls[0]!.params as { body: unknown }).body).toEqual({
       slug: "vercel-labs/skills@find-skills",
+      origin: "skillssh",
       overwrite: true,
     });
   });

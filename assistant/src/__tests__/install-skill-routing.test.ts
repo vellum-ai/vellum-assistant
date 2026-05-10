@@ -180,7 +180,7 @@ describe("installSkill routing", () => {
       "vercel-labs",
       "agent-skills",
       "react-best-practices",
-      false, // overwrite — default is false now; pass overwrite: true to opt in
+      true, // overwrite — handler default is true for HTTP API back-compat; CLI passes explicit false
       undefined, // ref
       undefined, // contactId
     );
@@ -221,7 +221,7 @@ describe("installSkill routing", () => {
       "owner",
       "repo",
       "my-skill",
-      false, // overwrite — default is false now; pass overwrite: true to opt in
+      true, // overwrite — handler default is true for HTTP API back-compat; CLI passes explicit false
       undefined, // ref
       undefined, // contactId
     );

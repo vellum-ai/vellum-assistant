@@ -337,9 +337,12 @@ Examples:
               if (r.installs !== undefined)
                 log.info(`    Installs: ${r.installs}`);
               if (r.kind !== "installed")
-                log.info(
-                  `    Install: assistant skills add ${r.sourceRepo ?? r.id}@${r.slug ?? r.id}`,
-                );
+                // Use the fully-qualified 3-segment id (owner/repo/skill) — this
+                // matches the `owner/repo/skill-name` form accepted by
+                // `resolveSkillSource()`. Building `sourceRepo@slug` fails for
+                // skills.sh because the registry returns `slug` as the full id,
+                // producing `owner/repo@owner/repo/skill` which the parser rejects.
+                log.info(`    Install: assistant skills add ${r.id}`);
               log.info("");
             }
           } else if (!communityR.ok) {
@@ -393,49 +396,34 @@ Examples:
           ) => {
             const json = opts.json ?? false;
 
-            // Step 1: catalog resolve — verify skill exists before attempting install
-            const catalogR = await cliIpcCall<{
-              skills: Array<{ id: string; name: string; origin: string }>;
-            }>("listSkills", {
-              queryParams: { include: "catalog", q: skillId },
-            });
-            if (!catalogR.ok)
-              return exitFromIpcResult({
-                ok: false,
-                error: catalogR.error,
-                statusCode: catalogR.statusCode,
-              });
-            const entry = catalogR.result!.skills.find(
-              (s) => s.id === skillId && s.origin === "vellum",
-            );
-            if (!entry) {
-              if (json) {
-                console.log(
-                  JSON.stringify({
-                    ok: false,
-                    error: `Skill "${skillId}" not found in the Vellum catalog`,
-                  }),
-                );
-              } else {
-                log.error(
-                  `Skill "${skillId}" not found in the Vellum catalog. Run 'assistant skills search ${skillId}' to check available skills.`,
-                );
-              }
-              process.exitCode = 2;
-              return;
-            }
-
-            // Step 2: install
+            // Call installSkill directly — the handler does its own catalog
+            // lookup and produces an error if the skill isn't found anywhere.
+            // We don't pre-flight via listSkills(include=catalog) because that
+            // route dedupes catalog entries when an installed community skill
+            // shadows the same id, which would falsely report "not found" and
+            // block legitimate catalog installs.
             const installR = await cliIpcCall<{ ok: boolean; skillId?: string }>(
               "installSkill",
               { body: { slug: skillId, overwrite: opts.overwrite ?? false } },
             );
-            if (!installR.ok)
-              return exitFromIpcResult({
-                ok: false,
-                error: installR.error,
-                statusCode: installR.statusCode,
-              });
+            if (!installR.ok) {
+              if (json) {
+                console.log(
+                  JSON.stringify({
+                    ok: false,
+                    error: installR.error,
+                  }),
+                );
+                process.exitCode = 1;
+                return;
+              }
+              log.error(installR.error);
+              log.error(
+                `Run 'assistant skills search ${skillId}' to check available skills.`,
+              );
+              process.exitCode = 1;
+              return;
+            }
 
             if (json) {
               console.log(JSON.stringify({ ok: true, skillId }));
@@ -513,9 +501,22 @@ Examples:
           ) => {
             const json = opts.json ?? false;
 
+            // `add` is the community-install entry point (skills.sh-flavoured
+            // sources: `owner/repo@skill`, `owner/repo/skill`, or full GitHub
+            // URL). Pass `origin: "skillssh"` so the daemon routes via
+            // `resolveSkillSource()` + `installExternalSkill()` regardless of
+            // slug shape — the auto-detect (`looksLikeSkillsShSlug`) only
+            // recognises 3-segment `/`-delimited slugs, so the `@`-format
+            // documented in the help text otherwise misroutes to clawhub.
             const r = await cliIpcCall<{ ok: boolean; skillId?: string }>(
               "installSkill",
-              { body: { slug: source, overwrite: opts.overwrite ?? false } },
+              {
+                body: {
+                  slug: source,
+                  origin: "skillssh",
+                  overwrite: opts.overwrite ?? false,
+                },
+              },
             );
             if (!r.ok)
               return exitFromIpcResult({

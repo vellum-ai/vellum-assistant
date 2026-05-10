@@ -1138,10 +1138,14 @@ export async function installSkill(spec: {
         const vellumCatalog = await getCatalog();
         const catalogEntry = vellumCatalog.find((s) => s.id === spec.slug);
         if (catalogEntry) {
+          // Default `overwrite` to true at the handler boundary to preserve
+          // pre-existing HTTP API behaviour. CLI callers always pass an
+          // explicit boolean (`opts.overwrite ?? false`) so the CLI surface
+          // still defaults to non-destructive installs.
           await installSkillLocally(
             spec.slug,
             catalogEntry,
-            spec.overwrite ?? false,
+            spec.overwrite ?? true,
             spec.contactId,
           );
 
@@ -1164,11 +1168,14 @@ export async function installSkill(spec: {
       (spec.origin !== "clawhub" && looksLikeSkillsShSlug(spec.slug))
     ) {
       const resolved = resolveSkillSource(spec.slug);
+      // Default `overwrite` to true at the handler boundary to preserve
+      // pre-existing HTTP API behaviour (same rationale as the catalog
+      // install path above).
       await installExternalSkill(
         resolved.owner,
         resolved.repo,
         resolved.skillSlug,
-        spec.overwrite ?? false,
+        spec.overwrite ?? true,
         resolved.ref ?? spec.version,
         spec.contactId,
       );
