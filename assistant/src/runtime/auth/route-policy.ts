@@ -548,6 +548,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "stt/providers", scopes: ["settings.read"] },
   { endpoint: "stt/transcribe", scopes: ["chat.write"] },
 
+  // Inference provider connections
+  { endpoint: "inference/provider-connections:GET", scopes: ["settings.read"] },
+  { endpoint: "inference/provider-connections:POST", scopes: ["settings.write"] },
+  { endpoint: "inference/provider-connections/detail:GET", scopes: ["settings.read"] },
+  { endpoint: "inference/provider-connections/detail:PATCH", scopes: ["settings.write"] },
+  { endpoint: "inference/provider-connections/detail:DELETE", scopes: ["settings.write"] },
+
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
   { endpoint: "integrations/oauth/start", scopes: ["settings.write"] }, // legacy alias
