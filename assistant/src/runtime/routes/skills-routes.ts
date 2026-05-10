@@ -499,6 +499,7 @@ export const ROUTES: RouteDefinition[] = [
         .describe(
           "Which registry to install from. When omitted, the install flow auto-detects based on slug format.",
         ),
+      overwrite: z.boolean().optional().describe("Replace an existing install. Defaults to false."),
     }),
     responseBody: z.object({
       ok: z.boolean(),
@@ -517,6 +518,7 @@ export const ROUTES: RouteDefinition[] = [
           slug,
           version: body.version as string | undefined,
           origin: body.origin as "clawhub" | "skillssh" | undefined,
+          overwrite: body.overwrite as boolean | undefined,
         },
       );
       if (!result.success) throw new InternalError(result.error);

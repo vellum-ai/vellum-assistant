@@ -531,7 +531,7 @@ Examples:
         { queryParams: { include: "catalog", q: skillId } },
       );
       if (!catalogR.ok) return exitFromIpcResult({ ok: false, error: catalogR.error, statusCode: catalogR.statusCode });
-      const entry = catalogR.result!.skills.find((s) => s.id === skillId);
+      const entry = catalogR.result!.skills.find((s) => s.id === skillId && s.origin === "vellum");
       if (!entry) {
         if (json) {
           console.log(JSON.stringify({ ok: false, error: `Skill "${skillId}" not found in the Vellum catalog` }));
