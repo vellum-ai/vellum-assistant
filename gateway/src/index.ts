@@ -110,6 +110,10 @@ import {
   startVoiceApprovalSync,
   stopVoiceApprovalSync,
 } from "./verification/voice-approval-sync.js";
+import {
+  startOutboundVoiceVerificationSync,
+  stopOutboundVoiceVerificationSync,
+} from "./verification/outbound-voice-verification-sync.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
@@ -2077,6 +2081,7 @@ async function main() {
   });
 
   startVoiceApprovalSync();
+  startOutboundVoiceVerificationSync();
 
   const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();
@@ -2125,6 +2130,7 @@ async function main() {
     sleepWakeDetector.stop();
     backupWorkerHandle.stop();
     stopVoiceApprovalSync();
+    stopOutboundVoiceVerificationSync();
     credentialWatcher.stop();
     configFileWatcher.stop();
     avatarSyncWatcher.stop();
