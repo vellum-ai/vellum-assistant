@@ -36,6 +36,21 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   regenerateResponse: async () => null,
 }));
 
+// Qdrant cleanup runs after the SQLite clear; in this test environment the
+// real client is not initialised, so stub it. Track invocation count so the
+// route handler regression (cleared SQLite but skipped vector data) can be
+// caught by the suite below.
+const qdrantState = { deleteCollectionCalls: 0 };
+mock.module("../memory/qdrant-client.js", () => ({
+  getQdrantClient: () => ({
+    deleteCollection: async () => {
+      qdrantState.deleteCollectionCalls += 1;
+      return true;
+    },
+  }),
+  initQdrantClient: () => {},
+}));
+
 import {
   addMessage,
   clearAll,
@@ -129,26 +144,24 @@ describe("DELETE /v1/conversations — route handler", () => {
     (r) => r.operationId === "clearAllConversations",
   )!;
 
-  test("missing X-Confirm-Destructive header throws BadRequestError", () => {
-    expect(() =>
+  test("missing X-Confirm-Destructive header throws BadRequestError", async () => {
+    await expect(
       clearRoute.handler({
         pathParams: {},
         body: {},
         headers: {},
-  
-      }),
-    ).toThrow(BadRequestError);
+      }) as Promise<unknown>,
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("wrong X-Confirm-Destructive header value throws BadRequestError", () => {
-    expect(() =>
+  test("wrong X-Confirm-Destructive header value throws BadRequestError", async () => {
+    await expect(
       clearRoute.handler({
         pathParams: {},
         body: {},
         headers: { "x-confirm-destructive": "wrong-value" },
-  
-      }),
-    ).toThrow(BadRequestError);
+      }) as Promise<unknown>,
+    ).rejects.toThrow(BadRequestError);
   });
 
   test("correct header clears data", async () => {
@@ -156,23 +169,21 @@ describe("DELETE /v1/conversations — route handler", () => {
     await addMessage(conv.id, "user", "hello from safety test");
     expect(getConversation(conv.id)).not.toBeNull();
 
-    const result = clearRoute.handler({
+    const result = await clearRoute.handler({
       pathParams: {},
       body: {},
       headers: { "x-confirm-destructive": "clear-all-conversations" },
-
     });
     expect(result).toBeUndefined();
 
     expect(getConversation(conv.id)).toBeNull();
   });
 
-  test("lifecycle_events contains conversations_clear_all after successful clear", () => {
-    clearRoute.handler({
+  test("lifecycle_events contains conversations_clear_all after successful clear", async () => {
+    await clearRoute.handler({
       pathParams: {},
       body: {},
       headers: { "x-confirm-destructive": "clear-all-conversations" },
-
     });
 
     const raw = (
@@ -187,5 +198,15 @@ describe("DELETE /v1/conversations — route handler", () => {
       .all() as Array<{ event_name: string }>;
     expect(rows.length).toBeGreaterThanOrEqual(1);
     expect(rows[0].event_name).toBe("conversations_clear_all");
+  });
+
+  test("clearAllConversations also drops the Qdrant vector collection", async () => {
+    const before = qdrantState.deleteCollectionCalls;
+    await clearRoute.handler({
+      pathParams: {},
+      body: {},
+      headers: { "x-confirm-destructive": "clear-all-conversations" },
+    });
+    expect(qdrantState.deleteCollectionCalls).toBeGreaterThan(before);
   });
 });

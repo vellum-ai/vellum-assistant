@@ -1,8 +1,15 @@
 /**
  * Conversation export formatters for markdown and JSON.
+ *
+ * Copied from assistant/src/export/formatter.ts with daemon-internal imports
+ * replaced by inline implementations so this module can be used in the CLI
+ * without pulling in daemon internals.
  */
 
-import { truncate } from "../util/truncate.js";
+// Inline truncate since util/truncate is a daemon internal
+function truncate(s: string, maxLen: number): string {
+  return s.length <= maxLen ? s : s.slice(0, maxLen) + "…";
+}
 
 interface ContentBlock {
   type: string;
