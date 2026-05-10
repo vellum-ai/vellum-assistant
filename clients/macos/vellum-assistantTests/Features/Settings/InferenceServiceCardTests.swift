@@ -171,6 +171,14 @@ final class InferenceServiceCardTests: XCTestCase {
         let isPresented = Binding<Bool>(get: { true }, set: { _ in })
         let sheet = InferenceProfilesSheet(store: store, isPresented: isPresented)
         XCTAssertNotNil(sheet.body)
+
+        let createSheet = InferenceProfilesSheet(
+            store: store,
+            isPresented: isPresented,
+            startInCreateMode: true,
+            onCreatedProfileSaved: { _ in true }
+        )
+        XCTAssertNotNil(createSheet.body)
     }
 
     // MARK: - Save flow no longer writes llm.default.model

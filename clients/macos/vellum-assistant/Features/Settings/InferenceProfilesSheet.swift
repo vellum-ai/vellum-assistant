@@ -25,6 +25,10 @@ import VellumAssistantShared
 struct InferenceProfilesSheet: View {
     @ObservedObject var store: SettingsStore
     @Binding var isPresented: Bool
+    let startInCreateMode: Bool
+    let onCreatedProfileSaved: ((String) async -> Bool)?
+
+    @State private var didApplyInitialCreateMode = false
 
     @State private var editorState: EditorState?
 
@@ -69,6 +73,18 @@ struct InferenceProfilesSheet: View {
         case callSites(profileName: String, callSiteIds: [String])
     }
 
+    init(
+        store: SettingsStore,
+        isPresented: Binding<Bool>,
+        startInCreateMode: Bool = false,
+        onCreatedProfileSaved: ((String) async -> Bool)? = nil
+    ) {
+        self._store = ObservedObject(wrappedValue: store)
+        self._isPresented = isPresented
+        self.startInCreateMode = startInCreateMode
+        self.onCreatedProfileSaved = onCreatedProfileSaved
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -99,6 +115,13 @@ struct InferenceProfilesSheet: View {
             if newValue == nil {
                 replacementSelection = ""
             }
+        }
+        .onAppear {
+            guard startInCreateMode,
+                  !didApplyInitialCreateMode,
+                  editorState == nil else { return }
+            didApplyInitialCreateMode = true
+            beginCreate()
         }
         .animation(VAnimation.fast, value: editorState != nil)
     }
@@ -466,6 +489,7 @@ struct InferenceProfilesSheet: View {
     private func commitEditor() async {
         let draft = editorDraft
         let originalName = editorOriginalName
+        let shouldNotifyCreatedProfile = originalName == nil
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         // Refuse to commit empty or whitespace-only names — the daemon
         // would accept them but the row would render unusably.
@@ -557,6 +581,15 @@ struct InferenceProfilesSheet: View {
             }
         }
 
+        if shouldNotifyCreatedProfile,
+           let onCreatedProfileSaved {
+            let didSelectCreatedProfile = await onCreatedProfileSaved(name)
+            guard didSelectCreatedProfile else {
+                editorState = nil
+                actionError = "Saved \"\(name)\" but couldn't select it for this conversation. Try selecting it from the chat menu."
+                return
+            }
+        }
         editorState = nil
     }
 

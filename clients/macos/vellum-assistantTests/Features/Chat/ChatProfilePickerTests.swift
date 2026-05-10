@@ -50,6 +50,73 @@ final class ChatProfilePickerTests: XCTestCase {
         )
     }
 
+    // MARK: - Create profile command
+
+    func testConfigurationDefaultsHideCreateProfileCommand() {
+        let config = ChatProfilePickerConfiguration(
+            current: nil,
+            profiles: [],
+            activeProfile: "balanced",
+            onSelect: { _ in }
+        )
+
+        XCTAssertFalse(config.canCreateProfile)
+        XCTAssertNil(config.onCreateProfile)
+        XCTAssertFalse(ComposerSettingsMenu.shouldRenderProfileSection(for: config))
+        XCTAssertFalse(ComposerSettingsMenu.shouldExposeCreateProfileCommand(for: config))
+    }
+
+    func testCreateProfileCommandIsExposedWhenEnabledWithoutProfiles() {
+        var didRequestCreateProfile = false
+        let config = ChatProfilePickerConfiguration(
+            current: nil,
+            profiles: [],
+            activeProfile: "balanced",
+            canCreateProfile: true,
+            onSelect: { _ in },
+            onCreateProfile: {
+                didRequestCreateProfile = true
+            }
+        )
+
+        XCTAssertTrue(config.canCreateProfile)
+        XCTAssertTrue(ComposerSettingsMenu.shouldRenderProfileSection(for: config))
+        XCTAssertTrue(ComposerSettingsMenu.shouldExposeCreateProfileCommand(for: config))
+
+        config.onCreateProfile?()
+
+        XCTAssertTrue(didRequestCreateProfile)
+    }
+
+    func testCreateProfileCommandIsHiddenWhenDisabledWithProfiles() {
+        let config = ChatProfilePickerConfiguration(
+            current: nil,
+            profiles: [InferenceProfile(name: "balanced")],
+            activeProfile: "balanced",
+            canCreateProfile: false,
+            onSelect: { _ in },
+            onCreateProfile: {
+                XCTFail("Disabled create-profile commands must not be exposed")
+            }
+        )
+
+        XCTAssertTrue(ComposerSettingsMenu.shouldRenderProfileSection(for: config))
+        XCTAssertFalse(ComposerSettingsMenu.shouldExposeCreateProfileCommand(for: config))
+    }
+
+    func testCreateProfileCommandIsHiddenWhenCallbackIsMissing() {
+        let config = ChatProfilePickerConfiguration(
+            current: nil,
+            profiles: [],
+            activeProfile: "balanced",
+            canCreateProfile: true,
+            onSelect: { _ in }
+        )
+
+        XCTAssertFalse(ComposerSettingsMenu.shouldRenderProfileSection(for: config))
+        XCTAssertFalse(ComposerSettingsMenu.shouldExposeCreateProfileCommand(for: config))
+    }
+
     // MARK: - Selection callback wiring (covers ComposerView → ChatProfilePicker → ConversationManager)
 
     func testConversationManagerSetsOverrideOnSelection() async {
@@ -100,6 +167,87 @@ final class ChatProfilePickerTests: XCTestCase {
             [MockChatProfilePickerClient.SetCall(conversationId: "conv-1", profile: nil)]
         )
         XCTAssertNil(env.manager.conversations[0].inferenceProfile)
+    }
+
+    func testCreatedProfileSaveSelectsConversationOverrideWithoutChangingActiveProfile() async {
+        let fixture = SettingsTestFixture.make()
+        fixture.store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "balanced",
+                "profiles": [
+                    "balanced": ["provider": "anthropic", "model": "claude-sonnet-4-6"],
+                    "custom-profile": ["provider": "openai", "model": "gpt-5"],
+                ],
+            ]
+        ])
+        let env = makeManagerEnvironment(initialProfile: nil)
+        env.mockClient.setResponse = ConversationInferenceProfileResponse(
+            conversationId: "conv-1",
+            profile: "custom-profile"
+        )
+
+        let onCreatedProfileSaved: (String) async -> Bool = { savedName in
+            await env.manager.setConversationInferenceProfile(
+                id: env.localId,
+                profile: savedName
+            )
+        }
+
+        let didSelect = await onCreatedProfileSaved("custom-profile")
+
+        XCTAssertTrue(didSelect)
+        XCTAssertEqual(
+            env.mockClient.setCalls,
+            [MockChatProfilePickerClient.SetCall(conversationId: "conv-1", profile: "custom-profile")]
+        )
+        XCTAssertEqual(env.manager.conversations[0].inferenceProfile, "custom-profile")
+        XCTAssertEqual(fixture.store.activeProfile, "balanced")
+        XCTAssertFalse(
+            fixture.mockClient.patchConfigCalls.contains { payload in
+                guard let llm = payload["llm"] as? [String: Any] else { return false }
+                return llm.keys.contains("activeProfile")
+            },
+            "Chat-owned create-profile save must not patch llm.activeProfile"
+        )
+    }
+
+    func testCreatedProfileSaveReportsConversationSelectionFailureWithoutChangingActiveProfile() async {
+        let fixture = SettingsTestFixture.make()
+        fixture.store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "balanced",
+                "profiles": [
+                    "balanced": ["provider": "anthropic", "model": "claude-sonnet-4-6"],
+                    "custom-profile": ["provider": "openai", "model": "gpt-5"],
+                ],
+            ]
+        ])
+        let env = makeManagerEnvironment(initialProfile: nil)
+        env.mockClient.setResponse = nil
+
+        let onCreatedProfileSaved: (String) async -> Bool = { savedName in
+            await env.manager.setConversationInferenceProfile(
+                id: env.localId,
+                profile: savedName
+            )
+        }
+
+        let didSelect = await onCreatedProfileSaved("custom-profile")
+
+        XCTAssertFalse(didSelect)
+        XCTAssertEqual(
+            env.mockClient.setCalls,
+            [MockChatProfilePickerClient.SetCall(conversationId: "conv-1", profile: "custom-profile")]
+        )
+        XCTAssertNil(env.manager.conversations[0].inferenceProfile)
+        XCTAssertEqual(fixture.store.activeProfile, "balanced")
+        XCTAssertFalse(
+            fixture.mockClient.patchConfigCalls.contains { payload in
+                guard let llm = payload["llm"] as? [String: Any] else { return false }
+                return llm.keys.contains("activeProfile")
+            },
+            "Failed chat-owned selection must not fall back to llm.activeProfile"
+        )
     }
 
     // MARK: - Helpers

@@ -98,6 +98,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "new-model-profile-shortcut",
+      "scope": "assistant",
+      "key": "new-model-profile-shortcut",
+      "label": "New Model Profile Shortcut",
+      "description": "Show the New Profile... shortcut in the macOS chat composer model profile dropdown.",
+      "defaultEnabled": false
+    },
+    {
       "id": "multi-platform-assistant",
       "scope": "assistant",
       "key": "multi-platform-assistant",
