@@ -11430,7 +11430,9 @@ paths:
     post:
       operationId: stt_transcribefile_post
       summary: Transcribe audio/video file to text
-      description: "Transcribe an audio or video file to text using the configured STT provider. Handles ffmpeg conversion, large-file chunking, and sequential chunk transcription."
+      description:
+        Transcribe an audio or video file to text using the configured STT provider. Handles ffmpeg conversion,
+        large-file chunking, and sequential chunk transcription.
       tags:
         - stt
       responses:
