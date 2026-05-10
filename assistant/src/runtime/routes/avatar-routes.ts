@@ -5,7 +5,7 @@ import {
   readFileSync,
   unlinkSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { z } from "zod";
 
@@ -24,6 +24,7 @@ import { getLogger } from "../../util/logger.js";
 import {
   getAvatarDir,
   getAvatarImagePath,
+  getWorkspaceDir,
 } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
@@ -134,13 +135,23 @@ function handleSetAvatar({ body }: RouteHandlerArgs) {
   if (!imagePath) {
     throw new BadRequestError("imagePath is required");
   }
-  if (!existsSync(imagePath)) {
-    throw new BadRequestError(`Image file not found: ${imagePath}`);
+  // Path safety: imagePath must resolve inside the workspace dir.
+  // Without this guard an authenticated caller with settings.write could
+  // pass /etc/passwd or other host paths and exfiltrate via avatar_get.
+  const workspaceDir = getWorkspaceDir();
+  const normalized = resolve(imagePath);
+  if (normalized !== workspaceDir && !normalized.startsWith(workspaceDir + "/")) {
+    throw new BadRequestError(
+      "imagePath must resolve inside the workspace directory",
+    );
+  }
+  if (!existsSync(normalized)) {
+    throw new BadRequestError(`Image file not found: ${normalized}`);
   }
 
   const avatarPath = getAvatarImagePath();
   mkdirSync(dirname(avatarPath), { recursive: true });
-  copyFileSync(imagePath, avatarPath);
+  copyFileSync(normalized, avatarPath);
 
   updateIdentityAvatarSection(null, log);
   publishAvatarUpdated();
