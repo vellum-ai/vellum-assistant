@@ -10,5 +10,26 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git worktree *)",
+      "Bash(git show *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh run view *)",
+      "Bash(gh run list *)",
+      "Bash(gh issue view *)",
+      "Bash(gh issue list *)",
+      "Bash(gh auth status *)",
+      "Bash(gh api *)",
+      "Bash(docker ps *)",
+      "Bash(docker logs *)",
+      "Bash(docker inspect *)",
+      "Bash(bun run typecheck)",
+      "Bash(bun run lint)",
+      "Bash(bunx tsc *)"
+    ]
   }
 }
