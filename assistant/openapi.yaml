@@ -1317,6 +1317,22 @@ paths:
           required: true
           schema:
             type: string
+  /v1/audit/invocations:
+    get:
+      operationId: audit_invocations_get
+      summary: List recent tool invocations
+      tags:
+        - audit
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Max rows (default 20, max 500)
   /v1/avatar/character-components:
     get:
       operationId: avatar_charactercomponents_get

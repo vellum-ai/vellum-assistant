@@ -822,3 +822,9 @@ registerPolicy("x", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
 });
+
+// Audit route: local-only (CLI / IPC callers)
+registerPolicy("audit/invocations", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});

@@ -14,6 +14,7 @@ import { ROUTES as APP_ROUTES } from "./app-routes.js";
 import { ROUTES as APPROVAL_ROUTES } from "./approval-routes.js";
 import { ROUTES as ATTACHMENT_ROUTES } from "./attachment-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./audio-routes.js";
+import { ROUTES as AUDIT_ROUTES } from "./audit-routes.js";
 import { ROUTES as AVATAR_ROUTES } from "./avatar-routes.js";
 import { ROUTES as BACKGROUND_TOOL_ROUTES } from "./background-tool-routes.js";
 import { ROUTES as BACKUP_ROUTES } from "./backup-routes.js";
@@ -115,6 +116,7 @@ export const ROUTES: RouteDefinition[] = [
   ...ATTACHMENT_ROUTES,
   ...ACP_ROUTES,
   ...APP_MANAGEMENT_ROUTES,
+  ...AUDIT_ROUTES,
   ...APP_ROUTES,
   ...APPROVAL_ROUTES,
   ...AUDIO_ROUTES,
