@@ -141,8 +141,10 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
     signal?: AbortSignal,
     extraFields?: Record<string, unknown>,
     targetClientId?: string,
+    timeoutMsOverride?: number,
   ): Promise<TResultPayload> {
     const requestId = uuid();
+    const effectiveTimeoutMs = timeoutMsOverride ?? this.timeoutMs;
 
     return new Promise<TResultPayload>((resolve, reject) => {
       // Declared up-front so onAbort can close over a stable reference once
@@ -158,7 +160,7 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
           "Host proxy request timed out",
         );
         reject(new HostProxyRequestError("timeout", "timeout"));
-      }, this.timeoutMs);
+      }, effectiveTimeoutMs);
 
       if (signal) {
         const onAbort = () => {
