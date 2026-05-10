@@ -119,9 +119,9 @@ describe("backup enable", () => {
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_enable");
     // Should not have intervalHours or retention if not specified
-    expect(lastIpcCall!.params?.intervalHours).toBeUndefined();
-    expect(lastIpcCall!.params?.retention).toBeUndefined();
-    expect(lastIpcCall!.params?.offsiteEnabled).toBeUndefined();
+    expect((lastIpcCall!.params?.body as Record<string, unknown>)?.intervalHours).toBeUndefined();
+    expect((lastIpcCall!.params?.body as Record<string, unknown>)?.retention).toBeUndefined();
+    expect((lastIpcCall!.params?.body as Record<string, unknown>)?.offsiteEnabled).toBeUndefined();
   });
 
   test("--interval 12 --retention 7 sends correct params", async () => {
@@ -144,7 +144,7 @@ describe("backup enable", () => {
     ]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_enable");
-    expect(lastIpcCall!.params).toEqual({ intervalHours: 12, retention: 7 });
+    expect(lastIpcCall!.params).toEqual({ body: { intervalHours: 12, retention: 7 } });
   });
 
   test("--no-offsite sends offsiteEnabled: false", async () => {
@@ -160,7 +160,7 @@ describe("backup enable", () => {
     const { exitCode } = await runCommand(["backup", "enable", "--no-offsite"]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_enable");
-    expect(lastIpcCall!.params?.offsiteEnabled).toBe(false);
+    expect((lastIpcCall!.params?.body as Record<string, unknown>)?.offsiteEnabled).toBe(false);
   });
 });
 
@@ -207,7 +207,7 @@ describe("backup destinations add", () => {
     ]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_destinations_add");
-    expect(lastIpcCall!.params).toEqual({ path: "/tmp/foo", encrypt: true });
+    expect(lastIpcCall!.params).toEqual({ body: { path: "/tmp/foo", encrypt: true } });
   });
 
   test("--plaintext sends encrypt: false", async () => {
@@ -224,7 +224,7 @@ describe("backup destinations add", () => {
     ]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_destinations_add");
-    expect(lastIpcCall!.params).toEqual({ path: "/tmp/foo", encrypt: false });
+    expect(lastIpcCall!.params).toEqual({ body: { path: "/tmp/foo", encrypt: false } });
   });
 });
 
@@ -243,7 +243,7 @@ describe("backup destinations remove", () => {
     ]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_destinations_remove");
-    expect(lastIpcCall!.params?.path).toBe("/tmp/foo");
+    expect((lastIpcCall!.params?.body as Record<string, unknown>)?.path).toBe("/tmp/foo");
   });
 });
 
@@ -266,7 +266,7 @@ describe("backup destinations set-encrypt", () => {
     ]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_destinations_set_encrypt");
-    expect(lastIpcCall!.params).toEqual({ path: "/tmp/foo", encrypt: true });
+    expect(lastIpcCall!.params).toEqual({ body: { path: "/tmp/foo", encrypt: true } });
   });
 
   test("invalid value exits with code 1 without calling IPC", async () => {

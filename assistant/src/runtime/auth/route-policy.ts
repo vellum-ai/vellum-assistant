@@ -554,7 +554,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Speech-to-text
   { endpoint: "stt/providers", scopes: ["settings.read"] },
   { endpoint: "stt/transcribe", scopes: ["chat.write"] },
-  { endpoint: "stt/transcribe-file", scopes: ["chat.write"] },
 
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
@@ -828,6 +827,13 @@ registerPolicy("background-tools/cancel", {
 // TTS CLI synthesis: local-only (CLI / IPC callers)
 registerPolicy("tts/synthesize-cli", {
   requiredScopes: ["chat.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// STT file transcription: local-only — handler reads/transcodes an arbitrary
+// host filesystem path, so non-local callers cannot be allowed to drive it.
+registerPolicy("stt/transcribe-file", {
+  requiredScopes: ["chat.write"],
   allowedPrincipalTypes: ["local"],
 });
 
