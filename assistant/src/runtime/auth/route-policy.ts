@@ -829,6 +829,18 @@ registerPolicy("audit/invocations", {
   allowedPrincipalTypes: ["local"],
 });
 
+
+// Domain routes: local-only (CLI / IPC callers)
+registerPolicy("domain/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("domain/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Auth status route: local-only (CLI / IPC callers)
 registerPolicy("auth/status", {
   requiredScopes: ["settings.read"],
