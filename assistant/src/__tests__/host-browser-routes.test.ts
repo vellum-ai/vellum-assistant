@@ -1,9 +1,9 @@
 /**
  * Unit tests for the /v1/host-browser-result route handler.
  *
- * Resolution goes through HostBrowserProxy.instance (singleton). The
- * mock below spies on resolveResult; the real pendingInteractions
- * module provides the guard check for unknown request IDs.
+ * The route inlines pendingInteractions resolution directly — no proxy
+ * singleton is involved. The real pendingInteractions module provides both
+ * the guard check for unknown request IDs and the rpcResolve invocation.
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -18,28 +18,6 @@ mock.module("../config/env.js", () => ({
 // the resolver returns whatever header value the test provides.
 mock.module("../runtime/local-actor-identity.js", () => ({
   resolveActorPrincipalIdForLocalGuardian: (raw: string | undefined) => raw,
-}));
-
-interface ResolveCall {
-  requestId: string;
-  response: { content: string; isError: boolean };
-}
-
-const resolveSpy: ResolveCall[] = [];
-
-mock.module("../daemon/host-browser-proxy.js", () => ({
-  HostBrowserProxy: {
-    get instance() {
-      return {
-        resolveResult(
-          requestId: string,
-          response: { content: string; isError: boolean },
-        ) {
-          resolveSpy.push({ requestId, response });
-        },
-      };
-    },
-  },
 }));
 
 // Use the real pending-interactions module for the guard check.
@@ -68,14 +46,15 @@ const handleHostBrowserResult = ROUTES.find(
 describe("handleHostBrowserResult", () => {
   beforeEach(() => {
     pendingInteractions.clear();
-    resolveSpy.length = 0;
   });
 
-  test("happy path: resolves a pending host_browser request via singleton", async () => {
+  test("happy path: resolves a pending host_browser request", async () => {
     const requestId = "browser-req-happy";
+    const resolved: unknown[] = [];
     pendingInteractions.register(requestId, {
       conversationId: "conv-1",
       kind: "host_browser",
+      rpcResolve: (v: unknown) => resolved.push(v),
     });
 
     const result = await handleHostBrowserResult({
@@ -83,9 +62,9 @@ describe("handleHostBrowserResult", () => {
     });
 
     expect(result).toEqual({ accepted: true });
-    expect(resolveSpy).toHaveLength(1);
-    expect(resolveSpy[0].requestId).toBe(requestId);
-    expect(resolveSpy[0].response).toEqual({ content: "ok", isError: false });
+    expect(pendingInteractions.get(requestId)).toBeUndefined();
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]).toEqual({ content: "ok", isError: false });
   });
 
   test("missing body: throws BadRequestError", () => {
@@ -125,23 +104,23 @@ describe("handleHostBrowserResult", () => {
 
     // Interaction must NOT have been consumed — the bash proxy can still resolve it
     expect(pendingInteractions.get(requestId)).toBeDefined();
-    // resolveResult should never have been called
-    expect(resolveSpy).toHaveLength(0);
   });
 
   test("defaults: missing content/isError default to '' and false", async () => {
     const requestId = "browser-req-defaults";
+    const resolved: unknown[] = [];
     pendingInteractions.register(requestId, {
       conversationId: "conv-1",
       kind: "host_browser",
+      rpcResolve: (v: unknown) => resolved.push(v),
     });
 
     const result = await handleHostBrowserResult({ body: { requestId } });
 
     expect(result).toEqual({ accepted: true });
-    expect(resolveSpy).toHaveLength(1);
-    expect(resolveSpy[0].requestId).toBe(requestId);
-    expect(resolveSpy[0].response).toEqual({ content: "", isError: false });
+    expect(pendingInteractions.get(requestId)).toBeUndefined();
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]).toEqual({ content: "", isError: false });
   });
 });
 
@@ -150,7 +129,6 @@ describe("handleHostBrowserResult", () => {
 describe("handleHostBrowserResult — same-actor guard", () => {
   beforeEach(() => {
     pendingInteractions.clear();
-    resolveSpy.length = 0;
   });
 
   // ── Targeted + correct headers → 200 ─────────────────────────────────
@@ -174,8 +152,7 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       });
 
       expect(result).toEqual({ accepted: true });
-      expect(resolveSpy).toHaveLength(1);
-      expect(resolveSpy[0].requestId).toBe(requestId);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("trims whitespace from x-vellum-client-id before comparing", async () => {
@@ -253,7 +230,6 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       }
 
       expect(pendingInteractions.get(requestId)).toBeDefined();
-      expect(resolveSpy).toHaveLength(0);
     });
   });
 
@@ -330,7 +306,6 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       }
 
       expect(pendingInteractions.get(requestId)).toBeDefined();
-      expect(resolveSpy).toHaveLength(0);
     });
   });
 
@@ -416,7 +391,6 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       }
 
       expect(pendingInteractions.get(requestId)).toBeDefined();
-      expect(resolveSpy).toHaveLength(0);
     });
   });
 
@@ -435,7 +409,7 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       });
 
       expect(result).toEqual({ accepted: true });
-      expect(resolveSpy).toHaveLength(1);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
 
     test("accepts when header is present (header ignored when untargeted)", async () => {
@@ -451,7 +425,7 @@ describe("handleHostBrowserResult — same-actor guard", () => {
       });
 
       expect(result).toEqual({ accepted: true });
-      expect(resolveSpy).toHaveLength(1);
+      expect(pendingInteractions.get(requestId)).toBeUndefined();
     });
   });
 });

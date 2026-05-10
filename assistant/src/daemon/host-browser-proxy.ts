@@ -270,27 +270,6 @@ export class HostBrowserProxy {
     });
   }
 
-  /**
-   * Process a client result and resolve the RPC. Called by route handlers.
-   */
-  resolveResult(
-    requestId: string,
-    response: { content: string; isError: boolean },
-  ): void {
-    const interaction = pendingInteractions.resolve(requestId);
-    if (!interaction?.rpcResolve) {
-      log.debug(
-        { requestId },
-        "Ignoring host_browser_result for unknown or already-resolved request",
-      );
-      return;
-    }
-    interaction.rpcResolve({
-      content: response.content,
-      isError: response.isError,
-    });
-  }
-
   dispose(): void {
     for (const entry of pendingInteractions.getByKind("host_browser")) {
       pendingInteractions.resolve(entry.requestId);
