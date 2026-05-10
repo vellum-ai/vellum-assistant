@@ -110,16 +110,39 @@ mock.module("../prompts/system-prompt.js", () => ({
   buildSubagentSystemPrompt: () => "subagent system",
 }));
 
-// Provider registry — return distinct stubs so we can verify the selection.
+// Provider registry + connection resolver — connection-aware path is the
+// only routing path post Phase 1 cleanup. `getProvider` is kept here purely
+// because the registry module still exports it; the production code under
+// test no longer calls it.
 const anthropicStub = { name: "anthropic" };
 const openaiStub = { name: "openai" };
 
 mock.module("../providers/registry.js", () => ({
   getProvider: (name: string) => {
-    if (name === "anthropic") return anthropicStub;
-    if (name === "openai") return openaiStub;
-    throw new Error(`unknown provider: ${name}`);
+    throw new Error(`legacy getProvider should not be called: ${name}`);
   },
+  resolveProviderFromConnection: async (connection: { name: string }) => {
+    if (connection.name === "anthropic-conn") return anthropicStub;
+    if (connection.name === "openai-conn") return openaiStub;
+    return null;
+  },
+  clearConnectionProviderCache: () => {},
+}));
+
+// Connection lookup — feeds `resolveProviderFromConnection` above. The DB
+// is stubbed; tests don't touch SQLite.
+mock.module("../providers/inference/connections.js", () => ({
+  getConnection: (_db: unknown, name: string) => {
+    if (name === "anthropic-conn")
+      return { name: "anthropic-conn", provider: "anthropic", auth: { type: "platform" } };
+    if (name === "openai-conn")
+      return { name: "openai-conn", provider: "openai", auth: { type: "platform" } };
+    return null;
+  },
+}));
+
+mock.module("../memory/db-connection.js", () => ({
+  getDb: () => ({}),
 }));
 
 // Mutable LLM config — tests rewrite this per-case.
@@ -154,7 +177,11 @@ function setLlmConfig(raw: unknown): void {
 describe("SubagentManager — provider call-site routing", () => {
   test("wraps the default provider in CallSiteRoutingProvider", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      default: {
+        provider: "anthropic",
+        provider_connection: "anthropic-conn",
+        model: "claude-opus-4-7",
+      },
     });
 
     capturedProvider = undefined;
@@ -173,9 +200,17 @@ describe("SubagentManager — provider call-site routing", () => {
 
   test("the wrapped provider exposes the default provider's name (stable identity for outer wrappers)", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      default: {
+        provider: "anthropic",
+        provider_connection: "anthropic-conn",
+        model: "claude-opus-4-7",
+      },
       callSites: {
-        subagentSpawn: { provider: "openai", model: "gpt-5.4" },
+        subagentSpawn: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.4",
+        },
       },
     });
 
@@ -202,7 +237,11 @@ describe("SubagentManager — provider call-site routing", () => {
 
   test("falls back to default provider when subagentSpawn callSite is absent", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      default: {
+        provider: "anthropic",
+        provider_connection: "anthropic-conn",
+        model: "claude-opus-4-7",
+      },
       // No subagentSpawn override.
     });
 
@@ -224,7 +263,11 @@ describe("SubagentManager — provider call-site routing", () => {
 
   test("copies parent guardian and auth context into spawned conversation", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      default: {
+        provider: "anthropic",
+        provider_connection: "anthropic-conn",
+        model: "claude-opus-4-7",
+      },
     });
 
     const parentTrustContext = {
@@ -273,11 +316,18 @@ describe("SubagentManager — provider call-site routing", () => {
 // ── Direct unit test for CallSiteRoutingProvider's selection logic ─────────
 
 describe("CallSiteRoutingProvider — selectProvider behavior", () => {
-  test("routes to the resolved provider when callSite.provider differs from default", async () => {
+  test("routes to the resolved provider when callSite resolves to a profile with provider_connection", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        altOpenai: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.4",
+        },
+      },
       callSites: {
-        subagentSpawn: { provider: "openai", model: "gpt-5.4" },
+        subagentSpawn: { profile: "altOpenai" },
       },
     });
 
@@ -309,10 +359,13 @@ describe("CallSiteRoutingProvider — selectProvider behavior", () => {
       },
     };
 
-    const wrapper = new CallSiteRoutingProvider(defaultProvider, (name) => {
-      if (name === "openai") return altProvider;
-      return undefined;
-    });
+    const wrapper = new CallSiteRoutingProvider(
+      defaultProvider,
+      async (connectionName) => {
+        if (connectionName === "openai-conn") return altProvider;
+        return null;
+      },
+    );
 
     await wrapper.sendMessage([], undefined, undefined, {
       config: { callSite: "subagentSpawn" },
@@ -347,7 +400,7 @@ describe("CallSiteRoutingProvider — selectProvider behavior", () => {
 
     const wrapper = new CallSiteRoutingProvider(
       defaultProvider,
-      () => undefined,
+      async () => null,
     );
 
     await wrapper.sendMessage([], undefined, undefined, {

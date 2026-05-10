@@ -9,41 +9,75 @@
  * identically across the codebase.
  *
  * Resolution policy:
- *   1. If the profile names a `provider_connection`, look it up in the DB
- *      and resolve to a `Provider` with the connection's auth bound.
- *   2. On any miss (DB lookup throws, row not found, auth resolution fails)
- *      log a warning and return null so callers can fall back to legacy
- *      `getProvider(profile.provider)` dispatch.
- *
- * The legacy fallback is intentionally retained for one release window —
- * cycle-4 cleanup will remove it once we've shipped one release with
- * connection-awareness active.
+ *   1. The profile MUST name a `provider_connection`. The boot-time
+ *      backfill ensures every profile has one; a missing connection name
+ *      is a configuration bug.
+ *   2. Hard config errors (DB lookup throws, row not found, provider
+ *      mismatch with the resolving profile) throw so misconfigurations
+ *      surface immediately rather than silently rerouting.
+ *   3. Soft credential issues (`resolveProviderFromConnection` returns
+ *      null because the credential isn't set in the vault, or the
+ *      auth bundle yields no usable adapter) return null. Callers are
+ *      free to treat null as "no provider available" and fall back to
+ *      a graceful no-op (e.g. rollup producer skips, satellite throw
+ *      with their own actionable message).
+ *   4. Transient failures inside the resolver (managed-proxy context
+ *      lookup, credential read I/O) are caught and treated like a soft
+ *      credential issue (return null). A transient blip should not take
+ *      a conversation offline.
  */
 
 import { getDb } from "../memory/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import { getConnection } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
-import {
-  getProvider,
-  resolveProviderFromConnection,
-} from "./registry.js";
+import { resolveProviderFromConnection } from "./registry.js";
 import type { Provider } from "./types.js";
 
 const log = getLogger("providers/connection-resolution");
 
 /**
- * Attempt to resolve a Provider through a named `provider_connection`. Returns
- * null on any miss (lookup error, row not found, provider mismatch with the
- * resolving profile, auth resolution failure) so callers can fall back to the
- * legacy `getProvider(name)` path.
+ * Error raised when a `provider_connection` reference cannot be resolved
+ * because the configuration is broken (DB lookup throws, no such row, or
+ * the connection's provider does not match the resolving profile's
+ * declared provider). These are deterministic configuration bugs that
+ * should fail loudly rather than silently rerouting.
+ */
+export class ConnectionResolutionError extends Error {
+  constructor(
+    public readonly connectionName: string,
+    public readonly reason:
+      | "lookup_failed"
+      | "not_found"
+      | "provider_mismatch"
+      | "missing_connection",
+    message: string,
+    public readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "ConnectionResolutionError";
+  }
+}
+
+/**
+ * Resolve a Provider through a named `provider_connection`.
  *
- * `expectedProvider` is the provider name the resolving profile declared. We
- * verify the connection row's `provider` field matches before binding — a
- * profile that names `provider: "openai"` together with a Anthropic-flavored
- * `provider_connection` is a misconfiguration and we fall through rather than
- * silently routing the request to the wrong backend. Pass `undefined` to skip
- * the check (callers that don't yet know the expected provider).
+ * Throws `ConnectionResolutionError` on hard config errors:
+ *   - DB lookup throws (`lookup_failed`)
+ *   - No connection row with this name (`not_found`)
+ *   - Connection row's provider does not match `expectedProvider`
+ *     (`provider_mismatch`) — protects against silent misroutes when a
+ *     profile names provider X with a connection bound to provider Y.
+ *
+ * Returns null on soft credential issues:
+ *   - `resolveProviderFromConnection` returned null (credential missing
+ *     from vault, platform auth unavailable, adapter creation failure).
+ *   - The resolver threw a transient failure (caught and downgraded to
+ *     null). Callers handle null as "no provider available right now".
+ *
+ * `expectedProvider` is the provider name the resolving profile declared.
+ * Pass `undefined` to skip the mismatch check (callers that don't yet
+ * know the expected provider).
  */
 export async function tryResolveProviderForConnectionName(
   connectionName: string,
@@ -54,40 +88,39 @@ export async function tryResolveProviderForConnectionName(
   try {
     connection = getConnection(getDb(), connectionName);
   } catch (err) {
-    log.warn(
-      { err, connectionName },
-      "provider_connection lookup failed — falling back to legacy registry dispatch",
+    throw new ConnectionResolutionError(
+      connectionName,
+      "lookup_failed",
+      `provider_connection lookup failed for "${connectionName}"`,
+      err,
     );
-    return null;
   }
   if (!connection) {
-    log.warn(
-      { connectionName },
-      "provider_connection not found — falling back to legacy registry dispatch",
+    throw new ConnectionResolutionError(
+      connectionName,
+      "not_found",
+      `provider_connection "${connectionName}" not found in DB — check your config or run the boot-time backfill`,
     );
-    return null;
   }
   if (expectedProvider && connection.provider !== expectedProvider) {
-    log.warn(
-      {
-        connectionName,
-        expectedProvider,
-        connectionProvider: connection.provider,
-      },
-      "provider_connection provider does not match resolving profile's provider — falling back to legacy registry dispatch to avoid silent misroute",
+    throw new ConnectionResolutionError(
+      connectionName,
+      "provider_mismatch",
+      `provider_connection "${connectionName}" has provider="${connection.provider}" but resolving profile declared provider="${expectedProvider}" — set the profile's provider_connection to a row matching its provider`,
     );
-    return null;
   }
   // `resolveProviderFromConnection` reaches into auth resolution (credential
-  // reads, managed-proxy context). A transient failure there must not hard-
-  // fail the dispatcher — log and fall through so the legacy registry path
-  // can still serve the request.
+  // reads, managed-proxy context). A transient failure there is a soft
+  // miss — log and return null so the caller can treat it the same as
+  // "no usable credentials". Hard config errors are thrown above; this
+  // catch is specifically for in-flight failures that should not take
+  // dispatch offline.
   try {
     return await resolveProviderFromConnection(connection, config);
   } catch (err) {
     log.warn(
       { err, connectionName },
-      "provider_connection auth resolution failed — falling back to legacy registry dispatch",
+      "provider_connection auth resolution failed transiently — returning null",
     );
     return null;
   }
@@ -98,37 +131,32 @@ export async function tryResolveProviderForConnectionName(
  * construction-time path (subagent manager, conversation store,
  * approval/guardian generators, rollup producer).
  *
- * Reads `config.llm.default.{provider, provider_connection}`. If the default
- * profile names a connection, tries connection-aware resolution; otherwise
- * (or on miss) falls through to the legacy registry. Returns null if the
- * default provider isn't initialised (so callers can early-out gracefully).
+ * Reads `config.llm.default.{provider, provider_connection}`.
+ *
+ *   - Throws `ConnectionResolutionError` if the default profile has no
+ *     `provider_connection` (boot-time backfill should have set one;
+ *     a missing connection name is a configuration bug).
+ *   - Throws on hard connection errors (lookup_failed, not_found,
+ *     provider_mismatch).
+ *   - Returns null on soft credential issues so satellites can early-
+ *     out gracefully (rollup producer skips, others throw with their
+ *     own message).
  */
 export async function resolveDefaultProvider(
   config: ProvidersConfig,
 ): Promise<Provider | null> {
   const profile = config.llm.default;
-  // `provider_connection` is read off the runtime config as added by
-  // `profileConfigFragment`; the typed view in `ProvidersConfig.llm.default`
-  // doesn't include it yet so cast through. The schema-level type is updated
-  // in `schemas/llm.ts`; this cast keeps the public `ProvidersConfig` shape
-  // stable for cycle-3 and is removed when the type alignment lands.
-  const connectionName = (profile as { provider_connection?: string })
-    .provider_connection;
-  if (connectionName) {
-    const connectionProvider = await tryResolveProviderForConnectionName(
-      connectionName,
-      config,
-      profile.provider,
+  const connectionName = profile.provider_connection;
+  if (!connectionName) {
+    throw new ConnectionResolutionError(
+      "<llm.default>",
+      "missing_connection",
+      `llm.default.provider_connection is unset — every profile must declare a provider_connection. The boot-time backfill in lifecycle.ts populates this field; if you see this error, the backfill did not run or the field was manually cleared.`,
     );
-    if (connectionProvider) return connectionProvider;
   }
-  try {
-    return getProvider(profile.provider);
-  } catch (err) {
-    log.warn(
-      { err, providerName: profile.provider },
-      "default provider not registered — caller should treat as null",
-    );
-    return null;
-  }
+  return tryResolveProviderForConnectionName(
+    connectionName,
+    config,
+    profile.provider,
+  );
 }

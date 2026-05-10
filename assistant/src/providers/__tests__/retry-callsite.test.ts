@@ -38,7 +38,12 @@ mock.module("../registry.js", () => ({
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { LLMSchema } from "../../config/schemas/llm.js";
-import { getConfiguredProvider } from "../provider-send-message.js";
+// Side-effect import: ensures `provider-send-message.ts` (and its transitive
+// `connection-resolution` + `registry`) are loaded in a deterministic order
+// across the test suite. Without this, bun's module loader has produced
+// "Export named 'clearConnectionProviderCache' not found" errors when this
+// file runs before others that mock `registry.js`.
+import "../provider-send-message.js";
 import { RetryProvider } from "../retry.js";
 import type {
   Message,
@@ -746,34 +751,10 @@ describe("RetryProvider — no callSite (pre-resolved config passes through)", (
   });
 });
 
-// ── getConfiguredProvider — call-site routing ──────────────────────────────
-
-describe("getConfiguredProvider — callSite routing", () => {
-  test("selects provider from llm.callSites[id].provider when callSite given", async () => {
-    setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
-      callSites: {
-        heartbeatAgent: { provider: "openai", model: "gpt-5.4" },
-      },
-    });
-    mockProviders.set("openai", { name: "openai" });
-    mockProviders.set("anthropic", { name: "anthropic" });
-
-    const provider = await getConfiguredProvider("heartbeatAgent");
-    expect(provider?.name).toBe("openai");
-  });
-
-  test("falls back to llm.default.provider when callSite has no provider override", async () => {
-    setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
-      callSites: {
-        // No provider field — default takes over.
-        heartbeatAgent: { model: "claude-haiku-4-5-20251001" },
-      },
-    });
-    mockProviders.set("anthropic", { name: "anthropic" });
-
-    const provider = await getConfiguredProvider("heartbeatAgent");
-    expect(provider?.name).toBe("anthropic");
-  });
-});
+// `getConfiguredProvider` — call-site routing coverage lives in
+// `dispatch-connection-routing.test.ts`, where the connection lookup is
+// fully mocked. Keeping those tests here would require mocking
+// `inference/connections.js` and `memory/db-connection.js` at the file
+// level, and bun's `mock.module` leaks across files in a single suite
+// run — that pollutes `inference.test.ts` (which exercises the real
+// SQLite-backed `getConnection`).

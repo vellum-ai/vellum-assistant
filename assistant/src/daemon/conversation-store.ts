@@ -222,9 +222,11 @@ export async function getOrCreateConversation(
 
     const createPromise = (async () => {
       const config = getConfig();
-      // Connection-aware default-provider resolution. When the default
-      // profile names a `provider_connection`, route through that
-      // connection's auth; otherwise fall through to the legacy registry.
+      // Connection-aware default-provider resolution. Throws
+      // `ConnectionResolutionError` when the default profile's
+      // `provider_connection` is unset / unknown / mismatched (config
+      // bugs). Returns null on soft credential failures (handled below
+      // as "default provider not registered").
       const baseProvider = await resolveDefaultProvider(config);
       if (!baseProvider) {
         throw new Error(

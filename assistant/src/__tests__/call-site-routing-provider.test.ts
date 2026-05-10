@@ -8,6 +8,11 @@
  * without this wrapper a memoryRetrieval call configured to run on OpenAI
  * but originating from an Anthropic-default conversation would still hit
  * the Anthropic transport.
+ *
+ * Phase 1 cleanup (2026-05): the legacy `getProvider(name)` fallback is
+ * gone. Alternate-provider routing now requires a `provider_connection`,
+ * and the wrapper takes a single async hook
+ * `(connectionName, expectedProvider) => Promise<Provider | null>`.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -26,6 +31,7 @@ mock.module("../config/loader.js", () => ({
 
 import { LLMSchema } from "../config/schemas/llm.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
+import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import type {
   Message,
   Provider,
@@ -63,6 +69,21 @@ function setLlmConfig(raw: unknown): void {
   mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
 }
 
+/**
+ * Build a connection-resolution hook keyed by connection name. Returns the
+ * matching Provider (or null if not registered). Async to satisfy the new
+ * `resolveByConnection` signature.
+ */
+function makeConnectionHook(
+  byConnection: Record<string, Provider>,
+): (
+  connectionName: string,
+  expectedProvider: string,
+) => Promise<Provider | null> {
+  return async (connectionName, _expectedProvider) =>
+    byConnection[connectionName] ?? null;
+}
+
 beforeEach(() => {
   mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
 });
@@ -71,8 +92,15 @@ describe("CallSiteRoutingProvider", () => {
   test("routes to default provider when callSite is absent", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        altOpenai: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.4",
+        },
+      },
       callSites: {
-        memoryRetrieval: { provider: "openai", model: "gpt-5.4" },
+        memoryRetrieval: { profile: "altOpenai" },
       },
     });
 
@@ -84,8 +112,9 @@ describe("CallSiteRoutingProvider", () => {
       calls.alt++;
     });
 
-    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) =>
-      name === "openai" ? altProvider : undefined,
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      makeConnectionHook({ "openai-conn": altProvider }),
     );
 
     const response = await wrapped.sendMessage(
@@ -102,11 +131,12 @@ describe("CallSiteRoutingProvider", () => {
     expect(response.model).toBe("anthropic");
   });
 
-  test("routes to default provider when callSite resolves to same provider name", async () => {
+  test("routes to default provider when callSite resolves to same provider name (no connection)", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       callSites: {
-        // Same provider as default — no transport swap needed.
+        // Same provider as default, no connection — should reuse default
+        // without doing any connection resolution work.
         memoryRetrieval: { model: "claude-haiku-4-5-20251001" },
       },
     });
@@ -119,8 +149,9 @@ describe("CallSiteRoutingProvider", () => {
       calls.alt++;
     });
 
-    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) =>
-      name === "openai" ? altProvider : undefined,
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      makeConnectionHook({ "openai-conn": altProvider }),
     );
 
     await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
@@ -131,11 +162,18 @@ describe("CallSiteRoutingProvider", () => {
     expect(calls.alt).toBe(0);
   });
 
-  test("routes to alternative provider when callSite resolves to a different provider name", async () => {
+  test("routes to alternative provider when callSite resolves to a profile with provider_connection", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        altOpenai: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.4",
+        },
+      },
       callSites: {
-        memoryRetrieval: { provider: "openai", model: "gpt-5.4" },
+        memoryRetrieval: { profile: "altOpenai" },
       },
     });
 
@@ -147,8 +185,9 @@ describe("CallSiteRoutingProvider", () => {
       calls.alt++;
     });
 
-    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) =>
-      name === "openai" ? altProvider : undefined,
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      makeConnectionHook({ "openai-conn": altProvider }),
     );
 
     const response = await wrapped.sendMessage(
@@ -163,11 +202,18 @@ describe("CallSiteRoutingProvider", () => {
     expect(response.model).toBe("openai");
   });
 
-  test("falls back to default when alternative provider is not registered", async () => {
+  test("falls back to default when connection resolves to null (soft credential failure)", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        altOpenai: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.4",
+        },
+      },
       callSites: {
-        memoryRetrieval: { provider: "openai", model: "gpt-5.4" },
+        memoryRetrieval: { profile: "altOpenai" },
       },
     });
 
@@ -176,11 +222,11 @@ describe("CallSiteRoutingProvider", () => {
       calls.default++;
     });
 
-    // Lookup always returns undefined — simulating a missing/uninitialized
-    // provider in the registry.
+    // Hook always returns null — simulates a credential miss / transient
+    // auth failure inside the resolver.
     const wrapped = new CallSiteRoutingProvider(
       defaultProvider,
-      () => undefined,
+      async () => null,
     );
 
     const response = await wrapped.sendMessage(
@@ -194,19 +240,63 @@ describe("CallSiteRoutingProvider", () => {
     expect(response.model).toBe("anthropic");
   });
 
+  test("alternate-provider profile WITHOUT a connection throws ConnectionResolutionError", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        legacyOpenai: {
+          provider: "openai",
+          // no provider_connection — Phase 1 cleanup makes this a hard error
+        },
+      },
+      callSites: {
+        memoryRetrieval: { profile: "legacyOpenai" },
+      },
+    });
+
+    const defaultProvider = makeProvider("anthropic", () => {});
+
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      makeConnectionHook({}),
+    );
+
+    let caught: unknown;
+    try {
+      await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+        config: { callSite: "memoryRetrieval" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ConnectionResolutionError);
+    expect((caught as ConnectionResolutionError).reason).toBe(
+      "missing_connection",
+    );
+  });
+
   test("stamps actualProvider when routing to an alternative provider", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        altOpenai: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.5",
+        },
+      },
       callSites: {
-        memoryRetrieval: { provider: "openai", model: "gpt-5.5" },
+        memoryRetrieval: { profile: "altOpenai" },
       },
     });
 
     const defaultProvider = makeProvider("anthropic", () => {});
     const altProvider = makeProvider("openai", () => {});
 
-    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) =>
-      name === "openai" ? altProvider : undefined,
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      makeConnectionHook({ "openai-conn": altProvider }),
     );
 
     const response = await wrapped.sendMessage(
@@ -225,8 +315,15 @@ describe("CallSiteRoutingProvider", () => {
   test("does not overwrite actualProvider already set by the alternative provider", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        altOpenai: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.5",
+        },
+      },
       callSites: {
-        memoryRetrieval: { provider: "openai", model: "gpt-5.5" },
+        memoryRetrieval: { profile: "altOpenai" },
       },
     });
 
@@ -242,8 +339,9 @@ describe("CallSiteRoutingProvider", () => {
       },
     };
 
-    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) =>
-      name === "openai" ? altProvider : undefined,
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      makeConnectionHook({ "openai-conn": altProvider }),
     );
 
     const response = await wrapped.sendMessage(
@@ -265,7 +363,7 @@ describe("CallSiteRoutingProvider", () => {
 
     const wrapped = new CallSiteRoutingProvider(
       defaultProvider,
-      () => undefined,
+      makeConnectionHook({}),
     );
 
     const response = await wrapped.sendMessage(
@@ -290,7 +388,7 @@ describe("CallSiteRoutingProvider", () => {
 
     const wrapped = new CallSiteRoutingProvider(
       defaultProvider,
-      () => undefined,
+      makeConnectionHook({}),
     );
 
     expect(wrapped.name).toBe("anthropic");
@@ -304,8 +402,15 @@ describe("CallSiteRoutingProvider", () => {
     // event says "LLM call to anthropic" even when the call went to openai.
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        altOpenai: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.5",
+        },
+      },
       callSites: {
-        memoryRetrieval: { provider: "openai", model: "gpt-5.5" },
+        memoryRetrieval: { profile: "altOpenai" },
       },
     });
 
@@ -321,8 +426,9 @@ describe("CallSiteRoutingProvider", () => {
       },
     };
 
-    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) =>
-      name === "openai" ? altProvider : undefined,
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      makeConnectionHook({ "openai-conn": altProvider }),
     );
 
     expect(wrapped.name).toBe("anthropic"); // idle → default
@@ -339,9 +445,21 @@ describe("CallSiteRoutingProvider", () => {
     // other. AsyncLocalStorage gives each call its own async-context slot.
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        altOpenai: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.5",
+        },
+        altFireworks: {
+          provider: "fireworks",
+          provider_connection: "fireworks-conn",
+          model: "qwen3-235b",
+        },
+      },
       callSites: {
-        memoryRetrieval: { provider: "openai", model: "gpt-5.5" },
-        conversationTitle: { provider: "fireworks", model: "qwen3-235b" },
+        memoryRetrieval: { profile: "altOpenai" },
+        conversationTitle: { profile: "altFireworks" },
       },
     });
 
@@ -377,11 +495,13 @@ describe("CallSiteRoutingProvider", () => {
       },
     };
 
-    const wrapped = new CallSiteRoutingProvider(defaultProvider, (name) => {
-      if (name === "openai") return openAIProvider;
-      if (name === "fireworks") return fireworksProvider;
-      return undefined;
-    });
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      makeConnectionHook({
+        "openai-conn": openAIProvider,
+        "fireworks-conn": fireworksProvider,
+      }),
+    );
 
     // Start both calls concurrently (do not await yet).
     const callA = wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {

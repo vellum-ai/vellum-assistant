@@ -72,6 +72,16 @@ export interface ProvidersConfig {
     default: {
       provider: string;
       model: string;
+      /**
+       * Name of a `provider_connections` row to use for this profile.
+       * Mirrors the runtime field added by `profileConfigFragment` in
+       * `config/llm-resolver.ts` and the Zod field on `LLMConfigBase`
+       * in `config/schemas/llm.ts`. Optional at the type level so
+       * pre-backfill / hand-crafted configs still compile; the
+       * connection-resolution helpers throw a clear configuration
+       * error when a profile has no connection at dispatch time.
+       */
+      provider_connection?: string;
     };
   };
   timeouts?: { providerStreamTimeoutSec?: number };
