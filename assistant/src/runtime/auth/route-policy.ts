@@ -817,6 +817,37 @@ registerPolicy("background-tools/cancel", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Email management (IPC-local)
+registerPolicy("email/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/unregister", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/send", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/download", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // User-defined routes under /x/*
 registerPolicy("x", {
   requiredScopes: ["settings.read"],
