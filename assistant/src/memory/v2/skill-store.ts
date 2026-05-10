@@ -273,6 +273,22 @@ export function isSkillSlug(slug: string): boolean {
   return slug.startsWith(SKILL_SLUG_PREFIX);
 }
 
+/**
+ * Snapshot of the in-process skill cache, sorted by skill id (ASCII order)
+ * for determinism. Returns a freshly allocated array on each call so callers
+ * cannot mutate the underlying cache.
+ *
+ * The cache is replaced atomically by `seedV2SkillEntries`, so a snapshot
+ * may be stale once a subsequent seed run completes. Callers that need
+ * up-to-the-moment state must re-call this after awaiting the seed.
+ */
+export function listSkillEntries(): SkillEntry[] {
+  if (!entries) return [];
+  return [...entries.values()].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
+}
+
 /** @internal Test-only: clear the module-level cache. */
 export function _resetSkillStoreForTests(): void {
   entries = null;
