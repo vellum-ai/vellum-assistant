@@ -62,6 +62,7 @@ import { ROUTES as HOST_FILE_ROUTES } from "./host-file-routes.js";
 import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-session-routes.js";
+import { ROUTES as INFERENCE_ROUTES } from "./inference-routes.js";
 import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
@@ -167,6 +168,7 @@ export const ROUTES: RouteDefinition[] = [
   ...HOST_TRANSFER_ROUTES,
   ...IDENTITY_ROUTES,
   ...INFERENCE_PROFILE_SESSION_ROUTES,
+  ...INFERENCE_ROUTES,
   ...INTERFACE_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
   ...MCP_AUTH_ROUTES,
