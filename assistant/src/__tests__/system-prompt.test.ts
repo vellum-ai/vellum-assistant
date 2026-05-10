@@ -32,7 +32,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Mutable config used by the mocked loader so individual tests can override
-// specific fields (e.g. systemPromptPrefix) without touching other sections.
+// specific fields without touching other sections.
 const mockLoadedConfig: Record<string, unknown> = {};
 
 mock.module("../config/loader.js", () => ({
@@ -127,7 +127,9 @@ describe("buildSystemPrompt", () => {
       const p = join(TEST_DIR, name);
       if (existsSync(p)) rmSync(p, { recursive: true, force: true });
     }
-    delete mockLoadedConfig.systemPromptPrefix;
+    for (const key of Object.keys(mockLoadedConfig)) {
+      delete mockLoadedConfig[key];
+    }
   });
 
   test("returns empty string when no files exist", () => {
@@ -487,55 +489,88 @@ describe("buildSystemPrompt", () => {
     expect(basePrompt(result)).toBe("");
   });
 
-  describe("custom systemPromptPrefix", () => {
-    test("omits prefix when config value is unset", () => {
-      const result = buildSystemPrompt();
-      // With no prefix, the prompt should start with the parallel tool calls
-      // section (the first static section when no prefix is injected).
-      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+  describe("workspace system prompt sections", () => {
+    const SYSTEM_PROMPTS_DIR = join(TEST_DIR, "prompts", "system");
+    const PREFIX_FILE = join(SYSTEM_PROMPTS_DIR, "00-prefix.md");
+    const PARALLEL_FILE = join(SYSTEM_PROMPTS_DIR, "01-parallel-tool-calls.md");
+    const PREFIX_FRONTMATTER = '---\nenabled: "!excludeCustomPrefix"\n---\n';
+
+    afterEach(() => {
+      if (existsSync(SYSTEM_PROMPTS_DIR))
+        rmSync(SYSTEM_PROMPTS_DIR, { recursive: true, force: true });
     });
 
-    test("omits prefix when config value is null", () => {
-      mockLoadedConfig.systemPromptPrefix = null;
+    test("no workspace section files → no renderer-driven sections in output", () => {
+      // The renderer reads the workspace dir only.  In tests we don't run
+      // `ensurePromptFiles()` automatically, so without an explicit write
+      // there is nothing to render and the parallel-tool-calls section
+      // (sourced from a workspace file in production) is absent.
       const result = buildSystemPrompt();
-      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+      expect(result).not.toContain("<use_parallel_tool_calls>");
     });
 
-    test("omits prefix when config value is an empty string", () => {
-      mockLoadedConfig.systemPromptPrefix = "";
-      const result = buildSystemPrompt();
-      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
-    });
-
-    test("omits prefix when config value is whitespace-only", () => {
-      mockLoadedConfig.systemPromptPrefix = "   \n\n  ";
-      const result = buildSystemPrompt();
-      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
-    });
-
-    test("injects prefix at the very start of the prompt when set", () => {
-      mockLoadedConfig.systemPromptPrefix = "You are operating in demo mode.";
+    test("workspace prefix with frontmatter renders body at the very top", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER + "You are operating in demo mode.\n",
+      );
       const result = buildSystemPrompt();
       expect(result.startsWith("You are operating in demo mode.")).toBe(true);
-      // The standard static sections should still follow the prefix.
-      expect(result).toContain("<use_parallel_tool_calls>");
-      // Prefix lives in the static (cached) block, not the dynamic block.
+      // Prefix lives in the static (cached) block.
       const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
       expect(boundaryIdx).toBeGreaterThan(-1);
       const staticBlock = result.slice(0, boundaryIdx);
       expect(staticBlock).toContain("You are operating in demo mode.");
     });
 
-    test("trims leading/trailing whitespace from the prefix", () => {
-      mockLoadedConfig.systemPromptPrefix =
-        "\n\n  Pretend you are a pirate.  \n\n";
+    test("workspace file without frontmatter is rendered as-is (always-on)", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(PREFIX_FILE, "Plain prefix, no frontmatter.\n");
       const result = buildSystemPrompt();
-      expect(result.startsWith("Pretend you are a pirate.")).toBe(true);
+      expect(result.startsWith("Plain prefix, no frontmatter.")).toBe(true);
     });
 
-    test("multi-line prefixes are preserved verbatim after trimming", () => {
-      mockLoadedConfig.systemPromptPrefix =
-        "# Org Guardrails\n\n- Never discuss pricing.\n- Escalate refunds.";
+    test("renders nothing when workspace prefix body is empty after stripping", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(PREFIX_FILE, PREFIX_FRONTMATTER);
+      const result = buildSystemPrompt();
+      // Frontmatter-only file → no body → section emits nothing.  Other
+      // workspace sections absent in this test → no renderer output at all.
+      expect(result).not.toContain("<use_parallel_tool_calls>");
+      expect(result.startsWith("---")).toBe(false);
+    });
+
+    test("renders nothing when workspace prefix body is comment-only", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER + "_ just a comment\n_ another\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).not.toContain("just a comment");
+      expect(result).not.toContain("another");
+    });
+
+    test("strips comment lines and trims whitespace from rendered body", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER +
+          "_ inline note\n\n  Pretend you are a pirate.  \n\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result.startsWith("Pretend you are a pirate.")).toBe(true);
+      expect(result).not.toContain("inline note");
+    });
+
+    test("multi-line bodies are preserved verbatim after stripping", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER +
+          "# Org Guardrails\n\n- Never discuss pricing.\n- Escalate refunds.\n",
+      );
       const result = buildSystemPrompt();
       expect(
         result.startsWith(
@@ -545,12 +580,97 @@ describe("buildSystemPrompt", () => {
     });
 
     test("workspace file content still appears after prefix", () => {
-      mockLoadedConfig.systemPromptPrefix = "Custom prefix";
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(PREFIX_FILE, PREFIX_FRONTMATTER + "Custom prefix\n");
       writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
       const result = buildSystemPrompt();
       expect(result.startsWith("Custom prefix")).toBe(true);
       expect(basePrompt(result)).toBe("I am Vellum.");
     });
+
+    test("parallel tool calls section is sourced from workspace when present", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PARALLEL_FILE,
+        "<use_parallel_tool_calls>\nCustomized parallel guidance.\n</use_parallel_tool_calls>\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).toContain("Customized parallel guidance.");
+      // Body of the bundled file must not leak in.
+      expect(result).not.toContain("Batch independent tool calls");
+    });
+
+    test("comment-only parallel file suppresses the section entirely", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(PARALLEL_FILE, "_ silenced\n");
+      const result = buildSystemPrompt();
+      expect(result).not.toContain("<use_parallel_tool_calls>");
+    });
+
+    test("frontmatter `enabled: !excludeCustomPrefix` suppresses prefix when flag is true", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER + "Should be excluded by sidechain.\n",
+      );
+      const result = buildSystemPrompt({ excludeCustomPrefix: true });
+      expect(result).not.toContain("Should be excluded by sidechain.");
+    });
+
+    test("frontmatter `enabled: !excludeCustomPrefix` renders prefix when flag is false", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(PREFIX_FILE, PREFIX_FRONTMATTER + "Default-on prefix.\n");
+      const result = buildSystemPrompt({ excludeCustomPrefix: false });
+      expect(result.startsWith("Default-on prefix.")).toBe(true);
+    });
+
+    test("frontmatter `enabled: <unknown-key>` treats key as falsy → suppresses", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        "---\nenabled: someUnknownFlag\n---\nShould not render.\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).not.toContain("Should not render.");
+    });
+
+    test("frontmatter `enabled: false` (literal boolean) suppresses the section", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        "---\nenabled: false\n---\nShould not render.\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).not.toContain("Should not render.");
+    });
+
+    test("workspace-only sections (no bundled counterpart) render — discovery is workspace-driven", () => {
+      // No bundled file with this id exists.  After Vargas's review the
+      // renderer no longer cross-references the bundled directory, so any
+      // numbered `.md` a user drops into `<workspace>/prompts/system/`
+      // joins the render order automatically.
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        join(SYSTEM_PROMPTS_DIR, "99-org-policy.md"),
+        "# Org policy\n\nUnique workspace-only marker A1B2C3.\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).toContain("Unique workspace-only marker A1B2C3.");
+      // Sort order is filename-driven; the new section sorts after `01-`,
+      // so it must appear after the parallel-tool-calls block when both
+      // are present.
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PARALLEL_FILE,
+        "<use_parallel_tool_calls>\nbatched.\n</use_parallel_tool_calls>\n",
+      );
+      const ordered = buildSystemPrompt();
+      const parallelIdx = ordered.indexOf("batched.");
+      const orgIdx = ordered.indexOf("Unique workspace-only marker A1B2C3.");
+      expect(parallelIdx).toBeGreaterThan(-1);
+      expect(orgIdx).toBeGreaterThan(parallelIdx);
+    });
+
   });
 });
 

@@ -80,6 +80,7 @@ import { homeFeedNotificationOnlyMigration } from "./079-home-feed-notification-
 import { restrictVercelApiTokenMetadataMigration } from "./080-restrict-vercel-api-token-metadata.js";
 import { backfillBashAllowedToolsForInjectionCredentialsMigration } from "./081-backfill-bash-allowed-tools-for-injection-credentials.js";
 import { backfillManagedProfileLabelsMigration } from "./082-backfill-managed-profile-labels.js";
+import { systemPromptPrefixToFileMigration } from "./083-system-prompt-prefix-to-file.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -171,4 +172,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   restrictVercelApiTokenMetadataMigration,
   backfillBashAllowedToolsForInjectionCredentialsMigration,
   backfillManagedProfileLabelsMigration,
+  systemPromptPrefixToFileMigration,
 ];
