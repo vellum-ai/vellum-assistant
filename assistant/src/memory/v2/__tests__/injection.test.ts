@@ -1772,6 +1772,116 @@ describe("injectMemoryV2Block", () => {
       expect(phantom!.source).toBe("router");
     });
 
+    test("flag-on: router re-picking a prior-everInjected slug does NOT re-render it; non-overlapping picks render and append to everInjected", async () => {
+      // Turn 1: router picks alice. Standard append.
+      routerState.nextResult = {
+        selectedSlugs: ["alice-vscode"],
+        rawIds: [1],
+        failureReason: null,
+      };
+      const turn1 = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-dedup",
+        currentTurn: 1,
+        userMessage: "Tell me about Alice",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+      expect(turn1.toInject).toEqual(["alice-vscode"]);
+
+      // Turn 2: router re-picks alice (the "re-anchor" prompt branch) AND
+      // adds bob. The block must NOT contain alice's body — her cached
+      // attachment from turn 1 is still on the prior user message — but
+      // must contain bob's.
+      telemetryState.recordCalls.length = 0;
+      routerState.nextResult = {
+        selectedSlugs: ["alice-vscode", "bob-coffee"],
+        rawIds: [1, 2],
+        failureReason: null,
+      };
+      const turn2 = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-dedup",
+        currentTurn: 2,
+        userMessage: "And Bob?",
+        assistantMessage: "Sure",
+        nowText: "Now",
+        messageId: "msg-2",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      // Re-picked alice was deduped; only bob is freshly injected.
+      expect(turn2.toInject).toEqual(["bob-coffee"]);
+      expect(turn2.block).not.toBeNull();
+      expect(turn2.block).toContain("# memory/concepts/bob-coffee.md");
+      expect(turn2.block).toContain("Bob takes his coffee");
+      expect(turn2.block).not.toContain("VS Code");
+      expect(turn2.block).not.toContain("# memory/concepts/alice-vscode.md");
+
+      // everInjected only gained bob — alice was already there.
+      const persisted = await hydrate(db, "conv-router-dedup");
+      expect(persisted!.everInjected).toEqual([
+        { slug: "alice-vscode", turn: 1 },
+        { slug: "bob-coffee", turn: 2 },
+      ]);
+    });
+
+    test("flag-on: telemetry distinguishes `source: router` (router picks) from `source: carry_over` (prior-everInjected slugs the router did not re-pick)", async () => {
+      // Turn 1: seed everInjected with alice.
+      routerState.nextResult = {
+        selectedSlugs: ["alice-vscode"],
+        rawIds: [1],
+        failureReason: null,
+      };
+      await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-source",
+        currentTurn: 1,
+        userMessage: "Alice",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+      telemetryState.recordCalls.length = 0;
+
+      // Turn 2: router picks bob only. alice is still in everInjected but
+      // not re-picked — her telemetry row must read `source: carry_over`,
+      // not `source: router`.
+      routerState.nextResult = {
+        selectedSlugs: ["bob-coffee"],
+        rawIds: [2],
+        failureReason: null,
+      };
+      await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-source",
+        currentTurn: 2,
+        userMessage: "Bob",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-2",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        concepts: Array<{ slug: string; source: string; status: string }>;
+      };
+      expect(row.mode).toBe("router");
+      const aliceRow = row.concepts.find((c) => c.slug === "alice-vscode");
+      const bobRow = row.concepts.find((c) => c.slug === "bob-coffee");
+      expect(aliceRow).toBeDefined();
+      expect(bobRow).toBeDefined();
+      expect(aliceRow!.source).toBe("carry_over");
+      expect(aliceRow!.status).toBe("in_context");
+      expect(bobRow!.source).toBe("router");
+      expect(bobRow!.status).toBe("injected");
+    });
+
     test("flag-off (default): activation pipeline still runs unchanged", async () => {
       // Regression check — with the router flag explicitly off (the
       // production default), `runRouter` must never be called and the

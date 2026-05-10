@@ -59,6 +59,16 @@ const log = getLogger("memory-v2-injection");
  */
 export type InjectMemoryV2Mode = "context-load" | "per-turn";
 
+/**
+ * Internal mode union for `finalizeInjection`. Extends the public
+ * `InjectMemoryV2Mode` with `"router"` (router-driven success path) and
+ * `"errored"` (caller-supplied failure path or the helper's own
+ * try/catch promotion). The public surface intentionally only carries
+ * the caller-facing modes — these two are persistence/telemetry concerns
+ * that don't belong on `InjectMemoryV2BlockParams`.
+ */
+type FinalizeInjectionMode = InjectMemoryV2Mode | "router" | "errored";
+
 export interface InjectMemoryV2BlockParams {
   /** SQLite database handle for activation_state hydrate/save. */
   database: DrizzleDb;
@@ -261,7 +271,6 @@ export async function injectMemoryV2Block(
     telemetryRows,
     config,
     nextStateMap,
-    candidates,
   });
 }
 
@@ -286,15 +295,14 @@ export async function injectMemoryV2Block(
  * The caller pre-builds `telemetryRows` with all per-candidate breakdown
  * fields filled in (router-mode callers can pass zeros where the
  * breakdown doesn't apply) and a placeholder `status: "not_injected"`
- * which this helper overwrites. `nextStateMap` and `candidates` are the
- * activation pipeline's sparse next-state and full candidate pool;
- * router-mode callers pass an empty map / empty set.
+ * which this helper overwrites. `nextStateMap` is the activation
+ * pipeline's sparse next-state; router-mode callers pass an empty map.
  */
 async function finalizeInjection(args: {
   workspaceDir: string;
   database: DrizzleDb;
   conversationId: string;
-  mode: InjectMemoryV2Mode | "router";
+  mode: FinalizeInjectionMode;
   currentTurn: number;
   messageId: string;
   priorEverInjected: readonly EverInjectedEntry[];
@@ -302,7 +310,6 @@ async function finalizeInjection(args: {
   telemetryRows: MemoryV2ConceptRowRecord[];
   config: AssistantConfig;
   nextStateMap: Record<string, number>;
-  candidates: ReadonlySet<string>;
 }): Promise<InjectMemoryV2BlockResult> {
   const {
     workspaceDir,
@@ -321,7 +328,7 @@ async function finalizeInjection(args: {
   // when the render/telemetry path throws — we still want a log row written
   // (with whatever rows we managed to build) so silent failures are
   // observable in the database.
-  let mode: "context-load" | "per-turn" | "router" | "errored" = args.mode;
+  let mode: FinalizeInjectionMode = args.mode;
 
   // Mark every rendered slug as ever-injected so future per-turn deltas don't
   // re-attach the same content. On context-load this is the full top-K (we
@@ -525,49 +532,51 @@ async function injectViaRouter(args: {
       { failureReason: routerResult.failureReason },
       "memory v2 router failure; skipping injection",
     );
-    // Persist a stub state so `currentTurn` and `messageId` advance even
-    // though no slugs were selected. `state: {}` matches the router's
-    // no-spreading-activation contract; `everInjected` is preserved so
-    // future turns still subtract previously-attached slugs.
-    const stubState: ActivationState = {
-      messageId,
-      state: {},
-      everInjected: [...priorEverInjected],
+    // Delegate the failure path to `finalizeInjection` with empty inputs
+    // and `mode: "errored"`. The helper persists a stub activation_state
+    // (preserving `priorEverInjected` so future turns still subtract
+    // previously-attached slugs) and writes the telemetry row through the
+    // same code path as the success branch — no inline duplication of
+    // `save` + `recordMemoryV2ActivationLog`.
+    return finalizeInjection({
+      workspaceDir,
+      database,
+      conversationId,
+      mode: "errored",
       currentTurn,
-      updatedAt: Date.now(),
-    };
-    try {
-      await save(database, conversationId, stubState);
-    } catch (err) {
-      log.warn(
-        { err, conversationId, turn: currentTurn },
-        "Failed to persist stub activation_state on router failure — continuing",
-      );
-    }
-    try {
-      recordMemoryV2ActivationLog({
-        conversationId,
-        turn: currentTurn,
-        mode: "errored",
-        concepts: [],
-        config: configSnapshot(config),
-      });
-    } catch (telemetryErr) {
-      log.warn(
-        { err: telemetryErr, conversationId, turn: currentTurn },
-        "Failed to record memory v2 router-failure telemetry — continuing",
-      );
-    }
-    return { block: null, toInject: [] };
+      messageId,
+      priorEverInjected,
+      slugsToRender: [],
+      telemetryRows: [],
+      config,
+      nextStateMap: {},
+    });
   }
 
-  const slugsToRender = routerResult.selectedSlugs;
+  // Dedupe router-picked slugs against `priorEverInjected` BEFORE rendering.
+  // The router prompt explicitly invites the model to re-pick already-injected
+  // pages "to re-anchor"; if we passed those through, `renderInjectionBlock`
+  // would re-emit the slug into a fresh `<memory>` block while the prior
+  // turn's cached attachment is still on the prior user message — duplicate
+  // content. Activation per-turn mode does not have this issue because
+  // `selectInjections()` returns `toInject = topNow - everInjected`.
+  //
+  // Telemetry rows for prior-everInjected slugs are still emitted below,
+  // but tagged `source: "carry_over"` (not `"router"`) so inspector queries
+  // can attribute selections correctly.
+  const everInjectedSet = new Set(priorEverInjected.map((e) => e.slug));
+  const slugsToRender = routerResult.selectedSlugs.filter(
+    (s) => !everInjectedSet.has(s),
+  );
 
   // Build minimal telemetry rows for the union of router-selected slugs and
   // prior `everInjected` slugs. Router-mode rows zero out every activation
-  // value (no spreading activation runs) and carry `source: "router"`. The
-  // `status` placeholder is overwritten by `finalizeInjection`.
-  const telemetrySlugs = new Set<string>(slugsToRender);
+  // value (no spreading activation runs). Slugs the router picked this turn
+  // get `source: "router"`; prior-everInjected slugs the router did NOT
+  // re-pick get `source: "carry_over"`. The `status` placeholder is
+  // overwritten by `finalizeInjection`.
+  const routerPicked = new Set(routerResult.selectedSlugs);
+  const telemetrySlugs = new Set<string>(routerPicked);
   for (const entry of priorEverInjected) telemetrySlugs.add(entry.slug);
   const telemetryRows: MemoryV2ConceptRowRecord[] = [...telemetrySlugs].map(
     (slug) => ({
@@ -582,7 +591,7 @@ async function injectViaRouter(args: {
       simAssistantRerankBoost: 0,
       inRerankPool: false,
       spreadContribution: 0,
-      source: "router",
+      source: routerPicked.has(slug) ? "router" : "carry_over",
       status: "not_injected",
     }),
   );
@@ -599,7 +608,6 @@ async function injectViaRouter(args: {
     telemetryRows,
     config,
     nextStateMap: {},
-    candidates: new Set(slugsToRender),
   });
 }
 
