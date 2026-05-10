@@ -231,7 +231,6 @@ describe("runRouter — early bails", () => {
 
     expect(result).toEqual({
       selectedSlugs: [],
-      rawIds: [],
       failureReason: "empty_index",
     });
     // Provider must NOT be invoked when there is nothing to route.
@@ -273,7 +272,6 @@ describe("runRouter — successful tool_use", () => {
     });
 
     expect(result.failureReason).toBeNull();
-    expect(result.rawIds).toEqual([3, 1]);
     expect(result.selectedSlugs).toEqual(["charlie", "alpha"]);
   });
 
@@ -288,7 +286,6 @@ describe("runRouter — successful tool_use", () => {
 
     expect(result).toEqual({
       selectedSlugs: [],
-      rawIds: [],
       failureReason: null,
     });
   });
@@ -351,15 +348,17 @@ describe("runRouter — successful tool_use", () => {
     const [blockA, blockB] = userMsg.content as Array<{
       type: string;
       text: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
 
-    // Block A — NOW with explicit ephemeral cache breakpoint.
+    // Block A — NOW with explicit ephemeral cache breakpoint at 1h TTL
+    // (matches the provider's auto-applied breakpoints; the default 5m
+    // would force re-creation across most turns since `<now>` is stable).
     expect(blockA.type).toBe("text");
     expect(blockA.text).toContain("<now>");
     expect(blockA.text).toContain("2026-05-10 14:00 PT");
     expect(blockA.text).toContain("</now>");
-    expect(blockA.cache_control).toEqual({ type: "ephemeral" });
+    expect(blockA.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     // Block B — already-injected IDs + last turn, NO cache_control.
     expect(blockB.type).toBe("text");
@@ -380,7 +379,6 @@ describe("runRouter — successful tool_use", () => {
       config: makeConfig(),
     });
 
-    expect(result.rawIds).toEqual([2, 1]);
     expect(result.selectedSlugs).toEqual(["bravo", "alpha"]);
   });
 });
@@ -438,7 +436,6 @@ describe("runRouter — failure modes", () => {
     });
 
     expect(result.failureReason).toBeNull();
-    expect(result.rawIds).toEqual([2]);
     expect(result.selectedSlugs).toEqual(["bravo"]);
     const warnSeen = warnLogs.some((l) =>
       JSON.stringify(l.args).includes("outside the valid range"),
@@ -456,7 +453,6 @@ describe("runRouter — failure modes", () => {
     });
 
     expect(result.failureReason).toBeNull();
-    expect(result.rawIds).toEqual([1, 2]);
     expect(result.selectedSlugs).toEqual(["alpha", "bravo"]);
     const warnSeen = warnLogs.some((l) =>
       JSON.stringify(l.args).includes("more page IDs than max_page_ids"),
