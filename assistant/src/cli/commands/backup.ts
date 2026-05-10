@@ -119,13 +119,15 @@ Examples:
             cmd: Command,
           ) => {
             const r = await cliIpcCall("backup_enable", {
-              ...(opts.interval !== undefined && {
-                intervalHours: Number.parseInt(opts.interval, 10),
-              }),
-              ...(opts.retention !== undefined && {
-                retention: Number.parseInt(opts.retention, 10),
-              }),
-              ...(opts.offsite === false && { offsiteEnabled: false }),
+              body: {
+                ...(opts.interval !== undefined && {
+                  intervalHours: Number.parseInt(opts.interval, 10),
+                }),
+                ...(opts.retention !== undefined && {
+                  retention: Number.parseInt(opts.retention, 10),
+                }),
+                ...(opts.offsite === false && { offsiteEnabled: false }),
+              },
             });
             if (!r.ok)
               return exitFromIpcResult(
@@ -255,8 +257,10 @@ Examples:
         .action(
           async (path: string, opts: { plaintext?: boolean }, cmd: Command) => {
             const r = await cliIpcCall("backup_destinations_add", {
-              path,
-              encrypt: !opts.plaintext,
+              body: {
+                path,
+                encrypt: !opts.plaintext,
+              },
             });
             if (!r.ok)
               return exitFromIpcResult(
@@ -285,7 +289,7 @@ Examples:
   $ assistant backup destinations remove /Volumes/BackupSSD/vellum`,
         )
         .action(async (path: string, _opts: unknown, cmd: Command) => {
-          const r = await cliIpcCall("backup_destinations_remove", { path });
+          const r = await cliIpcCall("backup_destinations_remove", { body: { path } });
           if (!r.ok)
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
@@ -324,8 +328,10 @@ Examples:
               return;
             }
             const r = await cliIpcCall("backup_destinations_set_encrypt", {
-              path,
-              encrypt: normalized === "true",
+              body: {
+                path,
+                encrypt: normalized === "true",
+              },
             });
             if (!r.ok)
               return exitFromIpcResult(
