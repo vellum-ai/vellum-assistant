@@ -194,7 +194,7 @@ public enum GuardianTokenFileReader {
     /// treated as success.
     @discardableResult
     public static func deleteTokenFile(assistantId: String) -> Bool {
-        let path = guardianTokenPath(for: assistantId)
+        let path = guardianTokenPath(for: assistantId, paths: VellumPaths.current)
         guard FileManager.default.fileExists(atPath: path) else { return true }
         do {
             try FileManager.default.removeItem(atPath: path)
@@ -206,12 +206,43 @@ public enum GuardianTokenFileReader {
         }
     }
 
+    /// Deletes the guardian-token file for the given assistant across every
+    /// `VellumEnvironment`'s config dir.
+    ///
+    /// Recovery flows must invalidate every copy that the CLI's
+    /// `seedGuardianTokenFromSiblingEnv` could re-import on next launch. A
+    /// server-revoked token whose refresh window is still open is otherwise
+    /// silently restored from a sibling env, defeating the re-bootstrap.
+    ///
+    /// - Returns: number of files actually removed (missing files are not
+    ///   counted; deletion failures are logged but do not abort the sweep).
+    @discardableResult
+    public static func deleteTokenFileAcrossAllEnvs(
+        assistantId: String,
+        envPaths: [VellumPaths]? = nil
+    ) -> Int {
+        let allEnvPaths = envPaths ?? VellumPaths.allEnvs()
+        var deleted = 0
+        for paths in allEnvPaths {
+            let path = guardianTokenPath(for: assistantId, paths: paths)
+            guard FileManager.default.fileExists(atPath: path) else { continue }
+            do {
+                try FileManager.default.removeItem(atPath: path)
+                log.info("Deleted guardian token file at \(path, privacy: .public)")
+                deleted += 1
+            } catch {
+                log.warning("Failed to delete guardian token file at \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return deleted
+    }
+
     // MARK: - Path Resolution
 
     /// Resolves `$XDG_CONFIG_HOME/vellum{-env}/assistants/<id>/guardian-token.json`,
     /// matching the CLI's `getGuardianTokenPath()`.
-    private static func guardianTokenPath(for assistantId: String) -> String {
-        return VellumPaths.current.configDir
+    private static func guardianTokenPath(for assistantId: String, paths: VellumPaths) -> String {
+        return paths.configDir
             .appendingPathComponent("assistants")
             .appendingPathComponent(assistantId)
             .appendingPathComponent("guardian-token.json")
