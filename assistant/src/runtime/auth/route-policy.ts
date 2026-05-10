@@ -784,6 +784,32 @@ registerPolicy("credentials/prompt", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Credential management routes: local-only (CLI / IPC callers)
+registerPolicy("credentials", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("credentials/inspect", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("credentials/reveal", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("credentials/delete", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("credentials/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Cache operations: local-only (CLI / IPC callers)
 registerPolicy("cache/set", {
   requiredScopes: ["settings.write"],

@@ -26,12 +26,12 @@ import {
 } from "../../security/secure-keys.js";
 import {
   assertMetadataWritable,
+  type CredentialMetadata,
   deleteCredentialMetadata,
   getCredentialMetadata,
   getCredentialMetadataById,
   listCredentialMetadata,
   upsertCredentialMetadata,
-  type CredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";

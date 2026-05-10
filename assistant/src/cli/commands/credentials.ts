@@ -2,9 +2,9 @@ import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { CredentialPromptResult } from "../../runtime/routes/credential-prompt-routes.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
-import { registerCommand } from "../lib/register-command.js";
 
 // ---------------------------------------------------------------------------
 // Format-aware error output
