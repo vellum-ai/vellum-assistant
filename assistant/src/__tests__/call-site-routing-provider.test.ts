@@ -9,10 +9,10 @@
  * but originating from an Anthropic-default conversation would still hit
  * the Anthropic transport.
  *
- * Phase 1 cleanup (2026-05): the legacy `getProvider(name)` fallback is
- * gone. Alternate-provider routing now requires a `provider_connection`,
- * and the wrapper takes a single async hook
+ * Alternate-provider routing requires a `provider_connection`, and the
+ * wrapper takes a single async hook
  * `(connectionName, expectedProvider) => Promise<Provider | null>`.
+ * Call-site profiles without a connection throw `ConnectionResolutionError`.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -246,7 +246,9 @@ describe("CallSiteRoutingProvider", () => {
       profiles: {
         legacyOpenai: {
           provider: "openai",
-          // no provider_connection — Phase 1 cleanup makes this a hard error
+          // No provider_connection — alternate-provider routing requires
+          // one, so this profile is expected to throw
+          // `ConnectionResolutionError(missing_connection)` below.
         },
       },
       callSites: {
@@ -468,12 +470,11 @@ describe("CallSiteRoutingProvider", () => {
     const nameSeenByFireworks: string[] = [];
 
     // Shared resolve handles, pre-bound via Deferred-style promises so they
-    // exist before either provider's sendMessage executes. The previous
-    // late-binding inside `new Promise((r) => { resolveOpenAI = r })` raced
-    // with the new connection-aware dispatch path: routing now awaits an
-    // extra tick to resolve the connection, so a single `Promise.resolve()`
-    // flush no longer guarantees both providers have entered sendMessage
-    // before the test reads the resolve handles.
+    // exist before either provider's sendMessage executes. The connection-
+    // aware dispatch path awaits an extra tick to resolve the connection
+    // before invoking sendMessage, so any late-binding via
+    // `new Promise((r) => { resolveOpenAI = r })` would race with the
+    // microtask queue — these handles must be assigned synchronously.
     let resolveOpenAI!: () => void;
     let resolveFireworks!: () => void;
     const openAIBlocked = new Promise<void>((r) => {

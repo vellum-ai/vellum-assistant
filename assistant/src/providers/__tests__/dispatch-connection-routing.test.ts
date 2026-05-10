@@ -4,11 +4,10 @@
  * names a `provider_connection`, AND that misconfigurations now fail loudly
  * rather than silently rerouting to a legacy registry.
  *
- * Phase 1 cleanup (2026-05): the legacy `getProvider(name)` fallback path
- * was removed. Hard config errors (missing connection name, unknown
- * connection, provider mismatch) throw `ConnectionResolutionError`. Soft
- * credential failures (resolver returns null) still return null so callers
- * can degrade gracefully.
+ * Hard config errors (missing connection name, unknown connection,
+ * provider mismatch) throw `ConnectionResolutionError`. Soft credential
+ * failures (resolver returns null) still return null so callers can
+ * degrade gracefully.
  *
  * Hard gates:
  *   1. Two profiles, same provider, different `provider_connection` →
@@ -75,7 +74,7 @@ mock.module("../inference/connections.js", () => ({
 }));
 
 mock.module("../registry.js", () => ({
-  // After Phase 1 cleanup the dispatch path no longer imports getProvider.
+  // The dispatch path does not import getProvider.
   // Kept here only because other test files share this mock module shape.
   getProvider: (name: string) => {
     throw new Error(`legacy getProvider should not be called: ${name}`);

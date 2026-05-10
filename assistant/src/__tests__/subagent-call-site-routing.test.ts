@@ -110,10 +110,10 @@ mock.module("../prompts/system-prompt.js", () => ({
   buildSubagentSystemPrompt: () => "subagent system",
 }));
 
-// Provider registry + connection resolver — connection-aware path is the
-// only routing path post Phase 1 cleanup. `getProvider` is kept here purely
+// Provider registry + connection resolver — routing goes through
+// `provider_connection` exclusively. `getProvider` is kept here purely
 // because the registry module still exports it; the production code under
-// test no longer calls it.
+// test does not call it.
 const anthropicStub = { name: "anthropic" };
 const openaiStub = { name: "openai" };
 
@@ -199,18 +199,27 @@ describe("SubagentManager — provider call-site routing", () => {
   });
 
   test("the wrapped provider exposes the default provider's name (stable identity for outer wrappers)", async () => {
+    // Note: `provider_connection` lives on `ProfileEntry` and `LLMConfigBase`,
+    // NOT on `LLMCallSiteConfig` (which is `LLMConfigFragment.extend({
+    // profile })`). Setting `provider_connection` directly on a `callSites.*`
+    // entry would be silently stripped by Zod. The correct shape for an
+    // alternate-provider call-site override is a profile reference, defined
+    // here as `altOpenai`.
     setLlmConfig({
       default: {
         provider: "anthropic",
         provider_connection: "anthropic-conn",
         model: "claude-opus-4-7",
       },
-      callSites: {
-        subagentSpawn: {
+      profiles: {
+        altOpenai: {
           provider: "openai",
           provider_connection: "openai-conn",
           model: "gpt-5.4",
         },
+      },
+      callSites: {
+        subagentSpawn: { profile: "altOpenai" },
       },
     });
 

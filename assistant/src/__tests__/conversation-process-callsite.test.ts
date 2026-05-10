@@ -48,7 +48,7 @@ mock.module("../providers/registry.js", () => ({
   resolveProviderFromConnection: async () => mockProviderStub,
 }));
 
-// Connection-aware resolver path (Phase 1 cleanup): satisfy
+// Connection-aware resolver path: satisfy
 // `tryResolveProviderForConnectionName` lookups so resolveDefaultProvider
 // returns a usable provider for the inline `anthropic-conn` fixture.
 mock.module("../providers/inference/connections.js", () => ({

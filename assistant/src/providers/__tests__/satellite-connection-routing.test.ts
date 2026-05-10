@@ -9,8 +9,8 @@
  * at construction time and reuse it across many `sendMessage` calls,
  * routing per-call via `options.config.callSite`.
  *
- * Phase 1 cleanup (2026-05): the legacy `getProvider(name)` fallback path
- * was removed from `CallSiteRoutingProvider`. The contract is now:
+ * `CallSiteRoutingProvider` does not use a legacy registry fallback.
+ * The contract is:
  *   - Connection set, resolves cleanly → route through that connection.
  *   - Connection set, resolves to null (soft credential failure) →
  *     fall back to default Provider for graceful per-call degradation.
@@ -110,8 +110,8 @@ mock.module("../inference/connections.js", () => ({
 const connectionsThatThrowOnResolve = new Set<string>();
 
 mock.module("../registry.js", () => ({
-  // After Phase 1 cleanup the wrapper no longer imports getProvider. Kept
-  // here only so test files that share this mock module shape compile.
+  // The wrapper does not import getProvider. Kept here only so test files
+  // that share this mock module shape compile.
   getProvider: (name: string) => {
     throw new Error(`legacy getProvider should not be called: ${name}`);
   },
@@ -273,9 +273,9 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
   });
 
   test("connection unset + profile.provider differs from default → throws ConnectionResolutionError(missing_connection)", async () => {
-    // Phase 1 cleanup: alternate-provider routing requires a connection.
-    // Without one we used to fall through to legacy `getProvider("openai")` —
-    // now we throw so misconfigurations surface immediately.
+    // Alternate-provider routing requires a connection. Without one,
+    // misconfigurations throw rather than silently dispatching to a
+    // mismatched backend.
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
 
     setLlmConfig({
@@ -283,7 +283,9 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
       profiles: {
         "openai-profile": {
           provider: "openai",
-          // no provider_connection — Phase 1 cleanup: hard error
+          // No provider_connection — alternate-provider routing demands
+          // one; this profile is expected to throw
+          // `ConnectionResolutionError(missing_connection)`.
         },
       },
       callSites: {
@@ -363,9 +365,9 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
 
   test("provider/connection mismatch → throws ConnectionResolutionError(provider_mismatch)", async () => {
     // Misconfiguration: profile says provider=openai but provider_connection
-    // points at an anthropic row. Without validation we'd dispatch OpenAI
-    // traffic to an Anthropic backend. Phase 1 cleanup makes this a hard
-    // error rather than a silent fallthrough.
+    // points at an anthropic row. Connection validation throws
+    // `ConnectionResolutionError(provider_mismatch)` so OpenAI traffic
+    // never dispatches to an Anthropic backend.
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
 
     registerConnection(
