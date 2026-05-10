@@ -18,9 +18,7 @@ import { Command } from "commander";
 // Mock state
 // ---------------------------------------------------------------------------
 
-let mockIpcCallFn = mock(() =>
-  Promise.resolve({ ok: true, result: {} }),
-);
+let mockIpcCallFn = mock(() => Promise.resolve({ ok: true, result: {} }));
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test
@@ -95,15 +93,24 @@ describe("email register", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const program = new Command();
     program.exitOverride();
     program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
     registerEmailCmd(program);
-    await program.parseAsync(["node", "assistant", "email", "register", "mybot"]);
+    await program.parseAsync([
+      "node",
+      "assistant",
+      "email",
+      "register",
+      "mybot",
+    ]);
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith("email_register", { username: "mybot" });
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_register", {
+      body: { username: "mybot" },
+    });
   });
 
   test("--json outputs structured response", async () => {
@@ -125,7 +132,8 @@ describe("email register", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const stdoutChunks: string[] = [];
     const origWrite = process.stdout.write.bind(process.stdout);
@@ -142,7 +150,14 @@ describe("email register", () => {
         writeOut: (str: string) => stdoutChunks.push(str),
       });
       registerEmailCmd(program);
-      await program.parseAsync(["node", "assistant", "email", "--json", "register", "mybot"]);
+      await program.parseAsync([
+        "node",
+        "assistant",
+        "email",
+        "--json",
+        "register",
+        "mybot",
+      ]);
     } catch {
       // commander may throw on exitOverride
     } finally {
@@ -175,7 +190,8 @@ describe("email register", () => {
       exitFromIpcResult: exitFromIpcResultMock,
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const program = new Command();
     program.exitOverride();
@@ -183,7 +199,13 @@ describe("email register", () => {
     registerEmailCmd(program);
 
     try {
-      await program.parseAsync(["node", "assistant", "email", "register", "mybot"]);
+      await program.parseAsync([
+        "node",
+        "assistant",
+        "email",
+        "register",
+        "mybot",
+      ]);
     } catch {
       // may throw
     }
@@ -215,27 +237,32 @@ describe("email send", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const program = new Command();
     program.exitOverride();
     program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
     registerEmailCmd(program);
     await program.parseAsync([
-      "node", "assistant",
-      "email", "send", "user@example.com",
-      "-s", "Hello",
-      "-b", "Hi there",
+      "node",
+      "assistant",
+      "email",
+      "send",
+      "user@example.com",
+      "-s",
+      "Hello",
+      "-b",
+      "Hi there",
     ]);
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith(
-      "email_send",
-      expect.objectContaining({
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_send", {
+      body: expect.objectContaining({
         to: ["user@example.com"],
         subject: "Hello",
         text: "Hi there",
       }),
-    );
+    });
   });
 
   test("includes cc/bcc when provided", async () => {
@@ -256,28 +283,35 @@ describe("email send", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const program = new Command();
     program.exitOverride();
     program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
     registerEmailCmd(program);
     await program.parseAsync([
-      "node", "assistant",
-      "email", "send", "user@example.com",
-      "--cc", "cc@example.com",
-      "--bcc", "bcc@example.com",
-      "-s", "Test",
-      "-b", "Body",
+      "node",
+      "assistant",
+      "email",
+      "send",
+      "user@example.com",
+      "--cc",
+      "cc@example.com",
+      "--bcc",
+      "bcc@example.com",
+      "-s",
+      "Test",
+      "-b",
+      "Body",
     ]);
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith(
-      "email_send",
-      expect.objectContaining({
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_send", {
+      body: expect.objectContaining({
         cc: ["cc@example.com"],
         bcc: ["bcc@example.com"],
       }),
-    );
+    });
   });
 
   test("reply_to param forwarded", async () => {
@@ -298,24 +332,30 @@ describe("email send", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const program = new Command();
     program.exitOverride();
     program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
     registerEmailCmd(program);
     await program.parseAsync([
-      "node", "assistant",
-      "email", "send", "user@example.com",
-      "-s", "Re: Test",
-      "-b", "Thanks!",
-      "--reply-to", "msg_abc",
+      "node",
+      "assistant",
+      "email",
+      "send",
+      "user@example.com",
+      "-s",
+      "Re: Test",
+      "-b",
+      "Thanks!",
+      "--reply-to",
+      "msg_abc",
     ]);
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith(
-      "email_send",
-      expect.objectContaining({ reply_to: "msg_abc" }),
-    );
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_send", {
+      body: expect.objectContaining({ reply_to: "msg_abc" }),
+    });
   });
 });
 
@@ -342,7 +382,8 @@ describe("email list", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const program = new Command();
     program.exitOverride();
@@ -350,7 +391,9 @@ describe("email list", () => {
     registerEmailCmd(program);
     await program.parseAsync(["node", "assistant", "email", "list"]);
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith("email_list", {});
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_list", {
+      queryParams: {},
+    });
   });
 
   test("passes direction param when --direction given", async () => {
@@ -371,20 +414,25 @@ describe("email list", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const program = new Command();
     program.exitOverride();
     program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
     registerEmailCmd(program);
     await program.parseAsync([
-      "node", "assistant", "email", "list", "--direction", "inbound",
+      "node",
+      "assistant",
+      "email",
+      "list",
+      "--direction",
+      "inbound",
     ]);
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith(
-      "email_list",
-      expect.objectContaining({ direction: "inbound" }),
-    );
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_list", {
+      queryParams: expect.objectContaining({ direction: "inbound" }),
+    });
   });
 
   test("passes limit and since params", async () => {
@@ -405,22 +453,27 @@ describe("email list", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const program = new Command();
     program.exitOverride();
     program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
     registerEmailCmd(program);
     await program.parseAsync([
-      "node", "assistant", "email", "list",
-      "--limit", "5",
-      "--since", "2026-01-01",
+      "node",
+      "assistant",
+      "email",
+      "list",
+      "--limit",
+      "5",
+      "--since",
+      "2026-01-01",
     ]);
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith(
-      "email_list",
-      expect.objectContaining({ limit: "5", since: "2026-01-01" }),
-    );
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_list", {
+      queryParams: expect.objectContaining({ limit: "5", since: "2026-01-01" }),
+    });
   });
 });
 
@@ -458,7 +511,8 @@ describe("email status", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const program = new Command();
     program.exitOverride();
@@ -493,14 +547,19 @@ describe("email unregister", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const program = new Command();
     program.exitOverride();
     program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
     registerEmailCmd(program);
     await program.parseAsync([
-      "node", "assistant", "email", "unregister", "--confirm",
+      "node",
+      "assistant",
+      "email",
+      "unregister",
+      "--confirm",
     ]);
 
     expect(mockIpcCallFn).toHaveBeenCalledWith("email_unregister", {});
@@ -541,7 +600,8 @@ describe("email download", () => {
       }),
     }));
 
-    const { registerEmailCommand: registerEmailCmd } = await import("../email.js");
+    const { registerEmailCommand: registerEmailCmd } =
+      await import("../email.js");
 
     const stdoutChunks: string[] = [];
     const origWrite = process.stdout.write.bind(process.stdout);
@@ -559,7 +619,11 @@ describe("email download", () => {
       });
       registerEmailCmd(program);
       await program.parseAsync([
-        "node", "assistant", "email", "download", "msg_1",
+        "node",
+        "assistant",
+        "email",
+        "download",
+        "msg_1",
       ]);
     } catch {
       // may throw
@@ -567,9 +631,8 @@ describe("email download", () => {
       process.stdout.write = origWrite;
     }
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith(
-      "email_download",
-      { messageId: "msg_1" },
-    );
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_download", {
+      queryParams: { messageId: "msg_1" },
+    });
   });
 });

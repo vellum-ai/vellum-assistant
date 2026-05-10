@@ -79,6 +79,15 @@ async function handleEmailUnregister(_args: RouteHandlerArgs) {
     `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
   );
 
+  if (!listResponse.ok) {
+    const respBody = (await listResponse.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const detail = respBody.detail ?? `HTTP ${listResponse.status}`;
+    throw new RouteError(String(detail), "LIST_FAILED", listResponse.status);
+  }
+
   const listData = (await listResponse.json()) as {
     results: { id: string; address: string }[];
   };
@@ -96,11 +105,16 @@ async function handleEmailUnregister(_args: RouteHandlerArgs) {
   );
 
   if (!deleteResponse.ok) {
-    const respBody = (await deleteResponse
-      .json()
-      .catch(() => ({}))) as Record<string, unknown>;
+    const respBody = (await deleteResponse.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
     const detail = respBody.detail ?? `HTTP ${deleteResponse.status}`;
-    throw new RouteError(String(detail), "DELETE_FAILED", deleteResponse.status);
+    throw new RouteError(
+      String(detail),
+      "DELETE_FAILED",
+      deleteResponse.status,
+    );
   }
 
   return { unregistered: target.address };
@@ -112,6 +126,15 @@ async function handleEmailStatus(_args: RouteHandlerArgs) {
   const listResponse = await client.fetch(
     `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
   );
+
+  if (!listResponse.ok) {
+    const respBody = (await listResponse.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const detail = respBody.detail ?? `HTTP ${listResponse.status}`;
+    throw new RouteError(String(detail), "LIST_FAILED", listResponse.status);
+  }
 
   const listData = (await listResponse.json()) as {
     results: { id: string; address: string }[];
@@ -131,11 +154,16 @@ async function handleEmailStatus(_args: RouteHandlerArgs) {
   );
 
   if (!statusResponse.ok) {
-    const respBody = (await statusResponse
-      .json()
-      .catch(() => ({}))) as Record<string, unknown>;
+    const respBody = (await statusResponse.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
     const detail = respBody.detail ?? `HTTP ${statusResponse.status}`;
-    throw new RouteError(String(detail), "STATUS_FAILED", statusResponse.status);
+    throw new RouteError(
+      String(detail),
+      "STATUS_FAILED",
+      statusResponse.status,
+    );
   }
 
   const statusData = (await statusResponse.json()) as {
@@ -213,15 +241,7 @@ async function handleEmailDownload({ queryParams = {} }: RouteHandlerArgs) {
 }
 
 async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
-  const {
-    to,
-    text,
-    subject,
-    html,
-    cc,
-    bcc,
-    reply_to,
-  } = body as {
+  const { to, text, subject, html, cc, bcc, reply_to } = body as {
     to: string[];
     text: string;
     subject?: string;
@@ -237,6 +257,15 @@ async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
   const listResponse = await client.fetch(
     `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
   );
+
+  if (!listResponse.ok) {
+    const respBody = (await listResponse.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const detail = respBody.detail ?? `HTTP ${listResponse.status}`;
+    throw new RouteError(String(detail), "LIST_FAILED", listResponse.status);
+  }
 
   const listData = (await listResponse.json()) as {
     results: { id: string; address: string }[];
@@ -307,7 +336,10 @@ export const ROUTES: RouteDefinition[] = [
       "Register a new email address on the Vellum platform for the current assistant.",
     tags: ["email"],
     requestBody: z.object({
-      username: z.string().min(1).describe("The local part of the email address"),
+      username: z
+        .string()
+        .min(1)
+        .describe("The local part of the email address"),
     }),
     responseBody: z.object({
       id: z.string(),
@@ -360,9 +392,24 @@ export const ROUTES: RouteDefinition[] = [
       "List received and sent emails for this assistant, with optional filtering.",
     tags: ["email"],
     queryParams: [
-      { name: "direction", type: "string", required: false, description: "Filter by direction: inbound, outbound, or all" },
-      { name: "limit", type: "string", required: false, description: "Maximum number of results" },
-      { name: "since", type: "string", required: false, description: "Only show messages since this date (ISO 8601)" },
+      {
+        name: "direction",
+        type: "string",
+        required: false,
+        description: "Filter by direction: inbound, outbound, or all",
+      },
+      {
+        name: "limit",
+        type: "string",
+        required: false,
+        description: "Maximum number of results",
+      },
+      {
+        name: "since",
+        type: "string",
+        required: false,
+        description: "Only show messages since this date (ISO 8601)",
+      },
     ],
     responseBody: z.object({
       results: z.array(z.unknown()),
@@ -378,7 +425,12 @@ export const ROUTES: RouteDefinition[] = [
     description: "Download a specific email message by ID.",
     tags: ["email"],
     queryParams: [
-      { name: "messageId", type: "string", required: true, description: "Email message ID" },
+      {
+        name: "messageId",
+        type: "string",
+        required: true,
+        description: "Email message ID",
+      },
     ],
     responseBody: z.unknown(),
   },
@@ -395,7 +447,10 @@ export const ROUTES: RouteDefinition[] = [
       to: z.array(z.string()).min(1).describe("Recipient email address(es)"),
       text: z.string().min(1).describe("Email body (plain text)"),
       subject: z.string().optional().describe("Subject line"),
-      html: z.string().optional().describe("HTML body (auto-generated from text if omitted)"),
+      html: z
+        .string()
+        .optional()
+        .describe("HTML body (auto-generated from text if omitted)"),
       cc: z.array(z.string()).optional().describe("CC recipients"),
       bcc: z.array(z.string()).optional().describe("BCC recipients"),
       reply_to: z.string().optional().describe("Reply-to email ID"),

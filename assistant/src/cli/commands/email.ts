@@ -67,11 +67,16 @@ Examples:
   {"address":"support@${domain}","id":"...","created_at":"..."}`,
         )
         .action(async (username: string, _opts: unknown, cmd: Command) => {
-          const r = await cliIpcCall<{ id: string; address: string; created_at: string }>(
-            "email_register",
-            { username },
-          );
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          const r = await cliIpcCall<{
+            id: string;
+            address: string;
+            created_at: string;
+          }>("email_register", { body: { username } });
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
           } else {
@@ -112,7 +117,10 @@ Examples:
               output: process.stderr,
             });
             const answer = await new Promise<string>((resolve) => {
-              iface.question(`Remove registered email address? (y/N) `, resolve);
+              iface.question(
+                `Remove registered email address? (y/N) `,
+                resolve,
+              );
             });
             iface.close();
             if (answer.trim().toLowerCase() !== "y") {
@@ -124,7 +132,11 @@ Examples:
             "email_unregister",
             {},
           );
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
           } else {
@@ -166,7 +178,11 @@ Examples:
               received_this_month: number;
             };
           }>("email_status", {});
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           const statusData = r.result!;
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, statusData);
@@ -195,7 +211,10 @@ Examples:
           "all",
         )
         .option("-l, --limit <count>", "Maximum number of results")
-        .option("--since <date>", "Only show messages since this date (ISO 8601)")
+        .option(
+          "--since <date>",
+          "Only show messages since this date (ISO 8601)",
+        )
         .addHelpText(
           "after",
           `
@@ -237,8 +256,12 @@ Examples:
                 created_at: string;
               }[];
               count: number;
-            }>("email_list", params);
-            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+            }>("email_list", { queryParams: params });
+            if (!r.ok)
+              return exitFromIpcResult(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
             const data = r.result!;
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
@@ -317,8 +340,12 @@ Examples:
               in_reply_to: string;
               references: string[];
               created_at: string;
-            }>("email_download", { messageId });
-            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+            }>("email_download", { queryParams: { messageId } });
+            if (!r.ok)
+              return exitFromIpcResult(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
             const msg = r.result!;
 
             const fmt = opts.format ?? "text";
@@ -465,9 +492,13 @@ Examples:
 
             const r = await cliIpcCall<{ delivery_id: string; status: string }>(
               "email_send",
-              params,
+              { body: params },
             );
-            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+            if (!r.ok)
+              return exitFromIpcResult(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
             const data = r.result!;
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
@@ -538,10 +569,9 @@ $ assistant email attachment msg_abc1 --list --json`,
                 // List mode — show attachment metadata without downloading
                 const response = await client.fetch(`${basePath}/`);
                 if (!response.ok) {
-                  const body = (await response.json().catch(() => ({}))) as Record<
-                    string,
-                    unknown
-                  >;
+                  const body = (await response
+                    .json()
+                    .catch(() => ({}))) as Record<string, unknown>;
                   const detail = body.detail ?? `HTTP ${response.status}`;
                   throw new Error(String(detail));
                 }
@@ -598,7 +628,8 @@ $ assistant email attachment msg_abc1 --list --json`,
                   throw new Error("No attachments for this message.");
                 }
 
-                const downloaded: { filename: string; size_bytes: number }[] = [];
+                const downloaded: { filename: string; size_bytes: number }[] =
+                  [];
                 for (const att of attachments) {
                   const dest = join(outDir, safeFilename(att.filename));
                   await downloadAttachment(client, basePath, att.id, dest);
@@ -619,7 +650,9 @@ $ assistant email attachment msg_abc1 --list --json`,
                     `✓ Downloaded ${downloaded.length} attachment(s) to ${outDir}`,
                   );
                   for (const f of downloaded) {
-                    log.info(`  - ${f.filename} (${formatBytes(f.size_bytes)})`);
+                    log.info(
+                      `  - ${f.filename} (${formatBytes(f.size_bytes)})`,
+                    );
                   }
                 }
               } else {
