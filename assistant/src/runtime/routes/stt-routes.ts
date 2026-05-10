@@ -7,7 +7,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { access, mkdir, readFile, readdir, rm, unlink } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
@@ -333,7 +333,7 @@ async function handleTranscribeFile({ body }: RouteHandlerArgs) {
   const isAudio = AUDIO_EXTENSIONS.has(ext);
   if (!isVideo && !isAudio) {
     throw new BadRequestError(
-      `Unsupported file type: ${ext}. Only audio and video files can be transcribed.`
+      `Unsupported file type: ${ext}. Only audio and video files can be transcribed.`,
     );
   }
 
@@ -345,7 +345,9 @@ async function handleTranscribeFile({ body }: RouteHandlerArgs) {
     throw new ServiceUnavailableError("STT provider is not available");
   }
   if (!transcriber) {
-    throw new ServiceUnavailableError("No speech-to-text provider is configured");
+    throw new ServiceUnavailableError(
+      "No speech-to-text provider is configured",
+    );
   }
 
   const startTime = Date.now();
@@ -354,10 +356,16 @@ async function handleTranscribeFile({ body }: RouteHandlerArgs) {
     wavPath = await toWav(filePath, isVideo);
     const text = await transcribeWithProvider(wavPath, transcriber);
     const durationSeconds = (Date.now() - startTime) / 1000;
-    return { transcript: text, provider: transcriber.providerId, durationSeconds };
+    return {
+      transcript: text,
+      provider: transcriber.providerId,
+      durationSeconds,
+    };
   } catch (err) {
     log.error({ err, filePath }, "File transcription failed");
-    throw new BadGatewayError(err instanceof Error ? err.message : "Transcription failed");
+    throw new BadGatewayError(
+      err instanceof Error ? err.message : "Transcription failed",
+    );
   } finally {
     if (wavPath) {
       await unlink(wavPath).catch(() => {});
