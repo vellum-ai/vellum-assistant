@@ -119,7 +119,7 @@ Examples:
             ...(opts.retention !== undefined && { retention: Number.parseInt(opts.retention, 10) }),
             ...(opts.offsite === false && { offsiteEnabled: false }),
           });
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           const cfg = r.result as { intervalHours: number; retention: number; offsite: { enabled: boolean } };
           log.info(
             `Automatic backups enabled (interval=${cfg.intervalHours}h, retention=${cfg.retention}, offsite=${cfg.offsite.enabled ? "on" : "off"})`,
@@ -140,7 +140,7 @@ Examples:
         )
         .action(async (_opts: unknown, cmd: Command) => {
           const r = await cliIpcCall("backup_disable");
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           log.info("Automatic backups disabled");
         });
 
@@ -190,7 +190,7 @@ Examples:
           const r = await cliIpcCall<{ destinations: Array<{ path: string; encrypt: boolean }> }>(
             "backup_destinations_list",
           );
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           const { destinations: dests } = r.result!;
           if (dests.length === 0) {
             log.info("No offsite destinations configured");
@@ -232,7 +232,7 @@ Examples:
             path,
             encrypt: !opts.plaintext,
           });
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           log.info(
             `Added destination ${path} (${opts.plaintext ? "plaintext" : "encrypted"})`,
           );
@@ -255,7 +255,7 @@ Examples:
         )
         .action(async (path: string, _opts: unknown, cmd: Command) => {
           const r = await cliIpcCall("backup_destinations_remove", { path });
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           log.info(`Removed destination ${path}`);
         });
 
@@ -291,7 +291,7 @@ Examples:
             path,
             encrypt: normalized === "true",
           });
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           log.info(`Set ${path} encrypt=${normalized}`);
         });
 
@@ -325,7 +325,7 @@ Examples:
             localSnapshotCount: number;
             offsite: Array<{ path: string; encrypt: boolean; reachable: boolean; snapshotCount: number }>;
           }>("backup_status");
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           const s = r.result!;
           const now = Date.now();
 
@@ -397,7 +397,7 @@ Examples:
             offsiteEnabled: boolean;
             nextRunAt: string | null;
           }>("backups_list");
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           const data = r.result!;
 
           printSnapshotGroup(

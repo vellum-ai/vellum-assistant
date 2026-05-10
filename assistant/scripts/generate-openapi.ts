@@ -17,10 +17,9 @@
  */
 
 import { readFileSync } from "node:fs";
-import { readdir, readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join as joinPath } from "node:path";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { Readable } from "node:stream";
 
 import { stringify } from "yaml";
 import { z } from "zod";
@@ -517,28 +516,21 @@ async function main() {
     stringify(spec, { lineWidth: 120 });
 
   // Format with prettier so the output matches what the pre-commit hook produces.
-  // Write to a temp file first to avoid Bun.spawn stdin Blob issues on some platforms.
-  const tmpDir = await mkdtemp(joinPath(tmpdir(), "openapi-gen-"));
-  const tmpInput = joinPath(tmpDir, "input.yaml");
-  let yamlOutput: string;
-  try {
-    await writeFile(tmpInput, rawYaml);
-    const prettierProc = Bun.spawn(["bunx", "prettier", "--parser", "yaml", tmpInput], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [prettierOut, prettierExitCode] = await Promise.all([
-      new Response(prettierProc.stdout).text(),
-      prettierProc.exited,
-    ]);
-    if (prettierExitCode !== 0) {
-      const stderr = await new Response(prettierProc.stderr).text();
-      console.error(`prettier exited with code ${prettierExitCode}: ${stderr}`);
-      process.exit(1);
-    }
-    yamlOutput = prettierOut;
-  } finally {
-    await rm(tmpDir, { recursive: true, force: true });
+  // Use a Node.js Readable stream for stdin — Bun.spawn with Blob stdin produces
+  // empty output on some platforms (Bun 1.3.x Linux sandbox).
+  const prettierProc = Bun.spawn(["bunx", "prettier", "--parser", "yaml"], {
+    stdin: Readable.from([rawYaml]) as unknown as Blob,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [yamlOutput, prettierExitCode] = await Promise.all([
+    new Response(prettierProc.stdout).text(),
+    prettierProc.exited,
+  ]);
+  if (prettierExitCode !== 0) {
+    const stderr = await new Response(prettierProc.stderr).text();
+    console.error(`prettier exited with code ${prettierExitCode}: ${stderr}`);
+    process.exit(1);
   }
 
   if (isCheck) {
