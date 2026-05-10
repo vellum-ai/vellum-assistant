@@ -1,12 +1,10 @@
 import { existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 
 import type { Command } from "commander";
 
-import {
-  cliIpcCall,
-  exitFromIpcResult,
-} from "../../ipc/cli-client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
@@ -76,7 +74,11 @@ Examples:
             "avatar_generate",
             { body: { description: opts.description } },
           );
-          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
           log.info(r.result!.message);
         });
 
@@ -104,7 +106,11 @@ Examples:
         .action(async (opts: { image: string }, cmd: Command) => {
           const resolvedSource = isAbsolute(opts.image)
             ? opts.image
-            : resolve(process.cwd(), opts.image);
+            : join(
+                process.env.VELLUM_WORKSPACE_DIR ||
+                  join(homedir(), ".vellum", "workspace"),
+                opts.image,
+              );
 
           if (!existsSync(resolvedSource)) {
             log.error(`Image file not found: ${resolvedSource}`);
@@ -115,7 +121,11 @@ Examples:
           const r = await cliIpcCall<{ ok: boolean }>("avatar_set", {
             body: { imagePath: resolvedSource },
           });
-          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
           log.info(`Avatar set from: ${resolvedSource}`);
         });
 
@@ -139,7 +149,11 @@ Examples:
           const r = await cliIpcCall<{ ok: boolean; hadAvatar: boolean }>(
             "avatar_remove",
           );
-          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
           if (!r.result!.hadAvatar) {
             log.info("No custom avatar to remove — already using the default.");
           } else {
@@ -179,7 +193,11 @@ Examples:
             path?: string;
             base64?: string;
           }>("avatar_get", { body: { format: opts.format } });
-          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
 
           if (!r.result!.exists) {
             log.info(
@@ -272,7 +290,11 @@ Examples:
                 },
               },
             );
-            if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+            if (!r.ok)
+              return exitFromIpcResult(
+                r as { ok: false; error?: string; statusCode?: number },
+                cmd,
+              );
             log.info(
               `Avatar updated: ${opts.bodyShape} body, ${opts.eyeStyle} eyes, ${opts.color} color`,
             );
@@ -301,9 +323,14 @@ Examples:
   $ assistant avatar character components --json`,
         )
         .action(async (opts: { json?: boolean }, cmd: Command) => {
-          const r =
-            await cliIpcCall<CharacterComponents>("avatar_character_components");
-          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+          const r = await cliIpcCall<CharacterComponents>(
+            "avatar_character_components",
+          );
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
 
           if (opts.json) {
             writeOutput(cmd, r.result);
@@ -374,7 +401,11 @@ Examples:
             "avatar_character_ascii",
             { body: { width: opts.width } },
           );
-          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
           process.stdout.write(r.result!.ascii + "\n");
         });
     },

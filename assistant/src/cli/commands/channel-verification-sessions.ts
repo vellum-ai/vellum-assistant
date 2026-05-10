@@ -8,7 +8,15 @@ import { writeOutput } from "../output.js";
 // Local channel validation (replaces daemon-internal channels/types.js import)
 // ---------------------------------------------------------------------------
 
-const VALID_CHANNEL_IDS = ["telegram", "phone", "slack"] as const;
+const VALID_CHANNEL_IDS = [
+  "telegram",
+  "phone",
+  "vellum",
+  "whatsapp",
+  "slack",
+  "email",
+  "platform",
+] as const;
 type ChannelId = (typeof VALID_CHANNEL_IDS)[number];
 
 function isChannelId(raw: string): raw is ChannelId {
@@ -172,7 +180,11 @@ Examples:
                 contactChannelId: opts.contactChannelId,
               },
             });
-            if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+            if (!r.ok)
+              return exitFromIpcResult(
+                r as { ok: false; error?: string; statusCode?: number },
+                cmd,
+              );
             writeOutput(cmd, r.result);
           },
         );
@@ -209,7 +221,11 @@ Examples:
           const r = await cliIpcCall("channel_verification_sessions_status", {
             body: { channel },
           });
-          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
           writeOutput(cmd, r.result);
         });
 
@@ -250,16 +266,17 @@ Examples:
             const channel = validateChannelOpt(opts.channel, cmd, true);
             if (channel === false) return;
 
-            const r = await cliIpcCall(
-              "channel_verification_sessions_resend",
-              {
-                body: {
-                  channel,
-                  originConversationId: opts.originConversationId,
-                },
+            const r = await cliIpcCall("channel_verification_sessions_resend", {
+              body: {
+                channel,
+                originConversationId: opts.originConversationId,
               },
-            );
-            if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+            });
+            if (!r.ok)
+              return exitFromIpcResult(
+                r as { ok: false; error?: string; statusCode?: number },
+                cmd,
+              );
             writeOutput(cmd, r.result);
           },
         );
@@ -270,9 +287,7 @@ Examples:
 
       cvs
         .command("cancel")
-        .description(
-          "Cancel all active verification sessions for a channel",
-        )
+        .description("Cancel all active verification sessions for a channel")
         .requiredOption(
           "--channel <channel>",
           "Channel type (telegram, phone, slack)",
@@ -297,7 +312,11 @@ Examples:
           const r = await cliIpcCall("channel_verification_sessions_cancel", {
             body: { channel },
           });
-          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
           writeOutput(cmd, r.result);
         });
 
@@ -335,7 +354,11 @@ Examples:
           const r = await cliIpcCall("channel_verification_sessions_revoke", {
             body: { channel },
           });
-          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
           writeOutput(cmd, r.result);
         });
     },
