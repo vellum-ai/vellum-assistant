@@ -805,6 +805,14 @@ registerPolicy("credentials/delete", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Credentials POST (credential_set): same write contract as credentials/delete —
+// write scope, local-only. Method-specific key wins over the plain "credentials"
+// entry above (which is read-scoped for credential_list GET).
+registerPolicy("credentials:POST", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 registerPolicy("credentials/status", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],

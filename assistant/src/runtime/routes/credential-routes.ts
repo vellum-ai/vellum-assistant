@@ -310,7 +310,10 @@ async function handleCredentialSet({ body = {} }: RouteHandlerArgs) {
 
   assertMetadataWritable();
 
-  await setSecureKeyAsync(credentialKey(service, field), value);
+  const stored = await setSecureKeyAsync(credentialKey(service, field), value);
+  if (!stored) {
+    throw new InternalError("Credential backend write failed");
+  }
 
   const metadata = upsertCredentialMetadata(service, field, {
     alias: label,
