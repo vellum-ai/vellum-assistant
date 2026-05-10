@@ -784,6 +784,40 @@ registerPolicy("credentials/prompt", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Credential management routes: local-only (CLI / IPC callers)
+registerPolicy("credentials", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("credentials/inspect", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("credentials/reveal", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("credentials/delete", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Credentials POST (credential_set): same write contract as credentials/delete —
+// write scope, local-only. Method-specific key wins over the plain "credentials"
+// entry above (which is read-scoped for credential_list GET).
+registerPolicy("credentials:POST", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("credentials/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Cache operations: local-only (CLI / IPC callers)
 registerPolicy("cache/set", {
   requiredScopes: ["settings.write"],
