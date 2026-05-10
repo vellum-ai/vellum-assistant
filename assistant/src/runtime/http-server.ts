@@ -192,18 +192,6 @@ export class RuntimeHttpServer {
   }
 
   async start(): Promise<void> {
-    // Validate config BEFORE allocating any server/timer resources. If we
-    // throw after Bun.serve() and startBackgroundSweeps() the caller's catch
-    // path drops the reference, leaking the listening server and the sweep
-    // timers. Bail early so a misconfigured deployment fails closed cleanly.
-    if (isHttpAuthDisabled() && !isLoopbackHost(this.hostname)) {
-      throw new Error(
-        "Refusing to start: DISABLE_HTTP_AUTH=true is set but RUNTIME_HTTP_HOST " +
-          `(${this.hostname}) is not loopback. Either bind to 127.0.0.1/::1 ` +
-          "or unset DISABLE_HTTP_AUTH.",
-      );
-    }
-
     type AllWebSocketData =
       | RelayWebSocketData
       | MediaStreamWebSocketData
@@ -464,14 +452,13 @@ export class RuntimeHttpServer {
     }
 
     if (isHttpAuthDisabled()) {
-      // Loopback host already enforced at the top of start(); just log here.
       if (getIsPlatform()) {
         log.info(
-          "DISABLE_HTTP_AUTH is set on a loopback-bound runtime — HTTP auth disabled (expected: platform handles auth)",
+          "DISABLE_HTTP_AUTH is set — HTTP auth disabled (expected: platform handles auth)",
         );
       } else {
         log.warn(
-          "DISABLE_HTTP_AUTH is set on a loopback-bound runtime — HTTP API authentication is DISABLED for local callers.",
+          "DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token.",
         );
       }
     }
