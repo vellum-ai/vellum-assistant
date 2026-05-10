@@ -12246,6 +12246,9 @@ paths:
                   enum:
                     - clawhub
                     - skillssh
+                overwrite:
+                  description: Replace an existing install. Defaults to false.
+                  type: boolean
               required:
                 - slug
                 - url

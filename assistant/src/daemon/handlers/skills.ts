@@ -1076,6 +1076,7 @@ export async function installSkill(spec: {
   slug: string;
   version?: string;
   origin?: "clawhub" | "skillssh";
+  overwrite?: boolean;
   contactId?: string;
 }): Promise<
   { success: true; skillId: string } | { success: false; error: string }
@@ -1140,7 +1141,7 @@ export async function installSkill(spec: {
           await installSkillLocally(
             spec.slug,
             catalogEntry,
-            true,
+            spec.overwrite ?? false,
             spec.contactId,
           );
 
@@ -1167,7 +1168,7 @@ export async function installSkill(spec: {
         resolved.owner,
         resolved.repo,
         resolved.skillSlug,
-        true /* overwrite */,
+        spec.overwrite ?? false,
         resolved.ref ?? spec.version,
         spec.contactId,
       );
