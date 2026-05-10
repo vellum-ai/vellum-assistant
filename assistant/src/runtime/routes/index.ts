@@ -60,6 +60,7 @@ import { ROUTES as HOST_CU_ROUTES } from "./host-cu-routes.js";
 import { ROUTES as HOST_FILE_ROUTES } from "./host-file-routes.js";
 import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
+import { ROUTES as IMAGE_GENERATION_ROUTES } from "./image-generation-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-session-routes.js";
 import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
@@ -157,6 +158,7 @@ export const ROUTES: RouteDefinition[] = [
   ...HEARTBEAT_ROUTES,
   ...HOME_FEED_ROUTES,
   ...HOME_STATE_ROUTES,
+  ...IMAGE_GENERATION_ROUTES,
   ...HOST_APP_CONTROL_ROUTES,
   ...HOST_BASH_ROUTES,
   ...HOST_BROWSER_ROUTES,
