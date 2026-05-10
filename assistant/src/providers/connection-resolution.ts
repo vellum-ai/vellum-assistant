@@ -20,8 +20,6 @@
  * connection-awareness active.
  */
 
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
-import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getDb } from "../memory/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import { getConnection } from "./inference/connections.js";
@@ -36,12 +34,21 @@ const log = getLogger("providers/connection-resolution");
 
 /**
  * Attempt to resolve a Provider through a named `provider_connection`. Returns
- * null on any miss (lookup error, row not found, auth resolution failure) so
- * callers can fall back to the legacy `getProvider(name)` path.
+ * null on any miss (lookup error, row not found, provider mismatch with the
+ * resolving profile, auth resolution failure) so callers can fall back to the
+ * legacy `getProvider(name)` path.
+ *
+ * `expectedProvider` is the provider name the resolving profile declared. We
+ * verify the connection row's `provider` field matches before binding — a
+ * profile that names `provider: "openai"` together with a Anthropic-flavored
+ * `provider_connection` is a misconfiguration and we fall through rather than
+ * silently routing the request to the wrong backend. Pass `undefined` to skip
+ * the check (callers that don't yet know the expected provider).
  */
 export async function tryResolveProviderForConnectionName(
   connectionName: string,
   config: ProvidersConfig,
+  expectedProvider?: string,
 ): Promise<Provider | null> {
   let connection;
   try {
@@ -57,6 +64,17 @@ export async function tryResolveProviderForConnectionName(
     log.warn(
       { connectionName },
       "provider_connection not found — falling back to legacy registry dispatch",
+    );
+    return null;
+  }
+  if (expectedProvider && connection.provider !== expectedProvider) {
+    log.warn(
+      {
+        connectionName,
+        expectedProvider,
+        connectionProvider: connection.provider,
+      },
+      "provider_connection provider does not match resolving profile's provider — falling back to legacy registry dispatch to avoid silent misroute",
     );
     return null;
   }
@@ -88,6 +106,7 @@ export async function resolveDefaultProvider(
     const connectionProvider = await tryResolveProviderForConnectionName(
       connectionName,
       config,
+      profile.provider,
     );
     if (connectionProvider) return connectionProvider;
   }
@@ -98,44 +117,6 @@ export async function resolveDefaultProvider(
       { err, providerName: profile.provider },
       "default provider not registered — caller should treat as null",
     );
-    return null;
-  }
-}
-
-/**
- * Resolve a provider for an arbitrary callsite, with connection-awareness
- * applied to the resolved profile. Used by `CallSiteRoutingProvider` when a
- * per-call `callSite` (or `overrideProfile`) names a profile distinct from
- * the default.
- *
- * Returns null if neither the connection path nor the legacy registry can
- * produce a Provider — caller falls back to the default provider in that
- * case.
- */
-export async function resolveProviderForCallSite(
-  callSite: LLMCallSite,
-  config: ProvidersConfig,
-  opts: { overrideProfile?: string } = {},
-): Promise<Provider | null> {
-  // resolveCallSiteConfig works on the full LLM config, not the narrow
-  // `ProvidersConfig.llm` view used elsewhere in the registry. Cast through
-  // to keep ProvidersConfig as the public shape; schema-level alignment
-  // happens in `schemas/llm.ts` (provider_connection field added there).
-  const resolved = resolveCallSiteConfig(
-    callSite,
-    config.llm as Parameters<typeof resolveCallSiteConfig>[1],
-    opts,
-  );
-  if (resolved.provider_connection) {
-    const connectionProvider = await tryResolveProviderForConnectionName(
-      resolved.provider_connection,
-      config,
-    );
-    if (connectionProvider) return connectionProvider;
-  }
-  try {
-    return getProvider(resolved.provider);
-  } catch {
     return null;
   }
 }

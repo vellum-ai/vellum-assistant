@@ -124,6 +124,7 @@ export async function resolveConfiguredProvider(
     const connectionProvider = await tryResolveProviderForConnectionName(
       connectionName,
       config,
+      inferenceProvider,
     );
     if (connectionProvider) {
       return {

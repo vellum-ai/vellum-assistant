@@ -1,7 +1,6 @@
 import { loadConfig } from "../config/loader.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
-import { listProviders } from "../providers/registry.js";
 import type { Provider } from "../providers/types.js";
 import {
   APPROVAL_COPY_MAX_TOKENS,
@@ -138,11 +137,13 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
 export function createApprovalConversationGenerator(): ApprovalConversationGenerator {
   return async (context) => {
     const config = loadConfig();
-    if (!listProviders().includes(config.llm.default.provider)) {
-      throw new Error("No provider available for approval conversation");
-    }
-    // Connection-aware default + per-call routing. See createApprovalCopyGenerator
-    // above for rationale; both paths share the same wiring shape.
+    // Connection-aware default + per-call routing. `resolveDefaultProvider`
+    // returns null when neither the `provider_connection` path nor the
+    // legacy registry can produce a Provider, which is the right "no
+    // provider available" signal here. (We do not pre-gate on
+    // `listProviders()` because in `your-own` configurations the default
+    // provider may live entirely behind a `provider_connection` and never
+    // appear in the legacy registry list.)
     const baseProvider = await resolveDefaultProvider(config);
     if (!baseProvider) {
       throw new Error("No provider available for approval conversation");

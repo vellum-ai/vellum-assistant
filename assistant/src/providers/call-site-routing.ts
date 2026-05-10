@@ -62,12 +62,17 @@ export class CallSiteRoutingProvider implements Provider {
      * that connection's auth; returning null falls through to the
      * legacy `getProviderByName(resolved.provider)` path.
      *
+     * `expectedProvider` is the provider name the resolved profile declared.
+     * The hook should verify the connection's provider matches and fall
+     * through (return null) on mismatch.
+     *
      * Optional so existing callers without connection-awareness still
      * compile; satellites pass `tryResolveProviderForConnectionName`-bound
      * closures to opt in.
      */
     private readonly resolveByConnection?: (
       connectionName: string,
+      expectedProvider: string,
     ) => Promise<Provider | null>,
   ) {
     this.tokenEstimationProvider = defaultProvider.tokenEstimationProvider;
@@ -133,6 +138,7 @@ export class CallSiteRoutingProvider implements Provider {
     if (resolved.provider_connection && this.resolveByConnection) {
       const connectionProvider = await this.resolveByConnection(
         resolved.provider_connection,
+        resolved.provider,
       );
       if (connectionProvider) return connectionProvider;
     }
@@ -147,17 +153,14 @@ export class CallSiteRoutingProvider implements Provider {
 }
 
 /**
- * Wrap a base Provider with `CallSiteRoutingProvider` configured for the
- * satellite construction-time pattern: the wrapper consults the registry
- * for alternate-provider resolution and routes through `provider_connection`
- * via the shared connection-resolution helper.
+ * Wrap a base Provider with `CallSiteRoutingProvider` configured to resolve
+ * alternate-profile routing through the global registry and to route
+ * `provider_connection` references through the shared connection-resolution
+ * helper.
  *
- * This replaces the per-file `wrapWithCallSiteRouting` helpers that lived
- * in `approval-generators.ts` and `guardian-action-generators.ts` so the
- * connection-aware routing wiring stays in one place.
- *
- * Pass `config` so the connection lookup can read provider-config metadata
- * (e.g. timeouts, model names) from the resolved connection's auth.
+ * `config` is threaded through to the connection lookup so the resolved
+ * connection's auth can read provider-config metadata (e.g. timeouts, model
+ * names).
  */
 export function wrapWithCallSiteRouting(
   base: Provider,
@@ -172,7 +175,11 @@ export function wrapWithCallSiteRouting(
         return undefined;
       }
     },
-    (connectionName) =>
-      tryResolveProviderForConnectionName(connectionName, config),
+    (connectionName, expectedProvider) =>
+      tryResolveProviderForConnectionName(
+        connectionName,
+        config,
+        expectedProvider,
+      ),
   );
 }

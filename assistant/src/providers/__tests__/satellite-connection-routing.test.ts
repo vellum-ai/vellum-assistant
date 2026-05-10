@@ -303,6 +303,67 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     expect((response as unknown as { tag: string }).tag).toBe("default-anthropic");
   });
 
+  test("provider/connection mismatch falls through to legacy — no silent misroute", async () => {
+    // Misconfiguration: profile says provider=openai but provider_connection
+    // points at an anthropic-flavored row. Without the validation we'd dispatch
+    // OpenAI traffic to an Anthropic backend (or vice versa). With validation
+    // we fall through to the legacy `getProvider("openai")` path so the
+    // request goes where the profile's `provider` field said.
+    const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
+    fakeProviders.set("legacy:anthropic", defaultProvider);
+    fakeProviders.set(
+      "legacy:openai",
+      makeFakeProvider("legacy-openai", "openai"),
+    );
+
+    registerConnection(
+      {
+        name: "anthropic-managed",
+        provider: "anthropic",
+        auth: { type: "platform" },
+      },
+      // Note: even though the connection has a stub bound, it should NEVER
+      // be reached because the connection's provider doesn't match the
+      // profile's provider.
+      makeFakeProvider("WRONG-connection-anthropic", "anthropic"),
+    );
+
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        mismatched: {
+          provider: "openai",
+          // ↑ profile says openai
+          provider_connection: "anthropic-managed",
+          // ↑ but connection is anthropic — mismatch
+        },
+      },
+      callSites: {
+        replySuggestion: { profile: "mismatched" },
+      },
+    });
+
+    const wrapped = wrapWithCallSiteRouting(
+      defaultProvider,
+      providersConfigStub,
+    );
+
+    await wrapped.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      [],
+      undefined,
+      { config: { callSite: "replySuggestion" } },
+    );
+
+    // The hook MUST NOT have produced a Provider — the validation check
+    // returned null without reaching `resolveProviderFromConnection`.
+    expect(resolveProviderCalls.length).toBe(0);
+    // Legacy registry path produced the openai stub (matching profile.provider,
+    // NOT the connection's anthropic).
+    expect(sendMessageCalls.length).toBe(1);
+    expect(sendMessageCalls[0].tag).toBe("legacy-openai");
+  });
+
   test("call without a callSite goes straight to the default provider — no hook, no registry lookup", async () => {
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
 
