@@ -83,11 +83,8 @@ function resolveTimeRange(preset: RangePreset): { from: number; to: number } {
   switch (preset) {
     case "today":
       return { from: startOfToday.getTime(), to: now };
-    case "week": {
-      const weekAgo = new Date(startOfToday);
-      weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
-      return { from: weekAgo.getTime(), to: now };
-    }
+    case "week":
+      return { from: now - 7 * 24 * 60 * 60 * 1000, to: now };
     case "month": {
       const monthAgo = new Date(startOfToday);
       monthAgo.setUTCDate(monthAgo.getUTCDate() - 30);
@@ -279,7 +276,7 @@ Examples:
               "usage_totals",
               { queryParams: { from: String(from), to: String(to) } },
             );
-            if (!r.ok) return exitFromIpcResult(r);
+            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
             if (!r.result) {
               log.error("usage_totals returned ok with no result body");
               process.exitCode = 1;
@@ -323,7 +320,7 @@ Examples:
               "usage_daily",
               { queryParams: { from: String(from), to: String(to) } },
             );
-            if (!r.ok) return exitFromIpcResult(r);
+            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
             if (!r.result) {
               log.error("usage_daily returned ok with no result body");
               process.exitCode = 1;
@@ -400,7 +397,7 @@ Examples:
                 },
               },
             );
-            if (!r.ok) return exitFromIpcResult(r);
+            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
             if (!r.result) {
               log.error("usage_breakdown returned ok with no result body");
               process.exitCode = 1;
