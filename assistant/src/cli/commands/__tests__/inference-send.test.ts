@@ -111,19 +111,13 @@ mock.module("../../../providers/provider-send-message.js", () => ({
 }));
 
 mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      profiles: mockProfileCatalog,
-    },
-  }),
-  getConfigReadOnly: () => ({
-    llm: {
-      profiles: mockProfileCatalog,
-    },
-  }),
+  getConfig: () => ({ llm: { profiles: mockProfileCatalog } }),
+  getConfigReadOnly: () => ({ llm: { profiles: mockProfileCatalog } }),
+  loadConfig: () => ({ llm: { profiles: mockProfileCatalog } }),
   loadRawConfig: () => ({}) as Record<string, unknown>,
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
+  applyNestedDefaults: () => ({ llm: { profiles: mockProfileCatalog } }),
 }));
 
 mock.module("../../../util/logger.js", () => ({
