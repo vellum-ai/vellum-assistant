@@ -589,6 +589,60 @@ describe("contacts invites redeem", () => {
     expect(stdout).toContain("Redeemed (redeemed), member: mem-1");
   });
 
+  test("voice-code --json includes inviteId when type=redeemed", async () => {
+    mockResponses.push({
+      ok: true,
+      result: { type: "redeemed", memberId: "mem-1", inviteId: "inv-42" },
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "contacts",
+      "invites",
+      "redeem",
+      "--code",
+      "123456",
+      "--caller-external-user-id",
+      "+1555",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    expect(parsed).toEqual({
+      ok: true,
+      type: "redeemed",
+      memberId: "mem-1",
+      inviteId: "inv-42",
+    });
+  });
+
+  test("voice-code --json omits inviteId when type=already_member", async () => {
+    mockResponses.push({
+      ok: true,
+      result: { type: "already_member", memberId: "mem-2" },
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "contacts",
+      "invites",
+      "redeem",
+      "--code",
+      "123456",
+      "--caller-external-user-id",
+      "+1555",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    expect(parsed).toEqual({
+      ok: true,
+      type: "already_member",
+      memberId: "mem-2",
+    });
+    expect(parsed).not.toHaveProperty("inviteId");
+  });
+
   test("IPC error calls exitFromIpcResult", async () => {
     mockResponses.push({ ok: false, error: "invalid token", statusCode: 400 });
 

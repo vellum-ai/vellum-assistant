@@ -717,14 +717,20 @@ Examples:
             cmd: Command,
           ) => {
             try {
-              const r = await cliIpcCall<{ ok: true; invite?: Record<string, unknown>; type?: string; memberId?: string }>("invites_redeem", {
+              const r = await cliIpcCall<{ ok: true; invite?: Record<string, unknown>; type?: string; memberId?: string; inviteId?: string }>("invites_redeem", {
                 body: { token: opts.token, sourceChannel: opts.sourceChannel, externalUserId: opts.externalUserId, externalChatId: opts.externalChatId, code: opts.code, callerExternalUserId: opts.callerExternalUserId, assistantId: opts.assistantId },
               });
               if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
               const result = r.result!;
               if (shouldOutputJson(cmd)) {
-                if (result.type) { writeOutput(cmd, { ok: true, type: result.type, memberId: result.memberId }); }
-                else { writeOutput(cmd, { ok: true, invite: result.invite }); }
+                if (result.type) {
+                  writeOutput(cmd, {
+                    ok: true,
+                    type: result.type,
+                    memberId: result.memberId,
+                    ...(result.type === "redeemed" && result.inviteId ? { inviteId: result.inviteId } : {}),
+                  });
+                } else { writeOutput(cmd, { ok: true, invite: result.invite }); }
                 return;
               }
               if (result.type) { process.stdout.write(`Redeemed (${result.type}), member: ${result.memberId}\n`); }
