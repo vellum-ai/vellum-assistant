@@ -110,7 +110,11 @@ export type MemoryV2ValidateResult = {
 async function handleValidate({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2ValidateResult> {
-  requireMemoryV2Enabled();
+  // Intentionally NOT gated on `memory.v2.enabled`. Validate is a read-only
+  // diagnostic walk over the on-disk concept-page workspace and must be
+  // runnable before flipping the flag — operators (and the
+  // vellum-memory-v2-migration skill) use it as the final dry-run check
+  // immediately before enabling v2.
   MemoryV2ValidateParams.parse(body);
 
   const workspaceDir = getWorkspaceDir();
@@ -307,7 +311,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleValidate,
     summary: "Validate memory v2 workspace state",
     description:
-      "Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse failures.",
+      "Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse failures. Runnable regardless of memory.v2.enabled so operators can dry-run validation before flipping the flag.",
     tags: ["memory"],
     requestBody: MemoryV2ValidateParams,
   },

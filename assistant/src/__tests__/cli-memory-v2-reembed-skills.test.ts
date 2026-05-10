@@ -199,9 +199,12 @@ describe("all memory v2 routes — MEMORY_V2_DISABLED gate", () => {
   // schema validation so any body would surface the gate error, but using
   // valid shapes keeps the assertion precise: we're confirming the gate
   // (not zod) is what blocks the call.
+  //
+  // NOTE: `memory_v2_validate` is intentionally absent — validate is a
+  // read-only diagnostic walk that must be runnable before the flag is
+  // flipped (see the dedicated coverage further down).
   const MINIMAL_BODIES: Record<string, Record<string, unknown>> = {
     memory_v2_backfill: { op: "migrate" },
-    memory_v2_validate: {},
     memory_v2_get_concept_page: { slug: "any" },
     memory_v2_list_concept_pages: {},
     memory_v2_concept_frequency: {},
@@ -233,4 +236,31 @@ describe("all memory v2 routes — MEMORY_V2_DISABLED gate", () => {
       });
     }
   }
+
+  // memory_v2_validate is the one read-only diagnostic that must work
+  // before the operator flips memory.v2.enabled — the
+  // vellum-memory-v2-migration skill's pre-flip dry-run depends on it.
+  test("memory_v2_validate runs when memory.v2.enabled is false", async () => {
+    writeWorkspaceConfig({ memory: { v2: { enabled: false } } });
+    const route = memoryV2Routes.find(
+      (r) => r.operationId === "memory_v2_validate",
+    );
+    expect(route).toBeDefined();
+
+    const result = (await route!.handler({ body: {} })) as {
+      pageCount: number;
+      edgeCount: number;
+      missingEdgeEndpoints: unknown[];
+      oversizedPages: unknown[];
+      parseFailures: unknown[];
+    };
+
+    // Empty workspace → zero-violation report. The point is that the call
+    // returned at all (no MEMORY_V2_DISABLED throw).
+    expect(result.pageCount).toBe(0);
+    expect(result.edgeCount).toBe(0);
+    expect(result.missingEdgeEndpoints).toEqual([]);
+    expect(result.oversizedPages).toEqual([]);
+    expect(result.parseFailures).toEqual([]);
+  });
 });

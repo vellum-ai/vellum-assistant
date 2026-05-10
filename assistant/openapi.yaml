@@ -8014,7 +8014,9 @@ paths:
     post:
       operationId: memory_v2_validate_post
       summary: Validate memory v2 workspace state
-      description: Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse failures.
+      description:
+        Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse
+        failures. Runnable regardless of memory.v2.enabled so operators can dry-run validation before flipping the flag.
       tags:
         - memory
       responses:
