@@ -49,8 +49,14 @@ export interface MemoryV2ConceptRowRecord {
    *     (`finalActivation`, `ownActivation`, `priorActivation`, channel
    *     similarities, rerank boosts, `spreadContribution`) because the
    *     router does not compute spreading-activation scores.
+   *   - `carry_over`  — router-mode row representing a slug carried over
+   *     from `priorEverInjected` that the router did NOT re-pick on this
+   *     turn. The cached attachment from a prior turn is still present
+   *     on a prior user message; emitting `source: "router"` for these
+   *     rows would overcount router selections in inspector queries.
+   *     Same zeroed activation values as `router`.
    */
-  source: "prior_state" | "ann_top50" | "both" | "router";
+  source: "prior_state" | "ann_top50" | "both" | "router" | "carry_over";
   /**
    * Per-turn outcome for this slug:
    *   - `in_context`  — already injected on a prior turn; cached attachment
