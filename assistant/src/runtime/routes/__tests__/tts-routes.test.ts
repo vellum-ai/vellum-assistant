@@ -164,8 +164,8 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("tts-routes", () => {
-  test("exports route definitions for messages/:messageId/tts and tts/synthesize", () => {
-    expect(ROUTES).toHaveLength(2);
+  test("exports route definitions for messages/:messageId/tts, tts/synthesize, and tts/synthesize-cli", () => {
+    expect(ROUTES).toHaveLength(3);
 
     const msgTts = getRoute("messages/:messageId/tts");
     expect(msgTts.method).toBe("POST");
@@ -174,6 +174,10 @@ describe("tts-routes", () => {
     const synthesize = getRoute("tts/synthesize");
     expect(synthesize.method).toBe("POST");
     expect(synthesize.policyKey).toBe("tts/synthesize");
+
+    const synthesizeCli = getRoute("tts/synthesize-cli");
+    expect(synthesizeCli.method).toBe("POST");
+    expect(synthesizeCli.policyKey).toBe("tts/synthesize-cli");
   });
 
   // -- Feature flag gating --------------------------------------------------

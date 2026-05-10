@@ -13,8 +13,8 @@ import { dirname, join } from "node:path";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
-import { log } from "../logger.js";
 import { registerCommand } from "../lib/register-command.js";
+import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -213,7 +213,10 @@ Examples:
                 process.exitCode = 1;
                 return;
               }
-              return exitFromIpcResult(r, cmd);
+              return exitFromIpcResult(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
             }
 
             const { audioBase64, contentType } = r.result!;

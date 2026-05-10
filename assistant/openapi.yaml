@@ -12449,6 +12449,53 @@ paths:
               required:
                 - text
               additionalProperties: false
+  /v1/tts/synthesize-cli:
+    post:
+      operationId: tts_synthesizecli_post
+      summary: Synthesize text to speech (CLI)
+      description: Synthesize arbitrary text to audio. Returns base64-encoded audio + content type for CLI consumption.
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  audioBase64:
+                    type: string
+                    description: Base64-encoded audio bytes
+                  contentType:
+                    type: string
+                    description: MIME type of the audio (e.g. audio/mpeg)
+                required:
+                  - audioBase64
+                  - contentType
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: Text to synthesize into speech
+                useCase:
+                  default: message-playback
+                  type: string
+                  enum:
+                    - message-playback
+                    - phone-call
+                voiceId:
+                  description: Provider-specific voice identifier override
+                  type: string
+              required:
+                - text
+              additionalProperties: false
   /v1/ui/request:
     post:
       operationId: ui_request_post
