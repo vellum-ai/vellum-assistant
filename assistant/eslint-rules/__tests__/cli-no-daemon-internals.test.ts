@@ -78,18 +78,67 @@ tester.run("cli/no-daemon-internals", rule, {
         export { utilHelper };
       `,
     },
+    // Helper module — has imports but does not call registerCommand directly.
+    // Helper modules under commands/ (e.g. oauth/shared.ts, lib/cache-fs.ts)
+    // are not command entries and the rule must not fire on them, even when
+    // they import from outside the registrar allowlists.
+    {
+      code: `
+        import type { Command } from "commander";
+        import { getProvider } from "../../../oauth/oauth-store.js";
+
+        export function buildAuthFlow(program) {
+          // helper module — no registerCommand call here; the actual
+          // command file imports this and calls registerCommand itself.
+        }
+      `,
+    },
+    // local-tagged file importing ../logger and ../output — both must be on
+    // the local allowlist (regression test for the allowlist gap that
+    // false-positived autonomy/config/completions/keys/credential-execution).
+    {
+      code: `
+        import type { Command } from "commander";
+        import { log } from "../logger.js";
+        import { writeOutput } from "../output.js";
+
+        registerCommand(program, {
+          name: "local-with-output",
+          transport: "local",
+          build: () => {},
+        });
+      `,
+    },
+    // Type-only imports are erased at compile time and must not count as
+    // runtime boundary violations, even when the source path is outside the
+    // allowlist (e.g. `import type` from runtime/routes for response shapes).
+    {
+      code: `
+        import type { Command } from "commander";
+        import { cliIpcCall } from "../../ipc/cli-client.js";
+        import type { MemoryV2Result } from "../../runtime/routes/memory-v2-routes.js";
+
+        registerCommand(program, {
+          name: "ipc-with-type-import",
+          transport: "ipc",
+          build: () => {},
+        });
+      `,
+    },
   ],
 
   invalid: [
-    // File with imports but no registerCommand call
+    // registerCommand called without a string transport prop — the actual
+    // missingTransport case (command-entry file forgot to declare its class).
     {
       code: `
         import type { Command } from "commander";
         import { cliIpcCall } from "../../ipc/cli-client.js";
 
-        export function registerMyCommand(program) {
-          // forgot to call registerCommand
-        }
+        registerCommand(program, {
+          name: "no-transport",
+          build: () => {},
+        });
       `,
       errors: [
         {

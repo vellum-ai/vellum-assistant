@@ -15,6 +15,8 @@ const ALLOWED_PREFIXES = {
     "../../config/loader",
     "../../config/schema",
     "../../util/platform",
+    "../logger",
+    "../output",
     "../lib/",
   ],
   bootstrap: [
@@ -24,13 +26,26 @@ const ALLOWED_PREFIXES = {
     "../../config/loader",
     "../../config/schema",
     "../../util/platform",
+    "../logger",
+    "../output",
     "../lib/",
   ],
 };
 
+/**
+ * Walks the program AST looking for a `registerCommand({ transport: ... })`
+ * call. Returns:
+ *   - the transport string when registerCommand is called with a string
+ *     transport prop ("ipc" / "local" / "bootstrap")
+ *   - "MISSING_TRANSPORT" when registerCommand is called but no string
+ *     transport prop is present
+ *   - null when no registerCommand call is found at all (helper module —
+ *     not a command entry, no checks apply)
+ */
 function findTransport(program) {
   const worklist = [...program.body];
   const seen = new WeakSet();
+  let registerCommandCalled = false;
 
   while (worklist.length > 0) {
     const node = worklist.pop();
@@ -45,6 +60,7 @@ function findTransport(program) {
       node.callee.type === "Identifier" &&
       node.callee.name === "registerCommand"
     ) {
+      registerCommandCalled = true;
       for (const arg of node.arguments) {
         if (arg.type === "ObjectExpression") {
           for (const prop of arg.properties) {
@@ -105,7 +121,7 @@ function findTransport(program) {
     }
   }
 
-  return null;
+  return registerCommandCalled ? "MISSING_TRANSPORT" : null;
 }
 
 const rule = {
@@ -119,7 +135,7 @@ const rule = {
       missingTransport:
         "CLI command file must call registerCommand({ transport: ... }) to declare its transport class.",
       forbiddenImport:
-        "'{{transport}}'-tagged CLI command imports forbidden module '{{source}}'. See DESIGN.md §3.1 for allowed imports.",
+        "'{{transport}}'-tagged CLI command imports forbidden module '{{source}}'. See src/cli/AGENTS.md for allowed imports.",
     },
     schema: [],
   },
@@ -139,7 +155,14 @@ const rule = {
 
         const transport = findTransport(program);
 
+        // Helper modules (no registerCommand call) are not command entries —
+        // skip them. Command files that call registerCommand without a string
+        // transport prop still trip missingTransport.
         if (transport === null) {
+          return;
+        }
+
+        if (transport === "MISSING_TRANSPORT") {
           context.report({
             node: program,
             messageId: "missingTransport",
@@ -153,6 +176,12 @@ const rule = {
         }
 
         for (const importNode of importNodes) {
+          // `import type {...}` and `import { type X }` are erased at compile
+          // time — they don't ship in the bundle and don't constitute a
+          // runtime boundary violation. Skip them.
+          if (importNode.importKind === "type") {
+            continue;
+          }
           const source = importNode.source.value;
           const allowed = allowedPrefixes.some((prefix) =>
             source.startsWith(prefix),

@@ -22,7 +22,7 @@ Run `bun run lint:inventory` to validate.
 | `clients` | `list`, `disconnect` | `ipc` | `list_clients`, `disconnect_client` | `THIN` | |
 | `conversations-defer` | _(positional: defer)_, `list`, `cancel` | `ipc` | `defer_create`, `defer_list`, `defer_cancel` | `THIN` | Registered as `defer` under `conversations` namespace |
 | `gateway` | `logs tail` | `ipc` | `gateway_logs_tail` | `THIN` | |
-| `mcp` | `list`, `reload`, `add`, `auth`, `remove` | `ipc` | `internal_mcp_auth_status`, `internal_mcp_reload`, `internal_mcp_auth_start` | `THIN` | `list`/`add`/`remove` also touch config directly |
+| `mcp` | `list`, `reload`, `add`, `auth`, `remove` | `ipc` | `internal_mcp_auth_status`, `internal_mcp_reload`, `internal_mcp_auth_start` | `LEGACY` | Tagged `ipc` but still imports `mcp/client.js`, `mcp/mcp-oauth-provider.js`, `util/browser.js`. Section C/D will thin (move daemon work behind IPC routes). Until then, `cli/no-daemon-internals` will warn on this file. |
 | `memory-v2` | `migrate`, `reembed`, `reembed-skills`, `activation`, `explain`, `rebuild-corpus-stats`, `fit-anisotropy`, `validate` | `ipc` | `memory_v2_backfill`, `memory_v2_validate`, `memory_v2_reembed_skills`, `memory_v2_explain_similarity`, `memory_v2_rebuild_corpus_stats`, `memory_v2_fit_anisotropy` | `THIN` | Registered as `v2` subgroup under `memory` |
 | `notifications` | `send`, `list` | `ipc` | `emit_notification_signal`, `list_notification_events` | `THIN` | |
 | `pending` | `list` | `ipc` | `pending_interactions` | `THIN` | **Canonical example** |

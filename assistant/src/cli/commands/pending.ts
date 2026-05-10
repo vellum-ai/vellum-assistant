@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 
-import { cliIpcCall } from "../../ipc/cli-client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
@@ -44,9 +44,16 @@ export function registerPendingCommand(program: Command): void {
               "pending_interactions",
             );
 
-          if (!response.ok || !response.result) {
+          if (!response.ok) {
+            return exitFromIpcResult({
+              ok: false,
+              error: response.error,
+              statusCode: response.statusCode,
+            });
+          }
+          if (!response.result) {
             log.error(
-              `Failed to list pending interactions: ${response.error ?? "unknown error"}`,
+              "pending_interactions returned ok with no result body",
             );
             process.exitCode = 1;
             return;
