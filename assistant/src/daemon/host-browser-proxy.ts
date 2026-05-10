@@ -135,9 +135,10 @@ export class HostBrowserProxy {
    * so that the result-route's same-actor check can verify the submitting
    * client at result time.
    *
-   * When `sourceActorPrincipalId` is undefined (legacy/internal flows with
-   * no resolved actor identity), falls back to interface-preference
-   * resolution without an actor filter, preserving prior behavior.
+   * When `sourceActorPrincipalId` is undefined (legacy/internal flows
+   * with no resolved actor identity), falls back to the most-recently-
+   * active host_browser client without an actor filter so the registry
+   * singleton continues to work for single-client setups.
    */
   request(
     input: HostBrowserInput,

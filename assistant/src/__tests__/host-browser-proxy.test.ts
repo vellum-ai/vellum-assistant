@@ -486,9 +486,8 @@ describe("HostBrowserProxy", () => {
     test("picks the most-recently-active same-actor client among multiple transports", async () => {
       // Mock `listClientsByCapability` returns mockClients in array
       // order, which mirrors production's `lastActiveAt`-desc ordering.
-      // The first same-actor entry wins regardless of transport — the
-      // chrome-extension preference was retired now that LLMs can pick
-      // a specific transport via target_client_id.
+      // The first same-actor entry wins regardless of transport; LLMs
+      // pin a specific transport via `target_client_id`.
       mockClients = [
         {
           clientId: "macos-client",

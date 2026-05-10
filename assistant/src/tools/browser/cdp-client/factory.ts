@@ -99,8 +99,9 @@ export interface GetCdpClientOptions {
   mode?: BrowserMode;
   /**
    * Explicit target client id. When provided, the extension backend routes
-   * to this specific client instead of applying the interface-preference
-   * order. Mirrors the `target_client_id` pattern on host_bash/host_file/host_cu.
+   * to this specific client instead of auto-resolving to the most-recently-
+   * active same-actor host_browser client. Mirrors the `target_client_id`
+   * pattern on host_bash/host_file/host_cu.
    */
   targetClientId?: string;
 }

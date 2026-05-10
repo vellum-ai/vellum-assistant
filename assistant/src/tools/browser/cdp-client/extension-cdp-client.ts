@@ -52,8 +52,9 @@ export class ExtensionCdpClient implements ScopedCdpClient {
      */
     private readonly sourceActorPrincipalId?: string,
     /**
-     * Explicit target client id. When provided, the proxy routes directly to
-     * that client instead of applying the interface-preference order.
+     * Explicit target client id. When provided, the proxy routes directly
+     * to that client instead of auto-resolving to the most-recently-active
+     * same-actor host_browser client.
      */
     private readonly targetClientId?: string,
   ) {}
