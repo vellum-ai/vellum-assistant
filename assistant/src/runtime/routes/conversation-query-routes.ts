@@ -358,7 +358,50 @@ export function applyContextDefaultsToRawConfig(raw: unknown): unknown {
     raw as Record<string, unknown>,
     contextDefaults,
   );
+  synthesizeLegacyInferenceModeForPlatform(raw as Record<string, unknown>);
   return raw;
+}
+
+/**
+ * Backwards-compat wire field for `GET /v1/config`. PR removed
+ * `services.inference.mode` from the typed schema (routing is now governed
+ * by `provider_connections` rows + `llm.default.provider_connection`), but
+ * the macOS settings client (`SettingsStore.swift:loadServiceModes`) still
+ * reads this field and falls back to its `@Published` default of "your-own"
+ * when absent. On a platform-managed assistant served by a newer daemon and
+ * an older macOS client, that fallback would show the wrong mode in the UI
+ * until the user explicitly saved. Synthesize the value here so the wire
+ * shape stays compatible during the rollout window. Remove once the macOS
+ * Providers UI (the follow-up PR that retires this field on the client) has
+ * shipped to the majority of installs.
+ *
+ * The synthesis is wire-only: it never persists to disk and never reaches
+ * the typed `AssistantConfig` consumed by daemon-internal code. The on-disk
+ * config is stripped of `mode` by workspace migration 076.
+ *
+ * Only runs when this function is reached, which is guarded by
+ * `getDeploymentContextDefaults()` returning non-empty (IS_PLATFORM=true).
+ */
+function synthesizeLegacyInferenceModeForPlatform(
+  root: Record<string, unknown>,
+): void {
+  const services = readPlainObject(root.services);
+  if (!services) return;
+  let inference = readPlainObject(services.inference);
+  if (!inference) {
+    inference = {};
+    services.inference = inference;
+  }
+  if (inference.mode === undefined) {
+    inference.mode = "managed";
+  }
+}
+
+function readPlainObject(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 function handleGetConfig() {

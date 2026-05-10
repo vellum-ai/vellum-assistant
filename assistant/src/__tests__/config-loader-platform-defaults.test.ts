@@ -369,7 +369,7 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
 
     // User has explicitly chosen "your-own" for image-generation via the macOS
     // Save flow. The patch handler persisted that to disk; the fill pass must
-    // not override an explicit user choice. inference carries no mode field.
+    // not override an explicit user choice.
     const raw: Record<string, unknown> = {
       services: {
         "image-generation": { mode: "your-own" },
@@ -382,8 +382,11 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
     >;
     const services = result["services"] as Record<string, { mode: string }>;
     expect(services["image-generation"]!.mode).toBe("your-own");
-    // inference has no mode field in the schema; web-search was missing → fill.
+    // web-search was missing → fill.
     expect(services["web-search"]!.mode).toBe("managed");
+    // inference.mode is a legacy backwards-compat wire field — synthesized
+    // here for old macOS clients (SettingsStore.swift) that still read it.
+    expect(services["inference"]!.mode).toBe("managed");
   });
 
   test("IS_PLATFORM=false, raw config has no services key → response is unchanged", () => {
@@ -409,7 +412,7 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
 
     // User set image-generation.provider but never chose a mode.
     // The fill pass adds the missing mode without clobbering the user-supplied
-    // provider. inference carries no mode field (removed in Phase 1.2).
+    // provider.
     const raw: Record<string, unknown> = {
       services: {
         "image-generation": { provider: "openai" },
@@ -426,8 +429,63 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
     >;
     expect(services["image-generation"]!.mode).toBe("managed");
     expect(services["image-generation"]!.provider).toBe("openai");
-    // inference is not touched by context defaults (no mode field in schema).
-    expect(services["inference"]).toBeUndefined();
+    // services.inference.mode is synthesized as a legacy wire-only field for
+    // older macOS clients during the rollout window (Phase 1.2 schema removal
+    // landed before the macOS Providers UI ships).
+    expect(services["inference"]!.mode).toBe("managed");
+  });
+
+  test("IS_PLATFORM=true, raw config has no inference subtree → synthesizes legacy mode='managed'", () => {
+    process.env.IS_PLATFORM = "true";
+
+    const raw: Record<string, unknown> = {
+      llm: {
+        profiles: {
+          balanced: { provider: "anthropic", model: "claude-sonnet-4.5" },
+        },
+      },
+    };
+
+    const result = applyContextDefaultsToRawConfig(raw) as Record<
+      string,
+      unknown
+    >;
+    const services = result["services"] as Record<string, { mode: string }>;
+    expect(services["inference"]!.mode).toBe("managed");
+  });
+
+  test("IS_PLATFORM=true, raw config has explicit services.inference.mode='your-own' → preserved (legacy override)", () => {
+    process.env.IS_PLATFORM = "true";
+
+    // Pre-migration upgrade: workspace config still carries the legacy
+    // mode value. The synthesis only fills when absent, so an explicit
+    // disk value wins until migration 076 strips it.
+    const raw: Record<string, unknown> = {
+      services: {
+        inference: { mode: "your-own" },
+      },
+    };
+
+    const result = applyContextDefaultsToRawConfig(raw) as Record<
+      string,
+      unknown
+    >;
+    const services = result["services"] as Record<string, { mode: string }>;
+    expect(services["inference"]!.mode).toBe("your-own");
+  });
+
+  test("IS_PLATFORM=false, raw config has no inference subtree → no synthesis", () => {
+    process.env.IS_PLATFORM = "false";
+
+    const raw: Record<string, unknown> = {
+      llm: {},
+    };
+
+    const result = applyContextDefaultsToRawConfig(raw) as Record<
+      string,
+      unknown
+    >;
+    expect(result["services"]).toBeUndefined();
   });
 
   // -------------------------------------------------------------------------
