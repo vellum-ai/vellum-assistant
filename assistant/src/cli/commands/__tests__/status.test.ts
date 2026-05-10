@@ -3,8 +3,8 @@
  *
  * Validates:
  *   - Successful IPC response shows version, workspace, and runtime health
- *   - When IPC fails (daemon down), prints "Daemon: down" or "Daemon: running"
- *     and exits with code 0 (not 1)
+ *   - Daemon-unreachable (ENOENT/ECONNREFUSED) exits 0 with "Assistant: down/running"
+ *   - Non-connection IPC failures (daemon-side error, framing) exit non-zero
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -15,10 +15,15 @@ import { Command } from "commander";
 // Mock state
 // ---------------------------------------------------------------------------
 
+// The exact prefix that cliIpcCall uses for ENOENT/ECONNREFUSED/connect-timeout.
+const DAEMON_UNREACHABLE_ERROR =
+  "Could not connect to the assistant at /tmp/test-assistant.sock.\n" +
+  "Run `assistant status` to check, or `assistant gateway start` to start it.";
+
 let ipcCalls: Array<{ method: string }> = [];
-let mockResponse: { ok: boolean; result?: unknown; error?: string } = {
+let mockResponse: { ok: boolean; result?: unknown; error?: string; statusCode?: number } = {
   ok: false,
-  error: "ENOENT",
+  error: DAEMON_UNREACHABLE_ERROR,
 };
 
 let socketExists = false;
@@ -141,6 +146,7 @@ async function runStatusCommand(): Promise<{
 beforeEach(() => {
   ipcCalls = [];
   socketExists = false;
+  mockResponse = { ok: false, error: DAEMON_UNREACHABLE_ERROR };
   process.exitCode = 0;
 });
 
@@ -148,9 +154,9 @@ beforeEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("status command — daemon down", () => {
-  test("exits with code 0 (not 1) when IPC call fails", async () => {
-    mockResponse = { ok: false, error: "ENOENT" };
+describe("status command — daemon unreachable (ENOENT/ECONNREFUSED)", () => {
+  test("exits 0 when daemon is unreachable", async () => {
+    mockResponse = { ok: false, error: DAEMON_UNREACHABLE_ERROR };
     socketExists = false;
 
     const { exitCode } = await runStatusCommand();
@@ -158,35 +164,67 @@ describe("status command — daemon down", () => {
     expect(exitCode).toBe(0);
   });
 
-  test('prints "Daemon: down" when socket file does not exist', async () => {
-    mockResponse = { ok: false, error: "ENOENT" };
+  test('prints "Assistant: down" when socket file does not exist', async () => {
+    mockResponse = { ok: false, error: DAEMON_UNREACHABLE_ERROR };
     socketExists = false;
 
-    const { stdout, stderr } = await runStatusCommand();
-    const combined = stdout + stderr;
+    const { stdout } = await runStatusCommand();
 
-    expect(combined).toContain("Assistant: down");
+    expect(stdout).toContain("Assistant: down");
   });
 
-  test('prints "Daemon: running" when socket file exists but IPC fails', async () => {
-    mockResponse = { ok: false, error: "Connection closed before response" };
+  test('prints "Assistant: running" when socket file exists but connection refused', async () => {
+    mockResponse = { ok: false, error: DAEMON_UNREACHABLE_ERROR };
     socketExists = true;
 
-    const { stdout, stderr } = await runStatusCommand();
-    const combined = stdout + stderr;
+    const { stdout } = await runStatusCommand();
 
-    expect(combined).toContain("Assistant: running");
+    expect(stdout).toContain("Assistant: running");
   });
 
-  test("does not print version or memory when daemon is down", async () => {
-    mockResponse = { ok: false, error: "ENOENT" };
+  test("does not print version or memory when daemon is unreachable", async () => {
+    mockResponse = { ok: false, error: DAEMON_UNREACHABLE_ERROR };
     socketExists = false;
 
     const { stdout, stderr } = await runStatusCommand();
-    const combined = stdout + stderr;
 
-    expect(combined).not.toContain("Version");
-    expect(combined).not.toContain("Memory");
+    expect(stdout + stderr).not.toContain("Version");
+    expect(stdout + stderr).not.toContain("Memory");
+  });
+});
+
+describe("status command — non-connection IPC failures", () => {
+  test("exits non-zero when daemon returns an internal error", async () => {
+    mockResponse = { ok: false, error: "Internal server error", statusCode: 500 };
+
+    const { exitCode } = await runStatusCommand();
+
+    expect(exitCode).toBe(1);
+  });
+
+  test("exits non-zero when connection closes before response", async () => {
+    mockResponse = { ok: false, error: "Connection closed before response" };
+
+    const { exitCode } = await runStatusCommand();
+
+    expect(exitCode).toBe(1);
+  });
+
+  test("prints the error message to stderr for non-connection failures", async () => {
+    mockResponse = { ok: false, error: "Internal server error", statusCode: 500 };
+
+    const { stderr } = await runStatusCommand();
+
+    expect(stderr).toContain("Internal server error");
+  });
+
+  test("exits non-zero and prints message for empty health response", async () => {
+    mockResponse = { ok: true, result: undefined };
+
+    const { exitCode, stderr } = await runStatusCommand();
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("empty response");
   });
 });
 

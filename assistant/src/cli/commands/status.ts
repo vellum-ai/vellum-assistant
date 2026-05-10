@@ -27,13 +27,26 @@ export function registerStatusCommand(program: Command): void {
       cmd.action(async () => {
         const result = await cliIpcCall<HealthResponse>("health");
 
-        if (!result.ok || !result.result) {
-          const socketPath = getAssistantSocketPath();
-          const socketExists = existsSync(socketPath);
-          const workspace = getWorkspaceDirDisplay();
-          process.stdout.write((socketExists ? "Assistant: running" : "Assistant: down") + "\n");
-          process.stdout.write(`Workspace: ${workspace}\n`);
-          process.exit(0);
+        if (!result.ok) {
+          // Only ENOENT/ECONNREFUSED/connect-timeout produce this prefix; other
+          // failures (daemon-side error, framing error, abort) are real failures.
+          if (result.error?.startsWith("Could not connect to the assistant at ")) {
+            const socketPath = getAssistantSocketPath();
+            const socketExists = existsSync(socketPath);
+            const workspace = getWorkspaceDirDisplay();
+            process.stdout.write(
+              (socketExists ? "Assistant: running" : "Assistant: down") + "\n",
+            );
+            process.stdout.write(`Workspace: ${workspace}\n`);
+            process.exit(0);
+          }
+          process.stderr.write((result.error ?? "health check failed") + "\n");
+          process.exit(1);
+        }
+
+        if (!result.result) {
+          process.stderr.write("health check returned empty response\n");
+          process.exit(1);
         }
 
         const h = result.result;
