@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -14,11 +15,12 @@ interface DebugBashResult {
 }
 
 export function registerBashCommand(program: Command): void {
-  program
-    .command("bash <command>")
-    .description(
-      "Execute a shell command through the assistant process for debugging",
-    )
+  registerCommand(program, {
+    name: "bash <command>",
+    transport: "ipc",
+    description: "Execute a shell command through the assistant process for debugging",
+    build: (cmd) => {
+      cmd
     .option(
       "-t, --timeout <ms>",
       "Timeout in milliseconds for command execution",
@@ -100,4 +102,6 @@ Examples:
 
       process.exitCode = data.exitCode ?? 1;
     });
+    },
+  });
 }

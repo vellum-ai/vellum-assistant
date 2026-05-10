@@ -25,6 +25,7 @@ import type {
   MemoryV2ReembedSkillsResult,
   MemoryV2ValidateResult,
 } from "../../runtime/routes/memory-v2-routes.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -65,13 +66,14 @@ export function registerMemoryV2Command(program: Command): void {
       .command("memory")
       .description("Manage the v2 memory subsystem (concept-page model)");
 
-  const v2 = memory
-    .command("v2")
-    .description("Memory v2 subsystem operations");
-
-  v2.addHelpText(
-    "after",
-    `
+  registerCommand(memory, {
+    name: "v2",
+    transport: "ipc",
+    description: "Memory v2 subsystem operations (concept-page model)",
+    build: (v2) => {
+      v2.addHelpText(
+        "after",
+        `
 The v2 memory subsystem stores prose concept pages with directed edges in
 each page's frontmatter and uses activation-based retrieval. Pages live
 under /workspace/memory/concepts/ and are gated behind the
@@ -86,17 +88,17 @@ Examples:
   $ assistant memory v2 reembed
   $ assistant memory v2 reembed-skills
   $ assistant memory v2 activation`,
-  );
+      );
 
-  // ── reembed ───────────────────────────────────────────────────────────
+      // ── reembed ───────────────────────────────────────────────────────────
 
-  v2.command("reembed")
-    .description(
-      "Refresh dense + sparse vectors for every concept page in Qdrant",
-    )
-    .addHelpText(
-      "after",
-      `
+      v2.command("reembed")
+        .description(
+          "Refresh dense + sparse vectors for every concept page in Qdrant",
+        )
+        .addHelpText(
+          "after",
+          `
 Fans out an embed_concept_page job per concept page slug (plus the four
 reserved meta-file slugs) so each page's dense and sparse vectors get
 recomputed against the current embedding backend. Useful after upgrading
@@ -107,20 +109,20 @@ once the parent job is enqueued.
 
 Examples:
   $ assistant memory v2 reembed`,
-    )
-    .action(async () => {
-      await runBackfillOp("reembed");
-    });
+        )
+        .action(async () => {
+          await runBackfillOp("reembed");
+        });
 
-  // ── reembed-skills ────────────────────────────────────────────────────
+      // ── reembed-skills ────────────────────────────────────────────────────
 
-  v2.command("reembed-skills")
-    .description(
-      "Re-seed v2 skill entries from the current skill catalog (synchronous)",
-    )
-    .addHelpText(
-      "after",
-      `
+      v2.command("reembed-skills")
+        .description(
+          "Re-seed v2 skill entries from the current skill catalog (synchronous)",
+        )
+        .addHelpText(
+          "after",
+          `
 Re-runs the v2 skill catalog seed against the current skill set, replacing
 both the in-process skill cache and the skill entries in the unified
 memory_v2_concept_pages Qdrant collection (under the skills/<id> slug
@@ -133,31 +135,31 @@ memory.v2.enabled to be true.
 
 Examples:
   $ assistant memory v2 reembed-skills`,
-    )
-    .action(async () => {
-      const result = await cliIpcCall<MemoryV2ReembedSkillsResult>(
-        "memory_v2_reembed_skills",
-        { body: {} },
-      );
+        )
+        .action(async () => {
+          const result = await cliIpcCall<MemoryV2ReembedSkillsResult>(
+            "memory_v2_reembed_skills",
+            { body: {} },
+          );
 
-      if (!result.ok) {
-        log.error(result.error ?? "Failed to re-seed v2 skill entries");
-        process.exitCode = 1;
-        return;
-      }
+          if (!result.ok) {
+            log.error(result.error ?? "Failed to re-seed v2 skill entries");
+            process.exitCode = 1;
+            return;
+          }
 
-      log.info("Skill re-seed complete.");
-    });
+          log.info("Skill re-seed complete.");
+        });
 
-  // ── activation ────────────────────────────────────────────────────────
+      // ── activation ────────────────────────────────────────────────────────
 
-  v2.command("activation")
-    .description(
-      "Refresh persisted activation state for every active conversation",
-    )
-    .addHelpText(
-      "after",
-      `
+      v2.command("activation")
+        .description(
+          "Refresh persisted activation state for every active conversation",
+        )
+        .addHelpText(
+          "after",
+          `
 Walks every conversation row in the activation_state table and
 recomputes the persisted state without rendering or injecting a memory
 block. Useful after tuning the activation params (d, c_user, c_assistant,
@@ -169,18 +171,20 @@ the job is enqueued.
 
 Examples:
   $ assistant memory v2 activation`,
-    )
-    .action(async () => {
-      await runBackfillOp("activation-recompute");
-    });
+        )
+        .action(async () => {
+          await runBackfillOp("activation-recompute");
+        });
 
-  // ── validate ──────────────────────────────────────────────────────────
+      // ── validate ──────────────────────────────────────────────────────────
 
-  v2.command("validate")
-    .description("Print a diagnostic report of v2 workspace state (read-only)")
-    .addHelpText(
-      "after",
-      `
+      v2.command("validate")
+        .description(
+          "Print a diagnostic report of v2 workspace state (read-only)",
+        )
+        .addHelpText(
+          "after",
+          `
 Walks the v2 concept-page tree on disk and reports:
   - Page count
   - Edge count (total and unique outgoing targets)
@@ -193,59 +197,61 @@ violations are reported.
 
 Examples:
   $ assistant memory v2 validate`,
-    )
-    .action(async () => {
-      const result = await cliIpcCall<MemoryV2ValidateResult>(
-        "memory_v2_validate",
-        { body: {} },
-      );
+        )
+        .action(async () => {
+          const result = await cliIpcCall<MemoryV2ValidateResult>(
+            "memory_v2_validate",
+            { body: {} },
+          );
 
-      if (!result.ok) {
-        log.error(result.error ?? "Failed to validate memory v2 state");
-        process.exitCode = 1;
-        return;
-      }
+          if (!result.ok) {
+            log.error(result.error ?? "Failed to validate memory v2 state");
+            process.exitCode = 1;
+            return;
+          }
 
-      const report = result.result!;
-      log.info(`Pages: ${report.pageCount}`);
-      log.info(`Edges: ${report.edgeCount}`);
-      log.info(
-        `Missing edge endpoints: ${
-          report.missingEdgeEndpoints.length === 0
-            ? "none"
-            : report.missingEdgeEndpoints.length
-        }`,
-      );
-      for (const m of report.missingEdgeEndpoints) {
-        log.info(`  - ${m.from} → ${m.to}`);
-      }
-      log.info(
-        `Oversized pages: ${
-          report.oversizedPages.length === 0
-            ? "none"
-            : report.oversizedPages.length
-        }`,
-      );
-      for (const p of report.oversizedPages) {
-        log.info(`  - ${p.slug}: ${p.chars} chars`);
-      }
-      log.info(
-        `Parse failures: ${
-          report.parseFailures.length === 0
-            ? "none"
-            : report.parseFailures.length
-        }`,
-      );
-      for (const p of report.parseFailures) {
-        log.info(`  - ${p.slug}: ${p.error}`);
-      }
+          const report = result.result!;
+          log.info(`Pages: ${report.pageCount}`);
+          log.info(`Edges: ${report.edgeCount}`);
+          log.info(
+            `Missing edge endpoints: ${
+              report.missingEdgeEndpoints.length === 0
+                ? "none"
+                : report.missingEdgeEndpoints.length
+            }`,
+          );
+          for (const m of report.missingEdgeEndpoints) {
+            log.info(`  - ${m.from} → ${m.to}`);
+          }
+          log.info(
+            `Oversized pages: ${
+              report.oversizedPages.length === 0
+                ? "none"
+                : report.oversizedPages.length
+            }`,
+          );
+          for (const p of report.oversizedPages) {
+            log.info(`  - ${p.slug}: ${p.chars} chars`);
+          }
+          log.info(
+            `Parse failures: ${
+              report.parseFailures.length === 0
+                ? "none"
+                : report.parseFailures.length
+            }`,
+          );
+          for (const p of report.parseFailures) {
+            log.info(`  - ${p.slug}: ${p.error}`);
+          }
 
-      if (
-        report.missingEdgeEndpoints.length > 0 ||
-        report.oversizedPages.length > 0 ||
-        report.parseFailures.length > 0
-      ) {
-        process.exitCode = 1;
-      }
-    });
+          if (
+            report.missingEdgeEndpoints.length > 0 ||
+            report.oversizedPages.length > 0 ||
+            report.parseFailures.length > 0
+          ) {
+            process.exitCode = 1;
+          }
+        });
+    },
+  });
 }

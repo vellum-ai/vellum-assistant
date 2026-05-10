@@ -8,8 +8,9 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { existsSync, readFileSync } from "../lib/cache-fs.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
-import { existsSync, readFileSync } from "./cache-fs.js";
 
 // ── Constants ─────────────────────────────────────────────────────────
 
@@ -167,9 +168,11 @@ function resolvePayload(opts: { value?: string; file?: string }): unknown {
 // ── Registration ──────────────────────────────────────────────────────
 
 export function registerCacheCommand(program: Command): void {
-  const cache = program
-    .command("cache")
-    .description("Interact with the assistant's in-memory key/value cache");
+  registerCommand(program, {
+    name: "cache",
+    transport: "ipc",
+    description: "Interact with the assistant's in-memory key/value cache",
+    build: (cache) => {
 
   cache.addHelpText(
     "after",
@@ -411,4 +414,6 @@ Examples:
         }
       }
     });
+    },
+  });
 }

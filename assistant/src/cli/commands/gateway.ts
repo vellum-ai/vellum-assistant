@@ -8,6 +8,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // -- Types --------------------------------------------------------------------
@@ -56,7 +57,11 @@ function colorLevel(name: string, levelNum: number): string {
 // -- Registration -------------------------------------------------------------
 
 export function registerGatewayCommand(program: Command): void {
-  const gateway = program.command("gateway").description("Gateway management");
+  registerCommand(program, {
+    name: "gateway",
+    transport: "ipc",
+    description: "Gateway management",
+    build: (gateway) => {
 
   gateway.addHelpText(
     "after",
@@ -180,4 +185,6 @@ Examples:
         process.stdout.write(dim + "\n");
       }
     });
+    },
+  });
 }

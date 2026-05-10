@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
@@ -9,12 +10,12 @@ import { shouldOutputJson, writeOutput } from "../output.js";
 // ---------------------------------------------------------------------------
 
 export function registerNotificationsCommand(program: Command): void {
-  const notifications = program
-    .command("notifications")
-    .description(
-      "Send and inspect notifications through the unified notification router",
-    )
-    .option("--json", "Machine-readable compact JSON output");
+  registerCommand(program, {
+    name: "notifications",
+    transport: "ipc",
+    description: "Send and inspect notifications through the unified notification router",
+    build: (notifications) => {
+      notifications.option("--json", "Machine-readable compact JSON output");
 
   notifications.addHelpText(
     "after",
@@ -396,4 +397,6 @@ Examples:
         }
       },
     );
+    },
+  });
 }
