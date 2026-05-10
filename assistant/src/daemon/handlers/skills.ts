@@ -1321,6 +1321,7 @@ export async function checkSkillUpdates(): Promise<
 
 export async function searchSkills(
   query: string,
+  limit: number = 25,
 ): Promise<
   | { success: true; skills: SlimSkillResponse[] }
   | { success: false; error: string }
@@ -1362,7 +1363,7 @@ export async function searchSkills(
     // Search both community registries in parallel (non-fatal on failure)
     const [clawhubResult, skillsshResult] = await Promise.allSettled([
       clawhubSearch(query),
-      searchSkillsRegistry(query, 25),
+      searchSkillsRegistry(query, limit),
     ]);
 
     let clawhubSkills: SlimSkillResponse[] = [];
