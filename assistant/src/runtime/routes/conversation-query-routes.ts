@@ -326,11 +326,11 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
  * already layers these defaults for daemon-internal consumers; the GET
  * response needs the same treatment so external clients (macOS, web, CLI)
  * see the effective value rather than `undefined` when the daemon hasn't
- * persisted an explicit choice yet. Without this, macOS's
- * `loadServiceModes(config:)` short-circuits when `services.inference.mode`
- * is missing and falls back to the SwiftUI `@Published` default of
- * "your-own", which renders the wrong segment selection on freshly-hatched
- * platform-managed assistants.
+ * persisted an explicit choice yet. For example, on a freshly-hatched
+ * platform-managed assistant, `services.image-generation.mode` may be absent
+ * from disk (only `llm.profiles` was written by `seedInferenceProfiles`); the
+ * fill pass ensures clients receive `"managed"` rather than falling back to
+ * their own defaults.
  *
  * Guards against `loadRawConfig()` handing us a value that is technically
  * valid JSON but not a plain object (e.g. literal `null`, a number, or an
