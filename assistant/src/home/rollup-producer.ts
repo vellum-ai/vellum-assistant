@@ -36,7 +36,7 @@
  */
 
 import { loadConfig } from "../config/loader.js";
-import { getProvider, listProviders } from "../providers/registry.js";
+import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import type { Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -172,7 +172,12 @@ export interface RollupProducerDeps {
     Awaited<ReturnType<typeof computeRelationshipState>>
   >;
   loadRecentActions?: () => FeedItem[];
-  resolveProvider?: () => Provider | null;
+  /**
+   * Test injection point for the default provider. May be sync or async to
+   * support both legacy stubs and the connection-aware path that loads
+   * `provider_connection` rows from the DB.
+   */
+  resolveProvider?: () => Provider | null | Promise<Provider | null>;
 }
 
 /**
@@ -216,8 +221,8 @@ async function runRollupProducerInner(
   const loadRecentActions = deps.loadRecentActions ?? defaultLoadRecentActions;
 
   const provider = deps.resolveProvider
-    ? deps.resolveProvider()
-    : resolveDefaultProvider();
+    ? await deps.resolveProvider()
+    : await resolveDefaultProvider(loadConfig());
   if (!provider) {
     return { wroteCount: 0, skippedReason: "no_provider" };
   }
@@ -290,14 +295,6 @@ async function runRollupProducerInner(
   }
 
   return { wroteCount, skippedReason: null };
-}
-
-function resolveDefaultProvider(): ReturnType<typeof getProvider> | null {
-  const config = loadConfig();
-  if (!listProviders().includes(config.llm.default.provider)) {
-    return null;
-  }
-  return getProvider(config.llm.default.provider);
 }
 
 /**
