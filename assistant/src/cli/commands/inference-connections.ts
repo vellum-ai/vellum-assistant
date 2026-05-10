@@ -260,8 +260,28 @@ function attachUpdateSubcommand(connections: Command): void {
           }
           authInput = { type: "api_key", credential: opts.credential };
         } else if (opts.auth === "platform") {
+          if (opts.credential) {
+            const msg = "--credential is not accepted with --auth platform";
+            if (opts.json) {
+              process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
+            } else {
+              log.error(msg);
+            }
+            process.exitCode = 1;
+            return;
+          }
           authInput = { type: "platform" };
         } else if (opts.auth === "none") {
+          if (opts.credential) {
+            const msg = "--credential is not accepted with --auth none";
+            if (opts.json) {
+              process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
+            } else {
+              log.error(msg);
+            }
+            process.exitCode = 1;
+            return;
+          }
           authInput = { type: "none" };
         } else {
           const msg = `Unknown auth type "${opts.auth}". Use: api_key, platform, none`;

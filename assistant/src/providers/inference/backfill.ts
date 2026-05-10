@@ -43,6 +43,25 @@ function backfillConfigProfiles(db: DrizzleDb): void {
   const profiles = llm.profiles as Record<string, unknown> | undefined;
   if (!profiles || typeof profiles !== "object") return;
 
+  // Route on the auth axis (`services.inference.mode`), not the ownership
+  // axis (`profile.source` is `managed`/`user`, system-vs-user-created).
+  // Conflating them would regress user-owned profiles in managed
+  // deployments to require local API keys.
+  //
+  // We must mirror `loadConfig()`'s deployment-context default here: on
+  // platform-managed daemons the file may omit `services.inference.mode`
+  // and rely on `IS_PLATFORM=true → managed` to be filled in by
+  // `getDeploymentContextDefaults()` at runtime. Reading raw config alone
+  // would default missing values to `"your-own"`, which would backfill
+  // every profile to a `*-personal` connection and bake incorrect auth
+  // routing into config.json for later connection-based dispatch.
+  const inferenceMode = (raw.services as Record<string, unknown> | undefined)
+    ?.inference as Record<string, unknown> | undefined;
+  const onDiskMode = inferenceMode?.mode as string | undefined;
+  const isPlatform =
+    process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
+  const globalMode = onDiskMode ?? (isPlatform ? "managed" : "your-own");
+
   let changed = false;
 
   for (const [profileName, profileVal] of Object.entries(profiles)) {
@@ -54,14 +73,6 @@ function backfillConfigProfiles(db: DrizzleDb): void {
 
     const provider = profile.provider as string | undefined;
     if (!provider) continue;
-
-    // Route on the auth axis (`services.inference.mode`), not the ownership
-    // axis (`profile.source` is `managed`/`user`, system-vs-user-created).
-    // Conflating them would regress user-owned profiles in managed
-    // deployments to require local API keys.
-    const inferenceMode = (raw.services as Record<string, unknown> | undefined)
-      ?.inference as Record<string, unknown> | undefined;
-    const globalMode = (inferenceMode?.mode as string | undefined) ?? "your-own";
 
     let connectionName: string;
 
