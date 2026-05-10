@@ -5427,34 +5427,34 @@ paths:
               type: object
               properties:
                 to:
+                  minItems: 1
                   type: array
                   items:
                     type: string
-                  minItems: 1
                   description: Recipient email address(es)
                 text:
                   type: string
                   minLength: 1
                   description: Email body (plain text)
                 subject:
-                  type: string
                   description: Subject line
+                  type: string
                 html:
-                  type: string
                   description: HTML body (auto-generated from text if omitted)
-                cc:
-                  type: array
-                  items:
-                    type: string
-                  description: CC recipients
-                bcc:
-                  type: array
-                  items:
-                    type: string
-                  description: BCC recipients
-                reply_to:
                   type: string
+                cc:
+                  description: CC recipients
+                  type: array
+                  items:
+                    type: string
+                bcc:
+                  description: BCC recipients
+                  type: array
+                  items:
+                    type: string
+                reply_to:
                   description: Reply-to email ID
+                  type: string
               required:
                 - to
                 - text
@@ -5463,9 +5463,7 @@ paths:
     get:
       operationId: email_status_get
       summary: Get email address status and usage
-      description:
-        Show the email address registered for this assistant along with current usage and quota
-        information.
+      description: Show the email address registered for this assistant along with current usage and quota information.
       tags:
         - email
       responses:
