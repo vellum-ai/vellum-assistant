@@ -125,6 +125,39 @@ tester.run("cli/no-daemon-internals", rule, {
         });
       `,
     },
+    // Inline `import { type X }` form: importKind is set per specifier,
+    // not on the declaration. When every specifier is type-only the import
+    // is erased and must not flag a forbidden-runtime-import violation.
+    {
+      code: `
+        import type { Command } from "commander";
+        import { cliIpcCall } from "../../ipc/cli-client.js";
+        import { type MemoryV2Result, type ScoreBreakdown } from "../../runtime/routes/memory-v2-routes.js";
+
+        registerCommand(program, {
+          name: "ipc-with-inline-type-import",
+          transport: "ipc",
+          build: () => {},
+        });
+      `,
+    },
+    // Chained registerCommand pattern: `registerCommand(...).command(...)`.
+    // The outer call's callee is a MemberExpression whose object is the
+    // inner registerCommand call. The AST walker must follow callee +
+    // MemberExpression.object so findTransport() locates the registerCommand
+    // call and applies the correct transport allowlist.
+    {
+      code: `
+        import type { Command } from "commander";
+        import { cliIpcCall } from "../../ipc/cli-client.js";
+
+        registerCommand(program, {
+          name: "ipc-chained",
+          transport: "ipc",
+          build: () => {},
+        }).command("subcmd").description("desc");
+      `,
+    },
   ],
 
   invalid: [

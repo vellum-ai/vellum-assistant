@@ -83,9 +83,20 @@ function findTransport(program) {
         worklist.push(node.expression);
         break;
       case "CallExpression":
+        // Enqueue both arguments AND the callee so chained patterns like
+        // `registerCommand(...).command(...).description(...)` are walked.
+        // The outer call's callee is a MemberExpression whose object is the
+        // inner CallExpression; without traversing the callee we'd never
+        // reach the inner `registerCommand` invocation and findTransport()
+        // would return null, silently skipping all checks.
+        worklist.push(node.callee);
         for (const arg of node.arguments) {
           worklist.push(arg);
         }
+        break;
+      case "MemberExpression":
+        // Reach through `.foo` chains so we can walk into the receiver.
+        worklist.push(node.object);
         break;
       case "FunctionDeclaration":
       case "FunctionExpression":
@@ -176,10 +187,23 @@ const rule = {
         }
 
         for (const importNode of importNodes) {
-          // `import type {...}` and `import { type X }` are erased at compile
-          // time — they don't ship in the bundle and don't constitute a
-          // runtime boundary violation. Skip them.
+          // `import type {...}` is erased at compile time — top-level type
+          // import kind is set to "type" on the declaration. Skip.
           if (importNode.importKind === "type") {
+            continue;
+          }
+          // Inline-type form `import { type X, type Y } from "..."` keeps
+          // the declaration `importKind === "value"` while marking each
+          // ImportSpecifier with `importKind === "type"`. When *every*
+          // specifier is type-only the entire import is erased. Skip those
+          // too. Side-effect-only imports (`import "x"`) have an empty
+          // specifiers list and run at module load — must NOT skip.
+          if (
+            importNode.specifiers.length > 0 &&
+            importNode.specifiers.every(
+              (s) => s.type === "ImportSpecifier" && s.importKind === "type",
+            )
+          ) {
             continue;
           }
           const source = importNode.source.value;
