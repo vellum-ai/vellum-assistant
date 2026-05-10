@@ -109,6 +109,11 @@ mock.module("../inference/connections.js", () => ({
     fakeConnections.get(name) ?? null,
 }));
 
+// Connection names that should make `resolveProviderFromConnection` throw —
+// simulates a transient failure inside auth resolution (credential read,
+// managed-proxy context lookup) bubbling up from the inner registry call.
+const connectionsThatThrowOnResolve = new Set<string>();
+
 mock.module("../registry.js", () => ({
   getProvider: (name: string) => {
     const p = fakeProviders.get(`legacy:${name}`);
@@ -119,6 +124,9 @@ mock.module("../registry.js", () => ({
   listProviders: () => Array.from(fakeProviders.values()),
   resolveProviderFromConnection: async (connection: Connection) => {
     resolveProviderCalls.push(connection);
+    if (connectionsThatThrowOnResolve.has(connection.name)) {
+      throw new Error(`simulated auth-resolution failure: ${connection.name}`);
+    }
     return fakeProviders.get(`conn:${connection.name}`) ?? null;
   },
 }));
@@ -150,6 +158,7 @@ function reset(): void {
   sendMessageCalls.length = 0;
   fakeConnections.clear();
   fakeProviders.clear();
+  connectionsThatThrowOnResolve.clear();
   mockLlmConfig = {};
 }
 
@@ -362,6 +371,62 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     // NOT the connection's anthropic).
     expect(sendMessageCalls.length).toBe(1);
     expect(sendMessageCalls[0].tag).toBe("legacy-openai");
+  });
+
+  test("transient auth-resolution failure falls through to legacy — does NOT hard-fail dispatch", async () => {
+    // Simulates a transient error inside `resolveProviderFromConnection`
+    // (e.g. a credential read fails, or managed-proxy context lookup
+    // throws). The wrapper MUST log and fall through to the legacy
+    // registry path; throwing through to the dispatcher would take
+    // inference offline for any callsite using a connection-bound profile.
+    const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
+    fakeProviders.set("legacy:anthropic", defaultProvider);
+
+    registerConnection(
+      {
+        name: "flaky-managed",
+        provider: "anthropic",
+        auth: { type: "platform" },
+      },
+      // Provider stub IS registered, but the resolve will throw before
+      // reaching it. The test asserts the throw is caught.
+      makeFakeProvider("WOULD-BE-connection", "anthropic"),
+    );
+    connectionsThatThrowOnResolve.add("flaky-managed");
+
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        flaky: {
+          provider: "anthropic",
+          provider_connection: "flaky-managed",
+        },
+      },
+      callSites: {
+        replySuggestion: { profile: "flaky" },
+      },
+    });
+
+    const wrapped = wrapWithCallSiteRouting(
+      defaultProvider,
+      providersConfigStub,
+    );
+
+    // This MUST NOT throw — the resolve failure is contained.
+    await wrapped.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      [],
+      undefined,
+      { config: { callSite: "replySuggestion" } },
+    );
+
+    // The hook DID fire (we got past the connection lookup + validation).
+    expect(resolveProviderCalls.length).toBe(1);
+    expect(resolveProviderCalls[0].name).toBe("flaky-managed");
+    // ...but the throw was caught and we fell through. Profile's
+    // resolved provider matches default → reused default instance.
+    expect(sendMessageCalls.length).toBe(1);
+    expect(sendMessageCalls[0].tag).toBe("default-anthropic");
   });
 
   test("call without a callSite goes straight to the default provider — no hook, no registry lookup", async () => {

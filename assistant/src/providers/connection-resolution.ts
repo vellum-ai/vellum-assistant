@@ -78,7 +78,19 @@ export async function tryResolveProviderForConnectionName(
     );
     return null;
   }
-  return resolveProviderFromConnection(connection, config);
+  // `resolveProviderFromConnection` reaches into auth resolution (credential
+  // reads, managed-proxy context). A transient failure there must not hard-
+  // fail the dispatcher — log and fall through so the legacy registry path
+  // can still serve the request.
+  try {
+    return await resolveProviderFromConnection(connection, config);
+  } catch (err) {
+    log.warn(
+      { err, connectionName },
+      "provider_connection auth resolution failed — falling back to legacy registry dispatch",
+    );
+    return null;
+  }
 }
 
 /**
