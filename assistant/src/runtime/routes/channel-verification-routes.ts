@@ -177,8 +177,9 @@ export async function handleCreateVerificationSession({
  */
 function handleGetVerificationStatus({
   queryParams = {},
+  body = {},
 }: RouteHandlerArgs) {
-  const channel = (queryParams.channel as ChannelId | undefined) ?? undefined;
+  const channel = (queryParams.channel ?? (body as Record<string, unknown>).channel) as ChannelId | undefined;
   return getVerificationStatus(channel);
 }
 
