@@ -23,19 +23,19 @@ import { cliIpcCallStream } from "../cli-client.js";
 // Fixture route
 // ---------------------------------------------------------------------------
 
-let inferenceFixtureAborted = false;
+let _inferenceFixtureAborted = false;
 
 const INFERENCE_SEND_FIXTURE_ROUTE = {
   operationId: "inference_send_fixture",
   endpoint: "/inference-send-fixture",
   method: "POST" as const,
   handler: async (params: Record<string, unknown> | undefined) => {
-    inferenceFixtureAborted = false;
+    _inferenceFixtureAborted = false;
     const signal = (params as { abortSignal?: AbortSignal })?.abortSignal;
     signal?.addEventListener(
       "abort",
       () => {
-        inferenceFixtureAborted = true;
+        _inferenceFixtureAborted = true;
       },
       { once: true },
     );
@@ -113,7 +113,7 @@ async function startServer(): Promise<void> {
 afterEach(() => {
   server?.stop();
   server = null;
-  inferenceFixtureAborted = false;
+  _inferenceFixtureAborted = false;
   inferenceAbortFixtureAborted = false;
 });
 

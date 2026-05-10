@@ -5,8 +5,8 @@
  *   Supports both one-shot (JSON response) and streaming (IpcStreamingResponse).
  */
 
-import { IpcStreamingResponse } from "../../ipc/assistant-server.js";
 import { loadConfig } from "../../config/loader.js";
+import { IpcStreamingResponse } from "../../ipc/assistant-server.js";
 import {
   extractAllText,
   getConfiguredProvider,

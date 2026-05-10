@@ -828,3 +828,9 @@ registerPolicy("audit/invocations", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],
 });
+
+// Inference route: local-only (CLI / IPC callers)
+registerPolicy("inference/send", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
