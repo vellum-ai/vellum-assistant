@@ -7225,6 +7225,15 @@ paths:
                 required:
                   - text
                 additionalProperties: false
+  /v1/inference/send:
+    post:
+      operationId: inference_send_post
+      summary: Send a message to the configured LLM provider
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get
