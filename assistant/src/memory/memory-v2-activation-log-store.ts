@@ -39,7 +39,18 @@ export interface MemoryV2ConceptRowRecord {
    */
   inRerankPool: boolean;
   spreadContribution: number;
-  source: "prior_state" | "ann_top50" | "both";
+  /**
+   * Provenance of this concept row.
+   *   - `prior_state` — carried over from prior turn's activation state.
+   *   - `ann_top50`   — entered via ANN top-K candidate pool.
+   *   - `both`        — present in both prior state and ANN pool.
+   *   - `router`      — selected by the Sonnet router (memory-v2 router
+   *     mode). Router-mode rows zero out all activation values
+   *     (`finalActivation`, `ownActivation`, `priorActivation`, channel
+   *     similarities, rerank boosts, `spreadContribution`) because the
+   *     router does not compute spreading-activation scores.
+   */
+  source: "prior_state" | "ann_top50" | "both" | "router";
   /**
    * Per-turn outcome for this slug:
    *   - `in_context`  — already injected on a prior turn; cached attachment
@@ -80,9 +91,11 @@ export interface RecordMemoryV2ActivationLogParams {
    * `per-turn` for normal append injections, `errored` when `injectMemoryV2Block`
    * threw before completing — telemetry is still written so silent failures
    * are observable in the database, with whatever `concepts` rows had been
-   * built so far (possibly empty).
+   * built so far (possibly empty). `router` indicates the Sonnet
+   * router selected the per-turn page set; router-mode rows carry zeroed
+   * activation values and `source: "router"` on every concept row.
    */
-  mode: "context-load" | "per-turn" | "errored";
+  mode: "context-load" | "per-turn" | "errored" | "router";
   concepts: MemoryV2ConceptRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
@@ -130,7 +143,7 @@ export function backfillMemoryV2ActivationMessageId(
 export interface MemoryV2ActivationLog {
   conversationId: string;
   turn: number;
-  mode: "context-load" | "per-turn" | "errored";
+  mode: "context-load" | "per-turn" | "errored" | "router";
   concepts: MemoryV2ConceptRowRecord[];
   config: MemoryV2ConfigSnapshot;
 }
@@ -151,7 +164,7 @@ export function getMemoryV2ActivationLogByMessageIds(
   return {
     conversationId: row.conversationId,
     turn: row.turn,
-    mode: row.mode as "context-load" | "per-turn" | "errored",
+    mode: row.mode as "context-load" | "per-turn" | "errored" | "router",
     concepts: JSON.parse(row.conceptsJson) as MemoryV2ConceptRowRecord[],
     config: JSON.parse(row.configJson) as MemoryV2ConfigSnapshot,
   };
