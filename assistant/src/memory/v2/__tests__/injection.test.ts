@@ -154,6 +154,11 @@ mock.module("../skill-store.js", () => ({
   isSkillSlug: (slug: string) => slug.startsWith("skills/"),
   SKILL_SLUG_PREFIX: "skills/",
   skillSlugFor: (id: string) => `skills/${id}`,
+  // PR 4 added `listSkillEntries`; `page-index.ts` (transitively imported
+  // via `page-store.ts` and `skill-store.ts`) consumes it at module-init
+  // time. Tests stage skill content via `skillState.entries`; expose them
+  // here so the page-index loader sees a consistent view.
+  listSkillEntries: () => Array.from(skillState.entries.values()),
 }));
 
 // ---------------------------------------------------------------------------
@@ -207,6 +212,40 @@ mock.module("../page-store.js", () => ({
     const err = pageStoreState.failingSlugs.get(slug);
     if (err) throw err;
     return realReadPage(workspaceDir, slug);
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Router mock — programmable per-call result
+// ---------------------------------------------------------------------------
+//
+// PR 10 wires `runRouter` into `injectMemoryV2Block` behind the
+// `memory.v2.router.enabled` flag. The activation-mode tests above never
+// flip the flag, so the default mock returns a no-op result and the router
+// branch is never exercised. Router-mode tests set `routerState.nextResult`
+// to stage a deterministic outcome before each call.
+
+interface RouterResultStub {
+  selectedSlugs: string[];
+  rawIds: number[];
+  failureReason: string | null;
+}
+
+const routerState = {
+  nextResult: null as RouterResultStub | null,
+  callCount: 0,
+};
+
+mock.module("../router.js", () => ({
+  runRouter: async () => {
+    routerState.callCount++;
+    return (
+      routerState.nextResult ?? {
+        selectedSlugs: [],
+        rawIds: [],
+        failureReason: null,
+      }
+    );
   },
 }));
 
@@ -355,8 +394,10 @@ function makeConfig(
     epsilon: number;
     dense_weight: number;
     sparse_weight: number;
+    router: { enabled: boolean; max_page_ids?: number };
   }> = {},
 ): AssistantConfig {
+  const { router, ...rest } = overrides;
   return {
     memory: {
       v2: {
@@ -370,7 +411,8 @@ function makeConfig(
         epsilon: 0.01,
         dense_weight: 1.0,
         sparse_weight: 0.0,
-        ...overrides,
+        router: { enabled: false, max_page_ids: 25, ...(router ?? {}) },
+        ...rest,
       },
     },
   } as unknown as AssistantConfig;
@@ -448,6 +490,8 @@ function resetState(): void {
   telemetryState.recordShouldThrow = false;
   pageStoreState.failingSlugs.clear();
   activationStoreState.saveShouldThrow = false;
+  routerState.nextResult = null;
+  routerState.callCount = 0;
   // The qdrant module caches its client; the cached client may be a
   // MockQdrantClient instance from a sibling test file. Reset to force a
   // fresh `new QdrantClient()` against this file's mock.
@@ -1533,5 +1577,233 @@ describe("injectMemoryV2Block", () => {
     // rendered, so its row reads `injected`.
     const aliceRow = row.concepts.find((c) => c.slug === "alice-vscode");
     expect(aliceRow?.status).toBe("injected");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Router mode (flag-gated)
+  // ---------------------------------------------------------------------------
+
+  describe("router mode", () => {
+    test("flag-on: router-selected slugs render and append to everInjected", async () => {
+      // Router picks alice. The activation pipeline never runs — we don't
+      // stage any qdrant responses here, and that's intentional. The
+      // candidate set comes straight from the router's `selectedSlugs`.
+      routerState.nextResult = {
+        selectedSlugs: ["alice-vscode"],
+        rawIds: [1],
+        failureReason: null,
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-1",
+        currentTurn: 1,
+        userMessage: "Tell me about Alice",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      expect(routerState.callCount).toBe(1);
+      expect(result.toInject).toEqual(["alice-vscode"]);
+      expect(result.block).not.toBeNull();
+      expect(result.block).toContain("# memory/concepts/alice-vscode.md");
+
+      const persisted = await hydrate(db, "conv-router-1");
+      expect(persisted!.everInjected).toEqual([
+        { slug: "alice-vscode", turn: 1 },
+      ]);
+      // Router mode persists an empty sparse activation map — the router
+      // does not compute spreading-activation scores.
+      expect(persisted!.state).toEqual({});
+
+      // Telemetry: success rows get `mode: "router"` and `source: "router"`,
+      // with all activation fields zeroed.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        concepts: Array<{
+          slug: string;
+          source: string;
+          status: string;
+          finalActivation: number;
+          ownActivation: number;
+        }>;
+      };
+      expect(row.mode).toBe("router");
+      const aliceRow = row.concepts.find((c) => c.slug === "alice-vscode");
+      expect(aliceRow).toBeDefined();
+      expect(aliceRow!.source).toBe("router");
+      expect(aliceRow!.status).toBe("injected");
+      expect(aliceRow!.finalActivation).toBe(0);
+      expect(aliceRow!.ownActivation).toBe(0);
+    });
+
+    test("flag-on: router failure logs warn, writes mode:`errored` telemetry, returns null block", async () => {
+      routerState.nextResult = {
+        selectedSlugs: [],
+        rawIds: [],
+        failureReason: "api_error",
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-fail",
+        currentTurn: 3,
+        userMessage: "anything",
+        assistantMessage: "ok",
+        nowText: "Now",
+        messageId: "msg-fail",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      expect(result.block).toBeNull();
+      expect(result.toInject).toEqual([]);
+
+      // Stub state still advanced.
+      const persisted = await hydrate(db, "conv-router-fail");
+      expect(persisted).not.toBeNull();
+      expect(persisted!.currentTurn).toBe(3);
+      expect(persisted!.messageId).toBe("msg-fail");
+      expect(persisted!.state).toEqual({});
+      expect(persisted!.everInjected).toEqual([]);
+
+      // Single telemetry row with `mode: "errored"` (not `"router"`).
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        conversationId: string;
+        turn: number;
+        concepts: unknown[];
+      };
+      expect(row.mode).toBe("errored");
+      expect(row.conversationId).toBe("conv-router-fail");
+      expect(row.turn).toBe(3);
+      expect(row.concepts).toEqual([]);
+    });
+
+    test("flag-on: router abstention (empty selectedSlugs, no failure) writes mode:`router` row with no injected pages", async () => {
+      routerState.nextResult = {
+        selectedSlugs: [],
+        rawIds: [],
+        failureReason: null,
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-abstain",
+        currentTurn: 1,
+        userMessage: "small talk",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-abstain",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      expect(result.block).toBeNull();
+      expect(result.toInject).toEqual([]);
+
+      // No prior everInjected to dedup against, so toInject is empty and
+      // nothing renders. State still advanced.
+      const persisted = await hydrate(db, "conv-router-abstain");
+      expect(persisted!.everInjected).toEqual([]);
+      expect(persisted!.currentTurn).toBe(1);
+
+      // Telemetry: `mode: "router"` row with zero injected pages.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        concepts: Array<{ slug: string; status: string }>;
+      };
+      expect(row.mode).toBe("router");
+      const injectedCount = row.concepts.filter(
+        (c) => c.status === "injected",
+      ).length;
+      expect(injectedCount).toBe(0);
+    });
+
+    test("flag-on: router-selected slug whose page is missing on disk records `page_missing` and is NOT added to everInjected", async () => {
+      routerState.nextResult = {
+        selectedSlugs: ["phantom-router-slug"],
+        rawIds: [99],
+        failureReason: null,
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-missing",
+        currentTurn: 1,
+        userMessage: "phantom",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-missing",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      // No backing page → block collapses to null.
+      expect(result.block).toBeNull();
+      // toInject mirrors `newlyInjected` from `finalizeInjection` — the
+      // missing slug still flowed through `slugsToRender` so it's recorded
+      // here (matching the activation-mode phantom-slug contract).
+      expect(result.toInject).toEqual(["phantom-router-slug"]);
+
+      // Activation-mode parity: the phantom slug DOES land in everInjected
+      // so we don't infinite-retry it. (This matches the behavior the
+      // existing `returns null block when toInject slugs all reference
+      // missing pages` test asserts for activation mode.)
+      const persisted = await hydrate(db, "conv-router-missing");
+      expect(persisted!.everInjected).toEqual([
+        { slug: "phantom-router-slug", turn: 1 },
+      ]);
+
+      // Telemetry: `status: "page_missing"` for the phantom slug.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        concepts: Array<{ slug: string; status: string; source: string }>;
+      };
+      expect(row.mode).toBe("router");
+      const phantom = row.concepts.find(
+        (c) => c.slug === "phantom-router-slug",
+      );
+      expect(phantom).toBeDefined();
+      expect(phantom!.status).toBe("page_missing");
+      expect(phantom!.source).toBe("router");
+    });
+
+    test("flag-off (default): activation pipeline still runs unchanged", async () => {
+      // Regression check — with the router flag explicitly off (the
+      // production default), `runRouter` must never be called and the
+      // activation pipeline drives the selection just like before.
+      stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+      routerState.nextResult = {
+        selectedSlugs: ["should-not-be-used"],
+        rawIds: [42],
+        failureReason: null,
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-flag-off",
+        currentTurn: 1,
+        userMessage: "Alice's editor",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig({ router: { enabled: false } }),
+      });
+
+      // Router was not called.
+      expect(routerState.callCount).toBe(0);
+      // Activation pipeline produced its normal result.
+      expect(result.toInject).toEqual(["alice-vscode"]);
+      expect(result.block).toContain("# memory/concepts/alice-vscode.md");
+
+      // Telemetry row carries the activation mode, not router.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as { mode: string };
+      expect(row.mode).toBe("per-turn");
+    });
   });
 });
