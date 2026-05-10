@@ -32,6 +32,10 @@ describe("MemoryV2ConfigSchema", () => {
         model: "Alibaba-NLP/gte-reranker-modernbert-base",
         dtype: "q8",
       },
+      router: {
+        enabled: false,
+        max_page_ids: 25,
+      },
     });
   });
 
@@ -154,6 +158,32 @@ describe("MemoryV2ConfigSchema", () => {
   test("rejects epsilon outside [0, 1]", () => {
     expect(() => MemoryV2ConfigSchema.parse({ epsilon: -0.01 })).toThrow();
     expect(() => MemoryV2ConfigSchema.parse({ epsilon: 1.5 })).toThrow();
+  });
+
+  test("router defaults to disabled with max_page_ids=25", () => {
+    const parsed = MemoryV2ConfigSchema.parse({});
+    expect(parsed.router.enabled).toBe(false);
+    expect(parsed.router.max_page_ids).toBe(25);
+  });
+
+  test("accepts explicit router overrides", () => {
+    const parsed = MemoryV2ConfigSchema.parse({
+      router: { enabled: true, max_page_ids: 50 },
+    });
+    expect(parsed.router.enabled).toBe(true);
+    expect(parsed.router.max_page_ids).toBe(50);
+  });
+
+  test("rejects router.max_page_ids below 1", () => {
+    expect(() =>
+      MemoryV2ConfigSchema.parse({ router: { max_page_ids: 0 } }),
+    ).toThrow();
+  });
+
+  test("rejects router.max_page_ids above 100", () => {
+    expect(() =>
+      MemoryV2ConfigSchema.parse({ router: { max_page_ids: 101 } }),
+    ).toThrow();
   });
 });
 

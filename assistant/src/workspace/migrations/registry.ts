@@ -74,6 +74,7 @@ import { repairRecallCallsiteEmptyProfileMigration } from "./073-repair-recall-c
 import { dropDeprecatedSecretDetectionKeysMigration } from "./074-drop-deprecated-secret-detection-keys.js";
 import { memoryV2Bm25BDefaultReembedMigration } from "./075-memory-v2-bm25-b-default-reembed.js";
 import { dropServicesInferenceModeMigration } from "./076-drop-services-inference-mode.js";
+import { seedMemoryRouterCallsiteMigration } from "./077-seed-memory-router-callsite.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -159,4 +160,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   dropDeprecatedSecretDetectionKeysMigration,
   memoryV2Bm25BDefaultReembedMigration,
   dropServicesInferenceModeMigration,
+  seedMemoryRouterCallsiteMigration,
 ];
