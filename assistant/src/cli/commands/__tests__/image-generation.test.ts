@@ -55,6 +55,7 @@ describe("image-generation generate", () => {
       ok: true,
       result: { images: [], resolvedModel: "gemini-3.1-flash-image-preview" },
     };
+    process.exitCode = 0;
   });
 
   it("calls image_generation_generate with prompt and mode defaults", async () => {
@@ -78,33 +79,20 @@ describe("image-generation generate", () => {
 
   it("does not call IPC when edit mode has no --source", async () => {
     const program = buildProgram();
-    let exitCode: number | undefined;
-    const origExitCode = Object.getOwnPropertyDescriptor(process, "exitCode");
-    Object.defineProperty(process, "exitCode", {
-      set: (v: number) => {
-        exitCode = v;
-      },
-      get: () => exitCode,
-      configurable: true,
-    });
-    try {
-      await program.parseAsync([
-        "node",
-        "assistant",
-        "image-generation",
-        "generate",
-        "--prompt",
-        "P",
-        "--mode",
-        "edit",
-        "--output-dir",
-        TEST_OUTPUT_DIR,
-      ]);
-    } finally {
-      if (origExitCode) Object.defineProperty(process, "exitCode", origExitCode);
-    }
+    await program.parseAsync([
+      "node",
+      "assistant",
+      "image-generation",
+      "generate",
+      "--prompt",
+      "P",
+      "--mode",
+      "edit",
+      "--output-dir",
+      TEST_OUTPUT_DIR,
+    ]);
     expect(mockCalls.length).toBe(0);
-    expect(exitCode).toBe(1);
+    expect(process.exitCode).toBe(1);
   });
 
   it("passes model override", async () => {
