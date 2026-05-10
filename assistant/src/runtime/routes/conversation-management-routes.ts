@@ -240,8 +240,9 @@ function handleRenameConversation({
   return { ok: true };
 }
 
-function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
-  const confirm = headers["x-confirm-destructive"];
+function handleClearAllConversations({ headers = {}, body = {} }: RouteHandlerArgs) {
+  const confirm = (headers["x-confirm-destructive"] as string | undefined)
+    ?? (body as Record<string, unknown>).confirm;
   if (confirm !== "clear-all-conversations") {
     throw new BadRequestError(
       "DELETE /v1/conversations permanently deletes ALL conversations, messages, and memory. " +
