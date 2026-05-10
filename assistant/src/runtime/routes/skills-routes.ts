@@ -518,7 +518,7 @@ export const ROUTES: RouteDefinition[] = [
           slug,
           version: body.version as string | undefined,
           origin: body.origin as "clawhub" | "skillssh" | undefined,
-          overwrite: body.overwrite as boolean | undefined,
+          overwrite: (body.overwrite as boolean | undefined) ?? false,
         },
       );
       if (!result.success) throw new InternalError(result.error);

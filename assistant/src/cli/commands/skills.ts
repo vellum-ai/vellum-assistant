@@ -301,7 +301,7 @@ Examples:
               version?: string;
               sourceRepo?: string;
             }>;
-          }>("searchSkills", { queryParams: { q: query } });
+          }>("searchSkills", { queryParams: { q: query, limit: String(limit) } });
           const communitySkills = communityR.ok
             ? communityR.result!.skills.filter((s) => s.origin !== "vellum")
             : [];
