@@ -91,15 +91,15 @@ mock.module("@anthropic-ai/sdk", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { credentialKey } from "../security/credential-key.js";
 import { AssistantConfigSchema } from "../config/schema.js";
+import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import {
   getProvider,
   getProviderRoutingSource,
   initializeProviders,
   listProviders,
 } from "../providers/registry.js";
-import { ConnectionResolutionError } from "../providers/connection-resolution.js";
+import { credentialKey } from "../security/credential-key.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

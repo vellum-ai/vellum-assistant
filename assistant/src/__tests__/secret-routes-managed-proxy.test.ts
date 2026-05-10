@@ -17,9 +17,7 @@ let platformBaseUrlOverride: string | undefined;
 
 const mockConfig = {
   services: {
-    inference: {
-      mode: "your-own" as const,
-    },
+    inference: {},
     "image-generation": {
       mode: "your-own" as const,
       provider: "gemini",

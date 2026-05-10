@@ -139,14 +139,8 @@ export async function initializeProviders(
         new AnthropicProvider(anthropicCreds.apiKey, model, {
           useNativeWebSearch,
           streamTimeoutMs,
-          ...(anthropicCreds.baseURL
-            ? { baseURL: anthropicCreds.baseURL }
-            : {}),
         }),
-        {
-          forwardUsageAttributionHeaders:
-            anthropicCreds.source === "managed-proxy",
-        },
+        { forwardUsageAttributionHeaders: false },
       ),
     );
     routingSources.set("anthropic", anthropicCreds.source);
@@ -162,12 +156,8 @@ export async function initializeProviders(
         new OpenAIResponsesProvider(openaiCreds.apiKey, model, {
           useNativeWebSearch,
           streamTimeoutMs,
-          ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
         }),
-        {
-          forwardUsageAttributionHeaders:
-            openaiCreds.source === "managed-proxy",
-        },
+        { forwardUsageAttributionHeaders: false },
       ),
     );
     routingSources.set("openai", openaiCreds.source);
@@ -180,16 +170,8 @@ export async function initializeProviders(
     registerProvider(
       "gemini",
       new RetryProvider(
-        new GeminiProvider(geminiCreds.apiKey, model, {
-          streamTimeoutMs,
-          ...(geminiCreds.baseURL
-            ? { managedBaseUrl: geminiCreds.baseURL }
-            : {}),
-        }),
-        {
-          forwardUsageAttributionHeaders:
-            geminiCreds.source === "managed-proxy",
-        },
+        new GeminiProvider(geminiCreds.apiKey, model, { streamTimeoutMs }),
+        { forwardUsageAttributionHeaders: false },
       ),
     );
     routingSources.set("gemini", geminiCreds.source);
