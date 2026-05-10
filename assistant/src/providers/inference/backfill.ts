@@ -55,21 +55,22 @@ function backfillConfigProfiles(db: DrizzleDb): void {
     const provider = profile.provider as string | undefined;
     if (!provider) continue;
 
-    const source = profile.source as string | undefined;
+    // Route on the auth axis (`services.inference.mode`), not the ownership
+    // axis (`profile.source` is `managed`/`user`, system-vs-user-created).
+    // Conflating them would regress user-owned profiles in managed
+    // deployments to require local API keys.
     const inferenceMode = (raw.services as Record<string, unknown> | undefined)
       ?.inference as Record<string, unknown> | undefined;
     const globalMode = (inferenceMode?.mode as string | undefined) ?? "your-own";
-
-    const effectiveSource = source ?? globalMode;
 
     let connectionName: string;
 
     if (provider === "ollama") {
       connectionName = "ollama-local";
-    } else if (effectiveSource === "managed" && MANAGED_PROVIDERS.has(provider)) {
+    } else if (globalMode === "managed" && MANAGED_PROVIDERS.has(provider)) {
       connectionName = `${provider}-managed`;
     } else {
-      // "your-own" path: ensure a personal connection exists.
+      // "your-own" path (or provider not managed-supported): ensure a personal connection exists.
       connectionName = `${provider}-personal`;
       if (!getConnection(db, connectionName)) {
         const credName = credentialKey(provider, "api_key");

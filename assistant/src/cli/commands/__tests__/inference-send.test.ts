@@ -111,11 +111,19 @@ mock.module("../../../providers/provider-send-message.js", () => ({
 }));
 
 mock.module("../../../config/loader.js", () => ({
+  getConfig: () => ({
+    llm: {
+      profiles: mockProfileCatalog,
+    },
+  }),
   getConfigReadOnly: () => ({
     llm: {
       profiles: mockProfileCatalog,
     },
   }),
+  loadRawConfig: () => ({}) as Record<string, unknown>,
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
 }));
 
 mock.module("../../../util/logger.js", () => ({

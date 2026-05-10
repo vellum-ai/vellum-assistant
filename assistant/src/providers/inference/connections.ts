@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../memory/db-connection.js";
 import { providerConnections } from "../../memory/schema/inference.js";
+import { clearConnectionProviderCache } from "../registry.js";
 import {
   type Auth,
   AuthSchema,
@@ -110,6 +111,10 @@ export function createConnection(
     updatedAt: now,
   }).run();
 
+  // Invalidate per-connection adapter cache so subsequent dispatch
+  // resolves the freshly-inserted row's auth.
+  clearConnectionProviderCache();
+
   return {
     ok: true,
     connection: {
@@ -142,6 +147,9 @@ export function updateConnection(
     .set({ auth: JSON.stringify(authResult.data), updatedAt: now })
     .where(eq(providerConnections.name, name))
     .run();
+
+  // Drop cached adapter built against the previous auth config.
+  clearConnectionProviderCache();
 
   return {
     ok: true,
@@ -179,6 +187,10 @@ export function deleteConnection(
   }
 
   db.delete(providerConnections).where(eq(providerConnections.name, name)).run();
+
+  // Evict cached adapter for the deleted connection name.
+  clearConnectionProviderCache();
+
   return { ok: true };
 }
 

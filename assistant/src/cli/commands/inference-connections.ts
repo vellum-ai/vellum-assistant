@@ -11,7 +11,7 @@
 
 import type { Command } from "commander";
 
-import { getConfig } from "../../config/loader.js";
+import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import { AuthSchema, VALID_CONNECTION_PROVIDERS } from "../../providers/inference/auth.js";
 import {
@@ -330,7 +330,7 @@ function attachDeleteSubcommand(connections: Command): void {
       const db = getDb();
 
       // Find profiles referencing this connection.
-      const config = getConfig();
+      const config = getConfigReadOnly();
       const profiles = config.llm?.profiles ?? {};
       const referencingProfiles = Object.entries(profiles)
         .filter(([, p]) => (p as Record<string, unknown>).provider_connection === name)
