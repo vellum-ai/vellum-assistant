@@ -56,12 +56,14 @@ async function runBackfillOp(op: MemoryV2BackfillOp): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export function registerMemoryV2Command(program: Command): void {
-  // The `memory` parent exists solely as a namespace for the v2 subgroup —
-  // v1 had its own subcommands here historically; those were removed in
-  // favour of the v2 concept-page model.
-  const memory = program
-    .command("memory")
-    .description("Manage the v2 memory subsystem (concept-page model)");
+  // Reuse an existing `memory` parent if some other registrar attached to it
+  // first; otherwise create one. This keeps the registration order between
+  // sibling memory registrars unconstrained.
+  const memory =
+    program.commands.find((c) => c.name() === "memory") ??
+    program
+      .command("memory")
+      .description("Manage the v2 memory subsystem (concept-page model)");
 
   const v2 = memory
     .command("v2")
@@ -75,18 +77,9 @@ each page's frontmatter and uses activation-based retrieval. Pages live
 under /workspace/memory/concepts/ and are gated behind the
 memory.v2.enabled config field.
 
-Subcommands fall into three groups:
-
-  Mutating (return a jobId enqueued on the memory job queue):
-    reembed          Refresh dense + sparse vectors for every concept page.
-    activation       Refresh persisted activation state for every conversation.
-
-  Mutating (synchronous — runs inside the daemon and returns when done):
-    reembed-skills   Re-seed v2 skill entries from the current skill catalog.
-
-  Read-only:
-    validate         Print a diagnostic report of orphan outgoing-edge
-                     targets, oversized pages, and parse failures.
+Mutating subcommands return a jobId enqueued on the memory job queue,
+except reembed-skills which runs synchronously inside the assistant.
+Read-only subcommands print diagnostic reports without mutating state.
 
 Examples:
   $ assistant memory v2 validate

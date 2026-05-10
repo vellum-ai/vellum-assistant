@@ -7972,73 +7972,6 @@ paths:
               required:
                 - slug
               additionalProperties: false
-  /v1/memory/v2/explain-similarity:
-    post:
-      operationId: memory_v2_explainsimilarity_post
-      summary: Diagnose dense vs sparse similarity score distributions
-      description:
-        Read-only diagnostic. Embeds the supplied text(s), runs hybrid dense + sparse queries against the
-        concept-page collection, and returns per-slug raw dense, raw sparse, normalized sparse, and fused scores plus
-        per-channel summary stats. Used to investigate score-compression at the head of the activation distribution.
-      tags:
-        - memory
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userText:
-                  type: string
-                  minLength: 1
-                assistantText:
-                  type: string
-                nowText:
-                  type: string
-                top:
-                  default: 25
-                  type: integer
-                  minimum: 1
-                  maximum: 9007199254740991
-              required:
-                - userText
-              additionalProperties: false
-  /v1/memory/v2/fit-anisotropy:
-    post:
-      operationId: memory_v2_fitanisotropy_post
-      summary: Fit the embedding anisotropy correction for memory v2
-      description:
-        Samples stored dense vectors from the concept-page Qdrant collection, fits a corpus mean + top-k principal
-        components (Mu & Viswanath 'all-but-the-top'), and persists the calibration so subsequent embeds and queries
-        apply the correction. Run `assistant memory v2 reembed` after fitting so stored vectors are written under the
-        new calibration — until then, queries (corrected) and stored vectors (uncorrected) live in different spaces.
-      tags:
-        - memory
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                k:
-                  default: 1
-                  type: integer
-                  minimum: 1
-                  maximum: 16
-                sample:
-                  default: 5000
-                  type: integer
-                  minimum: 1
-                  maximum: 100000
-              additionalProperties: false
   /v1/memory/v2/list-concept-pages:
     post:
       operationId: memory_v2_listconceptpages_post
@@ -8046,28 +7979,6 @@ paths:
       description:
         Returns slugs, body sizes, edge counts, and last-modified timestamps for every concept page on disk.
         Read-only; used by the desktop About → Memories surface to render a browse-able list.
-      tags:
-        - memory
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties: {}
-              additionalProperties: false
-  /v1/memory/v2/rebuild-corpus-stats:
-    post:
-      operationId: memory_v2_rebuildcorpusstats_post
-      summary: Rebuild the BM25 corpus statistics for memory v2
-      description:
-        Walks every concept page on disk, recomputes the document-frequency table and average document length used
-        by the BM25 sparse channel, and atomically swaps the in-memory stats. Run after bulk content imports or to
-        recover from a rebuild that errored at startup. Does not reembed individual page sparse vectors — pair with
-        `assistant memory v2 reembed` when document-side weights need refreshing.
       tags:
         - memory
       responses:
