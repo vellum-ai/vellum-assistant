@@ -87,6 +87,7 @@ import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
+import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
@@ -186,6 +187,7 @@ export const ROUTES: RouteDefinition[] = [
   ...RENAME_CONVERSATION_ROUTES,
   ...SCHEDULE_ROUTES,
   ...SECRET_ROUTES,
+  ...SEQUENCE_ROUTES,
   ...SETTINGS_ROUTES,
   ...SKILL_ROUTES,
   ...SLACK_CHANNEL_ROUTES,
