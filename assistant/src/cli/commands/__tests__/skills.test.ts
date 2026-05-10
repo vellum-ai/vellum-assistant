@@ -75,12 +75,18 @@ async function runCommand(
   args: string[],
 ): Promise<{ stdout: string; exitCode: number }> {
   const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalConsoleLog = console.log;
   const stdoutChunks: string[] = [];
 
   process.stdout.write = ((chunk: unknown) => {
     stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
     return true;
   }) as typeof process.stdout.write;
+
+  // Bun's console.log bypasses process.stdout.write — capture it separately
+  console.log = (...logArgs: unknown[]) => {
+    stdoutChunks.push(logArgs.map(String).join(" ") + "\n");
+  };
 
   process.exitCode = 0;
 
@@ -97,6 +103,7 @@ async function runCommand(
     if (process.exitCode === 0) process.exitCode = 1;
   } finally {
     process.stdout.write = originalStdoutWrite;
+    console.log = originalConsoleLog;
   }
 
   const exitCode = process.exitCode ?? 0;
