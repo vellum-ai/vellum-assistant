@@ -1333,6 +1333,15 @@ paths:
           schema:
             type: string
           description: Max rows (default 20, max 500)
+  /v1/auth/status:
+    get:
+      operationId: auth_status_get
+      summary: Get platform authentication status and identity
+      tags:
+        - auth
+      responses:
+        "200":
+          description: Successful response
   /v1/avatar/character-components:
     get:
       operationId: avatar_charactercomponents_get
@@ -9360,6 +9369,31 @@ paths:
                       - name
                       - status
                     additionalProperties: false
+  /v1/public-routes/inspect:
+    get:
+      operationId: publicroutes_inspect_get
+      summary: Inspect a user-defined route handler
+      tags:
+        - routes
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Route path relative to /x/
+  /v1/public-routes/list:
+    get:
+      operationId: publicroutes_list_get
+      summary: List user-defined route handlers
+      tags:
+        - routes
+      responses:
+        "200":
+          description: Successful response
   /v1/recordings/pause:
     post:
       operationId: recordings_pause_post

@@ -15,6 +15,7 @@ import { ROUTES as APPROVAL_ROUTES } from "./approval-routes.js";
 import { ROUTES as ATTACHMENT_ROUTES } from "./attachment-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./audio-routes.js";
 import { ROUTES as AUDIT_ROUTES } from "./audit-routes.js";
+import { ROUTES as AUTH_ROUTES } from "./auth-routes.js";
 import { ROUTES as AVATAR_ROUTES } from "./avatar-routes.js";
 import { ROUTES as BACKGROUND_TOOL_ROUTES } from "./background-tool-routes.js";
 import { ROUTES as BACKUP_ROUTES } from "./backup-routes.js";
@@ -85,6 +86,7 @@ import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
 import { ROUTES as PLAYGROUND_ROUTES } from "./playground/index.js";
 import { ROUTES as PROFILER_ROUTES } from "./profiler-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
+import { ROUTES as PUBLIC_ROUTES } from "./public-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
@@ -120,6 +122,7 @@ export const ROUTES: RouteDefinition[] = [
   ...AUDIT_ROUTES,
   ...APP_ROUTES,
   ...APPROVAL_ROUTES,
+  ...AUTH_ROUTES,
   ...AUDIO_ROUTES,
   ...AVATAR_ROUTES,
   ...BACKGROUND_TOOL_ROUTES,
@@ -186,6 +189,7 @@ export const ROUTES: RouteDefinition[] = [
   ...PLAYGROUND_ROUTES,
   ...PROFILER_ROUTES,
   ...PS_ROUTES,
+  ...PUBLIC_ROUTES,
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,
   ...SCHEDULE_ROUTES,
