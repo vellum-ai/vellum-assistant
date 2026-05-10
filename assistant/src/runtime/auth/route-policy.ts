@@ -834,3 +834,31 @@ registerPolicy("inference/send", {
   requiredScopes: ["settings.write"],
   allowedPrincipalTypes: ["local"],
 });
+
+// Domain routes: local-only (CLI / IPC callers)
+registerPolicy("domain/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("domain/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Auth status route: local-only (CLI / IPC callers)
+registerPolicy("auth/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Public routes: local-only (CLI / IPC callers)
+registerPolicy("public-routes/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("public-routes/inspect", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
