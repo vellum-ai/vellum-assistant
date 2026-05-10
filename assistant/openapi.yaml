@@ -1327,6 +1327,85 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/avatar/character/ascii:
+    get:
+      operationId: avatar_character_ascii_get
+      summary: Render character as ASCII art
+      description: Render the current native character as ASCII art.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ascii:
+                    type: string
+                required:
+                  - ascii
+                additionalProperties: false
+      parameters:
+        - name: width
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Width in characters (default 60)
+  /v1/avatar/generate:
+    post:
+      operationId: avatar_generate_post
+      summary: Generate AI avatar
+      description: Generate an AI avatar from a text description and save it.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - ok
+                  - message
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  type: string
+              required:
+                - description
+              additionalProperties: false
+  /v1/avatar/get:
+    get:
+      operationId: avatar_get_get
+      summary: Get current avatar
+      description: Retrieve the current avatar as a file path or base64 string.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+          description: '"path" or "base64"'
   /v1/avatar/notify-updated:
     post:
       operationId: avatar_notifyupdated_post
@@ -1346,6 +1425,29 @@ paths:
                     type: boolean
                 required:
                   - ok
+                additionalProperties: false
+  /v1/avatar/remove:
+    post:
+      operationId: avatar_remove_post
+      summary: Remove custom avatar
+      description: Remove the custom avatar image and restore the character default.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  hadAvatar:
+                    type: boolean
+                required:
+                  - ok
+                  - hadAvatar
                 additionalProperties: false
   /v1/avatar/render-from-traits:
     post:
@@ -1384,6 +1486,38 @@ paths:
                 - bodyShape
                 - eyeStyle
                 - color
+              additionalProperties: false
+  /v1/avatar/set:
+    post:
+      operationId: avatar_set_post
+      summary: Set avatar from image file
+      description: Copy an image file to the avatar location.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                imagePath:
+                  type: string
+              required:
+                - imagePath
               additionalProperties: false
   /v1/background-tools:
     get:

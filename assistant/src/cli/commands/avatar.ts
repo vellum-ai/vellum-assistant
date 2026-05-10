@@ -76,7 +76,7 @@ Examples:
             "avatar_generate",
             { description: opts.description },
           );
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           log.info(r.result!.message);
         });
 
@@ -115,7 +115,7 @@ Examples:
           const r = await cliIpcCall<{ ok: boolean }>("avatar_set", {
             imagePath: resolvedSource,
           });
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           log.info(`Avatar set from: ${resolvedSource}`);
         });
 
@@ -139,7 +139,7 @@ Examples:
           const r = await cliIpcCall<{ ok: boolean; hadAvatar: boolean }>(
             "avatar_remove",
           );
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           if (!r.result!.hadAvatar) {
             log.info("No custom avatar to remove — already using the default.");
           } else {
@@ -179,7 +179,7 @@ Examples:
             path?: string;
             base64?: string;
           }>("avatar_get", { format: opts.format });
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
 
           if (!r.result!.exists) {
             log.info(
@@ -270,7 +270,7 @@ Examples:
                 color: opts.color,
               },
             );
-            if (!r.ok) return exitFromIpcResult(r, cmd);
+            if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
             log.info(
               `Avatar updated: ${opts.bodyShape} body, ${opts.eyeStyle} eyes, ${opts.color} color`,
             );
@@ -301,7 +301,7 @@ Examples:
         .action(async (opts: { json?: boolean }, cmd: Command) => {
           const r =
             await cliIpcCall<CharacterComponents>("avatar_character_components");
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
 
           if (opts.json) {
             writeOutput(cmd, r.result);
@@ -372,7 +372,7 @@ Examples:
             "avatar_character_ascii",
             { width: opts.width },
           );
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           process.stdout.write(r.result!.ascii + "\n");
         });
     },

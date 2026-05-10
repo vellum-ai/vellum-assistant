@@ -198,13 +198,13 @@ describe("avatar set", () => {
       "avatar",
       "set",
       "--image",
-      "/abs/path/photo.png",
+      "/tmp",
     ]);
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("avatar_set");
-    expect(lastIpcCall!.params).toEqual({ imagePath: "/abs/path/photo.png" });
+    expect(lastIpcCall!.params).toEqual({ imagePath: "/tmp" });
   });
 
   test("resolves relative path to absolute before calling avatar_set", async () => {
@@ -455,7 +455,8 @@ describe("avatar character components", () => {
 
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(true);
+    expect(parsed.bodyShapes).toBeDefined();
+    expect(Array.isArray(parsed.bodyShapes)).toBe(true);
   });
 
   test("exits 1 on IPC error", async () => {
