@@ -242,13 +242,19 @@ export async function handleBackupVerify({ body }: RouteHandlerArgs) {
 // Config-mutation + status handlers
 // ---------------------------------------------------------------------------
 
-export async function handleBackupEnable({ body }: RouteHandlerArgs): Promise<BackupConfig> {
+export async function handleBackupEnable({
+  body,
+}: RouteHandlerArgs): Promise<BackupConfig> {
   const intervalHours = body?.intervalHours as number | undefined;
   const retention = body?.retention as number | undefined;
   const offsiteEnabled = body?.offsiteEnabled as boolean | undefined;
 
   if (intervalHours !== undefined) {
-    if (!Number.isFinite(intervalHours) || intervalHours < 1 || intervalHours > 168) {
+    if (
+      !Number.isFinite(intervalHours) ||
+      intervalHours < 1 ||
+      intervalHours > 168
+    ) {
       throw new BadRequestError(
         `intervalHours must be between 1 and 168, got ${intervalHours}`,
       );
@@ -287,23 +293,35 @@ export async function handleBackupDisable(): Promise<{ enabled: false }> {
   return { enabled: false };
 }
 
-export async function handleBackupDestinationsList(): Promise<{ destinations: BackupDestination[] }> {
+export async function handleBackupDestinationsList(): Promise<{
+  destinations: BackupDestination[];
+}> {
   const config = getConfig();
-  return { destinations: resolveOffsiteDestinations(config.backup.offsite.destinations) };
+  return {
+    destinations: resolveOffsiteDestinations(
+      config.backup.offsite.destinations,
+    ),
+  };
 }
 
-export async function handleBackupDestinationsAdd({ body }: RouteHandlerArgs): Promise<{ destinations: BackupDestination[] }> {
+export async function handleBackupDestinationsAdd({
+  body,
+}: RouteHandlerArgs): Promise<{ destinations: BackupDestination[] }> {
   const path = body?.path;
   const encrypt = body?.encrypt;
 
   if (typeof path !== "string" || path.length === 0) {
-    throw new BadRequestError("Request body must include a non-empty `path` field");
+    throw new BadRequestError(
+      "Request body must include a non-empty `path` field",
+    );
   }
   if (encrypt !== undefined && typeof encrypt !== "boolean") {
     throw new BadRequestError("`encrypt` must be a boolean");
   }
 
-  const current = resolveOffsiteDestinations(getConfig().backup.offsite.destinations);
+  const current = resolveOffsiteDestinations(
+    getConfig().backup.offsite.destinations,
+  );
   if (current.some((d) => d.path === path)) {
     throw new BadRequestError(
       `Destination "${path}" already exists. Run 'assistant backup destinations list' to see configured destinations.`,
@@ -323,14 +341,20 @@ export async function handleBackupDestinationsAdd({ body }: RouteHandlerArgs): P
   return { destinations: next };
 }
 
-export async function handleBackupDestinationsRemove({ body }: RouteHandlerArgs): Promise<{ destinations: BackupDestination[] }> {
+export async function handleBackupDestinationsRemove({
+  body,
+}: RouteHandlerArgs): Promise<{ destinations: BackupDestination[] }> {
   const path = body?.path;
 
   if (typeof path !== "string" || path.length === 0) {
-    throw new BadRequestError("Request body must include a non-empty `path` field");
+    throw new BadRequestError(
+      "Request body must include a non-empty `path` field",
+    );
   }
 
-  const current = resolveOffsiteDestinations(getConfig().backup.offsite.destinations);
+  const current = resolveOffsiteDestinations(
+    getConfig().backup.offsite.destinations,
+  );
   const filtered = current.filter((d) => d.path !== path);
   if (filtered.length === current.length) {
     throw new BadRequestError(
@@ -346,18 +370,24 @@ export async function handleBackupDestinationsRemove({ body }: RouteHandlerArgs)
   return { destinations: filtered };
 }
 
-export async function handleBackupDestinationsSetEncrypt({ body }: RouteHandlerArgs): Promise<{ destination: BackupDestination }> {
+export async function handleBackupDestinationsSetEncrypt({
+  body,
+}: RouteHandlerArgs): Promise<{ destination: BackupDestination }> {
   const path = body?.path;
   const encrypt = body?.encrypt;
 
   if (typeof path !== "string" || path.length === 0) {
-    throw new BadRequestError("Request body must include a non-empty `path` field");
+    throw new BadRequestError(
+      "Request body must include a non-empty `path` field",
+    );
   }
   if (typeof encrypt !== "boolean") {
     throw new BadRequestError("`encrypt` must be a boolean");
   }
 
-  const current = resolveOffsiteDestinations(getConfig().backup.offsite.destinations);
+  const current = resolveOffsiteDestinations(
+    getConfig().backup.offsite.destinations,
+  );
   const idx = current.findIndex((d) => d.path === path);
   if (idx === -1) {
     throw new BadRequestError(
@@ -384,14 +414,22 @@ export async function handleBackupStatus(): Promise<{
   nextRunAt: string | null;
   localDir: string;
   localSnapshotCount: number;
-  offsite: Array<{ path: string; encrypt: boolean; reachable: boolean; snapshotCount: number }>;
+  offsiteEnabled: boolean;
+  offsite: Array<{
+    path: string;
+    encrypt: boolean;
+    reachable: boolean;
+    snapshotCount: number;
+  }>;
 }> {
   const config = getConfig();
   const backup = config.backup;
 
   const lastRunRaw = getMemoryCheckpoint(LAST_RUN_CHECKPOINT_KEY);
   const lastRunMs = lastRunRaw ? Number.parseInt(lastRunRaw, 10) : NaN;
-  const lastRunAt = !Number.isNaN(lastRunMs) ? new Date(lastRunMs).toISOString() : null;
+  const lastRunAt = !Number.isNaN(lastRunMs)
+    ? new Date(lastRunMs).toISOString()
+    : null;
 
   let nextRunAt: string | null = null;
   if (backup.enabled && !Number.isNaN(lastRunMs)) {
@@ -403,19 +441,34 @@ export async function handleBackupStatus(): Promise<{
   const localSnapshots = await listSnapshotsInDir(localDir);
   const localSnapshotCount = localSnapshots.length;
 
-  const destinations = resolveOffsiteDestinations(backup.offsite.destinations);
-  const offsite: Array<{ path: string; encrypt: boolean; reachable: boolean; snapshotCount: number }> = [];
+  const offsiteEnabled = backup.offsite.enabled;
+  const offsite: Array<{
+    path: string;
+    encrypt: boolean;
+    reachable: boolean;
+    snapshotCount: number;
+  }> = [];
 
-  for (const dest of destinations) {
-    let reachable = false;
-    try {
-      await fs.stat(dirname(dest.path));
-      reachable = true;
-    } catch {
-      reachable = false;
+  if (offsiteEnabled) {
+    const destinations = resolveOffsiteDestinations(
+      backup.offsite.destinations,
+    );
+    for (const dest of destinations) {
+      let reachable = false;
+      try {
+        await fs.stat(dirname(dest.path));
+        reachable = true;
+      } catch {
+        reachable = false;
+      }
+      const snapshots = reachable ? await listSnapshotsInDir(dest.path) : [];
+      offsite.push({
+        path: dest.path,
+        encrypt: dest.encrypt,
+        reachable,
+        snapshotCount: snapshots.length,
+      });
     }
-    const snapshots = reachable ? await listSnapshotsInDir(dest.path) : [];
-    offsite.push({ path: dest.path, encrypt: dest.encrypt, reachable, snapshotCount: snapshots.length });
   }
 
   return {
@@ -426,6 +479,7 @@ export async function handleBackupStatus(): Promise<{
     nextRunAt,
     localDir,
     localSnapshotCount,
+    offsiteEnabled,
     offsite,
   };
 }
@@ -531,7 +585,8 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     handler: handleBackupDisable,
     summary: "Disable automated backups",
-    description: "Sets backup.enabled = false. Existing snapshots are untouched.",
+    description:
+      "Sets backup.enabled = false. Existing snapshots are untouched.",
     tags: ["backups"],
     responseBody: z.object({
       enabled: z.literal(false),
@@ -565,8 +620,14 @@ export const ROUTES: RouteDefinition[] = [
       "Appends a new destination. Materializes the iCloud default first if destinations is currently null. Errors if the path already exists.",
     tags: ["backups"],
     requestBody: z.object({
-      path: z.string().min(1).describe("Absolute path to the destination directory"),
-      encrypt: z.boolean().optional().describe("Encrypt snapshots at this destination (default true)"),
+      path: z
+        .string()
+        .min(1)
+        .describe("Absolute path to the destination directory"),
+      encrypt: z
+        .boolean()
+        .optional()
+        .describe("Encrypt snapshots at this destination (default true)"),
     }),
     responseBody: z.object({
       destinations: z.array(
@@ -587,7 +648,10 @@ export const ROUTES: RouteDefinition[] = [
       "Removes the destination matching the given path. Errors if no matching destination exists.",
     tags: ["backups"],
     requestBody: z.object({
-      path: z.string().min(1).describe("Exact path match of the destination to remove"),
+      path: z
+        .string()
+        .min(1)
+        .describe("Exact path match of the destination to remove"),
     }),
     responseBody: z.object({
       destinations: z.array(
@@ -608,8 +672,13 @@ export const ROUTES: RouteDefinition[] = [
       "Updates the encrypt flag for a destination. Errors if no destination with the given path exists.",
     tags: ["backups"],
     requestBody: z.object({
-      path: z.string().min(1).describe("Exact path match of an existing destination"),
-      encrypt: z.boolean().describe("true to encrypt future snapshots, false for plaintext"),
+      path: z
+        .string()
+        .min(1)
+        .describe("Exact path match of an existing destination"),
+      encrypt: z
+        .boolean()
+        .describe("true to encrypt future snapshots, false for plaintext"),
     }),
     responseBody: z.object({
       destination: z.object({
@@ -625,7 +694,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleBackupStatus,
     summary: "Show backup status and next-run timing",
     description:
-      "Reports enabled/disabled state, interval and retention, last-run and next-run timing from the backup:last_run_at checkpoint, local snapshot count, and per-destination reachability and snapshot counts.",
+      "Reports enabled/disabled state, interval and retention, last-run and next-run timing from the backup:last_run_at checkpoint, local snapshot count, and per-destination reachability and snapshot counts. When `backup.offsite.enabled` is false the `offsite` array is empty and `offsiteEnabled` is false.",
     tags: ["backups"],
     responseBody: z.object({
       enabled: z.boolean(),
@@ -635,6 +704,7 @@ export const ROUTES: RouteDefinition[] = [
       nextRunAt: z.string().nullable(),
       localDir: z.string(),
       localSnapshotCount: z.number(),
+      offsiteEnabled: z.boolean(),
       offsite: z.array(
         z.object({
           path: z.string(),

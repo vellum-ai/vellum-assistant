@@ -1700,7 +1700,8 @@ paths:
       summary: Show backup status and next-run timing
       description:
         Reports enabled/disabled state, interval and retention, last-run and next-run timing from the
-        backup:last_run_at checkpoint, local snapshot count, and per-destination reachability and snapshot counts.
+        backup:last_run_at checkpoint, local snapshot count, and per-destination reachability and snapshot counts. When
+        `backup.offsite.enabled` is false the `offsite` array is empty and `offsiteEnabled` is false.
       tags:
         - backups
       responses:
@@ -1729,6 +1730,8 @@ paths:
                     type: string
                   localSnapshotCount:
                     type: number
+                  offsiteEnabled:
+                    type: boolean
                   offsite:
                     type: array
                     items:
@@ -1756,6 +1759,7 @@ paths:
                   - nextRunAt
                   - localDir
                   - localSnapshotCount
+                  - offsiteEnabled
                   - offsite
                 additionalProperties: false
   /v1/backups:

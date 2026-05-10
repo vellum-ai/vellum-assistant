@@ -108,7 +108,12 @@ describe("backup enable", () => {
   test("basic enable sends backup_enable with no extra params", async () => {
     mockIpcResult = {
       ok: true,
-      result: { enabled: true, intervalHours: 6, retention: 3, offsite: { enabled: true } },
+      result: {
+        enabled: true,
+        intervalHours: 6,
+        retention: 3,
+        offsite: { enabled: true },
+      },
     };
     const { exitCode } = await runCommand(["backup", "enable"]);
     expect(exitCode).toBe(0);
@@ -122,9 +127,21 @@ describe("backup enable", () => {
   test("--interval 12 --retention 7 sends correct params", async () => {
     mockIpcResult = {
       ok: true,
-      result: { enabled: true, intervalHours: 12, retention: 7, offsite: { enabled: true } },
+      result: {
+        enabled: true,
+        intervalHours: 12,
+        retention: 7,
+        offsite: { enabled: true },
+      },
     };
-    const { exitCode } = await runCommand(["backup", "enable", "--interval", "12", "--retention", "7"]);
+    const { exitCode } = await runCommand([
+      "backup",
+      "enable",
+      "--interval",
+      "12",
+      "--retention",
+      "7",
+    ]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_enable");
     expect(lastIpcCall!.params).toEqual({ intervalHours: 12, retention: 7 });
@@ -133,7 +150,12 @@ describe("backup enable", () => {
   test("--no-offsite sends offsiteEnabled: false", async () => {
     mockIpcResult = {
       ok: true,
-      result: { enabled: true, intervalHours: 6, retention: 3, offsite: { enabled: false } },
+      result: {
+        enabled: true,
+        intervalHours: 6,
+        retention: 3,
+        offsite: { enabled: false },
+      },
     };
     const { exitCode } = await runCommand(["backup", "enable", "--no-offsite"]);
     expect(exitCode).toBe(0);
@@ -177,7 +199,12 @@ describe("backup destinations add", () => {
       ok: true,
       result: { destinations: [{ path: "/tmp/foo", encrypt: true }] },
     };
-    const { exitCode } = await runCommand(["backup", "destinations", "add", "/tmp/foo"]);
+    const { exitCode } = await runCommand([
+      "backup",
+      "destinations",
+      "add",
+      "/tmp/foo",
+    ]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_destinations_add");
     expect(lastIpcCall!.params).toEqual({ path: "/tmp/foo", encrypt: true });
@@ -188,7 +215,13 @@ describe("backup destinations add", () => {
       ok: true,
       result: { destinations: [{ path: "/tmp/foo", encrypt: false }] },
     };
-    const { exitCode } = await runCommand(["backup", "destinations", "add", "/tmp/foo", "--plaintext"]);
+    const { exitCode } = await runCommand([
+      "backup",
+      "destinations",
+      "add",
+      "/tmp/foo",
+      "--plaintext",
+    ]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_destinations_add");
     expect(lastIpcCall!.params).toEqual({ path: "/tmp/foo", encrypt: false });
@@ -202,7 +235,12 @@ describe("backup destinations add", () => {
 describe("backup destinations remove", () => {
   test("sends backup_destinations_remove with correct path", async () => {
     mockIpcResult = { ok: true, result: { destinations: [] } };
-    const { exitCode } = await runCommand(["backup", "destinations", "remove", "/tmp/foo"]);
+    const { exitCode } = await runCommand([
+      "backup",
+      "destinations",
+      "remove",
+      "/tmp/foo",
+    ]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("backup_destinations_remove");
     expect(lastIpcCall!.params?.path).toBe("/tmp/foo");
@@ -261,6 +299,7 @@ describe("backup status", () => {
         nextRunAt: null,
         localDir: "/tmp/local",
         localSnapshotCount: 0,
+        offsiteEnabled: false,
         offsite: [],
       },
     };

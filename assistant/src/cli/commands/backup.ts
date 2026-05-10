@@ -113,18 +113,35 @@ Examples:
   $ assistant backup enable --interval 12 --retention 14
   $ assistant backup enable --no-offsite`,
         )
-        .action(async (opts: { interval?: string; retention?: string; offsite?: boolean }, cmd: Command) => {
-          const r = await cliIpcCall("backup_enable", {
-            ...(opts.interval !== undefined && { intervalHours: Number.parseInt(opts.interval, 10) }),
-            ...(opts.retention !== undefined && { retention: Number.parseInt(opts.retention, 10) }),
-            ...(opts.offsite === false && { offsiteEnabled: false }),
-          });
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
-          const cfg = r.result as { intervalHours: number; retention: number; offsite: { enabled: boolean } };
-          log.info(
-            `Automatic backups enabled (interval=${cfg.intervalHours}h, retention=${cfg.retention}, offsite=${cfg.offsite.enabled ? "on" : "off"})`,
-          );
-        });
+        .action(
+          async (
+            opts: { interval?: string; retention?: string; offsite?: boolean },
+            cmd: Command,
+          ) => {
+            const r = await cliIpcCall("backup_enable", {
+              ...(opts.interval !== undefined && {
+                intervalHours: Number.parseInt(opts.interval, 10),
+              }),
+              ...(opts.retention !== undefined && {
+                retention: Number.parseInt(opts.retention, 10),
+              }),
+              ...(opts.offsite === false && { offsiteEnabled: false }),
+            });
+            if (!r.ok)
+              return exitFromIpcResult(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
+            const cfg = r.result as {
+              intervalHours: number;
+              retention: number;
+              offsite: { enabled: boolean };
+            };
+            log.info(
+              `Automatic backups enabled (interval=${cfg.intervalHours}h, retention=${cfg.retention}, offsite=${cfg.offsite.enabled ? "on" : "off"})`,
+            );
+          },
+        );
 
       backup
         .command("disable")
@@ -140,7 +157,11 @@ Examples:
         )
         .action(async (_opts: unknown, cmd: Command) => {
           const r = await cliIpcCall("backup_disable");
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           log.info("Automatic backups disabled");
         });
 
@@ -187,10 +208,14 @@ Examples:
   $ assistant backup destinations list`,
         )
         .action(async (_opts: unknown, cmd: Command) => {
-          const r = await cliIpcCall<{ destinations: Array<{ path: string; encrypt: boolean }> }>(
-            "backup_destinations_list",
-          );
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          const r = await cliIpcCall<{
+            destinations: Array<{ path: string; encrypt: boolean }>;
+          }>("backup_destinations_list");
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           const { destinations: dests } = r.result!;
           if (dests.length === 0) {
             log.info("No offsite destinations configured");
@@ -227,16 +252,22 @@ Examples:
   $ assistant backup destinations add /Volumes/BackupSSD/vellum --plaintext
   $ assistant backup destinations add ~/Dropbox/VellumAssistant/backups`,
         )
-        .action(async (path: string, opts: { plaintext?: boolean }, cmd: Command) => {
-          const r = await cliIpcCall("backup_destinations_add", {
-            path,
-            encrypt: !opts.plaintext,
-          });
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
-          log.info(
-            `Added destination ${path} (${opts.plaintext ? "plaintext" : "encrypted"})`,
-          );
-        });
+        .action(
+          async (path: string, opts: { plaintext?: boolean }, cmd: Command) => {
+            const r = await cliIpcCall("backup_destinations_add", {
+              path,
+              encrypt: !opts.plaintext,
+            });
+            if (!r.ok)
+              return exitFromIpcResult(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
+            log.info(
+              `Added destination ${path} (${opts.plaintext ? "plaintext" : "encrypted"})`,
+            );
+          },
+        );
 
       destinations
         .command("remove <path>")
@@ -255,7 +286,11 @@ Examples:
         )
         .action(async (path: string, _opts: unknown, cmd: Command) => {
           const r = await cliIpcCall("backup_destinations_remove", { path });
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           log.info(`Removed destination ${path}`);
         });
 
@@ -277,23 +312,29 @@ Examples:
   $ assistant backup destinations set-encrypt /Volumes/BackupSSD/vellum false
   $ assistant backup destinations set-encrypt /Volumes/BackupSSD/vellum true`,
         )
-        .action(async (path: string, value: string, _opts: unknown, cmd: Command) => {
-          const normalized = value.toLowerCase();
-          if (normalized !== "true" && normalized !== "false") {
-            log.error(
-              `Invalid encrypt value "${value}". Must be "true" or "false". ` +
-                `Run 'assistant backup destinations set-encrypt --help' for usage.`,
-            );
-            process.exitCode = 1;
-            return;
-          }
-          const r = await cliIpcCall("backup_destinations_set_encrypt", {
-            path,
-            encrypt: normalized === "true",
-          });
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
-          log.info(`Set ${path} encrypt=${normalized}`);
-        });
+        .action(
+          async (path: string, value: string, _opts: unknown, cmd: Command) => {
+            const normalized = value.toLowerCase();
+            if (normalized !== "true" && normalized !== "false") {
+              log.error(
+                `Invalid encrypt value "${value}". Must be "true" or "false". ` +
+                  `Run 'assistant backup destinations set-encrypt --help' for usage.`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            const r = await cliIpcCall("backup_destinations_set_encrypt", {
+              path,
+              encrypt: normalized === "true",
+            });
+            if (!r.ok)
+              return exitFromIpcResult(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
+            log.info(`Set ${path} encrypt=${normalized}`);
+          },
+        );
 
       // -----------------------------------------------------------------------
       // status / list
@@ -323,15 +364,27 @@ Examples:
             nextRunAt: string | null;
             localDir: string;
             localSnapshotCount: number;
-            offsite: Array<{ path: string; encrypt: boolean; reachable: boolean; snapshotCount: number }>;
+            offsiteEnabled: boolean;
+            offsite: Array<{
+              path: string;
+              encrypt: boolean;
+              reachable: boolean;
+              snapshotCount: number;
+            }>;
           }>("backup_status");
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           const s = r.result!;
           const now = Date.now();
 
           log.info(`Automatic backups: ${s.enabled ? "enabled" : "disabled"}`);
           log.info(`Interval:          every ${s.intervalHours}h`);
-          log.info(`Retention:         ${s.retention} snapshots per destination`);
+          log.info(
+            `Retention:         ${s.retention} snapshots per destination`,
+          );
 
           if (s.lastRunAt) {
             const lastRunMs = new Date(s.lastRunAt).getTime();
@@ -358,7 +411,12 @@ Examples:
             `Local directory:   ${s.localDir}  (${s.localSnapshotCount} snapshots)`,
           );
 
-          log.info(`Offsite:`);
+          log.info(
+            `Offsite:           ${s.offsiteEnabled ? "enabled" : "disabled"}`,
+          );
+          if (!s.offsiteEnabled) {
+            return;
+          }
           if (s.offsite.length === 0) {
             log.info(`  (no destinations configured)`);
             return;
@@ -366,7 +424,9 @@ Examples:
           for (const dest of s.offsite) {
             const tag = dest.reachable ? "[OK]" : "[unreachable]";
             const enc = dest.encrypt ? "encrypted" : "plaintext";
-            const suffix = dest.reachable ? "" : "  -- parent directory not reachable";
+            const suffix = dest.reachable
+              ? ""
+              : "  -- parent directory not reachable";
             log.info(
               `  ${tag} ${dest.path}  (${enc}, ${dest.snapshotCount} snapshots)${suffix}`,
             );
@@ -388,22 +448,33 @@ Examples:
         )
         .action(async (_opts: unknown, cmd: Command) => {
           const r = await cliIpcCall<{
-            local: Array<{ filename: string; createdAt: string; sizeBytes: number; encrypted: boolean }>;
+            local: Array<{
+              filename: string;
+              createdAt: string;
+              sizeBytes: number;
+              encrypted: boolean;
+            }>;
             offsite: Array<{
               destination: { path: string; encrypt: boolean };
-              snapshots: Array<{ filename: string; createdAt: string; sizeBytes: number; encrypted: boolean }>;
+              snapshots: Array<{
+                filename: string;
+                createdAt: string;
+                sizeBytes: number;
+                encrypted: boolean;
+              }>;
               reachable: boolean;
             }>;
             offsiteEnabled: boolean;
             nextRunAt: string | null;
           }>("backups_list");
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           const data = r.result!;
 
-          printSnapshotGroup(
-            `Local:`,
-            data.local,
-          );
+          printSnapshotGroup(`Local:`, data.local);
 
           if (!data.offsiteEnabled) return;
           for (const dest of data.offsite) {
@@ -425,7 +496,12 @@ Examples:
 
 function printSnapshotGroup(
   heading: string,
-  entries: Array<{ filename: string; createdAt: string; sizeBytes: number; encrypted: boolean }>,
+  entries: Array<{
+    filename: string;
+    createdAt: string;
+    sizeBytes: number;
+    encrypted: boolean;
+  }>,
 ): void {
   log.info(heading);
   if (entries.length === 0) {
