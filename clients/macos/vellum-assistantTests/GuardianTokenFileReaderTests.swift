@@ -36,7 +36,7 @@ final class GuardianTokenFileReaderTests: XCTestCase {
         let path = tmpDir.appendingPathComponent("guardian-token.json").path
         let body: [String: Any] = [
             "guardianPrincipalId": "vellum-principal-test",
-            "accessToken": "header.payload.signature",
+            "accessToken": "stub.access.value",
             "accessTokenExpiresAt": accessExpiresMs,
             "refreshToken": "refresh-test-token",
             "refreshTokenExpiresAt": refreshExpiresMs,
@@ -60,7 +60,7 @@ final class GuardianTokenFileReaderTests: XCTestCase {
         )
         let decision = GuardianTokenFileReader.decideImport(fromPath: path, nowMs: nowMs)
         if case .importValid(let creds) = decision {
-            XCTAssertEqual(creds.accessToken, "header.payload.signature")
+            XCTAssertEqual(creds.accessToken, "stub.access.value")
             XCTAssertEqual(creds.refreshToken, "refresh-test-token")
         } else {
             XCTFail("Expected .importValid, got \(decision)")
@@ -136,5 +136,90 @@ final class GuardianTokenFileReaderTests: XCTestCase {
         try! "not-json".data(using: .utf8)!.write(to: URL(fileURLWithPath: path))
         let decision = GuardianTokenFileReader.decideImport(fromPath: path, nowMs: 1_000_000_000)
         XCTAssertEqual(decision, .skipUnparseableJson)
+    }
+
+    // MARK: - deleteTokenFileAcrossAllEnvs
+
+    /// Per-env `VellumPaths` rooted at this test's tmp dir so the sweep
+    /// touches only the test sandbox, never the user's real `~/.config/`.
+    private func makeEnvPaths() -> [VellumPaths] {
+        VellumPaths.allEnvs(
+            homeDirectory: tmpDir,
+            xdgConfigHome: tmpDir.appendingPathComponent(".config")
+        )
+    }
+
+    private func plantTokenFile(at paths: VellumPaths, assistantId: String) {
+        let dir = paths.configDir
+            .appendingPathComponent("assistants")
+            .appendingPathComponent(assistantId)
+        try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try! Data("{}".utf8).write(to: dir.appendingPathComponent("guardian-token.json"))
+    }
+
+    private func tokenFilePath(at paths: VellumPaths, assistantId: String) -> String {
+        paths.configDir
+            .appendingPathComponent("assistants")
+            .appendingPathComponent(assistantId)
+            .appendingPathComponent("guardian-token.json")
+            .path
+    }
+
+    /// Recovery flows must sweep guardian-token.json from every env config
+    /// dir, not just the active one. Otherwise `seedGuardianTokenFromSiblingEnv`
+    /// (CLI side) restores a server-revoked token from a sibling env on the
+    /// next `vellum wake`, silently undoing the re-pair.
+    func testDeleteAcrossAllEnvsRemovesSiblingCopies() {
+        let assistantId = "vellum-test-pike-abc123"
+        let envPaths = makeEnvPaths()
+        let plantedEnvs: [VellumEnvironment] = [.production, .dev, .local]
+        for paths in envPaths where plantedEnvs.contains(paths.environment) {
+            plantTokenFile(at: paths, assistantId: assistantId)
+        }
+
+        let removed = GuardianTokenFileReader.deleteTokenFileAcrossAllEnvs(
+            assistantId: assistantId,
+            envPaths: envPaths
+        )
+
+        XCTAssertEqual(removed, plantedEnvs.count, "Should report removing exactly the planted files")
+        for paths in envPaths {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: tokenFilePath(at: paths, assistantId: assistantId)),
+                "Token file should be gone in env \(paths.environment.rawValue)"
+            )
+        }
+    }
+
+    func testDeleteAcrossAllEnvsHandlesMissingFiles() {
+        let removed = GuardianTokenFileReader.deleteTokenFileAcrossAllEnvs(
+            assistantId: "vellum-no-files-here",
+            envPaths: makeEnvPaths()
+        )
+        XCTAssertEqual(removed, 0)
+    }
+
+    func testDeleteAcrossAllEnvsLeavesOtherAssistantsAlone() {
+        let target = "vellum-target-pike"
+        let bystander = "vellum-bystander-deer"
+        let envPaths = makeEnvPaths()
+        let plantedEnvs: [VellumEnvironment] = [.production, .dev]
+        for paths in envPaths where plantedEnvs.contains(paths.environment) {
+            plantTokenFile(at: paths, assistantId: target)
+            plantTokenFile(at: paths, assistantId: bystander)
+        }
+
+        let removed = GuardianTokenFileReader.deleteTokenFileAcrossAllEnvs(
+            assistantId: target,
+            envPaths: envPaths
+        )
+
+        XCTAssertEqual(removed, plantedEnvs.count, "Should remove only the target assistant's files")
+        for paths in envPaths where plantedEnvs.contains(paths.environment) {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: tokenFilePath(at: paths, assistantId: bystander)),
+                "Bystander assistant's token must not be touched in env \(paths.environment.rawValue)"
+            )
+        }
     }
 }

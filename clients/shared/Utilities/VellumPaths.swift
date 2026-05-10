@@ -46,6 +46,22 @@ public struct VellumPaths {
         self.xdgConfigHome = xdgConfigHome
     }
 
+    /// One `VellumPaths` per `VellumEnvironment`, all sharing the same
+    /// home + XDG roots. Used by recovery flows that need to operate on
+    /// every env's config dir (e.g. sweeping stale tokens across siblings).
+    public static func allEnvs(
+        homeDirectory: URL = current.homeDirectory,
+        xdgConfigHome: URL = current.xdgConfigHome
+    ) -> [VellumPaths] {
+        VellumEnvironment.allCases.map { env in
+            VellumPaths(
+                environment: env,
+                homeDirectory: homeDirectory,
+                xdgConfigHome: xdgConfigHome
+            )
+        }
+    }
+
     // MARK: - Path getters
 
     /// `~/.config/vellum/` for production, `~/.config/vellum-<env>/` otherwise.
