@@ -156,7 +156,7 @@ final class DocumentManager {
     func exportToFile() {
         let content = currentContent ?? ""
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = sanitizedFilename(from: title) + ".md"
+        panel.nameFieldStringValue = Self.sanitizedFilename(from: title) + ".md"
         panel.canCreateDirectories = true
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
@@ -196,7 +196,7 @@ final class DocumentManager {
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 let panel = NSSavePanel()
-                panel.nameFieldStringValue = sanitizedFilename(from: titleForFile) + ".pdf"
+                panel.nameFieldStringValue = Self.sanitizedFilename(from: titleForFile) + ".pdf"
                 panel.canCreateDirectories = true
                 panel.begin { response in
                     guard response == .OK, let url = panel.url else { return }
@@ -208,7 +208,7 @@ final class DocumentManager {
         }
     }
 
-    private func sanitizedFilename(from title: String) -> String {
+    private static func sanitizedFilename(from title: String) -> String {
         let replaced = title.replacingOccurrences(of: " ", with: "-")
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let sanitized = replaced.unicodeScalars.filter { allowed.contains($0) }
