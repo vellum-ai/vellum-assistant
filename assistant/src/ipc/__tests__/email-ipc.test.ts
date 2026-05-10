@@ -29,8 +29,11 @@ mock.module("../../email/feature-gate.js", () => ({
 // Mock state — set up a controllable VellumPlatformClient at module boundary
 // ---------------------------------------------------------------------------
 
-let mockFetchFn: (path: string, init?: RequestInit) => Promise<Response> =
-  async () => new Response(JSON.stringify({}), { status: 200 });
+let mockFetchFn: (
+  path: string,
+  init?: RequestInit,
+) => Promise<Response> = async () =>
+  new Response(JSON.stringify({}), { status: 200 });
 
 const mockAssistantId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
@@ -76,7 +79,11 @@ test("register calls correct platform URL with username", async () => {
   mockFetchFn = async (path, init) => {
     captured = { path, init };
     return new Response(
-      JSON.stringify({ id: "1", address: "mybot@vellum.me", created_at: "2026-01-01" }),
+      JSON.stringify({
+        id: "1",
+        address: "mybot@example.com",
+        created_at: "2026-01-01",
+      }),
       { status: 201 },
     );
   };
@@ -86,32 +93,50 @@ test("register calls correct platform URL with username", async () => {
   expect(captured).not.toBeNull();
   expect(captured!.path).toContain("/email-addresses/");
   expect(captured!.init?.method).toBe("POST");
-  expect(JSON.parse(captured!.init?.body as string)).toEqual({ username: "mybot" });
+  expect(JSON.parse(captured!.init?.body as string)).toEqual({
+    username: "mybot",
+  });
   expect(process.exitCode).toBe(0);
 });
 
 test("register --json outputs structured response", async () => {
   mockFetchFn = async () =>
     new Response(
-      JSON.stringify({ id: "1", address: "support@vellum.me", created_at: "2026-01-01" }),
+      JSON.stringify({
+        id: "1",
+        address: "support@example.com",
+        created_at: "2026-01-01",
+      }),
       { status: 201 },
     );
 
-  const { stdout } = await runAssistantCommandFull("email", "--json", "register", "support");
+  const { stdout } = await runAssistantCommandFull(
+    "email",
+    "--json",
+    "register",
+    "support",
+  );
 
   const parsed = JSON.parse(stdout.trim());
-  expect(parsed.address).toBe("support@vellum.me");
+  expect(parsed.address).toBe("support@example.com");
   expect(process.exitCode).toBe(0);
 });
 
 test("register: platform error surfaces to CLI", async () => {
   mockFetchFn = async () =>
     new Response(
-      JSON.stringify({ assistant_id: ["This assistant already has an email address."] }),
+      JSON.stringify({
+        assistant_id: ["This assistant already has an email address."],
+      }),
       { status: 400 },
     );
 
-  const { stdout } = await runAssistantCommandFull("email", "--json", "register", "mybot");
+  const { stdout } = await runAssistantCommandFull(
+    "email",
+    "--json",
+    "register",
+    "mybot",
+  );
 
   expect(process.exitCode).not.toBe(0);
   const parsed = JSON.parse(stdout.trim());
@@ -128,7 +153,9 @@ test("unregister --confirm calls delete on the registered address", async () => 
     if (path.includes("/email-addresses/") && !init?.method) {
       // list call
       return new Response(
-        JSON.stringify({ results: [{ id: "addr-1", address: "mybot@vellum.me" }] }),
+        JSON.stringify({
+          results: [{ id: "addr-1", address: "mybot@example.com" }],
+        }),
         { status: 200 },
       );
     }
@@ -139,7 +166,11 @@ test("unregister --confirm calls delete on the registered address", async () => 
     return new Response("{}", { status: 200 });
   };
 
-  const { stdout: _ } = await runAssistantCommandFull("email", "unregister", "--confirm");
+  const { stdout: _ } = await runAssistantCommandFull(
+    "email",
+    "unregister",
+    "--confirm",
+  );
 
   expect(deleteCalled).toBe(true);
   expect(process.exitCode).toBe(0);
@@ -150,7 +181,10 @@ test("unregister when no address registered → NotFoundError", async () => {
     new Response(JSON.stringify({ results: [] }), { status: 200 });
 
   const { stdout } = await runAssistantCommandFull(
-    "email", "--json", "unregister", "--confirm",
+    "email",
+    "--json",
+    "unregister",
+    "--confirm",
   );
 
   expect(process.exitCode).not.toBe(0);
@@ -168,7 +202,7 @@ test("status --json displays address and usage", async () => {
     if (path.includes("/status/")) {
       return new Response(
         JSON.stringify({
-          address: "mybot@vellum.me",
+          address: "mybot@example.com",
           status: "active",
           created_at: "2026-04-05T12:00:00Z",
           usage: {
@@ -184,7 +218,9 @@ test("status --json displays address and usage", async () => {
     }
     // list call
     return new Response(
-      JSON.stringify({ results: [{ id: ADDR_ID, address: "mybot@vellum.me" }] }),
+      JSON.stringify({
+        results: [{ id: ADDR_ID, address: "mybot@example.com" }],
+      }),
       { status: 200 },
     );
   };
@@ -192,7 +228,7 @@ test("status --json displays address and usage", async () => {
   const { stdout } = await runAssistantCommandFull("email", "--json", "status");
 
   const parsed = JSON.parse(stdout.trim());
-  expect(parsed.address).toBe("mybot@vellum.me");
+  expect(parsed.address).toBe("mybot@example.com");
   expect(parsed.usage.sent_today).toBe(5);
   expect(process.exitCode).toBe(0);
 });
@@ -207,13 +243,15 @@ test("list --json returns messages", async () => {
       id: "msg-001",
       direction: "inbound",
       from_address: "user@example.com",
-      to_addresses: ["mybot@vellum.me"],
+      to_addresses: ["mybot@example.com"],
       subject: "Hello",
       created_at: "2026-04-05T12:00:00Z",
     },
   ];
   mockFetchFn = async () =>
-    new Response(JSON.stringify({ results: messages, count: 1 }), { status: 200 });
+    new Response(JSON.stringify({ results: messages, count: 1 }), {
+      status: 200,
+    });
 
   const { stdout } = await runAssistantCommandFull("email", "--json", "list");
 
@@ -227,10 +265,18 @@ test("list --direction passes filter to platform", async () => {
   let capturedPath = "";
   mockFetchFn = async (path) => {
     capturedPath = path;
-    return new Response(JSON.stringify({ results: [], count: 0 }), { status: 200 });
+    return new Response(JSON.stringify({ results: [], count: 0 }), {
+      status: 200,
+    });
   };
 
-  await runAssistantCommandFull("email", "--json", "list", "--direction", "inbound");
+  await runAssistantCommandFull(
+    "email",
+    "--json",
+    "list",
+    "--direction",
+    "inbound",
+  );
 
   expect(capturedPath).toContain("direction=inbound");
   expect(process.exitCode).toBe(0);
@@ -245,7 +291,7 @@ test("download --json returns full message", async () => {
     id: "msg-001",
     direction: "inbound",
     from_address: "user@example.com",
-    to_addresses: ["mybot@vellum.me"],
+    to_addresses: ["mybot@example.com"],
     subject: "Hi",
     body_text: "Hello",
     body_html: "<p>Hello</p>",
@@ -257,7 +303,10 @@ test("download --json returns full message", async () => {
     new Response(JSON.stringify(message), { status: 200 });
 
   const { stdout } = await runAssistantCommandFull(
-    "email", "--json", "download", "msg-001",
+    "email",
+    "--json",
+    "download",
+    "msg-001",
   );
 
   const parsed = JSON.parse(stdout.trim());
@@ -270,7 +319,10 @@ test("download: not found returns error", async () => {
     new Response(JSON.stringify({ detail: "Not found" }), { status: 404 });
 
   const { stdout } = await runAssistantCommandFull(
-    "email", "--json", "download", "msg-bad",
+    "email",
+    "--json",
+    "download",
+    "msg-bad",
   );
 
   expect(process.exitCode).not.toBe(0);
@@ -286,7 +338,9 @@ test("send --json returns delivery_id", async () => {
   mockFetchFn = async (path) => {
     if (path.includes("/email-addresses/")) {
       return new Response(
-        JSON.stringify({ results: [{ id: "addr-1", address: "mybot@vellum.me" }] }),
+        JSON.stringify({
+          results: [{ id: "addr-1", address: "mybot@example.com" }],
+        }),
         { status: 200 },
       );
     }
@@ -298,7 +352,14 @@ test("send --json returns delivery_id", async () => {
   };
 
   const { stdout } = await runAssistantCommandFull(
-    "email", "--json", "send", "user@example.com", "-s", "Test", "-b", "Hello",
+    "email",
+    "--json",
+    "send",
+    "user@example.com",
+    "-s",
+    "Test",
+    "-b",
+    "Hello",
   );
 
   const parsed = JSON.parse(stdout.trim());
@@ -310,7 +371,9 @@ test("send: 402 billing error surfaces", async () => {
   mockFetchFn = async (path) => {
     if (path.includes("/email-addresses/")) {
       return new Response(
-        JSON.stringify({ results: [{ id: "addr-1", address: "mybot@vellum.me" }] }),
+        JSON.stringify({
+          results: [{ id: "addr-1", address: "mybot@example.com" }],
+        }),
         { status: 200 },
       );
     }
@@ -318,7 +381,14 @@ test("send: 402 billing error surfaces", async () => {
   };
 
   const { stdout } = await runAssistantCommandFull(
-    "email", "--json", "send", "user@example.com", "-s", "Test", "-b", "Body",
+    "email",
+    "--json",
+    "send",
+    "user@example.com",
+    "-s",
+    "Test",
+    "-b",
+    "Body",
   );
 
   expect(process.exitCode).not.toBe(0);
@@ -345,13 +415,77 @@ test("attachment --list --json returns attachments", async () => {
     new Response(JSON.stringify({ results: atts }), { status: 200 });
 
   const { stdout } = await runAssistantCommandFull(
-    "email", "--json", "attachment", "msg-001", "--list",
+    "email",
+    "--json",
+    "attachment",
+    "msg-001",
+    "--list",
   );
 
   const parsed = JSON.parse(stdout.trim());
   expect(parsed.results).toHaveLength(1);
   expect(parsed.results[0].filename).toBe("file.pdf");
   expect(process.exitCode).toBe(0);
+});
+
+// ---------------------------------------------------------------------------
+// list-endpoint failure tests (platform 5xx must not masquerade as "no address")
+// ---------------------------------------------------------------------------
+
+test("unregister: list-endpoint 500 surfaces platform error", async () => {
+  mockFetchFn = async () =>
+    new Response(JSON.stringify({ detail: "Internal server error" }), {
+      status: 500,
+    });
+
+  const { stdout } = await runAssistantCommandFull(
+    "email",
+    "--json",
+    "unregister",
+    "--confirm",
+  );
+
+  expect(process.exitCode).not.toBe(0);
+  const parsed = JSON.parse(stdout.trim());
+  expect(parsed.error).toContain("500");
+  expect(parsed.error).not.toContain("No email address registered");
+});
+
+test("status: list-endpoint 500 surfaces platform error", async () => {
+  mockFetchFn = async () =>
+    new Response(JSON.stringify({ detail: "Internal server error" }), {
+      status: 500,
+    });
+
+  const { stdout } = await runAssistantCommandFull("email", "--json", "status");
+
+  expect(process.exitCode).not.toBe(0);
+  const parsed = JSON.parse(stdout.trim());
+  expect(parsed.error).toContain("500");
+  expect(parsed.error).not.toContain("No email address registered");
+});
+
+test("send: list-endpoint 500 surfaces platform error", async () => {
+  mockFetchFn = async () =>
+    new Response(JSON.stringify({ detail: "Internal server error" }), {
+      status: 500,
+    });
+
+  const { stdout } = await runAssistantCommandFull(
+    "email",
+    "--json",
+    "send",
+    "user@example.com",
+    "-s",
+    "Test",
+    "-b",
+    "Body",
+  );
+
+  expect(process.exitCode).not.toBe(0);
+  const parsed = JSON.parse(stdout.trim());
+  expect(parsed.error).toContain("500");
+  expect(parsed.error).not.toContain("No email address registered");
 });
 
 // ---------------------------------------------------------------------------

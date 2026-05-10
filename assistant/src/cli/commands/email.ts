@@ -9,7 +9,11 @@ import { basename, join } from "node:path";
 import type { Command } from "commander";
 
 import { getAssistantDomain } from "../../config/env.js";
-import { cliIpcCall, cliIpcCallStream, exitFromIpcResult } from "../../ipc/cli-client.js";
+import {
+  cliIpcCall,
+  cliIpcCallStream,
+  exitFromIpcResult,
+} from "../../ipc/cli-client.js";
 import { registerCommand } from "../lib/register-command.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -26,9 +30,18 @@ function handleEmailIpcError(
   r: { ok: false; error?: string; statusCode?: number },
   cmd: Command,
 ): void {
-  const exitCode = r.statusCode == null ? 10 : r.statusCode >= 500 ? 3 : r.statusCode >= 400 ? 2 : 1;
+  const exitCode =
+    r.statusCode == null
+      ? 10
+      : r.statusCode >= 500
+        ? 3
+        : r.statusCode >= 400
+          ? 2
+          : 1;
   if (shouldOutputJson(cmd)) {
-    process.stdout.write(JSON.stringify({ error: r.error ?? "Unknown error" }) + "\n");
+    process.stdout.write(
+      JSON.stringify({ error: r.error ?? "Unknown error" }) + "\n",
+    );
     process.exitCode = exitCode;
     return;
   }
@@ -83,11 +96,16 @@ Examples:
   {"address":"support@${domain}","id":"...","created_at":"..."}`,
         )
         .action(async (username: string, _opts: unknown, cmd: Command) => {
-          const r = await cliIpcCall<{ id: string; address: string; created_at: string }>(
-            "email_register",
-            { body: { username } },
-          );
-          if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          const r = await cliIpcCall<{
+            id: string;
+            address: string;
+            created_at: string;
+          }>("email_register", { body: { username } });
+          if (!r.ok)
+            return handleEmailIpcError(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
           } else {
@@ -128,7 +146,10 @@ Examples:
               output: process.stderr,
             });
             const answer = await new Promise<string>((resolve) => {
-              iface.question(`Remove registered email address? (y/N) `, resolve);
+              iface.question(
+                `Remove registered email address? (y/N) `,
+                resolve,
+              );
             });
             iface.close();
             if (answer.trim().toLowerCase() !== "y") {
@@ -140,7 +161,11 @@ Examples:
             "email_unregister",
             {},
           );
-          if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return handleEmailIpcError(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
           } else {
@@ -182,7 +207,11 @@ Examples:
               received_this_month: number;
             };
           }>("email_status", {});
-          if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return handleEmailIpcError(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
           const statusData = r.result!;
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, statusData);
@@ -210,8 +239,11 @@ Examples:
           "Filter by direction: inbound, outbound, or all",
           "all",
         )
-        .option("-l, --limit <count>", "Maximum number of results")
-        .option("--since <date>", "Only show messages since this date (ISO 8601)")
+        .option("-l, --limit <count>", "Maximum number of results", "20")
+        .option(
+          "--since <date>",
+          "Only show messages since this date (ISO 8601)",
+        )
         .addHelpText(
           "after",
           `
@@ -254,7 +286,11 @@ Examples:
               }[];
               count: number;
             }>("email_list", { queryParams: params });
-            if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+            if (!r.ok)
+              return handleEmailIpcError(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
             const data = r.result!;
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
@@ -334,7 +370,11 @@ Examples:
               references: string[];
               created_at: string;
             }>("email_download", { queryParams: { messageId } });
-            if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+            if (!r.ok)
+              return handleEmailIpcError(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
             const msg = r.result!;
 
             const fmt = opts.format ?? "text";
@@ -483,7 +523,11 @@ Examples:
               "email_send",
               { body: params },
             );
-            if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+            if (!r.ok)
+              return handleEmailIpcError(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
             const data = r.result!;
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
@@ -540,7 +584,11 @@ $ assistant email attachment msg_abc1 --list --json`,
                 "email_attachment_list",
                 { queryParams: { messageId } },
               );
-              if (!r.ok) return handleEmailIpcError({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+              if (!r.ok)
+                return handleEmailIpcError(
+                  { ok: false, error: r.error, statusCode: r.statusCode },
+                  cmd,
+                );
               const data = r.result!;
               if (shouldOutputJson(cmd)) {
                 writeOutput(cmd, data);
@@ -578,7 +626,15 @@ $ assistant email attachment msg_abc1 --list --json`,
                 "email_attachment_list",
                 { queryParams: { messageId } },
               );
-              if (!listR.ok) return handleEmailIpcError({ ok: false, error: listR.error, statusCode: listR.statusCode }, cmd);
+              if (!listR.ok)
+                return handleEmailIpcError(
+                  {
+                    ok: false,
+                    error: listR.error,
+                    statusCode: listR.statusCode,
+                  },
+                  cmd,
+                );
               const attachments = listR.result!.results ?? [];
               if (attachments.length === 0) {
                 log.error("No attachments for this message.");
@@ -590,7 +646,10 @@ $ assistant email attachment msg_abc1 --list --json`,
               for (const att of attachments) {
                 const dest = join(outDir, safeFilename(att.filename));
                 await streamDownloadAttachment(att.id, messageId, dest);
-                downloaded.push({ filename: att.filename, size_bytes: att.size_bytes });
+                downloaded.push({
+                  filename: att.filename,
+                  size_bytes: att.size_bytes,
+                });
               }
 
               if (shouldOutputJson(cmd)) {
@@ -600,7 +659,9 @@ $ assistant email attachment msg_abc1 --list --json`,
                   files: downloaded,
                 });
               } else {
-                log.info(`✓ Downloaded ${downloaded.length} attachment(s) to ${outDir}`);
+                log.info(
+                  `✓ Downloaded ${downloaded.length} attachment(s) to ${outDir}`,
+                );
                 for (const f of downloaded) {
                   log.info(`  - ${f.filename} (${formatBytes(f.size_bytes)})`);
                 }
@@ -611,7 +672,15 @@ $ assistant email attachment msg_abc1 --list --json`,
                 "email_attachment_list",
                 { queryParams: { messageId } },
               );
-              if (!listR.ok) return handleEmailIpcError({ ok: false, error: listR.error, statusCode: listR.statusCode }, cmd);
+              if (!listR.ok)
+                return handleEmailIpcError(
+                  {
+                    ok: false,
+                    error: listR.error,
+                    statusCode: listR.statusCode,
+                  },
+                  cmd,
+                );
               const meta = (listR.result!.results ?? []).find(
                 (a) => a.id === attachmentId,
               );
@@ -630,7 +699,9 @@ $ assistant email attachment msg_abc1 --list --json`,
                   saved: dest,
                 });
               } else {
-                log.info(`✓ Downloaded ${meta.filename} (${formatBytes(meta.size_bytes)})`);
+                log.info(
+                  `✓ Downloaded ${meta.filename} (${formatBytes(meta.size_bytes)})`,
+                );
               }
             }
           },

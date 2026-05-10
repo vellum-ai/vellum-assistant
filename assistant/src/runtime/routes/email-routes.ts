@@ -79,6 +79,14 @@ async function handleEmailUnregister(_args: RouteHandlerArgs) {
     `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
   );
 
+  if (!listResponse.ok) {
+    throw new RouteError(
+      `Failed to list email addresses: HTTP ${listResponse.status}`,
+      "LIST_FAILED",
+      listResponse.status,
+    );
+  }
+
   const listData = (await listResponse.json()) as {
     results: { id: string; address: string }[];
   };
@@ -96,11 +104,16 @@ async function handleEmailUnregister(_args: RouteHandlerArgs) {
   );
 
   if (!deleteResponse.ok) {
-    const respBody = (await deleteResponse
-      .json()
-      .catch(() => ({}))) as Record<string, unknown>;
+    const respBody = (await deleteResponse.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
     const detail = respBody.detail ?? `HTTP ${deleteResponse.status}`;
-    throw new RouteError(String(detail), "DELETE_FAILED", deleteResponse.status);
+    throw new RouteError(
+      String(detail),
+      "DELETE_FAILED",
+      deleteResponse.status,
+    );
   }
 
   return { unregistered: target.address };
@@ -112,6 +125,14 @@ async function handleEmailStatus(_args: RouteHandlerArgs) {
   const listResponse = await client.fetch(
     `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
   );
+
+  if (!listResponse.ok) {
+    throw new RouteError(
+      `Failed to list email addresses: HTTP ${listResponse.status}`,
+      "LIST_FAILED",
+      listResponse.status,
+    );
+  }
 
   const listData = (await listResponse.json()) as {
     results: { id: string; address: string }[];
@@ -131,11 +152,16 @@ async function handleEmailStatus(_args: RouteHandlerArgs) {
   );
 
   if (!statusResponse.ok) {
-    const respBody = (await statusResponse
-      .json()
-      .catch(() => ({}))) as Record<string, unknown>;
+    const respBody = (await statusResponse.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
     const detail = respBody.detail ?? `HTTP ${statusResponse.status}`;
-    throw new RouteError(String(detail), "STATUS_FAILED", statusResponse.status);
+    throw new RouteError(
+      String(detail),
+      "STATUS_FAILED",
+      statusResponse.status,
+    );
   }
 
   const statusData = (await statusResponse.json()) as {
@@ -213,15 +239,7 @@ async function handleEmailDownload({ queryParams = {} }: RouteHandlerArgs) {
 }
 
 async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
-  const {
-    to,
-    text,
-    subject,
-    html,
-    cc,
-    bcc,
-    reply_to,
-  } = body as {
+  const { to, text, subject, html, cc, bcc, reply_to } = body as {
     to: string[];
     text: string;
     subject?: string;
@@ -237,6 +255,14 @@ async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
   const listResponse = await client.fetch(
     `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
   );
+
+  if (!listResponse.ok) {
+    throw new RouteError(
+      `Failed to list email addresses: HTTP ${listResponse.status}`,
+      "LIST_FAILED",
+      listResponse.status,
+    );
+  }
 
   const listData = (await listResponse.json()) as {
     results: { id: string; address: string }[];
@@ -305,7 +331,9 @@ interface AttachmentMeta {
   created_at: string;
 }
 
-async function handleEmailAttachmentList({ queryParams = {} }: RouteHandlerArgs) {
+async function handleEmailAttachmentList({
+  queryParams = {},
+}: RouteHandlerArgs) {
   const client = await requireClient();
   const { messageId } = queryParams;
 
@@ -329,7 +357,9 @@ async function handleEmailAttachmentList({ queryParams = {} }: RouteHandlerArgs)
   return { results: data.results ?? [] };
 }
 
-async function handleEmailAttachmentGet({ queryParams = {} }: RouteHandlerArgs) {
+async function handleEmailAttachmentGet({
+  queryParams = {},
+}: RouteHandlerArgs) {
   const client = await requireClient();
   const { messageId, attachmentId } = queryParams;
 
@@ -350,15 +380,22 @@ async function handleEmailAttachmentGet({ queryParams = {} }: RouteHandlerArgs) 
   }
 
   if (!response.body) {
-    throw new RouteError("Empty response body from download endpoint.", "EMPTY_BODY", 502);
+    throw new RouteError(
+      "Empty response body from download endpoint.",
+      "EMPTY_BODY",
+      502,
+    );
   }
 
   // Extract filename from content-disposition header, falling back to attachmentId
   const contentDisposition = response.headers.get("content-disposition") ?? "";
-  const filenameMatch = contentDisposition.match(/filename\*?=['"]?([^'";]+)['"]?/i);
+  const filenameMatch = contentDisposition.match(
+    /filename\*?=['"]?([^'";]+)['"]?/i,
+  );
   const filename = filenameMatch?.[1]?.trim() ?? attachmentId;
 
-  const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+  const contentType =
+    response.headers.get("content-type") ?? "application/octet-stream";
 
   // Return a streaming response — the IPC server pipes the ReadableStream as
   // chunked binary frames to the client
@@ -385,7 +422,10 @@ export const ROUTES: RouteDefinition[] = [
       "Register a new email address on the Vellum platform for the current assistant.",
     tags: ["email"],
     requestBody: z.object({
-      username: z.string().min(1).describe("The local part of the email address"),
+      username: z
+        .string()
+        .min(1)
+        .describe("The local part of the email address"),
     }),
     responseBody: z.object({
       id: z.string(),
@@ -438,9 +478,24 @@ export const ROUTES: RouteDefinition[] = [
       "List received and sent emails for this assistant, with optional filtering.",
     tags: ["email"],
     queryParams: [
-      { name: "direction", type: "string", required: false, description: "Filter by direction: inbound, outbound, or all" },
-      { name: "limit", type: "string", required: false, description: "Maximum number of results" },
-      { name: "since", type: "string", required: false, description: "Only show messages since this date (ISO 8601)" },
+      {
+        name: "direction",
+        type: "string",
+        required: false,
+        description: "Filter by direction: inbound, outbound, or all",
+      },
+      {
+        name: "limit",
+        type: "string",
+        required: false,
+        description: "Maximum number of results",
+      },
+      {
+        name: "since",
+        type: "string",
+        required: false,
+        description: "Only show messages since this date (ISO 8601)",
+      },
     ],
     responseBody: z.object({
       results: z.array(z.unknown()),
@@ -456,7 +511,12 @@ export const ROUTES: RouteDefinition[] = [
     description: "Download a specific email message by ID.",
     tags: ["email"],
     queryParams: [
-      { name: "messageId", type: "string", required: true, description: "Email message ID" },
+      {
+        name: "messageId",
+        type: "string",
+        required: true,
+        description: "Email message ID",
+      },
     ],
     responseBody: z.unknown(),
   },
@@ -473,7 +533,10 @@ export const ROUTES: RouteDefinition[] = [
       to: z.array(z.string()).min(1).describe("Recipient email address(es)"),
       text: z.string().min(1).describe("Email body (plain text)"),
       subject: z.string().optional().describe("Subject line"),
-      html: z.string().optional().describe("HTML body (auto-generated from text if omitted)"),
+      html: z
+        .string()
+        .optional()
+        .describe("HTML body (auto-generated from text if omitted)"),
       cc: z.array(z.string()).optional().describe("CC recipients"),
       bcc: z.array(z.string()).optional().describe("BCC recipients"),
       reply_to: z.string().optional().describe("Reply-to email ID"),
@@ -489,10 +552,16 @@ export const ROUTES: RouteDefinition[] = [
     method: "GET",
     handler: handleEmailAttachmentList,
     summary: "List attachments for an email message",
-    description: "Return attachment metadata (id, filename, content_type, size_bytes, content_id, created_at) for all attachments on a given email message.",
+    description:
+      "Return attachment metadata (id, filename, content_type, size_bytes, content_id, created_at) for all attachments on a given email message.",
     tags: ["email"],
     queryParams: [
-      { name: "messageId", type: "string", required: true, description: "Email message ID" },
+      {
+        name: "messageId",
+        type: "string",
+        required: true,
+        description: "Email message ID",
+      },
     ],
     responseBody: z.object({
       results: z.array(
@@ -513,11 +582,22 @@ export const ROUTES: RouteDefinition[] = [
     method: "GET",
     handler: handleEmailAttachmentGet,
     summary: "Stream-download an email attachment",
-    description: "Download the binary content of a specific email attachment as a chunked stream. Response headers include content-type from the upstream and x-filename derived from content-disposition.",
+    description:
+      "Download the binary content of a specific email attachment as a chunked stream. Response headers include content-type from the upstream and x-filename derived from content-disposition.",
     tags: ["email"],
     queryParams: [
-      { name: "messageId", type: "string", required: true, description: "Email message ID" },
-      { name: "attachmentId", type: "string", required: true, description: "Attachment ID" },
+      {
+        name: "messageId",
+        type: "string",
+        required: true,
+        description: "Email message ID",
+      },
+      {
+        name: "attachmentId",
+        type: "string",
+        required: true,
+        description: "Attachment ID",
+      },
     ],
   },
 ];
