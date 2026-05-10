@@ -8,7 +8,7 @@ The bot token is invalid, has been reset, or was copied incorrectly.
 
 - Open **https://discord.com/developers/applications/{application_id}/bot** and click **Reset Token**.
 - Discord will display the new token **once** — paste it into the secure prompt immediately.
-- Re-run `validate-and-configure.ts` to confirm.
+- Re-run `validate-token.ts` to confirm.
 
 ### 403 Forbidden on `/users/@me` or `/oauth2/applications/@me`
 
@@ -53,15 +53,15 @@ This appears when the invite URL is built with a `response_type=code` query para
 
 The user inviting the bot must have **Manage Server** permission on the target guild. Have a server admin run the invite link, or grant the user the role.
 
-## Application Metadata
+## Token Validation
 
-### `discord_channel.applicationId` is empty
+### `validate-token.ts` reports `Discord /users/@me → 401`
 
-`validate-and-configure.ts` was never run, or it failed before the config writes. Run it again — it requires a valid `discord_channel:bot_token` to be present in the credential store.
+The bot token in the credential store is invalid. Reset the token in the developer portal, re-prompt via `store-bot-token.ts`, then re-run `validate-token.ts`.
 
-### `validate-and-configure.ts` reports `Discord /users/@me → 401`
+### `print-invite-url.ts` reports `Discord /oauth2/applications/@me → 401`
 
-The bot token in the credential store is invalid. Reset the token in the developer portal, re-prompt with `credential_store`, then re-run the script.
+Same root cause — the stored bot token is invalid. The invite URL script calls `/oauth2/applications/@me` to discover the application ID; a stale token will fail here too. Re-run `store-bot-token.ts`.
 
 ## Token Notes
 

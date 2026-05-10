@@ -18,6 +18,7 @@ import { getGatewaySecurityDir } from "../../paths.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
+import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
 
 const log = getLogger("channel-verification-session-proxy");
 
@@ -152,6 +153,18 @@ export function createChannelVerificationSessionProxyHandler(
       req: Request,
       clientIp?: string,
     ): Promise<Response> {
+      // Defense-in-depth: reject requests that arrived via the Velay HTTP
+      // bridge. The bridge injects this header unconditionally; the path
+      // allowlist is the primary guard, this is the secondary. A Velay client
+      // cannot bypass it by stripping the header — the bridge always overwrites.
+      if (req.headers.get(VELAY_FORWARDED_HEADER)) {
+        log.warn("Guardian init rejected — Velay-bridged request");
+        return Response.json(
+          { error: "Bootstrap endpoint is not accessible via tunnel" },
+          { status: 403 },
+        );
+      }
+
       const lockDir = getGatewaySecurityDir();
       const lockPath = join(lockDir, "guardian-init.lock");
       const consumedPath = join(lockDir, "guardian-init-consumed.json");
@@ -427,7 +440,17 @@ export function createChannelVerificationSessionProxyHandler(
       }
     },
 
-    async handleResetBootstrap(clientIp?: string): Promise<Response> {
+    async handleResetBootstrap(
+      clientIp?: string,
+      req?: Request,
+    ): Promise<Response> {
+      if (req?.headers.get(VELAY_FORWARDED_HEADER)) {
+        log.warn("Guardian reset-bootstrap rejected — Velay-bridged request");
+        return Response.json(
+          { error: "Reset endpoint is not accessible via tunnel" },
+          { status: 403 },
+        );
+      }
       if (clientIp && !isLoopbackAddress(clientIp)) {
         return Response.json(
           { error: "Loopback-only endpoint" },

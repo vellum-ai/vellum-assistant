@@ -556,9 +556,15 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
         conversation.conversationType,
       )
     : "user";
+  // Running total of estimated USD cost across every priced LLM call in
+  // the conversation. Maintained by `updateConversationUsage` whenever a
+  // turn finishes — see `assistant/src/memory/conversation-crud.ts`.
+  const conversationTotalEstimatedCostUsd =
+    conversation?.totalEstimatedCost ?? null;
   return {
     messageId,
     conversationKind,
+    conversationTotalEstimatedCostUsd,
     logs: logs.map((log) => {
       let requestPayload: unknown;
       try {
@@ -798,6 +804,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       messageId: z.string(),
       conversationKind: z.enum(CONVERSATION_KINDS),
+      conversationTotalEstimatedCostUsd: z.number().nullable(),
       logs: z.array(z.unknown()),
       memoryRecall: z.object({}).passthrough().nullable(),
       memoryV2Activation: z.object({}).passthrough().nullable(),

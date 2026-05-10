@@ -214,4 +214,33 @@ describe("Velay HTTP bridge", () => {
     expect(response.status_code).toBe(502);
     expect(response.request_id).toBe("req-123");
   });
+
+  test("injects x-velay-forwarded header on every forwarded request", async () => {
+    const captured: Headers[] = [];
+    fetchMock = mock(async (input: string | URL | Request) => {
+      captured.push((input as Request).headers);
+      return new Response("ok");
+    });
+
+    await bridgeVelayHttpRequest(makeFrame(), "http://127.0.0.1:7830");
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].get("x-velay-forwarded")).toBe("1");
+  });
+
+  test("overwrites a client-supplied x-velay-forwarded value with 1", async () => {
+    const captured: Headers[] = [];
+    fetchMock = mock(async (input: string | URL | Request) => {
+      captured.push((input as Request).headers);
+      return new Response("ok");
+    });
+
+    await bridgeVelayHttpRequest(
+      makeFrame({ headers: { "x-velay-forwarded": ["spoofed"] } }),
+      "http://127.0.0.1:7830",
+    );
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].get("x-velay-forwarded")).toBe("1");
+  });
 });

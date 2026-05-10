@@ -2,6 +2,7 @@ import { stripHopByHop } from "@vellumai/assistant-client";
 
 import { fetchImpl } from "../fetch.js";
 import {
+  VELAY_FORWARDED_HEADER,
   buildLoopbackHttpUrl,
   decodeOptionalBase64ArrayBuffer,
   encodeBase64,
@@ -61,6 +62,12 @@ function buildLoopbackRequest(
     } else {
       headers.delete("content-length");
     }
+
+    // Inject an unconditional Velay-origin marker. Loopback-only routes use
+    // this as a secondary guard (in addition to the path allowlist) to reject
+    // tunnel-bridged requests regardless of peer IP. Overwrite any
+    // client-supplied value so it cannot be stripped on the Velay side.
+    headers.set(VELAY_FORWARDED_HEADER, "1");
 
     return new Request(url, {
       method: frame.method,

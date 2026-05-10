@@ -2,14 +2,13 @@
  * Tests for the `assistant memory v2` CLI subgroup.
  *
  * Validates:
- *   - Subcommand registration (migrate, rebuild-edges, reembed, activation,
- *     validate) under `memory v2`.
+ *   - Subcommand registration (reembed, reembed-skills, activation, validate)
+ *     under `memory v2`. The `memory` parent is created by the v2 registrar
+ *     itself; v1 had its own subcommands but those were retired.
  *   - Each mutating subcommand maps to the right `memory_v2_backfill` op.
- *   - `migrate --force` propagates `force: true`; bare `migrate` omits it.
  *   - `validate` calls `memory_v2_validate` and pretty-prints the report.
+ *   - `reembed-skills` calls `memory_v2_reembed_skills` synchronously.
  *   - IPC error paths return a non-zero exit code without throwing.
- *   - `registerMemoryV2Command` throws if the parent `memory` command is
- *     not registered first (the contract documented in program.ts).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -73,20 +72,16 @@ const { registerMemoryV2Command } = await import("../memory-v2.js");
 // ---------------------------------------------------------------------------
 
 /**
- * Build a fresh program with a stub `memory` parent command attached so the
- * v2 registrar has a parent to hang itself off. We deliberately stub the
- * parent rather than calling `registerMemoryCommand` because registering
- * the real parent pulls in heavy dependencies (DB, embedding backend) that
- * the v2 subgroup does not use.
+ * Build a fresh program and register the v2 subgroup. The registrar creates
+ * the `memory` parent itself, so callers don't need to stub one.
  */
-function buildProgramWithStubParent(): Command {
+function buildProgram(): Command {
   const program = new Command();
   program.exitOverride();
   program.configureOutput({
     writeErr: () => {},
     writeOut: () => {},
   });
-  program.command("memory").description("Stub parent for tests");
   registerMemoryV2Command(program);
   return program;
 }
@@ -108,7 +103,7 @@ async function runCommand(
   process.exitCode = 0;
 
   try {
-    const program = buildProgramWithStubParent();
+    const program = buildProgram();
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
     if (process.exitCode === 0) process.exitCode = 1;
@@ -140,7 +135,7 @@ beforeEach(() => {
 
 describe("subcommand registration", () => {
   test("registers v2 under memory with the expected subcommands", () => {
-    const program = buildProgramWithStubParent();
+    const program = buildProgram();
     const memory = program.commands.find((c) => c.name() === "memory");
     expect(memory).toBeDefined();
     const v2 = memory!.commands.find((c) => c.name() === "v2");
@@ -148,96 +143,27 @@ describe("subcommand registration", () => {
     const subcommandNames = v2!.commands.map((c) => c.name()).sort();
     expect(subcommandNames).toEqual([
       "activation",
-      "explain",
-      "fit-anisotropy",
-      "migrate",
-      "rebuild-corpus-stats",
       "reembed",
       "reembed-skills",
       "validate",
     ]);
   });
 
-  test("throws when parent memory command is missing", () => {
-    const program = new Command();
-    expect(() => registerMemoryV2Command(program)).toThrow(
-      /parent `memory` command not found/,
-    );
-  });
-
-  test("--help lists every registered subcommand", () => {
-    const program = buildProgramWithStubParent();
+  test("--help lists every registered subcommand and no removed ones", () => {
+    const program = buildProgram();
     const memory = program.commands.find((c) => c.name() === "memory")!;
     const v2 = memory.commands.find((c) => c.name() === "v2")!;
     const help = v2.helpInformation();
-    // Commander renders each subcommand on its own line under "Commands:".
-    expect(help).toContain("migrate");
     expect(help).toContain("reembed");
     expect(help).toContain("reembed-skills");
     expect(help).toContain("activation");
     expect(help).toContain("validate");
-    expect(help).toContain("explain");
-    // rebuild-edges was retired alongside the directed-edges work.
+    // Removed subcommands must not surface in help.
+    expect(help).not.toContain("migrate");
+    expect(help).not.toContain("explain");
+    expect(help).not.toContain("fit-anisotropy");
+    expect(help).not.toContain("rebuild-corpus-stats");
     expect(help).not.toContain("rebuild-edges");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// migrate
-// ---------------------------------------------------------------------------
-
-describe("memory v2 migrate", () => {
-  test("sends memory_v2/backfill with op=migrate", async () => {
-    mockIpcResult = { ok: true, result: { jobId: "migrate-1" } };
-
-    const { exitCode } = await runCommand(["memory", "v2", "migrate"]);
-
-    expect(exitCode).toBe(0);
-    expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("memory_v2_backfill");
-    expect(lastIpcCall!.params.body).toEqual({ op: "migrate" });
-  });
-
-  test("--force propagates force:true", async () => {
-    mockIpcResult = { ok: true, result: { jobId: "migrate-2" } };
-
-    await runCommand(["memory", "v2", "migrate", "--force"]);
-
-    expect(lastIpcCall!.params.body).toEqual({ op: "migrate", force: true });
-  });
-
-  test("logs the returned jobId", async () => {
-    mockIpcResult = { ok: true, result: { jobId: "migrate-abc" } };
-
-    await runCommand(["memory", "v2", "migrate"]);
-
-    expect(logOutput.some((line) => line.includes("migrate-abc"))).toBe(true);
-  });
-
-  test("exits with code 1 on IPC failure", async () => {
-    mockIpcResult = { ok: false, error: "Connection refused" };
-
-    const { exitCode } = await runCommand(["memory", "v2", "migrate"]);
-
-    expect(exitCode).toBe(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// rebuild-edges (removed — directed edges live in page frontmatter, no rebuild
-// step is needed). The CLI subcommand was retired alongside the job handler.
-// ---------------------------------------------------------------------------
-
-describe("memory v2 rebuild-edges", () => {
-  test("subcommand is no longer registered", async () => {
-    mockIpcResult = { ok: true, result: { jobId: "should-not-fire" } };
-
-    const { exitCode } = await runCommand(["memory", "v2", "rebuild-edges"]);
-
-    // commander emits a non-zero exit for unknown subcommands; we just need
-    // to verify the IPC call never happened.
-    expect(exitCode).not.toBe(0);
-    expect(lastIpcCall).toBeNull();
   });
 });
 
@@ -274,6 +200,38 @@ describe("memory v2 reembed", () => {
 });
 
 // ---------------------------------------------------------------------------
+// reembed-skills
+// ---------------------------------------------------------------------------
+
+describe("memory v2 reembed-skills", () => {
+  test("sends memory_v2/reembed_skills with no body params", async () => {
+    mockIpcResult = { ok: true, result: { reembedded: 12 } };
+
+    const { exitCode } = await runCommand(["memory", "v2", "reembed-skills"]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.method).toBe("memory_v2_reembed_skills");
+    expect(lastIpcCall!.params.body).toEqual({});
+  });
+
+  test("logs completion message on success", async () => {
+    mockIpcResult = { ok: true, result: { reembedded: 7 } };
+
+    await runCommand(["memory", "v2", "reembed-skills"]);
+
+    expect(logOutput.some((line) => line.includes("complete"))).toBe(true);
+  });
+
+  test("exits with code 1 on IPC failure", async () => {
+    mockIpcResult = { ok: false, error: "Memory v2 not enabled" };
+
+    const { exitCode } = await runCommand(["memory", "v2", "reembed-skills"]);
+
+    expect(exitCode).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // activation
 // ---------------------------------------------------------------------------
 
@@ -299,7 +257,7 @@ describe("memory v2 activation", () => {
   });
 
   test("exits with code 1 on IPC failure", async () => {
-    mockIpcResult = { ok: false, error: "Connection refused" };
+    mockIpcResult = { ok: false, error: "Connection timeout" };
 
     const { exitCode } = await runCommand(["memory", "v2", "activation"]);
 
@@ -335,51 +293,62 @@ describe("memory v2 validate", () => {
     mockIpcResult = {
       ok: true,
       result: {
-        pageCount: 12,
-        edgeCount: 30,
+        pageCount: 49,
+        edgeCount: 166,
         missingEdgeEndpoints: [],
         oversizedPages: [],
         parseFailures: [],
       },
     };
 
-    await runCommand(["memory", "v2", "validate"]);
+    const { exitCode } = await runCommand(["memory", "v2", "validate"]);
 
-    const joined = logOutput.join("\n");
-    expect(joined).toContain("Pages: 12");
-    expect(joined).toContain("Edges: 30");
-    expect(joined).toContain("Missing outgoing edge targets: none");
-    expect(joined).toContain("Oversized pages: none");
-    expect(joined).toContain("Parse failures: none");
+    expect(exitCode).toBe(0);
+    expect(logOutput.some((line) => line.includes("Pages: 49"))).toBe(true);
+    expect(logOutput.some((line) => line.includes("Edges: 166"))).toBe(true);
+    expect(
+      logOutput.some((line) =>
+        line.includes("Missing edge endpoints: none"),
+      ),
+    ).toBe(true);
+    expect(
+      logOutput.some((line) => line.includes("Oversized pages: none")),
+    ).toBe(true);
+    expect(
+      logOutput.some((line) => line.includes("Parse failures: none")),
+    ).toBe(true);
   });
 
-  test("prints violation lists when present", async () => {
+  test("exits non-zero and prints violation lists when present", async () => {
     mockIpcResult = {
       ok: true,
       result: {
-        pageCount: 5,
-        edgeCount: 8,
-        missingEdgeEndpoints: [{ from: "alice", to: "bob" }],
-        oversizedPages: [{ slug: "long-page", chars: 7500 }],
-        parseFailures: [{ slug: "broken", error: "YAML parse error" }],
+        pageCount: 10,
+        edgeCount: 20,
+        missingEdgeEndpoints: [
+          { from: "people/alice", to: "people/missing" },
+        ],
+        oversizedPages: [{ slug: "arcs/big-day", chars: 12345 }],
+        parseFailures: [
+          { slug: "people/broken", error: "missing frontmatter" },
+        ],
       },
     };
 
-    await runCommand(["memory", "v2", "validate"]);
+    const { exitCode } = await runCommand(["memory", "v2", "validate"]);
 
-    const joined = logOutput.join("\n");
-    expect(joined).toContain("Missing outgoing edge targets: 1");
-    expect(joined).toContain("alice");
-    expect(joined).toContain("bob");
-    expect(joined).toContain("Oversized pages: 1");
-    expect(joined).toContain("long-page");
-    expect(joined).toContain("Parse failures: 1");
-    expect(joined).toContain("broken");
-    expect(joined).toContain("YAML parse error");
+    expect(exitCode).toBe(1);
+    expect(logOutput.some((line) => line.includes("people/missing"))).toBe(
+      true,
+    );
+    expect(logOutput.some((line) => line.includes("arcs/big-day"))).toBe(true);
+    expect(logOutput.some((line) => line.includes("people/broken"))).toBe(
+      true,
+    );
   });
 
   test("exits with code 1 on IPC failure", async () => {
-    mockIpcResult = { ok: false, error: "Daemon not running" };
+    mockIpcResult = { ok: false, error: "Daemon down" };
 
     const { exitCode } = await runCommand(["memory", "v2", "validate"]);
 

@@ -2071,6 +2071,8 @@ export async function surfaceProxyResolver(
       inputWithTool,
       ctx.conversationId,
       signal ?? new AbortController().signal,
+      ctx.trustContext?.guardianPrincipalId,
+      // targetClientId intentionally undefined — LLM exposure is a separate workstream
     );
   }
 

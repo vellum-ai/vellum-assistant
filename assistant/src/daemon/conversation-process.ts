@@ -12,6 +12,7 @@ import {
   createUserMessage,
 } from "../agent/message-types.js";
 import {
+  type InterfaceId,
   parseChannelId,
   parseInterfaceId,
   type TurnChannelContext,
@@ -197,6 +198,13 @@ export interface ProcessConversationContext {
   applyClientTimezoneFromTransport(
     transport: ConversationTransportMetadata,
   ): void;
+  /**
+   * Instantiate host proxies for capabilities that have become reachable
+   * mid-queue (e.g. a macOS client connected after a web turn was enqueued
+   * without a proxy). Called from drain paths before preactivation so skills
+   * are only activated when the proxy that services them is present.
+   */
+  ensureHostProxiesForTurn(sourceInterface: InterfaceId | undefined): void;
 }
 
 function resolveQueuedTurnContext(
@@ -434,19 +442,19 @@ async function drainSingleMessage(
     conversation.applyClientTimezoneFromTransport(next.transport);
   }
 
-  // Re-preactivate host-proxy skills for interactive desktop turns. The
-  // dequeue path reset `preactivatedSkillIds` above, so without these
-  // re-adds the relevant skill tools wouldn't be projected to the LLM
-  // for queued messages 2+ even though the underlying proxies (HostCuProxy,
-  // HostAppControlProxy) are still attached. Mirrors the per-message
-  // instantiation block in `conversation-routes.ts` / `process-message.ts`.
+  // Re-attach and re-preactivate host-proxy skills for interactive turns.
+  // The dequeue path reset `preactivatedSkillIds` above; without these
+  // re-adds the relevant skill tools won't be projected to the LLM for
+  // queued messages 2+. Also instantiates proxies that may not have been
+  // present when the message was first enqueued (e.g. a macOS client
+  // connects between enqueue and drain). Mirrors the per-message block in
+  // `conversation-routes.ts` / `process-message.ts`.
   if (next.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    preactivateHostProxySkills(
-      conversation,
-      interfaceCtx?.userMessageInterface,
-    );
+    const sourceInterface = interfaceCtx?.userMessageInterface;
+    conversation.ensureHostProxiesForTurn(sourceInterface);
+    preactivateHostProxySkills(conversation, sourceInterface);
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -879,15 +887,14 @@ async function drainBatch(
     conversation.applyClientTimezoneFromTransport(head.transport);
   }
 
-  // Re-preactivate host-proxy skills for interactive desktop turns.
+  // Re-attach and re-preactivate host-proxy skills for interactive turns.
   // Mirrors the single-message path exactly — sourced from `head`.
   if (head.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    preactivateHostProxySkills(
-      conversation,
-      interfaceCtx?.userMessageInterface,
-    );
+    const sourceInterface = interfaceCtx?.userMessageInterface;
+    conversation.ensureHostProxiesForTurn(sourceInterface);
+    preactivateHostProxySkills(conversation, sourceInterface);
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up

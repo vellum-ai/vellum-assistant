@@ -63,6 +63,19 @@ function getPublishedMessages(): unknown[] {
   return publishedEvents;
 }
 
+/**
+ * Simulate the HTTP route resolving a host_browser result. Mirrors what
+ * `resolveHostBrowserResultByRequestId` does after its guards pass: consume
+ * the pending interaction and invoke `rpcResolve` with the response.
+ */
+function resolveResult(
+  requestId: string,
+  response: { content: string; isError: boolean },
+): void {
+  const interaction = pendingInteractions.resolve(requestId);
+  interaction?.rpcResolve?.(response);
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("HostBrowserProxy", () => {
@@ -103,7 +116,7 @@ describe("HostBrowserProxy", () => {
       const requestId = sent.requestId as string;
       expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
 
       const result = await resultPromise;
       expect(result.content).toBe("ok");
@@ -131,7 +144,7 @@ describe("HostBrowserProxy", () => {
       });
       expect(sent.cdpSessionId).toBe("session-abc");
 
-      proxy.resolveResult(sent.requestId as string, {
+      resolveResult(sent.requestId as string, {
         content: "Example Domain",
         isError: false,
       });
@@ -146,7 +159,7 @@ describe("HostBrowserProxy", () => {
       );
 
       const sent = getPublishedMessages()[0] as Record<string, unknown>;
-      proxy.resolveResult(sent.requestId as string, {
+      resolveResult(sent.requestId as string, {
         content: "Navigation failed",
         isError: true,
       });
@@ -168,7 +181,7 @@ describe("HostBrowserProxy", () => {
       const requestId = sent.requestId as string;
       expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
 
       expect(pendingInteractions.get(requestId)).toBeUndefined();
       await resultPromise;
@@ -293,7 +306,7 @@ describe("HostBrowserProxy", () => {
 
   describe("resolve with unknown requestId", () => {
     test("silently ignores unknown requestId", () => {
-      proxy.resolveResult("nonexistent", { content: "stale", isError: false });
+      resolveResult("nonexistent", { content: "stale", isError: false });
     });
   });
 
@@ -365,7 +378,7 @@ describe("HostBrowserProxy", () => {
 
       const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
         .requestId as string;
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
       await resultPromise;
 
       expect(spy.removeCalls).toEqual(["abort"]);
@@ -438,7 +451,7 @@ describe("HostBrowserProxy", () => {
       expect(pending?.targetClientId).toBe("ext-client");
       expect(pending?.targetActorPrincipalId).toBe("user-1");
 
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
       const result = await resultPromise;
       expect(result.isError).toBe(false);
     });
@@ -499,7 +512,7 @@ describe("HostBrowserProxy", () => {
       const pending = pendingInteractions.get(requestId);
       expect(pending?.targetClientId).toBe("ext-client");
 
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
       await resultPromise;
     });
 
@@ -528,7 +541,7 @@ describe("HostBrowserProxy", () => {
       expect(pending?.targetClientId).toBe("macos-client");
       expect(pending?.targetActorPrincipalId).toBe("user-1");
 
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
       await resultPromise;
     });
 
@@ -555,7 +568,7 @@ describe("HostBrowserProxy", () => {
       expect(pending?.targetClientId).toBe("test-client");
       expect(pending?.targetActorPrincipalId).toBeUndefined();
 
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
       await resultPromise;
     });
 
@@ -629,7 +642,7 @@ describe("HostBrowserProxy", () => {
       const pending = pendingInteractions.get(requestId);
       expect(pending?.targetClientId).toBe("macos-client");
 
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
       const result = await resultPromise;
       expect(result.isError).toBe(false);
     });
@@ -739,7 +752,7 @@ describe("HostBrowserProxy", () => {
       const pending = pendingInteractions.get(requestId);
       expect(pending?.targetClientId).toBe("ext-client");
 
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
       await resultPromise;
     });
   });
