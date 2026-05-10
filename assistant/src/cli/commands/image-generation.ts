@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
-import { log } from "../logger.js";
 import { registerCommand } from "../lib/register-command.js";
+import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // MIME type → file extension mapping
@@ -202,7 +202,7 @@ Examples:
           ...(sourceImages && { sourceImages }),
         });
 
-        if (!r.ok) return exitFromIpcResult(r, generate);
+        if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, generate);
 
         // Write images to disk (stays in CLI)
         if (!existsSync(outputDir)) {

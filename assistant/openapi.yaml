@@ -7182,6 +7182,16 @@ paths:
                 required:
                   - text
                 additionalProperties: false
+  /v1/image-generation/generate:
+    post:
+      operationId: imagegeneration_generate_post
+      summary: Generate or edit images using AI
+      description: Calls the configured image-generation provider (Gemini or OpenAI) to produce one or more images.
+      tags:
+        - image-generation
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get
