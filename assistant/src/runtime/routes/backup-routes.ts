@@ -35,8 +35,14 @@ import {
   resolveOffsiteDestinations,
 } from "../../backup/paths.js";
 import { restoreFromSnapshot, verifySnapshot } from "../../backup/restore.js";
-import { getConfig, invalidateConfigCache } from "../../config/loader.js";
-import type { BackupDestination } from "../../config/schema.js";
+import {
+  getConfig,
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../config/loader.js";
+import type { BackupConfig, BackupDestination } from "../../config/schema.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
@@ -233,6 +239,198 @@ export async function handleBackupVerify({ body }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// Config-mutation + status handlers
+// ---------------------------------------------------------------------------
+
+export async function handleBackupEnable({ body }: RouteHandlerArgs): Promise<BackupConfig> {
+  const intervalHours = body?.intervalHours as number | undefined;
+  const retention = body?.retention as number | undefined;
+  const offsiteEnabled = body?.offsiteEnabled as boolean | undefined;
+
+  if (intervalHours !== undefined) {
+    if (!Number.isFinite(intervalHours) || intervalHours < 1 || intervalHours > 168) {
+      throw new BadRequestError(
+        `intervalHours must be between 1 and 168, got ${intervalHours}`,
+      );
+    }
+  }
+  if (retention !== undefined) {
+    if (!Number.isFinite(retention) || retention < 1 || retention > 100) {
+      throw new BadRequestError(
+        `retention must be between 1 and 100, got ${retention}`,
+      );
+    }
+  }
+
+  const raw = loadRawConfig();
+  setNestedValue(raw, "backup.enabled", true);
+  if (intervalHours !== undefined) {
+    setNestedValue(raw, "backup.intervalHours", intervalHours);
+  }
+  if (retention !== undefined) {
+    setNestedValue(raw, "backup.retention", retention);
+  }
+  if (offsiteEnabled !== undefined) {
+    setNestedValue(raw, "backup.offsite.enabled", offsiteEnabled);
+  }
+  saveRawConfig(raw);
+  invalidateConfigCache();
+
+  return getConfig().backup;
+}
+
+export async function handleBackupDisable(): Promise<{ enabled: false }> {
+  const raw = loadRawConfig();
+  setNestedValue(raw, "backup.enabled", false);
+  saveRawConfig(raw);
+  invalidateConfigCache();
+  return { enabled: false };
+}
+
+export async function handleBackupDestinationsList(): Promise<{ destinations: BackupDestination[] }> {
+  const config = getConfig();
+  return { destinations: resolveOffsiteDestinations(config.backup.offsite.destinations) };
+}
+
+export async function handleBackupDestinationsAdd({ body }: RouteHandlerArgs): Promise<{ destinations: BackupDestination[] }> {
+  const path = body?.path;
+  const encrypt = body?.encrypt;
+
+  if (typeof path !== "string" || path.length === 0) {
+    throw new BadRequestError("Request body must include a non-empty `path` field");
+  }
+  if (encrypt !== undefined && typeof encrypt !== "boolean") {
+    throw new BadRequestError("`encrypt` must be a boolean");
+  }
+
+  const current = resolveOffsiteDestinations(getConfig().backup.offsite.destinations);
+  if (current.some((d) => d.path === path)) {
+    throw new BadRequestError(
+      `Destination "${path}" already exists. Run 'assistant backup destinations list' to see configured destinations.`,
+    );
+  }
+
+  const next: BackupDestination[] = [
+    ...current,
+    { path, encrypt: (encrypt as boolean | undefined) ?? true },
+  ];
+
+  const raw = loadRawConfig();
+  setNestedValue(raw, "backup.offsite.destinations", next);
+  saveRawConfig(raw);
+  invalidateConfigCache();
+
+  return { destinations: next };
+}
+
+export async function handleBackupDestinationsRemove({ body }: RouteHandlerArgs): Promise<{ destinations: BackupDestination[] }> {
+  const path = body?.path;
+
+  if (typeof path !== "string" || path.length === 0) {
+    throw new BadRequestError("Request body must include a non-empty `path` field");
+  }
+
+  const current = resolveOffsiteDestinations(getConfig().backup.offsite.destinations);
+  const filtered = current.filter((d) => d.path !== path);
+  if (filtered.length === current.length) {
+    throw new BadRequestError(
+      `Destination "${path}" not found. Run 'assistant backup destinations list' to see configured destinations.`,
+    );
+  }
+
+  const raw = loadRawConfig();
+  setNestedValue(raw, "backup.offsite.destinations", filtered);
+  saveRawConfig(raw);
+  invalidateConfigCache();
+
+  return { destinations: filtered };
+}
+
+export async function handleBackupDestinationsSetEncrypt({ body }: RouteHandlerArgs): Promise<{ destination: BackupDestination }> {
+  const path = body?.path;
+  const encrypt = body?.encrypt;
+
+  if (typeof path !== "string" || path.length === 0) {
+    throw new BadRequestError("Request body must include a non-empty `path` field");
+  }
+  if (typeof encrypt !== "boolean") {
+    throw new BadRequestError("`encrypt` must be a boolean");
+  }
+
+  const current = resolveOffsiteDestinations(getConfig().backup.offsite.destinations);
+  const idx = current.findIndex((d) => d.path === path);
+  if (idx === -1) {
+    throw new BadRequestError(
+      `Destination "${path}" not found. Run 'assistant backup destinations list' to see configured destinations.`,
+    );
+  }
+
+  const updated = { ...current[idx]!, encrypt };
+  const next = current.map((d, i) => (i === idx ? updated : d));
+
+  const raw = loadRawConfig();
+  setNestedValue(raw, "backup.offsite.destinations", next);
+  saveRawConfig(raw);
+  invalidateConfigCache();
+
+  return { destination: updated };
+}
+
+export async function handleBackupStatus(): Promise<{
+  enabled: boolean;
+  intervalHours: number;
+  retention: number;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  localDir: string;
+  localSnapshotCount: number;
+  offsite: Array<{ path: string; encrypt: boolean; reachable: boolean; snapshotCount: number }>;
+}> {
+  const config = getConfig();
+  const backup = config.backup;
+
+  const lastRunRaw = getMemoryCheckpoint(LAST_RUN_CHECKPOINT_KEY);
+  const lastRunMs = lastRunRaw ? Number.parseInt(lastRunRaw, 10) : NaN;
+  const lastRunAt = !Number.isNaN(lastRunMs) ? new Date(lastRunMs).toISOString() : null;
+
+  let nextRunAt: string | null = null;
+  if (backup.enabled && !Number.isNaN(lastRunMs)) {
+    const intervalMs = backup.intervalHours * 3600 * 1000;
+    nextRunAt = new Date(lastRunMs + intervalMs).toISOString();
+  }
+
+  const localDir = getLocalBackupsDir(backup.localDirectory);
+  const localSnapshots = await listSnapshotsInDir(localDir);
+  const localSnapshotCount = localSnapshots.length;
+
+  const destinations = resolveOffsiteDestinations(backup.offsite.destinations);
+  const offsite: Array<{ path: string; encrypt: boolean; reachable: boolean; snapshotCount: number }> = [];
+
+  for (const dest of destinations) {
+    let reachable = false;
+    try {
+      await fs.stat(dirname(dest.path));
+      reachable = true;
+    } catch {
+      reachable = false;
+    }
+    const snapshots = reachable ? await listSnapshotsInDir(dest.path) : [];
+    offsite.push({ path: dest.path, encrypt: dest.encrypt, reachable, snapshotCount: snapshots.length });
+  }
+
+  return {
+    enabled: backup.enabled,
+    intervalHours: backup.intervalHours,
+    retention: backup.retention,
+    lastRunAt,
+    nextRunAt,
+    localDir,
+    localSnapshotCount,
+    offsite,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -309,6 +507,142 @@ export const ROUTES: RouteDefinition[] = [
       valid: z.boolean(),
       manifest: z.object({}).passthrough().optional(),
       error: z.string().optional(),
+    }),
+  },
+  {
+    operationId: "backup_enable",
+    endpoint: "backup/enable",
+    method: "POST",
+    handler: handleBackupEnable,
+    summary: "Enable automated backups",
+    description:
+      "Sets backup.enabled = true. Optionally overrides intervalHours (1-168), retention (1-100), and offsiteEnabled.",
+    tags: ["backups"],
+    requestBody: z.object({
+      intervalHours: z.number().int().min(1).max(168).optional(),
+      retention: z.number().int().min(1).max(100).optional(),
+      offsiteEnabled: z.boolean().optional(),
+    }),
+    responseBody: z.object({}).passthrough(),
+  },
+  {
+    operationId: "backup_disable",
+    endpoint: "backup/disable",
+    method: "POST",
+    handler: handleBackupDisable,
+    summary: "Disable automated backups",
+    description: "Sets backup.enabled = false. Existing snapshots are untouched.",
+    tags: ["backups"],
+    responseBody: z.object({
+      enabled: z.literal(false),
+    }),
+  },
+  {
+    operationId: "backup_destinations_list",
+    endpoint: "backup/destinations",
+    method: "GET",
+    handler: handleBackupDestinationsList,
+    summary: "List configured offsite backup destinations",
+    description:
+      "Returns the current offsite destinations array, materializing the iCloud Drive default when no explicit array is configured.",
+    tags: ["backups"],
+    responseBody: z.object({
+      destinations: z.array(
+        z.object({
+          path: z.string(),
+          encrypt: z.boolean(),
+        }),
+      ),
+    }),
+  },
+  {
+    operationId: "backup_destinations_add",
+    endpoint: "backup/destinations/add",
+    method: "POST",
+    handler: handleBackupDestinationsAdd,
+    summary: "Add an offsite backup destination",
+    description:
+      "Appends a new destination. Materializes the iCloud default first if destinations is currently null. Errors if the path already exists.",
+    tags: ["backups"],
+    requestBody: z.object({
+      path: z.string().min(1).describe("Absolute path to the destination directory"),
+      encrypt: z.boolean().optional().describe("Encrypt snapshots at this destination (default true)"),
+    }),
+    responseBody: z.object({
+      destinations: z.array(
+        z.object({
+          path: z.string(),
+          encrypt: z.boolean(),
+        }),
+      ),
+    }),
+  },
+  {
+    operationId: "backup_destinations_remove",
+    endpoint: "backup/destinations/remove",
+    method: "POST",
+    handler: handleBackupDestinationsRemove,
+    summary: "Remove an offsite backup destination",
+    description:
+      "Removes the destination matching the given path. Errors if no matching destination exists.",
+    tags: ["backups"],
+    requestBody: z.object({
+      path: z.string().min(1).describe("Exact path match of the destination to remove"),
+    }),
+    responseBody: z.object({
+      destinations: z.array(
+        z.object({
+          path: z.string(),
+          encrypt: z.boolean(),
+        }),
+      ),
+    }),
+  },
+  {
+    operationId: "backup_destinations_set_encrypt",
+    endpoint: "backup/destinations/set-encrypt",
+    method: "POST",
+    handler: handleBackupDestinationsSetEncrypt,
+    summary: "Toggle encryption for an existing destination",
+    description:
+      "Updates the encrypt flag for a destination. Errors if no destination with the given path exists.",
+    tags: ["backups"],
+    requestBody: z.object({
+      path: z.string().min(1).describe("Exact path match of an existing destination"),
+      encrypt: z.boolean().describe("true to encrypt future snapshots, false for plaintext"),
+    }),
+    responseBody: z.object({
+      destination: z.object({
+        path: z.string(),
+        encrypt: z.boolean(),
+      }),
+    }),
+  },
+  {
+    operationId: "backup_status",
+    endpoint: "backup/status",
+    method: "GET",
+    handler: handleBackupStatus,
+    summary: "Show backup status and next-run timing",
+    description:
+      "Reports enabled/disabled state, interval and retention, last-run and next-run timing from the backup:last_run_at checkpoint, local snapshot count, and per-destination reachability and snapshot counts.",
+    tags: ["backups"],
+    responseBody: z.object({
+      enabled: z.boolean(),
+      intervalHours: z.number(),
+      retention: z.number(),
+      lastRunAt: z.string().nullable(),
+      nextRunAt: z.string().nullable(),
+      localDir: z.string(),
+      localSnapshotCount: z.number(),
+      offsite: z.array(
+        z.object({
+          path: z.string(),
+          encrypt: z.boolean(),
+          reachable: z.boolean(),
+          snapshotCount: z.number(),
+        }),
+      ),
     }),
   },
 ];

@@ -1,33 +1,14 @@
 /**
- * `vellum backup` — manage automated backup configuration and list snapshots.
+ * `assistant backup` — manage automated backup configuration and list snapshots.
  *
- * All subcommands run in-process (they do not call the daemon HTTP port).
- * Config mutations go through `loadRawConfig` / `setNestedValue` / `saveRawConfig`
- * so the on-disk `config.json` is the single source of truth and the daemon's
- * config cache is invalidated via `saveRawConfig`.
+ * Thin IPC wrapper: each subcommand forwards its request to the daemon via
+ * cliIpcCall and never imports daemon-internal modules.
  */
-
-import { stat } from "node:fs/promises";
-import { dirname } from "node:path";
 
 import type { Command } from "commander";
 
-import {
-  listSnapshotsInDir,
-  type SnapshotEntry,
-} from "../../backup/list-snapshots.js";
-import {
-  getLocalBackupsDir,
-  resolveOffsiteDestinations,
-} from "../../backup/paths.js";
-import {
-  getConfig,
-  loadRawConfig,
-  saveRawConfig,
-  setNestedValue,
-} from "../../config/loader.js";
-import type { BackupDestination } from "../../config/schema.js";
-import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -43,7 +24,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-/** Format a Date as `YYYY-MM-DD HH:MM UTC`. */
+/** Format an ISO date string as `YYYY-MM-DD HH:MM UTC`. */
 function formatDate(date: Date): string {
   const y = date.getUTCFullYear().toString().padStart(4, "0");
   const mo = (date.getUTCMonth() + 1).toString().padStart(2, "0");
@@ -73,280 +54,379 @@ function formatDurationShort(ms: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Reachability probe
+// Command wiring
 // ---------------------------------------------------------------------------
 
-/**
- * Check whether an offsite destination's parent directory exists. Mirrors the
- * reachability check in the backup worker — if the parent is missing (e.g.
- * iCloud Drive not enabled, external SSD unplugged) the destination is
- * considered unreachable and we skip it at runtime.
- */
-async function isDestinationReachable(destPath: string): Promise<boolean> {
-  try {
-    await stat(dirname(destPath));
-    return true;
-  } catch {
-    return false;
-  }
-}
+export function registerBackupCommand(program: Command): void {
+  registerCommand(program, {
+    name: "backup",
+    transport: "ipc",
+    description: "Manage automated backup configuration and list snapshots",
+    build: (backup) => {
+      backup.addHelpText(
+        "after",
+        `
+Backups capture a snapshot of the assistant workspace (config, conversations,
+trust rules, hooks, the SQLite database) as a .vbundle file. Credentials are
+NOT included — they live in the OS keychain / CES and users re-authenticate
+integrations after a restore (via the gateway). The automated worker runs on a configurable
+interval and writes to a local pool under ~/.vellum/backups/local/, optionally
+mirroring each snapshot to one or more offsite destinations (iCloud Drive by
+default).
 
-// ---------------------------------------------------------------------------
-// Exported handlers — exported so tests can drive them directly.
-// ---------------------------------------------------------------------------
+Offsite destinations can be per-destination encrypted (AES-256-GCM) or
+plaintext — plaintext only makes sense when the user owns physical access to
+the medium (e.g. an external SSD).
 
-export interface EnableOptions {
-  interval?: string;
-  retention?: string;
-  offsite?: boolean;
-}
-
-export function handleEnable(opts: EnableOptions): void {
-  const raw = loadRawConfig();
-  setNestedValue(raw, "backup.enabled", true);
-
-  if (opts.interval !== undefined) {
-    const hours = Number.parseInt(opts.interval, 10);
-    if (!Number.isFinite(hours) || hours < 1) {
-      log.error(
-        `Invalid --interval "${opts.interval}". Must be a positive integer (hours). ` +
-          `Run 'vellum backup enable --help' for usage.`,
+Examples:
+  $ assistant backup enable --interval 6 --retention 3
+  $ assistant backup destinations add /Volumes/BackupSSD/vellum --plaintext
+  $ assistant backup status
+  $ assistant backup list`,
       );
-      process.exitCode = 1;
-      return;
-    }
-    setNestedValue(raw, "backup.intervalHours", hours);
-  }
 
-  if (opts.retention !== undefined) {
-    const count = Number.parseInt(opts.retention, 10);
-    if (!Number.isFinite(count) || count < 1) {
-      log.error(
-        `Invalid --retention "${opts.retention}". Must be a positive integer. ` +
-          `Run 'vellum backup enable --help' for usage.`,
+      backup
+        .command("enable")
+        .description("Enable automated backups")
+        .option(
+          "--interval <hours>",
+          "Hours between automated backups (1-168). Defaults to 6.",
+        )
+        .option(
+          "--retention <n>",
+          "Snapshots to retain per destination (1-100). Defaults to 3.",
+        )
+        .option(
+          "--no-offsite",
+          "Disable offsite backup (local only). Does not touch the destinations list.",
+        )
+        .addHelpText(
+          "after",
+          `
+Sets backup.enabled = true in config.json. Optionally overrides intervalHours,
+retention, and the offsite.enabled flag. Does NOT modify
+backup.offsite.destinations — use 'assistant backup destinations add/remove' to
+manage those.
+
+Examples:
+  $ assistant backup enable
+  $ assistant backup enable --interval 12 --retention 14
+  $ assistant backup enable --no-offsite`,
+        )
+        .action(async (opts: { interval?: string; retention?: string; offsite?: boolean }, cmd: Command) => {
+          const r = await cliIpcCall("backup_enable", {
+            ...(opts.interval !== undefined && { intervalHours: Number.parseInt(opts.interval, 10) }),
+            ...(opts.retention !== undefined && { retention: Number.parseInt(opts.retention, 10) }),
+            ...(opts.offsite === false && { offsiteEnabled: false }),
+          });
+          if (!r.ok) return exitFromIpcResult(r, cmd);
+          const cfg = r.result as { intervalHours: number; retention: number; offsite: { enabled: boolean } };
+          log.info(
+            `Automatic backups enabled (interval=${cfg.intervalHours}h, retention=${cfg.retention}, offsite=${cfg.offsite.enabled ? "on" : "off"})`,
+          );
+        });
+
+      backup
+        .command("disable")
+        .description("Disable automated backups")
+        .addHelpText(
+          "after",
+          `
+Sets backup.enabled = false in config.json. Existing snapshots are untouched;
+only the automated worker stops creating new ones.
+
+Examples:
+  $ assistant backup disable`,
+        )
+        .action(async (_opts: unknown, cmd: Command) => {
+          const r = await cliIpcCall("backup_disable");
+          if (!r.ok) return exitFromIpcResult(r, cmd);
+          log.info("Automatic backups disabled");
+        });
+
+      // -----------------------------------------------------------------------
+      // destinations — subgroup
+      // -----------------------------------------------------------------------
+
+      const destinations = backup
+        .command("destinations")
+        .description("Manage offsite backup destinations");
+
+      destinations.addHelpText(
+        "after",
+        `
+Offsite destinations are absolute paths the backup worker writes a copy of
+each snapshot to after the local write succeeds. The default destination is
+the iCloud Drive VellumAssistant folder, and it is used implicitly until an
+explicit destinations array is configured. The first 'destinations add' or
+'destinations remove' materializes the iCloud default before applying the
+change, so the default is never lost on an accidental "clear all".
+
+Each destination has an 'encrypt' flag. When true (the default), snapshots
+are written as .vbundle.enc (AES-256-GCM). When false, snapshots are copied
+as plaintext .vbundle — only use this for media you control physically.
+
+Examples:
+  $ assistant backup destinations list
+  $ assistant backup destinations add /Volumes/BackupSSD/vellum --plaintext
+  $ assistant backup destinations remove /Volumes/BackupSSD/vellum
+  $ assistant backup destinations set-encrypt /Volumes/BackupSSD/vellum false`,
       );
-      process.exitCode = 1;
-      return;
-    }
-    setNestedValue(raw, "backup.retention", count);
-  }
 
-  // commander's `.option("--no-offsite", ...)` sets `opts.offsite = false`
-  // when the flag is present and leaves it `undefined` otherwise. Only a
-  // literal `false` flips the offsite switch — we never touch `destinations`.
-  if (opts.offsite === false) {
-    setNestedValue(raw, "backup.offsite.enabled", false);
-  }
+      destinations
+        .command("list")
+        .description("List configured offsite destinations")
+        .addHelpText(
+          "after",
+          `
+Resolves the current destinations array (materializing the iCloud default if
+no explicit array is configured) and prints a table with the path and
+encryption flag per row.
 
-  saveRawConfig(raw);
+Examples:
+  $ assistant backup destinations list`,
+        )
+        .action(async (_opts: unknown, cmd: Command) => {
+          const r = await cliIpcCall<{ destinations: Array<{ path: string; encrypt: boolean }> }>(
+            "backup_destinations_list",
+          );
+          if (!r.ok) return exitFromIpcResult(r, cmd);
+          const { destinations: dests } = r.result!;
+          if (dests.length === 0) {
+            log.info("No offsite destinations configured");
+            return;
+          }
+          const pathW = Math.max(4, ...dests.map((d) => d.path.length));
+          log.info("Path".padEnd(pathW) + "  " + "Encrypted");
+          log.info("-".repeat(pathW + 2 + 9));
+          for (const d of dests) {
+            log.info(d.path.padEnd(pathW) + "  " + (d.encrypt ? "yes" : "no"));
+          }
+        });
 
-  const cfg = getConfig().backup;
-  log.info(
-    `Automatic backups enabled (interval=${cfg.intervalHours}h, retention=${cfg.retention}, offsite=${cfg.offsite.enabled ? "on" : "off"})`,
-  );
-}
+      destinations
+        .command("add <path>")
+        .description("Add an offsite backup destination")
+        .option(
+          "--plaintext",
+          "Write snapshots as plaintext .vbundle (default is AES-256-GCM encrypted .vbundle.enc)",
+        )
+        .addHelpText(
+          "after",
+          `
+Arguments:
+  path   Absolute path to the destination directory. Must be on a mount the
+         caller controls; the backup worker writes files inside this
+         directory, not the directory itself.
 
-export function handleDisable(): void {
-  const raw = loadRawConfig();
-  setNestedValue(raw, "backup.enabled", false);
-  saveRawConfig(raw);
-  log.info("Automatic backups disabled");
+If backup.offsite.destinations is currently null (the implicit iCloud default),
+the iCloud default is materialized first so the new entry appends to a
+2-element array rather than replacing the default.
+
+Examples:
+  $ assistant backup destinations add /Volumes/BackupSSD/vellum --plaintext
+  $ assistant backup destinations add ~/Dropbox/VellumAssistant/backups`,
+        )
+        .action(async (path: string, opts: { plaintext?: boolean }, cmd: Command) => {
+          const r = await cliIpcCall("backup_destinations_add", {
+            path,
+            encrypt: !opts.plaintext,
+          });
+          if (!r.ok) return exitFromIpcResult(r, cmd);
+          log.info(
+            `Added destination ${path} (${opts.plaintext ? "plaintext" : "encrypted"})`,
+          );
+        });
+
+      destinations
+        .command("remove <path>")
+        .description("Remove an offsite backup destination by path")
+        .addHelpText(
+          "after",
+          `
+Arguments:
+  path   Exact path match of the destination to remove. Run
+         'assistant backup destinations list' to see configured paths.
+
+Errors if no destination with the given path exists.
+
+Examples:
+  $ assistant backup destinations remove /Volumes/BackupSSD/vellum`,
+        )
+        .action(async (path: string, _opts: unknown, cmd: Command) => {
+          const r = await cliIpcCall("backup_destinations_remove", { path });
+          if (!r.ok) return exitFromIpcResult(r, cmd);
+          log.info(`Removed destination ${path}`);
+        });
+
+      destinations
+        .command("set-encrypt <path> <value>")
+        .description("Toggle encryption for an existing destination")
+        .addHelpText(
+          "after",
+          `
+Arguments:
+  path    Exact path match of an existing destination. Run
+          'assistant backup destinations list' to see configured paths.
+  value   "true" to encrypt, "false" for plaintext writes.
+
+Errors if no destination with the given path exists. Existing snapshot files
+are not modified; only future writes honour the new setting.
+
+Examples:
+  $ assistant backup destinations set-encrypt /Volumes/BackupSSD/vellum false
+  $ assistant backup destinations set-encrypt /Volumes/BackupSSD/vellum true`,
+        )
+        .action(async (path: string, value: string, _opts: unknown, cmd: Command) => {
+          const normalized = value.toLowerCase();
+          if (normalized !== "true" && normalized !== "false") {
+            log.error(
+              `Invalid encrypt value "${value}". Must be "true" or "false". ` +
+                `Run 'assistant backup destinations set-encrypt --help' for usage.`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+          const r = await cliIpcCall("backup_destinations_set_encrypt", {
+            path,
+            encrypt: normalized === "true",
+          });
+          if (!r.ok) return exitFromIpcResult(r, cmd);
+          log.info(`Set ${path} encrypt=${normalized}`);
+        });
+
+      // -----------------------------------------------------------------------
+      // status / list
+      // -----------------------------------------------------------------------
+
+      backup
+        .command("status")
+        .description("Show backup status and next-run timing")
+        .addHelpText(
+          "after",
+          `
+Reports enabled/disabled state, interval and retention, last-run and next-run
+timing (from the backup:last_run_at memory checkpoint), and a per-destination
+reachability probe. Unreachable destinations (parent directory missing, e.g.
+iCloud Drive not enabled or external volume unplugged) are flagged
+[unreachable] and skipped by the worker.
+
+Examples:
+  $ assistant backup status`,
+        )
+        .action(async (_opts: unknown, cmd: Command) => {
+          const r = await cliIpcCall<{
+            enabled: boolean;
+            intervalHours: number;
+            retention: number;
+            lastRunAt: string | null;
+            nextRunAt: string | null;
+            localDir: string;
+            localSnapshotCount: number;
+            offsite: Array<{ path: string; encrypt: boolean; reachable: boolean; snapshotCount: number }>;
+          }>("backup_status");
+          if (!r.ok) return exitFromIpcResult(r, cmd);
+          const s = r.result!;
+          const now = Date.now();
+
+          log.info(`Automatic backups: ${s.enabled ? "enabled" : "disabled"}`);
+          log.info(`Interval:          every ${s.intervalHours}h`);
+          log.info(`Retention:         ${s.retention} snapshots per destination`);
+
+          if (s.lastRunAt) {
+            const lastRunMs = new Date(s.lastRunAt).getTime();
+            log.info(
+              `Last run:          ${formatDate(new Date(s.lastRunAt))} (${formatDurationShort(now - lastRunMs)} ago)`,
+            );
+            if (s.enabled && s.nextRunAt) {
+              const nextMs = new Date(s.nextRunAt).getTime();
+              const delta = nextMs - now;
+              if (delta <= 0) {
+                log.info(`Next run:          due now`);
+              } else {
+                log.info(`Next run:          in ${formatDurationShort(delta)}`);
+              }
+            }
+          } else {
+            log.info(`Last run:          never`);
+            if (s.enabled) {
+              log.info(`Next run:          on next tick`);
+            }
+          }
+
+          log.info(
+            `Local directory:   ${s.localDir}  (${s.localSnapshotCount} snapshots)`,
+          );
+
+          log.info(`Offsite:`);
+          if (s.offsite.length === 0) {
+            log.info(`  (no destinations configured)`);
+            return;
+          }
+          for (const dest of s.offsite) {
+            const tag = dest.reachable ? "[OK]" : "[unreachable]";
+            const enc = dest.encrypt ? "encrypted" : "plaintext";
+            const suffix = dest.reachable ? "" : "  -- parent directory not reachable";
+            log.info(
+              `  ${tag} ${dest.path}  (${enc}, ${dest.snapshotCount} snapshots)${suffix}`,
+            );
+          }
+        });
+
+      backup
+        .command("list")
+        .description("List all backup snapshots, grouped by destination")
+        .addHelpText(
+          "after",
+          `
+Prints a per-destination table of snapshots with timestamp, size, and
+encryption flag. Local destination is listed first, followed by each offsite
+destination. Unreachable destinations are listed with an empty snapshot set.
+
+Examples:
+  $ assistant backup list`,
+        )
+        .action(async (_opts: unknown, cmd: Command) => {
+          const r = await cliIpcCall<{
+            local: Array<{ filename: string; createdAt: string; sizeBytes: number; encrypted: boolean }>;
+            offsite: Array<{
+              destination: { path: string; encrypt: boolean };
+              snapshots: Array<{ filename: string; createdAt: string; sizeBytes: number; encrypted: boolean }>;
+              reachable: boolean;
+            }>;
+            offsiteEnabled: boolean;
+            nextRunAt: string | null;
+          }>("backups_list");
+          if (!r.ok) return exitFromIpcResult(r, cmd);
+          const data = r.result!;
+
+          printSnapshotGroup(
+            `Local:`,
+            data.local,
+          );
+
+          if (!data.offsiteEnabled) return;
+          for (const dest of data.offsite) {
+            const tag = dest.destination.encrypt ? "encrypted" : "plaintext";
+            log.info("");
+            printSnapshotGroup(
+              `Offsite: ${dest.destination.path}  (${tag})`,
+              dest.snapshots,
+            );
+          }
+        });
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
-// destinations subgroup handlers
+// Snapshot table printer
 // ---------------------------------------------------------------------------
 
-/**
- * Load the raw destinations array, materializing the iCloud default on first
- * touch. Returns the array plus the raw config so callers can mutate and
- * re-persist.
- *
- * When `backup.offsite.destinations` is `null` in config, the runtime uses the
- * iCloud default — but that default is implicit. On first `add`/`remove`/
- * `set-encrypt`, we need to make it explicit so subsequent mutations have
- * something to mutate.
- */
-function loadDestinationsForMutation(): {
-  raw: Record<string, unknown>;
-  destinations: BackupDestination[];
-} {
-  const raw = loadRawConfig();
-  const current = getConfig().backup.offsite.destinations;
-  const destinations = resolveOffsiteDestinations(current);
-  return { raw, destinations };
-}
-
-export async function handleDestinationsList(): Promise<void> {
-  const cfg = getConfig().backup;
-  const destinations = resolveOffsiteDestinations(cfg.offsite.destinations);
-
-  if (destinations.length === 0) {
-    log.info("No offsite destinations configured");
-    return;
-  }
-
-  const pathW = Math.max(4, ...destinations.map((d) => d.path.length));
-  log.info("Path".padEnd(pathW) + "  " + "Encrypted");
-  log.info("-".repeat(pathW + 2 + 9));
-  for (const d of destinations) {
-    log.info(d.path.padEnd(pathW) + "  " + (d.encrypt ? "yes" : "no"));
-  }
-}
-
-export interface DestinationAddOptions {
-  plaintext?: boolean;
-}
-
-export function handleDestinationsAdd(
-  path: string,
-  opts: DestinationAddOptions,
+function printSnapshotGroup(
+  heading: string,
+  entries: Array<{ filename: string; createdAt: string; sizeBytes: number; encrypted: boolean }>,
 ): void {
-  const { raw, destinations } = loadDestinationsForMutation();
-
-  if (destinations.some((d) => d.path === path)) {
-    log.error(
-      `Destination "${path}" already exists. Run 'vellum backup destinations list' to see configured destinations.`,
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const next: BackupDestination[] = [
-    ...destinations,
-    { path, encrypt: !opts.plaintext },
-  ];
-  setNestedValue(raw, "backup.offsite.destinations", next);
-  saveRawConfig(raw);
-  log.info(
-    `Added destination ${path} (${opts.plaintext ? "plaintext" : "encrypted"})`,
-  );
-}
-
-export function handleDestinationsRemove(path: string): void {
-  const { raw, destinations } = loadDestinationsForMutation();
-
-  const filtered = destinations.filter((d) => d.path !== path);
-  if (filtered.length === destinations.length) {
-    log.error(
-      `Destination "${path}" not found. Run 'vellum backup destinations list' to see configured destinations.`,
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  setNestedValue(raw, "backup.offsite.destinations", filtered);
-  saveRawConfig(raw);
-  log.info(`Removed destination ${path}`);
-}
-
-export function handleDestinationsSetEncrypt(
-  path: string,
-  value: string,
-): void {
-  const normalized = value.toLowerCase();
-  if (normalized !== "true" && normalized !== "false") {
-    log.error(
-      `Invalid encrypt value "${value}". Must be "true" or "false". ` +
-        `Run 'vellum backup destinations set-encrypt --help' for usage.`,
-    );
-    process.exitCode = 1;
-    return;
-  }
-  const encrypt = normalized === "true";
-
-  const { raw, destinations } = loadDestinationsForMutation();
-  const idx = destinations.findIndex((d) => d.path === path);
-  if (idx === -1) {
-    log.error(
-      `Destination "${path}" not found. Run 'vellum backup destinations list' to see configured destinations.`,
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const next = destinations.map((d, i) => (i === idx ? { ...d, encrypt } : d));
-  setNestedValue(raw, "backup.offsite.destinations", next);
-  saveRawConfig(raw);
-  log.info(`Set ${path} encrypt=${encrypt ? "true" : "false"}`);
-}
-
-// ---------------------------------------------------------------------------
-// status
-// ---------------------------------------------------------------------------
-
-export async function handleStatus(): Promise<void> {
-  const cfg = getConfig().backup;
-
-  log.info(`Automatic backups: ${cfg.enabled ? "enabled" : "disabled"}`);
-  log.info(`Interval:          every ${cfg.intervalHours}h`);
-  log.info(`Retention:         ${cfg.retention} snapshots per destination`);
-
-  // Last / next run — both gated on a valid checkpoint. The daemon records
-  // `backup:last_run_at` as a unix-millis string.
-  const lastRunRaw = getMemoryCheckpoint("backup:last_run_at");
-  const lastRunMs = lastRunRaw ? Number.parseInt(lastRunRaw, 10) : NaN;
-  const now = Date.now();
-  if (!Number.isNaN(lastRunMs)) {
-    const lastRunDate = new Date(lastRunMs);
-    log.info(
-      `Last run:          ${formatDate(lastRunDate)} (${formatDurationShort(now - lastRunMs)} ago)`,
-    );
-    if (cfg.enabled) {
-      const intervalMs = cfg.intervalHours * 3600 * 1000;
-      const nextMs = lastRunMs + intervalMs;
-      const delta = nextMs - now;
-      if (delta <= 0) {
-        log.info(`Next run:          due now`);
-      } else {
-        log.info(`Next run:          in ${formatDurationShort(delta)}`);
-      }
-    }
-  } else {
-    log.info(`Last run:          never`);
-    if (cfg.enabled) {
-      log.info(`Next run:          on next tick`);
-    }
-  }
-
-  // Local directory line — include snapshot count so users can confirm the
-  // pool size matches retention.
-  const localDir = getLocalBackupsDir(cfg.localDirectory);
-  const localSnapshots = await listSnapshotsInDir(localDir);
-  log.info(
-    `Local directory:   ${localDir}  (${localSnapshots.length} snapshots)`,
-  );
-
-  // Offsite destinations — resolve the iCloud default, probe reachability
-  // for each, and report snapshot counts.
-  log.info(`Offsite:`);
-  if (!cfg.offsite.enabled) {
-    log.info(`  (disabled)`);
-    return;
-  }
-  const destinations = resolveOffsiteDestinations(cfg.offsite.destinations);
-  if (destinations.length === 0) {
-    log.info(`  (no destinations configured)`);
-    return;
-  }
-  for (const dest of destinations) {
-    const reachable = await isDestinationReachable(dest.path);
-    const tag = reachable ? "[OK]" : "[unreachable]";
-    const enc = dest.encrypt ? "encrypted" : "plaintext";
-    const snapshots = reachable ? await listSnapshotsInDir(dest.path) : [];
-    const suffix = reachable ? "" : "  -- parent directory not reachable";
-    log.info(
-      `  ${tag} ${dest.path}  (${enc}, ${snapshots.length} snapshots)${suffix}`,
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// list
-// ---------------------------------------------------------------------------
-
-/** Print a snapshot table for a group of entries. */
-function printSnapshotGroup(heading: string, entries: SnapshotEntry[]): void {
   log.info(heading);
   if (entries.length === 0) {
     log.info("  (none)");
@@ -368,7 +448,7 @@ function printSnapshotGroup(heading: string, entries: SnapshotEntry[]): void {
   for (const e of entries) {
     log.info(
       "  " +
-        formatDate(e.createdAt).padEnd(tsW) +
+        formatDate(new Date(e.createdAt)).padEnd(tsW) +
         "  " +
         formatBytes(e.sizeBytes).padEnd(sizeW) +
         "  " +
@@ -377,262 +457,4 @@ function printSnapshotGroup(heading: string, entries: SnapshotEntry[]): void {
         e.filename,
     );
   }
-}
-
-export async function handleList(): Promise<void> {
-  const cfg = getConfig().backup;
-  const localDir = getLocalBackupsDir(cfg.localDirectory);
-  const localSnapshots = await listSnapshotsInDir(localDir);
-  printSnapshotGroup(`Local: ${localDir}`, localSnapshots);
-
-  if (!cfg.offsite.enabled) return;
-  const destinations = resolveOffsiteDestinations(cfg.offsite.destinations);
-  for (const dest of destinations) {
-    const entries = await listSnapshotsInDir(dest.path);
-    const tag = dest.encrypt ? "encrypted" : "plaintext";
-    log.info("");
-    printSnapshotGroup(`Offsite: ${dest.path}  (${tag})`, entries);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-
-
-
-// ---------------------------------------------------------------------------
-// Command wiring
-// ---------------------------------------------------------------------------
-
-export function registerBackupCommand(program: Command): void {
-  const backup = program
-    .command("backup")
-    .description(
-      "Manage automated backup configuration and list snapshots",
-    );
-
-  backup.addHelpText(
-    "after",
-    `
-Backups capture a snapshot of the assistant workspace (config, conversations,
-trust rules, hooks, the SQLite database) as a .vbundle file. Credentials are
-NOT included — they live in the OS keychain / CES and users re-authenticate
-integrations after a restore (via the gateway). The automated worker runs on a configurable
-interval and writes to a local pool under ~/.vellum/backups/local/, optionally
-mirroring each snapshot to one or more offsite destinations (iCloud Drive by
-default).
-
-Offsite destinations can be per-destination encrypted (AES-256-GCM) or
-plaintext — plaintext only makes sense when the user owns physical access to
-the medium (e.g. an external SSD).
-
-Examples:
-  $ vellum backup enable --interval 6 --retention 3
-  $ vellum backup destinations add /Volumes/BackupSSD/vellum --plaintext
-  $ vellum backup status
-  $ vellum backup list`,
-  );
-
-  backup
-    .command("enable")
-    .description("Enable automated backups")
-    .option(
-      "--interval <hours>",
-      "Hours between automated backups (1-168). Defaults to 6.",
-    )
-    .option(
-      "--retention <n>",
-      "Snapshots to retain per destination (1-100). Defaults to 3.",
-    )
-    .option(
-      "--no-offsite",
-      "Disable offsite backup (local only). Does not touch the destinations list.",
-    )
-    .addHelpText(
-      "after",
-      `
-Sets backup.enabled = true in config.json. Optionally overrides intervalHours,
-retention, and the offsite.enabled flag. Does NOT modify
-backup.offsite.destinations — use 'vellum backup destinations add/remove' to
-manage those.
-
-Examples:
-  $ vellum backup enable
-  $ vellum backup enable --interval 12 --retention 14
-  $ vellum backup enable --no-offsite`,
-    )
-    .action((opts: EnableOptions) => {
-      handleEnable(opts);
-    });
-
-  backup
-    .command("disable")
-    .description("Disable automated backups")
-    .addHelpText(
-      "after",
-      `
-Sets backup.enabled = false in config.json. Existing snapshots are untouched;
-only the automated worker stops creating new ones.
-
-Examples:
-  $ vellum backup disable`,
-    )
-    .action(() => {
-      handleDisable();
-    });
-
-  // ---------------------------------------------------------------------------
-  // destinations — subgroup
-  // ---------------------------------------------------------------------------
-
-  const destinations = backup
-    .command("destinations")
-    .description("Manage offsite backup destinations");
-
-  destinations.addHelpText(
-    "after",
-    `
-Offsite destinations are absolute paths the backup worker writes a copy of
-each snapshot to after the local write succeeds. The default destination is
-the iCloud Drive VellumAssistant folder, and it is used implicitly until an
-explicit destinations array is configured. The first 'destinations add' or
-'destinations remove' materializes the iCloud default before applying the
-change, so the default is never lost on an accidental "clear all".
-
-Each destination has an 'encrypt' flag. When true (the default), snapshots
-are written as .vbundle.enc (AES-256-GCM). When false, snapshots are copied
-as plaintext .vbundle — only use this for media you control physically.
-
-Examples:
-  $ vellum backup destinations list
-  $ vellum backup destinations add /Volumes/BackupSSD/vellum --plaintext
-  $ vellum backup destinations remove /Volumes/BackupSSD/vellum
-  $ vellum backup destinations set-encrypt /Volumes/BackupSSD/vellum false`,
-  );
-
-  destinations
-    .command("list")
-    .description("List configured offsite destinations")
-    .addHelpText(
-      "after",
-      `
-Resolves the current destinations array (materializing the iCloud default if
-no explicit array is configured) and prints a table with the path and
-encryption flag per row.
-
-Examples:
-  $ vellum backup destinations list`,
-    )
-    .action(async () => {
-      await handleDestinationsList();
-    });
-
-  destinations
-    .command("add <path>")
-    .description("Add an offsite backup destination")
-    .option(
-      "--plaintext",
-      "Write snapshots as plaintext .vbundle (default is AES-256-GCM encrypted .vbundle.enc)",
-    )
-    .addHelpText(
-      "after",
-      `
-Arguments:
-  path   Absolute path to the destination directory. Must be on a mount the
-         caller controls; the backup worker writes files inside this
-         directory, not the directory itself.
-
-If backup.offsite.destinations is currently null (the implicit iCloud default),
-the iCloud default is materialized first so the new entry appends to a
-2-element array rather than replacing the default.
-
-Examples:
-  $ vellum backup destinations add /Volumes/BackupSSD/vellum --plaintext
-  $ vellum backup destinations add ~/Dropbox/VellumAssistant/backups`,
-    )
-    .action((path: string, opts: DestinationAddOptions) => {
-      handleDestinationsAdd(path, opts);
-    });
-
-  destinations
-    .command("remove <path>")
-    .description("Remove an offsite backup destination by path")
-    .addHelpText(
-      "after",
-      `
-Arguments:
-  path   Exact path match of the destination to remove. Run
-         'vellum backup destinations list' to see configured paths.
-
-Errors if no destination with the given path exists.
-
-Examples:
-  $ vellum backup destinations remove /Volumes/BackupSSD/vellum`,
-    )
-    .action((path: string) => {
-      handleDestinationsRemove(path);
-    });
-
-  destinations
-    .command("set-encrypt <path> <value>")
-    .description("Toggle encryption for an existing destination")
-    .addHelpText(
-      "after",
-      `
-Arguments:
-  path    Exact path match of an existing destination. Run
-          'vellum backup destinations list' to see configured paths.
-  value   "true" to encrypt, "false" for plaintext writes.
-
-Errors if no destination with the given path exists. Existing snapshot files
-are not modified; only future writes honour the new setting.
-
-Examples:
-  $ vellum backup destinations set-encrypt /Volumes/BackupSSD/vellum false
-  $ vellum backup destinations set-encrypt /Volumes/BackupSSD/vellum true`,
-    )
-    .action((path: string, value: string) => {
-      handleDestinationsSetEncrypt(path, value);
-    });
-
-  // ---------------------------------------------------------------------------
-  // status / list
-  // ---------------------------------------------------------------------------
-
-  backup
-    .command("status")
-    .description("Show backup status and next-run timing")
-    .addHelpText(
-      "after",
-      `
-Reports enabled/disabled state, interval and retention, last-run and next-run
-timing (from the backup:last_run_at memory checkpoint), and a per-destination
-reachability probe. Unreachable destinations (parent directory missing, e.g.
-iCloud Drive not enabled or external volume unplugged) are flagged
-[unreachable] and skipped by the worker.
-
-Examples:
-  $ vellum backup status`,
-    )
-    .action(async () => {
-      await handleStatus();
-    });
-
-  backup
-    .command("list")
-    .description("List all backup snapshots, grouped by destination")
-    .addHelpText(
-      "after",
-      `
-Prints a per-destination table of snapshots with timestamp, size, and
-encryption flag. Local destination is listed first, followed by each offsite
-destination. Unreachable destinations are listed with an empty snapshot set.
-
-Examples:
-  $ vellum backup list`,
-    )
-    .action(async () => {
-      await handleList();
-    });
-
 }
