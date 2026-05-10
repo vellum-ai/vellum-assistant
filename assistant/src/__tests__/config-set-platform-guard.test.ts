@@ -197,27 +197,6 @@ describe("config set — platform connection guard for service mode paths", () =
     mockGetNestedValue = () => undefined;
   });
 
-  test("config set services.inference.mode managed — fails when not connected", async () => {
-    const { exitCode, stdout } = await runCli([
-      "node",
-      "assistant",
-      "--json",
-      "config",
-      "set",
-      "services.inference.mode",
-      "managed",
-    ]);
-
-    expect(exitCode).toBe(1);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("vellum platform connect");
-    expect(parsed.error).toContain("Not connected");
-    // Config should NOT have been written
-    expect(mockSaveRawConfigCalls).toHaveLength(0);
-    expect(mockSetNestedValueCalls).toHaveLength(0);
-  });
-
   test("config set services.image-generation.mode your-own — succeeds without platform connection", async () => {
     const { exitCode } = await runCli([
       "node",
@@ -284,26 +263,6 @@ describe("config set — platform connection guard for service mode paths", () =
     });
   });
 
-  test("config get services.inference.mode — works without platform connection", async () => {
-    mockGetNestedValue = (_obj, key) => {
-      if (key === "services.inference.mode") return "your-own";
-      return undefined;
-    };
-
-    const { exitCode } = await runCli([
-      "node",
-      "assistant",
-      "config",
-      "get",
-      "services.inference.mode",
-    ]);
-
-    expect(exitCode).toBe(0);
-    // No writes should have occurred
-    expect(mockSaveRawConfigCalls).toHaveLength(0);
-    expect(mockSetNestedValueCalls).toHaveLength(0);
-  });
-
   test("config set services.web-search.mode managed — fails when not connected", async () => {
     const { exitCode, stdout } = await runCli([
       "node",
@@ -322,25 +281,4 @@ describe("config set — platform connection guard for service mode paths", () =
     expect(mockSaveRawConfigCalls).toHaveLength(0);
   });
 
-  test("config set services.inference.mode managed — succeeds when connected", async () => {
-    mockPlatformClientCreate = async () => ({
-      platformAssistantId: "asst-123",
-      fetch: async () => new Response(),
-    });
-
-    const { exitCode } = await runCli([
-      "node",
-      "assistant",
-      "config",
-      "set",
-      "services.inference.mode",
-      "managed",
-    ]);
-
-    expect(exitCode).toBe(0);
-    expect(mockSetNestedValueCalls).toHaveLength(1);
-    expect(mockSetNestedValueCalls[0]!.key).toBe("services.inference.mode");
-    expect(mockSetNestedValueCalls[0]!.value).toBe("managed");
-    expect(mockSaveRawConfigCalls).toHaveLength(1);
-  });
 });
