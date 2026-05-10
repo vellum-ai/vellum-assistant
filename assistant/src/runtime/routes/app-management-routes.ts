@@ -424,84 +424,88 @@ async function importBundle(
   );
   writeFileSync(tempPath, bundleBytes);
 
-  const [scanResult, signatureResult] = await Promise.all([
-    scanBundle(tempPath),
-    verifyBundleSignature(tempPath),
-  ]);
+  try {
+    const [scanResult, signatureResult] = await Promise.all([
+      scanBundle(tempPath),
+      verifyBundleSignature(tempPath).catch(
+        (): Awaited<ReturnType<typeof verifyBundleSignature>> => ({
+          trustTier: "unsigned",
+          message: "Signature verification failed",
+        }),
+      ),
+    ]);
 
-  const blocked = scanResult.findings
-    .filter((f) => f.level === "block")
-    .map((f) => f.message);
-  const warnings = scanResult.findings
-    .filter((f) => f.level === "warn")
-    .map((f) => f.message);
+    const blocked = scanResult.findings
+      .filter((f) => f.level === "block")
+      .map((f) => f.message);
+    const warnings = scanResult.findings
+      .filter((f) => f.level === "warn")
+      .map((f) => f.message);
 
-  if (!scanResult.passed) {
-    await unlink(tempPath);
-    throw new BadRequestError(
-      `Bundle blocked by security scan: ${blocked.join("; ")}`,
-    );
+    if (!scanResult.passed) {
+      throw new BadRequestError(
+        `Bundle blocked by security scan: ${blocked.join("; ")}`,
+      );
+    }
+
+    // Load the zip and extract contents
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(bundleBytes);
+
+    // Extract manifest
+    const manifestFile = zip.file("manifest.json");
+    let manifest: { name?: string; description?: string; entry?: string } = {};
+    if (manifestFile) {
+      const manifestText = await manifestFile.async("text");
+      manifest = JSON.parse(manifestText);
+    }
+
+    const appName = manifest.name ?? "Imported App";
+    const appDescription = manifest.description;
+    const entry = manifest.entry ?? "index.html";
+
+    // Extract entry HTML
+    const entryFile = zip.file(entry);
+    if (!entryFile) {
+      throw new BadRequestError("Bundle missing entry file");
+    }
+    const htmlDefinition = await entryFile.async("text");
+
+    // Extract icon if present
+    let icon: string | undefined;
+    const iconFile = zip.file("icon.png");
+    if (iconFile) {
+      icon = await iconFile.async("base64");
+    }
+
+    // Create the local app
+    const newApp = createApp({
+      name: appName,
+      description: appDescription,
+      schemaJson: JSON.stringify({ type: "object", properties: {} }),
+      htmlDefinition,
+      icon,
+    });
+
+    return {
+      success: true,
+      appId: newApp.id,
+      name: newApp.name,
+      scanResult: {
+        passed: scanResult.passed,
+        blocked,
+        warnings,
+      },
+      signatureResult: {
+        trustTier: signatureResult.trustTier,
+        signerKeyId: signatureResult.signerKeyId,
+        signerDisplayName: signatureResult.signerDisplayName,
+        signerAccount: signatureResult.signerAccount,
+      },
+    };
+  } finally {
+    void unlink(tempPath);
   }
-
-  // Load the zip and extract contents
-  const JSZip = (await import("jszip")).default;
-  const zip = await JSZip.loadAsync(bundleBytes);
-
-  // Extract manifest
-  const manifestFile = zip.file("manifest.json");
-  let manifest: { name?: string; description?: string; entry?: string } = {};
-  if (manifestFile) {
-    const manifestText = await manifestFile.async("text");
-    manifest = JSON.parse(manifestText);
-  }
-
-  const appName = manifest.name ?? "Imported App";
-  const appDescription = manifest.description;
-  const entry = manifest.entry ?? "index.html";
-
-  // Extract entry HTML
-  const entryFile = zip.file(entry);
-  if (!entryFile) {
-    await unlink(tempPath);
-    throw new BadRequestError("Bundle missing entry file");
-  }
-  const htmlDefinition = await entryFile.async("text");
-
-  // Extract icon if present
-  let icon: string | undefined;
-  const iconFile = zip.file("icon.png");
-  if (iconFile) {
-    icon = await iconFile.async("base64");
-  }
-
-  // Create the local app
-  const newApp = createApp({
-    name: appName,
-    description: appDescription,
-    schemaJson: JSON.stringify({ type: "object", properties: {} }),
-    htmlDefinition,
-    icon,
-  });
-
-  // Clean up temp file (fire-and-forget)
-  void unlink(tempPath);
-
-  return {
-    success: true,
-    appId: newApp.id,
-    name: newApp.name,
-    scanResult: {
-      passed: scanResult.passed,
-      blocked,
-      warnings,
-    },
-    signatureResult: {
-      trustTier: signatureResult.trustTier,
-      signerKeyId: signatureResult.signerKeyId,
-      signerDisplayName: signatureResult.signerDisplayName,
-      signerAccount: signatureResult.signerAccount,
-    },
-  };
 }
 
 // ---------------------------------------------------------------------------
