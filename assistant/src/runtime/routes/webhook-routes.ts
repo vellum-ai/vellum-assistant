@@ -74,7 +74,12 @@ async function handleWebhooksRegister(args: RouteHandlerArgs): Promise<unknown> 
 
   // Self-hosted: use ingress.publicBaseUrl
   const config = getConfig();
-  const baseUrl = getPublicBaseUrl(config); // throws if not configured — let it propagate
+  let baseUrl: string;
+  try {
+    baseUrl = getPublicBaseUrl(config);
+  } catch (err) {
+    throw new UnprocessableEntityError((err as Error).message);
+  }
   return {
     callbackUrl: `${baseUrl}/${webhookPath}`,
     type,
