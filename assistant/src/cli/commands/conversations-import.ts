@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
@@ -159,7 +160,7 @@ Examples:
           const r = await cliIpcCall<ImportResult>("conversations_import", {
             conversations: payload.conversations as unknown as Record<string, unknown>[],
           });
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number });
 
           const result = r.result!;
           if (opts.json) {
