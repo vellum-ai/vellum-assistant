@@ -194,7 +194,7 @@ Examples:
           "Filter by direction: inbound, outbound, or all",
           "all",
         )
-        .option("-l, --limit <count>", "Maximum number of results", "20")
+        .option("-l, --limit <count>", "Maximum number of results")
         .option("--since <date>", "Only show messages since this date (ISO 8601)")
         .addHelpText(
           "after",
