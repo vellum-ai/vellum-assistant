@@ -82,6 +82,7 @@ function handleRenderFromTraits({ body }: RouteHandlerArgs) {
     }
   }
 
+  updateIdentityAvatarSection(null, log);
   publishAvatarUpdated();
   return { ok: true };
 }

@@ -75,6 +75,11 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
   for (let idx = 0; idx < payload.conversations.length; idx++) {
     const conv = payload.conversations[idx];
 
+    if (!conv || typeof conv !== "object") {
+      errors.push({ index: idx, error: "invalid conversation entry" });
+      continue;
+    }
+
     try {
       // Dedup via sourceKey
       if (conv.sourceKey) {

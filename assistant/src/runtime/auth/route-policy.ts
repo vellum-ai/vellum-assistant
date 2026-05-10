@@ -511,7 +511,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "avatar/remove", scopes: ["settings.write"] },
   { endpoint: "avatar/get", scopes: ["settings.read"] },
   { endpoint: "avatar/character/ascii", scopes: ["settings.read"] },
-  { endpoint: "avatar/notify-updated", scopes: ["settings.write"] },
   { endpoint: "settings/client", scopes: ["settings.write"] },
 
   // Schedules
