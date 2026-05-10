@@ -23,6 +23,7 @@ import { initializeDb } from "../db-init.js";
 import {
   backfillMemoryV2ActivationMessageId,
   getMemoryV2ActivationLogByMessageIds,
+  type MemoryV2ConceptRowRecord,
   recordMemoryV2ActivationLog,
 } from "../memory-v2-activation-log-store.js";
 import { memoryV2ActivationLogs } from "../schema.js";
@@ -64,6 +65,74 @@ describe("memory-v2-activation-log-store", () => {
     expect(result!.mode).toBe("per-turn");
     expect(result!.concepts).toEqual(sampleConcepts);
     expect(result!.config).toEqual(sampleConfig);
+  });
+
+  test("round-trip: router-mode log row with zeroed activations and source: 'router'", () => {
+    const conversationId = "conv-router";
+    const messageId = "msg-router";
+
+    const routerConcepts: MemoryV2ConceptRowRecord[] = [
+      {
+        slug: "concept-router-a",
+        finalActivation: 0,
+        ownActivation: 0,
+        priorActivation: 0,
+        simUser: 0,
+        simAssistant: 0,
+        simNow: 0,
+        simUserRerankBoost: 0,
+        simAssistantRerankBoost: 0,
+        inRerankPool: false,
+        spreadContribution: 0,
+        source: "router",
+        status: "injected",
+      },
+      {
+        slug: "concept-router-b",
+        finalActivation: 0,
+        ownActivation: 0,
+        priorActivation: 0,
+        simUser: 0,
+        simAssistant: 0,
+        simNow: 0,
+        simUserRerankBoost: 0,
+        simAssistantRerankBoost: 0,
+        inRerankPool: false,
+        spreadContribution: 0,
+        source: "router",
+        status: "not_injected",
+      },
+    ];
+
+    recordMemoryV2ActivationLog({
+      conversationId,
+      turn: 7,
+      mode: "router",
+      concepts: routerConcepts,
+      config: sampleConfig,
+    });
+
+    backfillMemoryV2ActivationMessageId(conversationId, messageId);
+
+    const result = getMemoryV2ActivationLogByMessageIds([messageId]);
+    expect(result).not.toBeNull();
+    expect(result!.conversationId).toBe(conversationId);
+    expect(result!.turn).toBe(7);
+    expect(result!.mode).toBe("router");
+    expect(result!.concepts).toEqual(routerConcepts);
+    expect(result!.config).toEqual(sampleConfig);
+    for (const concept of result!.concepts) {
+      expect(concept.source).toBe("router");
+      expect(concept.finalActivation).toBe(0);
+      expect(concept.ownActivation).toBe(0);
+      expect(concept.priorActivation).toBe(0);
+      expect(concept.simUser).toBe(0);
+      expect(concept.simAssistant).toBe(0);
+      expect(concept.simNow).toBe(0);
+      expect(concept.simUserRerankBoost).toBe(0);
+      expect(concept.simAssistantRerankBoost).toBe(0);
+      expect(concept.spreadContribution).toBe(0);
+    }
   });
 
   test("returns null for empty messageIds array", () => {
