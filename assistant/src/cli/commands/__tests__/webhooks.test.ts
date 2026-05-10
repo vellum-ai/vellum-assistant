@@ -13,7 +13,7 @@ let mockResponse: unknown = {
   },
 };
 
-mock.module("../../ipc/cli-client.js", () => ({
+mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params: Record<string, unknown>) => {
     mockCalls.push([method, params]);
     return mockResponse;
