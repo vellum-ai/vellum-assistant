@@ -1408,10 +1408,10 @@ public final class SettingsStore: ObservableObject {
         return true
     }
 
-    /// Re-sync locally-known keys to daemon on reconnect.
-    /// Pushes keys present in the credential store via the async gateway API,
-    /// and replays any pending deletion tombstones so user-initiated clears
-    /// are eventually consistent.
+    /// Replay any pending deletion tombstones on reconnect so user-initiated
+    /// clears are eventually consistent if the daemon was unreachable when
+    /// the user clicked. (Legacy file→daemon resync removed — settings
+    /// writes go straight to the daemon now.)
     private func syncAllKeysToDaemon() {
         Task {
             // In managed mode, auth is handled by SessionTokenManager — no actor token needed.
@@ -1423,13 +1423,6 @@ public final class SettingsStore: ObservableObject {
             if !isManagedMode {
                 guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
             }
-
-            for provider in APIKeyManager.allSyncableProviders {
-                if let key = APIKeyManager.getKey(for: provider) {
-                    _ = await APIKeyManager.setKey(key, for: provider)
-                }
-            }
-
             await replayDeletionTombstones()
         }
     }
