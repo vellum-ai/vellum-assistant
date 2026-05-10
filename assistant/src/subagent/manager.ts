@@ -15,9 +15,9 @@ import { Conversation } from "../daemon/conversation.js";
 import { findConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
+import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
+import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
-import { getProvider } from "../providers/registry.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
@@ -181,19 +181,20 @@ export class SubagentManager {
 
     // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
-    let provider = getProvider(appConfig.llm.default.provider);
+    // Connection-aware default-provider resolution; falls back to legacy
+    // registry lookup when `llm.default.provider_connection` isn't set or
+    // resolution misses. Per-call `callSite` routing is layered next.
+    const baseProvider = await resolveDefaultProvider(appConfig);
+    if (!baseProvider) {
+      throw new Error(
+        `Subagent: default provider '${appConfig.llm.default.provider}' is not registered`,
+      );
+    }
     // Per-call `options.config.callSite` (e.g. `subagentSpawn`) can resolve
-    // to a provider name that differs from `llm.default.provider`. Wrap the
-    // default provider so the actual transport routes correctly per call,
-    // rather than only forwarding metadata to the default's HTTP client.
-    // See `providers/call-site-routing.ts`.
-    provider = new CallSiteRoutingProvider(provider, (name) => {
-      try {
-        return getProvider(name);
-      } catch {
-        return undefined;
-      }
-    });
+    // to a profile that differs from `llm.default`. The shared wrapper
+    // threads `appConfig` through so per-call alternate-profile routing is
+    // also connection-aware (matches the canonical dispatch path).
+    let provider = wrapWithCallSiteRouting(baseProvider, appConfig);
     const { rateLimit } = appConfig;
     if (rateLimit.maxRequestsPerMinute > 0) {
       provider = new RateLimitProvider(

@@ -118,6 +118,12 @@ mock.module("../providers/registry.js", () => ({
   listProviders: () => [],
   getProviderRoutingSource: () => undefined,
   initializeProviders: () => {},
+  // Required by `providers/inference/connections.ts` and
+  // `providers/connection-resolution.ts`, both loaded transitively when
+  // ConfigWatcher's deps resolve. Without these, the import chain throws
+  // "Export named '...' not found in module 'registry.ts'".
+  clearConnectionProviderCache: () => {},
+  resolveProviderFromConnection: async () => null,
 }));
 
 mock.module("../daemon/mcp-reload-service.js", () => ({
