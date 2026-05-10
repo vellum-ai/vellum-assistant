@@ -1541,15 +1541,13 @@ async function main() {
 
     // ── Route table dispatch ──
     try {
-      const response = router(req, url, resolveClientIp, svr);
+      const response = await router(req, url, resolveClientIp, svr);
       if (response !== null) {
         if (extensionOrigin) {
-          const resolved = await response;
-          return withExtensionCorsHeaders(resolved, extensionOrigin);
+          return withExtensionCorsHeaders(response, extensionOrigin);
         }
         if (webviewOrigin) {
-          const resolved = await response;
-          return withCorsHeaders(resolved, webviewOrigin);
+          return withCorsHeaders(response, webviewOrigin);
         }
         return response;
       }

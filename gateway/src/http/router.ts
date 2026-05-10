@@ -90,10 +90,10 @@ export function createRouter(
   url: URL,
   getClientIp: GetClientIp,
   server?: Server<unknown>,
-) => Promise<Response> | Response | null {
+) => Promise<Response | null> {
   const { authRateLimiter } = deps;
 
-  return (
+  return async (
     req: Request,
     url: URL,
     getClientIp: GetClientIp,
@@ -121,7 +121,7 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuth(req, server);
+          const authError = await requireEdgeAuth(req, server);
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }
@@ -131,7 +131,11 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuthWithScope(req, route.scope!, server);
+          const authError = await requireEdgeAuthWithScope(
+            req,
+            route.scope!,
+            server,
+          );
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }
@@ -141,10 +145,9 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          return requireEdgeGuardianAuth(req, server).then(
-            (authError) =>
-              authError ?? route.handler(req, matchResult.params, getClientIp),
-          );
+          const authError = await requireEdgeGuardianAuth(req, server);
+          if (authError) return authError;
+          return route.handler(req, matchResult.params, getClientIp);
         }
 
         case "track-failures": {

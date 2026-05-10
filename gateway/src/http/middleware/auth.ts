@@ -16,34 +16,54 @@ const log = getLogger("auth");
 type GetClientIp = () => string;
 
 // ---------------------------------------------------------------------------
-// DISABLE_HTTP_AUTH — platform-managed deployments bypass JWT validation
+// Platform-managed auth bypass — DISABLE_HTTP_AUTH + IS_PLATFORM
 // ---------------------------------------------------------------------------
+//
+// Both flags must be set together to disable JWT validation. DISABLE_HTTP_AUTH
+// alone is insufficient — it closes the accidental misconfig case where the
+// flag gets set on a non-platform deployment (e.g. a leaked dev env var on a
+// public host). When the bypass IS active, the platform vembda sidecar is
+// expected to forward `X-Vellum-User-Id`; the gateway cross-checks that
+// against the locally-stored `vellum:platform_user_id` credential. This means
+// reaching the gateway sidecar's port directly (without going through vembda)
+// still requires knowing the bound user id — the platform header alone is
+// not a free-pass.
 
-/**
- * True when HTTP auth is disabled via DISABLE_HTTP_AUTH=true.
- * Reads the env var on each call — no caching — so tests can set
- * process.env.DISABLE_HTTP_AUTH directly without any reset helper.
- */
+/** True when DISABLE_HTTP_AUTH=true. */
 export function isHttpAuthDisabled(): boolean {
   return process.env.DISABLE_HTTP_AUTH?.trim().toLowerCase() === "true";
 }
 
+/** True when IS_PLATFORM is set (vembda-managed deployment). */
+function isPlatformManaged(): boolean {
+  const v = process.env.IS_PLATFORM?.trim();
+  return v === "1" || v?.toLowerCase() === "true";
+}
+
 /**
- * Log the auth bypass state at gateway startup.
- * Call once from the main entrypoint after the logger is ready.
+ * True when the platform-managed auth bypass is in effect — both flags set.
+ * Either alone leaves JWT validation in place.
+ */
+function isPlatformAuthBypassActive(): boolean {
+  return isHttpAuthDisabled() && isPlatformManaged();
+}
+
+/**
+ * Log auth bypass state at gateway startup. Call once after the logger is
+ * initialized.
  */
 export function logAuthBypassState(): void {
   if (!isHttpAuthDisabled()) return;
-  const isPlatform =
-    process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
-    process.env.IS_PLATFORM?.trim() === "1";
-  if (isPlatform) {
+  if (isPlatformManaged()) {
     log.info(
-      "DISABLE_HTTP_AUTH is set — HTTP auth disabled (expected: platform handles auth)",
+      "DISABLE_HTTP_AUTH + IS_PLATFORM both set — JWT validation bypassed; " +
+        "X-Vellum-User-Id is cross-checked against stored platform_user_id",
     );
   } else {
     log.warn(
-      "DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All endpoints are accessible without a bearer token.",
+      "DISABLE_HTTP_AUTH is set but IS_PLATFORM is NOT — bypass is INACTIVE. " +
+        "JWT validation runs as normal. Set IS_PLATFORM=true to opt into the " +
+        "platform-managed auth model.",
     );
   }
 }
@@ -51,29 +71,77 @@ export function logAuthBypassState(): void {
 /**
  * Build edge-auth guard functions that share a rate limiter and IP resolver.
  *
- * Both guards validate a JWT bearer token (aud=vellum-gateway) and record
- * failures against the rate limiter. `requireEdgeAuthWithScope` additionally
- * checks for a specific scope in the token's profile.
+ * All three guards short-circuit on loopback peers. Beyond that:
  *
- * When DISABLE_HTTP_AUTH is set (platform-managed deployments), all JWT
- * checks are bypassed — the platform handles authentication upstream.
+ *   - `requireEdgeAuth` — validates a JWT bearer token (aud=vellum-gateway)
+ *     OR (when bypass is active) cross-checks X-Vellum-User-Id against the
+ *     stored platform_user_id credential.
+ *   - `requireEdgeAuthWithScope` — same, plus a scope-profile check on the
+ *     decoded JWT. Under the platform bypass, scope is enforced upstream by
+ *     vembda; the gateway only verifies the cross-checked user id.
+ *   - `requireEdgeGuardianAuth` — same pattern, additionally requires the
+ *     authenticated principal to match the bound guardian.
  */
 export function createAuthMiddleware(
   authRateLimiter: AuthRateLimiter,
   getClientIp: GetClientIp,
 ) {
   /**
-   * Validate a JWT bearer token (aud=vellum-gateway) for client-facing routes.
-   * Loopback peers (127.0.0.0/8, ::1) are auto-authenticated without a token.
-   * Returns null on success, or a Response to short-circuit with.
+   * Cross-check `X-Vellum-User-Id` against the stored
+   * `vellum:platform_user_id` credential. Used by all three guards under the
+   * platform-managed bypass. Returns null on success, or a 4xx/5xx Response.
    */
-  function requireEdgeAuth(
+  async function requirePlatformUserHeader(
+    req: Request,
+  ): Promise<Response | null> {
+    const headerUserId = req.headers.get("x-vellum-user-id");
+    if (!headerUserId) {
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Edge auth rejected: missing X-Vellum-User-Id (platform bypass active)",
+      );
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    let storedUserId: string | undefined;
+    try {
+      storedUserId = await readCredential(
+        credentialKey("vellum", "platform_user_id"),
+      );
+    } catch (err) {
+      log.error(
+        { path: new URL(req.url).pathname, err },
+        "Edge auth: platform_user_id credential lookup failed",
+      );
+      return Response.json({ error: "Service Unavailable" }, { status: 503 });
+    }
+    if (!storedUserId) {
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Edge auth rejected: no platform_user_id stored on this assistant",
+      );
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (storedUserId !== headerUserId) {
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Edge auth rejected: X-Vellum-User-Id does not match stored platform_user_id",
+      );
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+    return null;
+  }
+
+  /**
+   * Validate a JWT bearer token (aud=vellum-gateway) for client-facing routes.
+   * Loopback peers (127.0.0.0/8, ::1) auto-pass without a token.
+   */
+  async function requireEdgeAuth(
     req: Request,
     server?: Server<unknown>,
-  ): Response | null {
-    if (isHttpAuthDisabled()) return null;
-    if (server && isLoopbackPeer(server, req)) {
-      return null;
+  ): Promise<Response | null> {
+    if (server && isLoopbackPeer(server, req)) return null;
+    if (isPlatformAuthBypassActive()) {
+      return requirePlatformUserHeader(req);
     }
     const token = extractBearerToken(req);
     if (!token) {
@@ -97,18 +165,19 @@ export function createAuthMiddleware(
   }
 
   /**
-   * Validate a JWT bearer token and check that its scope profile
-   * includes a specific scope. Loopback peers bypass JWT validation
-   * and are granted all scopes. Returns null on success.
+   * Validate a JWT bearer token and check that its scope profile includes the
+   * required scope. Loopback peers bypass JWT validation. Under the platform
+   * bypass, scope is enforced upstream by vembda — the gateway only confirms
+   * the user id.
    */
-  function requireEdgeAuthWithScope(
+  async function requireEdgeAuthWithScope(
     req: Request,
     scope: Scope,
     server?: Server<unknown>,
-  ): Response | null {
-    if (isHttpAuthDisabled()) return null;
-    if (server && isLoopbackPeer(server, req)) {
-      return null;
+  ): Promise<Response | null> {
+    if (server && isLoopbackPeer(server, req)) return null;
+    if (isPlatformAuthBypassActive()) {
+      return requirePlatformUserHeader(req);
     }
     const token = extractBearerToken(req);
     if (!token) {
@@ -138,81 +207,25 @@ export function createAuthMiddleware(
   /**
    * Assert that the caller is the assistant's bound vellum guardian.
    *
-   * Two auth modes — pick whichever applies to the deployment:
+   * Two auth modes:
    *
-   * 1. **DISABLE_HTTP_AUTH=true (platform-managed):** vembda has already
-   *    authenticated the caller upstream. We require the platform to
-   *    forward `X-Vellum-User-Id` and we cross-reference it with the
-   *    stored `vellum:platform_user_id` credential. If they match, the
-   *    caller is the guardian.
+   *   1. Platform-managed (DISABLE_HTTP_AUTH + IS_PLATFORM): caller's identity
+   *      is asserted via X-Vellum-User-Id cross-checked against the stored
+   *      `vellum:platform_user_id` credential.
+   *   2. Default: validate the edge JWT, require an actor principal, assert it
+   *      matches the bound guardian's principal id.
    *
-   * 2. **Default (laptop / docker / bare-metal):** validate the edge JWT
-   *    and require the caller's actor principal to match the bound
-   *    vellum guardian's principal id (looked up via
-   *    `findVellumGuardian()`).
-   *
-   * Loopback peers bypass entirely (consistent with sibling guards).
+   * Loopback peers bypass both checks.
    */
   async function requireEdgeGuardianAuth(
     req: Request,
     server?: Server<unknown>,
   ): Promise<Response | null> {
     if (server && isLoopbackPeer(server, req)) return null;
-
-    const isPlatform =
-      process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
-      process.env.IS_PLATFORM?.trim() === "1";
-
-    if (isHttpAuthDisabled() && isPlatform) {
-      return requireEdgeGuardianAuthByPlatformHeader(req);
+    if (isPlatformAuthBypassActive()) {
+      return requirePlatformUserHeader(req);
     }
-
     return requireEdgeGuardianAuthByActorPrincipal(req);
-  }
-
-  /**
-   * Platform-managed path — caller's identity is asserted via
-   * `X-Vellum-User-Id` (forwarded by vembda) cross-referenced against the
-   * locally-stored `vellum:platform_user_id` credential.
-   */
-  async function requireEdgeGuardianAuthByPlatformHeader(
-    req: Request,
-  ): Promise<Response | null> {
-    const headerUserId = req.headers.get("x-vellum-user-id");
-    if (!headerUserId) {
-      log.warn(
-        { path: new URL(req.url).pathname },
-        "Guardian edge auth rejected: missing X-Vellum-User-Id (DISABLE_HTTP_AUTH=true)",
-      );
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    let storedUserId: string | undefined;
-    try {
-      storedUserId = await readCredential(
-        credentialKey("vellum", "platform_user_id"),
-      );
-    } catch (err) {
-      log.error(
-        { path: new URL(req.url).pathname, err },
-        "Guardian edge auth: platform_user_id credential lookup failed",
-      );
-      return Response.json({ error: "Service Unavailable" }, { status: 503 });
-    }
-    if (!storedUserId) {
-      log.warn(
-        { path: new URL(req.url).pathname },
-        "Guardian edge auth rejected: no platform_user_id stored on this assistant",
-      );
-      return Response.json({ error: "Forbidden" }, { status: 403 });
-    }
-    if (storedUserId !== headerUserId) {
-      log.warn(
-        { path: new URL(req.url).pathname },
-        "Guardian edge auth rejected: X-Vellum-User-Id does not match stored platform_user_id",
-      );
-      return Response.json({ error: "Forbidden" }, { status: 403 });
-    }
-    return null;
   }
 
   /**
