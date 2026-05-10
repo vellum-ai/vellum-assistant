@@ -6,7 +6,7 @@
  * transcription) is handled by the stt_transcribe_file route.
  */
 
-import { extname } from "node:path";
+import { extname, resolve } from "node:path";
 
 import type { Command } from "commander";
 
@@ -69,8 +69,14 @@ Examples:
       sttCmd
         .command("transcribe")
         .description("Transcribe an audio or video file to text")
-        .requiredOption("--file <path>", "Absolute path to the audio/video file")
-        .option("--json", "Output structured JSON instead of plain transcript text")
+        .requiredOption(
+          "--file <path>",
+          "Absolute path to the audio/video file",
+        )
+        .option(
+          "--json",
+          "Output structured JSON instead of plain transcript text",
+        )
         .addHelpText(
           "after",
           `
@@ -90,7 +96,7 @@ Examples:
   $ assistant stt transcribe --file /path/to/podcast.mp3 --json`,
         )
         .action(async (opts: { file: string; json?: boolean }) => {
-          const filePath = opts.file;
+          const filePath = resolve(opts.file);
           const jsonOutput = opts.json ?? false;
 
           // Client-side extension validation (provides clear error before hitting daemon)
@@ -124,7 +130,9 @@ Examples:
               process.exitCode = 1;
               return;
             }
-            return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number });
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+            );
           }
 
           const { transcript, provider, durationSeconds } = r.result!;
