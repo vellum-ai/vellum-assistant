@@ -4046,6 +4046,106 @@ paths:
               required:
                 - conversationId
               additionalProperties: false
+  /v1/conversations/import:
+    post:
+      operationId: conversations_import_post
+      summary: Import conversations
+      description: Import conversations from a standard JSON payload.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  imported:
+                    type: number
+                  skipped:
+                    type: number
+                  messages:
+                    type: number
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index:
+                          type: number
+                        sourceKey:
+                          type: string
+                        error:
+                          type: string
+                      required:
+                        - index
+                        - error
+                      additionalProperties: false
+                required:
+                  - ok
+                  - imported
+                  - skipped
+                  - messages
+                  - errors
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversations:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      sourceKey:
+                        type: string
+                      title:
+                        type: string
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
+                      messages:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            role:
+                              type: string
+                            content:
+                              anyOf:
+                                - type: string
+                                - type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      type:
+                                        type: string
+                                      text:
+                                        type: string
+                                    required:
+                                      - type
+                                      - text
+                                    additionalProperties: false
+                            createdAt:
+                              type: number
+                          required:
+                            - role
+                            - content
+                          additionalProperties: false
+                    required:
+                      - title
+                      - messages
+                    additionalProperties: false
+              required:
+                - conversations
+              additionalProperties: false
   /v1/conversations/inference-profile-session:
     post:
       operationId: conversations_inferenceprofilesession_post
