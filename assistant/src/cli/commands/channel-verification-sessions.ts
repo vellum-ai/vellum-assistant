@@ -170,7 +170,7 @@ Examples:
               purpose: opts.purpose ?? "guardian",
               contactChannelId: opts.contactChannelId,
             });
-            if (!r.ok) return exitFromIpcResult(r, cmd);
+            if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
             writeOutput(cmd, r.result);
           },
         );
@@ -207,7 +207,7 @@ Examples:
           const r = await cliIpcCall("channel_verification_sessions_status", {
             channel,
           });
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           writeOutput(cmd, r.result);
         });
 
@@ -255,7 +255,7 @@ Examples:
                 originConversationId: opts.originConversationId,
               },
             );
-            if (!r.ok) return exitFromIpcResult(r, cmd);
+            if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
             writeOutput(cmd, r.result);
           },
         );
@@ -293,7 +293,7 @@ Examples:
           const r = await cliIpcCall("channel_verification_sessions_cancel", {
             channel,
           });
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           writeOutput(cmd, r.result);
         });
 
@@ -331,7 +331,7 @@ Examples:
           const r = await cliIpcCall("channel_verification_sessions_revoke", {
             channel,
           });
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number }, cmd);
           writeOutput(cmd, r.result);
         });
     },
