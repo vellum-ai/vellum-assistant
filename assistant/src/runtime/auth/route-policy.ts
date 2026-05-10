@@ -817,6 +817,12 @@ registerPolicy("background-tools/cancel", {
   allowedPrincipalTypes: ["local"],
 });
 
+// TTS CLI synthesis: local-only (CLI / IPC callers)
+registerPolicy("tts/synthesize-cli", {
+  requiredScopes: ["chat.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // User-defined routes under /x/*
 registerPolicy("x", {
   requiredScopes: ["settings.read"],
