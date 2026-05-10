@@ -313,3 +313,58 @@ describe("POST /v1/conversations/inference-profile-session/close (inference_prof
     expect(result.closed).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// POST /v1/conversations  (createConversation)
+// ---------------------------------------------------------------------------
+
+const createHandler = findHandler(
+  CONVERSATION_MANAGEMENT_ROUTES,
+  "createConversation",
+);
+
+describe("POST /v1/conversations (createConversation)", () => {
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("honors body.title when provided", async () => {
+    const result = (await createHandler({
+      body: { title: "Project planning" },
+    })) as {
+      id: string;
+      conversationKey: string;
+      title: string;
+      created: boolean;
+    };
+
+    expect(result.created).toBe(true);
+    expect(result.title).toBe("Project planning");
+
+    const row = getDb()
+      .select({ title: conversations.title })
+      .from(conversations)
+      .all()[0];
+    expect(row?.title).toBe("Project planning");
+  });
+
+  test("falls back to \"New Conversation\" when title is omitted", async () => {
+    const result = (await createHandler({ body: {} })) as {
+      id: string;
+      title: string;
+      created: boolean;
+    };
+
+    expect(result.created).toBe(true);
+    expect(result.title).toBe("New Conversation");
+  });
+
+  test("falls back to \"New Conversation\" when title is blank", async () => {
+    const result = (await createHandler({
+      body: { title: "   " },
+    })) as { title: string; created: boolean };
+
+    expect(result.created).toBe(true);
+    expect(result.title).toBe("New Conversation");
+  });
+});

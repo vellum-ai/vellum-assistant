@@ -3546,11 +3546,14 @@ paths:
                     type: string
                   created:
                     type: boolean
+                  title:
+                    type: string
                 required:
                   - id
                   - conversationKey
                   - conversationType
                   - created
+                  - title
                 additionalProperties: false
       requestBody:
         required: true
@@ -3560,14 +3563,15 @@ paths:
               type: object
               properties:
                 conversationKey:
+                  description: Idempotency key for the conversation; auto-generated when omitted
                   type: string
-                  description: Idempotency key for the conversation
                 conversationType:
                   description: Only standard conversations are created by this endpoint
                   type: string
                   const: standard
-              required:
-                - conversationKey
+                title:
+                  description: Optional conversation title; defaults to "New Conversation" when omitted or blank
+                  type: string
               additionalProperties: false
   /v1/conversations/{id}:
     delete:

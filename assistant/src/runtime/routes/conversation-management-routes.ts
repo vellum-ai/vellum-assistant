@@ -104,11 +104,13 @@ function cancelScheduleIfLast(conversationId: string): void {
 function handleCreateConversation({ body = {} }: RouteHandlerArgs) {
   const conversationKey =
     (body.conversationKey as string | undefined) ?? crypto.randomUUID();
+  const title = body.title as string | undefined;
+  const resolvedTitle = title?.trim() ? title : "New Conversation";
   const result = getOrCreateConversation(conversationKey, {
     conversationType: "standard",
   });
   if (result.created) {
-    updateConversationTitle(result.conversationId, "New Conversation");
+    updateConversationTitle(result.conversationId, resolvedTitle);
   }
   log.info(
     {
@@ -123,6 +125,7 @@ function handleCreateConversation({ body = {} }: RouteHandlerArgs) {
     conversationKey,
     conversationType: normalizeConversationType(result.conversationType),
     created: result.created,
+    title: resolvedTitle,
   };
 }
 
@@ -435,17 +438,27 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       conversationKey: z
         .string()
-        .describe("Idempotency key for the conversation"),
+        .optional()
+        .describe(
+          "Idempotency key for the conversation; auto-generated when omitted",
+        ),
       conversationType: z
         .literal("standard")
         .optional()
         .describe("Only standard conversations are created by this endpoint"),
+      title: z
+        .string()
+        .optional()
+        .describe(
+          "Optional conversation title; defaults to \"New Conversation\" when omitted or blank",
+        ),
     }),
     responseBody: z.object({
       id: z.string(),
       conversationKey: z.string(),
       conversationType: z.string(),
       created: z.boolean(),
+      title: z.string(),
     }),
     handler: handleCreateConversation,
   },
