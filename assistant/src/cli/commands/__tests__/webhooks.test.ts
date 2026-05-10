@@ -1,4 +1,5 @@
-import { mock, describe, it, expect, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
+
 import { Command } from "commander";
 
 let mockCalls: Array<[string, Record<string, unknown>]> = [];

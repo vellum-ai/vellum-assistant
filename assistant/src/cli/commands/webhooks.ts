@@ -10,9 +10,9 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
-import { registerCommand } from "../lib/register-command.js";
 
 export function registerWebhooksCommand(program: Command): void {
   registerCommand(program, {
@@ -107,7 +107,7 @@ Examples:
               path: opts.path,
               source: opts.source,
             });
-            if (!r.ok) return exitFromIpcResult(r, cmd);
+            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, { ok: true, ...r.result });
             } else {
@@ -149,7 +149,7 @@ Examples:
               source_identifier: string | null;
             }>;
           }>("webhooks_list", {});
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, { ok: true, routes: r.result!.routes });
           } else {
