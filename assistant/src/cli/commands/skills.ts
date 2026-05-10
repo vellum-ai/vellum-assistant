@@ -96,7 +96,7 @@ Examples:
   $ assistant skills list
   $ assistant skills list --json`,
     )
-    .action(async (opts: { json?: boolean }, cmd) => {
+    .action(async (opts: { json?: boolean }, _cmd) => {
       const r = await cliIpcCall<{ skills: Array<{ id: string; name: string; description: string; emoji?: string; origin: string; kind: string; status: string }> }>(
         "listSkills",
         { queryParams: {} },
@@ -142,7 +142,7 @@ Examples:
   $ assistant skills inspect slack
   $ assistant skills inspect resend-setup --json`,
     )
-    .action(async (skillId: string, opts: { json?: boolean }, cmd) => {
+    .action(async (skillId: string, opts: { json?: boolean }, _cmd) => {
       const r = await cliIpcCall<{
         id: string; name: string; description: string; emoji: string | null;
         source: string; state: string; directoryPath: string; featureFlag: string | null;
@@ -590,7 +590,7 @@ Examples:
   $ assistant skills uninstall weather
   $ assistant skills uninstall weather --json`,
     )
-    .action(async (skillId: string, opts: { json?: boolean }, cmd) => {
+    .action(async (skillId: string, opts: { json?: boolean }, _cmd) => {
       const r = await cliIpcCall<null>("deleteSkill", { pathParams: { id: skillId } });
       if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
       if (opts.json) {
