@@ -10,10 +10,6 @@ import { createAdapterFromConnection } from "./inference/adapter-factory.js";
 // ---------------------------------------------------------------------------
 import type { ProviderConnection } from "./inference/auth.js";
 import { resolveAuth } from "./inference/resolve-auth.js";
-import {
-  buildManagedBaseUrl,
-  resolveManagedProxyContext,
-} from "./managed-proxy/context.js";
 import { isModelInCatalog } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import { OllamaProvider } from "./ollama/client.js";
@@ -55,9 +51,7 @@ export function getProviderRoutingSource(
 
 export interface ProvidersConfig {
   services: {
-    inference: {
-      mode: "managed" | "your-own";
-    };
+    inference: Record<string, never>;
     "image-generation": {
       mode: "managed" | "your-own";
       provider: string;
@@ -103,46 +97,22 @@ function resolveModel(config: ProvidersConfig, providerName: string): string {
 }
 
 /**
- * Resolve provider credentials using mode-aware logic.
- * In "managed" mode, routes through the platform proxy.
- * In "your-own" mode, uses the user's API key.
+ * Resolve provider credentials from the user's vault. Returns the API key
+ * when found, or null when the provider has no key configured.
+ *
+ * Managed-proxy resolution is handled exclusively through the
+ * `provider_connections` table via `resolveProviderFromConnection`; this
+ * legacy path only serves the name-keyed `providers` map used by telemetry.
  */
 async function resolveProviderCredentials(
   providerName: string,
-  mode: "managed" | "your-own",
 ): Promise<{
   apiKey: string;
-  baseURL?: string;
-  source: "user-key" | "managed-proxy";
+  source: "user-key";
 } | null> {
-  if (mode === "managed") {
-    const managedBaseUrl = await buildManagedBaseUrl(providerName);
-    if (managedBaseUrl) {
-      const ctx = await resolveManagedProxyContext();
-      return {
-        apiKey: ctx.assistantApiKey,
-        baseURL: managedBaseUrl,
-        source: "managed-proxy",
-      };
-    }
-    const userKey = await getProviderKeyAsync(providerName);
-    if (userKey) {
-      return { apiKey: userKey, source: "user-key" };
-    }
-    return null;
-  }
   const userKey = await getProviderKeyAsync(providerName);
   if (userKey) {
     return { apiKey: userKey, source: "user-key" };
-  }
-  const managedBaseUrl = await buildManagedBaseUrl(providerName);
-  if (managedBaseUrl) {
-    const ctx = await resolveManagedProxyContext();
-    return {
-      apiKey: ctx.assistantApiKey,
-      baseURL: managedBaseUrl,
-      source: "managed-proxy",
-    };
   }
   return null;
 }
@@ -156,15 +126,11 @@ export async function initializeProviders(
 
   const streamTimeoutMs =
     (config.timeouts?.providerStreamTimeoutSec ?? 1800) * 1000;
-  const inferenceMode = config.services.inference.mode;
   const useNativeWebSearch =
     config.services["web-search"].provider === "inference-provider-native";
 
   // Anthropic
-  const anthropicCreds = await resolveProviderCredentials(
-    "anthropic",
-    inferenceMode,
-  );
+  const anthropicCreds = await resolveProviderCredentials("anthropic");
   if (anthropicCreds) {
     const model = resolveModel(config, "anthropic");
     registerProvider(
@@ -187,7 +153,7 @@ export async function initializeProviders(
   }
 
   // OpenAI
-  const openaiCreds = await resolveProviderCredentials("openai", inferenceMode);
+  const openaiCreds = await resolveProviderCredentials("openai");
   if (openaiCreds) {
     const model = resolveModel(config, "openai");
     registerProvider(
@@ -208,7 +174,7 @@ export async function initializeProviders(
   }
 
   // Gemini
-  const geminiCreds = await resolveProviderCredentials("gemini", inferenceMode);
+  const geminiCreds = await resolveProviderCredentials("gemini");
   if (geminiCreds) {
     const model = resolveModel(config, "gemini");
     registerProvider(

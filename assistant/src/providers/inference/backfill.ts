@@ -58,24 +58,9 @@ function backfillConfigProfiles(db: DrizzleDb): void {
   const llm = raw.llm as Record<string, unknown> | undefined;
   if (!llm) return;
 
-  // Route on the auth axis (`services.inference.mode`), not the ownership
-  // axis (`profile.source` is `managed`/`user`, system-vs-user-created).
-  // Conflating them would regress user-owned profiles in managed
-  // deployments to require local API keys.
-  //
-  // We must mirror `loadConfig()`'s deployment-context default here: on
-  // platform-managed daemons the file may omit `services.inference.mode`
-  // and rely on `IS_PLATFORM=true → managed` to be filled in by
-  // `getDeploymentContextDefaults()` at runtime. Reading raw config alone
-  // would default missing values to `"your-own"`, which would backfill
-  // every profile to a `*-personal` connection and bake incorrect auth
-  // routing into config.json for later connection-based dispatch.
-  const inferenceMode = (raw.services as Record<string, unknown> | undefined)
-    ?.inference as Record<string, unknown> | undefined;
-  const onDiskMode = inferenceMode?.mode as string | undefined;
-  const isPlatform =
-    process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
-  const globalMode = onDiskMode ?? (isPlatform ? "managed" : "your-own");
+  // Always create `your-own` connections from on-disk credentials. Managed
+  // connection seeding is handled separately at boot time (PR-D).
+  const globalMode = "your-own";
 
   let changed = false;
 
