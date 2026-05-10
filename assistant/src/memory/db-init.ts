@@ -9,7 +9,6 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { getLogger } from "../util/logger.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { backfillAppConversationIds } from "./app-store.js";
@@ -450,11 +449,6 @@ export function initializeDb(): void {
   } catch (err) {
     log.error({ err }, "validateMigrationState failed");
   }
-
-  // Run provider_connections backfill: seeds canonical connections and
-  // adds provider_connection to any profiles that still have only
-  // provider + source. Errors are caught and logged inside.
-  runProviderConnectionsBackfill(database);
 
   if (process.env.BUN_TEST === "1") {
     saveTemplate();

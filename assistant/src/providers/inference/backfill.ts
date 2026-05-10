@@ -18,13 +18,20 @@ const log = getLogger("provider-connections-backfill");
 const MANAGED_PROVIDERS = new Set(["anthropic", "openai", "gemini"]);
 
 /**
- * Run on every daemon boot.
+ * Seed canonical provider_connections and backfill any legacy profiles that
+ * pre-date the connection field.
  *
- * 1. Seeds canonical connections (idempotent).
- * 2. Walks `llm.profiles.*` in config.json.
- * 3. For each profile without `provider_connection`, derives one based on
- *    the profile's `source` and `provider` fields and writes it back.
- * 4. Saves config.json if any profiles were updated.
+ * Runs on every daemon boot — both halves are idempotent and cheap (O(profiles),
+ * typically ≤10). Designed to:
+ *   - propagate new canonical connections as they're added in future versions
+ *   - self-heal manual config.json edits that drop the connection field
+ *
+ * Steps:
+ *   1. Seed canonical connections (INSERT … ON CONFLICT DO NOTHING).
+ *   2. Walk `llm.profiles.*` in config.json.
+ *   3. For each profile without `provider_connection`, derive one from
+ *      the profile's `source` + `provider` fields and write it back.
+ *   4. Save config.json if any profiles were updated.
  */
 export function runProviderConnectionsBackfill(db: DrizzleDb): void {
   try {
