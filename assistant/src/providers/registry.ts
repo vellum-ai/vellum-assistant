@@ -10,6 +10,10 @@ import { createAdapterFromConnection } from "./inference/adapter-factory.js";
 // ---------------------------------------------------------------------------
 import type { ProviderConnection } from "./inference/auth.js";
 import { resolveAuth } from "./inference/resolve-auth.js";
+import {
+  buildManagedBaseUrl,
+  resolveManagedProxyContext,
+} from "./managed-proxy/context.js";
 import { isModelInCatalog } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import { OllamaProvider } from "./ollama/client.js";
@@ -97,22 +101,27 @@ function resolveModel(config: ProvidersConfig, providerName: string): string {
 }
 
 /**
- * Resolve provider credentials from the user's vault. Returns the API key
- * when found, or null when the provider has no key configured.
+ * Resolve provider credentials. User key takes precedence; managed proxy is
+ * used as a fallback when platform prerequisites are available.
  *
- * Managed-proxy resolution is handled exclusively through the
- * `provider_connections` table via `resolveProviderFromConnection`; this
- * legacy path only serves the name-keyed `providers` map used by telemetry.
+ * The routing decision is now derived from credential availability rather than
+ * the removed `services.inference.mode` config field.
  */
 async function resolveProviderCredentials(
   providerName: string,
 ): Promise<{
   apiKey: string;
-  source: "user-key";
+  baseURL?: string;
+  source: "user-key" | "managed-proxy";
 } | null> {
   const userKey = await getProviderKeyAsync(providerName);
   if (userKey) {
     return { apiKey: userKey, source: "user-key" };
+  }
+  const managedBaseUrl = await buildManagedBaseUrl(providerName);
+  if (managedBaseUrl) {
+    const ctx = await resolveManagedProxyContext();
+    return { apiKey: ctx.assistantApiKey, baseURL: managedBaseUrl, source: "managed-proxy" };
   }
   return null;
 }
@@ -139,8 +148,9 @@ export async function initializeProviders(
         new AnthropicProvider(anthropicCreds.apiKey, model, {
           useNativeWebSearch,
           streamTimeoutMs,
+          ...(anthropicCreds.baseURL ? { baseURL: anthropicCreds.baseURL } : {}),
         }),
-        { forwardUsageAttributionHeaders: false },
+        { forwardUsageAttributionHeaders: anthropicCreds.source === "managed-proxy" },
       ),
     );
     routingSources.set("anthropic", anthropicCreds.source);
@@ -156,8 +166,9 @@ export async function initializeProviders(
         new OpenAIResponsesProvider(openaiCreds.apiKey, model, {
           useNativeWebSearch,
           streamTimeoutMs,
+          ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
         }),
-        { forwardUsageAttributionHeaders: false },
+        { forwardUsageAttributionHeaders: openaiCreds.source === "managed-proxy" },
       ),
     );
     routingSources.set("openai", openaiCreds.source);
@@ -170,8 +181,11 @@ export async function initializeProviders(
     registerProvider(
       "gemini",
       new RetryProvider(
-        new GeminiProvider(geminiCreds.apiKey, model, { streamTimeoutMs }),
-        { forwardUsageAttributionHeaders: false },
+        new GeminiProvider(geminiCreds.apiKey, model, {
+          streamTimeoutMs,
+          ...(geminiCreds.baseURL ? { managedBaseUrl: geminiCreds.baseURL } : {}),
+        }),
+        { forwardUsageAttributionHeaders: geminiCreds.source === "managed-proxy" },
       ),
     );
     routingSources.set("gemini", geminiCreds.source);

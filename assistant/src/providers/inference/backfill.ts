@@ -58,9 +58,9 @@ function backfillConfigProfiles(db: DrizzleDb): void {
   const llm = raw.llm as Record<string, unknown> | undefined;
   if (!llm) return;
 
-  // Always create `your-own` connections from on-disk credentials. Managed
-  // connection seeding is handled separately at boot time (PR-D).
-  const globalMode = "your-own";
+  const isPlatform =
+    process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
+  const globalMode = isPlatform ? "managed" : "your-own";
 
   let changed = false;
 
