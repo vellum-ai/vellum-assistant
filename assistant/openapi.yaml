@@ -11724,6 +11724,47 @@ paths:
                 - audioBase64
                 - mimeType
               additionalProperties: false
+  /v1/stt/transcribe-file:
+    post:
+      operationId: stt_transcribefile_post
+      summary: Transcribe audio/video file to text
+      description:
+        Transcribe an audio or video file to text using the configured STT provider. Handles ffmpeg conversion,
+        large-file chunking, and sequential chunk transcription.
+      tags:
+        - stt
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transcript:
+                    type: string
+                  provider:
+                    type: string
+                  durationSeconds:
+                    type: number
+                required:
+                  - transcript
+                  - provider
+                  - durationSeconds
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filePath:
+                  type: string
+                  description: Absolute path to the audio or video file
+              required:
+                - filePath
+              additionalProperties: false
   /v1/subagents/{id}:
     get:
       operationId: subagents_by_id_get
