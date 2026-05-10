@@ -9,7 +9,6 @@ import type { CatalogSkill } from "../../skills/catalog-install.js";
 import {
   fetchCatalog,
   getRepoSkillsDir,
-  installSkillLocally,
   readLocalCatalog,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
@@ -22,8 +21,6 @@ import type {
 import {
   fetchSkillAudits,
   formatAuditBadges,
-  installExternalSkill,
-  resolveSkillSource,
   searchSkillsRegistry,
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
@@ -525,53 +522,39 @@ Examples:
   $ assistant skills install weather --overwrite
   $ assistant skills install weather --json`,
     )
-    .action(
-      async (
-        skillId: string,
-        opts: { overwrite?: boolean; json?: boolean },
-      ) => {
-        const json = opts.json ?? false;
+    .action(async (skillId: string, opts: { overwrite?: boolean; json?: boolean }, _cmd) => {
+      const json = opts.json ?? false;
 
-        try {
-          // In dev mode, also check the repo-local skills/ directory
-          const repoSkillsDir = getRepoSkillsDir();
-          let localSkills: CatalogSkill[] = [];
-          if (repoSkillsDir) {
-            localSkills = readLocalCatalog(repoSkillsDir);
-          }
-
-          // Check local catalog first, then fall back to remote
-          let entry = localSkills.find((s) => s.id === skillId);
-          if (!entry) {
-            const catalog = await fetchCatalog();
-            entry = catalog.find((s) => s.id === skillId);
-          }
-
-          if (!entry) {
-            throw new Error(
-              `Skill "${skillId}" not found in the Vellum catalog`,
-            );
-          }
-
-          // Fetch, extract, and install
-          await installSkillLocally(skillId, entry, opts.overwrite ?? false);
-
-          if (json) {
-            console.log(JSON.stringify({ ok: true, skillId }));
-          } else {
-            log.info(`Installed skill "${skillId}".`);
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (json) {
-            console.log(JSON.stringify({ ok: false, error: msg }));
-          } else {
-            log.error(`Error: ${msg}`);
-          }
-          process.exitCode = 1;
+      // Step 1: catalog resolve — verify skill exists before attempting install
+      const catalogR = await cliIpcCall<{ skills: Array<{ id: string; name: string; origin: string }> }>(
+        "listSkills",
+        { queryParams: { include: "catalog", q: skillId } },
+      );
+      if (!catalogR.ok) return exitFromIpcResult({ ok: false, error: catalogR.error, statusCode: catalogR.statusCode });
+      const entry = catalogR.result!.skills.find((s) => s.id === skillId);
+      if (!entry) {
+        if (json) {
+          console.log(JSON.stringify({ ok: false, error: `Skill "${skillId}" not found in the Vellum catalog` }));
+        } else {
+          log.error(`Skill "${skillId}" not found in the Vellum catalog. Run 'assistant skills search ${skillId}' to check available skills.`);
         }
-      },
-    );
+        process.exitCode = 2;
+        return;
+      }
+
+      // Step 2: install
+      const installR = await cliIpcCall<{ ok: boolean; skillId?: string }>(
+        "installSkill",
+        { body: { slug: skillId, overwrite: opts.overwrite ?? false } },
+      );
+      if (!installR.ok) return exitFromIpcResult({ ok: false, error: installR.error, statusCode: installR.statusCode });
+
+      if (json) {
+        console.log(JSON.stringify({ ok: true, skillId }));
+      } else {
+        log.info(`Installed skill "${skillId}".`);
+      }
+    });
 
   skills
     .command("uninstall <skill-id>")
@@ -626,41 +609,19 @@ Examples:
   $ assistant skills add vercel-labs/skills/find-skills
   $ assistant skills add vercel-labs/skills@find-skills --overwrite`,
     )
-    .action(
-      async (source: string, opts: { overwrite?: boolean; json?: boolean }) => {
-        const json = opts.json ?? false;
+    .action(async (source: string, opts: { overwrite?: boolean; json?: boolean }, _cmd) => {
+      const json = opts.json ?? false;
 
-        try {
-          const { owner, repo, skillSlug, ref } = resolveSkillSource(source);
+      const r = await cliIpcCall<{ ok: boolean; skillId?: string }>(
+        "installSkill",
+        { body: { slug: source, overwrite: opts.overwrite ?? false } },
+      );
+      if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
 
-          await installExternalSkill(
-            owner,
-            repo,
-            skillSlug,
-            opts.overwrite ?? false,
-            ref,
-          );
-
-          if (json) {
-            console.log(
-              JSON.stringify({
-                ok: true,
-                skillSlug,
-                source: `${owner}/${repo}`,
-              }),
-            );
-          } else {
-            log.info(`Installed skill "${skillSlug}" from ${owner}/${repo}.`);
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (json) {
-            console.log(JSON.stringify({ ok: false, error: msg }));
-          } else {
-            log.error(`Error: ${msg}`);
-          }
-          process.exitCode = 1;
-        }
-      },
-    );
+      if (json) {
+        console.log(JSON.stringify({ ok: true, skillId: r.result?.skillId ?? source }));
+      } else {
+        log.info(`Installed skill from ${source}.`);
+      }
+    });
 }
