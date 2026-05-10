@@ -9,6 +9,18 @@
 
 const species = process.env.SPECIES;
 
+type CredentialEntry = {
+  service?: string;
+  field?: string;
+  hasSecret?: boolean;
+};
+
+type CredentialEnvelope = {
+  ok?: boolean;
+  credentials?: CredentialEntry[];
+  managedCredentials?: CredentialEntry[];
+};
+
 async function checkVellum(): Promise<void> {
   const proc = Bun.spawn(["assistant", "credentials", "list", "--json"], {
     stdout: "pipe",
@@ -28,33 +40,9 @@ async function checkVellum(): Promise<void> {
     return;
   }
 
+  let parsed: unknown;
   try {
-    const credentials = JSON.parse(stdout.trim()) as Array<{
-      service?: string;
-      field?: string;
-    }>;
-    const hasToken = credentials.some(
-      (c) => c.service === "discord_channel" && c.field === "bot_token",
-    );
-
-    let appId = "";
-    if (hasToken) {
-      const cfgProc = Bun.spawn(
-        ["assistant", "config", "get", "discord_channel.applicationId"],
-        { stdout: "pipe", stderr: "pipe" },
-      );
-      appId = (await new Response(cfgProc.stdout).text()).trim();
-      await cfgProc.exited;
-    }
-
-    console.log(
-      JSON.stringify({
-        configured: hasToken,
-        details: hasToken
-          ? `Discord bot_token found${appId ? ` (application ${appId})` : " (application metadata not yet captured — run validate-and-configure.ts)"}`
-          : "No discord_channel bot_token found",
-      }),
-    );
+    parsed = JSON.parse(stdout.trim());
   } catch {
     console.log(
       JSON.stringify({
@@ -62,7 +50,30 @@ async function checkVellum(): Promise<void> {
         details: "Failed to parse credentials list",
       }),
     );
+    return;
   }
+
+  // The CLI emits an object envelope: { ok, credentials, managedCredentials }.
+  // Older builds may have emitted a raw array — handle both shapes.
+  const entries: CredentialEntry[] = Array.isArray(parsed)
+    ? (parsed as CredentialEntry[])
+    : [
+        ...((parsed as CredentialEnvelope).credentials ?? []),
+        ...((parsed as CredentialEnvelope).managedCredentials ?? []),
+      ];
+
+  const hasToken = entries.some(
+    (c) => c.service === "discord_channel" && c.field === "bot_token",
+  );
+
+  console.log(
+    JSON.stringify({
+      configured: hasToken,
+      details: hasToken
+        ? "Discord bot_token found in credential vault"
+        : "No discord_channel bot_token found",
+    }),
+  );
 }
 
 async function main(): Promise<void> {

@@ -2,15 +2,17 @@
 /**
  * Prints the OAuth2 invite URL for the configured Discord application.
  *
- * Reads `discord_channel.applicationId` from config, computes the default
- * permission integer from a named bit map (least-privilege baseline), and
- * writes the URL to stdout. The user opens it in a browser to add the bot
- * to a server.
+ * Discovers the application ID on the fly by calling Discord's
+ * `/oauth2/applications/@me` with the stored bot token, then builds the
+ * standard bot invite URL with a least-privilege permission integer
+ * computed from a named bit map.
  *
  * Species-gated: delegates to a species-specific implementation.
  */
 
 const species = process.env.SPECIES;
+
+const DISCORD_API = "https://discord.com/api/v10";
 
 /**
  * Default permissions — least-privilege baseline for a personal-assistant bot.
@@ -42,28 +44,56 @@ function computeDefaultPermissions(): string {
   return bits.toString();
 }
 
-async function getConfig(key: string): Promise<string> {
-  const proc = Bun.spawn(["assistant", "config", "get", key], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+async function revealCredential(
+  service: string,
+  field: string,
+): Promise<string> {
+  const proc = Bun.spawn(
+    [
+      "assistant",
+      "credentials",
+      "reveal",
+      "--service",
+      service,
+      "--field",
+      field,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
-    return "";
+    throw new Error(`Could not reveal ${service}:${field}`);
   }
   return stdout.trim();
 }
 
-async function printVellum(): Promise<void> {
-  const applicationId = await getConfig("discord_channel.applicationId");
-  if (!applicationId) {
-    console.error(
-      "discord_channel.applicationId is not set. Run validate-and-configure.ts first.",
+async function discoverApplicationId(token: string): Promise<string> {
+  const res = await fetch(`${DISCORD_API}/oauth2/applications/@me`, {
+    headers: {
+      Authorization: `Bot ${token}`,
+      "User-Agent": "VellumAssistant (discord-app-setup, 1.0)",
+    },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Discord /oauth2/applications/@me → ${res.status} ${res.statusText}: ${body}`,
     );
-    process.exitCode = 1;
-    return;
   }
+  const json = (await res.json()) as { id: string };
+  return json.id;
+}
+
+async function printVellum(): Promise<void> {
+  const token = await revealCredential("discord_channel", "bot_token");
+  if (!token) {
+    throw new Error(
+      "discord_channel:bot_token is empty. Run store-bot-token.ts first.",
+    );
+  }
+
+  const applicationId = await discoverApplicationId(token);
 
   const url = new URL("https://discord.com/api/oauth2/authorize");
   url.searchParams.set("client_id", applicationId);
@@ -76,7 +106,12 @@ async function printVellum(): Promise<void> {
 async function main(): Promise<void> {
   switch (species) {
     case "vellum":
-      await printVellum();
+      try {
+        await printVellum();
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 1;
+      }
       break;
     default:
       console.error(
