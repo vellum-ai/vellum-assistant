@@ -691,6 +691,65 @@ export async function getSkill(
   return { skill: detail };
 }
 
+export function getSkillLocalDetail(
+  skillId: string,
+): {
+  ok: true;
+  id: string;
+  name: string;
+  description: string;
+  emoji: string | null;
+  source: string;
+  state: string;
+  directoryPath: string;
+  featureFlag: string | null;
+  includes: string[] | null;
+  activationHints: string[] | null;
+  avoidWhen: string[] | null;
+  toolManifest: { valid: boolean; toolCount: number; toolNames: string[] } | null;
+  installMeta: Record<string, unknown> | null;
+  config: { enabled: boolean; envKeys: string[]; configKeys: string[] } | null;
+} | { ok: false; error: string; status: 404 | 500 } {
+  try {
+    const catalog = loadSkillCatalog();
+    const config = getConfig();
+    const resolved = resolveSkillStates(catalog, config);
+    const match = resolved.find((r) => r.summary.id === skillId);
+    if (!match) {
+      return { ok: false, error: `Skill "${skillId}" not found. Run 'assistant skills list' to see available skills.`, status: 404 };
+    }
+    const { summary, state, configEntry } = match;
+    const installMeta = readInstallMeta(summary.directoryPath);
+    return {
+      ok: true,
+      id: summary.id,
+      name: summary.displayName,
+      description: summary.description,
+      emoji: summary.emoji ?? null,
+      source: summary.source,
+      state,
+      directoryPath: summary.directoryPath,
+      featureFlag: summary.featureFlag ?? null,
+      includes: summary.includes ?? null,
+      activationHints: summary.activationHints ?? null,
+      avoidWhen: summary.avoidWhen ?? null,
+      toolManifest: summary.toolManifest
+        ? { valid: summary.toolManifest.valid, toolCount: summary.toolManifest.toolCount, toolNames: summary.toolManifest.toolNames }
+        : null,
+      installMeta: installMeta ? (installMeta as unknown as Record<string, unknown>) : null,
+      config: configEntry
+        ? {
+            enabled: configEntry.enabled !== false,
+            envKeys: configEntry.env ? Object.keys(configEntry.env) : [],
+            configKeys: configEntry.config ? Object.keys(configEntry.config) : [],
+          }
+        : null,
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), status: 500 };
+  }
+}
+
 // ─── Skill file listing ──────────────────────────────────────────────────────
 
 // `SkillFileEntry` lives in `../../skills/catalog-files.ts` to keep a single

@@ -3,16 +3,14 @@ import { join } from "node:path";
 
 import type { Command } from "commander";
 
-import { getConfig } from "../../config/loader.js";
-import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import type { CatalogSkill } from "../../skills/catalog-install.js";
 import {
   fetchCatalog,
   getRepoSkillsDir,
   installSkillLocally,
   readLocalCatalog,
-  uninstallSkillLocally,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
 import { clawhubSearch } from "../../skills/clawhub.js";
@@ -98,59 +96,31 @@ Examples:
   $ assistant skills list
   $ assistant skills list --json`,
     )
-    .action(async (opts: { json?: boolean }) => {
-      try {
-        const localCatalog = loadSkillCatalog();
-        const config = getConfig();
-        const resolved = resolveSkillStates(localCatalog, config);
-
-        // Flat alphabetical list — source is a property, not a section
-        const allSkills = resolved
-          .map((r) => {
-            const s = r.summary;
-            const source =
-              s.source === "bundled" || s.source === "plugin"
-                ? "bundled"
-                : s.source; // managed, workspace, extra
-            return {
-              id: s.id,
-              name: s.displayName,
-              description: s.description,
-              emoji: s.emoji,
-              source,
-              state: r.state,
-            };
-          })
-          .sort((a, b) => a.id.localeCompare(b.id));
-
-        if (opts.json) {
-          console.log(JSON.stringify({ ok: true, skills: allSkills }));
-          return;
-        }
-
-        if (allSkills.length === 0) {
-          log.info("No skills available.");
-          return;
-        }
-
-        log.info(`Skills (${allSkills.length}):\n`);
-        for (const s of allSkills) {
-          const emoji = s.emoji ? `${s.emoji} ` : "";
-          const tags = [
-            s.source,
-            ...(s.state === "disabled" ? ["disabled"] : []),
-          ];
-          log.info(`  ${emoji}${s.id} [${tags.join(", ")}]`);
-          log.info(`    ${s.name} — ${s.description}`);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (opts.json) {
-          console.log(JSON.stringify({ ok: false, error: msg }));
-        } else {
-          log.error(`Error: ${msg}`);
-        }
-        process.exitCode = 1;
+    .action(async (opts: { json?: boolean }, _cmd) => {
+      const r = await cliIpcCall<{ skills: Array<{ id: string; name: string; description: string; emoji?: string; origin: string; kind: string; status: string }> }>(
+        "listSkills",
+        { queryParams: {} },
+      );
+      if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
+      const allSkills = (r.result!.skills).map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        emoji: s.emoji,
+        source: s.origin === "vellum" && s.kind === "bundled" ? "bundled" : s.origin,
+        state: s.status,
+      })).sort((a, b) => a.id.localeCompare(b.id));
+      if (opts.json) {
+        console.log(JSON.stringify({ ok: true, skills: allSkills }));
+        return;
+      }
+      if (allSkills.length === 0) { log.info("No skills available."); return; }
+      log.info(`Skills (${allSkills.length}):\n`);
+      for (const s of allSkills) {
+        const emoji = s.emoji ? `${s.emoji} ` : "";
+        const tags = [s.source, ...(s.state === "disabled" ? ["disabled"] : [])];
+        log.info(`  ${emoji}${s.id} [${tags.join(", ")}]`);
+        log.info(`    ${s.name} — ${s.description}`);
       }
     });
 
@@ -172,140 +142,55 @@ Examples:
   $ assistant skills inspect slack
   $ assistant skills inspect resend-setup --json`,
     )
-    .action(async (skillId: string, opts: { json?: boolean }) => {
-      try {
-        const localCatalog = loadSkillCatalog();
-        const config = getConfig();
-        const resolved = resolveSkillStates(localCatalog, config);
-
-        const match = resolved.find((r) => r.summary.id === skillId);
-        if (!match) {
-          throw new Error(
-            `Skill "${skillId}" not found. Run 'assistant skills list' to see available skills.`,
-          );
-        }
-
-        const { summary, state, configEntry } = match;
-        const installMeta = readInstallMeta(summary.directoryPath);
-
-        const detail: Record<string, unknown> = {
-          id: summary.id,
-          name: summary.displayName,
-          description: summary.description,
-          emoji: summary.emoji ?? null,
-          source: summary.source,
-          state,
-          directoryPath: summary.directoryPath,
-          featureFlag: summary.featureFlag ?? null,
-          activationHints: summary.activationHints ?? null,
-          avoidWhen: summary.avoidWhen ?? null,
-          includes: summary.includes ?? null,
-          toolManifest: summary.toolManifest
-            ? {
-                valid: summary.toolManifest.valid,
-                toolCount: summary.toolManifest.toolCount,
-                toolNames: summary.toolManifest.toolNames,
-              }
-            : null,
-          installMeta: installMeta ?? null,
-          config: configEntry
-            ? {
-                enabled: configEntry.enabled !== false,
-                envKeys: configEntry.env
-                  ? Object.keys(configEntry.env)
-                  : [],
-                configKeys: configEntry.config
-                  ? Object.keys(configEntry.config)
-                  : [],
-              }
-            : null,
-        };
-
-        if (opts.json) {
-          console.log(JSON.stringify({ ok: true, skill: detail }));
-          return;
-        }
-
-        const emoji = summary.emoji ? `${summary.emoji} ` : "";
-        log.info(`${emoji}${summary.displayName} (${summary.id})`);
-        log.info(`  ${summary.description}\n`);
-        log.info(`  Source:    ${summary.source}`);
-        log.info(`  State:     ${state}`);
-        log.info(`  Path:      ${summary.directoryPath}`);
-        if (summary.featureFlag) {
-          log.info(`  Flag:      ${summary.featureFlag}`);
-        }
-        if (summary.includes?.length) {
-          log.info(`  Includes:  ${summary.includes.join(", ")}`);
-        }
-        if (summary.activationHints?.length) {
-          log.info(`  Hints:     ${summary.activationHints.join("; ")}`);
-        }
-        if (summary.avoidWhen?.length) {
-          log.info(`  Avoid:     ${summary.avoidWhen.join("; ")}`);
-        }
-
-        if (summary.toolManifest) {
-          const tm = summary.toolManifest;
-          log.info(
-            `\n  Tools:     ${tm.valid ? `${tm.toolCount} tool(s)` : "invalid manifest"}`,
-          );
-          if (tm.toolNames.length > 0) {
-            for (const name of tm.toolNames) {
-              log.info(`    - ${name}`);
-            }
-          }
-        }
-
-        if (installMeta) {
-          log.info(`\n  Install metadata:`);
-          log.info(`    Origin:      ${installMeta.origin}`);
-          log.info(`    Installed:   ${installMeta.installedAt}`);
-          if (installMeta.installedBy) {
-            log.info(`    Installed by: ${installMeta.installedBy}`);
-          }
-          if (installMeta.version) {
-            log.info(`    Version:     ${installMeta.version}`);
-          }
-          if (installMeta.slug) {
-            log.info(`    Slug:        ${installMeta.slug}`);
-          }
-          if (installMeta.sourceRepo) {
-            log.info(`    Source repo:  ${installMeta.sourceRepo}`);
-          }
-          if (installMeta.contentHash) {
-            log.info(`    Hash:        ${installMeta.contentHash}`);
-          }
-          if (installMeta.backfilledBy) {
-            log.info(`    Backfilled:  ${installMeta.backfilledBy}`);
-          }
-        }
-
-        if (configEntry) {
-          log.info(`\n  Config:`);
-          log.info(
-            `    Enabled:     ${configEntry.enabled !== false ? "yes" : "no"}`,
-          );
-          if (configEntry.env && Object.keys(configEntry.env).length > 0) {
-            log.info(`    Env vars:    ${Object.keys(configEntry.env).join(", ")}`);
-          }
-          if (
-            configEntry.config &&
-            Object.keys(configEntry.config).length > 0
-          ) {
-            log.info(
-              `    Config keys: ${Object.keys(configEntry.config).join(", ")}`,
-            );
-          }
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (opts.json) {
-          console.log(JSON.stringify({ ok: false, error: msg }));
-        } else {
-          log.error(`Error: ${msg}`);
-        }
-        process.exitCode = 1;
+    .action(async (skillId: string, opts: { json?: boolean }, _cmd) => {
+      const r = await cliIpcCall<{
+        id: string; name: string; description: string; emoji: string | null;
+        source: string; state: string; directoryPath: string; featureFlag: string | null;
+        includes: string[] | null; activationHints: string[] | null; avoidWhen: string[] | null;
+        toolManifest: { valid: boolean; toolCount: number; toolNames: string[] } | null;
+        installMeta: Record<string, unknown> | null;
+        config: { enabled: boolean; envKeys: string[]; configKeys: string[] } | null;
+      }>(
+        "skillsLocalInspect",
+        { pathParams: { id: skillId } },
+      );
+      if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
+      const detail = r.result!;
+      if (opts.json) {
+        console.log(JSON.stringify({ ok: true, skill: detail }));
+        return;
+      }
+      const emoji = detail.emoji ? `${detail.emoji} ` : "";
+      log.info(`${emoji}${detail.name} (${detail.id})`);
+      log.info(`  ${detail.description}\n`);
+      log.info(`  Source:    ${detail.source}`);
+      log.info(`  State:     ${detail.state}`);
+      log.info(`  Path:      ${detail.directoryPath}`);
+      if (detail.featureFlag) log.info(`  Flag:      ${detail.featureFlag}`);
+      if (detail.includes?.length) log.info(`  Includes:  ${detail.includes.join(", ")}`);
+      if (detail.activationHints?.length) log.info(`  Hints:     ${detail.activationHints.join("; ")}`);
+      if (detail.avoidWhen?.length) log.info(`  Avoid:     ${detail.avoidWhen.join("; ")}`);
+      if (detail.toolManifest) {
+        const tm = detail.toolManifest;
+        log.info(`\n  Tools:     ${tm.valid ? `${tm.toolCount} tool(s)` : "invalid manifest"}`);
+        for (const name of tm.toolNames) log.info(`    - ${name}`);
+      }
+      if (detail.installMeta) {
+        log.info(`\n  Install metadata:`);
+        if (detail.installMeta.origin) log.info(`    Origin:      ${detail.installMeta.origin}`);
+        if (detail.installMeta.installedAt) log.info(`    Installed:   ${detail.installMeta.installedAt}`);
+        if (detail.installMeta.installedBy) log.info(`    Installed by: ${detail.installMeta.installedBy}`);
+        if (detail.installMeta.version) log.info(`    Version:     ${detail.installMeta.version}`);
+        if (detail.installMeta.slug) log.info(`    Slug:        ${detail.installMeta.slug}`);
+        if (detail.installMeta.sourceRepo) log.info(`    Source repo:  ${detail.installMeta.sourceRepo}`);
+        if (detail.installMeta.contentHash) log.info(`    Hash:        ${detail.installMeta.contentHash}`);
+        if (detail.installMeta.backfilledBy) log.info(`    Backfilled:  ${detail.installMeta.backfilledBy}`);
+      }
+      if (detail.config) {
+        log.info(`\n  Config:`);
+        log.info(`    Enabled:     ${detail.config.enabled ? "yes" : "no"}`);
+        if (detail.config.envKeys.length) log.info(`    Env vars:    ${detail.config.envKeys.join(", ")}`);
+        if (detail.config.configKeys.length) log.info(`    Config keys: ${detail.config.configKeys.join(", ")}`);
       }
     });
 
@@ -705,25 +590,13 @@ Examples:
   $ assistant skills uninstall weather
   $ assistant skills uninstall weather --json`,
     )
-    .action(async (skillId: string, opts: { json?: boolean }) => {
-      const json = opts.json ?? false;
-
-      try {
-        uninstallSkillLocally(skillId);
-
-        if (json) {
-          console.log(JSON.stringify({ ok: true, skillId }));
-        } else {
-          log.info(`Uninstalled skill "${skillId}".`);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (json) {
-          console.log(JSON.stringify({ ok: false, error: msg }));
-        } else {
-          log.error(`Error: ${msg}`);
-        }
-        process.exitCode = 1;
+    .action(async (skillId: string, opts: { json?: boolean }, _cmd) => {
+      const r = await cliIpcCall<null>("deleteSkill", { pathParams: { id: skillId } });
+      if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
+      if (opts.json) {
+        console.log(JSON.stringify({ ok: true, skillId }));
+      } else {
+        log.info(`Uninstalled skill "${skillId}".`);
       }
     });
 
