@@ -46,7 +46,9 @@ function deriveWebhookPath(type: string): string {
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function handleWebhooksRegister(args: RouteHandlerArgs): Promise<unknown> {
+async function handleWebhooksRegister(
+  args: RouteHandlerArgs,
+): Promise<unknown> {
   const { type, path: pathOverride, source } = args.body ?? {};
 
   if (!type || typeof type !== "string") {
@@ -65,9 +67,11 @@ async function handleWebhooksRegister(args: RouteHandlerArgs): Promise<unknown> 
         source as string | undefined,
       );
     } catch (err) {
-      throw new InternalError(
-        `Failed to register callback route: ${(err as Error).message}`,
-      );
+      const msg = (err as Error).message;
+      if (msg.includes("missing platform registration context")) {
+        throw new UnprocessableEntityError(msg);
+      }
+      throw new InternalError(`Failed to register callback route: ${msg}`);
     }
     return { callbackUrl, type, path: webhookPath, mode: "platform" };
   }
@@ -98,14 +102,21 @@ async function handleWebhooksList(_args: RouteHandlerArgs): Promise<unknown> {
   }
 
   const url = `${context.platformBaseUrl}/v1/internal/gateway/callback-routes/`;
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: context.authHeader,
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(10_000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: context.authHeader,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    throw new InternalError(
+      `Failed to list webhook routes: ${(err as Error).message}`,
+    );
+  }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
