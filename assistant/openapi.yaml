@@ -8245,6 +8245,10 @@ paths:
                       - background
                       - background_memory_consolidation
                       - scheduled
+                  conversationTotalEstimatedCostUsd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   logs:
                     type: array
                     items: {}
@@ -8263,6 +8267,7 @@ paths:
                 required:
                   - messageId
                   - conversationKind
+                  - conversationTotalEstimatedCostUsd
                   - logs
                   - memoryRecall
                   - memoryV2Activation
