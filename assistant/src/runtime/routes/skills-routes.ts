@@ -17,6 +17,7 @@ import {
   getSkill,
   getSkillFileContent,
   getSkillFiles,
+  getSkillLocalDetail,
   inspectSkill,
   installSkill,
   listSkills,
@@ -554,6 +555,24 @@ export const ROUTES: RouteDefinition[] = [
       );
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };
+    },
+  },
+  {
+    operationId: "skillsLocalInspect",
+    endpoint: "skills/:id/local-inspect",
+    method: "GET",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Local skill inspect",
+    description: "Return full local detail for an installed or bundled skill: featureFlag, toolManifest, installMeta, configEntry, directoryPath.",
+    tags: ["skills"],
+    handler: ({ pathParams }: RouteHandlerArgs) => {
+      const result = getSkillLocalDetail(pathParams!.id);
+      if (!result.ok) {
+        if (result.status === 404) throw new NotFoundError(result.error);
+        throw new InternalError(result.error);
+      }
+      return result;
     },
   },
 ];
