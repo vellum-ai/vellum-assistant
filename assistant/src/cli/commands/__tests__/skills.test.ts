@@ -449,7 +449,7 @@ describe("skills search", () => {
     expect(ipcCalls[1]!.method).toBe("searchSkills");
     expect(
       (ipcCalls[1]!.params as { queryParams: unknown }).queryParams,
-    ).toEqual({ q: "react" });
+    ).toEqual({ q: "react", limit: "10" });
   });
 
   test("--json outputs ok:true with catalog, community, clawhub keys", async () => {
