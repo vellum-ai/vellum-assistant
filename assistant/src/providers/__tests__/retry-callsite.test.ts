@@ -38,12 +38,6 @@ mock.module("../registry.js", () => ({
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { LLMSchema } from "../../config/schemas/llm.js";
-// Side-effect import: ensures `provider-send-message.ts` (and its transitive
-// `connection-resolution` + `registry`) are loaded in a deterministic order
-// across the test suite. Without this, bun's module loader has produced
-// "Export named 'clearConnectionProviderCache' not found" errors when this
-// file runs before others that mock `registry.js`.
-import "../provider-send-message.js";
 import { RetryProvider } from "../retry.js";
 import type {
   Message,
@@ -51,6 +45,13 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../types.js";
+
+// Side-effect import: ensures `provider-send-message.ts` (and its transitive
+// `connection-resolution` + `registry`) are loaded in a deterministic order
+// across the test suite. Without this, bun's module loader has produced
+// "Export named 'clearConnectionProviderCache' not found" errors when this
+// file runs before others that mock `registry.js`.
+import "../provider-send-message.js";
 
 // ── Test fixtures ──────────────────────────────────────────────────────────
 

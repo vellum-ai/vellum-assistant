@@ -191,31 +191,28 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
     expect(personalResult).not.toBeNull();
   });
 
-  test("profile WITHOUT provider_connection throws ConnectionResolutionError", async () => {
+  test("profile WITHOUT provider_connection returns null (graceful fallback)", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "legacy-profile": {
           provider: "anthropic",
-          // no provider_connection — Phase 1 cleanup makes this a hard error
+          // no provider_connection — boot-time backfill is expected to
+          // populate this in production. When unset, the per-callsite
+          // resolver returns null so callsites with deterministic
+          // fallbacks (invite instructions, telegram resolution, etc.)
+          // keep working. Hard config errors (lookup failed, mismatch)
+          // still throw via tryResolveProviderForConnectionName.
         },
       },
     });
 
-    let caught: unknown;
-    try {
-      await getConfiguredProvider("mainAgent", {
-        overrideProfile: "legacy-profile",
-      });
-    } catch (err) {
-      caught = err;
-    }
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "legacy-profile",
+    });
 
-    expect(caught).toBeInstanceOf(ConnectionResolutionError);
-    expect((caught as ConnectionResolutionError).reason).toBe(
-      "missing_connection",
-    );
-    // Resolver must NOT have been called — thrown before reaching it.
+    expect(result).toBeNull();
+    // Resolver must NOT have been called — short-circuited before reaching it.
     expect(resolveProviderCalls.length).toBe(0);
   });
 

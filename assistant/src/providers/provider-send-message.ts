@@ -7,10 +7,8 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import {
-  ConnectionResolutionError,
-  tryResolveProviderForConnectionName,
-} from "./connection-resolution.js";
+import { getLogger } from "../util/logger.js";
+import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
 import { initializeProviders, listProviders } from "./registry.js";
 import type {
   ContentBlock,
@@ -22,8 +20,7 @@ import type {
   ToolUseContent,
 } from "./types.js";
 
-// Re-export the typed context-overflow error so callsites that dispatch on
-// this category do not need to reach into `./types.js` directly.
+const log = getLogger("provider-send-message");
 
 export interface ConfiguredProviderResult {
   provider: Provider;
@@ -116,16 +113,19 @@ export async function resolveConfiguredProvider(
   const connectionName = resolved.provider_connection;
 
   // Connection-aware path: every dispatch goes through `provider_connection`.
-  // The boot-time backfill ensures every profile has one. A missing
-  // connection name is a configuration bug — we throw via
-  // `ConnectionResolutionError` rather than falling back to a legacy
-  // registry lookup so misconfigurations are loud.
+  // The boot-time backfill ensures every profile has one in production.
+  // When unset (test envs that skip backfill, freshly-installed configs
+  // not yet backfilled, or users who manually cleared the field), we
+  // return null so callsites with deterministic fallbacks (invite
+  // instructions, telegram username resolution, etc.) keep working.
+  // Hard config errors — connection lookup failure, provider mismatch —
+  // still throw via `tryResolveProviderForConnectionName` below.
   if (!connectionName) {
-    throw new ConnectionResolutionError(
-      "<resolved-callsite>",
-      "missing_connection",
-      `resolveCallSiteConfig("${callSite}") yielded provider="${inferenceProvider}" without a provider_connection — set provider_connection on the resolved profile or call-site override`,
+    log.debug(
+      { callSite, inferenceProvider },
+      "resolveCallSiteConfig yielded no provider_connection — returning null so callsite can fall back",
     );
+    return null;
   }
 
   const connectionProvider = await tryResolveProviderForConnectionName(

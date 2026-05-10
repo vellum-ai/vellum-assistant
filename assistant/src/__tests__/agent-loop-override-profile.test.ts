@@ -256,11 +256,36 @@ const anthropicStub = { name: "anthropic" };
 
 mock.module("../providers/registry.js", () => ({
   getProvider: () => anthropicStub,
+  listProviders: () => ["anthropic"],
+  initializeProviders: () => {},
+  resolveProviderFromConnection: async () => anthropicStub,
+}));
+
+// Connection-aware resolver path (Phase 1 cleanup): satisfy
+// `tryResolveProviderForConnectionName` lookups so resolveDefaultProvider
+// returns a usable provider for the inline `anthropic-conn` fixture.
+mock.module("../providers/inference/connections.js", () => ({
+  getConnection: (_db: unknown, name: string) => ({
+    id: 1,
+    name,
+    provider: "anthropic",
+    auth_strategy: "user_managed_credential",
+    credential_alias: null,
+    metadata_json: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }),
 }));
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    llm: { default: { provider: "anthropic", model: "claude-opus-4-7" } },
+    llm: {
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        provider_connection: "anthropic-conn",
+      },
+    },
     rateLimit: { maxRequestsPerMinute: 0 },
   }),
 }));

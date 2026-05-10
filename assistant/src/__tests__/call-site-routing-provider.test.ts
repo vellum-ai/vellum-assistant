@@ -467,18 +467,26 @@ describe("CallSiteRoutingProvider", () => {
     const nameSeenByOpenAI: string[] = [];
     const nameSeenByFireworks: string[] = [];
 
-    // Shared resolve handles so we can interleave the two calls:
-    // openAI starts → fireworks starts → openAI resolves → fireworks resolves
+    // Shared resolve handles, pre-bound via Deferred-style promises so they
+    // exist before either provider's sendMessage executes. The previous
+    // late-binding inside `new Promise((r) => { resolveOpenAI = r })` raced
+    // with the new connection-aware dispatch path: routing now awaits an
+    // extra tick to resolve the connection, so a single `Promise.resolve()`
+    // flush no longer guarantees both providers have entered sendMessage
+    // before the test reads the resolve handles.
     let resolveOpenAI!: () => void;
     let resolveFireworks!: () => void;
+    const openAIBlocked = new Promise<void>((r) => {
+      resolveOpenAI = r;
+    });
+    const fireworksBlocked = new Promise<void>((r) => {
+      resolveFireworks = r;
+    });
 
     const openAIProvider: Provider = {
       name: "openai",
       async sendMessage() {
-        // Yield so fireworks call can start before we complete.
-        await new Promise<void>((r) => {
-          resolveOpenAI = r;
-        });
+        await openAIBlocked;
         nameSeenByOpenAI.push(wrapped.name);
         return makeResponse("openai");
       },
@@ -487,9 +495,7 @@ describe("CallSiteRoutingProvider", () => {
     const fireworksProvider: Provider = {
       name: "fireworks",
       async sendMessage() {
-        await new Promise<void>((r) => {
-          resolveFireworks = r;
-        });
+        await fireworksBlocked;
         nameSeenByFireworks.push(wrapped.name);
         return makeResponse("fireworks");
       },
@@ -511,8 +517,8 @@ describe("CallSiteRoutingProvider", () => {
       config: { callSite: "conversationTitle" }, // → fireworks
     });
 
-    // Let both reach their suspension point, then resolve in order.
-    await Promise.resolve(); // flush microtasks so both calls are in-flight
+    // Resolve both — the awaits above guarantee these handles fire even if
+    // the providers' sendMessage hasn't executed yet.
     resolveOpenAI();
     resolveFireworks();
 
