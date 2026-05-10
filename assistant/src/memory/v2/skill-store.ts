@@ -34,6 +34,7 @@ import {
   embedWithBackend,
   generateSparseEmbedding,
 } from "../embedding-backend.js";
+import { invalidatePageIndex } from "./page-index.js";
 import {
   pruneSlugsWithPrefixExcept,
   upsertConceptPageEmbedding,
@@ -245,6 +246,10 @@ async function runSeedOnce(): Promise<void> {
 
     // Atomically replace the cache only after every step above succeeds.
     entries = nextEntries;
+    // Drop the page-index cache so the next router invocation observes the
+    // freshly seeded skill set (skill entries share the unified concept-page
+    // collection and surface in the same index).
+    invalidatePageIndex();
     lastSeedError = null;
   } catch (err) {
     lastSeedError = err;
