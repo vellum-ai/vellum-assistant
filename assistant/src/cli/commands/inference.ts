@@ -8,7 +8,6 @@ import {
   exitFromIpcResult,
 } from "../../ipc/cli-client.js";
 import { registerCommand } from "../lib/register-command.js";
-import { log } from "../logger.js";
 import { attachSessionSubcommand } from "./inference-session.js";
 
 // ---------------------------------------------------------------------------
@@ -93,7 +92,7 @@ Examples:
               JSON.stringify({ ok: false, error: msg }) + "\n",
             );
           } else {
-            log.error(msg);
+            process.stderr.write(msg + "\n");
           }
           process.exitCode = 1;
           return;
