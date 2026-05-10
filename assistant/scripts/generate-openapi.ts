@@ -19,6 +19,7 @@
 import { readFileSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { Readable } from "node:stream";
 
 import { stringify } from "yaml";
 import { z } from "zod";
@@ -515,8 +516,10 @@ async function main() {
     stringify(spec, { lineWidth: 120 });
 
   // Format with prettier so the output matches what the pre-commit hook produces.
+  // Use a Node.js Readable stream for stdin — Bun.spawn with Blob stdin produces
+  // empty output on some platforms (Bun 1.3.x Linux sandbox).
   const prettierProc = Bun.spawn(["bunx", "prettier", "--parser", "yaml"], {
-    stdin: new Blob([rawYaml]),
+    stdin: Readable.from([rawYaml]) as unknown as Blob,
     stdout: "pipe",
     stderr: "pipe",
   });

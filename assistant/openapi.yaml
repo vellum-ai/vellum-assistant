@@ -1464,6 +1464,304 @@ paths:
               required:
                 - id
               additionalProperties: false
+  /v1/backup/destinations:
+    get:
+      operationId: backup_destinations_get
+      summary: List configured offsite backup destinations
+      description:
+        Returns the current offsite destinations array, materializing the iCloud Drive default when no explicit
+        array is configured.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destinations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        encrypt:
+                          type: boolean
+                      required:
+                        - path
+                        - encrypt
+                      additionalProperties: false
+                required:
+                  - destinations
+                additionalProperties: false
+  /v1/backup/destinations/add:
+    post:
+      operationId: backup_destinations_add_post
+      summary: Add an offsite backup destination
+      description:
+        Appends a new destination. Materializes the iCloud default first if destinations is currently null. Errors
+        if the path already exists.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destinations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        encrypt:
+                          type: boolean
+                      required:
+                        - path
+                        - encrypt
+                      additionalProperties: false
+                required:
+                  - destinations
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+                  description: Absolute path to the destination directory
+                encrypt:
+                  description: Encrypt snapshots at this destination (default true)
+                  type: boolean
+              required:
+                - path
+              additionalProperties: false
+  /v1/backup/destinations/remove:
+    post:
+      operationId: backup_destinations_remove_post
+      summary: Remove an offsite backup destination
+      description: Removes the destination matching the given path. Errors if no matching destination exists.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destinations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        encrypt:
+                          type: boolean
+                      required:
+                        - path
+                        - encrypt
+                      additionalProperties: false
+                required:
+                  - destinations
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+                  description: Exact path match of the destination to remove
+              required:
+                - path
+              additionalProperties: false
+  /v1/backup/destinations/set-encrypt:
+    post:
+      operationId: backup_destinations_setencrypt_post
+      summary: Toggle encryption for an existing destination
+      description: Updates the encrypt flag for a destination. Errors if no destination with the given path exists.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destination:
+                    type: object
+                    properties:
+                      path:
+                        type: string
+                      encrypt:
+                        type: boolean
+                    required:
+                      - path
+                      - encrypt
+                    additionalProperties: false
+                required:
+                  - destination
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+                  description: Exact path match of an existing destination
+                encrypt:
+                  type: boolean
+                  description: true to encrypt future snapshots, false for plaintext
+              required:
+                - path
+                - encrypt
+              additionalProperties: false
+  /v1/backup/disable:
+    post:
+      operationId: backup_disable_post
+      summary: Disable automated backups
+      description: Sets backup.enabled = false. Existing snapshots are untouched.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    const: false
+                required:
+                  - enabled
+                additionalProperties: false
+  /v1/backup/enable:
+    post:
+      operationId: backup_enable_post
+      summary: Enable automated backups
+      description: Sets backup.enabled = true. Optionally overrides intervalHours (1-168), retention (1-100), and offsiteEnabled.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                intervalHours:
+                  type: integer
+                  minimum: 1
+                  maximum: 168
+                retention:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                offsiteEnabled:
+                  type: boolean
+              additionalProperties: false
+  /v1/backup/status:
+    get:
+      operationId: backup_status_get
+      summary: Show backup status and next-run timing
+      description:
+        Reports enabled/disabled state, interval and retention, last-run and next-run timing from the
+        backup:last_run_at checkpoint, local snapshot count, and per-destination reachability and snapshot counts. When
+        `backup.offsite.enabled` is false the `offsite` array is empty and `offsiteEnabled` is false.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  intervalHours:
+                    type: number
+                  retention:
+                    type: number
+                  lastRunAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  nextRunAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  localDir:
+                    type: string
+                  localSnapshotCount:
+                    type: number
+                  offsiteEnabled:
+                    type: boolean
+                  offsite:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        encrypt:
+                          type: boolean
+                        reachable:
+                          type: boolean
+                        snapshotCount:
+                          type: number
+                      required:
+                        - path
+                        - encrypt
+                        - reachable
+                        - snapshotCount
+                      additionalProperties: false
+                required:
+                  - enabled
+                  - intervalHours
+                  - retention
+                  - lastRunAt
+                  - nextRunAt
+                  - localDir
+                  - localSnapshotCount
+                  - offsiteEnabled
+                  - offsite
+                additionalProperties: false
   /v1/backups:
     get:
       operationId: backups_get

@@ -720,10 +720,17 @@ describe("handleBackupVerify", () => {
 // ---------------------------------------------------------------------------
 
 describe("ROUTES", () => {
-  test("registers four routes with the expected endpoint+method pairs", () => {
+  test("registers routes with the expected endpoint+method pairs", () => {
     const pairs = ROUTES.map((d) => `${d.method} ${d.endpoint}`).sort();
     expect(pairs).toEqual([
+      "GET backup/destinations",
+      "GET backup/status",
       "GET backups",
+      "POST backup/destinations/add",
+      "POST backup/destinations/remove",
+      "POST backup/destinations/set-encrypt",
+      "POST backup/disable",
+      "POST backup/enable",
       "POST backups/create",
       "POST backups/restore",
       "POST backups/verify",
