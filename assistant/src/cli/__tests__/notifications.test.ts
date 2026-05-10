@@ -214,6 +214,60 @@ describe("notifications send", () => {
     expect(ipcCalls).toHaveLength(0);
   });
 
+  test("send --conversation-id pins the vellum affinity hint", async () => {
+    const { parsed, exitCode } = await runCommand([
+      "send",
+      "--source-channel",
+      "assistant_tool",
+      "--source-event-name",
+      "user.send_notification",
+      "--message",
+      "Hi",
+      "--conversation-id",
+      "conv-123",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(parsed.ok).toBe(true);
+
+    const callBody = ipcCalls[0].params?.body as Record<string, unknown>;
+    expect(callBody.conversationAffinityHint).toEqual({ vellum: "conv-123" });
+  });
+
+  test("send omits conversationAffinityHint when --conversation-id not passed", async () => {
+    await runCommand([
+      "send",
+      "--source-channel",
+      "assistant_tool",
+      "--source-event-name",
+      "user.send_notification",
+      "--message",
+      "Hi",
+    ]);
+
+    const callBody = ipcCalls[0].params?.body as Record<string, unknown>;
+    expect(callBody.conversationAffinityHint).toBeUndefined();
+  });
+
+  test("send rejects empty --conversation-id", async () => {
+    const { parsed, exitCode } = await runCommand([
+      "send",
+      "--source-channel",
+      "assistant_tool",
+      "--source-event-name",
+      "user.send_notification",
+      "--message",
+      "Hi",
+      "--conversation-id",
+      "   ",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toBe("Conversation ID must be a non-empty string");
+    expect(ipcCalls).toHaveLength(0);
+  });
+
   test("send surfaces IPC error response", async () => {
     ipcResponse = {
       ok: false,

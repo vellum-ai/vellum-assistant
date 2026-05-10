@@ -168,9 +168,10 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
         { channelType, address: normalizedAddress, contactId, existingContactId: existingChannel[0].contactId },
         "contact-prompt-submit: channel already assigned to another contact",
       );
-      await ipcCallAssistant("resolve_contact_prompt", {
-        body: { requestId, error: "Channel already assigned to another contact" },
-      });
+      await notifyDaemonResolveError(
+        requestId,
+        "Channel already assigned to another contact",
+      );
       return Response.json(
         { accepted: false, error: "Channel already assigned to another contact" },
         { status: 409 },
@@ -223,9 +224,10 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
         }
 
         // Notify daemon of failure so the CLI doesn't hang.
-        await ipcCallAssistant("resolve_contact_prompt", {
-          body: { requestId, error: "Failed to create contact channel" },
-        });
+        await notifyDaemonResolveError(
+          requestId,
+          "Failed to create contact channel",
+        );
         return Response.json(
           { accepted: false, error: "Failed to create contact channel" },
           { status: 500 },
@@ -239,22 +241,49 @@ export async function handleContactPromptSubmit(req: Request): Promise<Response>
     }
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
-    await ipcCallAssistant("resolve_contact_prompt", {
-      body: { requestId, error: "Database error" },
-    });
+    await notifyDaemonResolveError(requestId, "Database error");
     return Response.json({ accepted: false, error: "Database error" }, { status: 500 });
   }
 
   // Notify daemon to unblock the waiting contacts/prompt IPC call.
-  const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
-    body: { requestId, contactId, channelId, channelType, address: normalizedAddress },
-  });
-  if (!ipcResult || (ipcResult as { resolved?: boolean }).resolved === false) {
+  try {
+    const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
+      body: { requestId, contactId, channelId, channelType, address: normalizedAddress },
+    });
+    if ((ipcResult as { resolved?: boolean }).resolved === false) {
+      log.warn(
+        { requestId, contactId },
+        "contact-prompt-submit: resolve_contact_prompt IPC did not find a pending prompt — CLI may time out",
+      );
+    }
+  } catch (err) {
     log.warn(
-      { requestId, contactId },
-      "contact-prompt-submit: resolve_contact_prompt IPC did not find a pending prompt — CLI may time out",
+      { err, requestId, contactId },
+      "contact-prompt-submit: resolve_contact_prompt IPC failed — CLI may time out",
     );
   }
 
   return Response.json({ accepted: true });
+}
+
+/**
+ * Best-effort notification to the daemon that a pending contact prompt has
+ * resolved with an error. Failures here must not block the HTTP response —
+ * the caller has already decided the request failed; we just want to wake
+ * the CLI up.
+ */
+async function notifyDaemonResolveError(
+  requestId: string,
+  error: string,
+): Promise<void> {
+  try {
+    await ipcCallAssistant("resolve_contact_prompt", {
+      body: { requestId, error },
+    });
+  } catch (err) {
+    log.warn(
+      { err, requestId },
+      "contact-prompt-submit: resolve_contact_prompt error notification failed",
+    );
+  }
 }

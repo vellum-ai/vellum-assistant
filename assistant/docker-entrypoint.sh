@@ -1,9 +1,25 @@
 #!/usr/bin/env sh
 set -eu
 
+# Ensure /tmp has the standard sticky-bit world-writable mode so non-root
+# processes (the `assistant` user, bun's tmpdir, scratch writes) can use it.
+chmod 1777 /tmp 2>/dev/null || true
+
 if [ "$(id -u)" = "0" ] && [ "${VELLUM_WORKSPACE_DIR:-}" = "/workspace" ] && [ -d /workspace ]; then
   git config --global --add safe.directory /workspace >/dev/null 2>&1 || true
   git config --global --add safe.directory '/workspace/*' >/dev/null 2>&1 || true
+fi
+
+# Source executable scripts from /workspace/.entrypoint.d/ in lexicographic
+# order so an assistant can extend the daemon environment from its own
+# workspace volume — PATH additions, credential helpers, tooling symlinks.
+# Scripts are sourced so env mutations propagate to the daemon. Errors are
+# logged but non-fatal.
+if [ -d /workspace/.entrypoint.d ]; then
+  for hook in /workspace/.entrypoint.d/*.sh; do
+    [ -r "$hook" ] || continue
+    . "$hook" || echo "Warning: workspace hook $hook exited $?" >&2
+  done
 fi
 
 # ── Bun profiler bootstrap ──────────────────────────────────────────────

@@ -4,7 +4,6 @@ import type { Command } from "commander";
 
 import { getIsContainerized } from "../../../config/env-registry.js";
 import { cliIpcCall } from "../../../ipc/cli-client.js";
-import { orchestrateOAuthConnect } from "../../../oauth/connect-orchestrator.js";
 import {
   getAppByProviderAndClientId,
   getMostRecentAppByProvider,
@@ -76,7 +75,12 @@ function startManagedRedirectServer(provider: string): Promise<{
 
 type OAuthConnectStatusResponse =
   | { status: "pending"; service: string }
-  | { status: "complete"; service: string; account_info?: string; granted_scopes?: string[] }
+  | {
+      status: "complete";
+      service: string;
+      account_info?: string;
+      granted_scopes?: string[];
+    }
   | { status: "error"; service: string; error?: string };
 
 async function pollOAuthConnectStatus(
@@ -96,11 +100,19 @@ async function pollOAuthConnectStatus(
       }
     }
     if (!r.ok && r.statusCode !== undefined) {
-      return { status: "error", service: "?", error: r.error ?? "assistant error during OAuth status poll" };
+      return {
+        status: "error",
+        service: "?",
+        error: r.error ?? "assistant error during OAuth status poll",
+      };
     }
     await new Promise<void>((res) => setTimeout(res, opts.intervalMs));
   }
-  return { status: "error", service: "?", error: "Timed out waiting for OAuth callback" };
+  return {
+    status: "error",
+    service: "?",
+    error: "Timed out waiting for OAuth callback",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -211,25 +223,31 @@ Examples:
               body.requested_scopes = opts.scopes;
             }
 
-            // When opening the browser, start a local server to show a nice
-            // completion page instead of redirecting to the platform website.
-            //
-            // In containerized mode the loopback server is unreachable from
-            // the host browser, so redirect to the platform's own completion
-            // page instead.
+            // Always send an explicit `redirect_after_connect`. The platform's
+            // default resolves against HEADLESS_BASE_URL, which on production
+            // is the marketing site and does not render OAuth result params.
+            // `/account/oauth/desktop-complete` is the dedicated success page
+            // served by the web app, suitable when the post-auth browser hop
+            // happens on a surface this process does not control (e.g.
+            // `--no-browser`, containerized hosts, or any caller that just
+            // hands the URL to a third party).
+            body.redirect_after_connect = "/account/oauth/desktop-complete";
+
+            // When the browser is opened locally on a non-containerized host,
+            // prefer a loopback URL that serves `renderOAuthCompletionPage` in
+            // this process. The loopback page lets the polling loop below
+            // short-circuit on the callback rather than waiting on the next
+            // poll tick.
             let redirectServer:
               | { redirectUrl: string; cleanup: () => void }
               | undefined;
-            if (opts.browser !== false) {
-              if (getIsContainerized()) {
-                body.redirect_after_connect = "/account/oauth/desktop-complete";
-              } else {
-                try {
-                  redirectServer = await startManagedRedirectServer(provider);
-                  body.redirect_after_connect = redirectServer.redirectUrl;
-                } catch {
-                  // Non-fatal — fall back to platform default redirect
-                }
+            if (opts.browser !== false && !getIsContainerized()) {
+              try {
+                redirectServer = await startManagedRedirectServer(provider);
+                body.redirect_after_connect = redirectServer.redirectUrl;
+              } catch {
+                // Loopback server is best-effort; the explicit fallback above
+                // still lands the user on a real success surface.
               }
             }
 
@@ -427,18 +445,18 @@ Examples:
             }
 
             // e. Try daemon-orchestrated path first (fixes heap-split for gateway transport).
-            const startResult = await cliIpcCall<{ auth_url: string; state: string }>(
-              "internal_oauth_connect_start",
-              {
-                body: {
-                  service: provider,
-                  clientId,
-                  ...(clientSecret !== undefined ? { clientSecret } : {}),
-                  callbackTransport: opts.callbackTransport,
-                  ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
-                },
+            const startResult = await cliIpcCall<{
+              auth_url: string;
+              state: string;
+            }>("internal_oauth_connect_start", {
+              body: {
+                service: provider,
+                clientId,
+                ...(clientSecret !== undefined ? { clientSecret } : {}),
+                callbackTransport: opts.callbackTransport,
+                ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
               },
-            );
+            });
 
             if (startResult.ok && startResult.result?.auth_url) {
               const { auth_url, state } = startResult.result;
@@ -447,7 +465,9 @@ Examples:
                 await openInHostBrowser(auth_url);
 
                 if (!jsonMode) {
-                  log.info("Waiting for authorization in browser... (press Ctrl+C to cancel)");
+                  log.info(
+                    "Waiting for authorization in browser... (press Ctrl+C to cancel)",
+                  );
                 }
                 const final = await pollOAuthConnectStatus(state, {
                   intervalMs: 2000,
@@ -477,7 +497,9 @@ Examples:
 
                 // Defensive: pollOAuthConnectStatus should never return pending,
                 // but TS narrowing requires us to handle it.
-                writeError("OAuth connect ended in an unexpected pending state");
+                writeError(
+                  "OAuth connect ended in an unexpected pending state",
+                );
                 return;
               } else {
                 // --no-browser: return the URL immediately, matching existing deferred behavior.
@@ -502,7 +524,9 @@ Examples:
             // than falling back to in-process (which would re-introduce the heap-split bug for
             // gateway transport).
             if (startResult.ok && !startResult.result?.auth_url) {
-              writeError("assistant returned unexpected response for OAuth connect start");
+              writeError(
+                "assistant returned unexpected response for OAuth connect start",
+              );
               return;
             }
 
@@ -510,61 +534,22 @@ Examples:
             // falling back to in-process (which would re-introduce the heap-split bug for
             // gateway transport).
             if (!startResult.ok && startResult.statusCode !== undefined) {
-              writeError(startResult.error ?? "OAuth connect failed (assistant error)");
+              writeError(
+                startResult.error ?? "OAuth connect failed (assistant error)",
+              );
               return;
             }
 
-            // IPC unavailable (daemon unreachable, older daemon without this route, socket missing).
-            // Fall through to the existing in-process flow. This still carries the heap-split bug
-            // for gateway transport, but if the daemon is unreachable we have a worse problem;
-            // the fallback preserves existing behavior as a regression guard.
-            // e. Call the orchestrator (in-process fallback)
-            const result = await orchestrateOAuthConnect({
-              service: provider,
-              clientId,
-              clientSecret,
-              callbackTransport: opts.callbackTransport,
-              isInteractive: opts.browser !== false,
-              openUrl: opts.browser !== false ? openInHostBrowser : undefined,
-              ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
-            });
-
-            // f. Handle results
-            if (!result.success) {
-              writeError(result.error ?? "OAuth connect failed");
-              return;
-            }
-
-            if (result.deferred) {
-              if (jsonMode) {
-                writeOutput(cmd, {
-                  ok: true,
-                  deferred: true,
-                  // Wire key stays `authUrl` for backward compatibility with
-                  // existing CLI script consumers; the internal field on
-                  // `result` is `authorizeUrl`.
-                  authUrl: result.authorizeUrl,
-                  service: result.service,
-                });
-              } else {
-                process.stdout.write(
-                  `\nAuthorize with ${provider}:\n\n${result.authorizeUrl}\n\nThe connection will complete automatically once you authorize.\n`,
-                );
-              }
-              return;
-            }
-
-            // Interactive mode completed
-            if (jsonMode) {
-              writeOutput(cmd, {
-                ok: true,
-                grantedScopes: result.grantedScopes,
-                accountInfo: result.accountInfo,
-              });
-            } else {
-              const msg = `Connected to ${provider}${result.accountInfo ? ` as ${result.accountInfo}` : ""}`;
-              process.stdout.write(msg + "\n");
-            }
+            // IPC unavailable: the assistant must be running for OAuth connect. The
+            // gateway-routed callback lands in the assistant's process, and any tokens
+            // acquired need the assistant to store and use them — so an unreachable
+            // assistant is a fatal precondition. Surface a clear error and exit 1.
+            writeError(
+              startResult.error
+                ? `Could not reach the assistant: ${startResult.error}. Is the assistant running?`
+                : "Could not reach the assistant. Is the assistant running?",
+            );
+            return;
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

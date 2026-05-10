@@ -84,6 +84,19 @@
       "updatedAt": "2026-03-17T03:13:56-04:00"
     },
     {
+      "id": "discord-app-setup",
+      "name": "discord-app-setup",
+      "description": "Connect a Discord bot to the assistant via the Discord Gateway with guided application creation and intent configuration",
+      "metadata": {
+        "emoji": "🎮",
+        "vellum": {
+          "display-name": "Discord App Setup"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-09T20:06:44-04:00"
+    },
+    {
       "id": "document-writer",
       "name": "document-writer",
       "description": "Create and edit long-form documents like blog posts, articles, essays, and reports using the built-in rich text editor",
@@ -683,7 +696,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-15T12:39:46-04:00"
+      "updatedAt": "2026-05-05T17:21:43-06:00"
     },
     {
       "id": "typescript-eval",
@@ -725,7 +738,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T16:30:23-04:00"
+      "updatedAt": "2026-05-09T07:42:34-04:00"
     },
     {
       "id": "vellum-conversation-management",
@@ -773,6 +786,28 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-04-22T16:45:04-04:00"
+    },
+    {
+      "id": "vellum-memory-v2-migration",
+      "name": "vellum-memory-v2-migration",
+      "description": "Perform a one-time migration from memory v1, to memory v2, which was introduced in 0.8.0.",
+      "metadata": {
+        "emoji": "🧠",
+        "vellum": {
+          "display-name": "Memory v2 Migration",
+          "user-invocable": "true",
+          "activation-hints": [
+            "When the user asks to migrate to memory v2",
+            "When /workspace/memory/concepts/ is empty or near-empty and memory.v2.enabled is false"
+          ],
+          "avoid-when": [
+            "When concept pages are already populated and memory.v2.enabled is already true",
+            "When /workspace/pkb/ and /workspace/memory/buffer.md are both empty (nothing to migrate)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-10T11:35:07-04:00"
     },
     {
       "id": "vellum-oauth-integrations",

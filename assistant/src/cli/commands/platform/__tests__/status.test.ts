@@ -14,7 +14,6 @@ let mockResolvePlatformCallbackRegistrationContext: () => Promise<
   isPlatform: false,
   platformBaseUrl: "",
   assistantId: "",
-  hasInternalApiKey: false,
   hasAssistantApiKey: false,
   authHeader: null,
   enabled: false,
@@ -179,7 +178,6 @@ describe("assistant platform status", () => {
       isPlatform: false,
       platformBaseUrl: "",
       assistantId: "",
-      hasInternalApiKey: false,
       hasAssistantApiKey: false,
       authHeader: null,
       enabled: false,
@@ -201,9 +199,8 @@ describe("assistant platform status", () => {
       isPlatform: true,
       platformBaseUrl: "https://platform.vellum.ai",
       assistantId: "asst-abc-123",
-      hasInternalApiKey: true,
       hasAssistantApiKey: true,
-      authHeader: "Bearer internal-key",
+      authHeader: "Api-Key assistant-key",
       enabled: true,
     });
 
@@ -231,7 +228,6 @@ describe("assistant platform status", () => {
     expect(parsed.isPlatform).toBe(true);
     expect(parsed.baseUrl).toBe("https://platform.vellum.ai");
     expect(parsed.assistantId).toBe("asst-abc-123");
-    expect(parsed.hasInternalApiKey).toBe(true);
     expect(parsed.hasAssistantApiKey).toBe(true);
     expect(parsed.hasWebhookSecret).toBe(true);
     expect(parsed.available).toBe(true);
@@ -331,7 +327,6 @@ describe("assistant platform status", () => {
       isPlatform: false,
       platformBaseUrl: "",
       assistantId: "",
-      hasInternalApiKey: false,
       hasAssistantApiKey: false,
       authHeader: null,
       enabled: false,

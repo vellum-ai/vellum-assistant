@@ -76,6 +76,7 @@ const defaultLlmConfig: LLMConfig = {
   profiles: {},
   profileOrder: [],
   callSites: {},
+  profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
   pricingOverrides: [],
 };
 
@@ -531,7 +532,7 @@ function makeCtx(
     }),
 
     graphMemory: {
-      onCompacted: () => {},
+      onCompacted: async () => {},
       prepareMemory: async () => ({
         runMessages: [],
         injectedTokens: 0,

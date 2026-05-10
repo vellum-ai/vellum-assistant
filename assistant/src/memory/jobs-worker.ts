@@ -11,7 +11,6 @@ import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
 } from "./cleanup-schedule-state.js";
-import { isMemoryV2ReadActive } from "./context-search/sources/memory-v2.js";
 import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
@@ -80,6 +79,26 @@ import { memoryV2SweepJob } from "./v2/sweep-job.js";
 const log = getLogger("memory-jobs-worker");
 
 /**
+ * V1 job types that read or write the v1 Qdrant collection via
+ * `getQdrantClient()`. When `memory.v2.enabled` is true, the v1 client is
+ * intentionally left uninitialized in `lifecycle.ts`, so these handlers would
+ * throw `BackendUnavailableError` and accumulate as a deferred backlog. Stale
+ * rows from indexer.ts and other unguarded enqueue sites must short-circuit
+ * here for the same reason `graph_extract` does below.
+ */
+const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
+  "embed_segment",
+  "embed_summary",
+  "embed_media",
+  "embed_attachment",
+  "embed_graph_node",
+  "embed_pkb_file",
+  "graph_trigger_embed",
+  "rebuild_index",
+  "delete_qdrant_vectors",
+]);
+
+/**
  * Job types whose handlers have been removed. Existing rows may still sit in
  * the database — the worker completes them silently instead of throwing.
  */
@@ -125,16 +144,24 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
         enableScheduledCleanup: true,
       });
       if (processed > 0) {
-        currentIntervalMs = POLL_INTERVAL_MIN_MS;
+        // Per-tick claim budget equals the lane caps, so when a tick
+        // processed work the next tick must run immediately to drain any
+        // remaining backlog. Holding the 1.5s floor between ticks would cap
+        // sustained throughput at lane-cap jobs per 1.5s and starve large
+        // backlogs of short jobs.
+        currentIntervalMs = 0;
       } else {
         currentIntervalMs = Math.min(
-          currentIntervalMs * 2,
+          Math.max(currentIntervalMs * 2, POLL_INTERVAL_MIN_MS),
           POLL_INTERVAL_MAX_MS,
         );
       }
     } catch (err) {
       log.error({ err }, "Memory worker tick failed");
-      currentIntervalMs = Math.min(currentIntervalMs * 2, POLL_INTERVAL_MAX_MS);
+      currentIntervalMs = Math.min(
+        Math.max(currentIntervalMs * 2, POLL_INTERVAL_MIN_MS),
+        POLL_INTERVAL_MAX_MS,
+      );
     } finally {
       tickRunning = false;
     }
@@ -463,6 +490,9 @@ async function processJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
+  if (config.memory.v2.enabled && V1_QDRANT_JOB_TYPES.has(job.type)) {
+    return;
+  }
   switch (job.type) {
     case "embed_segment":
       await embedSegmentJob(job, config);
@@ -510,6 +540,11 @@ async function processJob(
       await embedGraphTriggerJob(job, config);
       return;
     case "graph_extract":
+      // Stale rows enqueued before v2 was enabled (or by any unguarded v1
+      // path) must not consume embedding/extraction budget when v2 is on.
+      if (config.memory.v2.enabled) {
+        return;
+      }
       await graphExtractJob(job, config);
       return;
     case "conversation_analyze":
@@ -623,8 +658,8 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
  * Enqueue periodic graph maintenance jobs.
  *
  * Mutually exclusive between v1 and v2:
- *   - v2 active (both `memory-v2-enabled` flag and `memory.v2.enabled`
- *     config on) → only `memory_v2_consolidate` is scheduled.
+ *   - v2 active (`memory.v2.enabled` on) → only `memory_v2_consolidate` is
+ *     scheduled.
  *   - v2 inactive → the four v1 entries (decay, consolidate, pattern_scan,
  *     narrative) are scheduled instead.
  *
@@ -643,7 +678,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): void {
-  const v2Active = isMemoryV2ReadActive(config);
+  const v2Active = config.memory.v2.enabled;
 
   const schedule: Array<{
     key: string;

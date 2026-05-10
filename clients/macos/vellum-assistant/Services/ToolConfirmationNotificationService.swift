@@ -28,8 +28,6 @@ public final class ToolConfirmationNotificationService {
         }
         content.userInfo = userInfo
 
-        content.attachAppIcon()
-
         let request = UNNotificationRequest(
             identifier: "tool-confirm-\(message.requestId)",
             content: content,

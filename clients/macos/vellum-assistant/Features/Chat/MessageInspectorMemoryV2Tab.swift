@@ -187,7 +187,7 @@ struct MessageInspectorMemoryV2Tab: View {
     private func statusBanner(model: MessageInspectorMemoryV2TabModel) -> some View {
         VCard {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text("Memory v2 — turn \(model.turn) (\(model.mode))")
+                Text("Memory — turn \(model.turn) (\(model.mode))")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
 
@@ -286,8 +286,8 @@ struct MessageInspectorMemoryV2Tab: View {
 
     private var noDataState: some View {
         VEmptyState(
-            title: "No memory v2 data",
-            subtitle: "Memory v2 didn't run for this turn.",
+            title: "No memory data",
+            subtitle: "Memory retrieval didn't run for this turn.",
             icon: VIcon.brain.rawValue
         )
         .frame(minHeight: 280)
@@ -337,6 +337,8 @@ private func statusColor(_ status: String) -> Color {
         return VColor.systemPositiveStrong
     case "not_injected":
         return VColor.contentDisabled
+    case "page_missing":
+        return VColor.systemMidStrong
     default:
         return VColor.contentTertiary
     }
@@ -350,6 +352,8 @@ private func statusLabel(_ status: String) -> String {
         return "Injected"
     case "not_injected":
         return "Not injected"
+    case "page_missing":
+        return "Page missing"
     default:
         return status
     }
@@ -480,73 +484,6 @@ private struct ConceptRowView: View {
     }
 }
 
-// MARK: - Concept page content (lazy-loaded on row expand)
-
-private struct ConceptPageContentView: View {
-    let slug: String
-    @State private var state: LoadState = .idle
-
-    enum LoadState: Equatable {
-        case idle
-        case loading
-        case missing
-        case loaded(String)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("page content")
-                .font(VFont.labelSmall)
-                .foregroundStyle(VColor.contentSecondary)
-                .padding(.top, VSpacing.sm)
-
-            content
-        }
-        .task(id: slug) {
-            // SwiftUI fires `.task` when this view first renders inside
-            // the disclosed disclosure body — i.e., on first expand. The
-            // load runs once per slug; cached `state` is reused across
-            // subsequent collapses+re-expands of the same row.
-            guard state == .idle else { return }
-            state = .loading
-            let client = LLMContextClient()
-            if let rendered = await client.fetchConceptPage(slug: slug) {
-                state = .loaded(rendered)
-            } else {
-                state = .missing
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch state {
-        case .idle, .loading:
-            HStack(spacing: VSpacing.xs) {
-                ProgressView().controlSize(.small)
-                Text("Loading…")
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-        case .missing:
-            Text("Page not found on disk — slug may reference a stale Qdrant entry.")
-                .font(VFont.labelSmall)
-                .foregroundStyle(VColor.contentTertiary)
-        case .loaded(let text):
-            HStack(spacing: 0) {
-                Text(text)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(VColor.contentDefault)
-                    .textSelection(.enabled)
-                Spacer(minLength: 0)
-            }
-            .padding(VSpacing.sm)
-            .background(VColor.surfaceBase)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-        }
-    }
-}
-
 // MARK: - Activation bar
 
 private struct ActivationBar: View {
@@ -565,84 +502,4 @@ private struct ActivationBar: View {
             }
         }
     }
-}
-
-// MARK: - Preview
-
-#Preview("Memory v2 inspector tab") {
-    let fixture = MemoryV2ActivationData(
-        turn: 7,
-        mode: "per-turn",
-        concepts: [
-            MemoryV2ConceptRow(
-                slug: "user-prefers-dark-mode",
-                finalActivation: 0.842,
-                ownActivation: 0.512,
-                priorActivation: 0.220,
-                simUser: 0.610,
-                simAssistant: 0.305,
-                simNow: 0.120,
-                simUserRerankBoost: 0.085,
-                simAssistantRerankBoost: 0.042,
-                spreadContribution: 0.110,
-                source: "both",
-                status: "injected"
-            ),
-            MemoryV2ConceptRow(
-                slug: "skills/meeting-bot",
-                finalActivation: 0.720,
-                ownActivation: 0.720,
-                priorActivation: 0.000,
-                simUser: 0.510,
-                simAssistant: 0.420,
-                simNow: 0.090,
-                spreadContribution: 0.000,
-                source: "ann_top50",
-                status: "injected"
-            ),
-            MemoryV2ConceptRow(
-                slug: "project-onboarding-notes",
-                finalActivation: 0.610,
-                ownActivation: 0.430,
-                priorActivation: 0.150,
-                simUser: 0.420,
-                simAssistant: 0.260,
-                simNow: 0.080,
-                simUserRerankBoost: 0.030,
-                spreadContribution: 0.060,
-                source: "ann_top50",
-                status: "in_context"
-            ),
-            MemoryV2ConceptRow(
-                slug: "feedback-prefer-tdd",
-                finalActivation: 0.180,
-                ownActivation: 0.140,
-                priorActivation: 0.030,
-                simUser: 0.190,
-                simAssistant: 0.100,
-                simNow: 0.020,
-                spreadContribution: 0.010,
-                source: "prior_state",
-                status: "not_injected"
-            ),
-        ],
-        config: MemoryV2Config(
-            d: 0.85,
-            cUser: 0.6,
-            cAssistant: 0.3,
-            cNow: 0.1,
-            k: 4.0,
-            hops: 2,
-            topK: 12,
-            epsilon: 0.05
-        )
-    )
-
-    MessageInspectorMemoryV2Tab(activation: fixture)
-        .frame(width: 600, height: 800)
-}
-
-#Preview("Memory v2 inspector tab — empty") {
-    MessageInspectorMemoryV2Tab(activation: nil)
-        .frame(width: 600, height: 600)
 }

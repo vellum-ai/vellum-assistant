@@ -307,7 +307,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         )}`,
       });
       this.state = "transcriber_closed";
-      this.transcriber = null;
     }
     await this.startAssistantTurnIfReady();
     await this.drainOutboundFrames();
@@ -340,12 +339,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       case "error":
+        // Non-terminal: providers like OpenAI Whisper emit `error` for
+        // transient poll failures and continue streaming. Let `closed` /
+        // `final` drive turn lifecycle so we don't drain audio buffers or
+        // mark the turn cancelled prematurely.
         await this.sendFrame({
           type: "error",
           code: LiveVoiceProtocolErrorCode.InvalidField,
           message: event.message,
         });
-        await this.finalizePendingTurn("stt_error");
         return;
       case "closed":
         if (!this.isClosed) {
@@ -470,16 +472,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           },
         },
         onError: (message) => {
-          if (!this.isActiveAssistantTurn(token)) return;
+          const activeTurn = this.activeAssistantTurn;
+          if (
+            !this.isActiveAssistantTurn(token) ||
+            activeTurn?.assistantCompleted
+          ) {
+            return;
+          }
           void (async () => {
             await this.sendFrame({
               type: "error",
               code: LiveVoiceProtocolErrorCode.InvalidField,
               message,
             });
-            const activeTurn = this.activeAssistantTurn;
-            if (activeTurn?.token !== token) return;
-            await this.finalizeAssistantTurn(activeTurn, "cancelled", "error");
+            const currentTurn = this.activeAssistantTurn;
+            if (currentTurn?.token !== token) return;
+            await this.finalizeAssistantTurn(currentTurn, "cancelled", "error");
           })();
         },
       });

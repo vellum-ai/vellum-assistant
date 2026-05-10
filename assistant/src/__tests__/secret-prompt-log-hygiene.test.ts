@@ -39,15 +39,17 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 }));
 
 // Stub pendingInteractions — SecretPrompter registers/resolves there now
+// Use a real Map so SecretPrompter can store and retrieve promptResolve/promptReject callbacks.
+const _piStore = new Map<string, object>();
 mock.module("../runtime/pending-interactions.js", () => ({
-  register: () => {},
-  resolve: () => undefined,
-  get: () => undefined,
-  getAll: () => [],
+  register: (id: string, entry: object) => _piStore.set(id, entry),
+  resolve: (id: string) => { const e = _piStore.get(id); _piStore.delete(id); return e; },
+  get: (id: string) => _piStore.get(id),
+  getAll: () => [..._piStore.values()],
   getByConversation: () => [],
   getByKind: () => [],
   removeByConversation: () => {},
-  clear: () => {},
+  clear: () => _piStore.clear(),
 }));
 
 // Use a tiny timeout so the setTimeout branch fires quickly in tests

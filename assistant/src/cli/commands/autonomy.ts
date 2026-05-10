@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import type { Command } from "commander";
 
 import { getWorkspaceDir } from "../../util/platform.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -173,10 +174,13 @@ function formatConfigForHuman(config: AutonomyConfig): string {
 // ---------------------------------------------------------------------------
 
 export function registerAutonomyCommand(program: Command): void {
-  const autonomy = program
-    .command("autonomy")
-    .description("View and configure autonomy tiers")
-    .option("--json", "Machine-readable JSON output");
+  // JARVIS-745: autonomy.json is file-write-only; no daemon consumer. Tagged local until resolved.
+  registerCommand(program, {
+    name: "autonomy",
+    transport: "local",
+    description: "View and configure autonomy tiers",
+    build: (autonomy) => {
+      autonomy.option("--json", "Machine-readable JSON output");
 
   autonomy.addHelpText(
     "after",
@@ -362,4 +366,6 @@ Examples:
         process.exitCode = 1;
       },
     );
+    },
+  });
 }

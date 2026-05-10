@@ -66,6 +66,17 @@ function installHintFor(command: string): string {
 }
 
 /**
+ * Resolve the binary using the same PATH the spawn will see. `AcpAgentProcess`
+ * spawns with `{ ...process.env, ...config.env }`, so a per-agent `env.PATH`
+ * override wins over the daemon's PATH. Mirror that here so a config that
+ * relies on a custom PATH to locate the binary doesn't fail preflight.
+ */
+function findAgentBinary(agent: AcpAgentConfig): string | null {
+  const PATH = agent.env?.PATH ?? process.env.PATH;
+  return Bun.which(agent.command, PATH ? { PATH } : undefined);
+}
+
+/**
  * Resolve an id against user config first, then bundled defaults. Returns the
  * resolved entry plus a `source` label so callers can surface "user override
  * vs bundled default" without re-deriving it.
@@ -122,7 +133,7 @@ export function resolveAcpAgent(id: string): ResolveAcpAgentResult {
   }
 
   const { agent } = found;
-  if (!Bun.which(agent.command)) {
+  if (!findAgentBinary(agent)) {
     return {
       ok: false,
       reason: "binary_not_found",
@@ -157,7 +168,7 @@ export function listAcpAgents(): {
   const agents: AcpAgentEntry[] = mergedAgentIds(userAgents).map((id) => {
     // Non-null: ids come from `mergedAgentIds` so the lookup always resolves.
     const { agent, source } = lookupAgent(userAgents, id)!;
-    const available = Bun.which(agent.command) !== null;
+    const available = findAgentBinary(agent) !== null;
     const entry: AcpAgentEntry = {
       id,
       command: agent.command,

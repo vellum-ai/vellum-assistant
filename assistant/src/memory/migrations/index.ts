@@ -201,6 +201,10 @@ export {
 } from "./237-heartbeat-runs.js";
 export { migrateScheduleRetryPolicy } from "./238-schedule-retry-policy.js";
 export { migrateTraceEventsCreatedAtIndex } from "./239-trace-events-created-at-index.js";
+export { migrateConversationInferenceProfileSession } from "./240-conversation-inference-profile-session.js";
+export { migrateActivationStateFkCascade } from "./241-activation-state-fk-cascade.js";
+export { migrateMessageBookmarks } from "./242-message-bookmarks.js";
+export { migrateCreateProviderConnections } from "./243-provider-connections.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

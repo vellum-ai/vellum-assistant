@@ -1,10 +1,11 @@
 /**
  * Tests for `assistant/src/memory/v2/sweep-job.ts`.
  *
- * Coverage matrix (from PR 18 acceptance criteria):
- *   - Flag off → no provider/DB calls, returns 0 (early bail).
- *   - Flag on + no recent messages → no provider call, returns 0.
- *   - Flag on + recent messages → provider invoked with rendered prompt;
+ * Coverage matrix:
+ *   - v2 disabled in config → no provider/DB calls, returns 0 (early bail).
+ *   - sweep_enabled off → no provider call, returns 0.
+ *   - v2 on + no recent messages → no provider call, returns 0.
+ *   - v2 on + recent messages → provider invoked with rendered prompt;
  *     each entry is appended to `memory/buffer.md` AND today's archive.
  *   - Tool-call response shape mismatch → returns 0 without writes.
  *   - Empty entries are skipped (the model can't pad the buffer).
@@ -24,7 +25,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
-  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -102,23 +102,20 @@ afterAll(() => {
 const { resetDb, getDb } = await import("../../db-connection.js");
 const { initializeDb } = await import("../../db-init.js");
 const { messages, conversations } = await import("../../schema.js");
-const { _setOverridesForTesting } =
-  await import("../../../config/assistant-feature-flags.js");
 const { memoryV2SweepJob } = await import("../sweep-job.js");
 
-// `isAssistantFeatureFlagEnabled` ignores the `config` argument it receives
-// (resolution is purely from the overrides + registry caches), so we hand
-// the handler a minimal stand-in instead of materializing the full default
+// The handler reads `config.memory.v2.enabled` and `sweep_enabled`, so we
+// hand it a minimal stand-in instead of materializing the full default
 // config — which would otherwise pull in heavy schemas this test doesn't
-// exercise. The handler reads `config.memory.v2.sweep_enabled`, so the
-// `flag on` cases need the field set; the `flag off` case bails before
-// the check and uses the bare empty stand-in.
+// exercise.
 const CONFIG = {
-  memory: { v2: { sweep_enabled: true } },
+  memory: { v2: { enabled: true, sweep_enabled: true } },
 } as Parameters<typeof memoryV2SweepJob>[1];
-const CONFIG_FLAG_OFF = {} as Parameters<typeof memoryV2SweepJob>[1];
+const CONFIG_V2_OFF = {
+  memory: { v2: { enabled: false, sweep_enabled: true } },
+} as Parameters<typeof memoryV2SweepJob>[1];
 const CONFIG_SWEEP_OFF = {
-  memory: { v2: { sweep_enabled: false } },
+  memory: { v2: { enabled: true, sweep_enabled: false } },
 } as Parameters<typeof memoryV2SweepJob>[1];
 
 function makeJob(): Parameters<typeof memoryV2SweepJob>[0] {
@@ -186,6 +183,7 @@ function extractFirstUserText(msgs: { content: unknown }[]): string {
 function seedMessages(
   conversationId: string,
   rows: Array<{ role: string; content: string; offsetMs: number }>,
+  conversationType: "standard" | "background" | "scheduled" = "standard",
 ): void {
   const db = getDb();
   const now = Date.now();
@@ -195,6 +193,7 @@ function seedMessages(
       title: null,
       createdAt: now - 60_000,
       updatedAt: now,
+      conversationType,
     })
     .run();
   for (let i = 0; i < rows.length; i++) {
@@ -223,18 +222,13 @@ beforeEach(() => {
   emitCalls.length = 0;
 });
 
-afterEach(() => {
-  _setOverridesForTesting({});
-});
-
 // ---------------------------------------------------------------------------
 
-describe("memoryV2SweepJob — flag off", () => {
-  test("returns 0 without invoking the provider when flag is off", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
+describe("memoryV2SweepJob — v2 disabled", () => {
+  test("returns 0 without invoking the provider when memory.v2.enabled is false", async () => {
     providerStub = makeEntriesProvider(["should-not-be-written"]);
 
-    const written = await memoryV2SweepJob(makeJob(), CONFIG_FLAG_OFF);
+    const written = await memoryV2SweepJob(makeJob(), CONFIG_V2_OFF);
 
     expect(written).toBe(0);
     expect(providerCalls).toHaveLength(0);
@@ -242,9 +236,8 @@ describe("memoryV2SweepJob — flag off", () => {
   });
 });
 
-describe("memoryV2SweepJob — flag on, sweep_enabled off", () => {
+describe("memoryV2SweepJob — sweep_enabled off", () => {
   test("returns 0 without invoking the provider when sweep_enabled is false", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     // No message seeding required — the sweep_enabled bail short-circuits
     // before any DB or workspace reads.
     providerStub = makeEntriesProvider(["should-not-be-written"]);
@@ -257,11 +250,7 @@ describe("memoryV2SweepJob — flag on, sweep_enabled off", () => {
   });
 });
 
-describe("memoryV2SweepJob — flag on, no recent messages", () => {
-  beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
-  });
-
+describe("memoryV2SweepJob — no recent messages", () => {
   test("returns 0 when no messages exist in the recent window", async () => {
     providerStub = makeEntriesProvider(["should-not-be-written"]);
 
@@ -291,9 +280,8 @@ describe("memoryV2SweepJob — flag on, no recent messages", () => {
 // DB intact long enough for the SQL inserts here to clash.
 let convCounter = 0;
 
-describe("memoryV2SweepJob — flag on, recent messages", () => {
+describe("memoryV2SweepJob — recent messages", () => {
   beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     seedMessages(`conv-${++convCounter}`, [
       {
         role: "user",
@@ -476,6 +464,53 @@ describe("memoryV2SweepJob — flag on, recent messages", () => {
     expect(contextPayload.jobName).toBe("memory.v2.sweep");
     expect(contextPayload.errorKind).toBe("exception");
     expect(contextPayload.errorMessage).toContain("simulated provider failure");
+  });
+});
+
+describe("memoryV2SweepJob — background/scheduled conversation filter", () => {
+  test("excludes background/scheduled conversation content from sweep input", async () => {
+    seedMessages(
+      `conv-bg-${++convCounter}`,
+      [
+        {
+          role: "assistant",
+          content:
+            "[heartbeat] internal automation chatter that should not leak",
+          offsetMs: -60_000,
+        },
+      ],
+      "background",
+    );
+    seedMessages(
+      `conv-sched-${++convCounter}`,
+      [
+        {
+          role: "assistant",
+          content:
+            "[scheduled] scheduled-job chatter that should not leak either",
+          offsetMs: -45_000,
+        },
+      ],
+      "scheduled",
+    );
+    seedMessages(`conv-user-${++convCounter}`, [
+      {
+        role: "user",
+        content: "Bob mentioned he prefers dark mode.",
+        offsetMs: -30_000,
+      },
+    ]);
+
+    providerStub = makeEntriesProvider(["Bob prefers dark mode."]);
+
+    const written = await memoryV2SweepJob(makeJob(), CONFIG);
+
+    expect(written).toBe(1);
+    expect(providerCalls).toHaveLength(1);
+    const [{ userText }] = providerCalls;
+    expect(userText).toContain("Bob mentioned he prefers dark mode.");
+    expect(userText).not.toContain("internal automation chatter");
+    expect(userText).not.toContain("scheduled-job chatter");
   });
 });
 

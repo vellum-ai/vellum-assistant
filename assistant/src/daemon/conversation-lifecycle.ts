@@ -4,6 +4,7 @@
  * can delegate without exposing its full surface.
  */
 
+import { getConfig } from "../config/loader.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
 import type { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
@@ -182,6 +183,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
   }
 
+  const personalMemoryAllowed = !isUntrustedTrustClass(trustClass);
   const parsedMessages: Message[] = dbMessages
     .slice(ctx.contextCompactedMessageCount)
     .map((m, index, arr) => {
@@ -214,7 +216,8 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           // shape right-to-left, since each prepend shifts previously-
           // prepended blocks one slot right:
           //   [<workspace>, <turn_context>, <NOW.md>, <memory __injected>,
-          //    <system_reminder>, <knowledge_base>, ...original]
+          //    <memory>\n…</memory>, <system_reminder>, <knowledge_base>,
+          //    ...original]
           //
           // Persisted non-tail rows rehydrate the full set so Anthropic's
           // prefix cache keeps matching msg[0] across daemon restarts and
@@ -237,15 +240,37 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
             ];
           }
 
+          // The v2 static memory block (essentials/threads/recent/buffer
+          // wrapped in `<memory>…</memory>`) carries personal user memory.
+          // Trust-gated to mirror `shouldExposePersonalMemory` at injection
+          // time — untrusted-actor views must not read persisted personal
+          // memory back through metadata. Skipped on the tail row because
+          // the next turn re-injects fresh content on full-mode turns.
+          if (
+            !isTail &&
+            personalMemoryAllowed &&
+            typeof meta.memoryV2StaticBlock === "string"
+          ) {
+            content = [
+              { type: "text" as const, text: meta.memoryV2StaticBlock },
+              ...content,
+            ];
+          }
+
           // Memory remains rehydrated on all rows (existing behavior).
           // Strip any pre-existing wrapper before re-wrapping so historical
           // rows persisted with the wrapper (v2 path before the
           // injectedBlockText contract was unified with v1's unwrapped form)
-          // don't render double-wrapped after rehydrate.
+          // don't render double-wrapped after rehydrate. Only unwrap when
+          // the full <memory>...</memory> pair is present so we don't mutate
+          // legitimate unwrapped payloads that happen to start with
+          // "<memory>\n" or end with "\n</memory>".
           if (typeof meta.memoryInjectedBlock === "string") {
-            const inner = meta.memoryInjectedBlock
-              .replace(/^<memory>\n/, "")
-              .replace(/\n<\/memory>$/, "");
+            const block = meta.memoryInjectedBlock;
+            const inner =
+              block.startsWith("<memory>\n") && block.endsWith("\n</memory>")
+                ? block.slice("<memory>\n".length, -"\n</memory>".length)
+                : block;
             content = [
               {
                 type: "text" as const,
@@ -373,16 +398,29 @@ export function disposeConversation(ctx: DisposeContext): void {
       // Best-effort — don't block conversation disposal
     }
     if (!isAutoAnalysis) {
+      // Suppress v1 graph extraction when memory v2 is active — v2 reads
+      // from buffer.md and concept pages, so the v1 graph would be stale
+      // data nobody consumes. Mirrors the gate applied in `indexer.ts`
+      // for the per-message indexing path. Fail open to v1 if config
+      // can't load, since the worker handler also short-circuits.
+      let v2Enabled = false;
       try {
-        enqueueMemoryJob("graph_extract", {
-          conversationId: ctx.conversationId,
-          scopeId: "default",
-          ...(ctx.activeContextNodeIds?.length
-            ? { activeContextNodeIds: ctx.activeContextNodeIds }
-            : {}),
-        });
+        v2Enabled = getConfig().memory.v2.enabled;
       } catch {
-        // Best-effort — don't block conversation disposal
+        // Best-effort — fall through to legacy v1 enqueue
+      }
+      if (!v2Enabled) {
+        try {
+          enqueueMemoryJob("graph_extract", {
+            conversationId: ctx.conversationId,
+            scopeId: "default",
+            ...(ctx.activeContextNodeIds?.length
+              ? { activeContextNodeIds: ctx.activeContextNodeIds }
+              : {}),
+          });
+        } catch {
+          // Best-effort — don't block conversation disposal
+        }
       }
     }
 

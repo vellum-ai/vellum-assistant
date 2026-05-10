@@ -31,18 +31,70 @@ mock.module("../../src/ipc/gateway-client.js", () => ({
   },
 }));
 
-// Suppress logger output in tests
-mock.module("../../src/util/logger.js", () => ({
-  getLogger: () => ({
-    warn: () => {},
-    info: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-}));
+// Capture logger output so coalescing tests can assert on it. Existing
+// tests don't read the array, so capturing is invisible to them.
+//
+// Bun's `mock.module("../../src/util/logger.js", ...)` does not intercept
+// transitive imports (see comment in stt-hints.test.ts and avatar-e2e.test.ts).
+// Mocking `pino` at the package level works because getLogger uses pino
+// child loggers under the hood — intercepting pino captures everything.
+interface LogCall {
+  level: "warn" | "info" | "error" | "debug";
+  fields: Record<string, unknown>;
+  message: string;
+}
+const logCalls: LogCall[] = [];
+
+function makeLogFn(level: LogCall["level"]) {
+  return (
+    fieldsOrMsg: Record<string, unknown> | string,
+    maybeMsg?: string,
+  ) => {
+    if (typeof fieldsOrMsg === "string") {
+      logCalls.push({ level, fields: {}, message: fieldsOrMsg });
+    } else {
+      logCalls.push({
+        level,
+        fields: fieldsOrMsg,
+        message: maybeMsg ?? "",
+      });
+    }
+  };
+}
+
+const mockChildLogger = {
+  debug: () => {},
+  info: makeLogFn("info"),
+  warn: makeLogFn("warn"),
+  error: makeLogFn("error"),
+  fatal: () => {},
+  trace: () => {},
+  silent: () => {},
+  // pino loggers are themselves callable as a no-op shorthand; child() returns
+  // another logger.
+  child(): typeof mockChildLogger {
+    return mockChildLogger;
+  },
+  bindings: () => ({}),
+  level: "info",
+};
+
+const mockPinoLogger = Object.assign(() => mockChildLogger, {
+  destination: () => ({}),
+  multistream: () => ({}),
+  stdTimeFunctions: { isoTime: () => "" },
+  stdSerializers: {},
+  symbols: {},
+});
+
+mock.module("pino", () => ({ default: mockPinoLogger }));
+mock.module("pino-pretty", () => ({ default: () => ({}) }));
 
 import {
   _clearGlobalCacheForTesting,
+  _getFailureStateForTesting,
+  _resetFailureCoalesceForTesting,
+  _setFailureWarnIntervalForTesting,
   getAutoApproveThreshold,
 } from "../../src/permissions/gateway-threshold-reader.js";
 
@@ -51,7 +103,9 @@ import {
 function resetMocks(): void {
   ipcCallLog.length = 0;
   ipcHandler = () => undefined;
+  logCalls.length = 0;
   _clearGlobalCacheForTesting();
+  _resetFailureCoalesceForTesting();
 }
 
 afterEach(resetMocks);
@@ -219,5 +273,178 @@ describe("getAutoApproveThreshold", () => {
     const result = await getAutoApproveThreshold("conv-123", "background");
     expect(result).toBe("medium");
     expect(ipcCallLog).toEqual(["/v1/permissions/thresholds"]);
+  });
+});
+
+// ── Failure coalescing ───────────────────────────────────────────────────────
+
+describe("failure-coalescing log behavior", () => {
+  test("first failure WARNs immediately and starts a streak", async () => {
+    ipcHandler = () => {
+      throw new Error("Connection refused");
+    };
+
+    expect(await getAutoApproveThreshold(undefined, "background")).toBe("none");
+
+    const warns = logCalls.filter((c) => c.level === "warn");
+    expect(warns.length).toBe(1);
+    expect(warns[0]?.fields).toMatchObject({
+      op: "global_thresholds",
+      consecutiveFailures: 1,
+      event: "ipc_threshold_failure",
+    });
+
+    const state = _getFailureStateForTesting("global_thresholds");
+    expect(state).toBeDefined();
+    expect(state?.consecutiveFailures).toBe(1);
+  });
+
+  test("subsequent failures within the WARN window do not log but still increment state", async () => {
+    // 1-hour window so the test never accidentally crosses it.
+    _setFailureWarnIntervalForTesting(60 * 60 * 1000);
+    ipcHandler = () => {
+      throw new Error("ENOENT");
+    };
+
+    for (let i = 0; i < 100; i++) {
+      _clearGlobalCacheForTesting(); // force re-fetch each call
+      await getAutoApproveThreshold(undefined, "background");
+    }
+
+    const warns = logCalls.filter((c) => c.level === "warn");
+    // At most one WARN — the very first call. All 99 follow-ups suppressed.
+    expect(warns.length).toBe(1);
+
+    const state = _getFailureStateForTesting("global_thresholds");
+    expect(state?.consecutiveFailures).toBe(100);
+  });
+
+  test("a fresh WARN fires once the cadence window elapses", async () => {
+    // 5ms window so the test runs fast.
+    _setFailureWarnIntervalForTesting(5);
+    ipcHandler = () => {
+      throw new Error("ENOENT");
+    };
+
+    await getAutoApproveThreshold(undefined, "background");
+    expect(logCalls.filter((c) => c.level === "warn").length).toBe(1);
+
+    // Wait past the window then fail again.
+    await new Promise((r) => setTimeout(r, 20));
+    _clearGlobalCacheForTesting();
+    await getAutoApproveThreshold(undefined, "background");
+
+    const warns = logCalls.filter((c) => c.level === "warn");
+    expect(warns.length).toBe(2);
+    // Second WARN includes the streak metadata so dashboards can see how
+    // many failures were swallowed in between.
+    expect(warns[1]?.fields).toMatchObject({
+      op: "global_thresholds",
+      consecutiveFailures: 2,
+      event: "ipc_threshold_failure",
+    });
+    expect(warns[1]?.fields.streakDurationMs).toBeDefined();
+  });
+
+  test("recovery emits an INFO with the swallowed-failure count and clears state", async () => {
+    _setFailureWarnIntervalForTesting(60 * 60 * 1000);
+    let working = false;
+    ipcHandler = (method) => {
+      if (working && method === "get_global_thresholds") {
+        return { interactive: "medium", autonomous: "low" };
+      }
+      throw new Error("ENOENT");
+    };
+
+    // Three failures, then it recovers.
+    for (let i = 0; i < 3; i++) {
+      _clearGlobalCacheForTesting();
+      await getAutoApproveThreshold(undefined, "background");
+    }
+    expect(_getFailureStateForTesting("global_thresholds")?.consecutiveFailures).toBe(
+      3,
+    );
+
+    working = true;
+    _clearGlobalCacheForTesting();
+    expect(await getAutoApproveThreshold(undefined, "background")).toBe("low");
+
+    const infos = logCalls.filter((c) => c.level === "info");
+    expect(infos.length).toBe(1);
+    expect(infos[0]?.fields).toMatchObject({
+      op: "global_thresholds",
+      swallowedFailures: 3,
+      event: "ipc_threshold_recovered",
+    });
+    expect(infos[0]?.fields.streakDurationMs).toBeDefined();
+
+    expect(_getFailureStateForTesting("global_thresholds")).toBeUndefined();
+  });
+
+  test("conversation and global ops have independent failure streaks", async () => {
+    _setFailureWarnIntervalForTesting(60 * 60 * 1000);
+    // conversation IPC fails (transport — returns undefined), global IPC works.
+    ipcHandler = (method) => {
+      if (method === "get_conversation_threshold") return undefined;
+      if (method === "get_global_thresholds") {
+        return { interactive: "medium", autonomous: "low" };
+      }
+      return undefined;
+    };
+
+    // First call: conversation transport fails, global succeeds.
+    expect(await getAutoApproveThreshold("conv-1", "conversation")).toBe(
+      "medium",
+    );
+
+    expect(
+      _getFailureStateForTesting("conversation_threshold")?.consecutiveFailures,
+    ).toBe(1);
+    expect(_getFailureStateForTesting("global_thresholds")).toBeUndefined();
+
+    const warns = logCalls.filter((c) => c.level === "warn");
+    expect(warns.length).toBe(1);
+    expect(warns[0]?.fields.op).toBe("conversation_threshold");
+  });
+
+  test("a successful conversation override clears the conversation streak even when the gateway returns null (no override)", async () => {
+    _setFailureWarnIntervalForTesting(60 * 60 * 1000);
+
+    // First two calls: conversation IPC returns undefined (transport failure).
+    let working = false;
+    ipcHandler = (method) => {
+      if (method === "get_conversation_threshold") {
+        return working ? null : undefined;
+      }
+      if (method === "get_global_thresholds") {
+        return { interactive: "low", autonomous: "none" };
+      }
+      return undefined;
+    };
+
+    // Force two transport failures.
+    await getAutoApproveThreshold("conv-2", "conversation");
+    await new Promise((r) => setTimeout(r, 6)); // bypass the 5s convo cache
+    _clearGlobalCacheForTesting();
+    // Convo cache is keyed on conversationId — change the id to bypass.
+    await getAutoApproveThreshold("conv-3", "conversation");
+    expect(
+      _getFailureStateForTesting("conversation_threshold")?.consecutiveFailures,
+    ).toBe(2);
+
+    // Now the IPC starts working — even a null "no override" response is a
+    // successful round-trip and must clear the streak.
+    working = true;
+    _clearGlobalCacheForTesting();
+    await getAutoApproveThreshold("conv-4", "conversation");
+
+    const infos = logCalls.filter((c) => c.level === "info");
+    expect(infos.length).toBe(1);
+    expect(infos[0]?.fields).toMatchObject({
+      op: "conversation_threshold",
+      swallowedFailures: 2,
+      event: "ipc_threshold_recovered",
+    });
+    expect(_getFailureStateForTesting("conversation_threshold")).toBeUndefined();
   });
 });

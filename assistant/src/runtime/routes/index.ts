@@ -17,6 +17,7 @@ import { ROUTES as AUDIO_ROUTES } from "./audio-routes.js";
 import { ROUTES as AVATAR_ROUTES } from "./avatar-routes.js";
 import { ROUTES as BACKGROUND_TOOL_ROUTES } from "./background-tool-routes.js";
 import { ROUTES as BACKUP_ROUTES } from "./backup-routes.js";
+import { ROUTES as BOOKMARK_ROUTES } from "./bookmark-routes.js";
 import { ROUTES as BRAIN_GRAPH_ROUTES } from "./brain-graph-routes.js";
 import { ROUTES as BROWSER_ROUTES } from "./browser-routes.js";
 import { ROUTES as BTW_ROUTES } from "./btw-routes.js";
@@ -59,6 +60,7 @@ import { ROUTES as HOST_CU_ROUTES } from "./host-cu-routes.js";
 import { ROUTES as HOST_FILE_ROUTES } from "./host-file-routes.js";
 import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
+import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-session-routes.js";
 import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
@@ -119,6 +121,7 @@ export const ROUTES: RouteDefinition[] = [
   ...AVATAR_ROUTES,
   ...BACKGROUND_TOOL_ROUTES,
   ...BACKUP_ROUTES,
+  ...BOOKMARK_ROUTES,
   ...CACHE_ROUTES,
   ...CALL_ROUTES,
   ...CHANNEL_ROUTES,
@@ -161,6 +164,7 @@ export const ROUTES: RouteDefinition[] = [
   ...HOST_FILE_ROUTES,
   ...HOST_TRANSFER_ROUTES,
   ...IDENTITY_ROUTES,
+  ...INFERENCE_PROFILE_SESSION_ROUTES,
   ...INTERFACE_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
   ...MCP_AUTH_ROUTES,

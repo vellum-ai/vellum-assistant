@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import { v4 as uuid } from "uuid";
 
+import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type {
   AgentEvent,
   AgentLoop,
@@ -73,7 +74,7 @@ import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import {
   readMemoryV2StaticContent,
-  shouldLoadMemoryV2Static,
+  shouldExposePersonalMemory,
 } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
@@ -145,6 +146,7 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
+  getClientDisplayMessageId,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
@@ -182,7 +184,10 @@ import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
-import { formatTurnTimestamp } from "./date-context.js";
+import {
+  formatTurnTimestamp,
+  resolveTurnTimezoneContext,
+} from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import { deepRepairHistory } from "./history-repair.js";
@@ -509,6 +514,7 @@ export interface AgentLoopConversationContext {
   voiceCallControlPrompt?: string;
   transportHints?: string[];
   slackRuntimeContextNotice?: string;
+  clientTimezone?: string;
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
@@ -794,6 +800,7 @@ export async function runAgentLoopImpl(
         code: DISK_PRESSURE_ERROR_CODE,
         message,
         category: DISK_PRESSURE_ERROR_CATEGORY,
+        errorCategory: DISK_PRESSURE_ERROR_CATEGORY,
       });
       onEvent({
         type: "conversation_error",
@@ -979,7 +986,7 @@ export async function runAgentLoopImpl(
         compactableStartIndex: 1,
       };
     };
-    const applySuccessfulCompaction = (
+    const applySuccessfulCompaction = async (
       result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
       compactedBasis?: Message[],
     ) => {
@@ -993,7 +1000,7 @@ export async function runAgentLoopImpl(
         provenanceContext,
         result.compactedMessages,
       );
-      applyCompactionResult(ctx, result, onEvent, reqId, {
+      await applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
       });
       currentSlackContextSummary = result.summaryText;
@@ -1080,7 +1087,10 @@ export async function runAgentLoopImpl(
       await trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
     }
     if (compacted?.compacted) {
-      applySuccessfulCompaction(compacted, messagesForStartOfTurnCompaction);
+      await applySuccessfulCompaction(
+        compacted,
+        messagesForStartOfTurnCompaction,
+      );
       shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
         compactedThisTurn = true;
@@ -1318,14 +1328,16 @@ export async function runAgentLoopImpl(
 
     // Compute fresh turn timestamp for date grounding.
     // Absolute "now" is always anchored to assistant host clock, while local
-    // date semantics prefer configured user timezone, then recalled memory.
+    // date semantics prefer configured user timezone, then device timezones.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
-    const recalledUserTimeZone = null;
-    const timestamp = formatTurnTimestamp({
+    const timezoneContext = resolveTurnTimezoneContext({
+      configuredUserTimeZone: config.ui.userTimezone ?? null,
+      clientTimezone: ctx.clientTimezone ?? null,
+      detectedTimezone: config.ui.detectedTimezone ?? null,
       hostTimeZone,
-      configuredUserTimeZone,
-      userTimeZone: recalledUserTimeZone,
+    });
+    const timestamp = formatTurnTimestamp({
+      timeZone: timezoneContext.effectiveTimezone,
     });
 
     // Resolve the inbound actor context for the unified <turn_context> block.
@@ -1379,47 +1391,64 @@ export async function runAgentLoopImpl(
       }
     }
 
+    const baseTurnContext = {
+      timestamp,
+      interfaceName,
+      channelName,
+      configuredUserTimezone: timezoneContext.configuredUserTimezone,
+      clientTimezone: timezoneContext.clientTimezone,
+      detectedTimezone: timezoneContext.detectedTimezone,
+      timeSinceLastMessage,
+    };
     const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
       isGuardian
-        ? { timestamp, interfaceName, channelName, timeSinceLastMessage }
+        ? baseTurnContext
         : {
-            timestamp,
-            interfaceName,
-            channelName,
+            ...baseTurnContext,
             actorContext: resolvedInboundActorContext,
-            timeSinceLastMessage,
           },
     );
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
+
+    // Personal-memory trust gate: PKB, NOW.md, and v2 static blocks all
+    // hold private user content. Block exposure to non-guardian actors
+    // arriving over a remote channel; internal/local flows pass through.
+    // See `shouldExposePersonalMemory` for the threat model.
+    const personalMemoryAllowed = shouldExposePersonalMemory({
+      sourceChannel: ctx.trustContext?.sourceChannel,
+      isTrustedActor,
+    });
 
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
     // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
     // so plugins can override either source without touching the agent loop.
-    const currentNowContent = memoryResult.nowContent;
+    const currentNowContent = personalMemoryAllowed
+      ? memoryResult.nowContent
+      : null;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
-    const currentPkbContent = memoryResult.pkbContent;
+    const currentPkbContent = personalMemoryAllowed
+      ? memoryResult.pkbContent
+      : null;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
-    // V2 static memory block (essentials/threads/recent/buffer). Same
-    // first-turn / post-compaction cadence as PKB. `shouldLoadMemoryV2Static`
-    // also blocks remote-channel non-guardian actors from inducing the
-    // model to recite private memory; `readMemoryV2StaticContent` self-gates
-    // on the v2 flag + config and returns null when v2 is off, so the file
-    // reads are skipped on non-injection turns.
-    const currentMemoryV2Static = shouldLoadMemoryV2Static({
-      shouldInjectNowAndPkb,
-      sourceChannel: ctx.trustContext?.sourceChannel,
-      isTrustedActor,
-    })
+    // V2 static memory block (essentials/threads/recent/buffer).
+    // `currentMemoryV2Static` is the trust-gated content reused by every
+    // re-injection path — it stays non-null on non-full-mode turns so
+    // that mid-turn reducer compaction (which strips the prior `<memory>`
+    // block) can restore the freshest content. `memoryV2Static` is the
+    // first-turn / post-compaction cadence-gated value for initial
+    // injection only. `readMemoryV2StaticContent` self-gates on the v2
+    // flag + config and returns null when v2 is off.
+    const currentMemoryV2Static = personalMemoryAllowed
       ? readMemoryV2StaticContent()
       : null;
-    const memoryV2Static = currentMemoryV2Static;
+    const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;
 
     // PKB relevance-hint inputs. Resolved once per turn and reused across
     // re-injections so post-compaction rebuilds pick up fresh hints against
@@ -1557,7 +1586,8 @@ export async function runAgentLoopImpl(
       injection.blocks.pkbSystemReminder ||
       injection.blocks.workspaceBlock ||
       injection.blocks.nowScratchpadBlock ||
-      injection.blocks.pkbContextBlock
+      injection.blocks.pkbContextBlock ||
+      injection.blocks.memoryV2StaticBlock
     ) {
       try {
         const metadataUpdates: Record<string, unknown> = {};
@@ -1578,6 +1608,10 @@ export async function runAgentLoopImpl(
         }
         if (injection.blocks.pkbContextBlock) {
           metadataUpdates.pkbContextBlock = injection.blocks.pkbContextBlock;
+        }
+        if (injection.blocks.memoryV2StaticBlock) {
+          metadataUpdates.memoryV2StaticBlock =
+            injection.blocks.memoryV2StaticBlock;
         }
         await runPipeline<PersistArgs, PersistResult>(
           "persistence",
@@ -1775,7 +1809,7 @@ export async function runAgentLoopImpl(
             await trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
           }
           if (result.compacted) {
-            applySuccessfulCompaction(result, compactedBasis);
+            await applySuccessfulCompaction(result, compactedBasis);
             shouldInjectWorkspace = true;
           }
         },
@@ -2104,7 +2138,7 @@ export async function runAgentLoopImpl(
         );
       }
       if (midLoopCompact.compacted) {
-        applySuccessfulCompaction(midLoopCompact, rawHistory);
+        await applySuccessfulCompaction(midLoopCompact, rawHistory);
         reducerCompacted = true;
         shouldInjectWorkspace = true;
       }
@@ -2219,6 +2253,83 @@ export async function runAgentLoopImpl(
           { phase: "retry" },
           "Deep-repair retry also failed with ordering error. Consider starting a new conversation if this persists.",
         );
+      }
+    }
+
+    // ── Image-dimension overflow recovery ──────────────────────────
+    // When the provider rejects because an image block exceeds its pixel
+    // cap, strip every image block from ctx.messages and retry once.
+    // optimizeImageForTransport already ran at upload time; if sips was
+    // unavailable (non-macOS) it returns the same bytes unchanged.  In
+    // that case we swap the block for a text note so the model can tell
+    // the user what happened instead of hard-failing with a red banner.
+    if (state.imageTooLargeDetected) {
+      state.imageTooLargeDetected = false;
+      rlog.warn(
+        { phase: "image-recovery" },
+        "Image too large — stripping oversized image blocks and retrying",
+      );
+      ctx.messages = ctx.messages.map((msg) => {
+        if (!Array.isArray(msg.content)) return msg;
+        if (!msg.content.some((b) => b.type === "image")) return msg;
+        return {
+          ...msg,
+          content: msg.content.flatMap((b): ContentBlock[] => {
+            if (b.type !== "image") return [b];
+            const resized = optimizeImageForTransport(
+              b.source.data,
+              b.source.media_type,
+            );
+            if (resized.data !== b.source.data) {
+              // sips managed to downscale — use the smaller version
+              return [
+                {
+                  ...b,
+                  source: {
+                    type: "base64" as const,
+                    media_type: resized.mediaType,
+                    data: resized.data,
+                  },
+                },
+              ];
+            }
+            // Can't resize — replace with a text annotation so the model
+            // can explain the situation rather than silently dropping context
+            return [
+              {
+                type: "text" as const,
+                text: "(An image was attached but could not be sent — its dimensions exceed the provider limit and automatic resize was not available. Please resize the image and try again.)",
+              },
+            ];
+          }),
+        };
+      });
+      runMessages = ctx.messages;
+      updatedHistory = await ctx.agentLoop.run(
+        runMessages,
+        eventHandler,
+        abortController.signal,
+        reqId,
+        onCheckpoint,
+        turnCallSite,
+        loopTurnCtx,
+        turnOverrideProfile,
+        effectiveContextWindow.maxInputTokens,
+      );
+      if (state.imageTooLargeDetected) {
+        rlog.error(
+          { phase: "image-recovery" },
+          "Image-recovery retry also failed — surfacing error to user",
+        );
+        const classified = classifyConversationError(
+          new Error("Image dimensions too large"),
+          { phase: "agent_loop" },
+        );
+        deps.onEvent(
+          buildConversationErrorMessage(deps.ctx.conversationId, classified),
+        );
+        state.providerErrorUserMessage = classified.userMessage;
+        state.imageTooLargeDetected = false;
       }
     }
 
@@ -2356,7 +2467,7 @@ export async function runAgentLoopImpl(
         }
 
         if (step.compactionResult?.compacted) {
-          applySuccessfulCompaction(
+          await applySuccessfulCompaction(
             step.compactionResult,
             convergenceCompactionBasis,
           );
@@ -2522,7 +2633,7 @@ export async function runAgentLoopImpl(
             );
           }
           if (emergencyCompact?.compacted) {
-            applySuccessfulCompaction(emergencyCompact, ctx.messages);
+            await applySuccessfulCompaction(emergencyCompact, ctx.messages);
             reducerCompacted = true;
             shouldInjectWorkspace = true;
           }
@@ -2816,6 +2927,7 @@ export async function runAgentLoopImpl(
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
       syncLastAssistantMessageToDisk();
+      const clientDisplayMessageId = getClientDisplayMessageId(state);
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
@@ -2856,6 +2968,9 @@ export async function runAgentLoopImpl(
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
+          ...(clientDisplayMessageId
+            ? { displayMessageId: clientDisplayMessageId }
+            : {}),
         });
       } else {
         ctx.emitActivityState("idle", "message_complete", "global", reqId);
@@ -2878,6 +2993,9 @@ export async function runAgentLoopImpl(
             : {}),
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
+            : {}),
+          ...(clientDisplayMessageId
+            ? { displayMessageId: clientDisplayMessageId }
             : {}),
         });
 
@@ -2979,6 +3097,7 @@ export async function runAgentLoopImpl(
         conversationId: ctx.conversationId,
         code: classified.code,
         message: classified.userMessage,
+        errorCategory: classified.errorCategory,
       });
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
@@ -3129,7 +3248,7 @@ export interface CompactionApplyContext {
  * truth for the UI indicator after compaction. Emitting both caused a
  * redundant SwiftUI invalidation on every compaction.
  */
-export function applyCompactionResult(
+export async function applyCompactionResult(
   ctx: CompactionApplyContext,
   result: {
     messages: Message[];
@@ -3155,12 +3274,12 @@ export function applyCompactionResult(
   options: {
     slackContextCompactionWatermarkTs?: string | null;
   } = {},
-): void {
+): Promise<void> {
   ctx.messages = result.messages;
   ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
+  await ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,

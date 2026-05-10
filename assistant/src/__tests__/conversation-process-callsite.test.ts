@@ -12,13 +12,7 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
-
-// This test exercises v1 conversation routing. The `memory-v2-enabled` flag
-// (registry default `true`) flips memory routing to v2 — disable it here so
-// the v1 paths under test stay active.
-_setOverridesForTesting({ "memory-v2-enabled": false });
 
 // Use an object wrapper so TypeScript doesn't narrow the captured type to
 // `undefined` based on the initial assignment in the test setup.
@@ -83,6 +77,7 @@ mock.module("../config/loader.js", () => ({
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
+    memory: { v2: { enabled: false } },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,
@@ -387,5 +382,42 @@ describe("processMessage callSite threading", () => {
     expect(captured.constructorMaxTokens).toBe(1234);
     expect(captured.resolvedMaxTokens).toBe(1234);
     expect(captured.resolvedHasMaxTokens).toBe(true);
+  });
+
+  test("applies clientTimezone in the create and reuse transport metadata path", async () => {
+    mockConversation = {
+      id: "conv-store-client-timezone",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [];
+    clearCaptured();
+    clearAllActiveConversations();
+
+    const conversation = await getOrCreateConversation(
+      "conv-store-client-timezone",
+      {
+        transport: {
+          channelId: "vellum",
+          interfaceId: "macos",
+          clientTimezone: "america/new_york",
+        },
+      },
+    );
+
+    expect(conversation.clientTimezone).toBe("America/New_York");
+
+    await getOrCreateConversation("conv-store-client-timezone", {
+      transport: {
+        channelId: "vellum",
+        interfaceId: "ios",
+        clientTimezone: "europe/london",
+      },
+    });
+
+    expect(conversation.clientTimezone).toBe("Europe/London");
   });
 });

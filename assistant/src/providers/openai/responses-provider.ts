@@ -49,9 +49,11 @@ const VALID_VERBOSITIES = new Set<string>(["low", "medium", "high"]);
  *  Responses API (o-series, etc.) reject unknown wire fields with HTTP 400, so
  *  gate forwarding by model name here. The retry layer can't make this call
  *  because verbosity defaults to "medium" in the LLM schema, so every
- *  callSite-resolved request would otherwise carry it regardless of model. */
+ *  callSite-resolved request would otherwise carry it regardless of model.
+ *  Also matches OpenAI fine-tune IDs of the form `ft:gpt-5.x:org::id` so users
+ *  on GPT-5 fine-tunes keep explicit verbosity control. */
 function modelSupportsVerbosity(model: string): boolean {
-  return /^gpt-5(\b|[-.])/i.test(model);
+  return /^(ft:)?gpt-5(\b|[-.])/i.test(model);
 }
 
 /** Loosely-typed Responses stream event to avoid `any` while the SDK types settle. */

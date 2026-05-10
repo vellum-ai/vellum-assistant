@@ -362,7 +362,9 @@ function getLatestAssistantText(conversationId: string): string | null {
     if (Array.isArray(parsed)) {
       return parsed
         .filter(
-          (block): block is {
+          (
+            block,
+          ): block is {
             type: string;
             text?: string;
             surfaceType?: string;
@@ -2303,6 +2305,124 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
+  test("inbound voice: guardian's unverified channel gets self-verify guidance", async () => {
+    ensureConversation("conv-unverified-guardian");
+    const session = createCallSession({
+      conversationId: "conv-unverified-guardian",
+      provider: "twilio",
+      fromNumber: "+15558886666",
+      toNumber: "+15551111111",
+    });
+
+    upsertContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15558886666",
+      externalChatId: "+15558886666",
+      displayName: "Vargas",
+      role: "guardian",
+      status: "unverified",
+      policy: "allow",
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_unverified_guardian",
+        from: "+15558886666",
+        to: "+15551111111",
+      }),
+    );
+
+    // Should be disconnecting (not awaiting_name, not normal_call)
+    expect(relay.getConnectionState()).toBe("disconnecting");
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("failed");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    const promptText = textMessages.map((m) => m.token ?? "").join("");
+    expect(promptText).toContain("Vargas");
+    expect(promptText).toContain("has not been verified yet");
+    expect(promptText).toContain("contacts page");
+    expect(promptText).not.toContain("reach out to the account guardian");
+    expect(promptText).not.toContain("don't recognize");
+
+    const events = getCallEvents(session.id);
+    const aclEvent = events.find(
+      (e) => e.eventType === "inbound_acl_unverified_caller",
+    );
+    expect(aclEvent).toBeTruthy();
+    expect(
+      (JSON.parse(aclEvent!.payloadJson) as { isGuardian?: boolean })
+        .isGuardian,
+    ).toBe(true);
+
+    // Let delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    relay.destroy();
+  });
+
+  test("inbound voice: non-guardian contact with pending channel gets reach-out copy", async () => {
+    ensureConversation("conv-pending-contact");
+    const session = createCallSession({
+      conversationId: "conv-pending-contact",
+      provider: "twilio",
+      fromNumber: "+15558887777",
+      toNumber: "+15551111111",
+    });
+
+    upsertContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15558887777",
+      externalChatId: "+15558887777",
+      displayName: "Pending Pat",
+      // role defaults to "contact" — exercises the non-guardian branch
+      status: "pending",
+      policy: "allow",
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_pending_contact",
+        from: "+15558887777",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("disconnecting");
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    const promptText = textMessages.map((m) => m.token ?? "").join("");
+    expect(promptText).toContain("Pending Pat");
+    expect(promptText).toContain("has not been verified yet");
+    expect(promptText).toContain("reach out to the account guardian");
+    expect(promptText).not.toContain("contacts page");
+
+    const events = getCallEvents(session.id);
+    const aclEvent = events.find(
+      (e) => e.eventType === "inbound_acl_unverified_caller",
+    );
+    expect(aclEvent).toBeTruthy();
+    expect(
+      (JSON.parse(aclEvent!.payloadJson) as { isGuardian?: boolean })
+        .isGuardian,
+    ).toBe(false);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    relay.destroy();
+  });
+
   test("inbound voice: unknown caller name capture uses fallback when assistant name is unavailable", async () => {
     const prevName = mockAssistantName;
     mockAssistantName = null;
@@ -2332,7 +2452,7 @@ describe("relay-server", () => {
 
       expect(relay.getConnectionState()).toBe("awaiting_name");
 
-      // Fallback prompt should NOT include assistant name but should include guardian label
+      // Fallback prompt should use the existing guardian-label wording.
       const textMessages = ws.sentMessages
         .map((raw) => JSON.parse(raw) as { type: string; token?: string })
         .filter((m) => m.type === "text");
@@ -2341,6 +2461,48 @@ describe("relay-server", () => {
       expect(promptText).not.toContain("Vellum");
       expect(promptText).toContain("don't recognize this number");
       expect(promptText).toContain("Can I get your name");
+
+      relay.destroy();
+    } finally {
+      mockAssistantName = prevName;
+    }
+  });
+
+  test("inbound voice: unknown caller name capture does not speak a UUID assistant name", async () => {
+    const prevName = mockAssistantName;
+    mockAssistantName = "11111111-2222-4333-8444-555555555555";
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+    try {
+      ensureConversation("conv-invite-uuid-name");
+      const session = createCallSession({
+        conversationId: "conv-invite-uuid-name",
+        provider: "twilio",
+        fromNumber: "+12125550157",
+        toNumber: "+12125550111",
+      });
+
+      const { ws, relay } = createMockWs(session.id);
+
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "setup",
+          callSid: "CA_invite_uuid_name",
+          from: "+12125550157",
+          to: "+12125550111",
+        }),
+      );
+
+      expect(relay.getConnectionState()).toBe("awaiting_name");
+
+      const promptText = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+        .filter((m) => m.type === "text")
+        .map((m) => m.token ?? "")
+        .join("");
+      expect(promptText).toContain("Hi, this is my human's assistant.");
+      expect(promptText).not.toContain("11111111-2222-4333-8444-555555555555");
 
       relay.destroy();
     } finally {

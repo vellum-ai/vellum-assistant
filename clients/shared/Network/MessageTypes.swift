@@ -701,8 +701,8 @@ extension AssistantThinkingDelta {
 public typealias MessageCompleteMessage = MessageComplete
 
 extension MessageComplete {
-    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, source: String? = nil) {
-        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId, source: source)
+    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, displayMessageId: String? = nil, source: String? = nil) {
+        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId, displayMessageId: displayMessageId, source: source)
     }
 }
 
@@ -887,8 +887,8 @@ public struct GenerationCancelledMessage: Decodable, Sendable {
 public typealias GenerationHandoffMessage = GenerationHandoff
 
 extension GenerationHandoff {
-    public init(conversationId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
-        self.init(type: "generation_handoff", conversationId: conversationId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId)
+    public init(conversationId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, displayMessageId: String? = nil) {
+        self.init(type: "generation_handoff", conversationId: conversationId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId, displayMessageId: displayMessageId)
     }
 }
 
@@ -944,8 +944,23 @@ extension DeleteQueuedMessage {
 }
 
 extension ErrorMessage {
-    public init(message: String, category: String? = nil) {
-        self.init(type: "error", message: message, category: category)
+    public init(
+        conversationId: String? = nil,
+        requestId: String? = nil,
+        code: String? = nil,
+        message: String,
+        category: String? = nil,
+        errorCategory: String? = nil
+    ) {
+        self.init(
+            type: "error",
+            conversationId: conversationId,
+            requestId: requestId,
+            code: code,
+            message: message,
+            category: category,
+            errorCategory: errorCategory
+        )
     }
 }
 
@@ -2243,6 +2258,41 @@ public struct MeetSpeakingEndedMessage: Decodable, Sendable, Equatable {
     }
 }
 
+// MARK: - Bookmark events
+//
+// Wire-compatible mirror of `assistant/src/daemon/message-types/bookmarks.ts`.
+// Emitted by `bookmark-routes.ts` after every mutation so other connected
+// clients (e.g. a second macOS window) can refresh their bookmark cache in
+// lock-step. The dotted `type` strings (`bookmark.created` / `bookmark.deleted`)
+// match the daemon's serialization. Each platform client decides how to react
+// — see the platform-specific event subscriber for the translation
+// (e.g. `AppDelegate+ConnectionSetup.swift` on macOS posts a
+// `.bookmarkDidChange` NotificationCenter event).
+
+/// A new bookmark was created on the daemon.
+public struct BookmarkCreatedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let bookmark: BookmarkSummary
+
+    public init(type: String, bookmark: BookmarkSummary) {
+        self.type = type
+        self.bookmark = bookmark
+    }
+}
+
+/// An existing bookmark was deleted on the daemon, identified by the message
+/// it was attached to. Clients typically just refresh their bookmark list on
+/// receipt; the id is included for clients that index by message.
+public struct BookmarkDeletedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let messageId: String
+
+    public init(type: String, messageId: String) {
+        self.type = type
+        self.messageId = messageId
+    }
+}
+
 /// Payload posted back to the daemon with the result of a host CU action execution.
 public struct HostCuResultPayload: Codable, Sendable {
     public let requestId: String
@@ -2971,6 +3021,8 @@ public enum ServerMessage: Decodable, Sendable {
     case meetError(MeetErrorMessage)
     case meetSpeakingStarted(MeetSpeakingStartedMessage)
     case meetSpeakingEnded(MeetSpeakingEndedMessage)
+    case bookmarkCreated(BookmarkCreatedMessage)
+    case bookmarkDeleted(BookmarkDeletedMessage)
     case contextCompacted(ContextCompacted)
     case usageUpdate(UsageUpdate)
     case compactionCircuitOpen(CompactionCircuitOpen)
@@ -3527,6 +3579,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "meet.speaking_ended":
             let message = try MeetSpeakingEndedMessage(from: decoder)
             self = .meetSpeakingEnded(message)
+        case "bookmark.created":
+            let message = try BookmarkCreatedMessage(from: decoder)
+            self = .bookmarkCreated(message)
+        case "bookmark.deleted":
+            let message = try BookmarkDeletedMessage(from: decoder)
+            self = .bookmarkDeleted(message)
         case "relationship_state_updated":
             let payloadContainer = try decoder.container(keyedBy: InlinePayloadKeys.self)
             let updatedAt = try payloadContainer.decode(String.self, forKey: .updatedAt)

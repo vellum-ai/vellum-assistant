@@ -22,9 +22,9 @@ interface PlatformCallbackRouteResponse {
  * webhooks are forwarded to this gateway instance.
  *
  * Follows the same pattern as Telegram's managed callback route registration
- * in `telegram/webhook-manager.ts`.  Requires platform credentials (base URL,
- * API key, assistant ID) either from the credential cache or environment
- * variables.
+ * in `telegram/webhook-manager.ts`. Requires platform credentials (base URL,
+ * assistant API key, assistant ID). The base URL can fall back to
+ * `VELLUM_PLATFORM_URL`; the key can fall back to `ASSISTANT_API_KEY`.
  *
  * Self-hosted assistants with a configured ``ingress.publicBaseUrl`` send
  * their own base URL so the callback route points directly at the gateway
@@ -37,7 +37,6 @@ export async function registerEmailCallbackRoute(caches?: {
   credentials?: CredentialCache;
   configFile?: ConfigFileCache;
 }): Promise<string | undefined> {
-  // Read from credential cache when available
   const [platformBaseUrlRaw, assistantApiKeyRaw, assistantIdRaw] =
     caches?.credentials
       ? await Promise.all([
@@ -49,29 +48,26 @@ export async function registerEmailCallbackRoute(caches?: {
         ])
       : [undefined, undefined, undefined];
 
-  // Fall back to env vars when credential cache values are missing, matching
-  // the daemon's resolvePlatformCallbackRegistrationContext() behaviour.
+  // Fall back to env vars when managed pod credentials are not yet cached,
+  // matching the daemon's resolvePlatformCallbackRegistrationContext().
   const platformBaseUrl = (
     platformBaseUrlRaw?.trim() ||
     process.env.VELLUM_PLATFORM_URL?.trim() ||
     ""
   ).replace(/\/+$/, "");
 
-  const platformInternalApiKey =
-    process.env.PLATFORM_INTERNAL_API_KEY?.trim() || undefined;
-  const assistantApiKey = !platformInternalApiKey
-    ? assistantApiKeyRaw?.trim() || undefined
-    : undefined;
-  const authToken = platformInternalApiKey || assistantApiKey;
-  const authScheme = platformInternalApiKey ? "Bearer" : "Api-Key";
+  const assistantCredential =
+    assistantApiKeyRaw?.trim() ||
+    process.env.ASSISTANT_API_KEY?.trim() ||
+    undefined;
 
   const assistantId = assistantIdRaw?.trim() || undefined;
 
-  if (!platformBaseUrl || !authToken || !assistantId) {
+  if (!platformBaseUrl || !assistantCredential || !assistantId) {
     log.debug(
       {
         hasPlatformBaseUrl: !!platformBaseUrl,
-        hasApiKey: !!authToken,
+        hasApiKey: !!assistantCredential,
         hasAssistantId: !!assistantId,
       },
       "Email callback route registration unavailable — missing credentials",
@@ -109,7 +105,7 @@ export async function registerEmailCallbackRoute(caches?: {
     {
       method: "POST",
       headers: {
-        Authorization: `${authScheme} ${authToken}`,
+        Authorization: `Api-Key ${assistantCredential}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(requestBody),

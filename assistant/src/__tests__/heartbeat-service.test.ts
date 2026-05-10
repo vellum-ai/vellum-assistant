@@ -13,6 +13,7 @@ const mockSupersedePendingRun = mock(() => true);
 const mockMarkStaleRunsAsMissed = mock(() => 0);
 const mockMarkStaleRunningAsError = mock(() => 0);
 const mockListHeartbeatRuns = mock(() => []);
+const mockCountCompletedHeartbeatRuns = mock(() => 10);
 mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   insertPendingHeartbeatRun: mockInsertPendingHeartbeatRun,
   startHeartbeatRun: mockStartHeartbeatRun,
@@ -22,6 +23,7 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   markStaleRunsAsMissed: mockMarkStaleRunsAsMissed,
   markStaleRunningAsError: mockMarkStaleRunningAsError,
   listHeartbeatRuns: mockListHeartbeatRuns,
+  countCompletedHeartbeatRuns: mockCountCompletedHeartbeatRuns,
 }));
 
 // Mock config loader
@@ -365,6 +367,8 @@ describe("HeartbeatService", () => {
     mockMarkStaleRunningAsError.mockImplementation(() => 0);
     mockListHeartbeatRuns.mockClear();
     mockListHeartbeatRuns.mockImplementation(() => []);
+    mockCountCompletedHeartbeatRuns.mockClear();
+    mockCountCompletedHeartbeatRuns.mockImplementation(() => 10);
 
     mockConfig = {
       heartbeat: {
@@ -1763,6 +1767,57 @@ describe("HeartbeatService", () => {
       );
       expect(missedSignals).toHaveLength(0);
       service.stop();
+    });
+  });
+
+  describe("early heartbeat nudge", () => {
+    test("includes <early-heartbeat> when completedRunCount is 0", () => {
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check things", [], 0);
+
+      expect(prompt).toContain("<early-heartbeat>");
+      expect(prompt).toContain("first heartbeats");
+    });
+
+    test("includes <early-heartbeat> when completedRunCount is 2", () => {
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check things", [], 2);
+
+      expect(prompt).toContain("<early-heartbeat>");
+    });
+
+    test("omits <early-heartbeat> when completedRunCount is 3", () => {
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check things", [], 3);
+
+      expect(prompt).not.toContain("<early-heartbeat>");
+    });
+
+    test("omits <early-heartbeat> when completedRunCount is 10", () => {
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check things", [], 10);
+
+      expect(prompt).not.toContain("<early-heartbeat>");
+    });
+
+    test("executeRun passes completed run count to buildPrompt", async () => {
+      mockCountCompletedHeartbeatRuns.mockImplementation(() => 0);
+
+      const service = createService();
+      await service.runOnce();
+
+      expect(processMessageCalls).toHaveLength(1);
+      expect(processMessageCalls[0].content).toContain("<early-heartbeat>");
+    });
+
+    test("executeRun omits nudge when enough runs have completed", async () => {
+      mockCountCompletedHeartbeatRuns.mockImplementation(() => 5);
+
+      const service = createService();
+      await service.runOnce();
+
+      expect(processMessageCalls).toHaveLength(1);
+      expect(processMessageCalls[0].content).not.toContain("<early-heartbeat>");
     });
   });
 });

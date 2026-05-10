@@ -2,7 +2,7 @@
  * Tests for `assistant/src/memory/v2/consolidation-job.ts`.
  *
  * Coverage matrix:
- *   - Flag off → no runner call; returns flag_off.
+ *   - Flag off → no runner call; returns disabled.
  *   - Flag on, empty buffer → no runner call; returns empty_buffer.
  *   - Flag on, non-empty buffer → runner invoked with the cutoff-templated
  *     prompt and `suppressFailureNotifications: true`; follow-up jobs
@@ -26,7 +26,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
-  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -124,19 +123,18 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { _setOverridesForTesting } =
-  await import("../../../config/assistant-feature-flags.js");
 const { memoryV2ConsolidateJob } = await import("../consolidation-job.js");
 const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 
-// `isAssistantFeatureFlagEnabled` ignores the `config` argument it receives
-// (resolution is purely from the overrides + registry caches), and the
-// resolver only reads `config.memory.v2.consolidation_prompt_path` — so a
-// minimal stand-in covers both call sites without materializing the full
-// default config.
+// The resolver only reads `config.memory.v2.enabled` and
+// `config.memory.v2.consolidation_prompt_path`, so a minimal stand-in
+// covers both call sites without materializing the full default config.
 const CONFIG = {
-  memory: { v2: { consolidation_prompt_path: null } },
+  memory: { v2: { enabled: true, consolidation_prompt_path: null } },
+} as Parameters<typeof memoryV2ConsolidateJob>[1];
+const CONFIG_DISABLED = {
+  memory: { v2: { enabled: false, consolidation_prompt_path: null } },
 } as Parameters<typeof memoryV2ConsolidateJob>[1];
 
 function makeJob(): Parameters<typeof memoryV2ConsolidateJob>[0] {
@@ -176,33 +174,24 @@ beforeEach(() => {
   nextJobIdCounter = 0;
 });
 
-afterEach(() => {
-  _setOverridesForTesting({});
-});
-
 // ---------------------------------------------------------------------------
 
-describe("memoryV2ConsolidateJob — flag off", () => {
-  test("returns flag_off without invoking the runner when flag is off", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
+describe("memoryV2ConsolidateJob — v2 disabled", () => {
+  test("returns disabled without invoking the runner when memory.v2.enabled is false", async () => {
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
 
-    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG_DISABLED);
 
-    expect(result).toEqual({ kind: "flag_off" });
+    expect(result).toEqual({ kind: "disabled" });
     expect(runnerCalls).toBe(0);
     expect(enqueuedJobs).toHaveLength(0);
-    // Lock must NOT linger on the flag-off path — the handler bailed before
+    // Lock must NOT linger on the disabled path — the handler bailed before
     // the lock was acquired.
     expect(existsSync(lockPath())).toBe(false);
   });
 });
 
-describe("memoryV2ConsolidateJob — flag on, empty buffer", () => {
-  beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
-  });
-
+describe("memoryV2ConsolidateJob — empty buffer", () => {
   test("returns empty_buffer when buffer.md is missing", async () => {
     expect(existsSync(bufferPath())).toBe(false);
 
@@ -230,9 +219,8 @@ describe("memoryV2ConsolidateJob — flag on, empty buffer", () => {
   });
 });
 
-describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
+describe("memoryV2ConsolidateJob — non-empty buffer", () => {
   beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     writeFileSync(
       bufferPath(),
       "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
@@ -268,9 +256,9 @@ describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
     const prompt = runnerLastArgs?.prompt as string;
     expect(prompt).toContain("memory consolidation");
     expect(prompt).not.toContain(CUTOFF_PLACEHOLDER);
-    // Cutoff is an ISO-8601 timestamp — check the year prefix matches the
-    // current year so we know the substitution actually happened.
-    expect(prompt).toContain(`${new Date().getFullYear()}`);
+    // Cutoff is a buffer-entry-format timestamp (`Mon D, h:mm AM/PM`) so it
+    // compares like-with-like against `buffer.md` lines at minute precision.
+    expect(prompt).toMatch(/\b[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)\b/);
   });
 
   test("honors memory.v2.consolidation_prompt_path override when set", async () => {
@@ -279,14 +267,18 @@ describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
       "CUSTOM CONSOLIDATION at {{CUTOFF}}\n",
     );
     const overrideConfig = {
-      memory: { v2: { consolidation_prompt_path: "custom-prompt.md" } },
+      memory: {
+        v2: { enabled: true, consolidation_prompt_path: "custom-prompt.md" },
+      },
     } as Parameters<typeof memoryV2ConsolidateJob>[1];
 
     const result = await memoryV2ConsolidateJob(makeJob(), overrideConfig);
 
     expect(result.kind).toBe("invoked");
     const prompt = runnerLastArgs?.prompt as string;
-    expect(prompt).toMatch(/^CUSTOM CONSOLIDATION at \d{4}-/);
+    expect(prompt).toMatch(
+      /^CUSTOM CONSOLIDATION at [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)$/m,
+    );
     expect(prompt).not.toContain("You are running memory consolidation");
     expect(prompt).not.toContain(CUTOFF_PLACEHOLDER);
   });
@@ -357,7 +349,6 @@ describe("memoryV2ConsolidateJob — flag on, non-empty buffer", () => {
 
 describe("memoryV2ConsolidateJob — concurrent invocations", () => {
   beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
   });
 

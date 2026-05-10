@@ -371,7 +371,10 @@ final class LiveVoiceChannelManager {
             return
         }
 
-        guard speechDurationInCurrentUtterance >= minimumSpeechDurationBeforeRelease else { return }
+        guard speechDurationInCurrentUtterance >= minimumSpeechDurationBeforeRelease else {
+            speechDurationInCurrentUtterance = 0
+            return
+        }
         silenceDurationAfterSpeech += chunkDuration
 
         guard silenceDurationAfterSpeech >= silenceDurationBeforeRelease else { return }
@@ -422,17 +425,21 @@ final class LiveVoiceChannelManager {
         responseAudioStarted = false
         let completedClient = client
 
+        // Stop capture before awaiting playback drain so audio captured during
+        // the post-ttsDone drain window isn't forwarded to the server.
+        stopCapture()
+
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.playback.waitUntilPlaybackFinishes()
             guard generation == self.sessionGeneration else { return }
 
             self.sessionGeneration &+= 1
-            self.stopCapture()
+            self.state = .ending
+            await completedClient?.close()
             self.resetIgnoredSessionState()
             self.sessionId = nil
             self.state = .idle
-            await completedClient?.close()
         }
     }
 

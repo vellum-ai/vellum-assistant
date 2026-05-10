@@ -86,6 +86,10 @@ import {
 } from "./routes/channel-guardian-routes.js";
 import { RouteError } from "./routes/errors.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
+import {
+  startInferenceProfileSessionReaper,
+  stopInferenceProfileSessionReaper,
+} from "./routes/inference-profile-session-reaper.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
@@ -492,12 +496,16 @@ export class RuntimeHttpServer {
 
     startCanonicalGuardianExpirySweep();
     log.info("Canonical guardian request expiry sweep started");
+
+    startInferenceProfileSessionReaper();
+    log.info("Inference profile session reaper started");
   }
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
     stopGuardianActionSweep();
     stopCanonicalGuardianExpirySweep();
+    stopInferenceProfileSessionReaper();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;
@@ -556,7 +564,6 @@ export class RuntimeHttpServer {
     if (path === "/readyz" && req.method === "GET") {
       return handleReadyz();
     }
-
 
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
@@ -1013,8 +1020,9 @@ export class RuntimeHttpServer {
     ws: ServerWebSocket<LiveVoiceWebSocketData>,
     frame: LiveVoiceServerFrame,
   ): void {
-    ws.data.lastSeq = Math.max(ws.data.lastSeq, frame.seq);
-    ws.send(JSON.stringify(frame));
+    const seq = Math.max(ws.data.lastSeq + 1, frame.seq);
+    ws.data.lastSeq = seq;
+    ws.send(JSON.stringify({ ...frame, seq }));
   }
 
   private releaseLiveVoiceSession(

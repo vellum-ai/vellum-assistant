@@ -328,6 +328,52 @@ describe("LiveVoiceSessionManager", () => {
     expect(manager.activeSessionId).toBe("session-1");
   });
 
+  test("holds the session lock until close completes", async () => {
+    const sessions: TestSession[] = [];
+    let resolveClose: (() => void) | undefined;
+    const manager = new LiveVoiceSessionManager({
+      createSessionId: mock(() => `session-${sessions.length + 1}`),
+      createSession: () => {
+        const session = createTestSession({
+          close: mock(
+            (reason: LiveVoiceSessionCloseReason) =>
+              new Promise<void>((resolve) => {
+                sessions[sessions.length - 1]?.closeReasons.push(reason);
+                resolveClose = resolve;
+              }),
+          ),
+        });
+        sessions.push(session);
+        return session;
+      },
+    });
+    const first = createSink();
+    const second = createSink();
+    const third = createSink();
+
+    await manager.startSession(START_FRAME, first.sink);
+    const releasePromise = manager.releaseSession("session-1", "client_end");
+    const concurrent = await manager.startSession(START_FRAME, second.sink);
+    const concurrentDispatch = await manager.handleClientFrame("session-1", {
+      type: "interrupt",
+    });
+
+    expect(concurrent).toEqual({
+      status: "busy",
+      activeSessionId: "session-1",
+      frame: { type: "busy", seq: 1, activeSessionId: "session-1" },
+    });
+    expect(concurrentDispatch).toEqual({ status: "not_found" });
+    expect(sessions).toHaveLength(1);
+
+    resolveClose?.();
+    await releasePromise;
+
+    const next = await manager.startSession(START_FRAME, third.sink);
+    expect(next).toEqual({ status: "accepted", sessionId: "session-2" });
+    expect(manager.activeSessionId).toBe("session-2");
+  });
+
   test("does not import runtime, gateway, provider, or conversation modules", async () => {
     const source = await Bun.file(
       new URL("../live-voice-session-manager.ts", import.meta.url),

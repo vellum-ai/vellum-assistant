@@ -1,0 +1,104 @@
+import { useState } from 'react';
+
+import type { OperationEntry } from '../../background/event-log.js';
+import { formatDuration, formatTime } from '../lib/format.js';
+
+export interface DetailScreenProps {
+  operation: OperationEntry;
+  onBack: () => void;
+}
+
+function formatResponseContent(operation: OperationEntry): string {
+  if (operation.responseContent) {
+    try {
+      return JSON.stringify(JSON.parse(operation.responseContent), null, 2);
+    } catch {
+      return operation.responseContent;
+    }
+  }
+  if (operation.respondedAt) return 'Empty response';
+  return 'Awaiting response…';
+}
+
+export function DetailScreen({ operation, onBack }: DetailScreenProps) {
+  const [activeTab, setActiveTab] = useState<'request' | 'response'>('request');
+
+  const metaParts: string[] = [formatTime(operation.requestedAt)];
+  if (operation.durationMs != null) {
+    metaParts.push(formatDuration(operation.durationMs));
+  }
+  if (operation.isError) {
+    metaParts.push('Error');
+  }
+
+  const tabBase = 'flex-1 py-2 px-3 text-xs text-center border-b-2';
+  const tabActive = `${tabBase} text-fg border-fg font-medium`;
+  const tabInactive = `${tabBase} text-fg-muted border-transparent hover:text-fg transition-colors`;
+  const panelClass = 'bg-surface rounded-lg p-3 text-xs text-fg-muted overflow-auto max-h-64 whitespace-pre-wrap break-words font-mono';
+
+  return (
+    <div>
+      <header className="flex items-center gap-2 mb-3.5">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center justify-center w-7 h-7 rounded-md text-fg-muted hover:text-fg transition-colors"
+          aria-label="Back"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path
+              d="M9 2L4 7L9 12"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <h1 className="text-[13px] font-semibold text-fg-muted tracking-wide">
+          Operation Detail
+        </h1>
+      </header>
+
+      <div className="mb-3.5">
+        <p className="text-base font-semibold text-fg break-words">
+          {operation.operationName}
+        </p>
+        <p className="text-[11px] text-fg-subtle mt-1">
+          {metaParts.join(' · ')}
+        </p>
+      </div>
+
+      <div className="flex border-b border-edge mb-2.5">
+        <button
+          type="button"
+          onClick={() => setActiveTab('request')}
+          className={activeTab === 'request' ? tabActive : tabInactive}
+        >
+          Request
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('response')}
+          className={activeTab === 'response' ? tabActive : tabInactive}
+        >
+          Response
+        </button>
+      </div>
+
+      {activeTab === 'request' && (
+        <pre className={panelClass}>
+          {operation.request
+            ? JSON.stringify(operation.request, null, 2)
+            : 'No request data available'}
+        </pre>
+      )}
+
+      {activeTab === 'response' && (
+        <pre className={panelClass}>
+          {formatResponseContent(operation)}
+        </pre>
+      )}
+    </div>
+  );
+}

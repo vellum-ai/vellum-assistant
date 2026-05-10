@@ -40,6 +40,9 @@ struct ChatView: View {
     let onMicrophoneToggle: () -> Void
     var onForkFromMessage: ((String) -> Void)? = nil
     var onInspectMessage: ((String?) -> Void)?
+    var onToggleBookmark: ((String, String) -> Void)?
+    var bookmarkStore: BookmarkStore?
+    var bookmarkConversationId: String?
     var onSubagentTap: ((String) -> Void)?
     var onAddFunds: (() -> Void)? = nil
     var onOpenModelsAndServices: (() -> Void)? = nil
@@ -70,6 +73,14 @@ struct ChatView: View {
 
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
+    /// When set, MessageListView resolves the daemon (server-side) message
+    /// ID to its client `UUID` once the matching message is loaded, then
+    /// triggers the existing UUID-based scroll-and-flash. Used by deep
+    /// links from settings panes (e.g. Bookmarks) that only have the
+    /// daemon ID, not the client-generated `UUID`. Defaults to a constant
+    /// nil binding so non-bookmark hosts (e.g. `ThreadWindow`) don't need
+    /// to allocate a `@State` they never write to.
+    var anchorDaemonMessageId: Binding<String?> = .constant(nil)
     /// Message ID to visually highlight after an anchor scroll completes.
     @Binding var highlightedMessageId: UUID?
 
@@ -119,7 +130,7 @@ struct ChatView: View {
 
     private var currentConversation: ConversationModel? {
         guard let conversationManager, let conversationId else { return nil }
-        return conversationManager.conversations.first(where: { $0.id == conversationId })
+        return conversationManager.listStore.conversationsByLocalId[conversationId]
     }
 
     var body: some View {
@@ -324,6 +335,9 @@ struct ChatView: View {
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 onInspectMessage: onInspectMessage,
+                onToggleBookmark: onToggleBookmark,
+                bookmarkStore: bookmarkStore,
+                bookmarkConversationId: bookmarkConversationId,
                 mediaEmbedSettings: mediaEmbedSettings,
                 onAbortSubagent: { subagentId in
                     Task { await viewModel.abortSubagent(subagentId) }
@@ -346,6 +360,7 @@ struct ChatView: View {
                 // -- Scroll state inputs --
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
+                anchorDaemonMessageId: anchorDaemonMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 isInteractionEnabled: isInteractionEnabled,
                 containerWidth: containerWidth,
@@ -353,10 +368,22 @@ struct ChatView: View {
             )
             .animation(nil, value: queuedMessages.isEmpty)
 
-            if let error = viewModel.errorManager.conversationError, error.isCreditsExhausted {
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .managedCreditsBanner {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     CreditsExhaustedBanner(
                         onAddFunds: { onAddFunds?() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .providerBillingBanner {
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    ProviderBillingBanner(
+                        onOpenSettings: { onOpenModelsAndServices?() }
                     )
                 }
                 .padding(.bottom, -VSpacing.sm)
@@ -374,7 +401,8 @@ struct ChatView: View {
                 .animation(nil, value: queuedMessages.isEmpty)
             }
 
-            if let error = viewModel.errorManager.conversationError, error.isProviderNotConfigured {
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .missingApiKeyBanner {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     MissingApiKeyBanner(
                         onOpenSettings: { onOpenModelsAndServices?() },
@@ -503,19 +531,22 @@ struct ChatView: View {
 
     /// Bundles the inference-profile pill state for ``ComposerView``. Returns
     /// `nil` when no manager is wired (preview/testing) so the pill stays
-    /// hidden until a real persistence path exists.
+    /// hidden until a real persistence path exists, and also when the
+    /// conversation has been promoted out of draft state but the daemon-side
+    /// conversation ID has not yet been backfilled — in that window
+    /// ``ConversationManager.setConversationInferenceProfile`` would silently
+    /// no-op. Drafts remain enabled because the manager routes draft
+    /// selections through ``ChatViewModel.pendingInferenceProfile``.
     private var inferenceProfilePicker: ChatProfilePickerConfiguration? {
-        guard let conversationManager else { return nil }
+        guard let conversationManager, let conversationId else { return nil }
+        let isDraft = conversationManager.draftLocalId == conversationId
+        let isPersisted = currentConversation?.conversationId != nil
+        guard isDraft || isPersisted else { return nil }
         return ChatProfilePickerConfiguration(
             current: currentConversation?.inferenceProfile ?? viewModel.pendingInferenceProfile,
             profiles: inferenceProfiles,
             activeProfile: activeInferenceProfile,
             onSelect: { profile in
-                if conversationId == nil {
-                    viewModel.pendingInferenceProfile = profile
-                    return
-                }
-                guard let conversationId else { return }
                 Task { @MainActor in
                     await conversationManager.setConversationInferenceProfile(
                         id: conversationId,

@@ -10,6 +10,7 @@ enum SettingsTab: String {
     case permissionsAndPrivacy = "Permissions & Privacy"
     case billing = "Billing"
     case archivedConversations = "Archive"
+    case bookmarks = "Bookmarks"
     case schedules = "Schedules"
     case debug = "Debug"
     case developer = "Developer"
@@ -25,6 +26,7 @@ enum SettingsTab: String {
         case .permissionsAndPrivacy: return .shieldCheck
         case .billing: return .creditCard
         case .archivedConversations: return .archive
+        case .bookmarks: return .bookmark
         case .schedules: return .calendar
         case .debug: return .bug
         case .developer: return .terminal
@@ -35,7 +37,8 @@ enum SettingsTab: String {
     static func sidebarTopTabs(
         soundsEnabled: Bool = true,
         debugEnabled: Bool = false,
-        includeCompactionPlayground: Bool = false
+        includeCompactionPlayground: Bool = false,
+        bookmarksEnabled: Bool = false
     ) -> [SettingsTab] {
         var tabs: [SettingsTab] = []
         if includeCompactionPlayground {
@@ -47,6 +50,7 @@ enum SettingsTab: String {
         tabs.append(.billing)
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
+        if bookmarksEnabled { tabs.append(.bookmarks) }
         tabs.append(.schedules)
         if debugEnabled { tabs.append(.debug) }
         return tabs
@@ -62,6 +66,10 @@ struct SettingsPanel: View {
     var conversationManager: ConversationManager
     var authManager: AuthManager
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    /// Threaded through ahead of the dedicated bookmarks settings tab
+    /// landing in PR 12 so this PR doesn't have to revisit every call
+    /// site at the same time.
+    var bookmarkStore: BookmarkStore
     var showToast: (String, ToastInfo.Style) -> Void
     var onEnableIntegration: (() -> Void)?
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
@@ -75,6 +83,7 @@ struct SettingsPanel: View {
         conversationManager: ConversationManager,
         authManager: AuthManager,
         assistantFeatureFlagStore: AssistantFeatureFlagStore,
+        bookmarkStore: BookmarkStore,
         showToast: @escaping (String, ToastInfo.Style) -> Void,
         onEnableIntegration: (() -> Void)? = nil,
         featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
@@ -85,6 +94,7 @@ struct SettingsPanel: View {
         self.conversationManager = conversationManager
         self.authManager = authManager
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
+        self.bookmarkStore = bookmarkStore
         self.showToast = showToast
         self.onEnableIntegration = onEnableIntegration
         self.featureFlagClient = featureFlagClient
@@ -96,6 +106,9 @@ struct SettingsPanel: View {
 
         let soundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
         _isSoundsEnabled = State(initialValue: soundsEnabled)
+
+        let bookmarksEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.bookmarksFeatureFlagKey)
+        _isBookmarksEnabled = State(initialValue: bookmarksEnabled)
 
         // Derive the initial tab from the pending deep-link at construction
         // time. Previous attempts set selectedTab in onAppear / onChange, but
@@ -115,7 +128,8 @@ struct SettingsPanel: View {
             var visibleTabs = SettingsTab.sidebarTopTabs(
                 soundsEnabled: soundsEnabled,
                 debugEnabled: debugEnabled,
-                includeCompactionPlayground: false
+                includeCompactionPlayground: false,
+                bookmarksEnabled: bookmarksEnabled
             )
             if developerEnabled { visibleTabs.append(.developer) }
             if visibleTabs.contains(pending) {
@@ -149,6 +163,7 @@ struct SettingsPanel: View {
     @State private var isDeveloperEnabled: Bool = false
     @State private var isCompactionPlaygroundEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
+    @State private var isBookmarksEnabled: Bool = false
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var isEmailChannelEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
@@ -160,6 +175,7 @@ struct SettingsPanel: View {
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
+    private static let bookmarksFeatureFlagKey = "bookmarks"
     private static let deferredDeepLinkTabs: Set<SettingsTab> = [.compactionPlayground]
 
     var body: some View {
@@ -228,6 +244,7 @@ struct SettingsPanel: View {
         .onAppear {
             isDeveloperEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.developerFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
+            isBookmarksEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.bookmarksFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -265,6 +282,9 @@ struct SettingsPanel: View {
             handleSidebarVisibilityChanged()
         }
         .onChange(of: isCompactionPlaygroundVisible) { _, _ in
+            handleSidebarVisibilityChanged()
+        }
+        .onChange(of: isBookmarksEnabled) { _, _ in
             handleSidebarVisibilityChanged()
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
@@ -373,7 +393,8 @@ struct SettingsPanel: View {
         SettingsTab.sidebarTopTabs(
             soundsEnabled: isSoundsEnabled,
             debugEnabled: isDebugVisible,
-            includeCompactionPlayground: isCompactionPlaygroundVisible
+            includeCompactionPlayground: isCompactionPlaygroundVisible,
+            bookmarksEnabled: isBookmarksEnabled
         )
     }
 
@@ -424,25 +445,7 @@ struct SettingsPanel: View {
         switch selectedTab {
         case .general:
             SettingsGeneralTab(store: store, connectionManager: connectionManager, authManager: authManager, onClose: onClose, showToast: showToast, onSignIn: {
-                // Re-bootstrap actor credentials first so the actor token is
-                // available when ensureLocalAssistantApiKey() waits for it.
-                // This mirrors the pattern in proceedToApp() and
-                // performSwitchAssistant(). Managed assistants derive identity
-                // from the platform session, so skip for them.
-                if !(AppDelegate.shared?.isCurrentAssistantManaged ?? false) {
-                    AppDelegate.shared?.ensureActorCredentials()
-                }
-                // Reset before provisioning so a stale flag from a previous
-                // bootstrap cycle doesn't cause awaitLocalBootstrapCompleted
-                // to skip the wait. Mirrors the reset in proceedToApp().
-                AppDelegate.shared?.localBootstrapDidComplete = false
-                AppDelegate.shared?.ensureLocalAssistantApiKey()
-
-                // For managed assistants, re-establish the connection now that
-                // the user has a valid session token.
-                if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
-                    AppDelegate.shared?.reconnectManagedAssistant()
-                }
+                AppDelegate.shared?.handlePlatformLoginSucceeded()
             })
         case .modelsAndServices:
             modelsAndServicesContent
@@ -466,6 +469,31 @@ struct SettingsPanel: View {
             )
         case .archivedConversations:
             SettingsArchivedConversationsTab(conversationManager: conversationManager)
+        case .bookmarks:
+            SettingsBookmarksTab(
+                bookmarkStore: bookmarkStore,
+                conversationManager: conversationManager,
+                openMessage: { conversationId, daemonMessageId in
+                    // Async path so archived / paginated-out conversations
+                    // are fetched (and unarchived) instead of silently
+                    // no-oping when the conversation is not in the current
+                    // sidebar slice.
+                    let opened = await conversationManager.selectConversationByConversationIdAsync(conversationId)
+                    guard opened, let activeLocalId = conversationManager.activeConversationId else {
+                        showToast("Couldn't open bookmark — conversation is no longer available.", .error)
+                        return
+                    }
+                    // Recording the conversation alongside the daemon ID lets
+                    // ConversationSelectionStore's stale-anchor cleanup fire
+                    // if the user switches away before the resolver runs.
+                    conversationManager.setPendingAnchorDaemonMessage(
+                        conversationId: activeLocalId,
+                        daemonMessageId: daemonMessageId
+                    )
+                    onClose()
+                },
+                onClose: onClose
+            )
         case .schedules:
             SettingsSchedulesTab()
         case .debug:

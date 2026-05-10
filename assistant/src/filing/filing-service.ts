@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import {
@@ -110,8 +109,8 @@ export class FilingService {
 
   start(): void {
     const fullConfig = getConfig();
-    if (isAssistantFeatureFlagEnabled("memory-v2-enabled", fullConfig)) {
-      log.info("Filing service disabled — memory v2 flag is set");
+    if (fullConfig.memory.v2.enabled) {
+      log.info("Filing service disabled — memory v2 is active");
       this._nextRunAt = null;
       this._nextCompactionAt = null;
       return;
@@ -213,6 +212,13 @@ export class FilingService {
       return false;
     }
 
+    if (this.activeCompactionRun) {
+      log.debug(
+        "Compaction run in progress, skipping filing to avoid concurrent PKB writes",
+      );
+      return false;
+    }
+
     // Skip if buffer is empty — no work to do
     if (!force && !this.hasBufferContent()) {
       log.debug("Buffer is empty, skipping filing");
@@ -256,6 +262,13 @@ export class FilingService {
 
     if (this.activeCompactionRun) {
       log.debug("Previous compaction run still active, skipping");
+      return false;
+    }
+
+    if (this.activeRun) {
+      log.debug(
+        "Filing run in progress, skipping compaction to avoid concurrent PKB writes",
+      );
       return false;
     }
 

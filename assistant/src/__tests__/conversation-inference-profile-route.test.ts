@@ -78,7 +78,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       },
     });
 
-    const result = profileRoute.handler({
+    const result = await profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: "quality-optimized" },
       headers: {},
@@ -86,7 +86,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 
     await Promise.resolve();
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       conversationId: conversation.id,
       profile: "quality-optimized",
     });
@@ -104,23 +104,23 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     subscription.dispose();
   });
 
-  test("rejects unknown profile names with BadRequestError", () => {
+  test("rejects unknown profile names with BadRequestError", async () => {
     const conversation = createConversation("inference-profile-unknown");
 
-    expect(() =>
+    await expect(
       profileRoute.handler({
         pathParams: { id: conversation.id },
         body: { profile: "does-not-exist" },
         headers: {},
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
     expect(getConversation(conversation.id)?.inferenceProfile).toBeNull();
   });
 
   test("clears the override when profile is null", async () => {
     const conversation = createConversation("inference-profile-clear");
 
-    profileRoute.handler({
+    await profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: "balanced" },
       headers: {},
@@ -137,7 +137,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       },
     });
 
-    const result = profileRoute.handler({
+    const result = await profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: null },
       headers: {},
@@ -145,7 +145,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 
     await Promise.resolve();
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       conversationId: conversation.id,
       profile: null,
     });
@@ -158,7 +158,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
   test("skips write and event when the profile is unchanged", async () => {
     const conversation = createConversation("inference-profile-noop");
 
-    profileRoute.handler({
+    await profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: "balanced" },
       headers: {},
@@ -175,7 +175,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       },
     });
 
-    const result = profileRoute.handler({
+    const result = await profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: "balanced" },
       headers: {},
@@ -183,7 +183,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 
     await Promise.resolve();
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       conversationId: conversation.id,
       profile: "balanced",
     });
@@ -193,13 +193,13 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     subscription.dispose();
   });
 
-  test("throws NotFoundError when the conversation does not exist", () => {
-    expect(() =>
+  test("throws NotFoundError when the conversation does not exist", async () => {
+    await expect(
       profileRoute.handler({
         pathParams: { id: "missing" },
         body: { profile: "balanced" },
         headers: {},
       }),
-    ).toThrow(NotFoundError);
+    ).rejects.toThrow(NotFoundError);
   });
 });

@@ -557,7 +557,7 @@ struct SidebarConversationRowDropDelegate: DropDelegate {
         guard let sourceId = sidebar.draggingConversationId,
               sourceId != conversation.id else { return false }
         // Block within-Recents reorder — Recents uses recency sorting.
-        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceId })?.groupId
+        let sourceGroup = conversationManager.listStore.conversationsByLocalId[sourceId]?.groupId
         if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
             return false
         }
@@ -573,7 +573,7 @@ struct SidebarConversationRowDropDelegate: DropDelegate {
         // Suppress drop indicator for within-Recents drags
         if conversation.groupId == ConversationGroup.all.id,
            let dragId = sidebar.draggingConversationId,
-           conversationManager.conversations.first(where: { $0.id == dragId })?.groupId == ConversationGroup.all.id {
+           conversationManager.listStore.conversationsByLocalId[dragId]?.groupId == ConversationGroup.all.id {
             return
         }
         sidebar.dropTargetConversationId = conversation.id
@@ -597,7 +597,7 @@ struct SidebarConversationRowDropDelegate: DropDelegate {
         sidebar.endConversationDrag()
         guard let sourceId, sourceId != conversation.id else { return false }
         // Block within-Recents reorder
-        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceId })?.groupId
+        let sourceGroup = conversationManager.listStore.conversationsByLocalId[sourceId]?.groupId
         if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
             return false
         }
@@ -614,7 +614,7 @@ struct SidebarSectionBodyDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         guard let sourceId = sidebar.draggingConversationId,
-              let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
+              let source = conversationManager.listStore.conversationsByLocalId[sourceId],
               source.groupId != groupId
         else { return false }
         return true

@@ -15,6 +15,7 @@ import { getDb } from "../../memory/db-connection.js";
 import { initializeDb } from "../../memory/db-init.js";
 import {
   completeHeartbeatRun,
+  countCompletedHeartbeatRuns,
   insertPendingHeartbeatRun,
   listHeartbeatRuns,
   markStaleRunningAsError,
@@ -212,5 +213,40 @@ describe("heartbeat-run-store", () => {
 
     const rows = listHeartbeatRuns(3);
     expect(rows).toHaveLength(3);
+  });
+
+  test("countCompletedHeartbeatRuns counts only ok rows", () => {
+    const now = Date.now();
+
+    // Insert runs with various statuses
+    const id1 = insertPendingHeartbeatRun(now);
+    startHeartbeatRun(id1);
+    completeHeartbeatRun(id1, { status: "ok", conversationId: "conv-1" });
+
+    const id2 = insertPendingHeartbeatRun(now + 1);
+    startHeartbeatRun(id2);
+    completeHeartbeatRun(id2, { status: "error", error: "something broke" });
+
+    const id3 = insertPendingHeartbeatRun(now + 2);
+    skipHeartbeatRun(id3, "disabled");
+
+    const id4 = insertPendingHeartbeatRun(now + 3);
+    startHeartbeatRun(id4);
+    completeHeartbeatRun(id4, { status: "ok", conversationId: "conv-2" });
+
+    expect(countCompletedHeartbeatRuns()).toBe(2);
+  });
+
+  test("countCompletedHeartbeatRuns returns 0 when no ok rows exist", () => {
+    const now = Date.now();
+
+    const id1 = insertPendingHeartbeatRun(now);
+    startHeartbeatRun(id1);
+    completeHeartbeatRun(id1, { status: "error", error: "fail" });
+
+    const id2 = insertPendingHeartbeatRun(now + 1);
+    skipHeartbeatRun(id2, "outside_active_hours");
+
+    expect(countCompletedHeartbeatRuns()).toBe(0);
   });
 });

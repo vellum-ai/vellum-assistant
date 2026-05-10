@@ -151,24 +151,14 @@ struct AssistantChannelsDetailView: View {
     }
 
     /// Contacts tab layout: compact row list with dividers, no ScrollView (container scrolls).
+    /// The parent SettingsCard provides the "Channels" title/subtitle header.
     private var flatLayout: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Channels")
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentDefault)
-                Text("Manage where \(assistantName) can be reached.")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-
-            VStack(alignment: .leading, spacing: 0) {
-                slackRow
-                SettingsDivider()
-                telegramRow
-                SettingsDivider()
-                voiceRow
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            slackRow
+            SettingsDivider()
+            telegramRow
+            SettingsDivider()
+            voiceRow
         }
     }
 

@@ -263,8 +263,8 @@ describe("runAgenticRecall", () => {
     ]);
     expect(result.debug).toMatchObject({
       mode: "deterministic_fallback",
-      fallbackReason: "finish_answer_validation_failed",
-      fallbackDetail: "negative_or_incomplete_finish_with_relevant_evidence",
+      fallbackReason: "citation_validation_failed",
+      fallbackDetail: "missing_citations",
     });
     expect(result.content).toContain("Found evidence:");
     expect(result.content).toContain("Lives at Bob's parents' house in Katy");

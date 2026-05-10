@@ -85,6 +85,7 @@ export type LiveVoiceSessionReleaseResult =
 interface ActiveLiveVoiceSession {
   sessionId: string;
   session: LiveVoiceSession;
+  closing: boolean;
 }
 
 export class LiveVoiceSessionManager {
@@ -132,7 +133,7 @@ export class LiveVoiceSessionManager {
       },
     };
     const session = this.createSession(context);
-    this.activeSession = { sessionId, session };
+    this.activeSession = { sessionId, session, closing: false };
 
     try {
       await session.start();
@@ -198,14 +199,20 @@ export class LiveVoiceSessionManager {
       return { released: false };
     }
 
-    this.activeSession = null;
-    await active.session.close(reason);
+    active.closing = true;
+    try {
+      await active.session.close(reason);
+    } finally {
+      if (this.activeSession === active) {
+        this.activeSession = null;
+      }
+    }
     return { released: true, sessionId };
   }
 
   private findActiveSession(sessionId: string): ActiveLiveVoiceSession | null {
     const active = this.activeSession;
-    if (active === null || active.sessionId !== sessionId) {
+    if (active === null || active.sessionId !== sessionId || active.closing) {
       return null;
     }
 

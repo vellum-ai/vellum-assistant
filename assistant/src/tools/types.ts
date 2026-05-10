@@ -115,8 +115,26 @@ export interface ToolExecutionResult {
   riskThreshold?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
-  /** Scope options ladder for the rule editor (narrowest to broadest). */
+  /**
+   * Display-only ladder of scope option labels for the rule editor
+   * (narrowest to broadest). The `pattern` field here is a regex-style
+   * descriptor used internally by the daemon and is NOT a valid trust
+   * rule pattern. Use `riskAllowlistOptions` for the pattern that gets
+   * saved as a trust rule.
+   */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  /**
+   * Allowlist options for the rule editor save path (narrowest to
+   * broadest). Each `pattern` is a Minimatch-glob compatible string
+   * (e.g. raw command for exact match, `action:<program>` for command
+   * wildcards) — what the gateway actually matches against. Mirrors
+   * the `allowlistOptions` field on `ConfirmationRequest` SSE events.
+   */
+  riskAllowlistOptions?: Array<{
+    label: string;
+    description: string;
+    pattern: string;
+  }>;
   /** Directory scope ladder for the rule editor (narrowest to broadest). */
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
   /**

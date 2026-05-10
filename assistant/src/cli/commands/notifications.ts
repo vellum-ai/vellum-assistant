@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
@@ -9,12 +10,12 @@ import { shouldOutputJson, writeOutput } from "../output.js";
 // ---------------------------------------------------------------------------
 
 export function registerNotificationsCommand(program: Command): void {
-  const notifications = program
-    .command("notifications")
-    .description(
-      "Send and inspect notifications through the unified notification router",
-    )
-    .option("--json", "Machine-readable compact JSON output");
+  registerCommand(program, {
+    name: "notifications",
+    transport: "ipc",
+    description: "Send and inspect notifications through the unified notification router",
+    build: (notifications) => {
+      notifications.option("--json", "Machine-readable compact JSON output");
 
   notifications.addHelpText(
     "after",
@@ -99,6 +100,10 @@ Examples:
       "--deep-link-metadata <json>",
       "Optional JSON metadata clients can use for deep linking",
     )
+    .option(
+      "--conversation-id <id>",
+      "Local vellum conversation ID to deliver into. When set, the notification reuses the specified conversation instead of starting a new one — bypasses the LLM's conversation-routing decision via affinity hint.",
+    )
     .addHelpText(
       "after",
       `
@@ -114,11 +119,15 @@ Behavioral notes:
   - --urgency defaults to medium if not specified.
   - --preferred-channels are hints only; the decision engine may override them.
   - --dedupe-key suppresses duplicate signals with the same key.
+  - --conversation-id pins delivery to an existing vellum conversation
+    deterministically. Other channels (telegram, slack) continue to use
+    binding-based pairing for their external threads.
 
 Examples:
   $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Task complete"
   $ assistant notifications send --source-channel scheduler --source-event-name schedule.notify --message "Meeting in 5 min" --urgency high --title "Reminder"
-  $ assistant notifications send --source-channel watcher --source-event-name watcher.notification --message "Detected change" --no-requires-action --is-async-background --json`,
+  $ assistant notifications send --source-channel watcher --source-event-name watcher.notification --message "Detected change" --no-requires-action --is-async-background --json
+  $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Build green" --conversation-id 649c4645-3a6f-4ded-a713-504f02ca806b`,
     )
     .action(
       async (
@@ -136,6 +145,7 @@ Examples:
           sessionId?: string;
           dedupeKey?: string;
           deepLinkMetadata?: string;
+          conversationId?: string;
         },
         cmd: Command,
       ) => {
@@ -206,6 +216,17 @@ Examples:
 
           const sourceContextId = opts.sessionId ?? `cli-${Date.now()}`;
 
+          // Validate --conversation-id if provided
+          const conversationId = opts.conversationId?.trim();
+          if (opts.conversationId != null && !conversationId) {
+            writeOutput(cmd, {
+              ok: false,
+              error: "Conversation ID must be a non-empty string",
+            });
+            process.exitCode = 1;
+            return;
+          }
+
           const result = await cliIpcCall<{
             signalId: string;
             dispatched: boolean;
@@ -231,6 +252,9 @@ Examples:
                 ...(deepLinkMetadata ? { deepLinkMetadata } : {}),
               },
               ...(opts.dedupeKey ? { dedupeKey: opts.dedupeKey } : {}),
+              ...(conversationId
+                ? { conversationAffinityHint: { vellum: conversationId } }
+                : {}),
               throwOnError: true,
             },
           });
@@ -373,4 +397,6 @@ Examples:
         }
       },
     );
+    },
+  });
 }

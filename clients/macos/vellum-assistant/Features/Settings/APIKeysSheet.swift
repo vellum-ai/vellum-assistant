@@ -267,12 +267,28 @@ struct APIKeysSheet: View {
     // MARK: - Key Status Loading
 
     private func loadAllKeyStatuses() async {
-        for provider in keyRequiredProviders {
-            let hasKey = await APIKeyManager.hasKey(for: provider.id)
-            keyStatuses[provider.id] = hasKey
-            if hasKey {
-                maskedKeys[provider.id] = await APIKeyManager.maskedKey(for: provider.id)
+        // Refresh the shared store cache once — settings cards (STT/TTS) read
+        // the same `providerKeys` set, so a single bulk call covers all of
+        // them. On bulk-listing failure with an empty cache (e.g. first load
+        // during a transient outage), fall back to per-provider `hasKey`
+        // calls so the sheet doesn't render every row as "not configured".
+        let refreshed = await store.refreshProviderKeys()
+        if refreshed || !store.providerKeys.isEmpty {
+            for provider in keyRequiredProviders {
+                keyStatuses[provider.id] = store.providerKeys.contains(provider.id)
             }
+        } else {
+            for provider in keyRequiredProviders {
+                let hasKey = await APIKeyManager.hasKey(for: provider.id)
+                keyStatuses[provider.id] = hasKey
+                if hasKey { store.insertProviderKey(provider.id) }
+            }
+        }
+        // Masked previews live behind a different endpoint (`secrets/read`)
+        // so they still need a per-provider call — but only for providers
+        // we now know are present.
+        for provider in keyRequiredProviders where keyStatuses[provider.id] == true {
+            maskedKeys[provider.id] = await APIKeyManager.maskedKey(for: provider.id)
         }
     }
 }

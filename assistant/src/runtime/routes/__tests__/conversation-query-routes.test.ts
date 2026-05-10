@@ -78,6 +78,7 @@ function seedConversationAndMessage(args: {
   messageId: string;
   source: string;
   conversationType: ConversationCreateType;
+  totalEstimatedCost?: number;
 }): void {
   const now = Date.now();
   getDb()
@@ -90,6 +91,9 @@ function seedConversationAndMessage(args: {
       source: args.source,
       conversationType: args.conversationType,
       memoryScopeId: "default",
+      ...(args.totalEstimatedCost != null
+        ? { totalEstimatedCost: args.totalEstimatedCost }
+        : {}),
     })
     .run();
   getDb()
@@ -233,6 +237,51 @@ describe("GET /v1/messages/:id/llm-context — conversationKind", () => {
     };
 
     expect(body.conversationKind).toBe("user");
+  });
+});
+
+describe("GET /v1/messages/:id/llm-context — conversationTotalEstimatedCostUsd", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns the conversation's running cost total when present", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-with-cost",
+      messageId: "msg-with-cost",
+      source: "user",
+      conversationType: "standard",
+      totalEstimatedCost: 1.234,
+    });
+
+    const body = (await dispatchLlmContext("msg-with-cost")) as {
+      conversationTotalEstimatedCostUsd: number | null;
+    };
+
+    expect(body.conversationTotalEstimatedCostUsd).toBeCloseTo(1.234, 5);
+  });
+
+  test("returns 0 when the conversation hasn't accrued any cost yet", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-no-cost",
+      messageId: "msg-no-cost",
+      source: "user",
+      conversationType: "standard",
+    });
+
+    const body = (await dispatchLlmContext("msg-no-cost")) as {
+      conversationTotalEstimatedCostUsd: number | null;
+    };
+
+    expect(body.conversationTotalEstimatedCostUsd).toBe(0);
+  });
+
+  test("returns null when the message can't be resolved to a conversation", async () => {
+    const body = (await dispatchLlmContext("msg-missing-cost")) as {
+      conversationTotalEstimatedCostUsd: number | null;
+    };
+
+    expect(body.conversationTotalEstimatedCostUsd).toBeNull();
   });
 });
 

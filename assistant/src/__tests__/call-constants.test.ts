@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { isDeniedNumber } from "../calls/call-constants.js";
+import {
+  getEndCallListenWindowMs,
+  isDeniedNumber,
+} from "../calls/call-constants.js";
 
 describe("isDeniedNumber", () => {
   // Numbers that MUST be blocked
@@ -38,4 +41,10 @@ describe("isDeniedNumber", () => {
       expect(isDeniedNumber(num)).toBe(false);
     });
   }
+});
+
+describe("getEndCallListenWindowMs", () => {
+  test("leaves a brief response window before task-complete hangup", () => {
+    expect(getEndCallListenWindowMs()).toBe(15_000);
+  });
 });

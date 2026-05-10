@@ -1,8 +1,6 @@
 /**
  * Tests for `readMemoryV2StaticContent` — the loader that powers the
- * `memory-v2-static` user-message auto-injection. Mirrors the coverage that
- * lived in the deprecated `system-prompt-memory-v2.test.ts`:
- *   - Returns null when the v2 flag is off.
+ * `memory-v2-static` user-message auto-injection.
  *   - Returns null when `config.memory.v2.enabled` is off.
  *   - Reads the four files in canonical order and joins them under headings.
  *   - Skips empty / missing files.
@@ -47,9 +45,7 @@ mock.module("../../../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-const { _setOverridesForTesting } =
-  await import("../../../config/assistant-feature-flags.js");
-const { readMemoryV2StaticContent, shouldLoadMemoryV2Static } =
+const { readMemoryV2StaticContent, shouldExposePersonalMemory } =
   await import("../static-context.js");
 
 const MEMORY_FILES = [
@@ -75,18 +71,10 @@ describe("readMemoryV2StaticContent", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
     configMemoryV2Enabled = true;
-    _setOverridesForTesting({ "memory-v2-enabled": true });
   });
 
   afterEach(() => {
     cleanupMemoryDir();
-    _setOverridesForTesting({});
-  });
-
-  test("returns null when the feature flag is off", () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
-    for (const file of MEMORY_FILES) writeMemoryFile(file, `Content ${file}`);
-    expect(readMemoryV2StaticContent()).toBeNull();
   });
 
   test("returns null when config.memory.v2.enabled is off", () => {
@@ -152,21 +140,10 @@ describe("readMemoryV2StaticContent", () => {
   });
 });
 
-describe("shouldLoadMemoryV2Static", () => {
-  test("blocks all turns until the cadence gate fires", () => {
-    expect(
-      shouldLoadMemoryV2Static({
-        shouldInjectNowAndPkb: false,
-        sourceChannel: "vellum",
-        isTrustedActor: true,
-      }),
-    ).toBe(false);
-  });
-
+describe("shouldExposePersonalMemory", () => {
   test("allows guardian-trusted local conversations", () => {
     expect(
-      shouldLoadMemoryV2Static({
-        shouldInjectNowAndPkb: true,
+      shouldExposePersonalMemory({
         sourceChannel: "vellum",
         isTrustedActor: true,
       }),
@@ -175,8 +152,7 @@ describe("shouldLoadMemoryV2Static", () => {
 
   test("allows local-channel conversations even when trust class is unknown (analyze runs, dev)", () => {
     expect(
-      shouldLoadMemoryV2Static({
-        shouldInjectNowAndPkb: true,
+      shouldExposePersonalMemory({
         sourceChannel: "vellum",
         isTrustedActor: false,
       }),
@@ -185,8 +161,7 @@ describe("shouldLoadMemoryV2Static", () => {
 
   test("allows turns with no trust context (work-item task runs, internal background)", () => {
     expect(
-      shouldLoadMemoryV2Static({
-        shouldInjectNowAndPkb: true,
+      shouldExposePersonalMemory({
         sourceChannel: undefined,
         isTrustedActor: false,
       }),
@@ -204,8 +179,7 @@ describe("shouldLoadMemoryV2Static", () => {
   test("allows guardian-trusted remote channels (user's own phone/Slack)", () => {
     for (const channel of REMOTE_CHANNELS) {
       expect(
-        shouldLoadMemoryV2Static({
-          shouldInjectNowAndPkb: true,
+        shouldExposePersonalMemory({
           sourceChannel: channel,
           isTrustedActor: true,
         }),
@@ -216,8 +190,7 @@ describe("shouldLoadMemoryV2Static", () => {
   test("blocks non-guardian remote-channel actors (the leak this gate exists to prevent)", () => {
     for (const channel of REMOTE_CHANNELS) {
       expect(
-        shouldLoadMemoryV2Static({
-          shouldInjectNowAndPkb: true,
+        shouldExposePersonalMemory({
           sourceChannel: channel,
           isTrustedActor: false,
         }),

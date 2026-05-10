@@ -76,9 +76,9 @@ public enum AppURLs {
     // MARK: - Web app URLs
 
     /// Web app billing settings page — opened from the Settings → Billing tab's
-    /// "Adjust Plan" and "Configure Auto Top Ups" buttons (both gated by the
-    /// `pro-plan-adjust` feature flag). Resolves to the Next.js web app at
-    /// `<webURL>/assistant/settings/billing` for the current build environment.
+    /// "Adjust Plan" and "Configure Auto Top Ups" buttons. Resolves to the
+    /// Next.js web app at `<webURL>/assistant/settings/billing` for the current
+    /// build environment.
     ///
     /// If `VELLUM_WEB_URL` is set but malformed (no scheme/host, non-http(s),
     /// or contains a query/fragment), falls back to the canonical environment

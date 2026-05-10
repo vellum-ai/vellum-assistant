@@ -46,6 +46,13 @@ const MANAGED_USAGE_LIMIT_PATTERNS = [
   /current plan allows/i,
 ];
 
+const PROVIDER_BILLING_PATTERNS = [
+  /credit balance is too low/i,
+  /insufficient.*credits?/i,
+  /requires more credits/i,
+  /can only afford/i,
+];
+
 // Overloaded patterns — provider is capacity-constrained (distinct from rate limiting)
 const OVERLOADED_PATTERNS = [/overloaded/i];
 
@@ -113,6 +120,13 @@ const STREAMING_ERROR_PATTERNS = [
 ];
 
 // User-initiated cancellation patterns — these should NOT produce conversation_error
+// Image-input validation patterns — Anthropic 400s with this message when an image
+// block exceeds the per-side pixel cap. Distinct classification matters because
+// retrying with the same oversized image is futile; the user needs to resize.
+const IMAGE_DIMENSIONS_TOO_LARGE_PATTERNS = [
+  /image dimensions? exceeds? max allowed size/i,
+];
+
 const CANCEL_PATTERNS = [/abort/i, /cancel/i];
 
 /**
@@ -269,13 +283,10 @@ function classifyCore(
       };
     }
     if (error.statusCode === 402) {
-      return {
-        code: "PROVIDER_BILLING",
-        userMessage:
-          "You've run out of credits. Add funds to continue using the assistant.",
-        retryable: false,
-        errorCategory: "credits_exhausted",
-      };
+      if (isManagedBalanceError(error)) {
+        return managedBalanceClassification();
+      }
+      return providerBillingClassification();
     }
     if (error.statusCode === 429) {
       if (isManagedUsageLimitError(error, message)) {
@@ -350,13 +361,8 @@ function classifyCore(
           errorCategory: "tool_ordering",
         };
       }
-      if (/credit balance is too low|insufficient.*credits?/i.test(message)) {
-        return {
-          code: "PROVIDER_BILLING",
-          userMessage: "Your API key has insufficient credits.",
-          retryable: false,
-          errorCategory: "provider_billing",
-        };
+      if (isProviderBillingError(message)) {
+        return providerBillingClassification();
       }
       if (
         /invalid.*api.?key|invalid.*x-api-key|authentication.?error|invalid.authentication/i.test(
@@ -369,6 +375,15 @@ function classifyCore(
             "Your API key is invalid. Update it in Settings or switch to managed mode.",
           retryable: false,
           errorCategory: "provider_not_configured",
+        };
+      }
+      if (isImageDimensionsTooLarge(message)) {
+        return {
+          code: "IMAGE_TOO_LARGE",
+          userMessage:
+            "An attached image is too large for the AI provider — image dimensions must be under 8000 pixels per side. Resize the image and try again.",
+          retryable: false,
+          errorCategory: "image_dimensions_too_large",
         };
       }
       return {
@@ -387,6 +402,11 @@ function classifyCore(
 /** Check whether an error message indicates a context-too-large failure. */
 export function isContextTooLarge(message: string): boolean {
   return CONTEXT_TOO_LARGE_PATTERNS.some((p) => p.test(message));
+}
+
+/** Check whether an error message indicates an image-input dimension failure. */
+function isImageDimensionsTooLarge(message: string): boolean {
+  return IMAGE_DIMENSIONS_TOO_LARGE_PATTERNS.some((p) => p.test(message));
 }
 
 /** Check whether an error message indicates a web-search-specific ordering failure. */
@@ -421,6 +441,40 @@ function isManagedUsageLimitError(error: unknown, message: string): boolean {
     return true;
   }
   return MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(message));
+}
+
+function isManagedBalanceError(error: ProviderError): boolean {
+  return getProviderRoutingSource(error.provider) === "managed-proxy";
+}
+
+function isProviderBillingError(message: string): boolean {
+  return PROVIDER_BILLING_PATTERNS.some((p) => p.test(message));
+}
+
+function managedBalanceClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_BILLING",
+    userMessage:
+      "You've run out of credits. Add funds to continue using the assistant.",
+    retryable: false,
+    errorCategory: "credits_exhausted",
+  };
+}
+
+function providerBillingClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_BILLING",
+    userMessage:
+      "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings.",
+    retryable: false,
+    errorCategory: "provider_billing",
+  };
 }
 
 function classifyByMessage(

@@ -5,6 +5,7 @@ export const CHANNEL_IDS = [
   "whatsapp",
   "slack",
   "email",
+  "platform",
 ] as const;
 
 export type ChannelId = (typeof CHANNEL_IDS)[number];

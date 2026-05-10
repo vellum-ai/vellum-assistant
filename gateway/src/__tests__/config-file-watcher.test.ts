@@ -144,7 +144,7 @@ describe("Twilio webhook sync config-change triggers", () => {
     expect(shouldSyncTwilioPhoneWebhooksAfterConfigChange(event)).toBe(true);
   });
 
-  test("syncs when the Twilio-specific public ingress changes", () => {
+  test("syncs when Velay-managed public ingress changes", () => {
     const event = makeEvent(["ingress"], {
       ingress: ["publicBaseUrl", "publicBaseUrlManagedBy"],
     });

@@ -20,6 +20,9 @@ const { reconcileTelegramWebhook } =
 
 afterEach(() => {
   fetchMock = mock(async () => new Response());
+  delete process.env.IS_CONTAINERIZED;
+  delete process.env.VELLUM_PLATFORM_URL;
+  delete process.env.ASSISTANT_API_KEY;
 });
 
 function makeTelegramResponse(result: unknown) {
@@ -290,10 +293,9 @@ describe("reconcileTelegramWebhook", () => {
       "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
     );
     expect((calls[2].body as any).secret_token).toBe("test-webhook-secret");
-    delete process.env.IS_CONTAINERIZED;
   });
 
-  test("registers via credential cache for assistant ID", async () => {
+  test("registers via env assistant key and credential cache for assistant ID", async () => {
     const calls: {
       method: string;
       body: unknown;
@@ -301,7 +303,7 @@ describe("reconcileTelegramWebhook", () => {
     }[] = [];
     process.env.IS_CONTAINERIZED = "true";
     process.env.VELLUM_PLATFORM_URL = "https://env-platform.example.com";
-    process.env.PLATFORM_INTERNAL_API_KEY = "internal-key-from-env";
+    process.env.ASSISTANT_API_KEY = "env-key";
 
     const caches = makeCaches({
       ingressUrl: undefined,
@@ -359,21 +361,14 @@ describe("reconcileTelegramWebhook", () => {
       callback_path: "webhooks/telegram",
       type: "telegram",
     });
-    // PLATFORM_INTERNAL_API_KEY should use Bearer auth scheme
-    expect(calls[0].headers?.Authorization).toBe(
-      "Bearer internal-key-from-env",
-    );
+    expect(calls[0].headers?.Authorization).toBe("Api-Key env-key");
     expect(calls[2].method).toBe("setWebhook");
     expect((calls[2].body as any).url).toBe(
       "https://env-platform.example.com/v1/gateway/callbacks/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/webhooks/telegram/",
     );
-
-    delete process.env.IS_CONTAINERIZED;
-    delete process.env.VELLUM_PLATFORM_URL;
-    delete process.env.PLATFORM_INTERNAL_API_KEY;
   });
 
-  test("credential cache for assistant ID and base URL, env for auth key", async () => {
+  test("credential cache for assistant ID, base URL, and auth key", async () => {
     const calls: {
       method: string;
       body: unknown;
@@ -381,7 +376,6 @@ describe("reconcileTelegramWebhook", () => {
     }[] = [];
     process.env.IS_CONTAINERIZED = "true";
     process.env.VELLUM_PLATFORM_URL = "https://env-platform.example.com";
-    process.env.PLATFORM_INTERNAL_API_KEY = "env-internal-key";
 
     const caches = makeCaches({
       ingressUrl: undefined,
@@ -435,28 +429,20 @@ describe("reconcileTelegramWebhook", () => {
     expect(calls).toHaveLength(3);
     expect(calls[0].method).toBe("registerCallbackRoute");
     // platform_base_url: credential cache takes precedence over env var
-    // PLATFORM_INTERNAL_API_KEY: env var takes
-    // precedence, matching the daemon's resolvePlatformCallbackRegistrationContext().
     expect(calls[0].body).toEqual({
       assistant_id: "cache-assistant-id",
       callback_path: "webhooks/telegram",
       type: "telegram",
     });
-    expect(calls[0].headers?.Authorization).toBe("Bearer env-internal-key");
+    expect(calls[0].headers?.Authorization).toBe("Api-Key cache-api-key");
     // Registration URL should use cache platform URL
     expect((calls[2].body as any).url).toBe(
       "https://cache-platform.example.com/v1/gateway/callbacks/cache-assistant-id/webhooks/telegram/",
     );
-
-    delete process.env.IS_CONTAINERIZED;
-    delete process.env.VELLUM_PLATFORM_URL;
-    delete process.env.PLATFORM_INTERNAL_API_KEY;
   });
 
   test("skips registration when no platform URL is available from cache or env", async () => {
     process.env.IS_CONTAINERIZED = "true";
-    process.env.PLATFORM_INTERNAL_API_KEY = "internal-key-from-env";
-    delete process.env.VELLUM_PLATFORM_URL;
 
     const caches = makeCaches({
       ingressUrl: undefined,
@@ -471,9 +457,6 @@ describe("reconcileTelegramWebhook", () => {
 
     // No fetch calls should be made — registration is skipped
     expect(fetchMock).not.toHaveBeenCalled();
-
-    delete process.env.IS_CONTAINERIZED;
-    delete process.env.PLATFORM_INTERNAL_API_KEY;
   });
 
   test("calls setWebhook when current URL is empty", async () => {

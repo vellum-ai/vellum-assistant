@@ -135,6 +135,7 @@ describe("secret-allowlist", () => {
 
   // -----------------------------------------------------------------------
   // Integration with scanText
+  // AKIAIOSFODNN7* keys below are fake — based on the AWS docs example prefix, not real credentials.
   // -----------------------------------------------------------------------
   test("[experimental] allowlisted values are suppressed by scanText", () => {
     const awsKey = "AKIAIOSFODNN7REALKEY";

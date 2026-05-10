@@ -568,7 +568,16 @@ export class SkillHostClient implements SkillHost {
         params: { filter: fresh.filter },
       });
     } catch (err) {
-      this.cancelSubscribeAck(fresh);
+      // Drop only the pending ack and leave `fresh` registered. If the
+      // socket dropped between `doConnect()` and this write, the close
+      // handler will trigger another reconnect — and that cycle iterates
+      // `subscriptions`, so we must NOT remove or dispose `fresh` here
+      // or the stream is silently lost (autoReconnect contract).
+      const entry = this.pending.get(fresh.id);
+      if (entry) {
+        clearTimeout(entry.timer);
+        this.pending.delete(fresh.id);
+      }
       swallow(err);
     }
   }

@@ -94,6 +94,9 @@ final class ConversationRestorer {
         fetchConversationListTask?.cancel()
         invalidationRefetchTask?.cancel()
         reconnectHistoryDrainTask?.cancel()
+        for entry in inFlightHistoryReconstructionTasks {
+            entry.task.cancel()
+        }
         if let daemonReconnectObserver {
             NotificationCenter.default.removeObserver(daemonReconnectObserver)
         }
@@ -108,7 +111,11 @@ final class ConversationRestorer {
             for await message in self.eventStreamClient.subscribe() {
                 switch message {
                 case .conversationListResponse(let response):
-                    self.handleConversationListResponse(response)
+                    // SSE-pushed responses don't have the foreground/background
+                    // separation that fetchConversationList enforces, so they
+                    // must not touch serverOffset (which paginates the
+                    // foreground endpoint only).
+                    self.handleConversationListResponse(response, updateServerOffset: false)
                 case .historyResponse(let response):
                     self.handleHistoryResponse(response)
                 case .conversationTitleUpdated(let response):
@@ -399,6 +406,7 @@ final class ConversationRestorer {
                 existing.conversationType = session.conversationType
                 existing.originChannel = session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
                 existing.inferenceProfile = session.inferenceProfile
+                existing.scheduleJobId = session.scheduleJobId
                 delegate.conversations[existingIdx] = existing
                 // Attention merge must go through mergeAssistantAttention so that
                 // pendingAttentionOverrides are reconciled (e.g. a notification

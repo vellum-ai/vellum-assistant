@@ -104,13 +104,6 @@ struct SidebarView: View {
         }
     }
 
-    /// Unread count in the Scheduled section, used to trigger auto-expand.
-    /// Filters `conversations` directly instead of calling `visibleConversations` to avoid
-    /// an unnecessary O(N log N) sort — only the count is needed.
-    private var scheduledUnreadCount: Int {
-        listStore.conversations
-            .count { !$0.isArchived && $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
-    }
 
     // MARK: - Row / Section Factories
 
@@ -219,10 +212,10 @@ struct SidebarView: View {
             selectConversation: { selectConversation(conversation) },
             onSelect: onSelect,
             onTogglePin: {
-                // Look up current pin state from the live conversations array,
+                // Look up current pin state from the live conversation lookup,
                 // not the captured struct value (which may be stale).
-                let currentlyPinned = conversationManager.conversations
-                    .first(where: { $0.id == conversation.id })?.isPinned ?? false
+                let currentlyPinned = conversationManager.listStore
+                    .conversationsByLocalId[conversation.id]?.isPinned ?? false
                 if currentlyPinned {
                     conversationManager.unpinConversation(id: conversation.id)
                 } else {
@@ -273,7 +266,7 @@ struct SidebarView: View {
     @ViewBuilder
     private var conversationGroupsList: some View {
         LazyVStack(spacing: 0) {
-            if showAssistantLoading && !assistantLoadingTimedOut && listStore.visibleConversations.isEmpty {
+            if showAssistantLoading && !assistantLoadingTimedOut && !listStore.hasAnyVisibleConversations {
                 DaemonLoadingConversationsSkeleton()
             }
 
@@ -479,7 +472,7 @@ struct SidebarView: View {
                     .allowsHitTesting(false)
                 }
             }
-            .onChange(of: scheduledUnreadCount) { _, newCount in
+            .onChange(of: listStore.unseenScheduledCount) { _, newCount in
                 // Auto-expand the Scheduled section when new unread arrives
                 // while collapsed. Other sections (Background, Custom, Pinned)
                 // do NOT auto-expand.

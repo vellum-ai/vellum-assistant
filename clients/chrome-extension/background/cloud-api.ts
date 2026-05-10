@@ -3,9 +3,8 @@
  *
  * All authenticated requests to the platform (Django) go through
  * `cloudApiFetch()`, which automatically includes:
- *   - `credentials: 'include'` (session cookie)
  *   - `Vellum-Organization-Id` header (from the stored CloudSession)
- *   - `X-CSRFToken` header on mutating methods (from the Django csrftoken cookie)
+ *   - `X-Session-Token` header (allauth headless session token)
  *   - `Accept: application/json`
  *
  * This mirrors the web client's request interceptor pattern and
@@ -15,29 +14,6 @@
 import { getStoredSession } from "./cloud-auth.js";
 import type { ExtensionEnvironment } from "./extension-environment.js";
 import { cloudUrlsForEnvironment } from "./extension-environment.js";
-
-// ── CSRF helpers ────────────────────────────────────────────────────
-
-const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-
-/**
- * Read the Django `csrftoken` cookie for the given API base URL.
- *
- * Requires the `cookies` permission in the manifest. Returns `null`
- * when the cookie is missing (e.g. before the first authenticated GET
- * that sets it).
- */
-export async function getCsrfToken(apiBaseUrl: string): Promise<string | null> {
-  try {
-    const cookie = await chrome.cookies.get({
-      name: "csrftoken",
-      url: apiBaseUrl,
-    });
-    return cookie?.value ?? null;
-  } catch {
-    return null;
-  }
-}
 
 // ── Fetch helper ────────────────────────────────────────────────────
 
@@ -67,22 +43,10 @@ export async function cloudApiFetch(
     headers["Vellum-Organization-Id"] = storedSession.organizationId;
   }
 
-  // Session cookies are SameSite=Lax and won't be sent cross-site from the
-  // extension service worker.  Use the allauth session token header instead,
-  // which DRF's XSessionTokenAuthentication class accepts.
+  // XSessionTokenAuthentication (BaseAuthentication) doesn't enforce CSRF,
+  // so no X-CSRFToken header is needed — and no `cookies` permission required.
   if (storedSession?.sessionToken) {
     headers["X-Session-Token"] = storedSession.sessionToken;
-  }
-
-  // Include the CSRF token on mutating requests. Django's
-  // CsrfViewMiddleware checks the X-CSRFToken header against the
-  // csrftoken cookie for session-authenticated POST/PUT/PATCH/DELETE.
-  const method = (init?.method ?? "GET").toUpperCase();
-  if (MUTATING_METHODS.has(method)) {
-    const csrfToken = await getCsrfToken(apiBaseUrl);
-    if (csrfToken) {
-      headers["X-CSRFToken"] = csrfToken;
-    }
   }
 
   // Merge caller-supplied headers (they win over defaults).

@@ -119,8 +119,10 @@ import {
   createToolExecutor,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
-import type { HostAppControlProxy } from "./host-app-control-proxy.js";
+import { canonicalizeTimeZone } from "./date-context.js";
+import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
+import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -233,6 +235,14 @@ export class Conversation {
   };
   /** @internal */ surfaceActionRequestIds = new Set<string>();
   /** @internal */ approvedViaPromptThisTurn = false;
+  /**
+   * When true, side-effect tools must prompt even if a trust/allow rule
+   * would auto-allow. Set by non-interactive callers (e.g. non-guardian
+   * phone voice) so their auto-deny handler reliably sees a
+   * `confirmation_request` event. See ToolSetupContext.forcePromptSideEffects.
+   * @internal
+   */
+  forcePromptSideEffects = false;
   /** @internal */ pendingSurfaceActions = new Map<
     string,
     { surfaceType: SurfaceType }
@@ -310,6 +320,7 @@ export class Conversation {
    * @internal
    */
   hostUsername?: string;
+  /** @internal */ clientTimezone?: string;
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
@@ -948,6 +959,23 @@ export class Conversation {
     this.hostAppControlProxy = proxy;
   }
 
+  ensureHostProxiesForTurn(
+    sourceInterface: import("../channels/types.js").InterfaceId | undefined,
+  ): void {
+    if (
+      shouldAttachHostProxyForCapability("host_cu", sourceInterface) &&
+      !this.hostCuProxy
+    ) {
+      this.setHostCuProxy(new HostCuProxy());
+    }
+    if (
+      shouldAttachHostProxyForCapability("host_app_control", sourceInterface) &&
+      !this.hostAppControlProxy
+    ) {
+      this.setHostAppControlProxy(new HostAppControlProxy(this.conversationId));
+    }
+  }
+
   // ── Server-authoritative state signals ─────────────────────────────
 
   emitConfirmationStateChanged(
@@ -996,7 +1024,9 @@ export class Conversation {
     }
   }
 
-  async forceCompact(): Promise<ContextWindowResult> {
+  async forceCompact(options?: {
+    targetInputTokensOverride?: number;
+  }): Promise<ContextWindowResult> {
     const conversationRow = getConversation(this.conversationId);
     const overrideProfile =
       getConversationOverrideProfileFromRow(conversationRow) ?? null;
@@ -1042,6 +1072,7 @@ export class Conversation {
         conversationOriginChannel:
           getConversationOriginChannel(this.conversationId) ?? undefined,
         overrideProfile,
+        targetInputTokensOverride: options?.targetInputTokensOverride,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
@@ -1057,7 +1088,7 @@ export class Conversation {
       );
     }
     if (result.compacted) {
-      applyCompactionResult(this, result, this.sendToClient, null, {
+      await applyCompactionResult(this, result, this.sendToClient, null, {
         slackContextCompactionWatermarkTs: getSlackCompactionWatermarkForPrefix(
           slackChronologicalContext,
           result.compactedMessages,
@@ -1135,6 +1166,13 @@ export class Conversation {
     ) {
       this.workspaceTopLevelDirty = true;
     }
+  }
+
+  applyClientTimezoneFromTransport(
+    transport: ConversationTransportMetadata,
+  ): void {
+    this.clientTimezone =
+      canonicalizeTimeZone(transport.clientTimezone) ?? undefined;
   }
 
   setAssistantId(assistantId: string | null): void {

@@ -18,6 +18,10 @@ COPY packages/service-contracts ./packages/service-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
 
+# Install deps for service-contracts so its own source can resolve zod
+# at runtime (loaded via grants.ts and siblings).
+RUN cd /app/packages/service-contracts && bun install --frozen-lockfile
+
 # Install credential-executor dependencies with local package resolution
 COPY credential-executor/package.json credential-executor/bun.lock* ./credential-executor/
 RUN cd /app/credential-executor && bun install --frozen-lockfile

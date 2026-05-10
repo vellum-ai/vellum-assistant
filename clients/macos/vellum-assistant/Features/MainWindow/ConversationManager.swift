@@ -6,6 +6,15 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationManager")
 
+/// Paired snapshot of the `ChatViewModel` signals that
+/// `prepareActiveConversationForVoiceMode` waits on. Wrapping them in a single
+/// `Equatable & Sendable` value lets one `observationStream` yield on either
+/// transition without spinning up a second observation task.
+private struct VoiceBootstrapSnapshot: Equatable, Sendable {
+    let hasConversationId: Bool
+    let isBootstrapping: Bool
+}
+
 // MARK: - Conversation Client Protocol
 
 /// Abstraction for direct conversation mutations, decoupled from GatewayConnectionManager.
@@ -160,6 +169,11 @@ final class ConversationManager: ConversationRestorerDelegate {
         set { selectionStore.pendingAnchorMessageId = newValue }
     }
 
+    var pendingAnchorDaemonMessageId: String? {
+        get { selectionStore.pendingAnchorDaemonMessageId }
+        set { selectionStore.pendingAnchorDaemonMessageId = newValue }
+    }
+
     var highlightedMessageId: UUID? {
         get { selectionStore.highlightedMessageId }
         set { selectionStore.highlightedMessageId = newValue }
@@ -169,9 +183,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     var sortedGroups: [ConversationGroup] { listStore.sortedGroups }
 
-    var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] {
-        listStore.groupedConversations
-    }
+    var groupedConversations: [GroupedConversations] { listStore.groupedConversations }
 
     var sidebarGroupEntries: [SidebarGroupEntry] { listStore.sidebarGroupEntries }
 
@@ -326,11 +338,12 @@ final class ConversationManager: ConversationRestorerDelegate {
             self?.markActiveConversationSeenIfNeeded()
         }
 
-        // List store → selection store: refresh cached active conversation after
-        // any conversations mutation so views stay current without tracking the
-        // full conversations array.
+        // List store → selection store: refresh cached active conversation and
+        // visible-selection-validation set after any conversations mutation so
+        // views stay current without tracking the full conversations array.
         listStore.onDerivedPropertiesRecomputed = { [weak self] in
             self?.selectionStore.syncActiveConversationCache()
+            self?.selectionStore.syncVisibleNonArchivedConversationIds()
         }
 
         // List store → selection store: schedule eviction after appending conversations
@@ -414,7 +427,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             return self.isLatestToolUseRecipient(viewModel)
         }
         viewModel.shouldCreateInlineErrorMessage = { error in
-            !error.isCreditsExhausted && !error.isProviderNotConfigured && !error.isManagedKeyInvalid
+            error.shouldCreateInlineErrorMessage
         }
         viewModel.onManagedKeyInvalid = { [weak self] in
             guard let self else { return }
@@ -491,9 +504,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         guard !NSApp.isActive else { return }
         guard let conversation = listStore.conversations.first(where: { $0.id == conversationId }) else { return }
         if conversation.shouldSuppressUnreadIndicator { return }
+        guard let daemonConversationId = conversation.conversationId else { return }
         guard let vm = selectionStore.chatViewModels[conversationId] else { return }
-        // Voice path posts its own VOICE_RESPONSE_COMPLETE notification; skip to avoid duplicates.
-        if vm.isVoiceModeActive { return }
 
         let lastAssistantText = vm.messages.last(where: { $0.role == .assistant })?.text ?? ""
         let bodyText = lastAssistantText.isEmpty ? "Response complete" : String(lastAssistantText.prefix(200))
@@ -504,9 +516,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         content.body = bodyText
         content.sound = .default
         content.categoryIdentifier = "ACTIVITY_COMPLETE"
-        content.threadIdentifier = conversationId.uuidString
-        content.userInfo = ["conversationId": conversationId.uuidString]
-        content.attachAppIcon()
+        content.threadIdentifier = daemonConversationId
+        content.userInfo = ["conversationId": daemonConversationId]
 
         let request = UNNotificationRequest(
             identifier: "turn-complete-\(conversationId.uuidString)-\(UUID().uuidString)",
@@ -575,7 +586,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     }
 
     @discardableResult
-    func prepareActiveConversationForVoiceMode(timeoutSeconds: TimeInterval = 3.0) async -> ChatViewModel? {
+    func prepareActiveConversationForVoiceMode(timeoutSeconds: TimeInterval = 10.0) async -> ChatViewModel? {
         if activeViewModel == nil {
             enterDraftMode()
         }
@@ -592,15 +603,30 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         viewModel.createConversationIfNeeded()
 
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while Date() < deadline {
-            if viewModel.conversationId != nil {
-                return viewModel
+        // Wait for bootstrap to settle: either `conversationId` becomes
+        // non-nil (success) or `isBootstrapping` flips to false (failure).
+        // The timeout is a safety net for a stuck state machine; it must
+        // exceed the gateway health-check window so cold-start bootstraps
+        // are not falsely reported as failed.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor [weak viewModel] in
+                guard let viewModel else { return }
+                for await snapshot in observationStream({
+                    VoiceBootstrapSnapshot(
+                        hasConversationId: viewModel.conversationId != nil,
+                        isBootstrapping: viewModel.isBootstrapping
+                    )
+                }) {
+                    if snapshot.hasConversationId || !snapshot.isBootstrapping {
+                        return
+                    }
+                }
             }
-            if !viewModel.isBootstrapping {
-                break
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
             }
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            await group.next()
+            group.cancelAll()
         }
 
         return viewModel.conversationId == nil ? nil : viewModel
@@ -1300,6 +1326,19 @@ final class ConversationManager: ConversationRestorerDelegate {
     func setPendingAnchorMessage(conversationId: UUID, messageId: UUID) {
         guard selectionStore.activeConversationId == conversationId else { return }
         selectionStore.pendingAnchorMessageId = messageId
+        selectionStore.pendingAnchorConversationId = conversationId
+    }
+
+    /// Set the pending anchor by daemon (server-side) message ID. Used by
+    /// callers that only know the daemon ID — the MessageListView resolver
+    /// maps it to the client `UUID` once the message has loaded. Recording
+    /// `pendingAnchorConversationId` here is essential: without it, the
+    /// `ConversationSelectionStore.activeConversationId` didSet won't clear
+    /// a stale daemon-id when the user switches conversations before the
+    /// resolver fires.
+    func setPendingAnchorDaemonMessage(conversationId: UUID, daemonMessageId: String) {
+        guard selectionStore.activeConversationId == conversationId else { return }
+        selectionStore.pendingAnchorDaemonMessageId = daemonMessageId
         selectionStore.pendingAnchorConversationId = conversationId
     }
 

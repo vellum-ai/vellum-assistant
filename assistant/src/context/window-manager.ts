@@ -33,6 +33,19 @@ const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 /**
+ * Hard cap on the verbatim tail-anchor block we splice into the
+ * post-compaction summary message (see `extractTailAssistantText`). 1500
+ * chars (~375 tokens) covers a few paragraphs of recent assistant
+ * narration without bloating the summary. When the tail exceeds this
+ * size we keep the END (most recent text), since "next step" / "now I'll
+ * …" statements typically live at the end of the assistant's last text
+ * block and that's the part the post-compaction model needs most.
+ */
+const TAIL_ANCHOR_MAX_CHARS = 1500;
+const TAIL_ANCHOR_OPEN_TAG = "<verbatim_tail>";
+const TAIL_ANCHOR_CLOSE_TAG = "</verbatim_tail>";
+
+/**
  * When the existing summary is this fraction or more of the per-summary
  * token budget, inject a "compress older content aggressively" instruction
  * so incremental-update passes don't let the summary grow unboundedly.
@@ -688,7 +701,6 @@ export class ContextWindowManager {
       signal,
       options?.overrideProfile ?? null,
     );
-    const summary = summaryUpdate.summary;
     const summaryInputTokens = summaryUpdate.inputTokens;
     const summaryOutputTokens = summaryUpdate.outputTokens;
     const summaryModel = summaryUpdate.model;
@@ -703,6 +715,19 @@ export class ContextWindowManager {
       summaryRawResponses.push(summaryUpdate.rawResponse);
     }
     const summaryCalls = 1;
+
+    // Force-keep the most recent assistant text from the compactable region
+    // by splicing it verbatim into the summary message. This is independent
+    // of what the LLM summarizer chose to surface — when compaction
+    // interrupts a long assistant work span, this anchor preserves the
+    // model's last self-narration ("Next step: …", "About to …") so the
+    // post-compaction model has unambiguous continuity instead of falling
+    // back to a "where am I?" recovery shape.
+    const tailAnchorText = extractTailAssistantText(compactableMessages);
+    const summary =
+      tailAnchorText != null
+        ? appendTailAnchorToSummary(summaryUpdate.summary, tailAnchorText)
+        : summaryUpdate.summary;
 
     // Media (images, files) in kept turns is preserved naturally — those
     // turns are carried forward as-is and their token cost is already
@@ -1284,6 +1309,63 @@ export function createContextSummaryMessage(summary: string): Message {
   };
   INTERNAL_CONTEXT_SUMMARY_MESSAGES.add(message);
   return message;
+}
+
+/**
+ * Walk `messages` backward and return the concatenated text content of the
+ * most recent assistant message that contains at least one non-empty text
+ * block. tool_use / tool_result / image / unknown blocks are skipped. The
+ * result is trimmed and (if longer than `maxChars`) clamped from the START
+ * so the END — where "next step" / "now I'll …" narration tends to land —
+ * is preserved.
+ *
+ * Returns `null` when no eligible assistant text is found (e.g. compactable
+ * region was all user/tool messages, or all assistant messages were
+ * tool_use-only). The caller treats `null` as "no anchor to splice".
+ *
+ * Used by `_maybeCompact` to force-keep the last assistant text from the
+ * compactable region into the post-compaction summary message, so the
+ * model's most recent self-narration survives summarization regardless of
+ * whether the LLM summarizer chose to surface it.
+ */
+export function extractTailAssistantText(
+  messages: Message[],
+  maxChars: number = TAIL_ANCHOR_MAX_CHARS,
+): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message?.role !== "assistant") continue;
+    const text = extractText(message.content).trim();
+    if (text.length === 0) continue;
+    if (text.length <= maxChars) return text;
+    // Keep the END — most recent narration wins.
+    const truncated = safeStringSlice(text, text.length - maxChars, text.length);
+    return `[...truncated] ${truncated}`;
+  }
+  return null;
+}
+
+/**
+ * Splice a verbatim tail-anchor block onto the end of the LLM-produced
+ * summary text. The tag-wrapped block is structurally distinct from any
+ * `## ` section the LLM might generate, so it survives section-boundary
+ * clamping in `clampSummaryAtSectionBoundary` (which only runs on the LLM
+ * summary itself, before this splice).
+ *
+ * Idempotent: if the summary already ends with a `<verbatim_tail>…` block
+ * (e.g. from a prior compaction whose summary was carried forward as
+ * `existingSummary`), it is replaced rather than stacked, so successive
+ * compactions don't accumulate stale tails.
+ */
+export function appendTailAnchorToSummary(
+  summary: string,
+  tailText: string,
+): string {
+  const trimmed = summary.trimEnd();
+  const existingOpen = trimmed.lastIndexOf(TAIL_ANCHOR_OPEN_TAG);
+  const base =
+    existingOpen >= 0 ? trimmed.slice(0, existingOpen).trimEnd() : trimmed;
+  return `${base}\n\n${TAIL_ANCHOR_OPEN_TAG}\n${tailText.trim()}\n${TAIL_ANCHOR_CLOSE_TAG}`;
 }
 
 /**

@@ -248,6 +248,9 @@ export class VellumQdrantClient {
           m: 16,
           ef_construct: 100,
         },
+        optimizers_config: {
+          default_segment_number: 2,
+        },
         quantization_config:
           this.quantization === "scalar"
             ? {

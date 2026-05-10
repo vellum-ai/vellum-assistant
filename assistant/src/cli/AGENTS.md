@@ -22,13 +22,39 @@ Examples: `config`, `contacts`, `memory`, `autonomy`, `conversations` belong her
 - Use `getCliLogger("cli")` for output (not raw `console.log`).
 - When adding/removing/renaming assistant CLI commands or subcommands, update the gateway bash risk registry coverage in `gateway/src/risk/command-registry/commands/assistant.ts` (supported command paths + risk overrides) so permission prompts stay correct.
 
-## Service calls — no gateway proxying
+## Service calls — transport-based dispatch
 
-CLI commands must call the service/store layer directly — the same functions that the HTTP route handlers in `runtime/routes/` call. Do not proxy through the gateway HTTP API.
+CLI commands use one of two transport patterns depending on whether they need a running daemon:
 
-Both the gateway routes and the CLI are thin wrappers around the same shared business logic. For example, `runtime/routes/invite-routes.ts` delegates to `runtime/invite-service.ts`, and `runtime/routes/contact-routes.ts` delegates to `contacts/contact-store.ts`. CLI commands should import and call those same service modules directly.
+- **`ipc`-tagged commands** call `cliIpcCall` from `../../ipc/cli-client.js`. They are thin wrappers that forward requests to the daemon over the IPC socket and never import daemon-internal modules.
+- **`local`-tagged commands** read or write workspace files directly (config, autonomy, completions, etc.) using the same config/store helpers the daemon uses internally. They do not require the daemon to be running.
 
-This avoids a dependency on the gateway process being running and removes an unnecessary network hop.
+Both transport classes avoid proxying through the gateway HTTP API. `ipc` commands reach the daemon directly via the socket; `local` commands bypass the daemon entirely. The transport tag is declared via `registerCommand({ transport, ... })` — see the "Transport tagging" section below.
+
+## Transport tagging
+
+Every command file declares its transport class via `registerCommand({ transport, ... })`
+from `../lib/register-command.ts`. The three transport classes are:
+
+| Class | Rule | When to use |
+|---|---|---|
+| `ipc` | Wraps exactly one IPC method per subcommand. No daemon-internal imports. | Commands that call the daemon |
+| `local` | Touches only static workspace files / shell artifacts. | Commands that work without a running daemon |
+| `bootstrap` | Runs before the daemon is up (e.g. `assistant config init`). | Pre-daemon setup |
+
+The ESLint rule `cli/no-daemon-internals` enforces import allowlists per class.
+See `COMMAND_INVENTORY.md` for the full command inventory.
+
+## Canonical example
+
+`commands/pending.ts` is the reference implementation for a thin `ipc`-tagged command:
+- Single `registerCommand({ transport: "ipc", ... })` call
+- One `cliIpcCall` per subcommand action
+- Table output with `--json` flag alternative
+- Clean error handling via `exitFromIpcResult`
+- No daemon-internal imports
+
+When migrating a legacy command, start by reading `pending.ts`.
 
 ## Help Text Standards
 

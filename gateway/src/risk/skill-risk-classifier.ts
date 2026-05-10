@@ -176,10 +176,18 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
     let assessment: RiskAssessment;
 
     switch (toolName) {
-      case "skill_load":
+      case "skill_load": {
+        // Skills with inline command expansions execute shell commands at load
+        // time via child_process.spawn, bypassing the normal bash-tool
+        // permission pipeline. Elevate to medium so the default auto-approve
+        // threshold (low) requires an explicit prompt instead of silently
+        // running embedded commands.
+        const hasExpansions = resolvedMetadata?.hasInlineExpansions === true;
         assessment = {
-          riskLevel: "low",
-          reason: "Skill load (default)",
+          riskLevel: hasExpansions ? "medium" : "low",
+          reason: hasExpansions
+            ? "Skill load with inline command expansions (executes shell commands at load time)"
+            : "Skill load (default)",
           scopeOptions: [],
           matchType: "registry",
           allowlistOptions: buildSkillLoadAllowlistOptions(
@@ -188,6 +196,7 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
           ),
         };
         break;
+      }
       case "scaffold_managed_skill":
         assessment = {
           riskLevel: "high",

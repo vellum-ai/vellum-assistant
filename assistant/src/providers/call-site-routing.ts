@@ -23,6 +23,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
+import type { ProvidersConfig } from "./registry.js";
+import { getProvider } from "./registry.js";
 import type {
   Message,
   Provider,
@@ -53,6 +56,24 @@ export class CallSiteRoutingProvider implements Provider {
   constructor(
     private readonly defaultProvider: Provider,
     private readonly getProviderByName: (name: string) => Provider | undefined,
+    /**
+     * Optional async hook invoked when the resolved profile names a
+     * `provider_connection`. Returning a Provider routes the call through
+     * that connection's auth; returning null falls through to the
+     * legacy `getProviderByName(resolved.provider)` path.
+     *
+     * `expectedProvider` is the provider name the resolved profile declared.
+     * The hook should verify the connection's provider matches and fall
+     * through (return null) on mismatch.
+     *
+     * Optional so existing callers without connection-awareness still
+     * compile; satellites pass `tryResolveProviderForConnectionName`-bound
+     * closures to opt in.
+     */
+    private readonly resolveByConnection?: (
+      connectionName: string,
+      expectedProvider: string,
+    ) => Promise<Provider | null>,
   ) {
     this.tokenEstimationProvider = defaultProvider.tokenEstimationProvider;
   }
@@ -63,7 +84,7 @@ export class CallSiteRoutingProvider implements Provider {
     systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    const target = this.selectProvider(options);
+    const target = await this.selectProvider(options);
     const isRouted = target !== this.defaultProvider;
 
     const doSend = async (): Promise<ProviderResponse> => {
@@ -91,12 +112,21 @@ export class CallSiteRoutingProvider implements Provider {
   }
 
   /**
-   * Pick the provider to route this call through. The default provider wins
-   * unless the per-call `callSite` (layered with any `overrideProfile`)
-   * resolves to a different provider name and the registry can produce a
-   * Provider for it.
+   * Pick the provider to route this call through.
+   *
+   * Resolution order:
+   *   1. No callSite → default provider (legacy short-circuit).
+   *   2. Resolved profile names a `provider_connection` → async-resolve
+   *      through that connection's auth via `resolveByConnection`. On miss
+   *      we fall through to the next step (don't break inference).
+   *   3. Resolved profile's `provider` matches the default's name → reuse
+   *      the default provider instance (avoids redundant lookup).
+   *   4. Otherwise consult `getProviderByName(resolved.provider)`; fall
+   *      back to default if the registry can't produce one.
    */
-  private selectProvider(options?: SendMessageOptions): Provider {
+  private async selectProvider(
+    options?: SendMessageOptions,
+  ): Promise<Provider> {
     const callSite = options?.config?.callSite;
     if (!callSite) return this.defaultProvider;
 
@@ -104,6 +134,15 @@ export class CallSiteRoutingProvider implements Provider {
     const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
       overrideProfile,
     });
+
+    if (resolved.provider_connection && this.resolveByConnection) {
+      const connectionProvider = await this.resolveByConnection(
+        resolved.provider_connection,
+        resolved.provider,
+      );
+      if (connectionProvider) return connectionProvider;
+    }
+
     if (resolved.provider === this.defaultProvider.name) {
       return this.defaultProvider;
     }
@@ -111,4 +150,36 @@ export class CallSiteRoutingProvider implements Provider {
     const alternative = this.getProviderByName(resolved.provider);
     return alternative ?? this.defaultProvider;
   }
+}
+
+/**
+ * Wrap a base Provider with `CallSiteRoutingProvider` configured to resolve
+ * alternate-profile routing through the global registry and to route
+ * `provider_connection` references through the shared connection-resolution
+ * helper.
+ *
+ * `config` is threaded through to the connection lookup so the resolved
+ * connection's auth can read provider-config metadata (e.g. timeouts, model
+ * names).
+ */
+export function wrapWithCallSiteRouting(
+  base: Provider,
+  config: ProvidersConfig,
+): Provider {
+  return new CallSiteRoutingProvider(
+    base,
+    (name) => {
+      try {
+        return getProvider(name);
+      } catch {
+        return undefined;
+      }
+    },
+    (connectionName, expectedProvider) =>
+      tryResolveProviderForConnectionName(
+        connectionName,
+        config,
+        expectedProvider,
+      ),
+  );
 }

@@ -7,7 +7,7 @@ struct CommandPaletteView: View {
     var onDismiss: () -> Void
     var onSelectRecent: ((UUID) -> Void)?
     var onSelectConversation: ((String) -> Void)?
-    var onSelectMemory: ((String) -> Void)?
+    var onResizeNeeded: (() -> Void)?
 
     @FocusState private var isSearchFocused: Bool
 
@@ -24,7 +24,7 @@ struct CommandPaletteView: View {
                         .foregroundStyle(VColor.contentTertiary)
                 }
 
-                TextField("Search conversations, memories, schedules...", text: $viewModel.query)
+                TextField("Search conversations, schedules...", text: $viewModel.query)
                     .textFieldStyle(.plain)
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentDefault)
@@ -98,21 +98,9 @@ struct CommandPaletteView: View {
                         let serverOffset = actions.count + recents.count
                         serverResultsSections(startIndex: serverOffset)
 
-                        // Deep search indicator
-                        if viewModel.isDeepSearching {
-                            HStack(spacing: VSpacing.sm) {
-                                ProgressView()
-                                    .controlSize(.mini)
-                                Text("Searching deeper...")
-                                    .font(VFont.labelDefault)
-                                    .foregroundStyle(VColor.contentTertiary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, VSpacing.sm)
-                        }
                     }
                     .padding(.vertical, VSpacing.xs)
-                    .animation(.easeInOut(duration: VAnimation.durationFast), value: viewModel.serverResults.memories.count)
+                    .animation(.easeInOut(duration: VAnimation.durationFast), value: viewModel.serverResults.conversations.count)
                 }
                 .frame(maxHeight: 400)
             }
@@ -140,6 +128,12 @@ struct CommandPaletteView: View {
             viewModel.clampSelection()
             viewModel.triggerSearch()
         }
+        .onChange(of: viewModel.allItems.count) {
+            onResizeNeeded?()
+        }
+        .onChange(of: viewModel.isSearching) {
+            onResizeNeeded?()
+        }
     }
 
     // MARK: - Sections
@@ -159,7 +153,6 @@ struct CommandPaletteView: View {
     @ViewBuilder
     private func serverResultsSections(startIndex: Int) -> some View {
         let conversations = viewModel.serverResults.conversations
-        let memories = viewModel.serverResults.memories
         let schedules = viewModel.serverResults.schedules
         let contacts = viewModel.serverResults.contacts
 
@@ -176,19 +169,6 @@ struct CommandPaletteView: View {
                     }
             }
             let _ = (offset += conversations.count)
-        }
-
-        if !memories.isEmpty {
-            let memOffset = offset
-            sectionHeader("Memories")
-            ForEach(Array(memories.enumerated()), id: \.element.id) { index, memory in
-                memoryRow(memory, isSelected: viewModel.selectedIndex == memOffset + index)
-                    .onTapGesture {
-                        onSelectMemory?(memory.id)
-                        onDismiss()
-                    }
-            }
-            let _ = (offset += memories.count)
         }
 
         if !schedules.isEmpty {
@@ -301,37 +281,6 @@ struct CommandPaletteView: View {
         .contentShape(Rectangle())
     }
 
-    private func memoryRow(_ memory: SearchResultMemory, isSelected: Bool) -> some View {
-        HStack(spacing: VSpacing.md) {
-            VIconView(.brain, size: 13)
-                .foregroundStyle(VColor.contentSecondary)
-                .frame(width: 20, alignment: .center)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(memory.text)
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(2)
-
-                Text(memory.kind)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .padding(.horizontal, VSpacing.xs)
-                    .padding(.vertical, 1)
-                    .background(VColor.borderBase.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
-        .background(isSelected ? VColor.borderBase.opacity(0.5) : .clear)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-        .padding(.horizontal, VSpacing.xs)
-        .contentShape(Rectangle())
-    }
-
     private func scheduleRow(_ schedule: SearchResultSchedule, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
             VIconView(.clock, size: 13)
@@ -428,9 +377,6 @@ struct CommandPaletteView: View {
             onDismiss()
         case .conversation(let conv):
             onSelectConversation?(conv.id)
-            onDismiss()
-        case .memory(let memory):
-            onSelectMemory?(memory.id)
             onDismiss()
         case .schedule, .contact:
             // Non-navigable results — no action on Enter

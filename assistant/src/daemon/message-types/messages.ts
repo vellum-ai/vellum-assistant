@@ -147,8 +147,26 @@ export interface ToolResult {
   matchedTrustRuleId?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
-  /** Scope options ladder for the rule editor modal (narrowest to broadest). */
+  /**
+   * Display-only ladder of scope option labels for the rule editor
+   * (narrowest to broadest). The `pattern` here is regex-style and is
+   * NOT a valid trust rule pattern. Clients must use
+   * `riskAllowlistOptions` for the pattern that gets saved.
+   */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  /**
+   * Allowlist options for the rule editor save path (narrowest to
+   * broadest). Each `pattern` is a Minimatch-glob compatible string —
+   * what the gateway actually matches against. Mirrors the
+   * `allowlistOptions` field on `ConfirmationRequest`. May be absent
+   * for tools whose classifier does not produce an allowlist (e.g.
+   * web-risk classifier, MCP tools without classifier coverage).
+   */
+  riskAllowlistOptions?: Array<{
+    label: string;
+    description: string;
+    pattern: string;
+  }>;
   /** Directory scope ladder for the rule editor modal (narrowest to broadest). */
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
   /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
@@ -222,8 +240,14 @@ export interface MessageComplete {
   conversationId?: string;
   attachments?: UserMessageAttachment[];
   attachmentWarnings?: string[];
-  /** Database ID of the persisted assistant message, if any. */
+  /** Database ID of the final persisted assistant row, if any. */
   messageId?: string;
+  /**
+   * Database ID used by clients for the rendered assistant bubble. Tool turns
+   * may persist multiple assistant rows; this matches the history row that
+   * survives query-time merging.
+   */
+  displayMessageId?: string;
   /**
    * Distinguishes a real main-turn completion from auxiliary events such as
    * call transcripts, call summaries, and watch notifier outputs. Clients
@@ -241,6 +265,8 @@ export interface ErrorMessage {
   message: string;
   /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */
   category?: string;
+  /** Machine-readable conversation error category for clients that need source-aware recovery UI. */
+  errorCategory?: string;
 }
 
 export interface MessageQueued {
@@ -350,6 +376,8 @@ export interface ConversationInferenceProfileUpdated {
   type: "conversation_inference_profile_updated";
   conversationId: string;
   profile: string | null;
+  sessionId?: string | null;
+  expiresAt?: number | null;
 }
 
 export type TraceEventKind =

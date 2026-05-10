@@ -13,18 +13,15 @@ struct IntelligencePanel: View {
     var store: SettingsStore?
     var conversationManager: ConversationManager?
     var authManager: AuthManager?
-    var assistantFeatureFlagStore: AssistantFeatureFlagStore?
     var showToast: ((String, ToastInfo.Style) -> Void)?
     var initialTab: String? = nil
     @Binding var pendingTab: String?
-    @Binding var pendingMemoryId: String?
-
     @State private var selectedTab: IntelligenceTab
     @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.loadFromDiskCache()?.name, fallback: "Your Assistant")
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingTab: Binding<String?> = .constant(nil), pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingTab: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
@@ -34,11 +31,9 @@ struct IntelligencePanel: View {
         self.store = store
         self.conversationManager = conversationManager
         self.authManager = authManager
-        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.showToast = showToast
         self.initialTab = initialTab
         _pendingTab = pendingTab
-        _pendingMemoryId = pendingMemoryId
         _pendingSkillId = pendingSkillId
         _selectedTab = State(initialValue: IntelligenceTab(rawValue: pendingTab.wrappedValue ?? initialTab ?? "") ?? .identity)
     }
@@ -48,7 +43,6 @@ struct IntelligencePanel: View {
         case installedSkills = "Skills"
         case workspace = "Workspace"
         case contacts = "Contacts"
-        case memories = "Memories"
     }
 
     private let maxContentWidth: CGFloat = 1100
@@ -64,11 +58,6 @@ struct IntelligencePanel: View {
 
             // Tab content
             tabContent
-        }
-        .onChange(of: pendingMemoryId) {
-            if pendingMemoryId != nil {
-                withAnimation(VAnimation.fast) { selectedTab = .memories }
-            }
         }
         .onChange(of: pendingTab) {
             applyPendingTab()
@@ -148,9 +137,6 @@ struct IntelligencePanel: View {
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
-        case .memories:
-            MemoriesPanel(connectionManager: connectionManager, assistantName: cachedAssistantName, onImportMemory: onImportMemory, focusedMemoryId: $pendingMemoryId)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 }

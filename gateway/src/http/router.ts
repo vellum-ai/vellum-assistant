@@ -18,6 +18,13 @@ export type GetClientIp = () => string;
  * - "none"         — no auth check, handler called directly
  * - "edge"         — edge JWT token required (aud=vellum-gateway)
  * - "edge-scoped"  — edge JWT + scope check (requires `scope` field)
+ * - "edge-guardian" — caller must be the bound vellum guardian. In the default
+ *                      path, edge JWT is validated and the caller's actor
+ *                      principal must match the guardian's principal id.
+ *                      When DISABLE_HTTP_AUTH=true (platform-managed), the
+ *                      caller is asserted via X-Vellum-User-Id forwarded by
+ *                      vembda, cross-referenced with the stored
+ *                      vellum:platform_user_id credential.
  * - "track-failures" — no gateway-level auth, but downstream 401s are
  *                      recorded against the rate limiter
  * - "custom"       — the handler manages auth internally
@@ -26,6 +33,7 @@ type AuthStrategy =
   | "none"
   | "edge"
   | "edge-scoped"
+  | "edge-guardian"
   | "track-failures"
   | "custom";
 
@@ -82,10 +90,10 @@ export function createRouter(
   url: URL,
   getClientIp: GetClientIp,
   server?: Server<unknown>,
-) => Promise<Response> | Response | null {
+) => Promise<Response | null> {
   const { authRateLimiter } = deps;
 
-  return (
+  return async (
     req: Request,
     url: URL,
     getClientIp: GetClientIp,
@@ -113,7 +121,7 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuth(req, server);
+          const authError = await requireEdgeAuth(req, server);
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }
@@ -123,7 +131,21 @@ export function createRouter(
             authRateLimiter,
             getClientIp,
           );
-          const authError = requireEdgeAuthWithScope(req, route.scope!, server);
+          const authError = await requireEdgeAuthWithScope(
+            req,
+            route.scope!,
+            server,
+          );
+          if (authError) return authError;
+          return route.handler(req, matchResult.params, getClientIp);
+        }
+
+        case "edge-guardian": {
+          const { requireEdgeGuardianAuth } = createAuthMiddleware(
+            authRateLimiter,
+            getClientIp,
+          );
+          const authError = await requireEdgeGuardianAuth(req, server);
           if (authError) return authError;
           return route.handler(req, matchResult.params, getClientIp);
         }

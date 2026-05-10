@@ -5,18 +5,24 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationListStore")
 
-/// Lightweight identifiable wrapper for ForEach over grouped conversations.
+/// Lightweight identifiable wrapper for `ForEach` over grouped conversations.
 ///
-/// `Equatable` conformance is load-bearing: it lets callers gate
-/// `@Observable` stored-property writes with `!=`, so assignments that would
-/// produce an identical array do not trigger SwiftUI observation
-/// notifications or downstream `ForEachState.update` keypath projection on
-/// every element. See [Observation framework](https://developer.apple.com/documentation/observation)
-/// — `@Observable` fires change notifications on every assignment regardless
-/// of value equality, so the caller is responsible for skipping no-op writes.
+/// `Equatable` conformance is load-bearing: it lets callers gate `@Observable`
+/// stored-property writes with `!=` so assignments that would produce an
+/// identical array do not fan out as observation notifications. Reference:
+/// [Observation framework](https://developer.apple.com/documentation/observation).
 struct SidebarGroupEntry: Identifiable, Equatable {
     let id: String
     let group: ConversationGroup
+    let conversations: [ConversationModel]
+}
+
+/// Visible conversations grouped under a single sidebar group. `Equatable` for
+/// the same reason as `SidebarGroupEntry` — `groupedConversations` writes are
+/// gated on `!=`. The `group` is optional because the upstream pipeline can,
+/// in principle, produce a synthesized bucket for ungrouped/orphaned items.
+struct GroupedConversations: Equatable {
+    let group: ConversationGroup?
     let conversations: [ConversationModel]
 }
 
@@ -34,7 +40,22 @@ final class ConversationListStore {
 
     // MARK: - Stored Properties
 
-    var conversations: [ConversationModel] = [] {
+    /// The full conversation list. `@ObservationIgnored` so view bodies cannot
+    /// subscribe to the entire array — every mutation (pagination, heartbeat
+    /// re-fetch, per-message seen flip, in-place model edit) would otherwise
+    /// notify every observer and force a synchronous SwiftUI graph update
+    /// inside the `willSet` hook.
+    ///
+    /// Views must read one of the cached scalars (`hasAnyConversations`,
+    /// `unseenScheduledCount`, …), the cached lookup (`conversationsByLocalId`),
+    /// or one of the cached arrays (`visibleConversations`,
+    /// `archivedConversations`, `sidebarGroupEntries`, …) — all recomputed once
+    /// per mutation in `recomputeDerivedProperties()` behind equality guards.
+    /// Mutations continue to write through this property; the `didSet` keeps
+    /// the cached views in sync.
+    ///
+    /// Reference: [`@ObservationIgnored`](https://developer.apple.com/documentation/observation/observationignored()).
+    @ObservationIgnored var conversations: [ConversationModel] = [] {
         didSet { recomputeDerivedProperties() }
     }
     var groups: [ConversationGroup] = [] {
@@ -130,6 +151,7 @@ final class ConversationListStore {
         didSet {
             let encoded = archivedConversationTimestamps.mapValues { $0.timeIntervalSince1970 }
             UserDefaults.standard.set(encoded, forKey: Self.archivedConversationsSortKey)
+            recomputeArchivedConversations()
         }
     }
 
@@ -200,96 +222,132 @@ final class ConversationListStore {
 
     // MARK: - Cached Derived Properties
     //
-    // These are stored rather than computed so that multiple SwiftUI views reading
-    // the same property within a single layout pass share one computation instead
-    // of each re-running the O(N log N) sort + O(N) filter independently.
-    // Recomputed once per `conversations` or `groups` mutation via `didSet`.
+    // Recomputed once per `conversations` / `groups` mutation in
+    // `recomputeDerivedProperties`. Each write is routed through `setIfChanged`
+    // so identical assignments do not fan out as `@Observable` notifications.
 
     private(set) var sortedGroups: [ConversationGroup] = []
 
-    /// Conversations organized by group. Groups appear in sortPosition order;
-    /// ungrouped and orphaned conversations are folded into the system:all bucket.
-    private(set) var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] = []
+    /// Visible conversations grouped by sort position. Ungrouped and orphaned
+    /// items fold into the system:all bucket so they are never silently dropped.
+    private(set) var groupedConversations: [GroupedConversations] = []
 
     /// Non-archived conversations sorted for the sidebar.
     private(set) var visibleConversations: [ConversationModel] = []
 
-    /// Count of visible conversations with unseen assistant messages (dock badge).
+    /// Count of visible conversations with unseen assistant messages (dock badge source).
     private(set) var unseenVisibleConversationCount: Int = 0
 
-    /// Archived conversations ordered by most-recently-archived first. Items whose
-    /// archive timestamp is unknown (legacy, pre-migration) sort to the bottom with
-    /// `createdAt` as a stable tiebreaker. Computed on read — only consumed by the
-    /// Settings → Archived Conversations tab, which is not a hot path. Under
-    /// `@Observable`, reading this re-computes when either `conversations` or
-    /// `archivedConversationTimestamps` changes.
-    var archivedConversations: [ConversationModel] {
-        let timestamps = archivedConversationTimestamps
-        return conversations
-            .filter { $0.isArchived }
-            .sorted { lhs, rhs in
-                let lhsDate = lhs.conversationId.flatMap { timestamps[$0] } ?? .distantPast
-                let rhsDate = rhs.conversationId.flatMap { timestamps[$0] } ?? .distantPast
-                if lhsDate == rhsDate {
-                    return lhs.createdAt > rhs.createdAt
-                }
-                return lhsDate > rhsDate
-            }
-    }
+    /// True when at least one conversation exists.
+    private(set) var hasAnyConversations: Bool = false
 
-    /// Pre-computed sidebar group entries with feature-flag-aware folding applied.
-    /// When custom groups are disabled, non-system-group conversations are folded
-    /// into the system:all bucket. Recomputed alongside other derived properties
-    /// so the view body reads a ready-made array without inline computation.
+    /// True when at least one non-archived conversation exists (sidebar loading gate).
+    private(set) var hasAnyVisibleConversations: Bool = false
+
+    /// Count of unseen visible conversations in the Scheduled section.
+    private(set) var unseenScheduledCount: Int = 0
+
+    /// O(1) lookup of conversations by local UUID for per-conversation view bodies.
+    private(set) var conversationsByLocalId: [UUID: ConversationModel] = [:]
+
+    /// Archived conversations ordered most-recently-archived first; entries
+    /// without a timestamp sort to the bottom with `createdAt` as the
+    /// tiebreaker. Recomputed on both `conversations` and
+    /// `archivedConversationTimestamps` changes.
+    private(set) var archivedConversations: [ConversationModel] = []
+
+    /// Sidebar group entries with feature-flag-aware folding (non-system groups
+    /// merge into system:all when `customGroupsEnabled` is false).
     private(set) var sidebarGroupEntries: [SidebarGroupEntry] = []
 
-    /// Pre-computed partitions of `sidebarGroupEntries` for the two sidebar
-    /// sections (system groups above the `YOUR GROUPS` divider, custom groups
-    /// below). Kept as separate stored properties so the sidebar view body
-    /// does not allocate fresh filtered arrays on every layout pass — each
-    /// re-allocation produces a new array identity that `ForEachState.update`
-    /// has to diff via `KeyPath._projectReadOnly` on every element, which is
-    /// the stall observed in the Sentry app-hang telemetry.
+    /// Partitions of `sidebarGroupEntries` for the two sidebar sections
+    /// (system groups above the `YOUR GROUPS` divider, custom groups below).
     private(set) var systemSidebarGroupEntries: [SidebarGroupEntry] = []
     private(set) var customSidebarGroupEntries: [SidebarGroupEntry] = []
 
-    /// Recompute all derived sidebar properties from `conversations` and `groups`.
-    /// Called from `conversations.didSet` and `groups.didSet`. Skips work when
-    /// `conversations` is empty to avoid wasted computation (e.g. when `groups`
-    /// is assigned before `conversations` during restoration).
+    /// Assign through a key path only when the new value differs from the
+    /// current one. Used by every cached-property recompute so that no-op
+    /// writes do not fire `@Observable` change notifications. Reference:
+    /// [`withObservationTracking(_:onChange:)`](https://developer.apple.com/documentation/observation/withobservationtracking(_:onchange:)).
+    private func setIfChanged<T: Equatable>(
+        _ keyPath: ReferenceWritableKeyPath<ConversationListStore, T>,
+        to newValue: T
+    ) {
+        if self[keyPath: keyPath] != newValue {
+            self[keyPath: keyPath] = newValue
+        }
+    }
+
+    /// Recompute all derived sidebar properties from `conversations` and
+    /// `groups`. Called from `conversations.didSet` and `groups.didSet`. Skips
+    /// the bucketing pipeline when `conversations` is empty (e.g. when
+    /// `groups` is assigned before `conversations` during restoration).
     private func recomputeDerivedProperties() {
+        let nextSortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
+        setIfChanged(\.sortedGroups, to: nextSortedGroups)
+
         guard !conversations.isEmpty else {
-            sortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
-            groupedConversations = []
-            visibleConversations = []
-            unseenVisibleConversationCount = 0
-            if !sidebarGroupEntries.isEmpty { sidebarGroupEntries = [] }
-            if !systemSidebarGroupEntries.isEmpty { systemSidebarGroupEntries = [] }
-            if !customSidebarGroupEntries.isEmpty { customSidebarGroupEntries = [] }
+            setIfChanged(\.groupedConversations, to: [])
+            setIfChanged(\.visibleConversations, to: [])
+            setIfChanged(\.unseenVisibleConversationCount, to: 0)
+            setIfChanged(\.hasAnyConversations, to: false)
+            setIfChanged(\.hasAnyVisibleConversations, to: false)
+            setIfChanged(\.unseenScheduledCount, to: 0)
+            setIfChanged(\.conversationsByLocalId, to: [:])
+            setIfChanged(\.sidebarGroupEntries, to: [])
+            setIfChanged(\.systemSidebarGroupEntries, to: [])
+            setIfChanged(\.customSidebarGroupEntries, to: [])
+            recomputeArchivedConversations()
             onDerivedPropertiesRecomputed?()
             return
         }
-        let currentSortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
-        sortedGroups = currentSortedGroups
 
         let positionMap = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
-        let currentVisible = conversations
+        let nextVisible = conversations
             .filter { !$0.isArchived }
             .sorted { visibleConversationSortOrder($0, $1, positionMap: positionMap) }
-        visibleConversations = currentVisible
+        setIfChanged(\.visibleConversations, to: nextVisible)
 
-        unseenVisibleConversationCount = conversations.count {
+        let nextUnseenCount = conversations.count {
             !$0.isArchived && $0.hasUnseenLatestAssistantMessage
                 && !$0.shouldSuppressGlobalUnreadAggregations
         }
+        setIfChanged(\.unseenVisibleConversationCount, to: nextUnseenCount)
 
-        // Bucket visible conversations by group in a single pass (O(N)).
+        setIfChanged(\.hasAnyConversations, to: true)
+        setIfChanged(\.hasAnyVisibleConversations, to: !nextVisible.isEmpty)
+
+        let nextScheduledUnseen = nextVisible.count {
+            $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage
+        }
+        setIfChanged(\.unseenScheduledCount, to: nextScheduledUnseen)
+
+        let nextLookup = Dictionary(
+            conversations.map { ($0.id, $0) },
+            uniquingKeysWith: { _, new in new }
+        )
+        setIfChanged(\.conversationsByLocalId, to: nextLookup)
+
+        setIfChanged(\.groupedConversations, to: bucketByGroup(nextVisible, sortedGroups: nextSortedGroups))
+
+        recomputeSidebarGroupEntries()
+        recomputeArchivedConversations()
+        onDerivedPropertiesRecomputed?()
+    }
+
+    /// Bucket `visible` into one `GroupedConversations` per known group, in
+    /// the order of `sortedGroups`. Conversations whose `groupId` is nil or
+    /// references an unknown group fold into the system:all bucket so they
+    /// are never silently dropped from sidebar rendering.
+    private func bucketByGroup(
+        _ visible: [ConversationModel],
+        sortedGroups: [ConversationGroup]
+    ) -> [GroupedConversations] {
         let knownGroupIds = Set(groups.map(\.id))
         var buckets: [String: [ConversationModel]] = [:]
         var ungrouped: [ConversationModel] = []
         var orphaned: [ConversationModel] = []
-
-        for conversation in currentVisible {
+        for conversation in visible {
             if let gid = conversation.groupId {
                 if knownGroupIds.contains(gid) {
                     buckets[gid, default: []].append(conversation)
@@ -301,45 +359,51 @@ final class ConversationListStore {
             }
         }
 
-        var grouped: [(ConversationGroup?, [ConversationModel])] = []
+        var grouped: [GroupedConversations] = []
         var didFoldIntoAll = false
-        for group in currentSortedGroups {
+        for group in sortedGroups {
             if group.id == ConversationGroup.all.id {
-                // Fold nil-groupId and orphaned conversations into the system:all bucket
-                // so they are never silently dropped by sidebar rendering.
-                grouped.append((group, (buckets[group.id] ?? []) + ungrouped + orphaned))
+                grouped.append(GroupedConversations(
+                    group: group,
+                    conversations: (buckets[group.id] ?? []) + ungrouped + orphaned
+                ))
                 didFoldIntoAll = true
             } else {
-                grouped.append((group, buckets[group.id] ?? []))
+                grouped.append(GroupedConversations(group: group, conversations: buckets[group.id] ?? []))
             }
         }
-        // If system:all wasn't in the groups list (e.g. old daemon), create a
-        // synthetic entry so ungrouped/orphaned conversations are still visible.
+        // Synthesize a system:all bucket for old daemons that don't enumerate it.
         if !didFoldIntoAll && (!ungrouped.isEmpty || !orphaned.isEmpty) {
-            grouped.append((ConversationGroup.all, ungrouped + orphaned))
+            grouped.append(GroupedConversations(group: ConversationGroup.all, conversations: ungrouped + orphaned))
         }
-        groupedConversations = grouped
-        recomputeSidebarGroupEntries()
-        onDerivedPropertiesRecomputed?()
+        return grouped
+    }
+
+    /// Recompute the cached `archivedConversations` array. Invoked from
+    /// `recomputeDerivedProperties()` and from `archivedConversationTimestamps.didSet`
+    /// because the sort order depends on both inputs.
+    private func recomputeArchivedConversations() {
+        let timestamps = archivedConversationTimestamps
+        let updated = conversations
+            .filter { $0.isArchived }
+            .sorted { lhs, rhs in
+                let lhsDate = lhs.conversationId.flatMap { timestamps[$0] } ?? .distantPast
+                let rhsDate = rhs.conversationId.flatMap { timestamps[$0] } ?? .distantPast
+                if lhsDate == rhsDate {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhsDate > rhsDate
+            }
+        setIfChanged(\.archivedConversations, to: updated)
     }
 
     /// Derive sidebar group entries from `groupedConversations` and the current
-    /// `customGroupsEnabled` flag. Called from `recomputeDerivedProperties()` and
-    /// when `customGroupsEnabled` changes.
-    ///
-    /// Writes the three cached arrays (`sidebarGroupEntries`,
-    /// `systemSidebarGroupEntries`, `customSidebarGroupEntries`) behind `!=`
-    /// equality guards. `@Observable` notifies on every stored-property
-    /// assignment regardless of value equality, so without these guards a
-    /// pagination or heartbeat pulse that produces an identical sidebar
-    /// (e.g. seen-state flip, `lastInteractedAt` tie) would still invalidate
-    /// every sidebar view and force `ForEachState.update` to re-diff — the
-    /// source of the `KeyPath._projectReadOnly` main-thread hang.
+    /// `customGroupsEnabled` flag. Called from `recomputeDerivedProperties()`
+    /// and when `customGroupsEnabled` changes.
     private func recomputeSidebarGroupEntries() {
-        let raw = groupedConversations
         var entries: [SidebarGroupEntry] = []
         var extraForAll: [ConversationModel] = []
-        for entry in raw {
+        for entry in groupedConversations {
             guard let group = entry.group else { continue }
             if !group.isSystemGroup && !customGroupsEnabled {
                 extraForAll.append(contentsOf: entry.conversations)
@@ -361,9 +425,7 @@ final class ConversationListStore {
                 ))
             }
         }
-        if sidebarGroupEntries != entries {
-            sidebarGroupEntries = entries
-        }
+        setIfChanged(\.sidebarGroupEntries, to: entries)
 
         var systemEntries: [SidebarGroupEntry] = []
         var customEntries: [SidebarGroupEntry] = []
@@ -374,12 +436,8 @@ final class ConversationListStore {
                 customEntries.append(entry)
             }
         }
-        if systemSidebarGroupEntries != systemEntries {
-            systemSidebarGroupEntries = systemEntries
-        }
-        if customSidebarGroupEntries != customEntries {
-            customSidebarGroupEntries = customEntries
-        }
+        setIfChanged(\.systemSidebarGroupEntries, to: systemEntries)
+        setIfChanged(\.customSidebarGroupEntries, to: customEntries)
     }
 
     // MARK: - Sort Helpers

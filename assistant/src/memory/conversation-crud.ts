@@ -9,6 +9,7 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   isNull,
   like,
   lt,
@@ -45,7 +46,8 @@ import {
 } from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
-import { getDb } from "./db-connection.js";
+import { getDb, getSqliteFrom } from "./db-connection.js";
+import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
@@ -60,6 +62,7 @@ import {
   toolInvocations,
 } from "./schema.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
+import { forkActivationState } from "./v2/activation-store.js";
 
 const log = getLogger("conversation-store");
 
@@ -112,6 +115,7 @@ export const messageMetadataSchema = z
     workspaceBlock: z.string().optional(),
     nowScratchpadBlock: z.string().optional(),
     pkbContextBlock: z.string().optional(),
+    memoryV2StaticBlock: z.string().optional(),
   })
   .passthrough();
 
@@ -186,6 +190,8 @@ export interface ConversationRow {
   lastMessageAt: number | null;
   archivedAt: number | null;
   inferenceProfile: string | null;
+  inferenceProfileSessionId: string | null;
+  inferenceProfileExpiresAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -216,6 +222,8 @@ export const parseConversation = createRowMapper<
   lastMessageAt: "lastMessageAt",
   archivedAt: "archivedAt",
   inferenceProfile: "inferenceProfile",
+  inferenceProfileSessionId: "inferenceProfileSessionId",
+  inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
 });
 
 export interface MessageRow {
@@ -660,6 +668,12 @@ export function forkConversation(params: {
       latestAssistantMessageId: latestForkedAssistant?.messageId ?? null,
       latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
     });
+
+    // Carry the parent's per-conversation memory state into the child so the
+    // forked thread resumes with the same activation/injection log and
+    // in-context tracker the parent had at fork time.
+    forkActivationState(db, sourceConversation.id, fc.id);
+    forkGraphMemoryState(sourceConversation.id, fc.id);
 
     return fc;
   });
@@ -1226,6 +1240,10 @@ export function unarchiveConversation(id: string): boolean {
  * Set or clear the inference profile override for a conversation.
  * Pass `null` to clear the override and fall back to the workspace
  * `llm.activeProfile` resolution.
+ *
+ * Also clears any stale session columns (`inferenceProfileSessionId`,
+ * `inferenceProfileExpiresAt`) so that the reaper and lazy expiry check
+ * cannot later clobber the newly-set profile.
  */
 export function setConversationInferenceProfile(
   conversationId: string,
@@ -1233,17 +1251,130 @@ export function setConversationInferenceProfile(
 ): void {
   const db = getDb();
   db.update(conversations)
-    .set({ inferenceProfile: profile, updatedAt: Date.now() })
+    .set({
+      inferenceProfile: profile,
+      inferenceProfileSessionId: null,
+      inferenceProfileExpiresAt: null,
+      updatedAt: Date.now(),
+    })
     .where(eq(conversations.id, conversationId))
     .run();
 }
 
 /**
+ * Atomically set the inference profile, session id, and expiry timestamp for
+ * a conversation. Pass `null` for all three to clear the session-backed
+ * override and fall back to the workspace `llm.activeProfile` resolution.
+ */
+export function setConversationInferenceProfileSession(
+  conversationId: string,
+  profile: string | null,
+  sessionId: string | null,
+  expiresAt: number | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      inferenceProfile: profile,
+      inferenceProfileSessionId: sessionId,
+      inferenceProfileExpiresAt: expiresAt,
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+/**
+ * Clear all conversations whose session-backed inference profile has expired.
+ * Returns an array of `{ conversationId, sessionId }` for each cleared row so
+ * callers can emit the appropriate update events.
+ */
+export function clearExpiredInferenceProfiles(
+  now: number,
+): Array<{ conversationId: string; sessionId: string | null }> {
+  const raw = getSqliteFrom(getDb());
+  // Two-step approach: SELECT to get pre-clear sessionIds, then UPDATE.
+  // The UPDATE re-applies the WHERE condition for CAS safety.
+  // RETURNING the id lets us know which rows were actually cleared.
+  const expired = raw
+    .prepare(
+      `
+    SELECT id AS conversationId, inference_profile_session_id AS sessionId
+    FROM conversations
+    WHERE inference_profile_expires_at IS NOT NULL AND inference_profile_expires_at <= ?
+  `,
+    )
+    .all(now) as Array<{ conversationId: string; sessionId: string | null }>;
+
+  if (expired.length === 0) return [];
+
+  const ids = expired.map((r) => r.conversationId);
+  const placeholders = ids.map(() => "?").join(", ");
+
+  const actuallyCleared = raw
+    .prepare(
+      `
+    UPDATE conversations
+    SET inference_profile = NULL, inference_profile_session_id = NULL, inference_profile_expires_at = NULL
+    WHERE id IN (${placeholders}) AND inference_profile_expires_at IS NOT NULL AND inference_profile_expires_at <= ?
+    RETURNING id AS conversationId
+  `,
+    )
+    .all(...ids, now) as Array<{ conversationId: string }>;
+
+  const clearedSet = new Set(actuallyCleared.map((r) => r.conversationId));
+  return expired.filter((r) => clearedSet.has(r.conversationId));
+}
+
+/**
+ * List conversations with an active (non-expired) session-backed inference
+ * profile. Pass a `conversationId` to narrow to a single conversation.
+ */
+export function listActiveInferenceProfileSessions(
+  conversationId?: string,
+): Array<{
+  conversationId: string;
+  conversationTitle: string | null;
+  profile: string;
+  sessionId: string;
+  expiresAt: number;
+}> {
+  const db = getDb();
+  const now = Date.now();
+  const baseConditions = [
+    isNotNull(conversations.inferenceProfile),
+    isNotNull(conversations.inferenceProfileExpiresAt),
+    gt(conversations.inferenceProfileExpiresAt, now),
+    isNotNull(conversations.inferenceProfileSessionId),
+  ];
+  if (conversationId) {
+    baseConditions.push(eq(conversations.id, conversationId));
+  }
+  return db
+    .select({
+      conversationId: conversations.id,
+      conversationTitle: conversations.title,
+      profile: conversations.inferenceProfile,
+      sessionId: conversations.inferenceProfileSessionId,
+      expiresAt: conversations.inferenceProfileExpiresAt,
+    })
+    .from(conversations)
+    .where(and(...baseConditions))
+    .all() as Array<{
+    conversationId: string;
+    conversationTitle: string | null;
+    profile: string;
+    sessionId: string;
+    expiresAt: number;
+  }>;
+}
+
+/**
  * Resolve the per-turn inference-profile override from an already-loaded
- * conversation row. Returns the row's `inferenceProfile` for non-background
- * conversations, `undefined` otherwise — background turns (subagent fan-out,
- * scheduled tasks, update bulletins) run on the workspace defaults rather
- * than inheriting an interactive override.
+ * conversation row. Returns the row's `inferenceProfile` for interactive
+ * conversations, `undefined` for automation threads (subagent fan-out,
+ * scheduled tasks, update bulletins) so they run on the workspace defaults
+ * rather than inheriting an interactive override.
  *
  * Prefer this row-based form when the caller already needs to read the
  * conversation row for other reasons (e.g. the agent loop's title check).
@@ -1251,7 +1382,27 @@ export function setConversationInferenceProfile(
 export function getConversationOverrideProfileFromRow(
   conv: ConversationRow | null,
 ): string | undefined {
-  if (conv?.conversationType === "background") return undefined;
+  if (
+    conv?.conversationType === "background" ||
+    conv?.conversationType === "scheduled"
+  ) {
+    return undefined;
+  }
+  // Treat an expired session as if the override is absent. The eager reaper
+  // clears the row and emits the update event; the lazy check here ensures
+  // correctness on read paths before the reaper fires.
+  //
+  // `<=` (not `<`) for boundary consistency with the rest of the session
+  // logic: the reaper SQL uses `expires_at <= ?`, and the active-session
+  // queries use `expiresAt > now` (i.e. treat exact-expiry as inactive).
+  // Without this, a session at the exact-expiry millisecond would be served
+  // for one extra turn here while being cleared by the reaper.
+  if (
+    conv?.inferenceProfileExpiresAt != null &&
+    conv.inferenceProfileExpiresAt <= Date.now()
+  ) {
+    return undefined;
+  }
   return conv?.inferenceProfile ?? undefined;
 }
 
@@ -1481,8 +1632,10 @@ export function updateMessageMetadata(
 /**
  * Bulk-remove the metadata fields that back the blocks stripped by
  * `stripInjectionsForCompaction` — currently `pkbSystemReminderBlock`
- * (`<system_reminder>`), `nowScratchpadBlock` (`<NOW.md …>`), and
- * `pkbContextBlock` (`<knowledge_base>`). Called from compaction-strip
+ * (`<system_reminder>`), `nowScratchpadBlock` (`<NOW.md …>`),
+ * `pkbContextBlock` (`<knowledge_base>`), and `memoryV2StaticBlock`
+ * (the static `<memory>\n…</memory>` block matched by the `<memory>\n`
+ * prefix in `RUNTIME_INJECTION_PREFIXES`). Called from compaction-strip
  * sites so post-restart rehydration stays consistent with the in-memory
  * state produced by `stripInjectionsForCompaction` (which removes those
  * tags from live messages but cannot touch the DB). Fields backing
@@ -1498,7 +1651,8 @@ export function clearStrippedInjectionMetadataForConversation(
           metadata,
           '$.pkbSystemReminderBlock',
           '$.nowScratchpadBlock',
-          '$.pkbContextBlock'
+          '$.pkbContextBlock',
+          '$.memoryV2StaticBlock'
         )
       WHERE conversation_id = ?
         AND role = 'user'
@@ -1507,6 +1661,7 @@ export function clearStrippedInjectionMetadataForConversation(
           json_extract(metadata, '$.pkbSystemReminderBlock') IS NOT NULL
           OR json_extract(metadata, '$.nowScratchpadBlock') IS NOT NULL
           OR json_extract(metadata, '$.pkbContextBlock') IS NOT NULL
+          OR json_extract(metadata, '$.memoryV2StaticBlock') IS NOT NULL
         )`,
     conversationId,
   );

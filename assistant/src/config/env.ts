@@ -253,14 +253,6 @@ export function getPlatformUserId(): string {
   return str("PLATFORM_USER_ID") ?? _platformUserIdOverride ?? "";
 }
 
-/**
- * PLATFORM_INTERNAL_API_KEY — static internal gateway key for authenticating
- * with the platform's internal gateway callback route registration endpoint.
- */
-export function getPlatformInternalApiKey(): string {
-  return str("PLATFORM_INTERNAL_API_KEY") ?? "";
-}
-
 // ── Startup validation ──────────────────────────────────────────────────────
 
 /**

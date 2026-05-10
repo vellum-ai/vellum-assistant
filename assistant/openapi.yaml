@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.7.2
+  version: 0.8.0
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1630,6 +1630,141 @@ paths:
               required:
                 - path
               additionalProperties: false
+  /v1/bookmarks:
+    get:
+      operationId: bookmarks_get
+      summary: List bookmarks
+      description: Return all bookmarks (newest first), joined with their parent message and conversation.
+      tags:
+        - bookmarks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookmarks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        messageId:
+                          type: string
+                        conversationId:
+                          type: string
+                        conversationTitle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        messagePreview:
+                          type: string
+                        messageRole:
+                          type: string
+                        messageCreatedAt:
+                          type: number
+                        createdAt:
+                          type: number
+                      required:
+                        - id
+                        - messageId
+                        - conversationId
+                        - conversationTitle
+                        - messagePreview
+                        - messageRole
+                        - messageCreatedAt
+                        - createdAt
+                      additionalProperties: false
+                required:
+                  - bookmarks
+                additionalProperties: false
+    post:
+      operationId: bookmarks_post
+      summary: Create a bookmark
+      description: Bookmark the given message. Idempotent on `messageId` — calling twice returns the same bookmark.
+      tags:
+        - bookmarks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  messageId:
+                    type: string
+                  conversationId:
+                    type: string
+                  conversationTitle:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  messagePreview:
+                    type: string
+                  messageRole:
+                    type: string
+                  messageCreatedAt:
+                    type: number
+                  createdAt:
+                    type: number
+                required:
+                  - id
+                  - messageId
+                  - conversationId
+                  - conversationTitle
+                  - messagePreview
+                  - messageRole
+                  - messageCreatedAt
+                  - createdAt
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                messageId:
+                  type: string
+                conversationId:
+                  type: string
+              required:
+                - messageId
+                - conversationId
+              additionalProperties: false
+  /v1/bookmarks/by-message/{messageId}:
+    delete:
+      operationId: bookmarks_bymessage_by_messageId_delete
+      summary: Delete a bookmark by message id
+      description: Delete the bookmark (if any) attached to the given message. Succeeds even if no row matched.
+      tags:
+        - bookmarks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/brain-graph:
     get:
       operationId: braingraph_get
@@ -1759,8 +1894,6 @@ paths:
                   minLength: 1
               required:
                 - operation
-                - input
-                - sessionId
               additionalProperties: false
   /v1/btw:
     post:
@@ -3250,8 +3383,6 @@ paths:
                     - guardian
                     - trusted-contact
                     - unknown
-              required:
-                - role
               additionalProperties: false
   /v1/contacts/search:
     post:
@@ -3511,6 +3642,22 @@ paths:
       responses:
         "202":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  cancelled:
+                    type: boolean
+                  conversationId:
+                    type: string
+                required:
+                  - ok
+                  - cancelled
+                  - conversationId
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -3521,7 +3668,9 @@ paths:
     put:
       operationId: conversations_by_id_inferenceprofile_put
       summary: Set conversation inference profile
-      description: Override the LLM inference profile for a single conversation.
+      description:
+        Override the LLM inference profile for a single conversation. Optionally supply ttlSeconds to create a
+        session-backed (expiring) override.
       tags:
         - conversations
       responses:
@@ -3538,9 +3687,46 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  sessionId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  expiresAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  ttlSeconds:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  replaced:
+                    anyOf:
+                      - type: object
+                        properties:
+                          profile:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          sessionId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          expiresAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        required:
+                          - profile
+                          - sessionId
+                          - expiresAt
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - conversationId
                   - profile
+                  - sessionId
+                  - expiresAt
+                  - replaced
                 additionalProperties: false
       parameters:
         - name: id
@@ -3559,6 +3745,15 @@ paths:
                   anyOf:
                     - type: string
                     - type: "null"
+                ttlSeconds:
+                  anyOf:
+                    - type: number
+                      exclusiveMinimum: 0
+                    - type: "null"
+                sessionId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
               required:
                 - profile
               additionalProperties: false
@@ -3851,6 +4046,204 @@ paths:
               required:
                 - conversationId
               additionalProperties: false
+  /v1/conversations/inference-profile-session:
+    post:
+      operationId: conversations_inferenceprofilesession_post
+      summary: Open an inference-profile session
+      description:
+        Open (or replace) a session-backed inference-profile override for a conversation. Supports an optional TTL
+        — omit for a sticky (non-expiring) override.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  profile:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  sessionId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  expiresAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  ttlSeconds:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  replaced:
+                    anyOf:
+                      - type: object
+                        properties:
+                          profile:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          sessionId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          expiresAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        required:
+                          - profile
+                          - sessionId
+                          - expiresAt
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - conversationId
+                  - profile
+                  - sessionId
+                  - expiresAt
+                  - replaced
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                profile:
+                  type: string
+                  minLength: 1
+                ttlSeconds:
+                  anyOf:
+                    - type: number
+                      exclusiveMinimum: 0
+                    - type: "null"
+                sessionId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+              required:
+                - conversationId
+                - profile
+              additionalProperties: false
+  /v1/conversations/inference-profile-session/close:
+    post:
+      operationId: conversations_inferenceprofilesession_close_post
+      summary: Close an inference-profile session
+      description:
+        Close the active session-backed inference-profile override for a conversation. Only closes session-backed
+        overrides; sticky overrides are left untouched.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  closed:
+                    anyOf:
+                      - type: object
+                        properties:
+                          profile:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          sessionId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - profile
+                          - sessionId
+                        additionalProperties: false
+                      - type: "null"
+                  noop:
+                    type: boolean
+                required:
+                  - conversationId
+                  - closed
+                  - noop
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+              required:
+                - conversationId
+              additionalProperties: false
+  /v1/conversations/inference-profile-sessions:
+    get:
+      operationId: conversations_inferenceprofilesessions_get
+      summary: List active inference-profile sessions
+      description: List all active (non-expired) session-backed inference-profile overrides, optionally filtered by conversationId.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        conversationId:
+                          type: string
+                        conversationTitle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        profile:
+                          type: string
+                        sessionId:
+                          type: string
+                        expiresAt:
+                          type: number
+                        remainingSeconds:
+                          type: number
+                      required:
+                        - conversationId
+                        - conversationTitle
+                        - profile
+                        - sessionId
+                        - expiresAt
+                        - remainingSeconds
+                      additionalProperties: false
+                required:
+                  - sessions
+                additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional conversation ID filter
   /v1/conversations/rename:
     post:
       operationId: conversations_rename_post
@@ -4052,7 +4445,6 @@ paths:
               required:
                 - conversationId
                 - hint
-                - source
               additionalProperties: false
   /v1/conversations/wipe:
     post:
@@ -6282,6 +6674,12 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host app-control request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
       requestBody:
         required: true
         content:
@@ -6436,6 +6834,16 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host browser request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
+        "404":
+          description: No pending browser request for the given requestId.
+        "409":
+          description: Pending interaction kind is not host_browser (mismatched proxy ID space).
       requestBody:
         required: true
         content:
@@ -7502,86 +7910,13 @@ paths:
               required:
                 - slug
               additionalProperties: false
-  /v1/memory/v2/explain-similarity:
+  /v1/memory/v2/list-concept-pages:
     post:
-      operationId: memory_v2_explainsimilarity_post
-      summary: Diagnose dense vs sparse similarity score distributions
+      operationId: memory_v2_listconceptpages_post
+      summary: List all memory v2 concept pages with metadata
       description:
-        Read-only diagnostic. Embeds the supplied text(s), runs hybrid dense + sparse queries against the
-        concept-page collection, and returns per-slug raw dense, raw sparse, normalized sparse, and fused scores plus
-        per-channel summary stats. Used to investigate score-compression at the head of the activation distribution.
-      tags:
-        - memory
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userText:
-                  type: string
-                  minLength: 1
-                assistantText:
-                  type: string
-                nowText:
-                  type: string
-                top:
-                  default: 25
-                  type: integer
-                  minimum: 1
-                  maximum: 9007199254740991
-              required:
-                - userText
-                - top
-              additionalProperties: false
-  /v1/memory/v2/fit-anisotropy:
-    post:
-      operationId: memory_v2_fitanisotropy_post
-      summary: Fit the embedding anisotropy correction for memory v2
-      description:
-        Samples stored dense vectors from the concept-page Qdrant collection, fits a corpus mean + top-k principal
-        components (Mu & Viswanath 'all-but-the-top'), and persists the calibration so subsequent embeds and queries
-        apply the correction. Run `assistant memory v2 reembed` after fitting so stored vectors are written under the
-        new calibration — until then, queries (corrected) and stored vectors (uncorrected) live in different spaces.
-      tags:
-        - memory
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                k:
-                  default: 1
-                  type: integer
-                  minimum: 1
-                  maximum: 16
-                sample:
-                  default: 5000
-                  type: integer
-                  minimum: 1
-                  maximum: 100000
-              required:
-                - k
-                - sample
-              additionalProperties: false
-  /v1/memory/v2/rebuild-corpus-stats:
-    post:
-      operationId: memory_v2_rebuildcorpusstats_post
-      summary: Rebuild the BM25 corpus statistics for memory v2
-      description:
-        Walks every concept page on disk, recomputes the document-frequency table and average document length used
-        by the BM25 sparse channel, and atomically swaps the in-memory stats. Run after bulk content imports or to
-        recover from a rebuild that errored at startup. Does not reembed individual page sparse vectors — pair with
-        `assistant memory v2 reembed` when document-side weights need refreshing.
+        Returns slugs, body sizes, edge counts, and last-modified timestamps for every concept page on disk.
+        Read-only; used by the desktop About → Memories surface to render a browse-able list.
       tags:
         - memory
       responses:
@@ -7599,9 +7934,7 @@ paths:
     post:
       operationId: memory_v2_reembedskills_post
       summary: Re-seed v2 skill entries from the current skill catalog
-      description:
-        Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on memory-v2-enabled flag
-        and config.memory.v2.enabled.
+      description: Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on config.memory.v2.enabled.
       tags:
         - memory
       responses:
@@ -7619,7 +7952,9 @@ paths:
     post:
       operationId: memory_v2_validate_post
       summary: Validate memory v2 workspace state
-      description: Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse failures.
+      description:
+        Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse
+        failures. Runnable regardless of memory.v2.enabled so operators can dry-run validation before flipping the flag.
       tags:
         - memory
       responses:
@@ -7699,6 +8034,8 @@ paths:
                   type: string
                 slashCommand:
                   type: string
+                clientTimezone:
+                  type: string
                 inferenceProfile:
                   anyOf:
                     - type: string
@@ -7759,6 +8096,10 @@ paths:
                       - background
                       - background_memory_consolidation
                       - scheduled
+                  conversationTotalEstimatedCostUsd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   logs:
                     type: array
                     items: {}
@@ -7777,6 +8118,7 @@ paths:
                 required:
                   - messageId
                   - conversationKind
+                  - conversationTotalEstimatedCostUsd
                   - logs
                   - memoryRecall
                   - memoryV2Activation
@@ -8344,6 +8686,12 @@ paths:
                     - single_channel
                     - multi_channel
                     - all_channels
+                conversationAffinityHint:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: string
                 dedupeKey:
                   type: string
                 throwOnError:
@@ -8667,7 +9015,6 @@ paths:
                   maxLength: 120
               required:
                 - turns
-                - avgTokensPerTurn
               additionalProperties: false
   /v1/playground/seeded-conversations:
     delete:
@@ -9168,6 +9515,59 @@ paths:
           schema:
             type: string
           description: When 'true', include deferred schedules that are normally hidden.
+    post:
+      operationId: schedules_post
+      summary: Create schedule
+      description: Create a new recurring schedule. Currently restricted to mode='execute'.
+      tags:
+        - schedules
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedules:
+                    type: array
+                    items: {}
+                    description: Updated schedule list
+                required:
+                  - schedules
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Display name
+                expression:
+                  type: string
+                  description: Cron or RRULE expression
+                message:
+                  type: string
+                  description: Message body to execute on each fire
+                timezone:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description: IANA timezone, e.g. America/New_York
+                enabled:
+                  type: boolean
+                  description: Whether the schedule starts active (default true)
+                mode:
+                  type: string
+                  description: Currently must be 'execute'
+              required:
+                - name
+                - expression
+                - message
+              additionalProperties: false
   /v1/schedules/{id}:
     delete:
       operationId: schedules_by_id_delete
@@ -12336,9 +12736,6 @@ paths:
                   type: integer
                   exclusiveMinimum: 0
                   maximum: 9007199254740991
-              required:
-                - hours
-                - limit
               additionalProperties: false
   /v1/watchers/list:
     post:
@@ -12368,8 +12765,6 @@ paths:
                 enabled_only:
                   default: false
                   type: boolean
-              required:
-                - enabled_only
               additionalProperties: false
   /v1/watchers/update:
     post:

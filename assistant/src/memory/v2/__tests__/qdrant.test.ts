@@ -1,9 +1,28 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 
+// Per-suite tmp data dir so the reembed sentinel never lands in the
+// developer's real ~/.vellum workspace.
+const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), "memory-v2-qdrant-test-"));
+const REEMBED_SENTINEL_PATH = join(
+  TEST_DATA_DIR,
+  ".memory-v2-reembed-required",
+);
+
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
+}));
+
+mock.module("../../../util/platform.js", () => ({
+  getDataDir: () => TEST_DATA_DIR,
+  // Bun shares mocked modules across test files; some peer tests import
+  // `getWorkspaceDir` from this same module, so re-export it here to avoid
+  // an `undefined` if this mock is the one that wins evaluation order.
+  getWorkspaceDir: () => TEST_DATA_DIR,
 }));
 
 // Stub getConfig — only the qdrant.url / vectorSize / onDisk fields matter.
@@ -27,8 +46,37 @@ mock.module("../../qdrant-client.js", () => ({
 // records every call and lets each test program the next response.
 type MockPoint = {
   id: string;
-  vector: { dense: number[]; sparse: { indices: number[]; values: number[] } };
+  vector: {
+    dense: number[];
+    sparse: { indices: number[]; values: number[] };
+    summary_dense?: number[];
+    summary_sparse?: { indices: number[]; values: number[] };
+  };
   payload: { slug: string; updated_at: number };
+};
+
+type MockCollectionInfo = {
+  config: {
+    params: {
+      vectors?: Record<string, { size: number }> | { size: number };
+      sparse_vectors?: Record<string, unknown>;
+    };
+  };
+};
+
+const FULL_SCHEMA_INFO: MockCollectionInfo = {
+  config: {
+    params: {
+      vectors: {
+        dense: { size: 384 },
+        summary_dense: { size: 384 },
+      },
+      sparse_vectors: {
+        sparse: {},
+        summary_sparse: {},
+      },
+    },
+  },
 };
 
 const state = {
@@ -39,6 +87,10 @@ const state = {
   createIndexCalls: [] as Array<{ field_name: string; field_schema: string }>,
   upsertCalls: [] as Array<{ wait: boolean; points: MockPoint[] }>,
   deleteCalls: [] as Array<{ wait: boolean; points: string[] }>,
+  // Tracks `client.deleteCollection(name)` calls (distinct from `delete()`,
+  // which targets points). The schema-drift recreate path drops the
+  // collection entirely and we want to assert it ran exactly once.
+  deleteCollectionCalls: [] as string[],
   queryCalls: [] as Array<{
     using: string;
     query: unknown;
@@ -55,6 +107,17 @@ const state = {
     }>,
   },
   createCollectionThrows: null as Error | null,
+  // Schema returned by `client.getCollection`. Tests that exercise the
+  // drift path point this at a partial schema; the default mirrors a fully
+  // migrated collection so the no-drift path is the silent default.
+  getCollectionInfo: FULL_SCHEMA_INFO as MockCollectionInfo,
+  getCollectionThrows: null as Error | null,
+  getCollectionCalls: 0,
+  // Point count returned by `client.count`. Used by `countConceptPagePoints`
+  // which the lifecycle hook reads for the empty-after-create recovery path.
+  countResult: 0,
+  countThrows: null as Error | null,
+  countCalls: 0,
   // Throw queue for upsert: first call shifts and throws if non-null;
   // subsequent calls succeed once the queue is exhausted.
   upsertThrowQueue: [] as Array<Error | null>,
@@ -66,12 +129,28 @@ class MockQdrantClient {
     state.collectionExistsCalls++;
     return { exists: state.collectionExistsBeforeCreate };
   }
+  async getCollection(_name: string) {
+    state.getCollectionCalls++;
+    if (state.getCollectionThrows) throw state.getCollectionThrows;
+    return state.getCollectionInfo;
+  }
   async createCollection(_name: string, params: unknown) {
     state.createCollectionCalls++;
     state.createCollectionParams = params;
     if (state.createCollectionThrows) throw state.createCollectionThrows;
     state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = FULL_SCHEMA_INFO;
     return {};
+  }
+  async deleteCollection(name: string) {
+    state.deleteCollectionCalls.push(name);
+    state.collectionExistsBeforeCreate = false;
+    return {};
+  }
+  async count(_name: string, _opts: { exact: boolean }) {
+    state.countCalls++;
+    if (state.countThrows) throw state.countThrows;
+    return { count: state.countResult };
   }
   async createPayloadIndex(
     _name: string,
@@ -102,7 +181,14 @@ class MockQdrantClient {
     },
   ) {
     state.queryCalls.push(params);
-    const queue = state.queryResponses[params.using as "dense" | "sparse"];
+    // Both `dense` and `summary_dense` consume from the dense queue (and
+    // similarly for sparse). The four-channel hybrid query fires them in
+    // order: body-dense, body-sparse, summary-dense, summary-sparse — so
+    // queue order matches call order.
+    const queue =
+      state.queryResponses[
+        params.using.endsWith("sparse") ? "sparse" : "dense"
+      ];
     return queue.shift() ?? { points: [] };
   }
 }
@@ -116,6 +202,8 @@ const {
   upsertConceptPageEmbedding,
   deleteConceptPageEmbedding,
   hybridQueryConceptPages,
+  countConceptPagePoints,
+  clearReembedSentinel,
   MEMORY_V2_COLLECTION,
   _resetMemoryV2QdrantForTests,
 } = await import("../qdrant.js");
@@ -128,19 +216,31 @@ function resetState(): void {
   state.createIndexCalls.length = 0;
   state.upsertCalls.length = 0;
   state.deleteCalls.length = 0;
+  state.deleteCollectionCalls.length = 0;
   state.queryCalls.length = 0;
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
   state.createCollectionThrows = null;
+  state.getCollectionInfo = FULL_SCHEMA_INFO;
+  state.getCollectionThrows = null;
+  state.getCollectionCalls = 0;
+  state.countResult = 0;
+  state.countThrows = null;
+  state.countCalls = 0;
   state.upsertThrowQueue.length = 0;
   _resetMemoryV2QdrantForTests();
+  // Drop any sentinel a prior test left behind so the no-drift default path
+  // doesn't accidentally report `migrated: true`.
+  if (existsSync(REEMBED_SENTINEL_PATH)) {
+    rmSync(REEMBED_SENTINEL_PATH);
+  }
 }
 
 describe("memory v2 qdrant — collection lifecycle", () => {
   beforeEach(resetState);
   afterEach(resetState);
 
-  test("creates the collection with named dense + sparse vectors", async () => {
+  test("creates the collection with named dense + sparse vectors (body and summary)", async () => {
     state.collectionExistsBeforeCreate = false;
 
     await ensureConceptPageCollection();
@@ -149,8 +249,12 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     const params = state.createCollectionParams as {
       vectors: {
         dense: { size: number; distance: string; on_disk: boolean };
+        summary_dense: { size: number; distance: string; on_disk: boolean };
       };
-      sparse_vectors: { sparse: Record<string, unknown> };
+      sparse_vectors: {
+        sparse: Record<string, unknown>;
+        summary_sparse: Record<string, unknown>;
+      };
       hnsw_config: { on_disk: boolean; m: number; ef_construct: number };
       on_disk_payload: boolean;
     };
@@ -159,7 +263,14 @@ describe("memory v2 qdrant — collection lifecycle", () => {
       distance: "Cosine",
       on_disk: true,
     });
+    // Summary side mirrors body so the activation pipeline can fuse symmetrically.
+    expect(params.vectors.summary_dense).toEqual({
+      size: 384,
+      distance: "Cosine",
+      on_disk: true,
+    });
     expect(params.sparse_vectors.sparse).toEqual({});
+    expect(params.sparse_vectors.summary_sparse).toEqual({});
     expect(params.hnsw_config).toEqual({
       on_disk: true,
       m: 16,
@@ -219,6 +330,162 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     // expected to have created it (it ran the same code).
     expect(state.createIndexCalls).toEqual([]);
   });
+
+  test("detects missing summary_dense / summary_sparse on an existing collection and recreates", async () => {
+    // Pre-#29823 schema: only body channels, no summary_*.
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: { dense: { size: 384 } },
+          sparse_vectors: { sparse: {} },
+        },
+      },
+    };
+
+    const result = await ensureConceptPageCollection();
+
+    // Drift path probed once, dropped the collection once, and recreated
+    // with the full four-vector schema (the create-success branch resets
+    // `getCollectionInfo` to FULL_SCHEMA_INFO so a follow-up probe agrees).
+    expect(state.getCollectionCalls).toBe(1);
+    expect(state.deleteCollectionCalls).toEqual([MEMORY_V2_COLLECTION]);
+    expect(state.createCollectionCalls).toBe(1);
+    expect(result).toEqual({ migrated: true });
+
+    // Recreated schema carries summary_dense + summary_sparse.
+    const params = state.createCollectionParams as {
+      vectors: Record<string, unknown>;
+      sparse_vectors: Record<string, unknown>;
+    };
+    expect(params.vectors.summary_dense).toBeDefined();
+    expect(params.sparse_vectors.summary_sparse).toBeDefined();
+  });
+
+  test("leaves a fully migrated collection untouched", async () => {
+    // Default `getCollectionInfo` is FULL_SCHEMA_INFO — already migrated.
+    state.collectionExistsBeforeCreate = true;
+
+    const result = await ensureConceptPageCollection();
+
+    expect(state.getCollectionCalls).toBe(1);
+    expect(state.deleteCollectionCalls).toEqual([]);
+    expect(state.createCollectionCalls).toBe(0);
+    expect(result).toEqual({ migrated: false });
+  });
+
+  test("getCollection failure is treated as compatible (no destructive recreate)", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionThrows = new Error("transient REST error");
+
+    const result = await ensureConceptPageCollection();
+
+    expect(state.getCollectionCalls).toBe(1);
+    expect(state.deleteCollectionCalls).toEqual([]);
+    expect(state.createCollectionCalls).toBe(0);
+    expect(result).toEqual({ migrated: false });
+  });
+
+  test("preserves the reembed signal across calls when createCollection fails after delete", async () => {
+    // Pre-#29823 schema triggers the destructive recreate path.
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: { dense: { size: 384 } },
+          sparse_vectors: { sparse: {} },
+        },
+      },
+    };
+    state.createCollectionThrows = new Error("Qdrant transient failure");
+
+    let firstError: unknown = null;
+    try {
+      await ensureConceptPageCollection();
+    } catch (err) {
+      firstError = err;
+    }
+    expect(firstError).not.toBeNull();
+    // The sentinel must outlive the failed call so the retry knows data was lost.
+    expect(existsSync(REEMBED_SENTINEL_PATH)).toBe(true);
+
+    // Simulate a follow-up call after the transient failure clears. The
+    // collection no longer exists (delete succeeded earlier) so the ensure
+    // path falls through to createCollection without re-entering the drift
+    // branch — but the sentinel must still surface as `migrated: true` so
+    // the lifecycle hook enqueues reembed.
+    state.createCollectionThrows = null;
+    _resetMemoryV2QdrantForTests();
+    const result = await ensureConceptPageCollection();
+
+    expect(result).toEqual({ migrated: true });
+
+    // Lifecycle hook clears the sentinel after enqueueing the reembed job.
+    await clearReembedSentinel();
+    expect(existsSync(REEMBED_SENTINEL_PATH)).toBe(false);
+  });
+
+  test("clearReembedSentinel is a no-op when no sentinel exists", async () => {
+    // Idempotent: missing-file does not throw, so the lifecycle hook can
+    // call it unconditionally without guarding.
+    expect(existsSync(REEMBED_SENTINEL_PATH)).toBe(false);
+    await clearReembedSentinel();
+    expect(existsSync(REEMBED_SENTINEL_PATH)).toBe(false);
+  });
+
+  test("concurrent ensure during a schema rebuild only deletes/creates once", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: { dense: { size: 384 } },
+          sparse_vectors: { sparse: {} },
+        },
+      },
+    };
+
+    const results = await Promise.all([
+      ensureConceptPageCollection(),
+      ensureConceptPageCollection(),
+      ensureConceptPageCollection(),
+    ]);
+
+    expect(state.deleteCollectionCalls).toEqual([MEMORY_V2_COLLECTION]);
+    expect(state.createCollectionCalls).toBe(1);
+    // All three concurrent callers see the same migrated signal so any one
+    // of them is safe to enqueue the reembed (the lifecycle hook is the
+    // single producer in practice).
+    expect(results).toEqual([
+      { migrated: true },
+      { migrated: true },
+      { migrated: true },
+    ]);
+  });
+});
+
+describe("memory v2 qdrant — point count", () => {
+  beforeEach(resetState);
+  afterEach(resetState);
+
+  test("returns the approximate Qdrant count for the v2 collection", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.countResult = 1185;
+
+    const count = await countConceptPagePoints();
+
+    expect(count).toBe(1185);
+    expect(state.countCalls).toBe(1);
+  });
+
+  test("returns 0 when the count call fails (treated as needs-reembed)", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.countThrows = new Error("Qdrant unreachable");
+
+    const count = await countConceptPagePoints();
+
+    expect(count).toBe(0);
+    expect(state.countCalls).toBe(1);
+  });
 });
 
 describe("memory v2 qdrant — upsert", () => {
@@ -249,10 +516,65 @@ describe("memory v2 qdrant — upsert", () => {
       indices: [1, 2],
       values: [0.5, 0.5],
     });
+    // No summary vectors when caller didn't pass them — Qdrant accepts a
+    // partial named-vector subset, and pages without a frontmatter summary
+    // legitimately have nothing to embed on the summary side.
+    const vectorRecord = point.vector as unknown as Record<string, unknown>;
+    expect(vectorRecord.summary_dense).toBeUndefined();
+    expect(vectorRecord.summary_sparse).toBeUndefined();
     // Point ID is a UUID-shaped string derived from the slug.
     expect(point.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
+  });
+
+  test("upserts summary vectors alongside body vectors when both are provided", async () => {
+    state.collectionExistsBeforeCreate = true;
+
+    await upsertConceptPageEmbedding({
+      slug: "summarized-page",
+      dense: [0.1, 0.2, 0.3],
+      sparse: { indices: [1, 2], values: [0.5, 0.5] },
+      summary: {
+        dense: [0.4, 0.5, 0.6],
+        sparse: { indices: [3, 4], values: [0.7, 0.7] },
+      },
+      updatedAt: 1714000000000,
+    });
+
+    expect(state.upsertCalls).toHaveLength(1);
+    const [point] = state.upsertCalls[0].points;
+    const vectorRecord = point.vector as unknown as Record<string, unknown>;
+    expect(vectorRecord.dense).toEqual([0.1, 0.2, 0.3]);
+    expect(vectorRecord.sparse).toEqual({
+      indices: [1, 2],
+      values: [0.5, 0.5],
+    });
+    expect(vectorRecord.summary_dense).toEqual([0.4, 0.5, 0.6]);
+    expect(vectorRecord.summary_sparse).toEqual({
+      indices: [3, 4],
+      values: [0.7, 0.7],
+    });
+  });
+
+  test("omits summary vectors when the summary block is undefined", async () => {
+    // The grouped-shape signature enforces summary as a paired { dense, sparse }
+    // block; passing `undefined` (or omitting it) leaves the summary vectors off
+    // the point entirely so query-time fusion stays symmetric.
+    state.collectionExistsBeforeCreate = true;
+
+    await upsertConceptPageEmbedding({
+      slug: "no-summary",
+      dense: [0.1],
+      sparse: { indices: [1], values: [1] },
+      // summary intentionally omitted
+      updatedAt: 1,
+    });
+
+    const [point] = state.upsertCalls[0].points;
+    const vectorRecord = point.vector as unknown as Record<string, unknown>;
+    expect(vectorRecord.summary_dense).toBeUndefined();
+    expect(vectorRecord.summary_sparse).toBeUndefined();
   });
 
   test("two upserts for the same slug share the same point id (overwrites in place)", async () => {
@@ -357,8 +679,9 @@ describe("memory v2 qdrant — hybrid query", () => {
   beforeEach(resetState);
   afterEach(resetState);
 
-  test("runs both dense and sparse queries and returns per-channel scores", async () => {
+  test("runs all four channels (body dense/sparse + summary dense/sparse) and returns per-channel scores", async () => {
     state.collectionExistsBeforeCreate = true;
+    // Body channel hits.
     state.queryResponses.dense.push({
       points: [
         { score: 0.91, payload: { slug: "alice-prefers-vs-code" } },
@@ -371,6 +694,14 @@ describe("memory v2 qdrant — hybrid query", () => {
         { score: 3, payload: { slug: "bob-uses-zsh" } },
       ],
     });
+    // Summary channel hits — queue order is body-dense, body-sparse,
+    // summary-dense, summary-sparse, so push summaries after bodies.
+    state.queryResponses.dense.push({
+      points: [{ score: 0.81, payload: { slug: "alice-prefers-vs-code" } }],
+    });
+    state.queryResponses.sparse.push({
+      points: [{ score: 9, payload: { slug: "alice-prefers-vs-code" } }],
+    });
 
     const results = await hybridQueryConceptPages(
       [0.1, 0.2, 0.3],
@@ -378,14 +709,19 @@ describe("memory v2 qdrant — hybrid query", () => {
       5,
     );
 
-    // Both queries fired, with the same limit and the right `using`.
-    expect(state.queryCalls).toHaveLength(2);
+    // All four queries fired with the same limit and distinct `using`.
+    expect(state.queryCalls).toHaveLength(4);
     const usings = state.queryCalls.map((c) => c.using).sort();
-    expect(usings).toEqual(["dense", "sparse"]);
+    expect(usings).toEqual([
+      "dense",
+      "sparse",
+      "summary_dense",
+      "summary_sparse",
+    ]);
     expect(state.queryCalls.every((c) => c.limit === 5)).toBe(true);
     expect(state.queryCalls.every((c) => c.with_payload === true)).toBe(true);
 
-    // Each slug exposes both channel scores.
+    // Alice has hits on all four channels; bob is body-only.
     expect(results).toHaveLength(2);
     const alice = results.find((r) => r.slug === "alice-prefers-vs-code");
     const bob = results.find((r) => r.slug === "bob-uses-zsh");
@@ -393,6 +729,8 @@ describe("memory v2 qdrant — hybrid query", () => {
       slug: "alice-prefers-vs-code",
       denseScore: 0.91,
       sparseScore: 12,
+      summaryDenseScore: 0.81,
+      summarySparseScore: 9,
     });
     expect(bob).toEqual({
       slug: "bob-uses-zsh",
@@ -403,6 +741,8 @@ describe("memory v2 qdrant — hybrid query", () => {
 
   test("dense-only hits leave sparseScore undefined (and vice versa)", async () => {
     state.collectionExistsBeforeCreate = true;
+    // Body dense + sparse hits. Summary channels stay empty (no push) →
+    // they fall through to `{ points: [] }` and produce no summary scores.
     state.queryResponses.dense.push({
       points: [{ score: 0.7, payload: { slug: "dense-only" } }],
     });
@@ -420,8 +760,41 @@ describe("memory v2 qdrant — hybrid query", () => {
     const sparseOnly = results.find((r) => r.slug === "sparse-only");
     expect(denseOnly).toEqual({ slug: "dense-only", denseScore: 0.7 });
     expect(denseOnly?.sparseScore).toBeUndefined();
+    expect(denseOnly?.summaryDenseScore).toBeUndefined();
     expect(sparseOnly).toEqual({ slug: "sparse-only", sparseScore: 2 });
     expect(sparseOnly?.denseScore).toBeUndefined();
+    expect(sparseOnly?.summarySparseScore).toBeUndefined();
+  });
+
+  test("returns summary-channel scores when only the summary side hits", async () => {
+    // Page has no body hits but matches via the summary embedding —
+    // exercises the path where `simBatch` falls back to summary-only.
+    state.collectionExistsBeforeCreate = true;
+    // Body channels empty.
+    state.queryResponses.dense.push({ points: [] });
+    state.queryResponses.sparse.push({ points: [] });
+    // Summary channels hit.
+    state.queryResponses.dense.push({
+      points: [{ score: 0.6, payload: { slug: "summary-only" } }],
+    });
+    state.queryResponses.sparse.push({
+      points: [{ score: 4, payload: { slug: "summary-only" } }],
+    });
+
+    const results = await hybridQueryConceptPages(
+      [0.1],
+      { indices: [1], values: [1] },
+      5,
+    );
+
+    const summaryOnly = results.find((r) => r.slug === "summary-only");
+    expect(summaryOnly).toEqual({
+      slug: "summary-only",
+      summaryDenseScore: 0.6,
+      summarySparseScore: 4,
+    });
+    expect(summaryOnly?.denseScore).toBeUndefined();
+    expect(summaryOnly?.sparseScore).toBeUndefined();
   });
 
   test("does not use Qdrant-side RRF fusion (separate per-channel queries)", async () => {

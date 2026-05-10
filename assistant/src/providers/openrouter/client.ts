@@ -1,3 +1,4 @@
+import { ProviderError } from "../../util/errors.js";
 import { AnthropicProvider } from "../anthropic/client.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 import { isThinkingConfigEnabled } from "../thinking-config.js";
@@ -137,6 +138,13 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
           maxTokens: error.maxTokens,
           statusCode: error.statusCode,
           cause: error,
+        });
+      }
+      if (error instanceof ProviderError && error.provider !== this.name) {
+        throw new ProviderError(error.message, this.name, error.statusCode, {
+          cause: error.cause ?? error,
+          retryAfterMs: error.retryAfterMs,
+          abortReason: error.abortReason,
         });
       }
       throw error;

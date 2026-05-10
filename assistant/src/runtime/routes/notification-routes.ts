@@ -75,6 +75,7 @@ const EmitSignalParams = z.object({
   routingIntent: z
     .enum(["single_channel", "multi_channel", "all_channels"])
     .optional(),
+  conversationAffinityHint: z.record(z.string(), z.string()).optional(),
   dedupeKey: z.string().optional(),
   throwOnError: z.boolean().optional(),
 });
@@ -95,6 +96,7 @@ async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
     attentionHints: validated.attentionHints as AttentionHints,
     contextPayload: validated.contextPayload as Record<string, unknown>,
     routingIntent: validated.routingIntent,
+    conversationAffinityHint: validated.conversationAffinityHint,
     dedupeKey: validated.dedupeKey,
     throwOnError: validated.throwOnError,
   });

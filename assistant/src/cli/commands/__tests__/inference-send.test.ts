@@ -10,6 +10,7 @@
  *   - `--system-prompt` is passed through to the provider call
  *   - `--json` output format
  *   - `--model` override is passed through
+ *   - `--profile` is validated and threaded through as an `overrideProfile`
  *   - `llm send` produces the same result as `inference send`
  */
 
@@ -52,8 +53,20 @@ let lastSendMessageCall: {
   options?: SendMessageOptions;
 } | null = null;
 
+/** Captures the last `getConfiguredProvider` call for assertions. */
+let lastGetConfiguredProviderCall: {
+  callSite: string;
+  opts: { overrideProfile?: string } | undefined;
+} | null = null;
+
 /** Simulated stdin content for the next command run. */
 let mockStdinContent: string | null = null;
+
+/** Mock profile catalog returned by the mocked `getConfigReadOnly`. */
+let mockProfileCatalog: Record<string, unknown> = {
+  balanced: { modelId: "claude-test-1" },
+  "opus-thinking": { modelId: "claude-opus-4-7" },
+};
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -73,8 +86,13 @@ const mockProvider: Provider = {
 };
 
 mock.module("../../../providers/provider-send-message.js", () => ({
-  getConfiguredProvider: async () =>
-    mockProviderAvailable ? mockProvider : null,
+  getConfiguredProvider: async (
+    callSite: string,
+    opts?: { overrideProfile?: string },
+  ) => {
+    lastGetConfiguredProviderCall = { callSite, opts };
+    return mockProviderAvailable ? mockProvider : null;
+  },
   extractAllText: (response: ProviderResponse) => {
     return response.content
       .filter(
@@ -90,6 +108,16 @@ mock.module("../../../providers/provider-send-message.js", () => ({
     role: "user",
     content: [{ type: "text", text }],
   }),
+}));
+
+mock.module("../../../config/loader.js", () => ({
+  getConfig: () => ({ llm: { profiles: mockProfileCatalog } }),
+  getConfigReadOnly: () => ({ llm: { profiles: mockProfileCatalog } }),
+  loadConfig: () => ({ llm: { profiles: mockProfileCatalog } }),
+  loadRawConfig: () => ({}) as Record<string, unknown>,
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+  applyNestedDefaults: () => ({ llm: { profiles: mockProfileCatalog } }),
 }));
 
 mock.module("../../../util/logger.js", () => ({
@@ -201,7 +229,12 @@ beforeEach(() => {
     stopReason: "end_turn",
   };
   lastSendMessageCall = null;
+  lastGetConfiguredProviderCall = null;
   mockStdinContent = null;
+  mockProfileCatalog = {
+    balanced: { modelId: "claude-test-1" },
+    "opus-thinking": { modelId: "claude-opus-4-7" },
+  };
   process.exitCode = 0;
 });
 
@@ -215,6 +248,7 @@ describe("help text", () => {
     expect(stdout).toContain("send");
     expect(stdout).toContain("--system-prompt");
     expect(stdout).toContain("--model");
+    expect(stdout).toContain("--profile");
     expect(stdout).toContain("--max-tokens");
     expect(stdout).toContain("--json");
     expect(stdout).toContain("[message...]");
@@ -225,6 +259,7 @@ describe("help text", () => {
     expect(stdout).toContain("send");
     expect(stdout).toContain("--system-prompt");
     expect(stdout).toContain("--model");
+    expect(stdout).toContain("--profile");
     expect(stdout).toContain("--max-tokens");
     expect(stdout).toContain("--json");
     expect(stdout).toContain("[message...]");
@@ -435,6 +470,91 @@ describe("--max-tokens", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Invalid --max-tokens");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --profile override
+// ---------------------------------------------------------------------------
+
+describe("--profile override", () => {
+  test("threads valid profile through to getConfiguredProvider", async () => {
+    const { exitCode } = await runCommand([
+      "inference",
+      "send",
+      "--profile",
+      "opus-thinking",
+      "Hello",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastGetConfiguredProviderCall).toBeDefined();
+    expect(lastGetConfiguredProviderCall!.callSite).toBe("inference");
+    expect(lastGetConfiguredProviderCall!.opts?.overrideProfile).toBe(
+      "opus-thinking",
+    );
+  });
+
+  test("omits overrideProfile when --profile is not passed", async () => {
+    const { exitCode } = await runCommand(["inference", "send", "Hello"]);
+
+    expect(exitCode).toBe(0);
+    expect(lastGetConfiguredProviderCall).toBeDefined();
+    expect(lastGetConfiguredProviderCall!.opts?.overrideProfile).toBeUndefined();
+  });
+
+  test("rejects unknown profile with helpful error and lists available", async () => {
+    const { exitCode, stdout } = await runCommand([
+      "inference",
+      "send",
+      "--profile",
+      "nonexistent",
+      "--json",
+      "Hello",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('Profile "nonexistent" is not defined');
+    expect(parsed.error).toContain("balanced");
+    expect(parsed.error).toContain("opus-thinking");
+    // Provider should NOT have been resolved when validation fails.
+    expect(lastGetConfiguredProviderCall).toBeNull();
+  });
+
+  test("rejects unknown profile when no profiles are defined", async () => {
+    mockProfileCatalog = {};
+
+    const { exitCode, stdout } = await runCommand([
+      "inference",
+      "send",
+      "--profile",
+      "balanced",
+      "--json",
+      "Hello",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('Profile "balanced" is not defined');
+    expect(parsed.error).toContain("No profiles defined");
+  });
+
+  test("--profile works on the llm alias", async () => {
+    const { exitCode } = await runCommand([
+      "llm",
+      "send",
+      "--profile",
+      "balanced",
+      "Hello",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastGetConfiguredProviderCall!.opts?.overrideProfile).toBe(
+      "balanced",
+    );
   });
 });
 

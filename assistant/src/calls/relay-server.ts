@@ -66,6 +66,8 @@ import {
 } from "./speaker-identification.js";
 
 const log = getLogger("relay-server");
+const UUID_SHAPED_NAME =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 // ── ConversationRelay message types ──────────────────────────────────
 
@@ -610,6 +612,12 @@ export class RelayConnection {
         );
         this.startNameCapture(outcome.assistantId, outcome.fromNumber);
         return;
+      case "unverified_caller":
+        await this.handleUnverifiedCaller(
+          outcome.displayName,
+          outcome.isGuardian,
+        );
+        return;
       case "verification":
         if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
           this.controller.setTrustContext(
@@ -665,6 +673,35 @@ export class RelayConnection {
       to: msg.to,
       customParameters: safeCustomParameters,
     });
+  }
+
+  /** Speak verification guidance to a known-but-unverified caller, then disconnect. */
+  private async handleUnverifiedCaller(
+    displayName: string,
+    isGuardian: boolean,
+  ): Promise<void> {
+    recordCallEvent(this.callSessionId, "inbound_acl_unverified_caller", {
+      callSessionId: this.callSessionId,
+      isGuardian,
+    });
+    this.connectionState = "disconnecting";
+    updateCallSession(this.callSessionId, {
+      status: "failed",
+      endedAt: Date.now(),
+      lastError: "Inbound voice ACL: caller channel unverified",
+    });
+    const action = isGuardian
+      ? `To verify, open your assistant's contacts page, click Verify next to the phone channel, ` +
+        `and follow the prompts. Then call back once the verification session is active.`
+      : `Please reach out to the account guardian to start a new verification session, ` +
+        `then call back once the verification session is active.`;
+    const message =
+      `This number is registered as ${displayName}'s phone but has not been verified yet. ` +
+      action;
+    await speakSystemPrompt(this, message);
+    setTimeout(() => {
+      this.endSession("Inbound voice ACL: caller channel unverified");
+    }, getTtsPlaybackDelayMs());
   }
 
   /** Deny an inbound call with a TTS message and schedule disconnect. */
@@ -1615,7 +1652,11 @@ export class RelayConnection {
   private resolveAssistantLabel(): string | null {
     try {
       const name = getAssistantName();
-      return name?.trim() || null;
+      const trimmedName = name?.trim();
+      if (!trimmedName || UUID_SHAPED_NAME.test(trimmedName)) {
+        return null;
+      }
+      return trimmedName;
     } catch {
       return null;
     }

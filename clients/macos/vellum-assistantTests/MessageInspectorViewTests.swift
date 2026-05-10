@@ -23,7 +23,7 @@ final class MessageInspectorViewTests: XCTestCase {
         let emptyRequestToken = state.beginLoading(resetSelection: true)
         XCTAssertEqual(state.loadState, .loading)
 
-        state.finishLoading(with: .empty, requestToken: emptyRequestToken)
+        state.finishLoading(with: .loaded(makeResponse(logs: [])), requestToken: emptyRequestToken)
         XCTAssertEqual(state.loadState, .empty)
         XCTAssertNil(state.selectedLogID)
 
@@ -113,7 +113,7 @@ final class MessageInspectorViewTests: XCTestCase {
         XCTAssertNotNil(state.memoryRecall)
 
         let emptyToken = state.beginLoading(resetSelection: true)
-        state.finishLoading(with: .empty, requestToken: emptyToken)
+        state.finishLoading(with: .loaded(makeResponse(logs: [])), requestToken: emptyToken)
         XCTAssertNil(state.memoryRecall)
     }
 

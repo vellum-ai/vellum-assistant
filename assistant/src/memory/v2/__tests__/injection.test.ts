@@ -41,6 +41,7 @@ import {
 } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { z } from "zod";
 
 import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../../../config/types.js";
@@ -114,8 +115,11 @@ class MockQdrantClient {
     _name: string,
     params: { using: string; limit: number; filter?: unknown },
   ) {
-    const queue = state.queryResponses[params.using as "dense" | "sparse"];
-    return queue.shift() ?? { points: [] };
+    // The four-channel hybrid query fires body-dense, body-sparse,
+    // summary-dense, summary-sparse in order; both dense channels share
+    // the dense queue and both sparse channels share the sparse queue.
+    const channel = params.using.endsWith("sparse") ? "sparse" : "dense";
+    return state.queryResponses[channel].shift() ?? { points: [] };
   }
 }
 
@@ -177,6 +181,61 @@ mock.module("../../memory-v2-activation-log-store.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Page-store mock — pass-through with optional per-slug failure injection
+// ---------------------------------------------------------------------------
+//
+// Most tests want the real `readPage` (it walks the temp workspace seeded in
+// `beforeAll`). The error-isolation tests stage a slug whose `readPage` call
+// must throw — typically a Zod validation error mimicking the real-world
+// "unrecognized frontmatter key" failure that motivated this work. Tests
+// stage entries via `pageStoreState.failingSlugs` and reset in `resetState`.
+//
+// Bun's `mock.module` mutates the module's exports object in place, so
+// `realPageStore.readPage` AFTER the mock applies would resolve to the mock
+// itself — calling it would recurse. We capture the original function value
+// (not a property lookup) before installing the mock so the pass-through
+// path has a real reference to the underlying implementation.
+
+const realPageStoreModule = await import("../page-store.js");
+const realReadPage = realPageStoreModule.readPage;
+const pageStoreState = {
+  failingSlugs: new Map<string, Error>(),
+};
+mock.module("../page-store.js", () => ({
+  ...realPageStoreModule,
+  readPage: async (workspaceDir: string, slug: string) => {
+    const err = pageStoreState.failingSlugs.get(slug);
+    if (err) throw err;
+    return realReadPage(workspaceDir, slug);
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Activation-store mock — pass-through with optional `save` failure injection
+// ---------------------------------------------------------------------------
+//
+// One regression test forces `save` to throw to exercise the
+// `injectMemoryV2Block` outer try/finally — telemetry must still be flushed
+// (with `mode: "errored"`) and the error must propagate. Default behavior
+// delegates to the real activation-store so the rest of the suite stays
+// untouched. Same pre-mock function-capture trick as `readPage` above.
+
+const realActivationStoreModule = await import("../activation-store.js");
+const realSave = realActivationStoreModule.save;
+const activationStoreState = {
+  saveShouldThrow: false,
+};
+mock.module("../activation-store.js", () => ({
+  ...realActivationStoreModule,
+  save: async (...args: Parameters<typeof realSave>) => {
+    if (activationStoreState.saveShouldThrow) {
+      throw new Error("simulated activation-store save failure");
+    }
+    return realSave(...args);
+  },
+}));
+
+// ---------------------------------------------------------------------------
 // Workspace + DB setup
 // ---------------------------------------------------------------------------
 
@@ -228,6 +287,18 @@ ref_files:
   - images/demo.jpg
 ---
 Demo body content.`,
+  );
+  // A page WITH a `summary` in its frontmatter — exercises the summary-only
+  // injection path. Body is intentionally longer than the summary so tests
+  // can assert that the body is *not* injected when the summary is present.
+  writeFileSync(
+    join(tmpWorkspace, "memory", "concepts", "summarized-page.md"),
+    `---
+edges: []
+ref_files: []
+summary: A short prose description of the summarized page that retrieval injects in place of the full body.
+---
+Long-form body content that should NOT appear in the injection block when the page has a summary in frontmatter — the agent reads the file on demand instead.`,
   );
 });
 
@@ -308,14 +379,26 @@ function makeConfig(
 /**
  * Stage one set of dense/sparse hits, used uniformly by every `simBatch`
  * channel call (user/assistant/now) AND by the un-restricted ANN candidate
- * query. The candidate query runs first, then three simBatch calls, so we
- * push 4 dense + 4 sparse responses per turn.
+ * query. The candidate query runs first, then three simBatch calls — that's
+ * `channels` (= 4) logical hybrid queries. Each logical hybrid query now
+ * fires a four-channel fan-out (body dense, body sparse, summary dense,
+ * summary sparse), so we push 2 dense + 2 sparse responses per logical
+ * call to match the post-summary-vector wire pattern.
  *
  * Each entry is mapped to a hit per channel; pass `denseScore`/`sparseScore`
- * undefined to omit a slug from that channel.
+ * undefined to omit a slug from that channel. `summaryDenseScore` /
+ * `summarySparseScore` route to the summary-side channels — tests that
+ * don't care about summary scoring leave them undefined and the summary
+ * channel falls back to body-only behavior.
  */
 function stageTurn(
-  hits: Array<{ slug: string; denseScore?: number; sparseScore?: number }>,
+  hits: Array<{
+    slug: string;
+    denseScore?: number;
+    sparseScore?: number;
+    summaryDenseScore?: number;
+    summarySparseScore?: number;
+  }>,
   channels = 4,
 ): void {
   // Clear any leftovers from a prior turn before staging this one so unused
@@ -336,6 +419,22 @@ function stageTurn(
         .filter((h) => h.sparseScore !== undefined)
         .map((h) => ({ score: h.sparseScore, payload: { slug: h.slug } })),
     });
+    state.queryResponses.dense.push({
+      points: hits
+        .filter((h) => h.summaryDenseScore !== undefined)
+        .map((h) => ({
+          score: h.summaryDenseScore,
+          payload: { slug: h.slug },
+        })),
+    });
+    state.queryResponses.sparse.push({
+      points: hits
+        .filter((h) => h.summarySparseScore !== undefined)
+        .map((h) => ({
+          score: h.summarySparseScore,
+          payload: { slug: h.slug },
+        })),
+    });
   }
 }
 
@@ -347,6 +446,8 @@ function resetState(): void {
   skillState.entries.clear();
   telemetryState.recordCalls.length = 0;
   telemetryState.recordShouldThrow = false;
+  pageStoreState.failingSlugs.clear();
+  activationStoreState.saveShouldThrow = false;
   // The qdrant module caches its client; the cached client may be a
   // MockQdrantClient instance from a sibling test file. Reset to force a
   // fresh `new QdrantClient()` against this file's mock.
@@ -395,7 +496,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).not.toContain("<memory>");
     expect(result.block).not.toContain("</memory>");
     expect(result.block).not.toContain("## What I Remember Right Now");
-    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
     expect(result.block).toContain("VS Code");
 
     // State persisted: alice's activation is above epsilon and recorded;
@@ -484,10 +585,10 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.toInject).toEqual(["carol-jazz"]);
-    expect(result.block).toContain("### carol-jazz");
+    expect(result.block).toContain("# memory/concepts/carol-jazz.md");
     // The block only shows the new slug — alice's attachment lives on the
     // previous turn's user message.
-    expect(result.block).not.toContain("### alice-vscode");
+    expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
 
     const persisted = await hydrate(db, "conv-1");
     expect(persisted!.everInjected).toEqual([
@@ -532,12 +633,80 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.toInject).toEqual(["alice-vscode"]);
-    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
 
     const persisted = await hydrate(db, "conv-1");
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 2 },
     ]);
+  });
+
+  test("page with summary renders as path + summary, no body, with the CRITICAL header", async () => {
+    // Pages whose frontmatter carries a `summary` should inject only the
+    // summary text behind the path header — the agent reads the full file
+    // on demand. The leading `**CRITICAL:**` line tells the agent how to
+    // read the block.
+    stageTurn([{ slug: "summarized-page", denseScore: 0.9 }]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "tell me about the summarized page",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain(
+      "**CRITICAL:** These are page summaries. Read the page file if it looks relevant.",
+    );
+    expect(result.block).toContain(
+      "# memory/concepts/summarized-page.md\nA short prose description",
+    );
+    // Body is NOT in the block — the agent must follow up with a read tool.
+    expect(result.block).not.toContain("Long-form body content");
+    // Frontmatter is also omitted; the path header carries the identifying
+    // information by itself, and edges flow through the activation graph.
+    expect(result.block).not.toContain("---\nedges:");
+  });
+
+  test("mixed batch — summary page renders short, fallback page renders full", async () => {
+    // Both pages rank into top-K. summarized-page has a summary → short
+    // form. frontmatter-demo has no summary → full-page fallback. The
+    // single CRITICAL header sits at the top regardless.
+    stageTurn([
+      { slug: "summarized-page", denseScore: 0.95 },
+      { slug: "frontmatter-demo", denseScore: 0.85 },
+    ]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "show me everything",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.block).not.toBeNull();
+    // CRITICAL header appears exactly once.
+    const criticalCount = (
+      result.block!.match(/\*\*CRITICAL:\*\* These are page summaries\./g) ?? []
+    ).length;
+    expect(criticalCount).toBe(1);
+    // summarized-page → short form (path + summary, no body, no frontmatter).
+    expect(result.block).toContain("# memory/concepts/summarized-page.md\nA");
+    expect(result.block).not.toContain("Long-form body content");
+    // frontmatter-demo → full-page fallback (path + frontmatter + body).
+    expect(result.block).toContain(
+      "# memory/concepts/frontmatter-demo.md\n---\n",
+    );
+    expect(result.block).toContain("Demo body content.");
   });
 
   test("includes the page frontmatter (edges, ref_files) in each rendered section", async () => {
@@ -560,8 +729,12 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.block).not.toBeNull();
-    // Slug header is immediately followed by the frontmatter open delimiter.
-    expect(result.block).toContain("### frontmatter-demo\n---\n");
+    // Path header is immediately followed by the frontmatter open delimiter.
+    // The fallback path renders the full page (frontmatter + body) when the
+    // page has no `summary` field — `frontmatter-demo` predates the field.
+    expect(result.block).toContain(
+      "# memory/concepts/frontmatter-demo.md\n---\n",
+    );
     // Both fields render in YAML block style with their populated values.
     expect(result.block).toContain("edges:\n  - alice-vscode");
     expect(result.block).toContain("ref_files:\n  - images/demo.jpg");
@@ -589,19 +762,21 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.toInject).toEqual(["carol-jazz", "alice-vscode"]);
-    const carolIdx = result.block!.indexOf("### carol-jazz");
-    const aliceIdx = result.block!.indexOf("### alice-vscode");
+    const carolIdx = result.block!.indexOf("# memory/concepts/carol-jazz.md");
+    const aliceIdx = result.block!.indexOf("# memory/concepts/alice-vscode.md");
     expect(carolIdx).toBeGreaterThan(-1);
     expect(aliceIdx).toBeGreaterThan(-1);
     expect(carolIdx).toBeLessThan(aliceIdx);
   });
 
   test("persists sparse state — only slugs above epsilon survive", async () => {
-    // Carol scores high; alice/bob essentially zero. After saving, only
-    // carol should appear in the persisted state map.
+    // Carol scores high; alice essentially zero. After saving, only carol
+    // should appear in the persisted state map. denseScore is the raw
+    // Qdrant cosine in [-1, 1]; alice uses -1 so the post `(x+1)/2`
+    // unit-mapping pins her fused score to 0 — below epsilon.
     stageTurn([
       { slug: "carol-jazz", denseScore: 1.0 },
-      { slug: "alice-vscode", denseScore: 0.0 },
+      { slug: "alice-vscode", denseScore: -1.0 },
     ]);
     await injectMemoryV2Block({
       database: db,
@@ -692,7 +867,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).not.toContain("<memory>");
     expect(result.block).not.toContain("</memory>");
     expect(result.block).not.toContain("## What I Remember Right Now");
-    expect(result.block).not.toContain("### alice-vscode");
+    expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
     expect(result.block).toContain("### Skills You Can Use");
     expect(result.block).toContain(
       '- The "Example Skill A" skill (example-skill-a) is available. Helps with examples. → use skill_load to activate',
@@ -731,11 +906,13 @@ describe("injectMemoryV2Block", () => {
     );
     expect(result.block).not.toBeNull();
 
-    const aliceIdx = result.block!.indexOf("### alice-vscode");
+    const aliceHeaderIdx = result.block!.indexOf(
+      "# memory/concepts/alice-vscode.md",
+    );
     const skillsIdx = result.block!.indexOf("### Skills You Can Use");
-    expect(aliceIdx).toBeGreaterThan(-1);
+    expect(aliceHeaderIdx).toBeGreaterThan(-1);
     expect(skillsIdx).toBeGreaterThan(-1);
-    expect(aliceIdx).toBeLessThan(skillsIdx);
+    expect(aliceHeaderIdx).toBeLessThan(skillsIdx);
 
     expect(result.block).toContain(
       '- The "Example Skill A" skill (example-skill-a) is available. Helps with examples. → use skill_load to activate',
@@ -790,9 +967,10 @@ describe("injectMemoryV2Block", () => {
 
   test("skill slugs whose entry is missing from the cache are dropped silently", async () => {
     // The skill ranks into top-K but the in-process cache no longer knows
-    // its content (skill uninstalled mid-run). The render path drops it
-    // without surfacing it as a `missingSlugs` page-missing event — that
-    // status is reserved for on-disk concept pages, not catalog-derived
+    // its content (skill uninstalled mid-run, or a startup race where the
+    // Qdrant row landed before the skill cache was seeded). The render path
+    // drops it without surfacing it as a `missingSlugs` page-missing event —
+    // that status is reserved for on-disk concept pages, not catalog-derived
     // skill entries.
     stageTurn([{ slug: "skills/missing-skill", denseScore: 0.9 }]);
     // No `stageSkills` call — cache stays empty.
@@ -808,10 +986,16 @@ describe("injectMemoryV2Block", () => {
       config: makeConfig(),
     });
 
-    // `toInject` still records the slug (it ranked into top-K) but the
-    // block collapses to null because the only entry was a cache miss.
-    expect(result.toInject).toEqual(["skills/missing-skill"]);
+    // The skill is excluded from `toInject` (and `everInjected`) so future
+    // per-turn runs re-attempt the attach once the cache is populated.
+    // `block` collapses to null because the only candidate was a cache miss.
+    expect(result.toInject).toEqual([]);
     expect(result.block).toBeNull();
+
+    // Persisted `everInjected` must not record the missing skill — that
+    // would block retry on a later turn until compaction-driven eviction.
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([]);
   });
 
   test("returns null when both concept pages and skills are empty", async () => {
@@ -864,7 +1048,7 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.block).not.toBeNull();
-    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
     // No newly-injected slug — alice was already in everInjected.
     expect(result.toInject).toEqual([]);
 
@@ -900,9 +1084,9 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.block).not.toBeNull();
-    expect(result.block).toContain("### alice-vscode");
-    expect(result.block).toContain("### bob-coffee");
-    expect(result.block).toContain("### carol-jazz");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
+    expect(result.block).toContain("# memory/concepts/bob-coffee.md");
+    expect(result.block).toContain("# memory/concepts/carol-jazz.md");
     // The seeded directed edges (alice→bob, bob→alice, frontmatter-demo→alice)
     // mean alice has two incoming predecessors and bob has one, so directed
     // spread normalizes alice's activation more aggressively than bob's. The
@@ -1163,11 +1347,122 @@ describe("injectMemoryV2Block", () => {
     expect(telemetryState.recordCalls.length).toBe(0);
     expect(result.toInject).toEqual(["alice-vscode"]);
     expect(result.block).not.toBeNull();
-    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).toContain("# memory/concepts/alice-vscode.md");
 
     const persisted = await hydrate(db, "conv-1");
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 1 },
     ]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-page error isolation + on-throw telemetry
+  // ---------------------------------------------------------------------------
+
+  test("one slug's page-read failing isolates the error — other slugs still render and the corrupt slug records `status: corrupt`", async () => {
+    // Two slugs rank into top-K together. Carol's page reads cleanly; alice's
+    // `readPage` throws a ZodError mimicking the real "unrecognized
+    // frontmatter key" failure that motivated this work. Before the fix, the
+    // bare `Promise.all` rejected and the entire turn lost its block AND its
+    // activation log row. With per-page isolation, carol still renders and
+    // the activation log row marks alice as `corrupt` (telemetry remains
+    // observable for triage).
+    const zodErr = z.object({ x: z.string() }).safeParse({ x: 1 }).error!;
+    pageStoreState.failingSlugs.set("alice-vscode", zodErr);
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.95 },
+      { slug: "carol-jazz", denseScore: 0.9 },
+    ]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "music and editors",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // (a) Block is non-null and contains content from the OTHER slug; alice
+    // is dropped from the rendered block but does not poison the batch.
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain("# memory/concepts/carol-jazz.md");
+    expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
+
+    // (b) Activation log row exists with carol `injected` and alice
+    // `corrupt`. Status `corrupt` is reserved for read-time throws and is
+    // distinct from `page_missing` (which is null-return / file vanished).
+    expect(telemetryState.recordCalls.length).toBe(1);
+    const row = telemetryState.recordCalls[0] as {
+      mode: string;
+      concepts: Array<{ slug: string; status: string }>;
+    };
+    expect(row.mode).toBe("per-turn");
+    const byslug = new Map(row.concepts.map((c) => [c.slug, c]));
+    expect(byslug.get("alice-vscode")!.status).toBe("corrupt");
+    expect(byslug.get("carol-jazz")!.status).toBe("injected");
+
+    // (c) Both slugs land in `toInject` and `everInjected` — same handling
+    // as `page_missing` (see the phantom-slug test): the slug was attempted
+    // this turn, telemetry records the outcome, and we don't keep re-trying
+    // a stale Qdrant / edge-index entry on every subsequent turn.
+    expect(new Set(result.toInject)).toEqual(
+      new Set(["alice-vscode", "carol-jazz"]),
+    );
+    const persisted = await hydrate(db, "conv-1");
+    const everInjectedSlugs = persisted!.everInjected.map((e) => e.slug);
+    expect(new Set(everInjectedSlugs)).toEqual(
+      new Set(["alice-vscode", "carol-jazz"]),
+    );
+  });
+
+  test("a throw before renderInjectionBlock still flushes telemetry as `mode: errored` and re-throws", async () => {
+    // The activation-state save throws — the most realistic non-render
+    // failure mode (transient SQLite write error mid-injection). The
+    // `injectMemoryV2Block` outer try/finally must (a) flush an activation
+    // log row tagged `mode: "errored"` so silent failures stay observable
+    // in the database, and (b) re-throw so callers (e.g. `prepareMemory`'s
+    // outer catch) see the original error and can degrade gracefully.
+    activationStoreState.saveShouldThrow = true;
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    let threw: unknown = undefined;
+    try {
+      await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-1",
+        currentTurn: 1,
+        userMessage: "Alice's editor",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig(),
+      });
+    } catch (err) {
+      threw = err;
+    }
+
+    // The original error propagates to the caller.
+    expect(threw).toBeInstanceOf(Error);
+    expect((threw as Error).message).toContain(
+      "simulated activation-store save failure",
+    );
+
+    // A telemetry row was still written, tagged `errored`. `concepts` is
+    // empty because the throw fired before the row-builder ran — that's
+    // expected and documented as part of the contract.
+    expect(telemetryState.recordCalls.length).toBe(1);
+    const row = telemetryState.recordCalls[0] as {
+      mode: string;
+      conversationId: string;
+      turn: number;
+      concepts: unknown[];
+    };
+    expect(row.mode).toBe("errored");
+    expect(row.conversationId).toBe("conv-1");
+    expect(row.turn).toBe(1);
+    expect(row.concepts).toEqual([]);
   });
 });

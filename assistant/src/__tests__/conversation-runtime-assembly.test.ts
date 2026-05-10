@@ -1,11 +1,20 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
-
-// This test exercises v1 conversation routing. The `memory-v2-enabled` flag
-// (registry default `true`) flips memory routing to v2 — disable it here so
-// the v1 paths under test stay active.
-_setOverridesForTesting({ "memory-v2-enabled": false });
+// This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
+// `true`) makes the PKB injector go silent — force it off here so the v1
+// injection chain assertions stay meaningful.
+const realLoaderForAssemblyTest = await import("../config/loader.js");
+const realGetConfigForAssemblyTest = realLoaderForAssemblyTest.getConfig;
+mock.module("../config/loader.js", () => ({
+  ...realLoaderForAssemblyTest,
+  getConfig: () => {
+    const real = realGetConfigForAssemblyTest();
+    return {
+      ...real,
+      memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
+    };
+  },
+}));
 
 // PKB search is mocked so the reminder-hints tests can assert behavior
 // without standing up Qdrant. The mock returns whatever is staged in
@@ -1436,6 +1445,64 @@ describe("buildUnifiedTurnContextBlock", () => {
     const text = buildUnifiedTurnContextBlock(options);
     expect(text).toContain("time_since_last_message: yesterday");
     expect(text).toContain("canonical_actor_identity: user-1");
+  });
+
+  test("timezone mismatch: omits extra lines when there is no manual override", () => {
+    const text = buildUnifiedTurnContextBlock({
+      timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
+      clientTimezone: "America/New_York",
+      detectedTimezone: "America/New_York",
+    });
+
+    expect(text).toContain(
+      "current_time: 2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
+    );
+    expect(text).not.toContain("configured_user_timezone:");
+    expect(text).not.toContain("client_device_timezone:");
+    expect(text).not.toContain("timezone_update_available:");
+  });
+
+  test("timezone mismatch: omits extra lines when configured and client timezone match", () => {
+    const text = buildUnifiedTurnContextBlock({
+      timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
+      configuredUserTimezone: "America/New_York",
+      clientTimezone: "America/New_York",
+      detectedTimezone: "America/New_York",
+    });
+
+    expect(text).not.toContain("configured_user_timezone:");
+    expect(text).not.toContain("client_device_timezone:");
+    expect(text).not.toContain("timezone_update_available:");
+  });
+
+  test("timezone mismatch: emits configured and client device timezone when they differ", () => {
+    const text = buildUnifiedTurnContextBlock({
+      timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
+      configuredUserTimezone: "America/New_York",
+      clientTimezone: "America/Los_Angeles",
+      detectedTimezone: "America/Los_Angeles",
+    });
+
+    expect(text).toContain("configured_user_timezone: America/New_York");
+    expect(text).toContain("client_device_timezone: America/Los_Angeles");
+  });
+
+  test("timezone mismatch: emits CLI affordance only in mismatch case", () => {
+    const mismatchText = buildUnifiedTurnContextBlock({
+      timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
+      configuredUserTimezone: "America/New_York",
+      clientTimezone: "America/Los_Angeles",
+    });
+    const matchingText = buildUnifiedTurnContextBlock({
+      timestamp: "2026-04-02 (Thursday) 08:00:00 -04:00 (America/New_York)",
+      configuredUserTimezone: "America/New_York",
+      clientTimezone: "America/New_York",
+    });
+
+    expect(mismatchText).toContain(
+      'timezone_update_available: after explicit user confirmation, persist client_device_timezone with `assistant config set ui.userTimezone "America/Los_Angeles"`',
+    );
+    expect(matchingText).not.toContain("timezone_update_available:");
   });
 });
 

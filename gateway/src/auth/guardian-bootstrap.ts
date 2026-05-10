@@ -98,7 +98,9 @@ interface GuardianLookupRow {
  * Find the existing guardian contact for the "vellum" channel.
  * Mirrors assistant's `findGuardianForChannel("vellum")`.
  */
-async function findVellumGuardian(): Promise<{ principalId: string } | null> {
+export async function findVellumGuardian(): Promise<{
+  principalId: string;
+} | null> {
   const rows = await assistantDbQuery<GuardianLookupRow>(
     `SELECT c.id AS contact_id, c.principal_id
      FROM contacts c

@@ -106,6 +106,14 @@ import {
   createBackupSnapshotHandler,
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
+import {
+  startVoiceApprovalSync,
+  stopVoiceApprovalSync,
+} from "./verification/voice-approval-sync.js";
+import {
+  startOutboundVoiceVerificationSync,
+  stopOutboundVoiceVerificationSync,
+} from "./verification/outbound-voice-verification-sync.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
@@ -417,7 +425,9 @@ async function main() {
 
   const audioProxy = createAudioProxyHandler(config);
 
-  const backupDeps = { assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl };
+  const backupDeps = {
+    assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
+  };
   const handleListBackups = createListBackupsHandler(backupDeps);
   const handleCreateBackup = createBackupSnapshotHandler(backupDeps);
 
@@ -635,6 +645,13 @@ async function main() {
       handler: (req, params) =>
         contactsControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
     },
+    {
+      path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req, params) =>
+        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
+    },
     // ── Contacts/invites control plane ──
     {
       path: "/v1/contacts/invites",
@@ -671,7 +688,15 @@ async function main() {
     {
       // Keep DELETE on the invite collection unsupported; only /invites/:id
       // should revoke an invite.
-      path: /^\/v1\/contacts\/(?!invites$)([^/]+)$/,
+      path: /^\/v1\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (_req, params) =>
+        contactsControlPlaneProxy.handleDeleteContact(params[0]),
+    },
+    {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
       method: "DELETE",
       auth: "edge",
       handler: (_req, params) =>
@@ -707,8 +732,8 @@ async function main() {
       path: "/v1/guardian/reset-bootstrap",
       method: "POST",
       auth: "none",
-      handler: (_req, _params, getClientIp) =>
-        channelVerificationSessionProxy.handleResetBootstrap(getClientIp()),
+      handler: (req, _params, getClientIp) =>
+        channelVerificationSessionProxy.handleResetBootstrap(getClientIp(), req),
     },
     {
       path: "/v1/channel-verification-sessions",
@@ -1516,15 +1541,13 @@ async function main() {
 
     // ── Route table dispatch ──
     try {
-      const response = router(req, url, resolveClientIp, svr);
+      const response = await router(req, url, resolveClientIp, svr);
       if (response !== null) {
         if (extensionOrigin) {
-          const resolved = await response;
-          return withExtensionCorsHeaders(resolved, extensionOrigin);
+          return withExtensionCorsHeaders(response, extensionOrigin);
         }
         if (webviewOrigin) {
-          const resolved = await response;
-          return withCorsHeaders(resolved, webviewOrigin);
+          return withCorsHeaders(response, webviewOrigin);
         }
         return response;
       }
@@ -1544,7 +1567,8 @@ async function main() {
             headers: { "Retry-After": String(err.retryAfterSecs) },
           },
         );
-        if (extensionOrigin) return withExtensionCorsHeaders(body, extensionOrigin);
+        if (extensionOrigin)
+          return withExtensionCorsHeaders(body, extensionOrigin);
         return withCorsHeaders(body, webviewOrigin!);
       }
       log.error({ err }, "Unhandled gateway error");
@@ -1552,7 +1576,8 @@ async function main() {
         { error: "Internal server error" },
         { status: 500 },
       );
-      if (extensionOrigin) return withExtensionCorsHeaders(errBody, extensionOrigin);
+      if (extensionOrigin)
+        return withExtensionCorsHeaders(errBody, extensionOrigin);
       return withCorsHeaders(errBody, webviewOrigin!);
     }
 
@@ -1560,7 +1585,8 @@ async function main() {
       { error: "Not found", source: "gateway" },
       { status: 404 },
     );
-    if (extensionOrigin) return withExtensionCorsHeaders(notFound, extensionOrigin);
+    if (extensionOrigin)
+      return withExtensionCorsHeaders(notFound, extensionOrigin);
     if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
     return notFound;
   }
@@ -1709,7 +1735,10 @@ async function main() {
               sourceChannel: "slack",
               externalUserId: normalized.event.actor.actorExternalId,
               ...(normalized.event.source.chatType === "im"
-                ? { externalChatId: normalized.event.message.conversationExternalId }
+                ? {
+                    externalChatId:
+                      normalized.event.message.conversationExternalId,
+                  }
                 : {}),
               displayName: normalized.event.actor.displayName,
               username: normalized.event.actor.username,
@@ -2049,6 +2078,9 @@ async function main() {
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
 
+  startVoiceApprovalSync();
+  startOutboundVoiceVerificationSync();
+
   const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();
 
@@ -2095,6 +2127,8 @@ async function main() {
     const shutdownTasks: Promise<void>[] = [];
     sleepWakeDetector.stop();
     backupWorkerHandle.stop();
+    stopVoiceApprovalSync();
+    stopOutboundVoiceVerificationSync();
     credentialWatcher.stop();
     configFileWatcher.stop();
     avatarSyncWatcher.stop();

@@ -65,7 +65,15 @@ import { unwindMainAgentOpusSeedMigration } from "./064-unwind-main-agent-opus-s
 import { bumpStaleHeartbeatIntervalMigration } from "./065-bump-stale-heartbeat-interval.js";
 import { seedHeartbeatCallsiteCostDefaultMigration } from "./066-seed-heartbeat-callsite-cost-default.js";
 import { releaseNotesSafeStorageLimitsMigration } from "./067-release-notes-safe-storage-limits.js";
-import { homeFeedNotificationOnlyMigration } from "./068-home-feed-notification-only.js";
+import { releaseNotesLocalTimezoneMigration } from "./068-release-notes-local-timezone.js";
+import { seedOnboardingThreadsMigration } from "./069-seed-onboarding-threads.js";
+import { memoryV2SummarySchemaRebuildMigration } from "./070-memory-v2-summary-schema-rebuild.js";
+import { removeSafeStorageReleaseNoteMigration } from "./071-remove-safe-storage-release-note.js";
+import { seedReplySuggestionCallsiteMigration } from "./072-seed-reply-suggestion-callsite.js";
+import { repairRecallCallsiteEmptyProfileMigration } from "./073-repair-recall-callsite-empty-profile.js";
+import { dropDeprecatedSecretDetectionKeysMigration } from "./074-drop-deprecated-secret-detection-keys.js";
+import { memoryV2Bm25BDefaultReembedMigration } from "./075-memory-v2-bm25-b-default-reembed.js";
+import { homeFeedNotificationOnlyMigration } from "./076-home-feed-notification-only.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -142,5 +150,13 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   bumpStaleHeartbeatIntervalMigration,
   seedHeartbeatCallsiteCostDefaultMigration,
   releaseNotesSafeStorageLimitsMigration,
+  releaseNotesLocalTimezoneMigration,
+  seedOnboardingThreadsMigration,
+  memoryV2SummarySchemaRebuildMigration,
+  removeSafeStorageReleaseNoteMigration,
+  seedReplySuggestionCallsiteMigration,
+  repairRecallCallsiteEmptyProfileMigration,
+  dropDeprecatedSecretDetectionKeysMigration,
+  memoryV2Bm25BDefaultReembedMigration,
   homeFeedNotificationOnlyMigration,
 ];

@@ -2,14 +2,13 @@
  * Route handlers for filing management.
  *
  * `available` reflects whether the filing service is the active background
- * memory job for this instance. When the `memory-v2-enabled` flag is on,
+ * memory job for this instance. When `config.memory.v2.enabled` is true,
  * filing yields to the consolidation job (see consolidation-routes.ts) and
  * returns `available: false` so the UI can hide the row.
  */
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { FilingService } from "../../filing/filing-service.js";
 import { getLogger } from "../../util/logger.js";
@@ -19,7 +18,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 const log = getLogger("filing-routes");
 
 function isFilingAvailable(): boolean {
-  return !isAssistantFeatureFlagEnabled("memory-v2-enabled", getConfig());
+  return !getConfig().memory.v2.enabled;
 }
 
 // ---------------------------------------------------------------------------

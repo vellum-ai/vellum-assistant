@@ -275,4 +275,106 @@ public final class BillingService {
 
         return checkoutURL
     }
+
+    /// Fetch the current organization's subscription state.
+    public func getSubscription() async throws -> SubscriptionResponse {
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/organizations/billing/subscription/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
+            throw PlatformAPIError.authenticationRequired
+        }
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request GET organizations/billing/subscription/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            return try JSONDecoder().decode(SubscriptionResponse.self, from: data)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    /// Fetch the static plan catalog (Base + Pro).
+    public func getPlanCatalog() async throws -> PlanCatalogResponse {
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/organizations/billing/plans/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
+            throw PlatformAPIError.authenticationRequired
+        }
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request GET organizations/billing/plans/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            return try JSONDecoder().decode(PlanCatalogResponse.self, from: data)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
 }

@@ -26,6 +26,8 @@ const BASE_RECONNECT_DELAY_MS = 500;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const RECONNECT_JITTER_RATIO = 0.5;
 const VELAY_POLICY_CLOSE_CODE = 4008;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_READ_TIMEOUT_MS = 60_000;
 
 export type WebSocketConstructorWithOptions = {
   new (
@@ -54,6 +56,10 @@ export type VelayTunnelClientOptions = {
     jitterRatio?: number;
     random?: () => number;
   };
+  heartbeat?: {
+    intervalMs?: number;
+    readTimeoutMs?: number;
+  };
   timerApi?: TimerApi;
 };
 
@@ -70,12 +76,17 @@ export class VelayTunnelClient {
   private readonly maxReconnectDelayMs: number;
   private readonly reconnectJitterRatio: number;
   private readonly random: () => number;
+  private readonly heartbeatIntervalMs: number;
+  private readonly heartbeatReadTimeoutMs: number;
   private readonly timerApi: TimerApi;
   private ws: WebSocket | null = null;
   private running = false;
   private connecting = false;
   private reconnectAttempt = 0;
   private reconnectTimer: unknown = null;
+  private heartbeatTimer: unknown = null;
+  private readTimeoutTimer: unknown = null;
+  private peerHeartbeatConfirmed = false;
   private publishedPublicBaseUrl: string | undefined;
   private unsubscribeConfigInvalidation: (() => void) | undefined;
 
@@ -94,6 +105,10 @@ export class VelayTunnelClient {
     this.reconnectJitterRatio =
       options.reconnect?.jitterRatio ?? RECONNECT_JITTER_RATIO;
     this.random = options.reconnect?.random ?? Math.random;
+    this.heartbeatIntervalMs =
+      options.heartbeat?.intervalMs ?? HEARTBEAT_INTERVAL_MS;
+    this.heartbeatReadTimeoutMs =
+      options.heartbeat?.readTimeoutMs ?? HEARTBEAT_READ_TIMEOUT_MS;
     this.timerApi = options.timerApi ?? defaultTimerApi;
   }
 
@@ -132,6 +147,7 @@ export class VelayTunnelClient {
       this.timerApi.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.clearHeartbeat();
     const ws = this.ws;
     this.ws = null;
     this.webSocketBridge.closeAll();
@@ -213,6 +229,7 @@ export class VelayTunnelClient {
       ws.addEventListener("open", () => {
         if (this.ws !== ws || !this.running) return;
         log.info("Velay tunnel connected");
+        this.startHeartbeat(ws);
       });
 
       ws.addEventListener("message", (event) => {
@@ -255,6 +272,17 @@ export class VelayTunnelClient {
       return;
     }
 
+    if (
+      frame.type === VELAY_FRAME_TYPES.heartbeat &&
+      !this.peerHeartbeatConfirmed
+    ) {
+      this.peerHeartbeatConfirmed = true;
+      log.info("Velay peer confirmed heartbeat support");
+    }
+    if (this.peerHeartbeatConfirmed) {
+      this.resetReadTimeout(originWs);
+    }
+
     switch (frame.type) {
       case VELAY_FRAME_TYPES.registered:
         await this.handleRegisteredFrame(frame, originWs, platformAssistantId);
@@ -266,6 +294,8 @@ export class VelayTunnelClient {
       case VELAY_FRAME_TYPES.websocketMessage:
       case VELAY_FRAME_TYPES.websocketClose:
         this.webSocketBridge.handleFrame(frame);
+        return;
+      case VELAY_FRAME_TYPES.heartbeat:
         return;
       default:
         log.debug({ type: frame.type }, "Ignoring unsupported Velay frame");
@@ -338,6 +368,7 @@ export class VelayTunnelClient {
     if (this.ws !== ws) return;
     this.ws = null;
     this.connecting = false;
+    this.clearHeartbeat();
     this.webSocketBridge.closeAll();
     log.info(
       { code: event.code, reason: event.reason },
@@ -354,6 +385,7 @@ export class VelayTunnelClient {
     if (this.ws !== ws) return;
     this.ws = null;
     this.connecting = false;
+    this.clearHeartbeat();
     this.webSocketBridge.closeAll();
     closeWebSocket(ws, code, reason);
     this.clearPublishedPublicBaseUrlThenReconnect();
@@ -384,6 +416,57 @@ export class VelayTunnelClient {
     const ws = this.ws;
     if (!this.running || !ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(frame));
+  }
+
+  private startHeartbeat(ws: WebSocket): void {
+    this.clearHeartbeat();
+    if (this.heartbeatIntervalMs > 0) this.scheduleHeartbeatSend(ws);
+  }
+
+  private clearHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      this.timerApi.clearTimeout(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.readTimeoutTimer) {
+      this.timerApi.clearTimeout(this.readTimeoutTimer);
+      this.readTimeoutTimer = null;
+    }
+    this.peerHeartbeatConfirmed = false;
+  }
+
+  private scheduleHeartbeatSend(ws: WebSocket): void {
+    if (this.heartbeatTimer) {
+      this.timerApi.clearTimeout(this.heartbeatTimer);
+    }
+    this.heartbeatTimer = this.timerApi.setTimeout(() => {
+      this.heartbeatTimer = null;
+      if (
+        this.ws !== ws ||
+        !this.running ||
+        ws.readyState !== WebSocket.OPEN
+      ) {
+        return;
+      }
+      this.sendFrame({ type: VELAY_FRAME_TYPES.heartbeat });
+      this.scheduleHeartbeatSend(ws);
+    }, this.heartbeatIntervalMs);
+  }
+
+  private resetReadTimeout(ws: WebSocket): void {
+    if (this.heartbeatReadTimeoutMs <= 0) return;
+    if (this.readTimeoutTimer) {
+      this.timerApi.clearTimeout(this.readTimeoutTimer);
+    }
+    this.readTimeoutTimer = this.timerApi.setTimeout(() => {
+      this.readTimeoutTimer = null;
+      if (this.ws !== ws || !this.running) return;
+      log.warn(
+        { timeoutMs: this.heartbeatReadTimeoutMs },
+        "Velay tunnel heartbeat read-timeout expired; forcing reconnect",
+      );
+      this.disconnectActiveWebSocket(ws, 1000, "heartbeat read timeout");
+    }, this.heartbeatReadTimeoutMs);
   }
 
   private scheduleReconnect(): void {

@@ -192,6 +192,66 @@ describe("host.events.publish", () => {
 
     client.close();
   });
+
+  test.each([
+    "host_bash_request",
+    "host_bash_cancel",
+    "host_file_request",
+    "host_file_cancel",
+    "host_browser_request",
+    "host_browser_cancel",
+    "host_cu_request",
+    "host_transfer_request",
+    "confirmation_request",
+    "secret_request",
+  ])("rejects blocked event type: %s", async (blockedType) => {
+    const client = await openClient();
+    const event = {
+      id: "evt-blocked",
+      emittedAt: new Date().toISOString(),
+      message: { type: blockedType },
+    };
+    client.send({
+      id: "req-blocked",
+      method: "host.events.publish",
+      params: { event },
+    });
+
+    const frame = await client.nextFrame();
+    expect("error" in frame && frame.error).toContain("cannot publish");
+
+    client.close();
+  });
+
+  test("allows non-blocked event types through", async () => {
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (evt) => { received.push(evt); },
+    });
+
+    try {
+      const client = await openClient();
+      const event = {
+        id: "evt-ok",
+        emittedAt: new Date().toISOString(),
+        message: { type: "skill_custom_event", data: "hello" },
+      };
+      client.send({
+        id: "req-ok",
+        method: "host.events.publish",
+        params: { event },
+      });
+
+      const frame = await client.nextFrame();
+      expect("result" in frame && frame.result).toEqual({ published: true });
+      expect(received).toHaveLength(1);
+
+      client.close();
+    } finally {
+      subscription.dispose();
+    }
+  });
 });
 
 describe("host.events.buildEvent", () => {

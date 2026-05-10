@@ -6,7 +6,7 @@ import Foundation
 /// Values: `local`, `dev`, `test`, `staging`, `production`.
 /// Falls back to `.production` when the variable is unset (e.g. in unit
 /// tests or when launched outside the normal build pipeline).
-public enum VellumEnvironment: String {
+public enum VellumEnvironment: String, CaseIterable {
     case local
     case dev
     case test

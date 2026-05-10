@@ -3,7 +3,11 @@ import { dirname, join } from "node:path";
 
 import { ensureDir, readTextFileSync } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
-import type { WorkspaceMigration, WorkspaceMigrationStatus } from "./types.js";
+import type {
+  MigrationRunContext,
+  WorkspaceMigration,
+  WorkspaceMigrationStatus,
+} from "./types.js";
 
 const log = getLogger("workspace-migrations");
 
@@ -76,6 +80,13 @@ export async function runWorkspaceMigrations(
     seen.add(m.id);
   }
 
+  // Detect a brand-new workspace: no checkpoint file existed before this run.
+  // Captured before loadCheckpoints so seeding migrations can distinguish a
+  // first-ever boot from an upgrade where the user may have cleared seeded files.
+  const ctx: MigrationRunContext = {
+    isNewWorkspace: readTextFileSync(getCheckpointPath(workspaceDir)) == null,
+  };
+
   const checkpoints = loadCheckpoints(workspaceDir);
 
   for (const [id, entry] of Object.entries(checkpoints.applied)) {
@@ -104,7 +115,7 @@ export async function runWorkspaceMigrations(
     saveCheckpoints(workspaceDir, checkpoints);
 
     try {
-      await migration.run(workspaceDir);
+      await migration.run(workspaceDir, ctx);
     } catch (error) {
       log.error(
         { migrationId: migration.id, error },

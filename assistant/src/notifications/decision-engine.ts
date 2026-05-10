@@ -35,6 +35,7 @@ import {
   composeFallbackCopy,
   hasAccessRequestInstructions,
   hasInviteFlowDirective,
+  looksLikeIntermediaryInstruction,
 } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
@@ -127,11 +128,13 @@ function buildSystemPrompt(
     ``,
     `Copy guidelines (three distinct outputs):`,
     `- \`title\` and \`body\` are for native notification popups (e.g. vellum desktop/mobile) — keep them short and glanceable (title ≤ 8 words, body ≤ 2 sentences).`,
+    `  - Write popup copy as final copy for the guardian or recipient. Do not write instructions for the assistant or another intermediary.`,
     `- \`deliveryText\` is the channel-native message for chat channels (e.g. telegram). It must read naturally as a standalone message.`,
     `  - Do not prepend mechanical labels like "Conversation:".`,
     `  - Do not mention channel or transport names (e.g. Telegram, Slack, email) unless the event context explicitly requires it.`,
     `  - Do not repeat title/body verbatim unless that repetition is truly necessary.`,
     `  - Avoid meta-send phrasing (e.g. "I'd like to send a notification", "May I go ahead with that?"). Write the recipient-facing message directly.`,
+    `  - Avoid intermediary-instruction phrasing like "consider telling the guardian", "ask the recipient to", or "the assistant should remind them". Rewrite it as final copy the recipient can act on directly.`,
     `  - For telegram: 1-2 concise sentences.`,
     `- \`conversationSeedMessage\` is the opening message in the internal notification conversation — it can be richer and more contextual.`,
     `  - For vellum (desktop): 2-4 short sentences with useful context and clear next step if action is required.`,
@@ -664,6 +667,47 @@ function enforceAccessRequestInstructions(
   };
 }
 
+function enforceHeartbeatAlertCopy(
+  decision: NotificationDecision,
+  signal: NotificationSignal,
+): NotificationDecision {
+  if (signal.sourceEventName !== "heartbeat.alert") return decision;
+  if (!decision.shouldNotify || decision.selectedChannels.length === 0)
+    return decision;
+
+  const fallbackCopy = composeFallbackCopy(signal, decision.selectedChannels);
+  const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
+    ...decision.renderedCopy,
+  };
+
+  for (const channel of decision.selectedChannels) {
+    const currentCopy = nextCopy[channel];
+    if (
+      currentCopy &&
+      !heartbeatCopyLooksLikeIntermediaryInstruction(currentCopy)
+    ) {
+      continue;
+    }
+    const safeCopy = fallbackCopy[channel];
+    if (!safeCopy) continue;
+    nextCopy[channel] = safeCopy;
+  }
+
+  return {
+    ...decision,
+    renderedCopy: nextCopy,
+  };
+}
+
+function heartbeatCopyLooksLikeIntermediaryInstruction(
+  copy: RenderedChannelCopy,
+): boolean {
+  return [copy.title, copy.body, copy.deliveryText].some(
+    (value) =>
+      typeof value === "string" && looksLikeIntermediaryInstruction(value),
+  );
+}
+
 function ensureAccessRequestInstructionsInCopy(
   copy: RenderedChannelCopy,
   requestCode: string,
@@ -754,6 +798,7 @@ export async function evaluateSignal(
     let decision = buildFallbackDecision(signal, availableChannels);
     decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
+    decision = enforceHeartbeatAlertCopy(decision, signal);
     decision = enforceGuardianCallConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
       decision,
@@ -783,6 +828,7 @@ export async function evaluateSignal(
 
   decision = enforceGuardianRequestCode(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
+  decision = enforceHeartbeatAlertCopy(decision, signal);
   decision = enforceGuardianCallConversationAffinity(decision, signal);
   decision = enforceConversationAffinity(
     decision,

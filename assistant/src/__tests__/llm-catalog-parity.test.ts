@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import { resolvePricing } from "../util/pricing.js";
 
 /**
  * Parity guard: daemon LLM provider catalog vs client LLM catalog JSON.
@@ -246,6 +247,62 @@ describe("LLM catalog parity: daemon vs client", () => {
       longContextPricingThresholdTokens: 272000,
       longContextMode: "native-model",
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // pricing.ts ↔ model-catalog.ts parity
+  //
+  // PROVIDER_PRICING in `assistant/src/util/pricing.ts` powers cost tracking;
+  // the `pricing` metadata in PROVIDER_CATALOG is what clients display. They
+  // must agree on base input/output rates per priced catalog entry, otherwise
+  // users see one number in settings/onboarding while accounting reports a
+  // different one.
+  // -----------------------------------------------------------------------
+
+  test("each priced catalog model has matching base rates in pricing.ts", () => {
+    // 100k tokens stays below every long-context tier threshold in the
+    // catalog (smallest threshold is 200k), so resolvePricing returns the
+    // base rate uncontaminated by tier selection.
+    const PROBE_TOKENS = 100_000;
+    const TOKENS_PER_MILLION = 1_000_000;
+
+    for (const provider of PROVIDER_CATALOG) {
+      for (const model of provider.models) {
+        if (!model.pricing) continue;
+
+        const inputResult = resolvePricing(
+          provider.id,
+          model.id,
+          PROBE_TOKENS,
+          0,
+        );
+        expect(
+          inputResult.pricingStatus,
+          `${provider.id}/${model.id} unpriced in pricing.ts`,
+        ).toBe("priced");
+        const inputRate =
+          (inputResult.estimatedCostUsd ?? 0) *
+          (TOKENS_PER_MILLION / PROBE_TOKENS);
+        expect(
+          inputRate,
+          `${provider.id}/${model.id} input rate drift`,
+        ).toBeCloseTo(model.pricing.inputPer1mTokens, 6);
+
+        const outputResult = resolvePricing(
+          provider.id,
+          model.id,
+          0,
+          PROBE_TOKENS,
+        );
+        const outputRate =
+          (outputResult.estimatedCostUsd ?? 0) *
+          (TOKENS_PER_MILLION / PROBE_TOKENS);
+        expect(
+          outputRate,
+          `${provider.id}/${model.id} output rate drift`,
+        ).toBeCloseTo(model.pricing.outputPer1mTokens, 6);
+      }
+    }
   });
 
   test("Gemini 2.5 Pro catalog context matches provider limits", () => {

@@ -42,28 +42,69 @@ set -euo pipefail
 # package-resolution failures (e.g. network timeouts downloading binary
 # artifacts). Retries up to MAX_ATTEMPTS times with a short delay.
 # ---------------------------------------------------------------------------
+restore_failed_dirty_spm_checkouts() {
+    local stdout_log="$1"
+    local stderr_log="$2"
+    local clients_dir
+    clients_dir="$(cd "$SCRIPT_DIR/.." && pwd)"
+    local checkouts_dir="$clients_dir/.build/checkouts"
+    local restored_dirty=1
+
+    [ -d "$checkouts_dir" ] || return 1
+
+    for checkout in "$checkouts_dir"/*; do
+        [ -d "$checkout/.git" ] || continue
+
+        if ! git -C "$checkout" diff --quiet --ignore-submodules -- 2>/dev/null || \
+           ! git -C "$checkout" diff --cached --quiet --ignore-submodules -- 2>/dev/null || \
+           [ -n "$(git -C "$checkout" ls-files --others --exclude-standard 2>/dev/null)" ]; then
+            local physical_checkout
+            physical_checkout="$(cd "$checkout" && pwd -P 2>/dev/null || printf '%s' "$checkout")"
+            if ! grep -Fq "$checkout/" "$stderr_log" 2>/dev/null && \
+               ! grep -Fq "$physical_checkout/" "$stderr_log" 2>/dev/null && \
+               ! grep -Fq "$checkout/" "$stdout_log" 2>/dev/null && \
+               ! grep -Fq "$physical_checkout/" "$stdout_log" 2>/dev/null; then
+                continue
+            fi
+            echo "warning: dirty SPM checkout detected, restoring pinned package source: $(basename "$checkout")"
+            git -C "$checkout" restore --source=HEAD --staged --worktree . 2>/dev/null || return 1
+            git -C "$checkout" clean -fd 2>/dev/null || return 1
+            restored_dirty=0
+        fi
+    done
+
+    return "$restored_dirty"
+}
+
 swift_with_retry() {
     local max_attempts="${SWIFT_RETRY_ATTEMPTS:-3}"
     local attempt=1
     local _pch_cleaned=0
     local _build_cleaned=0
     local _artifact_cleaned=0
+    local _dirty_checkout_cleaned=0
+    local _stdout_log
+    _stdout_log=$(mktemp)
     local _stderr_log
     _stderr_log=$(mktemp)
-    # FIFO for stderr streaming. Process substitutions (2> >(tee ...)) are
+    # FIFOs for output streaming. Process substitutions (2> >(tee ...)) are
     # not tracked by `wait` in bash < 4.4 (macOS ships 3.2), so tee could
-    # still be writing when grep reads the log. A named pipe with an explicit
-    # tee PID gives correct synchronization on all bash versions.
+    # still be writing when grep reads the logs. Named pipes with explicit
+    # tee PIDs give correct synchronization on all bash versions.
     local _fifo_dir
     _fifo_dir=$(mktemp -d)
-    local _fifo="$_fifo_dir/stderr.fifo"
-    mkfifo "$_fifo"
-    trap "rm -rf '$_stderr_log' '$_fifo_dir'" RETURN
+    local _stdout_fifo="$_fifo_dir/stdout.fifo"
+    local _stderr_fifo="$_fifo_dir/stderr.fifo"
+    mkfifo "$_stdout_fifo" "$_stderr_fifo"
+    trap "rm -rf '$_stdout_log' '$_stderr_log' '$_fifo_dir'" RETURN
     while true; do
         local _cmd_exit=0
-        tee "$_stderr_log" >&2 < "$_fifo" &
+        tee "$_stdout_log" < "$_stdout_fifo" &
+        local _stdout_tee_pid=$!
+        tee "$_stderr_log" >&2 < "$_stderr_fifo" &
         local _tee_pid=$!
-        "$@" 2>"$_fifo" || _cmd_exit=$?
+        "$@" >"$_stdout_fifo" 2>"$_stderr_fifo" || _cmd_exit=$?
+        wait "$_stdout_tee_pid"
         wait "$_tee_pid"
         if [ "$_cmd_exit" -eq 0 ]; then
             return 0
@@ -99,12 +140,21 @@ swift_with_retry() {
         # Common on hosted CI runners with rotated/partial caches.
         if [ "$_artifact_cleaned" -eq 0 ] && grep -q "already exists in file system" "$_stderr_log" 2>/dev/null; then
             echo "warning: stale SPM binary artifact detected, cleaning and retrying..."
-            sed -nE 's/.*: (\/[^[:space:]]+) already exists in file system.*/\1/p' "$_stderr_log" 2>/dev/null \
+            sed -nE 's/.*: (\/.+) already exists in file system.*/\1/p' "$_stderr_log" 2>/dev/null \
                 | sort -u \
                 | while IFS= read -r _stale_path; do
                     [ -n "$_stale_path" ] && rm -rf "$_stale_path"
                 done
             _artifact_cleaned=1
+            continue
+        fi
+        # SwiftPM checkouts are generated cache contents. If one is edited
+        # locally, SwiftPM keeps reusing it and can fail in dependency source
+        # before package resolution has a chance to restore the pinned version.
+        if [ "$_dirty_checkout_cleaned" -eq 0 ] && restore_failed_dirty_spm_checkouts "$_stdout_log" "$_stderr_log"; then
+            echo "warning: restored dirty SPM checkout cache, retrying..."
+            [ -d "$SPM_MODULE_CACHE" ] && rm -rf "$SPM_MODULE_CACHE"
+            _dirty_checkout_cleaned=1
             continue
         fi
         # Signal 5 (SIGTRAP) is a non-transient crash (e.g. WebKit
@@ -215,33 +265,109 @@ fi
 BUILD_VERSION="${BUILD_VERSION:-1}"
 
 # Signing identity (overridable via env for CI)
-# Auto-detect any valid code signing certificate in keychain
+# Auto-detect any valid code signing certificate in keychain.
+# macOS 26+ enforces Launch Constraints that reject ad-hoc signed apps with
+# security-sensitive entitlements — a real signing identity is required.
 if [ -z "${SIGN_IDENTITY:-}" ]; then
-    # Try Developer ID Application first (for distribution)
-    SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-        | grep "Developer ID Application" \
-        | head -1 \
-        | sed 's/.*"\(.*\)"/\1/' || true)
+    # Helper: list valid (non-revoked, non-expired) codesigning identities.
+    # Filters out entries flagged by the keychain as CSSMERR_TP_CERT_REVOKED,
+    # CSSMERR_TP_CERT_EXPIRED, or other CSSMERR errors, plus the summary line.
+    _valid_codesign_identities() {
+        security find-identity -v -p codesigning 2>/dev/null \
+            | grep -v -E "(CSSMERR_|valid identities found)" \
+            || true
+    }
 
-    # Fall back to Apple Development certificate (for local dev)
-    if [ -z "$SIGN_IDENTITY" ]; then
-        SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-            | grep -E "(Apple Development|Mac Developer)" \
-            | head -1 \
+    if command -v security >/dev/null 2>&1; then
+        # Try Developer ID Application first (for distribution)
+        SIGN_IDENTITY=$(_valid_codesign_identities \
+            | grep "Developer ID Application" | head -1 \
             | sed 's/.*"\(.*\)"/\1/' || true)
+
+        # Fall back to Apple Development certificate (for local dev)
+        if [ -z "$SIGN_IDENTITY" ]; then
+            SIGN_IDENTITY=$(_valid_codesign_identities \
+                | grep -E "(Apple Development|Mac Developer)" | head -1 \
+                | sed 's/.*"\(.*\)"/\1/' || true)
+        fi
+
+        # Fall back to any valid codesigning identity (e.g. self-signed)
+        if [ -z "$SIGN_IDENTITY" ]; then
+            SIGN_IDENTITY=$(_valid_codesign_identities \
+                | head -1 \
+                | sed 's/.*"\(.*\)"/\1/' || true)
+        fi
+
+        # No valid certificate found — create a self-signed one for local dev.
+        # macOS 26+ requires a non-empty codeSigningID for apps that claim
+        # security-sensitive entitlements (virtualization, audio-input, etc.).
+        # A self-signed cert satisfies this without Apple Developer enrollment.
+        if [ -z "$SIGN_IDENTITY" ] && command -v openssl >/dev/null 2>&1; then
+            _CERT_CN="Vellum Local Development"
+            # Check if we already created this cert in a previous build
+            if ! _valid_codesign_identities | grep -q "$_CERT_CN"; then
+                echo ""
+                echo "No codesigning certificate found in keychain."
+                echo "Creating self-signed certificate '$_CERT_CN' for local development..."
+                echo "(This is a one-time operation — the cert persists in your login keychain.)"
+                echo ""
+                _CERT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/vellum-cert.XXXXXX")
+                cat > "$_CERT_DIR/cert.conf" << 'CERTEOF'
+[req]
+distinguished_name = req_dn
+x509_extensions = codesign_ext
+prompt = no
+[req_dn]
+CN = Vellum Local Development
+[codesign_ext]
+keyUsage = critical, digitalSignature
+extendedKeyUsage = critical, codeSigning
+basicConstraints = critical, CA:false
+CERTEOF
+                if openssl req -x509 -newkey rsa:2048 \
+                    -keyout "$_CERT_DIR/key.pem" -out "$_CERT_DIR/cert.pem" \
+                    -days 3650 -nodes -config "$_CERT_DIR/cert.conf" 2>/dev/null && \
+                   openssl pkcs12 -export -in "$_CERT_DIR/cert.pem" \
+                    -inkey "$_CERT_DIR/key.pem" -out "$_CERT_DIR/cert.p12" \
+                    -passout pass: 2>/dev/null && \
+                   security import "$_CERT_DIR/cert.p12" \
+                    -k ~/Library/Keychains/login.keychain-db \
+                    -T /usr/bin/codesign -P "" 2>/dev/null; then
+                    echo "Certificate '$_CERT_CN' created and imported into login keychain."
+                    echo ""
+                else
+                    echo "Warning: Failed to create self-signed certificate." >&2
+                    echo "         You may need to create one manually or install an Apple Development cert." >&2
+                    echo ""
+                fi
+                rm -rf "$_CERT_DIR"
+            fi
+            # Pick up the newly-created (or previously-created) cert
+            SIGN_IDENTITY=$(_valid_codesign_identities \
+                | grep "$_CERT_CN" | head -1 \
+                | sed 's/.*"\(.*\)"/\1/' || true)
+        fi
     fi
 
-    # Fall back to any valid codesigning identity (e.g. self-signed)
-    if [ -z "$SIGN_IDENTITY" ]; then
-        SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-            | grep -v "valid identities found" \
-            | head -1 \
-            | sed 's/.*"\(.*\)"/\1/' || true)
-    fi
-
-    # Fall back to adhoc signing (no certificate)
+    # Final fallback: ad-hoc signing. Works on macOS ≤15 but will be rejected
+    # by macOS 26+ for apps with security-sensitive entitlements.
     if [ -z "$SIGN_IDENTITY" ]; then
         SIGN_IDENTITY="-"
+        # Warn on macOS 26+ where ad-hoc signing causes launch failures
+        _macos_major=$(sw_vers -productVersion 2>/dev/null | cut -d. -f1 || echo "0")
+        if [ "$_macos_major" -ge 26 ] 2>/dev/null; then
+            echo "" >&2
+            echo "WARNING: Using ad-hoc code signing on macOS $_macos_major." >&2
+            echo "  macOS 26+ rejects ad-hoc signed apps with security entitlements." >&2
+            echo "  The app will likely crash on launch with 'Launch Constraint Violation'." >&2
+            echo "" >&2
+            echo "  To fix, do ONE of:" >&2
+            echo "    1. Install openssl: brew install openssl" >&2
+            echo "       (Re-run this script and it will auto-create a signing cert)" >&2
+            echo "    2. Open Xcode → Settings → Accounts → Apple ID → Manage Certificates → +" >&2
+            echo "       (Creates a free Apple Development certificate)" >&2
+            echo "" >&2
+        fi
     fi
 fi
 
@@ -817,6 +943,43 @@ RESOURCES_DIR="$CONTENTS/Resources"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 echo "BUNDLE_DISPLAY_NAME=$BUNDLE_DISPLAY_NAME"
+
+# ---------------------------------------------------------------------------
+# Defense in depth: remove sibling .app bundles in dist/ that share our
+# bundle ID. Different `BUNDLE_DISPLAY_NAME` values produce different bundle
+# paths but share `CFBundleIdentifier`, so a previous build under a different
+# display name (e.g. a persona name like "Jarvis.app") sits next to the new
+# one. Both can be launched and registered with Launch Services, producing
+# duplicate Dock entries with the same identity. AppBundleRenamer.swift has
+# the same cleanup but only runs on the sign-out / no-assistants path.
+# ---------------------------------------------------------------------------
+for stale in "$SCRIPT_DIR/dist"/*.app; do
+    [ -d "$stale" ] || continue
+    [ "$stale" = "$APP_DIR" ] && continue
+    stale_id=$(plutil -extract CFBundleIdentifier raw "$stale/Contents/Info.plist" 2>/dev/null || true)
+    if [ "$stale_id" = "$BUNDLE_ID" ]; then
+        # Kill processes from this bundle before removing it — the `run`
+        # kill pass below matches by reading each PID's Info.plist, so
+        # deleting first would orphan a running sibling and leave a
+        # duplicate Dock entry.
+        stale_pids=""
+        while IFS= read -r line; do
+            read -r pid exe_path <<< "$line"
+            [ -n "$pid" ] || continue
+            case "$exe_path" in
+                "$stale"/Contents/MacOS/*) stale_pids+="$pid " ;;
+            esac
+        done < <(ps -ax -o pid=,comm=)
+        if [ -n "$stale_pids" ]; then
+            echo "Stopping process(es) inside stale bundle $stale: $stale_pids"
+            echo "$stale_pids" | xargs kill 2>/dev/null || true
+            sleep 0.3
+            echo "$stale_pids" | xargs kill -9 2>/dev/null || true
+        fi
+        echo "Removing stale bundle with matching ID: $stale"
+        rm -rf "$stale"
+    fi
+done
 
 # ---------------------------------------------------------------------------
 # Local Sparkle configuration
@@ -1973,22 +2136,51 @@ find "$MACOS_DIR" -maxdepth 1 \( -type f -o -type s \) \
     \( -name "*.pid" -o -name "*.sock" -o -name "*.log" \) \
     -delete
 
+# Strip extended attributes (com.apple.FinderInfo, com.apple.ResourceFork,
+# com.apple.provenance, etc.) that codesign rejects with "resource fork,
+# Finder information, or similar detritus not allowed". These can accumulate
+# from Finder interactions, file copies, or SPM package resolution.
+# Ensure all files are writable first — SPM resource bundles (PrivacyInfo.xcprivacy,
+# font files) are read-only from the build cache.
+chmod -R u+w "$APP_DIR" 2>/dev/null || true
+xattr -cr "$APP_DIR" 2>/dev/null || true
+
 # 6. Code sign
 echo "Signing with: $SIGN_IDENTITY"
 
 # Sign components explicitly (Apple's recommended approach instead of --deep)
 # This ensures nested binaries with specific entitlements aren't overwritten
 
-# Timestamp flags: release builds with a real identity use Apple's timestamp
-# server (required for notarization). Debug builds and self-signed builds use
-# --timestamp=none to explicitly opt out — otherwise, when re-signing Sparkle's
-# pre-timestamped XPC services, codesign implicitly tries to preserve the
-# timestamp by contacting Apple's timestamp server, and if that server is
-# unreachable the build fails with "A timestamp was expected but was not found".
+# Hardened runtime (--options runtime) is required on macOS 26+ (Tahoe). Without
+# it the kernel enforces a Launch Constraint Violation (CODESIGNING code 4) that
+# immediately kills the process before any code executes. We enable it for ALL
+# builds — release AND debug/local.
+#
+# Timestamp: release builds with a real identity use Apple's timestamp server
+# (required for notarization). Debug/local builds use --timestamp=none to
+# explicitly opt out — otherwise, when re-signing Sparkle's pre-timestamped XPC
+# services, codesign implicitly tries to preserve the timestamp by contacting
+# Apple's server, and if unreachable the build fails with "A timestamp was
+# expected but was not found".
+#
+# Entitlements: debug builds inject com.apple.security.get-task-allow so LLDB
+# can attach under hardened runtime. This is the same pattern Xcode uses for
+# Debug configurations.
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     CODESIGN_TS_FLAGS=(--timestamp --options runtime)
+    APP_ENTITLEMENTS_PATH="$SCRIPT_DIR/app-entitlements.plist"
+    DAEMON_ENTITLEMENTS_PATH="$SCRIPT_DIR/daemon-entitlements.plist"
 else
-    CODESIGN_TS_FLAGS=(--timestamp=none)
+    CODESIGN_TS_FLAGS=(--timestamp=none --options runtime)
+    # Generate debug entitlements with get-task-allow for debugger attachment
+    _DEBUG_ENT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/vellum-ent.XXXXXX")
+    APP_ENTITLEMENTS_PATH="$_DEBUG_ENT_DIR/app-entitlements.plist"
+    DAEMON_ENTITLEMENTS_PATH="$_DEBUG_ENT_DIR/daemon-entitlements.plist"
+    cp "$SCRIPT_DIR/app-entitlements.plist" "$APP_ENTITLEMENTS_PATH"
+    cp "$SCRIPT_DIR/daemon-entitlements.plist" "$DAEMON_ENTITLEMENTS_PATH"
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.get-task-allow bool true" "$APP_ENTITLEMENTS_PATH"
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.disable-library-validation bool true" "$APP_ENTITLEMENTS_PATH"
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.get-task-allow bool true" "$DAEMON_ENTITLEMENTS_PATH"
 fi
 
 # Sign Sparkle.framework — must sign nested binaries inside-out before the outer framework
@@ -2036,25 +2228,31 @@ if [ -d "$QLPREV_APPEX" ]; then
     echo "VellumQLPreview.appex signed"
 fi
 
-# Sign CLI binary
+# Sign Bun-compiled binaries with daemon entitlements. These are JavaScript
+# executables produced by `bun build --compile` that require JIT and unsigned
+# executable memory to run under hardened runtime.
 if [ -f "$MACOS_DIR/vellum-cli" ]; then
-    CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
+    CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${CLI_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-cli"
-    echo "CLI binary signed"
+    echo "CLI binary signed with entitlements"
 fi
 
-# Sign gateway binary
 if [ -f "$MACOS_DIR/vellum-gateway" ]; then
-    GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
+    GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${GATEWAY_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-gateway"
-    echo "Gateway binary signed"
+    echo "Gateway binary signed with entitlements"
 fi
 
-# Sign credential-executor (CES) binary
 if [ -f "$MACOS_DIR/credential-executor" ]; then
-    CES_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
+    CES_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${CES_SIGN_FLAGS[@]}" "$MACOS_DIR/credential-executor"
-    echo "credential-executor binary signed"
+    echo "credential-executor binary signed with entitlements"
+fi
+
+if [ -f "$MACOS_DIR/vellum-assistant" ]; then
+    ASSISTANT_BIN_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
+    codesign "${ASSISTANT_BIN_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-assistant"
+    echo "Assistant binary signed with entitlements"
 fi
 
 # Embedding runtime node_modules are no longer bundled (downloaded post-hatch).
@@ -2066,6 +2264,7 @@ if [ -d "$MACOS_DIR" ]; then
     find "$MACOS_DIR" -maxdepth 1 -type f \
         ! -name "$BUNDLE_DISPLAY_NAME" \
         ! -name "vellum-daemon" \
+        ! -name "vellum-assistant" \
         ! -name "vellum-cli" \
         ! -name "vellum-gateway" \
         ! -name "credential-executor" \
@@ -2074,7 +2273,7 @@ fi
 
 # Sign daemon binary with its own entitlements (JIT, network)
 if [ -f "$MACOS_DIR/vellum-daemon" ]; then
-    DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
+    DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${DAEMON_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
     echo "Daemon binary signed with entitlements"
 fi
@@ -2084,7 +2283,7 @@ fi
 # needs allow-jit, allow-unsigned-executable-memory, and network.client
 # to pass hardened runtime checks when the daemon spawns it as a child.
 if [ -f "$RESOURCES_DIR/bun" ]; then
-    BUN_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
+    BUN_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${BUN_SIGN_FLAGS[@]}" "$RESOURCES_DIR/bun"
     echo "Bundled bun runtime signed with entitlements"
 fi
@@ -2110,8 +2309,13 @@ if [ ${#STRAY_ITEMS[@]} -gt 0 ]; then
 fi
 
 # Sign the outer app bundle with entitlements (without --deep to preserve nested signatures)
-APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
+APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$APP_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
 codesign "${APP_SIGN_FLAGS[@]}" "$APP_DIR"
+
+# Clean up temp debug entitlements directory (created for non-release builds)
+if [ -n "${_DEBUG_ENT_DIR:-}" ] && [ -d "$_DEBUG_ENT_DIR" ]; then
+    rm -rf "$_DEBUG_ENT_DIR"
+fi
 
 echo "Built: $APP_DIR"
 

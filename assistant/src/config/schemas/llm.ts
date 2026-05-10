@@ -47,11 +47,13 @@ export const LLMCallSiteEnum = z.enum([
   "memoryRetrieval",
   "memoryV2Migration",
   "memoryV2Sweep",
+  "memoryV2Consolidation",
   "recall",
   "narrativeRefinement",
   "patternScan",
   "conversationSummarization",
   "conversationStarters",
+  "replySuggestion",
   "conversationTitle",
   "commitMessage",
   "identityIntro",
@@ -280,6 +282,16 @@ const PricingOverrideSchema = z.object({
  */
 export const LLMConfigBase = z.object({
   provider: LLMProvider.default("anthropic"),
+  /**
+   * Name of a `provider_connections` row to use for this resolved config.
+   * Optional and additive: when set, the dispatcher resolves auth from the
+   * connection (mix-and-match managed/your-own per profile). When unset,
+   * the dispatcher falls back to the legacy `provider` lookup.
+   *
+   * Lives on the merged base type so it flows through `resolveCallSiteConfig`
+   * naturally — the underlying profile-level field is on `ProfileEntry`.
+   */
+  provider_connection: z.string().min(1).optional(),
   model: ModelSchema.default("claude-opus-4-7"),
   maxTokens: MaxTokensSchema.default(64000),
   effort: EffortEnum.default("max"),
@@ -322,6 +334,14 @@ export const ProfileEntry = LLMConfigFragment.extend({
   source: ProfileSource.optional(),
   label: z.string().min(1).optional(),
   description: z.string().optional(),
+  /**
+   * Name of a `provider_connections` row to use for this profile.
+   * When set, the dispatcher resolves auth from the connection instead of
+   * the global `services.inference.mode` toggle. Additive alongside the
+   * legacy `provider` + `source` fields; those remain as read-only
+   * deprecated fallbacks for profiles not yet backfilled.
+   */
+  provider_connection: z.string().min(1).optional(),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 
@@ -354,6 +374,15 @@ export const LLMSchema = z
     // schema level, so `LLMSchema.parse({})` yields an empty map.
     callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
     activeProfile: z.string().min(1).optional(),
+    // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
+    // the CLI to apply when `--ttl` is omitted; the daemon handler itself only
+    // reads `maxTtlSeconds` (to clamp caller-supplied values).
+    profileSession: z
+      .object({
+        defaultTtlSeconds: z.number().int().min(1).default(1800),
+        maxTtlSeconds: z.number().int().min(1).default(43200),
+      })
+      .default({ defaultTtlSeconds: 1800, maxTtlSeconds: 43200 }),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {

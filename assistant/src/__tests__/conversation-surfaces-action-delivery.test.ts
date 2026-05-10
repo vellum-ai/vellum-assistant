@@ -1,13 +1,19 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  createSurfaceMutex,
-  handleSurfaceAction,
-  type SurfaceConversationContext,
-  surfaceProxyResolver,
-} from "../daemon/conversation-surfaces.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
+
+let broadcastedMessages: ServerMessage[] = [];
+const realEventHub = await import("../runtime/assistant-event-hub.js");
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  ...realEventHub,
+  broadcastMessage: (msg: ServerMessage) => broadcastedMessages.push(msg),
+}));
+
+const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
+  await import("../daemon/conversation-surfaces.js");
+
+import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type {
-  ServerMessage,
   SurfaceData,
   SurfaceType,
   UiSurfaceShow,
@@ -81,6 +87,10 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
 }
 
 describe("surface action delivery to assistant", () => {
+  beforeEach(() => {
+    broadcastedMessages = [];
+  });
+
   test("table action button click triggers processMessage with action content", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);
@@ -198,5 +208,156 @@ describe("surface action delivery to assistant", () => {
     expect(ctx.processMessageCalls[0].content).toContain(
       "[User action on app:",
     );
+  });
+
+  test("confirmation surface broadcasts ui_surface_complete on action", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const showResult = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "confirmation",
+      title: "Delete files?",
+      data: {
+        message: "This will permanently delete 3 files.",
+        confirmLabel: "Delete",
+        cancelLabel: "Keep",
+      },
+    });
+
+    expect(showResult.isError).toBe(false);
+    expect(showResult.yieldToUser).toBe(true);
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    const surfaceId = showMessage.surfaceId;
+    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(true);
+
+    await handleSurfaceAction(ctx, surfaceId, "confirm", {});
+
+    const completeMsg = broadcastedMessages.find(
+      (m) =>
+        (m as unknown as Record<string, unknown>).type ===
+          "ui_surface_complete" &&
+        (m as unknown as Record<string, unknown>).surfaceId === surfaceId,
+    ) as unknown as Record<string, unknown> | undefined;
+    expect(completeMsg).toBeDefined();
+    expect(completeMsg?.conversationId).toBe("conv-1");
+    expect(completeMsg?.summary).toContain("Delete");
+  });
+
+  test("file_upload surface broadcasts ui_surface_complete on action", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const showResult = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "file_upload",
+      title: "Upload documents",
+      data: { accept: ".pdf,.docx", maxFiles: 5 },
+    });
+
+    expect(showResult.isError).toBe(false);
+    expect(showResult.yieldToUser).toBe(true);
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    const surfaceId = showMessage.surfaceId;
+    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(true);
+
+    await handleSurfaceAction(ctx, surfaceId, "submit", {
+      files: [
+        {
+          filename: "doc.pdf",
+          mimeType: "application/pdf",
+          data: "base64encodedcontent",
+        },
+      ],
+    });
+
+    const completeMsg = broadcastedMessages.find(
+      (m) =>
+        (m as unknown as Record<string, unknown>).type ===
+          "ui_surface_complete" &&
+        (m as unknown as Record<string, unknown>).surfaceId === surfaceId,
+    ) as unknown as Record<string, unknown> | undefined;
+    expect(completeMsg).toBeDefined();
+    expect(completeMsg?.conversationId).toBe("conv-1");
+  });
+
+  test("file_upload completion event does not include base64 file blobs", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "file_upload",
+      title: "Upload",
+      data: { accept: "*" },
+    });
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    const surfaceId = showMessage.surfaceId;
+
+    const largeBase64 = "A".repeat(10_000);
+    await handleSurfaceAction(ctx, surfaceId, "submit", {
+      files: [
+        {
+          filename: "big.pdf",
+          mimeType: "application/pdf",
+          data: largeBase64,
+        },
+      ],
+    });
+
+    const completeMsg = broadcastedMessages.find(
+      (m) =>
+        (m as unknown as Record<string, unknown>).type ===
+          "ui_surface_complete" &&
+        (m as unknown as Record<string, unknown>).surfaceId === surfaceId,
+    ) as unknown as Record<string, unknown> | undefined;
+    expect(completeMsg).toBeDefined();
+
+    const submittedData = completeMsg?.submittedData as
+      | Record<string, unknown>
+      | undefined;
+    // The files array with base64 blobs should be stripped from the
+    // completion event — only the sanitized payload (without files) is sent.
+    expect(submittedData?.files).toBeUndefined();
+    // The raw base64 content should not appear anywhere in the event
+    expect(JSON.stringify(completeMsg)).not.toContain(largeBase64);
+  });
+
+  test("table surface does NOT broadcast ui_surface_complete (not one-shot)", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "table",
+      title: "Items",
+      data: {
+        columns: [{ id: "name", label: "Name" }],
+        rows: [{ id: "r1", cells: { name: "Item 1" } }],
+      },
+      actions: [{ id: "select", label: "Select" }],
+    });
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    const surfaceId = showMessage.surfaceId;
+
+    broadcastedMessages = [];
+    await handleSurfaceAction(ctx, surfaceId, "select", {
+      selectedIds: ["r1"],
+    });
+
+    const completeMsg = broadcastedMessages.find(
+      (m) =>
+        (m as unknown as Record<string, unknown>).type ===
+        "ui_surface_complete",
+    );
+    expect(completeMsg).toBeUndefined();
   });
 });

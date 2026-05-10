@@ -115,12 +115,34 @@ interface ChromeRuntimeManifest {
   [key: string]: unknown;
 }
 
+interface ChromeRuntimeOnInstalledDetails {
+  reason: "install" | "update" | "chrome_update" | "shared_module_update";
+  previousVersion?: string;
+  id?: string;
+}
+
+interface ChromeRuntimeOnInstalledEvent {
+  addListener(
+    listener: (details: ChromeRuntimeOnInstalledDetails) => void,
+  ): void;
+  removeListener(
+    listener: (details: ChromeRuntimeOnInstalledDetails) => void,
+  ): void;
+}
+
+interface ChromeRuntimeOnStartupEvent {
+  addListener(listener: () => void): void;
+  removeListener(listener: () => void): void;
+}
+
 interface ChromeRuntimeNamespace {
   /** The ID of the extension. */
   readonly id: string;
   readonly lastError: ChromeRuntimeLastError | undefined;
   connectNative(application: string): ChromeRuntimePort;
   onMessage: ChromeRuntimeOnMessageEvent;
+  onInstalled: ChromeRuntimeOnInstalledEvent;
+  onStartup: ChromeRuntimeOnStartupEvent;
   // Generic over the response type so callers can narrow the callback
   // argument without casting. Matches the de-facto shape used by the
   // official @types/chrome package.
@@ -131,6 +153,30 @@ interface ChromeRuntimeNamespace {
   getManifest(): ChromeRuntimeManifest;
   /** Resolve a path relative to the extension root into an absolute chrome-extension:// URL. */
   getURL(path: string): string;
+}
+
+interface ChromeAlarm {
+  name: string;
+  scheduledTime: number;
+  periodInMinutes?: number;
+}
+
+interface ChromeAlarmCreateInfo {
+  when?: number;
+  delayInMinutes?: number;
+  periodInMinutes?: number;
+}
+
+interface ChromeAlarmsOnAlarmEvent {
+  addListener(listener: (alarm: ChromeAlarm) => void): void;
+  removeListener(listener: (alarm: ChromeAlarm) => void): void;
+}
+
+interface ChromeAlarmsNamespace {
+  create(name: string, alarmInfo: ChromeAlarmCreateInfo): Promise<void>;
+  get(name: string): Promise<ChromeAlarm | undefined>;
+  clear(name: string): Promise<boolean>;
+  onAlarm: ChromeAlarmsOnAlarmEvent;
 }
 
 interface ChromeTab {
@@ -188,55 +234,6 @@ interface ChromeTabsNamespace {
 interface ChromeWindowsNamespace {
   readonly WINDOW_ID_CURRENT: number;
   readonly WINDOW_ID_NONE: number;
-}
-
-interface ChromeCookie {
-  name: string;
-  value: string;
-  domain: string;
-  hostOnly?: boolean;
-  path: string;
-  secure: boolean;
-  httpOnly: boolean;
-  sameSite?: "no_restriction" | "lax" | "strict" | "unspecified";
-  session?: boolean;
-  expirationDate?: number;
-  storeId?: string;
-}
-
-interface ChromeCookiesGetAllDetails {
-  domain?: string;
-  name?: string;
-  path?: string;
-  secure?: boolean;
-  session?: boolean;
-  storeId?: string;
-  url?: string;
-}
-
-interface ChromeCookiesSetDetails {
-  url: string;
-  name?: string;
-  value?: string;
-  domain?: string;
-  path?: string;
-  secure?: boolean;
-  httpOnly?: boolean;
-  sameSite?: "no_restriction" | "lax" | "strict" | "unspecified";
-  expirationDate?: number;
-  storeId?: string;
-}
-
-interface ChromeCookiesGetDetails {
-  name: string;
-  url: string;
-  storeId?: string;
-}
-
-interface ChromeCookiesNamespace {
-  get(details: ChromeCookiesGetDetails): Promise<ChromeCookie | null>;
-  getAll(details: ChromeCookiesGetAllDetails): Promise<ChromeCookie[]>;
-  set(details: ChromeCookiesSetDetails): Promise<ChromeCookie | null>;
 }
 
 interface ChromeDebuggerDebuggee {
@@ -325,12 +322,12 @@ interface ChromeActionNamespace {
 
 interface ChromeGlobal {
   action: ChromeActionNamespace;
+  alarms: ChromeAlarmsNamespace;
   storage: ChromeStorageNamespace;
   identity: ChromeIdentityNamespace;
   runtime: ChromeRuntimeNamespace;
   tabs: ChromeTabsNamespace;
   windows: ChromeWindowsNamespace;
-  cookies: ChromeCookiesNamespace;
   debugger: ChromeDebuggerNamespace;
 }
 

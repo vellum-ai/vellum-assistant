@@ -71,9 +71,9 @@ export async function executeSubagentSpawn(
 
   // The subagent runs as its own background conversation, so the agent
   // loop's background-skip rule would zero out any inherited profile.
-  // Pass the parent's profile explicitly via `SubagentConfig` so the
-  // PR 6 plumbing in `SubagentManager.spawn` forwards it back into the
-  // subagent's `runAgentLoop` call as `options.overrideProfile`.
+  // Pass the parent's profile explicitly via `SubagentConfig` so
+  // `SubagentManager.spawn` forwards it back into the subagent's
+  // `runAgentLoop` call as `options.overrideProfile`.
   //
   // Prefer the per-turn `context.overrideProfile` (populated by
   // `runAgentLoopImpl` from its resolved `turnOverrideProfile`) over a

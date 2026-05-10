@@ -96,14 +96,8 @@ do_build() {
     --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\"" \
     || { echo "❌ Service worker bundle failed."; return 1; }
 
-  echo "Bundling popup script with bun build..."
-  bun build \
-    "$SCRIPT_DIR/popup/popup.ts" \
-    --outdir "$DIST_DIR/popup" \
-    --target browser \
-    --format esm \
-    --minify \
-    --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\"" \
+  echo "Building popup with Vite..."
+  (cd "$SCRIPT_DIR" && bunx vite build) \
     || { echo "❌ Popup bundle failed."; return 1; }
 
   cp "$SCRIPT_DIR/manifest.json" "$DIST_DIR/manifest.json" \
@@ -139,9 +133,6 @@ do_build() {
   if [ -n "$ENV_EXT_ID" ]; then
     echo "  Extension ID: $ENV_EXT_ID"
   fi
-
-  cp "$SCRIPT_DIR/popup/popup.html" "$DIST_DIR/popup/popup.html" \
-    || { echo "❌ Failed to copy popup HTML."; return 1; }
 
   # Copy all icon directories into dist — the background worker dynamically
   # switches the toolbar icon when the user overrides the environment via

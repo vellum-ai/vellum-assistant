@@ -181,7 +181,7 @@ describe("searchMemoryV2Source", () => {
     qdrantHits = [{ slug: "alice", denseScore: 0.9 }];
     pageStore.set("alice", {
       slug: "alice",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Alice prefers concise notes.",
     });
 
@@ -297,7 +297,7 @@ describe("searchMemoryV2Source", () => {
     const root = makeTempDir();
     pageStore.set("alice", {
       slug: "alice",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Alice memory body content.",
     });
     qdrantHits = [{ slug: "alice", denseScore: 0.85 }];
@@ -322,7 +322,7 @@ describe("searchMemoryV2Source", () => {
     qdrantHits = [{ slug: "people/alice", denseScore: 0.92 }];
     pageStore.set("people/alice", {
       slug: "people/alice",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Alice prefers concise notes.",
     });
 

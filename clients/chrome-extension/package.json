@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/chrome-extension",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,9 +8,19 @@
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
+  "dependencies": {
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
   "devDependencies": {
+    "@tailwindcss/vite": "4.2.4",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.1",
     "eslint": "10.2.0",
+    "tailwindcss": "4.2.4",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.58.1"
+    "typescript-eslint": "8.58.1",
+    "vite": "8.0.11"
   }
 }

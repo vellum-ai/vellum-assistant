@@ -17,9 +17,9 @@
 import { getConfig } from "../config/loader.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
+import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
+import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
-import { getProvider } from "../providers/registry.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
@@ -180,6 +180,7 @@ function applyTransportMetadata(
   if (!transport) return;
   conversation.setTransportHints(buildTransportHints(transport));
   conversation.applyHostEnvFromTransport(transport);
+  conversation.applyClientTimezoneFromTransport(transport);
 }
 
 /**
@@ -221,14 +222,18 @@ export async function getOrCreateConversation(
 
     const createPromise = (async () => {
       const config = getConfig();
-      let provider = getProvider(config.llm.default.provider);
-      provider = new CallSiteRoutingProvider(provider, (name) => {
-        try {
-          return getProvider(name);
-        } catch {
-          return undefined;
-        }
-      });
+      // Connection-aware default-provider resolution. When the default
+      // profile names a `provider_connection`, route through that
+      // connection's auth; otherwise fall through to the legacy registry.
+      const baseProvider = await resolveDefaultProvider(config);
+      if (!baseProvider) {
+        throw new Error(
+          `Conversation: default provider '${config.llm.default.provider}' is not registered`,
+        );
+      }
+      // Per-call `callSite` routing layered on top, with connection-awareness
+      // for alternate profiles (matches the canonical dispatch path).
+      let provider = wrapWithCallSiteRouting(baseProvider, config);
       const { rateLimit } = config;
       if (rateLimit.maxRequestsPerMinute > 0) {
         provider = new RateLimitProvider(

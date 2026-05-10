@@ -22,9 +22,9 @@ import { validateEdgeToken } from "../../auth/token-exchange.js";
 import type { TokenClaims } from "../../auth/types.js";
 import type { GatewayConfig } from "../../config.js";
 import {
-  ipcCallAssistantStrict,
   IpcHandlerError,
   IpcTransportError,
+  ipcCallAssistant,
 } from "../../ipc/assistant-client.js";
 import { matchRoute } from "../../ipc/route-schema-cache.js";
 import { getLogger } from "../../logger.js";
@@ -160,7 +160,7 @@ export async function tryIpcProxy(
 
   // --- Call daemon via IPC ------------------------------------------------
   try {
-    const result = await ipcCallAssistantStrict(match.operationId, params);
+    const result = await ipcCallAssistant(match.operationId, params);
 
     const duration = Math.round(performance.now() - start);
     log.info(

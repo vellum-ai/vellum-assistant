@@ -34,6 +34,7 @@ import {
   extractWorkspacePathLiterals,
   inspectWorkspacePaths,
   isSafeWorkspaceRelativePath,
+  normalizeWorkspacePathLiteral,
 } from "./sources/workspace.js";
 import type {
   RecallAnswer,
@@ -499,7 +500,7 @@ async function runSeedRecallSearch(
       context,
       searchOptions,
     );
-    evidence = mergeEvidence(expansionResult.evidence, evidence);
+    evidence = mergeEvidence(evidence, expansionResult.evidence);
   }
 
   return withFallbackEvidence(baseResult, evidence);
@@ -694,6 +695,13 @@ function finishRecallFromToolUse(
   }
 
   const citedEvidence = selectCitedEvidence(promptEvidence, finish.citationIds);
+  if (citedEvidence.length === 0) {
+    return {
+      ok: false,
+      reason: "citation_validation_failed",
+      detail: "finish_recall returned no resolvable citations",
+    };
+  }
   debug.finish = {
     confidence: finish.confidence,
     citationIds: finish.citationIds,
@@ -960,14 +968,17 @@ async function executeInspectWorkspacePaths(
 }> {
   const reason = readSearchReason(payload.reason);
   const requestedPaths = readInspectPaths(payload.paths);
-  const allowedPaths = collectInspectableWorkspacePaths(input.query, evidence);
+  const workspaceSourcesEnabled =
+    input.sources.includes("workspace") || input.sources.includes("pkb");
+  const allowedPaths = workspaceSourcesEnabled
+    ? collectInspectableWorkspacePaths(input.query, evidence)
+    : new Set<string>();
   const acceptedPaths: string[] = [];
   const rejectedPaths: string[] = [];
   for (const requestedPath of requestedPaths) {
-    const acceptedPath = normalizeRequestedWorkspaceInspectionPath(
-      requestedPath,
-      allowedPaths,
-    );
+    const acceptedPath = workspaceSourcesEnabled
+      ? normalizeRequestedWorkspaceInspectionPath(requestedPath, allowedPaths)
+      : null;
     if (acceptedPath) {
       acceptedPaths.push(acceptedPath);
     } else {
@@ -994,6 +1005,7 @@ async function executeInspectWorkspacePaths(
       ],
       debug: {
         ...debug,
+        evidenceCount: 1,
         errors: [
           {
             path: "inspect_workspace_paths",
@@ -1006,8 +1018,9 @@ async function executeInspectWorkspacePaths(
 
   const errors = rejectedPaths.map((path) => ({
     path,
-    reason:
-      "path was not a safe relative workspace file surfaced by the query or prior evidence",
+    reason: workspaceSourcesEnabled
+      ? "path was not a safe relative workspace file surfaced by the query or prior evidence"
+      : "workspace and pkb sources are disabled for this recall request",
   }));
 
   let inspectionEvidence: RecallEvidence[] = [];
@@ -1158,13 +1171,18 @@ function normalizeRequestedWorkspaceInspectionPath(
   requestedPath: string,
   allowedPaths: ReadonlySet<string>,
 ): string | null {
-  const pkbPrefixedPath = `pkb/${requestedPath}`;
-  if (!requestedPath.startsWith("pkb/") && allowedPaths.has(pkbPrefixedPath)) {
+  const normalized = normalizeWorkspacePathLiteral(requestedPath);
+  if (!normalized) {
+    return null;
+  }
+
+  const pkbPrefixedPath = `pkb/${normalized}`;
+  if (!normalized.startsWith("pkb/") && allowedPaths.has(pkbPrefixedPath)) {
     return pkbPrefixedPath;
   }
 
-  if (allowedPaths.has(requestedPath)) {
-    return requestedPath;
+  if (allowedPaths.has(normalized)) {
+    return normalized;
   }
 
   return null;
@@ -1284,7 +1302,9 @@ function withFallbackEvidence(
   result: DeterministicRecallSearchResult,
   evidence: readonly RecallEvidence[],
 ): DeterministicRecallSearchResult {
-  const orderedEvidence = demoteAutoInjectedContextEvidence(evidence);
+  const orderedEvidence = demoteAutoInjectedContextEvidence(
+    dedupeEvidenceByContent(evidence),
+  );
   const evidenceCountBySource = new Map<RecallSource, number>();
   for (const item of orderedEvidence) {
     evidenceCountBySource.set(
@@ -1301,6 +1321,29 @@ function withFallbackEvidence(
       evidenceCount: evidenceCountBySource.get(note.source) ?? 0,
     })),
   };
+}
+
+function dedupeEvidenceByContent(
+  evidence: readonly RecallEvidence[],
+): RecallEvidence[] {
+  const seenIds = new Set<string>();
+  const seenContent = new Set<string>();
+  const deduped: RecallEvidence[] = [];
+
+  for (const item of evidence) {
+    if (seenIds.has(item.id)) {
+      continue;
+    }
+    const contentKey = `${item.source}\0${item.locator}\0${item.excerpt}`;
+    if (seenContent.has(contentKey)) {
+      continue;
+    }
+    seenIds.add(item.id);
+    seenContent.add(contentKey);
+    deduped.push(item);
+  }
+
+  return deduped;
 }
 
 function deterministicFallback(

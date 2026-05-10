@@ -8,3 +8,16 @@
 export function clampUnitInterval(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
+
+/**
+ * Map cosine similarity [-1, 1] into the unit interval [0, 1] via
+ * `(x + 1) / 2`, then clamp. Single-channel display normalization for the
+ * legacy v1 semantic-search path; do **not** use before hybrid fusion —
+ * the affine rescale halves pairwise dense differences and shifts ranking
+ * toward sparse. Hybrid fusion (`v2/sim.ts`) instead clamps negative
+ * cosines to 0 with `Math.max(0, x)` and lets positive cosines pass
+ * through unchanged.
+ */
+export function mapCosineToUnit(value: number): number {
+  return clampUnitInterval((value + 1) / 2);
+}

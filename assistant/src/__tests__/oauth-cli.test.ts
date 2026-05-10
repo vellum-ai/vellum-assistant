@@ -62,6 +62,13 @@ let mockUpsertAppImpl:
 let mockOrchestrateOAuthConnect: (
   opts: Record<string, unknown>,
 ) => Promise<Record<string, unknown>>;
+let mockCliIpcCall: (
+  operationId: string,
+  params?: Record<string, unknown>,
+) => Promise<Record<string, unknown>> = async () => ({
+  ok: false,
+  error: "Could not connect to assistant daemon (test default)",
+});
 let mockGetAppByProviderAndClientId: (
   provider: string,
   clientId: string,
@@ -333,6 +340,15 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 mock.module("../oauth/connect-orchestrator.js", () => ({
   orchestrateOAuthConnect: (opts: Record<string, unknown>) =>
     mockOrchestrateOAuthConnect(opts),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock cli-client (IPC) — used by `oauth connect` for daemon-orchestrated flow
+// ---------------------------------------------------------------------------
+
+mock.module("../ipc/cli-client.js", () => ({
+  cliIpcCall: (operationId: string, params?: Record<string, unknown>) =>
+    mockCliIpcCall(operationId, params),
 }));
 
 mock.module("../oauth/seed-providers.js", () => ({
@@ -1217,6 +1233,111 @@ describe("assistant oauth connect managed mode — platform 401/403 errors", () 
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Platform returned HTTP 500");
     expect(parsed.error).not.toContain("vellum platform connect");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `assistant oauth connect <provider>` BYO mode — daemon-unreachable behavior.
+//
+// We deleted the in-process `orchestrateOAuthConnect` fallback (the same
+// pattern as the MCP CLI consolidation in #29484). When the daemon is
+// unreachable, the CLI must surface a clear error and exit 1 — never
+// silently fall back to in-process flow.
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth connect <provider> — daemon unreachable (BYO mode)", () => {
+  beforeEach(() => {
+    // BYO provider with a registered app and no managed-mode wiring.
+    mockGetProvider = () => ({
+      provider: "github",
+      authorizeUrl: "https://github.com/login/oauth/authorize",
+      tokenExchangeUrl: "https://github.com/login/oauth/access_token",
+      defaultScopes: "[]",
+      availableScopes: null,
+      authorizeParams: null,
+      managedServiceConfigKey: null,
+      requiresClientSecret: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    mockGetMostRecentAppByProvider = () => ({
+      provider: "github",
+      clientId: "test-client-id",
+      clientSecretCredentialPath: "oauth_app/github/test/client_secret",
+    });
+    mockGetSecureKey = () => "test-secret";
+    mockGetConfig = () => ({ services: {} });
+  });
+
+  test("daemon connect-refused → exit 1 with 'Is the assistant running?'", async () => {
+    mockCliIpcCall = async () => ({
+      ok: false,
+      error: "Could not connect to assistant daemon: ECONNREFUSED",
+    });
+
+    const { exitCode, stdout } = await runCli([
+      "connect",
+      "github",
+      "--no-browser",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Could not reach the assistant");
+    expect(parsed.error).toContain("Is the assistant running?");
+  });
+
+  test("daemon route missing (Unknown method) → exit 1, never falls through to in-process", async () => {
+    let orchestratorCalls = 0;
+    mockOrchestrateOAuthConnect = async () => {
+      orchestratorCalls++;
+      return { success: true, deferred: false, grantedScopes: [] };
+    };
+    mockCliIpcCall = async () => ({
+      ok: false,
+      error: "Unknown method: internal_oauth_connect_start",
+    });
+
+    const { exitCode } = await runCli([
+      "connect",
+      "github",
+      "--no-browser",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    // Critical regression guard: the in-process `orchestrateOAuthConnect`
+    // must NOT be invoked from the CLI. The daemon-orchestrated path is
+    // the sole code path; this is the same invariant #29484 established
+    // for the MCP CLI.
+    expect(orchestratorCalls).toBe(0);
+  });
+
+  test("daemon HTTP error (statusCode set) → surfaces error verbatim, no fallback", async () => {
+    let orchestratorCalls = 0;
+    mockOrchestrateOAuthConnect = async () => {
+      orchestratorCalls++;
+      return { success: true, deferred: false, grantedScopes: [] };
+    };
+    mockCliIpcCall = async () => ({
+      ok: false,
+      statusCode: 400,
+      error: "service must be registered before connecting",
+    });
+
+    const { exitCode, stdout } = await runCli([
+      "connect",
+      "github",
+      "--no-browser",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.error).toContain("service must be registered");
+    expect(orchestratorCalls).toBe(0);
   });
 });
 

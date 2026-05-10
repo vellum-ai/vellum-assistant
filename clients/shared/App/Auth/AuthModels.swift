@@ -338,3 +338,23 @@ public struct ReferralCodeResponse: Codable, Sendable {
     /// Credits granted to the referrer (the user sharing the link).
     public let referrer_credit_amount: String
 }
+
+public struct SubscriptionResponse: Codable, Sendable {
+    public let plan_id: String           // "base" | "pro"
+    public let status: String?           // active | trialing | past_due | canceled | incomplete | incomplete_expired | unpaid | paused | nil
+    public let current_period_end: String?
+    public let cancel_at_period_end: Bool
+    public let cancel_at: String?        // ISO 8601
+}
+
+public struct PlanCatalogEntry: Codable, Sendable {
+    public let id: String                // "base" | "pro"
+    public let name: String              // "Base" | "Pro"
+    public let price_cents: Int
+    public let billing_interval: String  // "month"
+    public let included_features: [String]
+}
+
+public struct PlanCatalogResponse: Codable, Sendable {
+    public let plans: [PlanCatalogEntry]
+}

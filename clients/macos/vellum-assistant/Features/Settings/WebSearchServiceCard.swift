@@ -226,9 +226,7 @@ struct WebSearchServiceCard: View {
             ) {
                 Task {
                     await authManager.loginWithToast(showToast: showToast, onSuccess: {
-                        if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
-                            AppDelegate.shared?.reconnectManagedAssistant()
-                        }
+                        AppDelegate.shared?.handlePlatformLoginSucceeded()
                     })
                 }
             }

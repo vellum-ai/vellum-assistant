@@ -14,7 +14,7 @@
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mock setup (must be before any imports from the project) ──────────────
 
@@ -115,6 +115,7 @@ describe("inline-command skill_load permissions", () => {
   beforeEach(() => {
     clearRiskCache();
     _clearGlobalCacheForTesting();
+    _setOverridesForTesting({});
     mockIpcResponse("get_global_thresholds", {
       interactive: "low",
       autonomous: "medium",
@@ -131,6 +132,10 @@ describe("inline-command skill_load permissions", () => {
     } catch {
       /* may not exist */
     }
+  });
+
+  afterEach(() => {
+    _setOverridesForTesting({});
   });
 
   // ── Default behavior ─────────────────────────────────────────────────

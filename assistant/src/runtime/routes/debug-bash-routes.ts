@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { z } from "zod";
 
 import { getIsContainerized } from "../../config/env-registry.js";
+import { buildSanitizedEnv } from "../../tools/terminal/safe-env.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -92,6 +93,7 @@ function handleDebugBash({ body }: RouteHandlerArgs): Promise<DebugBashResult> {
       cwd: getWorkspaceDir(),
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
+      env: buildSanitizedEnv(),
     });
 
     const timer = setTimeout(() => {

@@ -51,6 +51,7 @@ mock.module("../broadcaster.js", () => ({
 
 mock.module("../adapters/macos.js", () => ({
   VellumAdapter: class {},
+  isGuardianSensitiveEvent: () => false,
 }));
 mock.module("../adapters/slack.js", () => ({
   SlackAdapter: class {},

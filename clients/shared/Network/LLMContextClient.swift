@@ -749,7 +749,6 @@ public struct LLMContextResponse: Codable, Sendable {
 /// Explicit outcome for an LLM context fetch.
 public enum LLMContextFetchResult: Sendable {
     case loaded(LLMContextResponse)
-    case empty
     case failed
 }
 
@@ -776,7 +775,7 @@ public struct LLMContextClient: LLMContextClientProtocol {
             switch try await fetchContextResult(messageId: messageId) {
             case .loaded(let response):
                 return response
-            case .empty, .failed:
+            case .failed:
                 return nil
             }
         } catch is CancellationError {
@@ -812,9 +811,6 @@ public struct LLMContextClient: LLMContextClientProtocol {
         do {
             let decoded = try JSONDecoder().decode(LLMContextResponse.self, from: response.data)
             try Task.checkCancellation()
-            // Always return `.loaded` so the view state receives `conversationKind`
-            // even when the log list is empty — the empty-state branch is derived
-            // from `logs.isEmpty` inside `MessageInspectorViewState.finishLoading`.
             return .loaded(decoded)
         } catch is CancellationError {
             throw CancellationError()

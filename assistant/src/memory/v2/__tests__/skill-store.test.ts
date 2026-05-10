@@ -39,11 +39,13 @@ interface UpsertCall {
   dense: number[];
   sparse: { indices: number[]; values: number[] };
   updatedAt: number;
+  kind?: string;
 }
 
 interface PruneCall {
   prefix: string;
   activeSuffixes: readonly string[];
+  options?: { kind?: string };
 }
 
 interface TestState {
@@ -118,8 +120,9 @@ mock.module("../qdrant.js", () => ({
   pruneSlugsWithPrefixExcept: async (
     prefix: string,
     activeSuffixes: readonly string[],
+    options?: { kind?: string },
   ) => {
-    state.pruneCalls.push({ prefix, activeSuffixes });
+    state.pruneCalls.push({ prefix, activeSuffixes, options });
   },
 }));
 

@@ -333,7 +333,6 @@ struct APIKeyStepView: View {
         if isAuthenticated {
             // Authenticated user: skip API key entry, advance to consent step
             state.selectedProvider = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
-            state.selectedModel = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
             state.skippedAPIKeyEntry = true
             state.advance(by: 2)
         } else {

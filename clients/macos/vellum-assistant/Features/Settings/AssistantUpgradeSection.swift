@@ -43,6 +43,16 @@ struct AssistantUpgradeSection: View {
     /// The update manager to observe for reactive Sparkle status updates.
     var updateManager: UpdateManager
 
+    /// Assistant choices shown above version controls. Uses the same
+    /// presentation model as the platform-login picker.
+    var assistantSwitcherItems: [AssistantPickerItem] = []
+    var selectedAssistantId: String?
+    var switchingAssistantId: String?
+    var isAssistantSwitcherLoading: Bool = false
+    var assistantSwitcherError: String?
+    var onSwitchAssistant: (String) -> Void = { _ in }
+    var onRefreshAssistants: () -> Void = {}
+
     @State private var availableReleases: [AssistantRelease] = []
     @State private var selectedVersion: String?
     @State private var isLoadingReleases = false
@@ -151,6 +161,20 @@ struct AssistantUpgradeSection: View {
 
     var body: some View {
         SettingsCard(title: "Assistant Version", subtitle: topologySubtitle) {
+            if shouldShowAssistantSwitcher {
+                AssistantVersionSwitcher(
+                    items: assistantSwitcherItems,
+                    selectedAssistantId: selectedAssistantId,
+                    switchingAssistantId: switchingAssistantId,
+                    isLoading: isAssistantSwitcherLoading,
+                    errorMessage: assistantSwitcherError,
+                    onSwitch: onSwitchAssistant,
+                    onRefresh: onRefreshAssistants
+                )
+
+                SettingsDivider()
+            }
+
             // Version info — always visible
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if topology == .local {
@@ -426,6 +450,10 @@ struct AssistantUpgradeSection: View {
         }
     }
 
+    private var shouldShowAssistantSwitcher: Bool {
+        assistantSwitcherItems.count > 1 || assistantSwitcherError != nil
+    }
+
     // MARK: - Actions
 
     private func loadReleases() async {
@@ -548,19 +576,51 @@ struct AssistantUpgradeSection: View {
         }
     }
 
+    /// Upgrade or roll back a managed (platform-hosted) assistant by calling
+    /// the platform upgrade/rollback APIs directly.
+    ///
+    /// The CLI path (`vellum upgrade <id>`) fails for managed assistants
+    /// because the CLI binary reads its own lockfile, which does not contain
+    /// entries for platform-managed assistants stored in the app's sandboxed
+    /// container. The managed assistant's `assistantId` is a UUID that only
+    /// lives in the app-side lockfile, so `resolveTargetAssistant` in the CLI
+    /// always returns ASSISTANT_NOT_FOUND. Calling the platform directly
+    /// avoids that lookup entirely.
     private func performManagedUpgrade() async {
-        guard let cli = AppDelegate.shared?.vellumCli else {
-            errorMessage = "CLI not available"
-            return
-        }
-        let name = LockfileAssistant.loadActiveAssistantId() ?? ""
+        let assistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
         let version = selectedVersion ?? latestRelease?.version
+        let action = isRollback ? "Rollback" : "Upgrade"
+
+        // Build the request path and body — same shape the CLI sends.
+        // Upgrade calls POST /v1/assistants/upgrade/ with {assistant_id, version?};
+        // rollback calls POST /v1/assistants/rollback/ with {version?} only.
+        let path = isRollback ? "assistants/rollback/" : "assistants/upgrade/"
+        var body: [String: Any] = [:]
+        if !isRollback {
+            body["assistant_id"] = assistantId
+        }
+        if let v = version {
+            body["version"] = v
+        }
+
         do {
-            if isRollback {
-                try await cli.rollback(name: name, version: version)
-            } else {
-                try await cli.upgrade(name: name, version: version)
+            let response = try await GatewayHTTPClient.post(
+                path: path,
+                json: body,
+                unprefixed: true
+            )
+
+            guard response.isSuccess else {
+                let text = String(data: response.data, encoding: .utf8) ?? "Unknown error"
+                if response.statusCode == 401 || response.statusCode == 403 {
+                    errorMessage = "\(action) failed: authentication error. Please log in again."
+                } else {
+                    errorMessage = "\(action) failed (\(response.statusCode)): \(text)"
+                }
+                showFeedbackOption = true
+                return
             }
+
             successMessage = isRollback
                 ? "Rollback initiated. The assistant may be briefly unavailable."
                 : "Upgrade initiated. The assistant may be briefly unavailable."
@@ -577,19 +637,8 @@ struct AssistantUpgradeSection: View {
             await loadReleasesQuietly()
             // Clear any error from the releases fetch so it doesn't appear alongside the success
             if successMessage != nil { errorMessage = nil }
-        } catch let error as VellumCli.CLIError {
-            switch error {
-            case .structuredError(let cliError):
-                errorMessage = guidanceForError(cliError)
-                showFeedbackOption = true
-            case .executionFailed(let stderr):
-                errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(stderr)"
-                showFeedbackOption = true
-            default:
-                errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(error.localizedDescription)"
-            }
         } catch {
-            errorMessage = "\(isRollback ? "Rollback" : "Upgrade") failed: \(error.localizedDescription)"
+            errorMessage = "\(action) failed: \(error.localizedDescription)"
             showFeedbackOption = true
         }
     }

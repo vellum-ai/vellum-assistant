@@ -394,8 +394,26 @@ When adding a new keyboard shortcut to the macOS app, you **must** also add a co
 - The app is **not sandboxed** — it requires direct access to accessibility APIs, CGEvent injection, and file system paths outside the sandbox container.
 - The main app binary is signed with `app-entitlements.plist` ([`com.apple.security.device.audio-input`](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.device.audio-input) — required for microphone access under [Hardened Runtime](https://developer.apple.com/documentation/xcode/configuring-the-hardened-runtime)).
 - The embedded daemon binary is signed with `daemon-entitlements.plist` (JIT, unsigned executable memory, network client).
+- All Bun-compiled binaries (`vellum-cli`, `vellum-gateway`, `credential-executor`) must be signed with daemon entitlements — hardened runtime blocks JIT by default, and these are JavaScript executables. See [`allow-jit`](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_security_cs_allow-jit).
 - If new hardware access is needed (e.g., camera), add the corresponding hardened runtime entitlement to `app-entitlements.plist`.
 - Never add `com.apple.security.app-sandbox` — it would break core functionality.
+
+### Code Signing
+
+[Hardened Runtime](https://developer.apple.com/documentation/security/hardened_runtime) is enabled for **all** builds (release and debug). macOS 26+ enforces [Launch Constraints](https://developer.apple.com/documentation/security/defining-launch-environment-and-library-constraints) that kill unsigned or ad-hoc-signed apps claiming security entitlements.
+
+The signing identity fallback chain in `build.sh`:
+1. Developer ID Application (distribution)
+2. Apple Development / Mac Developer (local dev with Apple cert)
+3. Any valid codesigning identity (self-signed)
+4. Auto-generated "Vellum Local Development" self-signed cert (created on first build if no cert exists)
+5. Ad-hoc (`-s -`) — last resort, prints a warning on macOS 26+
+
+Key behaviors:
+- Invalid certs (`CSSMERR_TP_CERT_REVOKED`, etc.) are excluded from detection — `security find-identity -v` includes them despite the `-v` flag
+- Debug builds get [`get-task-allow`](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_security_get-task-allow) injected dynamically for LLDB attachment
+- All keychain operations are guarded by `command -v security` for Docker/Linux compatibility
+- Override with `SIGN_IDENTITY=<identity>` env var to skip auto-detection
 
 ### Computer-Use Safety
 - All computer-use actions go through `ActionVerifier` before execution. Never bypass verification.
@@ -410,6 +428,12 @@ All `vellum.ai` and external links the app navigates to (docs pages, terms of se
 - All `AppURLs` members are `public` so the `vellum-assistant-app` shell target can use them via `import VellumAssistantLib`.
 - The docs base URL honors a `VELLUM_DOCS_BASE_URL` env var (validated as an absolute http(s) URL with no query/fragment, falls back to `https://www.vellum.ai/docs` on failure).
 - If you introduce a new env-var-overridable URL, also: (1) embed the var into `Info.plist`'s `LSEnvironment` in `clients/macos/build.sh` — LaunchServices doesn't inherit shell env, so `./build.sh run` requires the embedding (XML-escape values; see the existing `VELLUM_DOCS_BASE_URL` block for the pattern); (2) register the var in `assistant/src/tools/terminal/safe-env.ts` and `assistant/src/config/env-registry.ts` per `assistant/CLAUDE.md` § "Adding new environment variables".
+
+### Authentication
+
+The WorkOS sign-in flow uses [`ASWebAuthenticationSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) (`AuthManager.startWorkOSLogin`). Apple's defaults assume the sheet shares cookies with the user's existing Safari session — flipping [`prefersEphemeralWebBrowserSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession/prefersephemeralwebbrowsersession) to `true` silently breaks SSO, because the user's existing IdP cookies (Google etc.) become invisible to the sheet and every login asks for credentials from scratch.
+
+Before mirroring an auth-session flag from iOS to macOS (or vice versa), reproduce the bug being fixed on the *target* platform. The two platforms use the same `ASWebAuthenticationSession` API but have different IdP-cookie expectations and different historical bug surfaces, so a setting that is right on one platform can be wrong on the other.
 
 ---
 

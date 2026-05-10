@@ -260,13 +260,27 @@ export class DaemonServer {
 
     this.evictor.start();
 
-    await this.cliIpc.start();
+    try {
+      await this.cliIpc.start();
+    } catch (err) {
+      log.warn(
+        { err },
+        "CLI IPC server failed to start — continuing startup with degraded CLI connectivity",
+      );
+    }
 
     // Start the skill IPC server. First-party skill processes connect to this
     // socket to access host capabilities (host.log, host.config.*,
     // host.events.*, host.registries.*). Route registry is populated by
     // subsequent PRs in the skill-isolation plan.
-    await this.skillIpc.start();
+    try {
+      await this.skillIpc.start();
+    } catch (err) {
+      log.warn(
+        { err },
+        "Skill IPC server failed to start — continuing startup with degraded skill host connectivity",
+      );
+    }
 
     this.configWatcher.start(
       () => this.evictConversationsForReload(),

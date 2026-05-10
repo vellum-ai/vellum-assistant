@@ -8,7 +8,9 @@ import {
   type FSWatcher,
   mkdirSync,
   readdirSync,
+  unwatchFile,
   watch,
+  watchFile,
 } from "node:fs";
 import { join } from "node:path";
 
@@ -46,19 +48,43 @@ function attachWatcherErrorHandler(watcher: FSWatcher, dir: string): void {
   });
 }
 
+/**
+ * Poll interval for `fs.watchFile()`. Use the stat-polling watcher
+ * because Bun's per-file `fs.watch()` doesn't detect renames on Linux
+ * (seemingly works on macOS). See https://github.com/oven-sh/bun/issues/15010.
+ */
+const WATCH_FILE_POLL_MS = 2_000;
+
 export class ConfigWatcher {
   private watchers: FSWatcher[] = [];
-  private debounceTimers = new DebouncerMap({
-    defaultDelayMs: 200,
-    maxEntries: 1000,
-    protectedKeyPrefix: "__",
-  });
+  private watchedFiles: Set<string> = new Set();
+  private stopped = false;
+  private debounceTimers: DebouncerMap;
   private suppressReload = false;
   lastFingerprint = "";
   private lastConfig: ReturnType<typeof getConfig> | null = null;
   private lastRefreshTime = 0;
 
   static readonly REFRESH_INTERVAL_MS = 30_000;
+
+  /**
+   * @param pollIntervalMs Per-file stat poll interval (passed to
+   *   `fs.watchFile`). Default `WATCH_FILE_POLL_MS` (2s); tests pass a
+   *   smaller value for fast turnaround.
+   * @param debounceMs Debounce window applied to any detected file
+   *   change before invoking its handler. Default 200ms; tests pass a
+   *   smaller value to avoid sleeping unnecessarily.
+   */
+  constructor(
+    private readonly pollIntervalMs: number = WATCH_FILE_POLL_MS,
+    debounceMs = 200,
+  ) {
+    this.debounceTimers = new DebouncerMap({
+      defaultDelayMs: debounceMs,
+      maxEntries: 1000,
+      protectedKeyPrefix: "__",
+    });
+  }
 
   /** Expose the debounce timers so handlers can schedule debounced work. */
   get timers(): DebouncerMap {
@@ -140,6 +166,12 @@ export class ConfigWatcher {
     onAvatarChanged?: () => void,
     onConfigChanged?: () => void,
   ): void {
+    // Reset the stopped flag so a stop()→start() cycle on the same
+    // instance resumes hot-reload instead of silently bailing in every
+    // watchFile callback. This matters because getConfigWatcher() is a
+    // module-level singleton — a daemon restart path that reuses it
+    // would otherwise be permanently mute.
+    this.stopped = false;
     const workspaceDir = getWorkspaceDir();
 
     const workspaceHandlers: Record<string, () => void> = {
@@ -173,37 +205,11 @@ export class ConfigWatcher {
       },
     };
 
-    const watchDir = (
-      dir: string,
-      handlers: Record<string, () => void>,
-      label: string,
-    ): void => {
-      try {
-        const watcher = watch(dir, (_eventType, filename) => {
-          if (!filename) return;
-          const file = String(filename);
-          if (!handlers[file]) return;
-          this.debounceTimers.schedule(`file:${file}`, () => {
-            log.info({ file }, "File changed, reloading");
-            handlers[file]();
-          });
-        });
-        attachWatcherErrorHandler(watcher, dir);
-        this.watchers.push(watcher);
-        log.info({ dir }, `Watching ${label}`);
-      } catch (err) {
-        log.warn(
-          { err, dir },
-          `Failed to watch ${label}. Hot-reload will be unavailable.`,
-        );
-      }
-    };
-
-    watchDir(
-      workspaceDir,
-      workspaceHandlers,
-      "workspace directory for config/prompt changes",
-    );
+    // Per-file watches; don't watch the workspace directory itself because
+    // it contains socket files.
+    for (const [filename, handler] of Object.entries(workspaceHandlers)) {
+      this.watchFile(join(workspaceDir, filename), handler, filename);
+    }
 
     if (onSoundsConfigChanged) {
       this.startSoundsWatcher(onSoundsConfigChanged);
@@ -218,11 +224,44 @@ export class ConfigWatcher {
   }
 
   stop(): void {
+    this.stopped = true;
     this.debounceTimers.cancelAll();
+    for (const filePath of this.watchedFiles) {
+      unwatchFile(filePath);
+    }
+    this.watchedFiles.clear();
     for (const watcher of this.watchers) {
       watcher.close();
     }
     this.watchers = [];
+  }
+
+  private watchFile(
+    filePath: string,
+    handler: () => void,
+    label: string,
+  ): void {
+    // Match the defensive pattern used by every other startXWatcher in
+    // this file: log the failure and continue. Per AGENTS.md, the daemon
+    // must never block startup — a watchFile() throw on some platform
+    // edge case must not propagate up to DaemonServer.start().
+    try {
+      watchFile(filePath, { interval: this.pollIntervalMs }, (curr, prev) => {
+        if (this.stopped) return;
+        if (curr.ino === prev.ino && curr.mtimeMs === prev.mtimeMs) return;
+        this.debounceTimers.schedule(`file:${filePath}`, () => {
+          log.info({ file: filePath }, "File changed, reloading");
+          handler();
+        });
+      });
+      this.watchedFiles.add(filePath);
+      log.info({ file: filePath }, `Watching ${label}`);
+    } catch (err) {
+      log.warn(
+        { err, file: filePath },
+        `Failed to watch ${label}. Hot-reload will be unavailable until restart.`,
+      );
+    }
   }
 
   private startSoundsWatcher(onSoundsConfigChanged: () => void): void {

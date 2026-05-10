@@ -481,7 +481,11 @@ final class AvatarAppearanceManager {
         assistantName = "V"
         AvatarCache.clearAll()
         updateDockIcon()
-        updateDockLabel()
+        // Explicit reset: drop the persisted dock label so the next build
+        // falls back to the env-default ("Vellum"/"Vellum Dev"). `updateDockLabel`
+        // intentionally no-ops on the "V" sentinel to avoid clobbering during
+        // the cold-start gateway race, so we delete here instead.
+        try? FileManager.default.removeItem(at: Self.dockDisplayNameURL)
     }
 
     // MARK: - Local Cache Hydration
@@ -556,19 +560,24 @@ final class AvatarAppearanceManager {
     /// `applicationIconImage` is set at runtime and already includes all
     /// system-resolved representations.
     ///
-    /// Marked `nonisolated` to opt this static out of the enclosing
-    /// `@MainActor` isolation so the background prefetch in `start()` can
-    /// trigger the lazy initializer off the main thread without crossing
-    /// an actor boundary. The initializer is safe to run on any thread:
-    /// `NSWorkspace.icon(forFile:)` is documented thread-safe, and the
-    /// resulting `NSImage` is treated as a single immutable value for the
-    /// life of the process.
+    /// Loaded directly from `AppIcon.icns` rather than via
+    /// `NSWorkspace.icon(forFile: bundlePath)` because `updateDockIcon()`
+    /// writes a custom Finder icon (`Icon\r`) onto the `.app` bundle to
+    /// override the notification daemon's icon. That custom file persists
+    /// across launches, so reading the bundle's Finder icon would capture
+    /// the stale avatar from a previous session and cause `restoreBundleIcon()`
+    /// to "restore" it instead of the real Vellum logo. Reading the `.icns`
+    /// resource bypasses Finder metadata entirely.
     ///
-    /// References:
-    /// - https://developer.apple.com/documentation/appkit/nsworkspace/icon(forfile:)
-    /// - https://github.com/swiftlang/swift-evolution/blob/main/proposals/0434-global-actor-isolated-types-usability.md
+    /// Marked `nonisolated` so the background prefetch in `start()` can
+    /// trigger the lazy initializer off the main thread without crossing
+    /// the enclosing `@MainActor` boundary.
     private nonisolated static let bundledAppIcon: NSImage = {
-        NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            return image
+        }
+        return NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
     }()
 
     /// Restores the dock icon to the default Vellum logo.
@@ -579,15 +588,28 @@ final class AvatarAppearanceManager {
     /// generic blank squircle instead.  Setting the bundle icon explicitly
     /// avoids the issue.
     ///
+    /// Also clears any custom Finder icon previously set on the `.app`
+    /// bundle so the notification daemon (`usernoted`) reverts to the
+    /// bundled green V. `applicationIconImage` only affects the in-process
+    /// Dock tile; LaunchServices-resolved surfaces (Finder, notifications)
+    /// read from the file-system icon metadata that `setIcon` writes.
+    ///
     /// Reference: https://developer.apple.com/documentation/appkit/nsapplication/applicationiconimage
     func restoreBundleIcon() {
         NSApplication.shared.applicationIconImage = Self.bundledAppIcon
         NSApp.dockTile.display()
+        NSWorkspace.shared.setIcon(nil, forFile: Bundle.main.bundlePath, options: [])
     }
 
     /// Updates the application dock icon to match the current avatar.
     /// Uses the custom avatar PNG when available, falls back to a character
     /// avatar rendered from saved traits, then restores the bundled Vellum logo.
+    ///
+    /// Mirrors the icon to the `.app` bundle via `NSWorkspace.setIcon` so
+    /// LaunchServices-resolved surfaces (Finder, notification daemon) also
+    /// pick up the avatar. `applicationIconImage` only affects the
+    /// in-process Dock tile, which is why notifications would otherwise
+    /// keep showing the bundled green V.
     private func updateDockIcon() {
         NotificationCenter.default.post(name: Self.avatarDidChangeNotification, object: nil)
 
@@ -618,6 +640,7 @@ final class AvatarAppearanceManager {
 
         NSApplication.shared.applicationIconImage = icon
         NSApp.dockTile.display()
+        NSWorkspace.shared.setIcon(icon, forFile: Bundle.main.bundlePath, options: [])
     }
 
     /// Renders the source image inside a macOS-style squircle mask at the given point size.
@@ -636,9 +659,6 @@ final class AvatarAppearanceManager {
     }
 
     // MARK: - Dock Label
-
-    /// Default app name used for the dock label when no assistant is connected.
-    private static let defaultDockLabel = "Vellum"
 
     /// Sentinel file that `build.sh` reads at build time to set
     /// `CFBundleDisplayName` so the Dock shows the assistant name from
@@ -661,11 +681,20 @@ final class AvatarAppearanceManager {
     /// TCC permissions (Accessibility, Screen Recording, Microphone) and
     /// Gatekeeper. The dock label only takes effect after a rebuild.
     private func updateDockLabel() {
-        let label = assistantName != "V" ? assistantName : Self.defaultDockLabel
+        // Only persist a resolved persona name. Writing a "Vellum" fallback
+        // here would clobber a previously-good value during the gateway
+        // cold-start race window — `IdentityInfo.loadAsync()` is a gateway
+        // HTTP call, and when the daemon/gateway aren't up yet it returns
+        // nil and `assistantName` collapses to "V". Overwriting at that
+        // point causes the next rebuild's `build.sh` to read "Vellum" and
+        // produce `Vellum.app` alongside the existing persona-named bundle.
+        // `cli/src/commands/retire.ts` deletes this file when the last
+        // assistant is retired, so no default write is needed either.
+        guard assistantName != "V" else { return }
 
         let dir = Self.dockDisplayNameURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try? label.write(to: Self.dockDisplayNameURL, atomically: true, encoding: .utf8)
+        try? assistantName.write(to: Self.dockDisplayNameURL, atomically: true, encoding: .utf8)
     }
 
     // MARK: - Image Utilities

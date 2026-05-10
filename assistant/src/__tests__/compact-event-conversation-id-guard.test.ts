@@ -25,9 +25,10 @@ describe("compact slash-command emits conversationId on assistant_text_delta", (
       const source = readFileSync(fullPath, "utf-8");
 
       // Find every `type: "assistant_text_delta"` literal and inspect the
-      // surrounding object literal for a `conversationId` key. Looking at a
-      // ~200-char window forward covers multi-line object literals while
-      // staying tight enough to avoid matching unrelated nearby code.
+      // enclosing object literal for a `conversationId` key. Scope the scan to
+      // the matched `{ ... }` that contains `type:` so an adjacent event (e.g.
+      // a following `message_complete` that happens to carry `conversationId`)
+      // cannot mask a missing field on the delta itself.
       const TYPE_LITERAL = /type:\s*"assistant_text_delta"/g;
       const offsets: number[] = [];
       let match: RegExpExecArray | null;
@@ -38,8 +39,35 @@ describe("compact slash-command emits conversationId on assistant_text_delta", (
 
       const violations: string[] = [];
       for (const offset of offsets) {
-        const window = source.slice(offset, offset + 200);
-        if (!/conversationId/.test(window)) {
+        let openIdx = -1;
+        for (let i = offset; i >= 0; i--) {
+          if (source[i] === "{") {
+            openIdx = i;
+            break;
+          }
+        }
+        let body = "";
+        if (openIdx === -1) {
+          body = source.slice(offset, offset + 200);
+        } else {
+          let depth = 0;
+          let closeIdx = -1;
+          for (let i = openIdx; i < source.length; i++) {
+            if (source[i] === "{") depth++;
+            else if (source[i] === "}") {
+              depth--;
+              if (depth === 0) {
+                closeIdx = i;
+                break;
+              }
+            }
+          }
+          body = source.slice(
+            openIdx,
+            closeIdx === -1 ? undefined : closeIdx + 1,
+          );
+        }
+        if (!/conversationId/.test(body)) {
           const lineNumber = source.slice(0, offset).split("\n").length;
           violations.push(`${relativePath}:${lineNumber}`);
         }

@@ -17,13 +17,20 @@
 //   channel separately and fuses with the configured `dense_weight` /
 //   `sparse_weight` (which the schema validates sum to 1.0).
 //
-// Sparse normalization:
-//   Dense cosine similarity is already in [0, 1]. Qdrant's sparse score is
-//   on a different, unbounded scale (it depends on query and document term
-//   weights), so we divide by the per-batch maximum sparse score to bring
-//   it into [0, 1] before fusing. This is the design doc's choice (§4) —
-//   batch-relative normalization is sufficient because the score is consumed
-//   only as a per-turn ordering signal, not compared across turns.
+// Score normalization:
+//   Qdrant returns cosine similarity in [-1, 1]. We clamp negative cosines
+//   to 0 before fusion so anti-correlated documents contribute zero, rather
+//   than a negative term that subtracts from the sparse channel and can
+//   depress the fused score below the sparse-only floor. Positive cosines
+//   pass through unchanged — affine-rescaling them into [0, 1] via
+//   `(cos + 1) / 2` would halve every pairwise dense difference and shift
+//   ranking toward the sparse channel, the opposite of intent. Qdrant's
+//   sparse score is on a different, unbounded scale (it depends on query
+//   and document term weights), so we divide by the per-batch maximum
+//   sparse score to bring it into [0, 1] before fusing. This is the design
+//   doc's choice (§4) — batch-relative normalization is sufficient because
+//   the score is consumed only as a per-turn ordering signal, not compared
+//   across turns.
 
 import type { AssistantConfig } from "../../config/types.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
@@ -120,14 +127,18 @@ export function effectiveWeights(
  *      sparse via the in-process TF-IDF encoder).
  *   2. Run server-side dense + sparse queries against the v2 concept-page
  *      Qdrant collection, restricted to `candidateSlugs` so we don't waste
- *      query bandwidth on unrelated pages.
- *   3. Fuse: per slug, `score = clamp01(dense_weight · denseCosine +
- *      sparse_weight · normalizedSparse)`. Sparse scores are normalized by
- *      the per-batch maximum (so the largest is 1.0); slugs missing from a
- *      channel contribute 0 from that channel.
+ *      query bandwidth on unrelated pages. The query hits four channels per
+ *      page: body dense + body sparse, and (for pages that have a summary
+ *      embedded) summary dense + summary sparse.
+ *   3. Fuse: per slug, score = `max(fused(body), fused(summary))`. Each
+ *      half is `clamp01(dense_weight · denseCosine + sparse_weight ·
+ *      normalizedSparse)` with sparse normalized by the per-batch maximum.
+ *      Pages without a summary embedding fall back to body-only fusion —
+ *      the summary half is undefined and the max collapses to the body
+ *      score.
  *
  * Returns a `Map<slug, score>` containing only the candidate slugs that hit
- * in at least one channel. Slugs in `candidateSlugs` that miss both channels
+ * in at least one channel. Slugs in `candidateSlugs` that miss every channel
  * are absent from the map; callers should treat absence as score = 0 (the
  * activation pipeline does this implicitly when reading back A_o).
  *
@@ -181,20 +192,52 @@ export async function simBatch(
     return new Map();
   }
 
-  const maxSparse = computeMaxSparse(hits);
+  // Compute per-batch sparse maxima independently for the body and summary
+  // channels so each side normalizes against its own scale. Mixing the two
+  // — e.g. dividing every sparse score by the larger of the two maxima —
+  // would punish whichever channel happened to have lower-magnitude scores
+  // even when its hits were the best matches available.
+  const maxBodySparse = computeMaxSparse(hits, (h) => h.sparseScore);
+  const maxSummarySparse = computeMaxSparse(hits, (h) => h.summarySparseScore);
   const { dense_weight: baseDense, sparse_weight: baseSparse } =
     config.memory.v2;
-  const { dense: denseWeight, sparse: sparseWeight } = effectiveWeights(
-    hits,
-    maxSparse,
+  const { dense: bodyDenseWeight, sparse: bodySparseWeight } = effectiveWeights(
+    hits.map((h) => ({ sparseScore: h.sparseScore })),
+    maxBodySparse,
     baseDense,
     baseSparse,
     config,
   );
+  const { dense: summaryDenseWeight, sparse: summarySparseWeight } =
+    effectiveWeights(
+      hits.map((h) => ({ sparseScore: h.summarySparseScore })),
+      maxSummarySparse,
+      baseDense,
+      baseSparse,
+      config,
+    );
 
   const scores = new Map<string, number>();
   for (const hit of hits) {
-    scores.set(hit.slug, fuseHit(hit, maxSparse, denseWeight, sparseWeight));
+    const bodyScore = fuseHalf(
+      hit.denseScore,
+      hit.sparseScore,
+      maxBodySparse,
+      bodyDenseWeight,
+      bodySparseWeight,
+    );
+    const summaryScore = fuseHalf(
+      hit.summaryDenseScore,
+      hit.summarySparseScore,
+      maxSummarySparse,
+      summaryDenseWeight,
+      summarySparseWeight,
+    );
+    // Pages without a summary embedding return undefined for both summary
+    // channels; their `summaryScore` falls back to the body score so the
+    // max collapses cleanly to body-only behavior.
+    const score = Math.max(bodyScore ?? 0, summaryScore ?? bodyScore ?? 0);
+    scores.set(hit.slug, score);
   }
 
   return scores;
@@ -207,36 +250,47 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 /**
- * Per-batch sparse-score maximum used for normalization. Hits missing from
- * the sparse channel contribute 0 (handled by the `undefined` guard).
+ * Per-batch sparse-score maximum used for normalization. The accessor picks
+ * which sparse channel to scan — `sparseScore` for the body channel,
+ * `summarySparseScore` for the summary channel. Hits missing from the
+ * channel contribute 0 (handled by the `undefined` guard).
  */
-function computeMaxSparse(
-  hits: ReadonlyArray<{ sparseScore?: number }>,
+function computeMaxSparse<T>(
+  hits: ReadonlyArray<T>,
+  accessor: (hit: T) => number | undefined,
 ): number {
   let max = 0;
   for (const hit of hits) {
-    if (hit.sparseScore !== undefined && hit.sparseScore > max) {
-      max = hit.sparseScore;
+    const value = accessor(hit);
+    if (value !== undefined && value > max) {
+      max = value;
     }
   }
   return max;
 }
 
 /**
- * Fuse a single hit's dense + sparse scores into a normalized [0, 1] score
- * via `clamp01(dense_weight · dense + sparse_weight · sparse/maxSparse)`.
- * Missing-channel scores contribute 0.
+ * Fuse one half of a hit (body or summary) into a normalized [0, 1] score
+ * via `clamp01(dense_weight · max(0, cosine) + sparse_weight ·
+ * sparse/maxSparse)`. Negative cosines clamp to 0 so they don't subtract
+ * from sparse; positive cosines pass through unchanged so the
+ * operator-configured dense/sparse balance is preserved. Returns
+ * `undefined` when neither channel hit — a signal the half had no match
+ * at all, so the caller can fall back to the other half cleanly.
+ *
+ * Exported so the context-search adapter can reuse the same fusion math
+ * for its own activation pipeline.
  */
-function fuseHit(
-  hit: { denseScore?: number; sparseScore?: number },
+export function fuseHalf(
+  denseScore: number | undefined,
+  sparseScore: number | undefined,
   maxSparse: number,
   denseWeight: number,
   sparseWeight: number,
-): number {
-  const dense = hit.denseScore ?? 0;
+): number | undefined {
+  if (denseScore === undefined && sparseScore === undefined) return undefined;
+  const dense = denseScore !== undefined ? Math.max(0, denseScore) : 0;
   const sparseNormalized =
-    hit.sparseScore !== undefined && maxSparse > 0
-      ? hit.sparseScore / maxSparse
-      : 0;
+    sparseScore !== undefined && maxSparse > 0 ? sparseScore / maxSparse : 0;
   return clamp01(denseWeight * dense + sparseWeight * sparseNormalized);
 }

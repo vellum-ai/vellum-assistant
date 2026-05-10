@@ -158,6 +158,12 @@ declare -a SAFE_LINE_PATTERNS=(
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*$"
     # Inline JSON-schema property definition (e.g. `client_secret: { type: "string" },`).
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*type:"
+    # YAML schema property declaration with no value on the same line — the
+    # nested type definition follows on subsequent lines (e.g. OpenAPI specs:
+    # `clientSecret:\n  type: string`). A real secret value would be on the
+    # same line (`clientSecret: "abc"`) or use a multi-line string marker
+    # (`clientSecret: |`); a bare key is unambiguously a schema declaration.
+    "^[[:space:]]+[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$"
     # TS: optional property type annotation (e.g. `clientSecret?: string;`)
     # Must end with type + optional semicolon/comma — no `=` assignment.
     # Also covers union types like `clientSecret: string | undefined;`.

@@ -653,6 +653,9 @@ describe("voice-session-bridge", () => {
       "If your assistant name is not known, skip the name and just identify yourself as the guardian's assistant.",
     );
     expect(prompt).toContain(
+      "Never use a UUID-shaped internal assistant ID as your spoken name.",
+    );
+    expect(prompt).toContain(
       'Do NOT say "I\'m calling" or "I\'m calling on behalf of".',
     );
   });

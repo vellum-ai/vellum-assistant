@@ -1515,14 +1515,23 @@ public struct EnvVarsResponse: Codable, Sendable {
 
 public struct ErrorMessage: Codable, Sendable {
     public let type: String
+    public let conversationId: String?
+    public let requestId: String?
+    public let code: String?
     public let message: String
     /// Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked).
     public let category: String?
+    /// Machine-readable conversation error category for clients that need source-aware recovery UI.
+    public let errorCategory: String?
 
-    public init(type: String, message: String, category: String? = nil) {
+    public init(type: String, conversationId: String? = nil, requestId: String? = nil, code: String? = nil, message: String, category: String? = nil, errorCategory: String? = nil) {
         self.type = type
+        self.conversationId = conversationId
+        self.requestId = requestId
+        self.code = code
         self.message = message
         self.category = category
+        self.errorCategory = errorCategory
     }
 }
 
@@ -1697,8 +1706,9 @@ public struct GenerationHandoff: Codable, Sendable {
     public let attachments: [UserMessageAttachment]?
     public let attachmentWarnings: [String]?
     public let messageId: String?
+    public let displayMessageId: String?
 
-    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, displayMessageId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.requestId = requestId
@@ -1706,6 +1716,7 @@ public struct GenerationHandoff: Codable, Sendable {
         self.attachments = attachments
         self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
+        self.displayMessageId = displayMessageId
     }
 }
 
@@ -2140,6 +2151,7 @@ public struct HistoryResponse: Codable, Sendable {
 
 public struct HistoryResponseMessage: Codable, Sendable {
     public let id: String?
+    public let daemonMessageId: String?
     public let role: String
     public let text: String
     public let timestamp: Double
@@ -2160,8 +2172,9 @@ public struct HistoryResponseMessage: Codable, Sendable {
     /// True when text or tool result content was truncated due to maxTextChars/maxToolResultChars.
     public let wasTruncated: Bool?
 
-    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, thinkingSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
+    public init(id: String? = nil, daemonMessageId: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, thinkingSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
         self.id = id
+        self.daemonMessageId = daemonMessageId
         self.role = role
         self.text = text
         self.timestamp = timestamp
@@ -2681,14 +2694,16 @@ public struct MessageComplete: Codable, Sendable {
     public let attachments: [UserMessageAttachment]?
     public let attachmentWarnings: [String]?
     public let messageId: String?
+    public let displayMessageId: String?
     public let source: String?
 
-    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, source: String? = nil) {
+    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, displayMessageId: String? = nil, source: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.attachments = attachments
         self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
+        self.displayMessageId = displayMessageId
         self.source = source
     }
 }
@@ -4900,11 +4915,19 @@ public struct ToolResult: Codable, Sendable {
     public let riskThreshold: String?
     /// Whether the daemon is running in a containerized (Docker) environment.
     public let isContainerized: Bool?
-    /// Scope options ladder for the rule editor modal (narrowest to broadest).
+    /// Display-only scope options ladder for the rule editor modal (regex
+    /// patterns from the classifier — narrowest to broadest). NOT safe to use
+    /// as the saved trust-rule pattern; the gateway matches saved patterns as
+    /// Minimatch globs, not regex. For save use `riskAllowlistOptions`.
     public let riskScopeOptions: [ToolResultRiskScopeOption]?
+    /// Save-shape allowlist options ladder for the rule editor modal
+    /// (Minimatch-glob patterns from the classifier — narrowest to broadest).
+    /// This is the field whose `pattern` should be used when persisting a
+    /// trust rule from the chip-ladder UI.
+    public let riskAllowlistOptions: [ConfirmationRequestAllowlistOption]?
     public let riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedTrustRuleId: String? = nil, approvalMode: String? = nil, approvalReason: String? = nil, riskThreshold: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedTrustRuleId: String? = nil, approvalMode: String? = nil, approvalReason: String? = nil, riskThreshold: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskAllowlistOptions: [ConfirmationRequestAllowlistOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4922,6 +4945,7 @@ public struct ToolResult: Codable, Sendable {
         self.riskThreshold = riskThreshold
         self.isContainerized = isContainerized
         self.riskScopeOptions = riskScopeOptions
+        self.riskAllowlistOptions = riskAllowlistOptions
         self.riskDirectoryScopeOptions = riskDirectoryScopeOptions
     }
 }

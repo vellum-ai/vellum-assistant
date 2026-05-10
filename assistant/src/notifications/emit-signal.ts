@@ -15,6 +15,7 @@ import { getDeliverableChannels } from "../channels/config.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { getLogger } from "../util/logger.js";
 import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
+import { PlatformPushAdapter } from "./adapters/platform.js";
 import { SlackAdapter } from "./adapters/slack.js";
 import { TelegramAdapter } from "./adapters/telegram.js";
 import {
@@ -62,7 +63,11 @@ export function registerBroadcastFn(fn: BroadcastFn): void {
 
 function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
-    const adapters = [new TelegramAdapter(), new SlackAdapter()];
+    const adapters = [
+      new TelegramAdapter(),
+      new SlackAdapter(),
+      new PlatformPushAdapter(),
+    ];
     if (registeredBroadcastFn) {
       adapters.unshift(new VellumAdapter(registeredBroadcastFn));
     }
@@ -110,6 +115,16 @@ function getConnectedChannels(): NotificationChannel[] {
         // Vellum is always considered connected (the local transport is
         // always available when the daemon is running).
         channels.push(channel);
+        break;
+      case "platform":
+        // Platform push is connected when the daemon has a registered
+        // broadcast function — i.e., full daemon mode where platform
+        // credentials are also available. Mirrors the vellum gate so
+        // the decision engine doesn't route to platform in standalone
+        // CLI contexts where VellumPlatformClient.create() returns null.
+        if (registeredBroadcastFn) {
+          channels.push(channel);
+        }
         break;
       case "telegram": {
         // A binding-based channel is connected when the guardian has an

@@ -20,6 +20,7 @@ import {
   findPendingPhoneSession,
   gatherVerificationTwiml,
 } from "../../voice/verification.js";
+import { ContactStore } from "../../db/contact-store.js";
 
 const log = getLogger("twilio-voice-webhook");
 
@@ -28,6 +29,16 @@ const REJECT_TWIML =
   '<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="rejected"/></Response>';
 
 const TWIML_HEADERS = { "Content-Type": "text/xml" };
+
+/** Escapes XML special characters so contact display names are safe to embed in TwiML. */
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
 
 export function createTwilioVoiceWebhookHandler(
   config: GatewayConfig,
@@ -122,6 +133,57 @@ export function createTwilioVoiceWebhookHandler(
           { err, callSid: params.CallSid },
           "Failed to check pending verification session — falling through to assistant",
         );
+      }
+
+      // ── Known-but-unverified caller guidance ─────────────────────────────
+      // If the caller's number is registered under a contact's phone channel
+      // but has not yet passed DTMF verification, intercept with a helpful
+      // message rather than letting the runtime treat them as an unknown caller.
+      if (params.From) {
+        try {
+          const callerRecord = new ContactStore().getContactByPhoneNumber(
+            params.From,
+          );
+          // Only intercept genuinely unverified channels — not blocked ones.
+          // A blocked caller should fall through to the runtime's deny path
+          // rather than hearing a helpful verification script (which would
+          // both leak the contact name and weaken block semantics).
+          // The display name is intentionally included: the caller registered
+          // this number themselves, so disclosing their own name is expected.
+          const unverifiedStatuses = new Set(["unverified", "pending"]);
+          if (callerRecord && unverifiedStatuses.has(callerRecord.channel.status)) {
+            const isGuardian = callerRecord.contact.role === "guardian";
+            log.info(
+              {
+                callSid: params.CallSid,
+                contactId: callerRecord.contact.id,
+                channelStatus: callerRecord.channel.status,
+                isGuardian,
+              },
+              "Known-but-unverified caller — returning verification guidance TwiML",
+            );
+            const name = escapeXml(callerRecord.contact.displayName);
+            // Conditional guidance: only the guardian has direct access to the
+            // assistant's contacts page; other contacts must ask the guardian
+            // to (re)start a verification session for them.
+            const action = isGuardian
+              ? `To verify, open your assistant's contacts page, click Verify next to the phone channel, ` +
+                `and follow the prompts. Then call back once the verification session is active.`
+              : `Please reach out to the account guardian to start a new verification session, ` +
+                `then call back once the verification session is active.`;
+            const twiml =
+              `<?xml version="1.0" encoding="UTF-8"?><Response>` +
+              `<Say>This number is registered as ${name}'s phone but has not been verified yet. ` +
+              `${action}</Say>` +
+              `</Response>`;
+            return new Response(twiml, { status: 200, headers: TWIML_HEADERS });
+          }
+        } catch (err) {
+          log.warn(
+            { err, callSid: params.CallSid },
+            "Failed to check unverified caller — falling through to assistant",
+          );
+        }
       }
     }
 

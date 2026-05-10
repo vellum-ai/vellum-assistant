@@ -103,11 +103,11 @@ export async function pairDeliveryWithConversation(
   try {
     const strategy = getConversationStrategy(channel as ChannelId);
 
-    if (strategy === "not_deliverable") {
+    if (strategy === "not_deliverable" || strategy === "push_only") {
       return {
         conversationId: null,
         messageId: null,
-        strategy: "not_deliverable",
+        strategy,
         createdNewConversation: false,
         conversationFallbackUsed: false,
       };

@@ -9,6 +9,16 @@ const MAX_WEBSOCKET_CLOSE_REASON_BYTES = 123;
 
 const VELAY_ALLOWED_HTTP_PATH_PREFIXES = ["/webhooks/twilio/"] as const;
 
+/**
+ * Injected unconditionally by the HTTP bridge on every request forwarded to
+ * the gateway's loopback listener. Loopback-only routes (guardian init, pair,
+ * etc.) use this as a secondary "Velay-origin" guard: if the header is present
+ * the request arrived via the tunnel bridge and must be rejected regardless of
+ * the peer IP. The bridge overwrites any client-supplied value so it cannot be
+ * spoofed by stripping or omitting the header on the Velay side.
+ */
+export const VELAY_FORWARDED_HEADER = "x-velay-forwarded" as const;
+
 export function isAllowedVelayHttpPath(path: string): boolean {
   return VELAY_ALLOWED_HTTP_PATH_PREFIXES.some((prefix) =>
     path.startsWith(prefix),

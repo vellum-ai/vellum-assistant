@@ -18,11 +18,16 @@
 // fusion using `dense_weight` / `sparse_weight` from `config.memory.v2`,
 // which RRF fusion would discard.
 
+import { existsSync } from "node:fs";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
 import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v5 as uuidv5 } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
+import { getDataDir } from "../../util/platform.js";
 import type { SparseEmbedding } from "../embedding-types.js";
 import { resolveQdrantUrl } from "../qdrant-client.js";
 
@@ -48,21 +53,86 @@ export interface ConceptPagePayload {
 export interface ConceptPageQueryResult {
   slug: string;
   /**
-   * Dense cosine similarity, when the slug appeared in the dense top-`limit`.
-   * `undefined` if the slug only appeared in the sparse channel.
+   * Dense cosine similarity against the page body, when the slug appeared in
+   * the body dense top-`limit`. `undefined` if the slug only appeared in the
+   * sparse channel — or in a summary-side channel.
    */
   denseScore?: number;
   /**
-   * Sparse score, when the slug appeared in the sparse top-`limit`.
-   * `undefined` if the slug only appeared in the dense channel. Lives on a
-   * different scale than `denseScore` — callers must normalize before fusing.
+   * Sparse score against the page body, when the slug appeared in the body
+   * sparse top-`limit`. `undefined` if the slug only appeared in the dense
+   * channel. Lives on a different scale than `denseScore` — callers must
+   * normalize before fusing.
    */
   sparseScore?: number;
+  /**
+   * Dense cosine similarity against the page's frontmatter `summary`, when
+   * the page has a summary embedded and the slug appeared in the summary
+   * dense top-`limit`. `undefined` for pages without a summary embedding —
+   * those fall back to body-only scoring.
+   */
+  summaryDenseScore?: number;
+  /**
+   * Sparse score against the page's frontmatter `summary`, paired with
+   * `summaryDenseScore`. `undefined` for pages without a summary embedding.
+   */
+  summarySparseScore?: number;
 }
 
 let _client: QdrantRestClient | null = null;
 let _collectionReady = false;
-let _collectionReadyPromise: Promise<void> | null = null;
+let _collectionReadyPromise: Promise<{ migrated: boolean }> | null = null;
+
+/**
+ * Named vectors the v2 concept-page collection must expose. Existing
+ * collections that lack any of these get destructively recreated by
+ * `ensureConceptPageCollectionOnce` — see the `migrated` return flag.
+ */
+const REQUIRED_DENSE_VECTORS = ["dense", "summary_dense"] as const;
+const REQUIRED_SPARSE_VECTORS = ["sparse", "summary_sparse"] as const;
+
+/**
+ * Marker file written before the destructive collection-recreate path runs,
+ * cleared by the lifecycle hook once the reembed job has been enqueued.
+ *
+ * The sentinel exists to close a narrow data-loss window in
+ * `ensureConceptPageCollectionOnce`: a transient Qdrant failure between
+ * `deleteCollection` and `createCollection` would otherwise lose the
+ * "needs reembed" signal — `migrated` is reinitialized on the next call,
+ * any subsequent caller (e.g. an upsert) recreates the collection empty,
+ * and the lifecycle hook never enqueues the backfill. By persisting the
+ * intent on disk *before* delete, the signal survives crashes and
+ * intra-process retries: every later `ensureConceptPageCollection` call
+ * returns `migrated: true` until the lifecycle hook enqueues the reembed
+ * and clears the sentinel.
+ */
+const REEMBED_SENTINEL_FILENAME = ".memory-v2-reembed-required";
+
+function reembedSentinelPath(): string {
+  return join(getDataDir(), REEMBED_SENTINEL_FILENAME);
+}
+
+function reembedSentinelExists(): boolean {
+  return existsSync(reembedSentinelPath());
+}
+
+async function writeReembedSentinel(): Promise<void> {
+  const path = reembedSentinelPath();
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, "");
+}
+
+/**
+ * Remove the reembed sentinel after the lifecycle hook has enqueued the
+ * `memory_v2_reembed` job. Idempotent — missing-file is not an error.
+ */
+export async function clearReembedSentinel(): Promise<void> {
+  try {
+    await unlink(reembedSentinelPath());
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+}
 
 /** Lazily create a Qdrant REST client bound to the resolved URL. */
 function getClient(): QdrantRestClient {
@@ -76,16 +146,19 @@ function getClient(): QdrantRestClient {
 }
 
 /**
- * Create the v2 concept-page collection if it does not already exist.
- * Idempotent: a no-op when the collection is already present.
- *
- * Vector layout mirrors `VellumQdrantClient.ensureCollection` — named dense
- * (cosine, configurable size + on-disk) and sparse vectors. The vector size
- * and on-disk flag inherit from `config.memory.qdrant` so v2 stays aligned
- * with the user's existing embedding backend without separate knobs.
+ * Create the v2 concept-page collection if it does not already exist, or
+ * destructively recreate it when the existing schema is missing any of the
+ * required named vectors (see `REQUIRED_DENSE_VECTORS` /
+ * `REQUIRED_SPARSE_VECTORS`). The latter case is signalled to callers via
+ * `{ migrated: true }` so they can enqueue a backfill — pre-#29823
+ * collections lack `summary_dense` / `summary_sparse` and every query
+ * referencing those named vectors fails with HTTP 400 until the collection
+ * is rebuilt. Mirrors `VellumQdrantClient.ensureCollection` for v1.
  */
-export async function ensureConceptPageCollection(): Promise<void> {
-  if (_collectionReady) return;
+export async function ensureConceptPageCollection(): Promise<{
+  migrated: boolean;
+}> {
+  if (_collectionReady) return { migrated: false };
   if (_collectionReadyPromise) return _collectionReadyPromise;
 
   _collectionReadyPromise = ensureConceptPageCollectionOnce().finally(() => {
@@ -94,17 +167,54 @@ export async function ensureConceptPageCollection(): Promise<void> {
   return _collectionReadyPromise;
 }
 
-async function ensureConceptPageCollectionOnce(): Promise<void> {
+async function ensureConceptPageCollectionOnce(): Promise<{
+  migrated: boolean;
+}> {
   const client = getClient();
   const config = getConfig();
   const vectorSize = config.memory.qdrant.vectorSize;
   const onDisk = config.memory.qdrant.onDisk;
 
+  // A leftover sentinel means a prior call deleted the collection but never
+  // got to enqueue the reembed (e.g. createCollection threw, or the process
+  // died mid-rebuild). Carry that signal forward until the lifecycle hook
+  // clears it.
+  let migrated = reembedSentinelExists();
+
   try {
     const exists = await client.collectionExists(MEMORY_V2_COLLECTION);
     if (exists.exists) {
-      _collectionReady = true;
-      return;
+      // Assume compatible on probe failure rather than risk a destructive
+      // recreate — mirrors v1's posture in `VellumQdrantClient.ensureCollection`.
+      let info: Awaited<ReturnType<typeof client.getCollection>>;
+      try {
+        info = await client.getCollection(MEMORY_V2_COLLECTION);
+      } catch (err) {
+        log.warn(
+          { err, collection: MEMORY_V2_COLLECTION },
+          "Failed to probe v2 collection schema; assuming compatible",
+        );
+        _collectionReady = true;
+        return { migrated: false };
+      }
+
+      const missing = missingNamedVectors(info);
+      if (missing.length === 0) {
+        _collectionReady = true;
+        return { migrated: false };
+      }
+
+      log.warn(
+        { collection: MEMORY_V2_COLLECTION, missingNamedVectors: missing },
+        "Memory v2 concept-page collection schema drift detected — deleting and recreating; embeddings will be regenerated by background reembed",
+      );
+      // Persist the reembed intent BEFORE the destructive delete so a crash
+      // (or transient createCollection failure) between delete and recreate
+      // still triggers reembed on the next ensure call.
+      await writeReembedSentinel();
+      await client.deleteCollection(MEMORY_V2_COLLECTION);
+      migrated = true;
+      // Fall through to creation below.
     }
   } catch (err) {
     // Treat "not found"-shaped errors as "needs creation" and fall through.
@@ -124,14 +234,27 @@ async function ensureConceptPageCollectionOnce(): Promise<void> {
           distance: "Cosine",
           on_disk: onDisk,
         },
+        // Optional second dense vector covering the page's frontmatter
+        // `summary`. Pages without a summary store nothing under this name —
+        // Qdrant supports per-point named-vector subsets — so the named-vector
+        // index stays cheap until summaries are populated.
+        summary_dense: {
+          size: vectorSize,
+          distance: "Cosine",
+          on_disk: onDisk,
+        },
       },
       sparse_vectors: {
         sparse: {}, // Qdrant auto-infers sparse vector params
+        summary_sparse: {}, // BM25 sparse vector for the summary
       },
       hnsw_config: {
         on_disk: onDisk,
         m: 16,
         ef_construct: 100,
+      },
+      optimizers_config: {
+        default_segment_number: 2,
       },
       on_disk_payload: onDisk,
     });
@@ -143,7 +266,7 @@ async function ensureConceptPageCollectionOnce(): Promise<void> {
       (err as { status: number }).status === 409
     ) {
       _collectionReady = true;
-      return;
+      return { migrated };
     }
     throw err;
   }
@@ -156,24 +279,88 @@ async function ensureConceptPageCollectionOnce(): Promise<void> {
   });
 
   _collectionReady = true;
+  return { migrated };
+}
+
+/**
+ * Return the names of required named vectors absent from the collection's
+ * current schema. An empty array means the collection is fully migrated.
+ *
+ * If the response shape is unparseable (e.g. Qdrant returns an unexpected
+ * structure) we treat it as "everything is missing" so the caller's drift
+ * branch fires — combined with the `getCollection` try/catch in the caller,
+ * a thrown probe falls back to "assume compatible" while a parsed-but-empty
+ * response triggers the safer recreate.
+ */
+function missingNamedVectors(
+  info: Awaited<ReturnType<QdrantRestClient["getCollection"]>>,
+): string[] {
+  const params = info.config?.params;
+  const dense = params?.vectors;
+  const sparse = (params as { sparse_vectors?: unknown } | undefined)
+    ?.sparse_vectors;
+  const denseNames =
+    dense && typeof dense === "object" && !("size" in dense)
+      ? new Set(Object.keys(dense))
+      : new Set<string>();
+  const sparseNames =
+    sparse && typeof sparse === "object"
+      ? new Set(Object.keys(sparse as Record<string, unknown>))
+      : new Set<string>();
+
+  const missing: string[] = [];
+  for (const name of REQUIRED_DENSE_VECTORS) {
+    if (!denseNames.has(name)) missing.push(name);
+  }
+  for (const name of REQUIRED_SPARSE_VECTORS) {
+    if (!sparseNames.has(name)) missing.push(name);
+  }
+  return missing;
 }
 
 /**
  * Upsert a concept page's dense + sparse embedding. The point ID is derived
  * deterministically from the slug so subsequent calls for the same slug
  * replace the prior point in place rather than accumulating duplicates.
+ *
+ * `summary` is optional — supplied when the page's frontmatter carries a
+ * `summary`, omitted otherwise. Pages without a summary store only the body
+ * vectors and fall back to body-only scoring at query time. The grouped
+ * shape enforces at the type level that summary dense and sparse are
+ * always written together.
  */
 export async function upsertConceptPageEmbedding(params: {
   slug: string;
   dense: number[];
   sparse: SparseEmbedding;
+  summary?: { dense: number[]; sparse: SparseEmbedding };
   updatedAt: number;
+  /**
+   * Optional payload discriminator. Used to distinguish skill-seeded points
+   * (`kind: "skill"`) from user-authored concept pages so namespace pruning
+   * via {@link pruneSlugsWithPrefixExcept} can scope deletes to a single kind.
+   * Omitted for plain concept pages.
+   */
+  kind?: string;
 }): Promise<void> {
   await ensureConceptPageCollection();
 
-  const { slug, dense, sparse, updatedAt } = params;
+  const { slug, dense, sparse, summary, updatedAt, kind } = params;
   const client = getClient();
   const pointId = pointIdForSlug(slug);
+
+  // Qdrant lets us upsert any subset of named vectors per point. The summary
+  // entries appear only when the caller passed a `summary` block — pairing
+  // them at the type level keeps query-time fusion symmetric with the body
+  // channels.
+  const vector: Record<string, number[] | SparseEmbedding> = { dense, sparse };
+  if (summary) {
+    vector.summary_dense = summary.dense;
+    vector.summary_sparse = summary.sparse;
+  }
+
+  const payload: Record<string, unknown> = { slug, updated_at: updatedAt };
+  if (kind !== undefined) payload.kind = kind;
 
   const upsertOnce = () =>
     client.upsert(MEMORY_V2_COLLECTION, {
@@ -181,8 +368,8 @@ export async function upsertConceptPageEmbedding(params: {
       points: [
         {
           id: pointId,
-          vector: { dense, sparse },
-          payload: { slug, updated_at: updatedAt },
+          vector,
+          payload,
         },
       ],
     });
@@ -231,17 +418,25 @@ export async function deleteConceptPageEmbedding(slug: string): Promise<void> {
  * since skills now share the concept-page collection rather than living in a
  * dedicated one.
  *
+ * `kind` scopes pruning to a payload discriminator: only points whose
+ * `payload.kind` matches are eligible for deletion. This is critical because
+ * `validateSlug` permits user-authored concept pages slugged like
+ * `skills/foo`; without a kind filter they would collide with the skill
+ * namespace and be repeatedly pruned every seed run.
+ *
  * Idempotent: when the live `<prefix>*` slugs already match `activeSuffixes`,
  * the function performs a single scroll and no deletes.
  */
 export async function pruneSlugsWithPrefixExcept(
   prefix: string,
   activeSuffixes: readonly string[],
+  options: { kind?: string } = {},
 ): Promise<void> {
   await ensureConceptPageCollection();
 
   const client = getClient();
   const activeSet = new Set(activeSuffixes);
+  const requiredKind = options.kind;
 
   const doPrune = async (): Promise<void> => {
     const stalePointIds: Array<string | number> = [];
@@ -256,9 +451,15 @@ export async function pruneSlugsWithPrefixExcept(
         ...(offset !== undefined ? { offset } : {}),
       });
       for (const point of result.points) {
-        const slug = (point.payload as { slug?: unknown } | null)?.slug;
+        const payload = point.payload as {
+          slug?: unknown;
+          kind?: unknown;
+        } | null;
+        const slug = payload?.slug;
         if (typeof slug !== "string") continue;
         if (!slug.startsWith(prefix)) continue;
+        if (requiredKind !== undefined && payload?.kind !== requiredKind)
+          continue;
         const suffix = slug.slice(prefix.length);
         if (!activeSet.has(suffix)) {
           stalePointIds.push(point.id);
@@ -286,6 +487,46 @@ export async function pruneSlugsWithPrefixExcept(
       await doPrune();
       return;
     }
+    throw err;
+  }
+}
+
+/**
+ * Approximate count of points in the v2 concept-page collection. Used by the
+ * daemon-startup rebuild hook to detect "collection exists but empty" — the
+ * crash-mid-rebuild recovery case where a prior boot dropped + recreated the
+ * collection but died before reembed completed. Returns `0` if the collection
+ * does not exist or the count call fails (treated as "needs reembed" by the
+ * caller).
+ */
+export async function countConceptPagePoints(): Promise<number> {
+  await ensureConceptPageCollection();
+  try {
+    const result = await getClient().count(MEMORY_V2_COLLECTION, {
+      exact: false,
+    });
+    return result.count;
+  } catch (err) {
+    log.warn(
+      { err, collection: MEMORY_V2_COLLECTION },
+      "Failed to count v2 concept-page collection — treating as empty",
+    );
+    return 0;
+  }
+}
+
+/**
+ * Probe whether the v2 concept-page collection currently exists in Qdrant
+ * **without** triggering creation. Read-only diagnostics use this to avoid
+ * the side effect of bootstrapping storage just by inspecting it.
+ */
+export async function conceptPageCollectionExists(): Promise<boolean> {
+  const client = getClient();
+  try {
+    const result = await client.collectionExists(MEMORY_V2_COLLECTION);
+    return result.exists;
+  } catch (err) {
+    if (isCollectionMissing(err)) return false;
     throw err;
   }
 }
@@ -319,9 +560,15 @@ export async function dropLegacySkillsCollection(): Promise<void> {
  * a normalized weighted-sum — because RRF would discard the score magnitudes
  * the activation formula needs.
  *
+ * Four channels are queried concurrently: body dense, body sparse, summary
+ * dense, summary sparse. The summary channels only return hits for pages whose
+ * frontmatter carries a `summary` (and therefore stored `summary_dense` /
+ * `summary_sparse` named vectors at upsert time). Pages without a summary
+ * surface body-only scores; callers fall back to body-only fusion for those.
+ *
  * Each channel returns up to `limit` hits. A slug is included in the result
- * if it appears in either channel; the missing channel's score is left
- * `undefined` so callers can detect single-channel matches.
+ * if it appears in any channel; missing channel scores stay `undefined` so
+ * callers can distinguish "no match in this channel" from "match with score 0".
  *
  * `restrictToSlugs`, when provided, filters the search server-side to only
  * those slugs (Qdrant `slug IN [...]` filter). Used by `simBatch` when the
@@ -355,42 +602,51 @@ export async function hybridQueryConceptPages(
   // Qdrant 1.13.x sparse-index crash that we've reproduced in the wild.
   const skipSparse = options?.skipSparse ?? false;
 
-  const denseQuery = () =>
+  const queryDense = (using: string) =>
     client.query(MEMORY_V2_COLLECTION, {
       query: dense,
-      using: "dense",
+      using,
       limit,
       with_payload: true,
       filter,
     });
-  const sparseQuery = () =>
+  const querySparse = (using: string) =>
     client.query(MEMORY_V2_COLLECTION, {
       query: sparse,
-      using: "sparse",
+      using,
       limit,
       with_payload: true,
       filter,
     });
 
-  // Run both queries concurrently — they hit independent named vectors.
-  // When sparse is gated off we still resolve a Promise so the destructuring
-  // below stays uniform; the empty `points: []` matches the shape of a
-  // no-hit Qdrant response.
+  // Run all four channels concurrently — they hit independent named vectors.
+  // When sparse is gated off the sparse channels still resolve a Promise so
+  // the destructuring below stays uniform; the empty `points: []` matches
+  // the shape of a no-hit Qdrant response.
   const emptyResult = {
     points: [] as Array<{ payload?: unknown; score?: number }>,
   };
   const runQueries = async () =>
-    Promise.all([denseQuery(), skipSparse ? emptyResult : sparseQuery()]);
+    Promise.all([
+      queryDense("dense"),
+      skipSparse ? emptyResult : querySparse("sparse"),
+      queryDense("summary_dense"),
+      skipSparse ? emptyResult : querySparse("summary_sparse"),
+    ]);
 
   let denseResults;
   let sparseResults;
+  let summaryDenseResults;
+  let summarySparseResults;
   try {
-    [denseResults, sparseResults] = await runQueries();
+    [denseResults, sparseResults, summaryDenseResults, summarySparseResults] =
+      await runQueries();
   } catch (err) {
     if (isCollectionMissing(err)) {
       _collectionReady = false;
       await ensureConceptPageCollection();
-      [denseResults, sparseResults] = await runQueries();
+      [denseResults, sparseResults, summaryDenseResults, summarySparseResults] =
+        await runQueries();
     } else {
       throw err;
     }
@@ -399,106 +655,24 @@ export async function hybridQueryConceptPages(
   // Merge by slug. Missing-side scores stay undefined so the fuser can tell
   // "no match in this channel" apart from "match with score 0".
   const merged = new Map<string, ConceptPageQueryResult>();
-  for (const point of denseResults.points ?? []) {
-    const slug = (point.payload as { slug?: unknown } | null)?.slug;
-    if (typeof slug !== "string") continue;
-    merged.set(slug, { slug, denseScore: point.score ?? 0 });
-  }
-  for (const point of sparseResults.points ?? []) {
-    const slug = (point.payload as { slug?: unknown } | null)?.slug;
-    if (typeof slug !== "string") continue;
-    const existing = merged.get(slug);
-    if (existing) {
-      existing.sparseScore = point.score ?? 0;
-    } else {
-      merged.set(slug, { slug, sparseScore: point.score ?? 0 });
+  const recordHit = (
+    points: Array<{ payload?: unknown; score?: number }> | undefined,
+    set: (entry: ConceptPageQueryResult, score: number) => void,
+  ): void => {
+    for (const point of points ?? []) {
+      const slug = (point.payload as { slug?: unknown } | null)?.slug;
+      if (typeof slug !== "string") continue;
+      const existing = merged.get(slug) ?? { slug };
+      set(existing, point.score ?? 0);
+      merged.set(slug, existing);
     }
-  }
+  };
+  recordHit(denseResults.points, (e, s) => (e.denseScore = s));
+  recordHit(sparseResults.points, (e, s) => (e.sparseScore = s));
+  recordHit(summaryDenseResults.points, (e, s) => (e.summaryDenseScore = s));
+  recordHit(summarySparseResults.points, (e, s) => (e.summarySparseScore = s));
 
   return Array.from(merged.values());
-}
-
-/**
- * Page through the v2 concept-page collection and return up to `maxSamples`
- * stored dense vectors. Used by the anisotropy-fit pipeline to compute a
- * corpus mean + top-k principal components without re-embedding every page.
- *
- * Sparse vectors are skipped — anisotropy is a dense-embedding phenomenon, and
- * pulling the sparse side would just inflate the response. Payload is also
- * skipped because the fit doesn't need slug identity.
- *
- * Returns an empty array when the collection is empty or missing. Caller
- * decides what to do (typically: surface a "no vectors to fit" error).
- */
-export async function sampleConceptPageDenseVectors(
-  maxSamples: number,
-): Promise<number[][]> {
-  if (maxSamples <= 0) return [];
-  await ensureConceptPageCollection();
-
-  const client = getClient();
-  const out: number[][] = [];
-  let offset: string | number | undefined = undefined;
-  // Same pagination guard pattern as the rest of the file — bounds the loop
-  // even if Qdrant somehow keeps handing back a non-null offset.
-  const maxIterations = 10_000;
-  const batchSize = Math.min(256, maxSamples);
-
-  for (let i = 0; i < maxIterations; i++) {
-    if (out.length >= maxSamples) break;
-    const remaining = maxSamples - out.length;
-    let result;
-    try {
-      result = await client.scroll(MEMORY_V2_COLLECTION, {
-        limit: Math.min(batchSize, remaining),
-        with_payload: false,
-        // Fetch only the dense named vector — sparse is irrelevant for
-        // anisotropy correction.
-        with_vector: ["dense"],
-        ...(offset !== undefined ? { offset } : {}),
-      });
-    } catch (err) {
-      if (isCollectionMissing(err)) {
-        _collectionReady = false;
-        return out;
-      }
-      throw err;
-    }
-
-    for (const point of result.points) {
-      const v = extractDenseVector(point.vector);
-      if (v) out.push(v);
-      if (out.length >= maxSamples) break;
-    }
-
-    const next = result.next_page_offset;
-    if (next == null) break;
-    offset = typeof next === "string" ? next : (next as number);
-  }
-
-  return out;
-}
-
-/**
- * Pull the `dense` named-vector payload out of a Qdrant point. Defensively
- * handles both the named-vector shape (`{ dense: [...] }`) and the legacy
- * unnamed-vector shape (`number[]`) so older collection layouts don't trip
- * the sampler. Returns `null` for shapes we don't recognise.
- */
-function extractDenseVector(vector: unknown): number[] | null {
-  if (Array.isArray(vector)) {
-    if (vector.every((n) => typeof n === "number")) {
-      return vector as number[];
-    }
-    return null;
-  }
-  if (vector && typeof vector === "object") {
-    const dense = (vector as { dense?: unknown }).dense;
-    if (Array.isArray(dense) && dense.every((n) => typeof n === "number")) {
-      return dense as number[];
-    }
-  }
-  return null;
 }
 
 /**

@@ -39,6 +39,7 @@ import {
   resolveSlash,
 } from "../../daemon/conversation-slash.js";
 import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
+import { canonicalizeTimeZone } from "../../daemon/date-context.js";
 import {
   getCannedFirstGreeting,
   isWakeUpGreeting,
@@ -46,7 +47,10 @@ import {
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
-import { preactivateHostProxySkills } from "../../daemon/host-proxy-preactivation.js";
+import {
+  preactivateHostProxySkills,
+  shouldAttachHostProxyForCapability,
+} from "../../daemon/host-proxy-preactivation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -651,8 +655,14 @@ export function handleListMessages(
     // on createdAt. The mismatch is benign — it may return slightly extra
     // data on a page boundary but never loses messages.
     const displayTimestamp = m.sentAt ?? m.timestamp;
+    const mergedMessageIds = mergedIdMap.get(m.id) ?? [];
+    const daemonMessageId =
+      m.role === "assistant"
+        ? (mergedMessageIds[mergedMessageIds.length - 1] ?? m.id)
+        : undefined;
     return {
       id: m.id ?? "",
+      ...(daemonMessageId ? { daemonMessageId } : {}),
       role: m.role,
       content: m.text,
       timestamp: new Date(displayTimestamp).toISOString(),
@@ -1096,6 +1106,7 @@ export async function handleSendMessage(
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
+    clientTimezone?: unknown;
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
@@ -1175,6 +1186,10 @@ export async function handleSendMessage(
       )}`,
     );
   }
+  const clientTimezone =
+    typeof body.clientTimezone === "string"
+      ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
+      : undefined;
 
   // When conversationKey is omitted, derive a stable default from
   // sourceChannel + sourceInterface so that repeated calls from the same
@@ -1229,6 +1244,15 @@ export async function handleSendMessage(
       "Message processing is not available",
       "SERVICE_UNAVAILABLE",
       503,
+    );
+  }
+
+  // Reject the legacy "private" mode explicitly rather than silently coercing
+  // it to "standard" — clients that still populate this field expect privacy
+  // semantics that no longer exist.
+  if (body.conversationType === "private") {
+    throw new BadRequestError(
+      "Private conversations are no longer supported. Update your client to omit conversationType or send 'standard'.",
     );
   }
 
@@ -1294,10 +1318,12 @@ export async function handleSendMessage(
         interfaceId: sourceInterface,
         hostHomeDir: body.hostHomeDir,
         hostUsername: body.hostUsername,
+        ...(clientTimezone ? { clientTimezone } : {}),
       } satisfies HostProxyTransportMetadata)
     : ({
         channelId: sourceChannel,
         interfaceId: sourceInterface,
+        ...(clientTimezone ? { clientTimezone } : {}),
       } satisfies NonHostProxyTransportMetadata);
 
   const conversation = await smDeps.getOrCreateConversation(
@@ -1384,7 +1410,7 @@ export async function handleSendMessage(
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).
-  if (supportsHostProxy(sourceInterface, "host_cu")) {
+  if (shouldAttachHostProxyForCapability("host_cu", sourceInterface)) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
@@ -1393,11 +1419,11 @@ export async function handleSendMessage(
   }
   // App-control mirrors CU's per-conversation lifecycle: the proxy owns a
   // singleton lock plus per-session loop tracking. Instantiation is
-  // unconditional when the client supports the capability — feature-flag
-  // gating lives in the skill-projection layer (which reads the
-  // `feature-flag: app-control` declaration in SKILL.md frontmatter), so
-  // an attached proxy is harmless when the flag resolves to off.
-  if (supportsHostProxy(sourceInterface, "host_app_control")) {
+  // unconditional when the capability is reachable — feature-flag gating
+  // lives in the skill-projection layer (which reads the `feature-flag:
+  // app-control` declaration in SKILL.md frontmatter), so an attached proxy
+  // is harmless when the flag resolves to off.
+  if (shouldAttachHostProxyForCapability("host_app_control", sourceInterface)) {
     if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
       conversation.setHostAppControlProxy(
         new HostAppControlProxy(mapping.conversationId),
@@ -1856,7 +1882,9 @@ export async function handleSendMessage(
           "context_compacting",
           "assistant_turn",
         );
-        const result = await conversation.forceCompact();
+        const result = await conversation.forceCompact({
+          targetInputTokensOverride: slashResult.targetInputTokensOverride,
+        });
         const responseText = formatCompactResult(result);
 
         const assistantMsg = createAssistantMessage(responseText);
@@ -1996,7 +2024,7 @@ async function generateLlmSuggestion(
     systemPrompt,
     {
       config: {
-        callSite: "conversationStarters",
+        callSite: "replySuggestion",
         max_tokens: 60,
         stop_sequences: ["</reply>"],
         temperature: 0.7,
@@ -2125,7 +2153,7 @@ export async function handleGetSuggestion(
     }
 
     // Try LLM suggestion using the configured provider
-    const provider = await getConfiguredProvider("conversationStarters");
+    const provider = await getConfiguredProvider("replySuggestion");
     if (provider) {
       try {
         // Deduplicate concurrent requests
@@ -2275,6 +2303,7 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
       conversationType: z.string().optional(),
       slashCommand: z.string().optional(),
+      clientTimezone: z.string().optional(),
       inferenceProfile: z.string().nullable().optional(),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
     }),

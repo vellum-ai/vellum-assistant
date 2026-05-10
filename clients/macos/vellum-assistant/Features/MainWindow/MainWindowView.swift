@@ -36,12 +36,17 @@ struct MainWindowView: View {
     /// rather than invalidating the entire view on any change.
     ///
     /// `windowState` is `@Bindable` because `PanelCoordinator` needs
-    /// `$windowState.pendingMemoryId` / `$windowState.pendingSkillId`
+    /// `$windowState.pendingSkillId`
     /// binding projections to pass into the logs-and-usage panel. Unlike
     /// `@ObservedObject`, `@Bindable` doesn't establish its own view
     /// invalidation policy — Observation still tracks property granularly.
     @Bindable var windowState: MainWindowState
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    /// Long-lived ``BookmarkStore`` shared across panels. UI consumers
+    /// (hover star, sidebar bookmarks list, settings tab) wire up in
+    /// PRs 9-12; the dependency is threaded here ahead of time so those
+    /// PRs only have to add the read sites.
+    var bookmarkStore: BookmarkStore
     var diskPressureStatusStore: DiskPressureStatusStore
     @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
@@ -122,7 +127,7 @@ struct MainWindowView: View {
     /// inside ``HomePageView``) so the selection survives any @ViewBuilder
     /// rebuild of the Home panel wrapper.
     @State var activeHomeDetailPanel: HomeDetailPanelKind? = nil
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, diskPressureStatusStore: DiskPressureStatusStore, documentManager: DocumentManager, acpSessionStore: ACPSessionStore, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, bookmarkStore: BookmarkStore, diskPressureStatusStore: DiskPressureStatusStore, documentManager: DocumentManager, acpSessionStore: ACPSessionStore, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
         self.conversationManager = conversationManager
         self.listStore = conversationManager.listStore
         self.appListManager = appListManager
@@ -137,6 +142,7 @@ struct MainWindowView: View {
         self.authManager = authManager
         self.windowState = windowState
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
+        self.bookmarkStore = bookmarkStore
         self.diskPressureStatusStore = diskPressureStatusStore
         self.documentManager = documentManager
         self.acpSessionStore = acpSessionStore
@@ -370,8 +376,9 @@ struct MainWindowView: View {
                         return nil
                     }
                 }()
+                let visibleIds = conversationManager.selectionStore.visibleNonArchivedConversationIds
                 if case .conversation(let id) = newSelection {
-                    if listStore.conversations.contains(where: { $0.id == id && !$0.isArchived }) {
+                    if visibleIds.contains(id) {
                         if conversationManager.activeConversationId != id {
                             conversationIdToActivate = id
                         }
@@ -391,7 +398,7 @@ struct MainWindowView: View {
                     // guard the dock keeps rendering the previous
                     // `activeConversationId` while the sidebar highlights
                     // nothing — a mixed state the user lands in on Back.
-                    let isCommittedAndVisible = listStore.conversations.contains { $0.id == id && !$0.isArchived }
+                    let isCommittedAndVisible = visibleIds.contains(id)
                     let isCurrentDraft = conversationManager.draftLocalId == id
                     if isCommittedAndVisible {
                         if conversationManager.activeConversationId != id {
@@ -552,9 +559,7 @@ struct MainWindowView: View {
             .overlay(alignment: .top) {
                 ObservationBoundaryView {
                     MainWindowErrorOverlay(
-                        activeViewModel: conversationManager.activeViewModel,
-                        settingsStore: settingsStore,
-                        windowState: windowState
+                        activeViewModel: conversationManager.activeViewModel
                     )
                 }
             }
@@ -685,7 +690,6 @@ struct MainWindowView: View {
 /// toast is visible.
 struct ErrorToastOverlay: View {
     let errorManager: ChatErrorManager
-    let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
     let onDismissConversationError: () -> Void
@@ -695,7 +699,9 @@ struct ErrorToastOverlay: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: VSpacing.xs) {
-            if let conversationError = errorManager.conversationError, !conversationError.isCreditsExhausted, !conversationError.isProviderNotConfigured, !errorManager.isConversationErrorDisplayedInline {
+            if let conversationError = errorManager.conversationError,
+               !conversationError.shouldSuppressGenericErrorSurface,
+               !errorManager.isConversationErrorDisplayedInline {
                 ChatConversationErrorToast(
                     error: conversationError,
                     onRetry: onRetryConversationError,

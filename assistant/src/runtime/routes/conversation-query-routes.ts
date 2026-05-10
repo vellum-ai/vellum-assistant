@@ -22,7 +22,9 @@ import { z } from "zod";
 
 import {
   deepMergeOverwrite,
+  fillContextDefaultsForMissingKeys,
   getConfig,
+  getDeploymentContextDefaults,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
@@ -92,6 +94,12 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 };
 
 import { MANAGED_PROFILE_NAMES } from "../../config/seed-inference-profiles.js";
+
+const RESERVED_PROFILE_NAMES = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
 
 const INFERENCE_PROFILE_UI_KEYS = new Set([
   "provider",
@@ -312,9 +320,50 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
   }
 }
 
+/**
+ * Apply deployment-context defaults to a raw config payload before it goes
+ * out over the wire from `GET /v1/config`. The in-memory `loadConfig()`
+ * already layers these defaults for daemon-internal consumers; the GET
+ * response needs the same treatment so external clients (macOS, web, CLI)
+ * see the effective value rather than `undefined` when the daemon hasn't
+ * persisted an explicit choice yet. Without this, macOS's
+ * `loadServiceModes(config:)` short-circuits when `services.inference.mode`
+ * is missing and falls back to the SwiftUI `@Published` default of
+ * "your-own", which renders the wrong segment selection on freshly-hatched
+ * platform-managed assistants.
+ *
+ * Guards against `loadRawConfig()` handing us a value that is technically
+ * valid JSON but not a plain object (e.g. literal `null`, a number, or an
+ * array). `loadRawConfig` is typed `Record<string, unknown>` but `JSON.parse`
+ * itself doesn't enforce that — a malformed-but-parseable `config.json`
+ * would blow up `fillContextDefaultsForMissingKeys` on its `target[key]` /
+ * `fileConfig[key]` accesses, turning `GET /v1/config` into a 500 where it
+ * used to succeed (returning the malformed payload as-is). When `raw` is
+ * not a plain object, we return it unchanged.
+ *
+ * Exported for direct unit testing.
+ */
+export function applyContextDefaultsToRawConfig(raw: unknown): unknown {
+  const contextDefaults = getDeploymentContextDefaults();
+  if (
+    Object.keys(contextDefaults).length === 0 ||
+    raw === null ||
+    typeof raw !== "object" ||
+    Array.isArray(raw)
+  ) {
+    return raw;
+  }
+  fillContextDefaultsForMissingKeys(
+    raw as Record<string, unknown>,
+    raw as Record<string, unknown>,
+    contextDefaults,
+  );
+  return raw;
+}
+
 function handleGetConfig() {
   try {
-    return loadRawConfig();
+    return applyContextDefaultsToRawConfig(loadRawConfig());
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to read config: ${message}`);
@@ -406,6 +455,11 @@ function handleReplaceInferenceProfile({
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new BadRequestError("Body must be a JSON object");
+  }
+  if (RESERVED_PROFILE_NAMES.has(name)) {
+    throw new BadRequestError(
+      `Profile name "${name}" is reserved and cannot be used.`,
+    );
   }
   if (MANAGED_PROFILE_NAMES.has(name)) {
     throw new BadRequestError(
@@ -502,9 +556,15 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
         conversation.conversationType,
       )
     : "user";
+  // Running total of estimated USD cost across every priced LLM call in
+  // the conversation. Maintained by `updateConversationUsage` whenever a
+  // turn finishes — see `assistant/src/memory/conversation-crud.ts`.
+  const conversationTotalEstimatedCostUsd =
+    conversation?.totalEstimatedCost ?? null;
   return {
     messageId,
     conversationKind,
+    conversationTotalEstimatedCostUsd,
     logs: logs.map((log) => {
       let requestPayload: unknown;
       try {
@@ -744,6 +804,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       messageId: z.string(),
       conversationKind: z.enum(CONVERSATION_KINDS),
+      conversationTotalEstimatedCostUsd: z.number().nullable(),
       logs: z.array(z.unknown()),
       memoryRecall: z.object({}).passthrough().nullable(),
       memoryV2Activation: z.object({}).passthrough().nullable(),

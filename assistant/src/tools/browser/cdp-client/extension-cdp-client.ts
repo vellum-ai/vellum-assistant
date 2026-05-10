@@ -44,6 +44,19 @@ export class ExtensionCdpClient implements ScopedCdpClient {
     private readonly proxy: HostBrowserProxy,
     public readonly conversationId: string,
     private readonly cdpSessionId?: string,
+    /**
+     * Caller's actor principal id. When provided, the proxy will refuse to
+     * dispatch this CDP command to a host_browser-capable client owned by a
+     * different actor — closing the cross-client exposure path's same-user
+     * boundary.
+     */
+    private readonly sourceActorPrincipalId?: string,
+    /**
+     * Explicit target client id. When provided, the proxy routes directly
+     * to that client instead of auto-resolving to the most-recently-active
+     * same-actor host_browser client.
+     */
+    private readonly targetClientId?: string,
   ) {}
 
   async send<T = unknown>(
@@ -74,6 +87,8 @@ export class ExtensionCdpClient implements ScopedCdpClient {
         },
         this.conversationId,
         signal,
+        this.sourceActorPrincipalId,
+        this.targetClientId,
       );
     } catch (err) {
       throw new CdpError(
@@ -194,6 +209,14 @@ export function createExtensionCdpClient(
   proxy: HostBrowserProxy,
   conversationId: string,
   cdpSessionId?: string,
+  sourceActorPrincipalId?: string,
+  targetClientId?: string,
 ): ExtensionCdpClient {
-  return new ExtensionCdpClient(proxy, conversationId, cdpSessionId);
+  return new ExtensionCdpClient(
+    proxy,
+    conversationId,
+    cdpSessionId,
+    sourceActorPrincipalId,
+    targetClientId,
+  );
 }

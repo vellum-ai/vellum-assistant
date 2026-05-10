@@ -61,14 +61,10 @@ type IncludeValidationResult =
   | IncludeValidationError
   | IncludeValidationCycleError;
 
-/**
- * Validate the include graph starting from the given root skill ID.
- * Uses three-state DFS (unseen/visiting/done) to detect both missing children
- * and cycles. Returns the first error encountered in DFS order.
- */
-export function validateIncludes(
+function validateIncludeGraph(
   rootId: string,
   catalogIndex: Map<string, SkillSummary>,
+  options: { failOnMissing: boolean },
 ): IncludeValidationResult {
   const visited: string[] = [];
   type State = "unseen" | "visiting" | "done";
@@ -97,13 +93,16 @@ export function validateIncludes(
     if (skill?.includes) {
       for (const childId of skill.includes) {
         if (!catalogIndex.has(childId)) {
-          return {
-            ok: false,
-            error: "missing",
-            missingChildId: childId,
-            parentId: id,
-            path: [...ancestry],
-          };
+          if (options.failOnMissing) {
+            return {
+              ok: false,
+              error: "missing",
+              missingChildId: childId,
+              parentId: id,
+              path: [...ancestry],
+            };
+          }
+          continue;
         }
         const childError = dfs(childId);
         if (childError) return childError;
@@ -118,6 +117,29 @@ export function validateIncludes(
   const error = dfs(rootId);
   if (error) return error;
   return { ok: true, visited };
+}
+
+/**
+ * Validate the include graph starting from the given root skill ID.
+ * Uses three-state DFS (unseen/visiting/done) to detect both missing children
+ * and cycles. Returns the first error encountered in DFS order.
+ */
+export function validateIncludes(
+  rootId: string,
+  catalogIndex: Map<string, SkillSummary>,
+): IncludeValidationResult {
+  return validateIncludeGraph(rootId, catalogIndex, { failOnMissing: true });
+}
+
+/**
+ * Validate only cycle safety for a graph that may intentionally have missing
+ * advisory includes. Missing child IDs are skipped during traversal.
+ */
+export function validateIncludeCycles(
+  rootId: string,
+  catalogIndex: Map<string, SkillSummary>,
+): IncludeValidationResult {
+  return validateIncludeGraph(rootId, catalogIndex, { failOnMissing: false });
 }
 
 /**

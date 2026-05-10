@@ -422,7 +422,7 @@ describe("live voice gateway boundary", () => {
       'url.pathname === "/v1/live-voice"',
     );
     const runtimeProxyDispatchIndex = source.indexOf(
-      "const response = router(req, url, resolveClientIp, svr);",
+      "const response = await router(req, url, resolveClientIp, svr);",
     );
 
     expect(liveVoiceRouteIndex).toBeGreaterThan(-1);

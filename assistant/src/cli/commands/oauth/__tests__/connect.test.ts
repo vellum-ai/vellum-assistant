@@ -39,6 +39,9 @@ let mockPlatformFetchResults: Array<{
   body: unknown;
 }> = [];
 let mockPlatformFetchCallIndex = 0;
+// Captures the path + parsed JSON body of each platform fetch call so tests can
+// assert on what was actually sent to /v1/assistants/.../oauth/.../start/ etc.
+let mockPlatformFetchCalls: Array<{ path: string; body: unknown }> = [];
 
 let mockIsManagedMode: (key: string) => boolean = () => false;
 
@@ -51,7 +54,12 @@ let mockCliIpcCallFn: (
   method: string,
   params?: Record<string, unknown>,
   opts?: { timeoutMs?: number },
-) => Promise<{ ok: boolean; result?: unknown; error?: string; statusCode?: number }> = async () => ({
+) => Promise<{
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  statusCode?: number;
+}> = async () => ({
   ok: false,
   error: "IPC unavailable (default mock — forces fallback)",
 });
@@ -175,7 +183,17 @@ mock.module("../shared.js", () => ({
     return {
       platformAssistantId: (mockPlatformClientResult as Record<string, unknown>)
         .platformAssistantId,
-      fetch: async (_path: string, _init?: RequestInit): Promise<Response> => {
+      fetch: async (path: string, init?: RequestInit): Promise<Response> => {
+        let parsedBody: unknown = undefined;
+        if (typeof init?.body === "string") {
+          try {
+            parsedBody = JSON.parse(init.body);
+          } catch {
+            parsedBody = init.body;
+          }
+        }
+        mockPlatformFetchCalls.push({ path, body: parsedBody });
+
         const idx = mockPlatformFetchCallIndex++;
         const result = mockPlatformFetchResults[idx] ?? {
           ok: false,
@@ -275,7 +293,9 @@ describe("assistant oauth connect", () => {
     mockPlatformClientResult = null;
     mockPlatformFetchResults = [];
     mockPlatformFetchCallIndex = 0;
+    mockPlatformFetchCalls = [];
     mockIsManagedMode = () => false;
+    delete process.env.IS_CONTAINERIZED;
     mockCliIpcCallFn = async () => ({ ok: false, error: "IPC unavailable" });
     mockLogInfo = () => {};
     process.exitCode = 0;
@@ -396,103 +416,144 @@ describe("assistant oauth connect", () => {
   });
 
   // -------------------------------------------------------------------------
-  // BYO mode with --no-browser: prints auth URL (deferred)
+  // Managed mode: redirect_after_connect contract
+  //
+  // The CLI must always send an explicit `redirect_after_connect` to the
+  // platform's OAuth start endpoint — either a loopback URL (when running
+  // on a host with the local redirect server available) or the
+  // `/account/oauth/desktop-complete` route. Falling through to the
+  // platform's own default lands the browser on a surface that does not
+  // render OAuth result params.
   // -------------------------------------------------------------------------
 
-  test("BYO mode with --no-browser: prints auth URL", async () => {
+  test("managed mode with --no-browser: sends redirect_after_connect=/account/oauth/desktop-complete", async () => {
     mockGetProvider = () => ({
-      provider: "google",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      provider: "notion",
+      authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
+      tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
       tokenExchangeBodyFormat: "form",
-      managedServiceConfigKey: null,
+      managedServiceConfigKey: "notion-oauth",
     });
-    mockIsManagedMode = () => false;
+    mockIsManagedMode = () => true;
+    mockPlatformClientResult = { platformAssistantId: "asst-731" };
+    mockPlatformFetchResults = [
+      {
+        ok: true,
+        status: 200,
+        body: { connect_url: "https://api.notion.com/v1/oauth/authorize?…" },
+      },
+    ];
 
-    mockGetMostRecentAppByProvider = () => ({
-      id: "app-1",
-      clientId: "byo-client-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      provider: "google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-
-    mockOrchestrateOAuthConnect = async () => ({
-      success: true,
-      deferred: true,
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
-      state: "abc",
-      service: "google",
-    });
-
-    const { exitCode, stdout } = await runCommand([
+    const { exitCode } = await runCommand([
       "connect",
-      "google",
+      "notion",
       "--no-browser",
       "--json",
     ]);
     expect(exitCode).toBe(0);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.deferred).toBe(true);
-    expect(parsed.authUrl).toBe(
-      "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
+
+    const startCall = mockPlatformFetchCalls.find((c) =>
+      c.path.includes("/oauth/notion/start/"),
     );
-    expect(parsed.service).toBe("google");
+    expect(startCall).toBeDefined();
+    const sentBody = startCall!.body as Record<string, unknown>;
+    expect(sentBody.redirect_after_connect).toBe(
+      "/account/oauth/desktop-complete",
+    );
   });
 
-  // -------------------------------------------------------------------------
-  // BYO mode default: orchestrator called with isInteractive true
-  // -------------------------------------------------------------------------
+  test("managed mode containerized + browser: sends redirect_after_connect=/account/oauth/desktop-complete", async () => {
+    process.env.IS_CONTAINERIZED = "true";
 
-  test("BYO mode default calls orchestrator with isInteractive: true", async () => {
     mockGetProvider = () => ({
-      provider: "google",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+      provider: "notion",
+      authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
+      tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
       tokenExchangeBodyFormat: "form",
-      managedServiceConfigKey: null,
+      managedServiceConfigKey: "notion-oauth",
     });
-    mockIsManagedMode = () => false;
+    mockIsManagedMode = () => true;
+    mockPlatformClientResult = { platformAssistantId: "asst-731" };
+    mockPlatformFetchResults = [
+      {
+        ok: true,
+        status: 200,
+        body: { connect_url: "https://api.notion.com/v1/oauth/authorize?…" },
+      },
+      // Snapshot — empty
+      { ok: true, status: 200, body: [] },
+      // Poll — new connection appeared
+      {
+        ok: true,
+        status: 200,
+        body: [
+          {
+            id: "conn-new",
+            account_label: "user@example.com",
+            scopes_granted: [],
+          },
+        ],
+      },
+    ];
 
-    mockGetAppByProviderAndClientId = () => ({
-      id: "app-1",
-      clientId: "test-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      provider: "google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-
-    let capturedOpts: Record<string, unknown> | undefined;
-    mockOrchestrateOAuthConnect = async (opts) => {
-      capturedOpts = opts;
-      return {
-        success: true,
-        deferred: false,
-        grantedScopes: ["email"],
-        accountInfo: "user@example.com",
-      };
-    };
-
-    const { exitCode, stdout } = await runCommand([
-      "connect",
-      "google",
-      "--client-id",
-      "test-id",
-      "--json",
-    ]);
+    const { exitCode } = await runCommand(["connect", "notion", "--json"]);
     expect(exitCode).toBe(0);
-    expect(capturedOpts).toBeDefined();
-    expect(capturedOpts!.isInteractive).toBe(true);
-    // openUrl should be provided by default (browser opens automatically)
-    expect(typeof capturedOpts!.openUrl).toBe("function");
 
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.grantedScopes).toEqual(["email"]);
-    expect(parsed.accountInfo).toBe("user@example.com");
+    const startCall = mockPlatformFetchCalls.find((c) =>
+      c.path.includes("/oauth/notion/start/"),
+    );
+    expect(startCall).toBeDefined();
+    const sentBody = startCall!.body as Record<string, unknown>;
+    expect(sentBody.redirect_after_connect).toBe(
+      "/account/oauth/desktop-complete",
+    );
+  });
+
+  test("managed mode default (browser, host): sends loopback redirect_after_connect", async () => {
+    mockGetProvider = () => ({
+      provider: "notion",
+      authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
+      tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
+      tokenExchangeBodyFormat: "form",
+      managedServiceConfigKey: "notion-oauth",
+    });
+    mockIsManagedMode = () => true;
+    mockPlatformClientResult = { platformAssistantId: "asst-731" };
+    mockPlatformFetchResults = [
+      {
+        ok: true,
+        status: 200,
+        body: { connect_url: "https://api.notion.com/v1/oauth/authorize?…" },
+      },
+      // Snapshot — empty
+      { ok: true, status: 200, body: [] },
+      // Poll — new connection appeared
+      {
+        ok: true,
+        status: 200,
+        body: [
+          {
+            id: "conn-new",
+            account_label: "user@example.com",
+            scopes_granted: [],
+          },
+        ],
+      },
+    ];
+
+    const { exitCode } = await runCommand(["connect", "notion", "--json"]);
+    expect(exitCode).toBe(0);
+
+    const startCall = mockPlatformFetchCalls.find((c) =>
+      c.path.includes("/oauth/notion/start/"),
+    );
+    expect(startCall).toBeDefined();
+    const sentBody = startCall!.body as Record<string, unknown>;
+    const redirect = sentBody.redirect_after_connect as string;
+    // Loopback server picks an ephemeral port on localhost and serves the
+    // OAuth completion page in-process; the URL shape is stable enough to
+    // assert without binding to a specific port.
+    expect(redirect).toMatch(/^http:\/\/localhost:\d+\/oauth\/complete$/);
   });
 
   // -------------------------------------------------------------------------
@@ -588,96 +649,6 @@ describe("assistant oauth connect", () => {
     expect(parsed.connectUrl).toBe(
       "https://platform.example.com/oauth/connect",
     );
-  });
-
-  // -------------------------------------------------------------------------
-  // JSON output format for deferred case (BYO)
-  // -------------------------------------------------------------------------
-
-  test("JSON output for deferred case includes ok, deferred, authUrl, service", async () => {
-    mockGetProvider = () => ({
-      provider: "slack",
-      authorizeUrl: "https://slack.com/oauth/v2/authorize",
-      tokenExchangeUrl: "https://slack.com/api/oauth.v2.access",
-      tokenExchangeBodyFormat: "form",
-      managedServiceConfigKey: null,
-    });
-    mockIsManagedMode = () => false;
-
-    mockGetMostRecentAppByProvider = () => ({
-      id: "app-slack",
-      clientId: "slack-client-id",
-      clientSecretCredentialPath: "oauth_app/app-slack/client_secret",
-      provider: "slack",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-
-    mockOrchestrateOAuthConnect = async () => ({
-      success: true,
-      deferred: true,
-      authorizeUrl: "https://slack.com/oauth/v2/authorize?state=xyz",
-      state: "xyz",
-      service: "slack",
-    });
-
-    const { exitCode, stdout } = await runCommand([
-      "connect",
-      "slack",
-      "--no-browser",
-      "--json",
-    ]);
-    expect(exitCode).toBe(0);
-    const parsed = JSON.parse(stdout);
-    expect(parsed).toHaveProperty("ok", true);
-    expect(parsed).toHaveProperty("deferred", true);
-    expect(parsed).toHaveProperty("authUrl");
-    expect(parsed).toHaveProperty("service", "slack");
-  });
-
-  // -------------------------------------------------------------------------
-  // JSON output format for completed case (BYO)
-  // -------------------------------------------------------------------------
-
-  test("JSON output for completed case includes ok, grantedScopes, accountInfo", async () => {
-    mockGetProvider = () => ({
-      provider: "google",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
-      tokenExchangeBodyFormat: "form",
-      managedServiceConfigKey: null,
-    });
-    mockIsManagedMode = () => false;
-
-    mockGetMostRecentAppByProvider = () => ({
-      id: "app-1",
-      clientId: "completed-client-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      provider: "google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-
-    mockOrchestrateOAuthConnect = async () => ({
-      success: true,
-      deferred: false,
-      grantedScopes: ["email", "profile"],
-      accountInfo: "test@gmail.com",
-    });
-
-    const { exitCode, stdout } = await runCommand([
-      "connect",
-      "google",
-      "--json",
-    ]);
-    expect(exitCode).toBe(0);
-    const parsed = JSON.parse(stdout);
-    expect(parsed).toHaveProperty("ok", true);
-    expect(parsed).toHaveProperty("grantedScopes");
-    expect(parsed.grantedScopes).toEqual(["email", "profile"]);
-    expect(parsed).toHaveProperty("accountInfo", "test@gmail.com");
-    // Should NOT have deferred
-    expect(parsed.deferred).toBeUndefined();
   });
 
   // -------------------------------------------------------------------------
@@ -780,7 +751,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
               state: "ipc-state",
             },
           };
@@ -821,7 +793,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
               state: "ipc-state",
             },
           };
@@ -857,7 +830,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
               state: "ipc-state",
             },
           };
@@ -878,7 +852,9 @@ describe("assistant oauth connect", () => {
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
       expect(parsed.deferred).toBe(true);
-      expect(parsed.authUrl).toBe("https://accounts.google.com/o/oauth2/auth?state=ipc-state");
+      expect(parsed.authUrl).toBe(
+        "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+      );
       expect(parsed.state).toBe("ipc-state");
       expect(parsed.service).toBe("google");
       // Should NOT poll status when --no-browser is set
@@ -893,7 +869,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
               state: "ipc-state",
             },
           };
@@ -907,33 +884,10 @@ describe("assistant oauth connect", () => {
         "--no-browser",
       ]);
       expect(exitCode).toBe(0);
-      expect(stdout).toContain("https://accounts.google.com/o/oauth2/auth?state=ipc-state");
+      expect(stdout).toContain(
+        "https://accounts.google.com/o/oauth2/auth?state=ipc-state",
+      );
       expect(mockOpenInBrowserCalls.length).toBe(0);
-    });
-
-    test("IPC returns ok:false → falls back to in-process orchestrateOAuthConnect", async () => {
-      // Default mockCliIpcCallFn already returns ok: false
-      let orchestratorCalled = false;
-      mockOrchestrateOAuthConnect = async () => {
-        orchestratorCalled = true;
-        return {
-          success: true,
-          deferred: false,
-          grantedScopes: ["email"],
-          accountInfo: "fallback@example.com",
-        };
-      };
-
-      const { exitCode, stdout } = await runCommand([
-        "connect",
-        "google",
-        "--json",
-      ]);
-      expect(exitCode).toBe(0);
-      expect(orchestratorCalled).toBe(true);
-      const parsed = JSON.parse(stdout);
-      expect(parsed.ok).toBe(true);
-      expect(parsed.accountInfo).toBe("fallback@example.com");
     });
 
     test("IPC returns ok:false with statusCode → surfaces daemon error, does NOT fall back", async () => {
@@ -971,7 +925,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=poll-err-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=poll-err-state",
               state: "poll-err-state",
             },
           };
@@ -1033,7 +988,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=transient-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=transient-state",
               state: "transient-state",
             },
           };
@@ -1085,7 +1041,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=json-mode-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=json-mode-state",
               state: "json-mode-state",
             },
           };
@@ -1125,7 +1082,8 @@ describe("assistant oauth connect", () => {
           return {
             ok: true,
             result: {
-              auth_url: "https://accounts.google.com/o/oauth2/auth?state=gw-state",
+              auth_url:
+                "https://accounts.google.com/o/oauth2/auth?state=gw-state",
               state: "gw-state",
             },
           };
@@ -1153,49 +1111,12 @@ describe("assistant oauth connect", () => {
       expect(exitCode).toBe(0);
       // Verify callbackTransport was forwarded in the IPC body
       expect(capturedParams).toBeDefined();
-      expect((capturedParams!.body as Record<string, unknown>).callbackTransport).toBe("gateway");
+      expect(
+        (capturedParams!.body as Record<string, unknown>).callbackTransport,
+      ).toBe("gateway");
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
       expect(parsed.accountInfo).toBe("gw-user@example.com");
     });
-  });
-
-  // -------------------------------------------------------------------------
-  // Orchestrator error propagation
-  // -------------------------------------------------------------------------
-
-  test("BYO mode: orchestrator error propagates correctly", async () => {
-    mockGetProvider = () => ({
-      provider: "google",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenExchangeUrl: "https://oauth2.googleapis.com/token",
-      tokenExchangeBodyFormat: "form",
-      managedServiceConfigKey: null,
-    });
-    mockIsManagedMode = () => false;
-
-    mockGetMostRecentAppByProvider = () => ({
-      id: "app-1",
-      clientId: "client-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      provider: "google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-
-    mockOrchestrateOAuthConnect = async () => ({
-      success: false,
-      error: "Token exchange failed: invalid_grant",
-    });
-
-    const { exitCode, stdout } = await runCommand([
-      "connect",
-      "google",
-      "--json",
-    ]);
-    expect(exitCode).toBe(1);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toBe("Token exchange failed: invalid_grant");
   });
 });

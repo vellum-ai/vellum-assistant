@@ -86,6 +86,10 @@ const upsertCalls: Array<{
   slug: string;
   dense: number[];
   sparse: { indices: number[]; values: number[] };
+  summary?: {
+    dense: number[];
+    sparse: { indices: number[]; values: number[] };
+  };
   updatedAt: number;
 }> = [];
 
@@ -96,6 +100,10 @@ mock.module("../../v2/qdrant.js", () => ({
     slug: string;
     dense: number[];
     sparse: { indices: number[]; values: number[] };
+    summary?: {
+      dense: number[];
+      sparse: { indices: number[]; values: number[] };
+    };
     updatedAt: number;
   }) => {
     upsertCalls.push(params);
@@ -195,7 +203,7 @@ describe("embedConceptPageJob — happy path", () => {
   test("reads the page, embeds it, and upserts to the v2 collection", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Alice prefers VS Code over Vim.\nShe ships at end of day.\n",
     });
 
@@ -223,7 +231,7 @@ describe("embedConceptPageJob — happy path", () => {
   test("populates the SQLite embedding cache row keyed on (concept_page, slug)", async () => {
     await writePage(tmpWorkspace, {
       slug: "bob-uses-zsh",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Bob uses zsh.\n",
     });
 
@@ -242,11 +250,117 @@ describe("embedConceptPageJob — happy path", () => {
   });
 });
 
+describe("embedConceptPageJob — summary embedding", () => {
+  test("embeds the summary when present and forwards summary vectors to upsert", async () => {
+    await writePage(tmpWorkspace, {
+      slug: "summarized-page",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        summary: "A short prose summary that retrieval indexes separately.",
+      },
+      body: "Long-form body content.\n",
+    });
+
+    await embedConceptPageJob(
+      makeJob({ slug: "summarized-page" }),
+      TEST_CONFIG,
+    );
+
+    // Body and summary are batched into one backend call (saves a round-trip).
+    expect(embedWithBackendCalls).toHaveLength(1);
+    expect(embedWithBackendCalls[0].inputs).toHaveLength(2);
+    expect(upsertCalls).toHaveLength(1);
+    const call = upsertCalls[0];
+    expect(call.slug).toBe("summarized-page");
+    expect(call.dense).toEqual([0.1, 0.2, 0.3, 0.4]);
+    expect(call.sparse).toBeDefined();
+    expect(call.summary?.dense).toEqual([0.1, 0.2, 0.3, 0.4]);
+    expect(call.summary?.sparse).toBeDefined();
+  });
+
+  test("skips summary embedding when the page has no summary in frontmatter", async () => {
+    await writePage(tmpWorkspace, {
+      slug: "legacy-page",
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
+      body: "Body only — no summary in frontmatter.\n",
+    });
+
+    await embedConceptPageJob(makeJob({ slug: "legacy-page" }), TEST_CONFIG);
+
+    // Only the body was embedded.
+    expect(embedWithBackendCalls).toHaveLength(1);
+    expect(upsertCalls).toHaveLength(1);
+    const call = upsertCalls[0];
+    expect(call.summary).toBeUndefined();
+  });
+
+  test("skips summary embedding when the summary is whitespace-only", async () => {
+    // Whitespace-only summaries (` `, `\n`) are equivalent to absent — the
+    // embedding backend would reject the empty input downstream anyway.
+    await writePage(tmpWorkspace, {
+      slug: "whitespace-summary",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        summary: "   ",
+      },
+      body: "Body content.\n",
+    });
+
+    await embedConceptPageJob(
+      makeJob({ slug: "whitespace-summary" }),
+      TEST_CONFIG,
+    );
+
+    expect(embedWithBackendCalls).toHaveLength(1);
+    expect(upsertCalls[0].summary).toBeUndefined();
+  });
+
+  test("body and summary cache rows are independent (summary edit doesn't invalidate body)", async () => {
+    // Write a page with a summary, run the job to prime caches.
+    await writePage(tmpWorkspace, {
+      slug: "cached-summary",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        summary: "First version of the summary.",
+      },
+      body: "Stable body that never changes.\n",
+    });
+    await embedConceptPageJob(makeJob({ slug: "cached-summary" }), TEST_CONFIG);
+    // Body + summary batched into a single backend call on first run.
+    expect(embedWithBackendCalls).toHaveLength(1);
+    expect(embedWithBackendCalls[0].inputs).toHaveLength(2);
+
+    // Edit only the summary — body stays identical, only the summary text
+    // changes. Re-running the job should hit the body cache (no re-embed)
+    // but recompute the summary embedding.
+    await writePage(tmpWorkspace, {
+      slug: "cached-summary",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        summary: "Second version of the summary, different wording.",
+      },
+      body: "Stable body that never changes.\n",
+    });
+    await embedConceptPageJob(makeJob({ slug: "cached-summary" }), TEST_CONFIG);
+    // One additional backend call with only the summary text — body hit the cache.
+    expect(embedWithBackendCalls).toHaveLength(2);
+    expect(embedWithBackendCalls[1].inputs).toHaveLength(1);
+  });
+});
+
 describe("embedConceptPageJob — cache hit", () => {
   test("reuses the cached dense vector when content hash matches", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Stable content.\n",
     });
 
@@ -271,7 +385,7 @@ describe("embedConceptPageJob — cache hit", () => {
   test("re-embeds when the body changes (content hash mismatch)", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "First content.\n",
     });
     await embedConceptPageJob(
@@ -282,7 +396,7 @@ describe("embedConceptPageJob — cache hit", () => {
     // Rewrite with different body.
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Second content (different).\n",
     });
     await embedConceptPageJob(
@@ -337,7 +451,7 @@ describe("enqueueEmbedConceptPageJob", () => {
   test("round-trip: enqueued job dispatches through embedConceptPageJob", async () => {
     await writePage(tmpWorkspace, {
       slug: "round-trip-slug",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Round-trip body.\n",
     });
 

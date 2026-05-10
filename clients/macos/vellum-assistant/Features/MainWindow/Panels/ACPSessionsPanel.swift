@@ -52,10 +52,10 @@ struct ACPSessionsPanel: View {
                 onClose: onClose,
                 pinnedContent: { headerBar }
             ) {
-                if store.sessionOrder.isEmpty {
+                if filteredSessions.isEmpty {
                     VEmptyState(
-                        title: "No coding agents yet",
-                        subtitle: "Ask the assistant to spawn Claude or Codex.",
+                        title: emptyStateTitle,
+                        subtitle: emptyStateSubtitle,
                         icon: "terminal"
                     )
                 } else {
@@ -83,6 +83,9 @@ struct ACPSessionsPanel: View {
         .onChange(of: store.selectedSessionId) {
             consumeSelectedSessionIdIfPresent()
         }
+        .onChange(of: store.sessionOrder.count) {
+            consumeSelectedSessionIdIfPresent()
+        }
         .alert("Clear completed history?", isPresented: $showClearCompletedConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
@@ -104,8 +107,9 @@ struct ACPSessionsPanel: View {
     /// top of the stack, we still clear the store field but skip the push
     /// to avoid stacking duplicate detail views. Resilient to a deep-link
     /// arriving before its matching SSE `acp_session_spawned` event — the
-    /// field stays set so a subsequent consume (driven by the next
-    /// `onChange` tick or panel mount) can flush once the row appears.
+    /// field stays set, and a separate `onChange(of: store.sessionOrder.count)`
+    /// observer re-runs this helper when the store's session set mutates so
+    /// the pending id is flushed once the row appears.
     func consumeSelectedSessionIdIfPresent() {
         Self.consumeSelectedSessionIdIfPresent(store: store, path: &navigationPath)
     }
@@ -153,7 +157,7 @@ struct ACPSessionsPanel: View {
             filterPicker
         }
 
-        Divider().background(VColor.borderBase)
+        Divider().background(VColor.borderBase).accessibilityHidden(true)
     }
 
     /// Header overflow ("…") menu. Currently only houses the destructive
@@ -224,6 +228,24 @@ struct ACPSessionsPanel: View {
         return count == 1 ? "1 agent" : "\(count) agents"
     }
 
+    /// Empty-state title shown when ``filteredSessions`` is empty. When the
+    /// store has sessions in other conversations but none match the current
+    /// "This conversation" filter, the title calls that out so users
+    /// understand the list is filtered, not globally empty.
+    private var emptyStateTitle: String {
+        if !store.sessionOrder.isEmpty && activeFilter == .thisConversation {
+            return "No agents in this conversation"
+        }
+        return "No coding agents yet"
+    }
+
+    private var emptyStateSubtitle: String {
+        if !store.sessionOrder.isEmpty && activeFilter == .thisConversation {
+            return "Switch to All to see agents from other conversations."
+        }
+        return "Ask the assistant to spawn Claude or Codex."
+    }
+
     /// Sessions that should appear in the list once the active filter is
     /// applied. Defined here so the count label and the list iterate the
     /// same set without recomputing.
@@ -257,7 +279,7 @@ struct ACPSessionsPanel: View {
                 }
                 .buttonStyle(.plain)
                 if viewModel.id != visible.last?.id {
-                    Divider().background(VColor.borderBase)
+                    Divider().background(VColor.borderBase).accessibilityHidden(true)
                 }
             }
         }

@@ -16,11 +16,7 @@
  * callback_url that external services should use.
  */
 
-import {
-  getPlatformAssistantId,
-  getPlatformBaseUrl,
-  getPlatformInternalApiKey,
-} from "../config/env.js";
+import { getPlatformAssistantId, getPlatformBaseUrl } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
@@ -32,7 +28,6 @@ export interface PlatformCallbackRegistrationContext {
   isPlatform: boolean;
   platformBaseUrl: string;
   assistantId: string;
-  hasInternalApiKey: boolean;
   hasAssistantApiKey: boolean;
   authHeader: string | null;
   enabled: boolean;
@@ -54,20 +49,18 @@ export async function resolvePlatformCallbackRegistrationContext(): Promise<Plat
   );
   const assistantId =
     getPlatformAssistantId().trim() || storedAssistantIdRaw?.trim() || "";
-  const internalApiKey = getPlatformInternalApiKey().trim();
-  const assistantApiKey = storedAssistantApiKeyRaw?.trim() || "";
-  const authHeader = internalApiKey
-    ? `Bearer ${internalApiKey}`
-    : assistantApiKey
-      ? `Api-Key ${assistantApiKey}`
-      : null;
+  const envAssistantCredential = process.env.ASSISTANT_API_KEY?.trim();
+  const assistantCredential =
+    storedAssistantApiKeyRaw?.trim() || envAssistantCredential || undefined;
+  const authHeader = assistantCredential
+    ? `Api-Key ${assistantCredential}`
+    : null;
 
   return {
     isPlatform: platform,
     platformBaseUrl,
     assistantId,
-    hasInternalApiKey: internalApiKey.length > 0,
-    hasAssistantApiKey: assistantApiKey.length > 0,
+    hasAssistantApiKey: !!assistantCredential,
     authHeader,
     // Enabled when we have enough context to register callback routes.
     // Does NOT require IS_PLATFORM — self-hosted assistants with stored

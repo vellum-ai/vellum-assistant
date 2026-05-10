@@ -38,6 +38,18 @@ public final class SettingsStore: ObservableObject {
     @Published var hasKey: Bool = false
     @Published var hasVercelKey: Bool = false
 
+    /// Set of provider names the encrypted secret store currently has an
+    /// `api_key` for. Settings UI presence checks (STT card, TTS card,
+    /// API Keys sheet) read this set rather than reaching into the local
+    /// `vellum_provider_*` files so the encrypted store stays the single
+    /// source of truth. Refreshed via ``refreshProviderKeys()``; on transport
+    /// failure the previous snapshot is preserved (stale-but-correct beats
+    /// blank). Mutated optimistically by ``insertProviderKey(_:)`` /
+    /// ``removeProviderKey(_:)`` after successful save/delete so cards that
+    /// re-read it (e.g. on `onChange` of the provider dropdown) see the
+    /// freshly-written value without a round-trip.
+    @Published private(set) var providerKeys: Set<String> = []
+
     // MARK: - Embedding Config State
     @Published var embeddingProvider: String = "auto"
     @Published var embeddingModel: String? = nil
@@ -103,6 +115,13 @@ public final class SettingsStore: ObservableObject {
     /// so the UI renders predictable state before the first config push.
     @Published var activeProfile: String = "balanced"
 
+    /// Last value of `activeProfile` that was confirmed by the daemon —
+    /// either pushed in via a config load or returned successfully from a
+    /// `setActiveProfile` PATCH. Used as the rollback target when an
+    /// optimistic write fails, so a failed pick never reverts to a sibling
+    /// optimistic value that itself never landed on the daemon.
+    private var lastConfirmedActiveProfile: String = "balanced"
+
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
@@ -143,6 +162,7 @@ public final class SettingsStore: ObservableObject {
     @Published var mediaEmbedsEnabledSince: Date?
     @Published var mediaEmbedVideoAllowlistDomains: [String]
     @Published var userTimezone: String?
+    @Published var detectedTimezone: String?
 
     // MARK: - Telegram Integration State
 
@@ -381,6 +401,7 @@ public final class SettingsStore: ObservableObject {
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
     private let settingsClient: SettingsClientProtocol
+    private let currentDeviceTimezoneIdentifier: () -> String
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
@@ -451,6 +472,7 @@ public final class SettingsStore: ObservableObject {
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
         settingsClient: SettingsClientProtocol = SettingsClient(),
         configPath: String? = nil,
+        currentDeviceTimezoneIdentifier: @escaping () -> String = { TimeZone.autoupdatingCurrent.identifier },
         verificationSessionTimeoutDuration: TimeInterval = 12,
         verificationStatusPollInterval: TimeInterval = 2,
         verificationStatusPollWindow: TimeInterval = 600
@@ -460,6 +482,7 @@ public final class SettingsStore: ObservableObject {
         self.channelClient = channelClient
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient
+        self.currentDeviceTimezoneIdentifier = currentDeviceTimezoneIdentifier
         self.configPath = configPath
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
@@ -538,19 +561,20 @@ public final class SettingsStore: ObservableObject {
             self.nextConversationShortcut = UserDefaults.standard.string(forKey: "nextConversationShortcut") ?? ""
         }
 
-        // Use defaults for config-dependent properties; the daemon will
-        // provide authoritative values once reachable via loadConfigFromDaemon().
-        let emptyConfig: [String: Any] = [:]
+        // Use local config when a test/local path is provided; otherwise
+        // defaults are replaced once loadConfigFromDaemon() reaches the assistant.
+        let initialConfig = Self.loadConfigFile(path: configPath)
 
         // Load media embed settings (defaults when config is empty)
-        let mediaSettings = Self.loadMediaEmbedSettings(config: emptyConfig)
+        let mediaSettings = Self.loadMediaEmbedSettings(config: initialConfig)
         self.mediaEmbedsEnabled = mediaSettings.enabled
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
-        self.userTimezone = Self.loadUserTimezone(config: emptyConfig)
+        self.userTimezone = Self.loadUserTimezone(config: initialConfig)
+        self.detectedTimezone = Self.loadDetectedTimezone(config: initialConfig)
 
         // Service modes use defaults until daemon provides config
-        loadServiceModes(config: emptyConfig)
+        loadServiceModes(config: initialConfig)
 
         // Seed provider catalog from `LLMProviderRegistry` so the UI has data
         // before the first daemon fetch completes.
@@ -805,6 +829,15 @@ public final class SettingsStore: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Keep the assistant's persisted device timezone fresh even if the
+        // Appearance settings tab is never opened.
+        NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.persistCurrentDetectedTimezoneIfNeeded()
+            }
+            .store(in: &cancellables)
+
     }
 
     // MARK: - Lockfile State
@@ -856,8 +889,7 @@ public final class SettingsStore: ObservableObject {
         apiKeySaveError = nil
         apiKeySaving = true
 
-        // Optimistic UI update while the gateway write is in-flight.
-        APIKeyManager.setKey(trimmed, for: "anthropic")
+        // Optimistic UI flip while the daemon write is in-flight.
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
         removeDeletionTombstone(type: "api_key", name: "anthropic")
@@ -866,6 +898,12 @@ public final class SettingsStore: ObservableObject {
             let result = await APIKeyManager.setKey(trimmed, for: "anthropic")
             apiKeySaving = false
             if result.success {
+                // Drain any stale local file value so the next-launch resync
+                // doesn't push it back over the daemon's fresh write.
+                // `let _: Void` pins the sync overload — without it Swift's
+                // overload resolution inside this `Task` would pick the
+                // `async` deleteKey (which expects an `await`).
+                let _: Void = APIKeyManager.deleteKey(for: "anthropic")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
                 refreshModelInfo()
@@ -896,11 +934,11 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         braveKeySaveError = nil
-        APIKeyManager.setKey(trimmed, for: "brave")
         removeDeletionTombstone(type: "api_key", name: "brave")
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: "brave")
             if result.success {
+                let _: Void = APIKeyManager.deleteKey(for: "brave")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
@@ -925,11 +963,11 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         perplexityKeySaveError = nil
-        APIKeyManager.setKey(trimmed, for: "perplexity")
         removeDeletionTombstone(type: "api_key", name: "perplexity")
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: "perplexity")
             if result.success {
+                let _: Void = APIKeyManager.deleteKey(for: "perplexity")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
@@ -955,12 +993,12 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         imageGenKeySaveError = nil
         imageGenKeySaving = true
-        APIKeyManager.setKey(trimmed, for: provider)
         removeDeletionTombstone(type: "api_key", name: provider)
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: provider)
             imageGenKeySaving = false
             if result.success {
+                let _: Void = APIKeyManager.deleteKey(for: provider)
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
@@ -983,6 +1021,7 @@ public final class SettingsStore: ObservableObject {
 
     func clearAPIKeyForProvider(_ provider: String) {
         APIKeyManager.deleteKey(for: provider)
+        removeProviderKey(provider)
         scheduleRoutingSourceRefresh()
         refreshModelInfo()
         Task {
@@ -999,7 +1038,6 @@ public final class SettingsStore: ObservableObject {
             apiKeySaving = true
         }
 
-        APIKeyManager.setKey(trimmed, for: provider)
         removeDeletionTombstone(type: "api_key", name: provider)
 
         Task {
@@ -1008,6 +1046,8 @@ public final class SettingsStore: ObservableObject {
                 apiKeySaving = false
             }
             if result.success {
+                let _: Void = APIKeyManager.deleteKey(for: provider)
+                insertProviderKey(provider)
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
                 refreshModelInfo()
@@ -1075,6 +1115,32 @@ public final class SettingsStore: ObservableObject {
         guard let response = await settingsClient.fetchVercelConfig() else { return false }
         applyVercelConfigResponse(response)
         return response.success && response.hasToken
+    }
+
+    /// Refresh ``providerKeys`` from `GET /v1/secrets`. Called from
+    /// settings-card `.task` blocks. Returns `true` when the bulk listing
+    /// succeeded; `false` lets callers fall back to per-provider checks so a
+    /// transient outage on first load doesn't blank out the UI. On failure
+    /// the existing set is left in place — saves/deletes that already updated
+    /// the cache via ``insertProviderKey(_:)`` / ``removeProviderKey(_:)``
+    /// stay reflected.
+    @discardableResult
+    func refreshProviderKeys() async -> Bool {
+        guard let listed = await APIKeyManager.listKeys() else { return false }
+        providerKeys = listed
+        return true
+    }
+
+    /// Optimistically reflect a successful `setKey` write in ``providerKeys``
+    /// so subsequent presence checks (e.g. `onChange` of the STT/TTS provider
+    /// dropdown) see the new key without waiting for the next bulk refresh.
+    func insertProviderKey(_ provider: String) {
+        providerKeys.insert(provider)
+    }
+
+    /// Optimistically reflect a successful `deleteKey` in ``providerKeys``.
+    func removeProviderKey(_ provider: String) {
+        providerKeys.remove(provider)
     }
 
     private func applyVercelConfigResponse(_ response: VercelApiConfigResponseMessage) {
@@ -3233,6 +3299,7 @@ public final class SettingsStore: ObservableObject {
         self.profiles = orderedNames.compactMap { profilesByName[$0] }
         if let active = (llm?["activeProfile"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) {
             self.activeProfile = active
+            self.lastConfirmedActiveProfile = active
         }
     }
 
@@ -3268,20 +3335,23 @@ public final class SettingsStore: ObservableObject {
     /// the await so SwiftUI bindings reading the published value (e.g.
     /// the dropdown selection in `InferenceServiceCard`) see the new
     /// value on the next render cycle without waiting for the network
-    /// round-trip. Reverts on failure, but only when the current state
-    /// still matches the optimistic write — a newer call that has
-    /// already overwritten the value owns the published state and must
-    /// not be stomped by a stale revert.
+    /// round-trip. Reverts on failure to `lastConfirmedActiveProfile` —
+    /// the last daemon-confirmed value — so a failed pick never reverts
+    /// to a sibling optimistic value that itself never landed on the
+    /// daemon. The current-value guard ensures a newer call that has
+    /// already overwritten the published state is not stomped by a
+    /// stale revert.
     @discardableResult
     func setActiveProfile(_ name: String) async -> Bool {
-        let previous = self.activeProfile
         self.activeProfile = name
         let success = await settingsClient.patchConfig([
             "llm": ["activeProfile": name]
         ])
-        if !success {
+        if success {
+            lastConfirmedActiveProfile = name
+        } else {
             if self.activeProfile == name {
-                self.activeProfile = previous
+                self.activeProfile = lastConfirmedActiveProfile
             }
             log.error("Failed to patch config for llm.activeProfile")
         }
@@ -3311,7 +3381,12 @@ public final class SettingsStore: ObservableObject {
             "llm": llmPatch
         ])
         if success {
-            if let index = existingIndex {
+            // Re-lookup the index after the await: a concurrent daemon
+            // config push (via `applyDaemonConfig` → `loadInferenceProfiles`)
+            // can replace `profiles` during the suspension, invalidating
+            // `existingIndex` and risking an out-of-bounds subscript or
+            // a write to the wrong row.
+            if let index = profiles.firstIndex(where: { $0.name == name }) {
                 // Daemon deep-merges the patch (toJSON omits nil fields).
                 // Mirror that locally so fields the fragment leaves nil
                 // retain whatever the daemon already had.
@@ -3358,6 +3433,23 @@ public final class SettingsStore: ObservableObject {
             name: name,
             fragment: fragment.toJSON()
         )
+        if success {
+            // Mirror the server state locally before attempting the order
+            // patch. If the order patch fails, the profile data is still
+            // saved on the server, so the local cache must reflect that to
+            // avoid a divergence where the user is told the save failed
+            // while the profile is in fact persisted.
+            var copy = fragment
+            copy.name = name
+            // Re-lookup post-await: a concurrent `loadInferenceProfiles`
+            // can replace `profiles` during the suspension above, so the
+            // captured `existingIndex` may be stale.
+            if let index = profiles.firstIndex(where: { $0.name == name }) {
+                profiles[index] = copy
+            } else {
+                profiles.append(copy)
+            }
+        }
         if success, let nextOrder {
             let orderSuccess = await settingsClient.patchConfig([
                 "llm": ["profileOrder": nextOrder]
@@ -3368,13 +3460,6 @@ public final class SettingsStore: ObservableObject {
             }
         }
         if success {
-            var copy = fragment
-            copy.name = name
-            if let index = existingIndex {
-                profiles[index] = copy
-            } else {
-                profiles.append(copy)
-            }
             if let nextOrder {
                 profileOrder = nextOrder
                 reorderPublishedProfiles(to: nextOrder)
@@ -3861,16 +3946,16 @@ public final class SettingsStore: ObservableObject {
             )
         }
         let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
-        let setLocalKey: (String, String) -> Void = APIKeyManager.setKey(_:for:)
-        setLocalKey(trimmed, keyProvider)
         removeDeletionTombstone(type: "api_key", name: keyProvider)
         let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
         if result.success {
+            let _: Void = APIKeyManager.deleteKey(for: keyProvider)
+            insertProviderKey(keyProvider)
             scheduleRoutingSourceRefresh()
             return result
         }
         if let error = result.error {
-            log.error("Failed to sync STT key for \(sttProviderId, privacy: .public) to daemon: \(error, privacy: .public)")
+            log.error("Failed to sync STT key for \(sttProviderId, privacy: .public): \(error, privacy: .public)")
         }
         if !result.isTransient {
             let _: Void = APIKeyManager.deleteKey(for: keyProvider)
@@ -3893,18 +3978,19 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Clears the API key for the given STT provider from both local and
-    /// daemon credential stores.
+    /// remote credential stores.
     func clearSTTKey(sttProviderId: String) {
         let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
         APIKeyManager.deleteKey(for: keyProvider)
+        removeProviderKey(keyProvider)
         Task {
             let deleted = await APIKeyManager.deleteKey(for: keyProvider)
             if !deleted { addDeletionTombstone(type: "api_key", name: keyProvider) }
         }
     }
 
-    /// Checks whether the daemon has an API key stored for the given STT
-    /// provider.
+    /// Checks whether the encrypted secret store has an API key for the given
+    /// STT provider.
     func hasSTTKey(sttProviderId: String) async -> Bool {
         let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
         return await APIKeyManager.hasKey(for: keyProvider)
@@ -3961,8 +4047,10 @@ public final class SettingsStore: ObservableObject {
     /// Checks whether a TTS credential exists for the given provider using
     /// the registry's credential metadata. Credential-mode providers are
     /// looked up via `APIKeyManager.getCredential(service:field:)`; api-key
-    /// mode providers via `APIKeyManager.getKey(for:)`.
-    static func ttsCredentialExists(for ttsProviderId: String) -> Bool {
+    /// mode providers read from the ``providerKeys`` snapshot — call
+    /// ``refreshProviderKeys()`` on view appear so the cache is current
+    /// before this is consulted.
+    func ttsCredentialExists(for ttsProviderId: String) -> Bool {
         let entry = loadTTSProviderRegistry().provider(withId: ttsProviderId)
         guard let entry else { return false }
         switch entry.credentialMode {
@@ -3971,7 +4059,7 @@ public final class SettingsStore: ObservableObject {
             return APIKeyManager.getCredential(service: namespace, field: "api_key") != nil
         case .apiKey:
             let keyProvider = entry.apiKeyProviderName ?? entry.id
-            return APIKeyManager.getKey(for: keyProvider) != nil
+            return providerKeys.contains(keyProvider)
         }
     }
 
@@ -4000,11 +4088,12 @@ public final class SettingsStore: ObservableObject {
             }
         case .apiKey:
             let keyProvider = entry.apiKeyProviderName ?? entry.id
-            APIKeyManager.setKey(trimmed, for: keyProvider)
             removeDeletionTombstone(type: "api_key", name: keyProvider)
             Task {
                 let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
                 if result.success {
+                    let _: Void = APIKeyManager.deleteKey(for: keyProvider)
+                    insertProviderKey(keyProvider)
                     onSuccess?()
                 } else if let error = result.error {
                     log.error("Failed to sync TTS key for \(ttsProviderId, privacy: .public): \(error, privacy: .public)")
@@ -4029,6 +4118,7 @@ public final class SettingsStore: ObservableObject {
         case .apiKey:
             let keyProvider = entry.apiKeyProviderName ?? entry.id
             APIKeyManager.deleteKey(for: keyProvider)
+            removeProviderKey(keyProvider)
             Task {
                 let deleted = await APIKeyManager.deleteKey(for: keyProvider)
                 if !deleted { addDeletionTombstone(type: "api_key", name: keyProvider) }
@@ -4272,6 +4362,23 @@ public final class SettingsStore: ObservableObject {
         persistUserTimezone()
     }
 
+    /// Saves the device-detected timezone under `ui.detectedTimezone`.
+    ///
+    /// Returns an error string when the value is not a valid IANA timezone.
+    @discardableResult
+    func saveDetectedTimezone(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let canonical = Self.canonicalizeTimeZoneIdentifier(trimmed) else {
+            return "Use an IANA timezone like America/New_York."
+        }
+
+        guard detectedTimezone != canonical else { return nil }
+
+        detectedTimezone = canonical
+        persistDetectedTimezone()
+        return nil
+    }
+
     // MARK: - Media Embed Actions
 
     /// Toggles media embeds on or off and persists the change to the workspace config.
@@ -4401,6 +4508,16 @@ public final class SettingsStore: ObservableObject {
         // its `guard !trimmed.isEmpty` check.
         let tzValue = userTimezone ?? ""
 
+        updateLocalConfig { config in
+            var ui = config["ui"] as? [String: Any] ?? [:]
+            if let userTimezone {
+                ui["userTimezone"] = userTimezone
+            } else {
+                ui.removeValue(forKey: "userTimezone")
+            }
+            config["ui"] = ui
+        }
+
         Task {
             let success = await settingsClient.patchConfig([
                 "ui": ["userTimezone": tzValue]
@@ -4409,6 +4526,29 @@ public final class SettingsStore: ObservableObject {
                 log.error("Failed to patch config for user timezone")
             }
         }
+    }
+
+    private func persistDetectedTimezone() {
+        guard let detectedTimezone else { return }
+
+        updateLocalConfig { config in
+            var ui = config["ui"] as? [String: Any] ?? [:]
+            ui["detectedTimezone"] = detectedTimezone
+            config["ui"] = ui
+        }
+
+        Task {
+            let success = await settingsClient.patchConfig([
+                "ui": ["detectedTimezone": detectedTimezone]
+            ])
+            if !success {
+                log.error("Failed to patch config for detected timezone")
+            }
+        }
+    }
+
+    private func persistCurrentDetectedTimezoneIfNeeded() {
+        _ = saveDetectedTimezone(currentDeviceTimezoneIdentifier())
     }
 
     /// In-flight config refresh task. Cancelled when a new refresh is
@@ -4487,6 +4627,7 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
         self.userTimezone = Self.loadUserTimezone(config: config)
+        self.detectedTimezone = Self.loadDetectedTimezone(config: config)
 
         if let services = config["services"] as? [String: Any],
            let webSearch = services["web-search"] as? [String: Any],
@@ -4539,6 +4680,8 @@ public final class SettingsStore: ObservableObject {
         if mediaSettings.didDefaultEnabledSince && !isCurrentAssistantRemote {
             persistMediaEmbedState()
         }
+
+        persistCurrentDetectedTimezoneIfNeeded()
     }
 
     private func callSiteIdsReferencingProfile(_ profileName: String) -> [String] {
@@ -4577,6 +4720,40 @@ public final class SettingsStore: ObservableObject {
             return nil
         }
         return canonicalizeTimeZoneIdentifier(trimmed)
+    }
+
+    private static func loadDetectedTimezone(config: [String: Any]) -> String? {
+        guard let ui = config["ui"] as? [String: Any],
+              let raw = ui["detectedTimezone"] as? String else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        return canonicalizeTimeZoneIdentifier(trimmed)
+    }
+
+    private static func loadConfigFile(path: String?) -> [String: Any] {
+        guard let path,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        return json
+    }
+
+    private func updateLocalConfig(_ mutate: (inout [String: Any]) -> Void) {
+        guard let configPath else { return }
+        var config = Self.loadConfigFile(path: configPath)
+        mutate(&config)
+
+        do {
+            let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: URL(fileURLWithPath: configPath), options: .atomic)
+        } catch {
+            log.error("Failed to update local config file: \(String(describing: error), privacy: .public)")
+        }
     }
 
 }

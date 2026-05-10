@@ -8,7 +8,7 @@ import { migrateActivationState } from "../../migrations/232-activation-state.js
 import * as schema from "../../schema.js";
 import {
   evictCompactedTurns,
-  fork,
+  forkActivationState,
   hydrate,
   save,
 } from "../activation-store.js";
@@ -113,12 +113,12 @@ describe("activation-store", () => {
     });
   });
 
-  describe("fork", () => {
+  describe("forkActivationState", () => {
     test("copies parent state to a new conversation id", async () => {
       const parentState = buildState();
       await save(db, "conv-parent", parentState);
 
-      await fork(db, "conv-parent", "conv-child");
+      forkActivationState(db, "conv-parent", "conv-child");
 
       const child = await hydrate(db, "conv-child");
       expect(child).toEqual(parentState);
@@ -129,7 +129,7 @@ describe("activation-store", () => {
     });
 
     test("is a no-op when the parent has no state", async () => {
-      await fork(db, "conv-parent-missing", "conv-child");
+      forkActivationState(db, "conv-parent-missing", "conv-child");
 
       expect(await hydrate(db, "conv-child")).toBeNull();
     });
@@ -139,7 +139,7 @@ describe("activation-store", () => {
       await save(db, "conv-parent", parentState);
       await save(db, "conv-child", buildState({ currentTurn: 99 }));
 
-      await fork(db, "conv-parent", "conv-child");
+      forkActivationState(db, "conv-parent", "conv-child");
 
       const child = await hydrate(db, "conv-child");
       expect(child?.currentTurn).toBe(7);

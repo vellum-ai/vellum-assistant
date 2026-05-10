@@ -97,6 +97,13 @@ export interface GetCdpClientOptions {
    * and disables failover.
    */
   mode?: BrowserMode;
+  /**
+   * Explicit target client id. When provided, the extension backend routes
+   * to this specific client instead of auto-resolving to the most-recently-
+   * active same-actor host_browser client. Mirrors the `target_client_id`
+   * pattern on host_bash/host_file/host_cu.
+   */
+  targetClientId?: string;
 }
 
 /**
@@ -151,10 +158,11 @@ export function getCdpClient(
   options?: GetCdpClientOptions,
 ): ScopedCdpClient {
   const mode: BrowserMode = options?.mode ?? "auto";
+  const targetClientId = options?.targetClientId;
   const candidates =
     mode === "auto"
-      ? buildCandidateList(context)
-      : buildPinnedCandidateList(context, mode);
+      ? buildCandidateList(context, targetClientId)
+      : buildPinnedCandidateList(context, mode, targetClientId);
 
   log.debug(
     {
@@ -182,8 +190,9 @@ export function getCdpClient(
 export function buildPinnedCandidateList(
   context: ToolContext,
   mode: Exclude<BrowserMode, "auto">,
+  targetClientId?: string,
 ): BackendCandidate[] {
-  const { conversationId } = context;
+  const { conversationId, sourceActorPrincipalId } = context;
 
   switch (mode) {
     case "extension": {
@@ -213,6 +222,9 @@ export function buildPinnedCandidateList(
             const client = createExtensionCdpClient(
               hostBrowserProxy,
               conversationId,
+              undefined,
+              sourceActorPrincipalId,
+              targetClientId,
             );
             const backend = createExtensionBackend({
               isAvailable: () => true,
@@ -286,10 +298,56 @@ export function buildPinnedCandidateList(
  *
  * Exported for testing.
  */
-export function buildCandidateList(context: ToolContext): BackendCandidate[] {
-  const { conversationId } = context;
+export function buildCandidateList(context: ToolContext, targetClientId?: string): BackendCandidate[] {
+  const { conversationId, sourceActorPrincipalId } = context;
   const candidates: BackendCandidate[] = [];
   const hostBrowserProxy = HostBrowserProxy.instance;
+
+  // When a specific host client is targeted, only the extension proxy can
+  // route to it. Skip the fallback chain entirely: if the extension is
+  // unavailable, fail loudly rather than silently routing to a different
+  // browser.
+  if (targetClientId != null) {
+    if (!hostBrowserProxy.hasExtensionClient()) {
+      throw new CdpError(
+        "transport_error",
+        `Cannot reach target_client_id "${targetClientId}": no Chrome Extension connected`,
+        {
+          attemptDiagnostics: [
+            {
+              candidateKind: "extension",
+              inclusionReason: "target_client_id requires extension proxy",
+              stage: "candidate_selection",
+              errorCode: "transport_error",
+              errorMessage: "no Chrome Extension connected",
+            },
+          ],
+        },
+      );
+    }
+    return [
+      {
+        kind: "extension",
+        reason: `target_client_id override: ${targetClientId}`,
+        create() {
+          const client = createExtensionCdpClient(
+            hostBrowserProxy,
+            conversationId,
+            undefined,
+            sourceActorPrincipalId,
+            targetClientId,
+          );
+          const backend = createExtensionBackend({
+            isAvailable: () => true,
+            sendCdp: (command, signal) =>
+              dispatchThroughClient(client, command, signal),
+            dispose: () => client.dispose(),
+          });
+          return { client, backend };
+        },
+      },
+    ];
+  }
 
   // 1. Extension -- preferred when a Chrome Extension client is connected.
   if (hostBrowserProxy.hasExtensionClient()) {
@@ -300,6 +358,9 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
         const client = createExtensionCdpClient(
           hostBrowserProxy,
           conversationId,
+          undefined,
+          sourceActorPrincipalId,
+          targetClientId,
         );
         const backend = createExtensionBackend({
           isAvailable: () => true,

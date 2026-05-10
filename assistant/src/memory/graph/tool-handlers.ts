@@ -2,14 +2,13 @@
 // Memory Tool handlers
 //
 // remember: save facts to the PKB (buffer.md + daily archive) under the v1
-// path, or to memory/buffer.md + memory/archive/<today>.md when the
-// `memory-v2-enabled` feature flag is on.
+// path, or to memory/buffer.md + memory/archive/<today>.md when memory v2 is
+// active.
 // ---------------------------------------------------------------------------
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -46,7 +45,7 @@ export function handleRemember(
   const now = new Date();
   const entry = formatRememberEntry(input.content.trim(), now);
 
-  if (isAssistantFeatureFlagEnabled("memory-v2-enabled", config)) {
+  if (config.memory.v2.enabled) {
     appendBufferAndArchive({
       rootDir: join(workspaceDir, "memory"),
       entry,
@@ -71,6 +70,22 @@ export function handleRemember(
 }
 
 /**
+ * Format `now` as a buffer-entry timestamp (`Mon D, h:mm AM/PM`). Exported so
+ * the memory v2 consolidation job can present its cutoff in the same shape
+ * the buffer entries use, making the agent's "timestamp ≥ cutoff" comparison
+ * unambiguous at minute precision.
+ */
+export function formatBufferTimestamp(now: Date): string {
+  const month = now.toLocaleString("en-US", { month: "short" });
+  const day = now.getDate();
+  const hours = now.getHours();
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${month} ${day}, ${displayHour}:${minutes} ${ampm}`;
+}
+
+/**
  * Build a timestamped bullet entry for `buffer.md` / `archive/<date>.md`.
  *
  * Format mirrors the long-standing v1 PKB layout so v2 buffers stay
@@ -81,13 +96,7 @@ export function handleRemember(
  * entries identically to user-facing `remember()` calls.
  */
 export function formatRememberEntry(content: string, now: Date): string {
-  const month = now.toLocaleString("en-US", { month: "short" });
-  const day = now.getDate();
-  const hours = now.getHours();
-  const minutes = String(now.getMinutes()).padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
-  const displayHour = hours % 12 || 12;
-  return `- [${month} ${day}, ${displayHour}:${minutes} ${ampm}] ${content}\n`;
+  return `- [${formatBufferTimestamp(now)}] ${content}\n`;
 }
 
 /**

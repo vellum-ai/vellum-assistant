@@ -615,7 +615,8 @@ function seedGuardianAndApprovalRows(raw: Database, now: number): void {
       created_at,
       updated_at
     ) VALUES
-      ('call-standard-guardian', 'conv-standard', 'test-provider', '+15550100', '+15550101', 'initiated', ${now}, ${now});
+      ('call-standard-guardian', 'conv-standard', 'test-provider', '+15550100', '+15550101', 'initiated', ${now}, ${now}),
+      ('call-private-guardian', 'conv-private', 'test-provider', '+15550102', '+15550103', 'initiated', ${now}, ${now});
 
     INSERT INTO call_pending_questions (
       id,
@@ -707,6 +708,23 @@ function seedGuardianAndApprovalRows(raw: Database, now: number): void {
       ('scoped-grant-private', 'request_id', 'canonical-request-private-source', NULL, NULL, 'vellum', 'vellum', 'conv-private', 'active', ${now + 60000}, ${now}, ${now}),
       ('scoped-grant-standard', 'request_id', 'canonical-request-standard', NULL, NULL, 'vellum', 'vellum', 'conv-standard', 'active', ${now + 60000}, ${now}, ${now}),
       ('scoped-grant-unscoped', 'tool_signature', NULL, 'test_tool', 'digest-123', 'vellum', 'vellum', NULL, 'active', ${now + 60000}, ${now}, ${now});
+
+    INSERT INTO scoped_approval_grants (
+      id,
+      scope_mode,
+      request_id,
+      tool_name,
+      input_digest,
+      request_channel,
+      decision_channel,
+      conversation_id,
+      call_session_id,
+      status,
+      expires_at,
+      created_at,
+      updated_at
+    ) VALUES
+      ('scoped-grant-private-call-only', 'tool_signature', NULL, 'test_tool', 'digest-456', 'vellum', 'vellum', NULL, 'call-private-guardian', 'active', ${now + 60000}, ${now}, ${now});
 
     INSERT INTO channel_guardian_approval_requests (
       id,
@@ -1037,6 +1055,13 @@ describe("migrateDeletePrivateConversations", () => {
     expect(
       countWhere(
         raw,
+        "scoped_approval_grants",
+        `id = 'scoped-grant-private-call-only'`,
+      ),
+    ).toBe(0);
+    expect(
+      countWhere(
+        raw,
         "guardian_action_requests",
         `id = 'legacy-request-private-source'`,
       ),
@@ -1082,6 +1107,50 @@ describe("migrateDeletePrivateConversations", () => {
         "channel_guardian_approval_requests",
         `id = 'channel-approval-standard'`,
       ),
+    ).toBe(1);
+  });
+
+  test("removes orphan attachments left by prior runs that deleted private messages", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    const now = Date.now();
+
+    bootstrapTables(raw);
+    seedConversation(raw, "conv-standard", "standard");
+    raw.exec(/*sql*/ `
+      INSERT INTO attachments (
+        id,
+        original_filename,
+        mime_type,
+        size_bytes,
+        kind,
+        data_base64,
+        created_at
+      ) VALUES (
+        'orphan-private-attachment',
+        'leaked.txt',
+        'text/plain',
+        1,
+        'text',
+        'eA==',
+        ${now}
+      );
+    `);
+
+    expect(
+      countWhere(raw, "attachments", `id = 'orphan-private-attachment'`),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "attachments", `id = 'conv-standard-attachment'`),
+    ).toBe(1);
+
+    migrateDeletePrivateConversations(db);
+
+    expect(
+      countWhere(raw, "attachments", `id = 'orphan-private-attachment'`),
+    ).toBe(0);
+    expect(
+      countWhere(raw, "attachments", `id = 'conv-standard-attachment'`),
     ).toBe(1);
   });
 });

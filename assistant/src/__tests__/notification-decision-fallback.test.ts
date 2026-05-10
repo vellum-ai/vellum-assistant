@@ -95,6 +95,97 @@ describe("notification decision fallback copy", () => {
     );
   });
 
+  test("enforces guardian-facing popup copy for heartbeat alerts", async () => {
+    configuredProvider = { sendMessage: async () => ({}) };
+    extractedToolUse = {
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["vellum"],
+        reasoningSummary: "Heartbeat found a useful follow-up.",
+        renderedCopy: {
+          vellum: {
+            title: "Heartbeat Follow-up",
+            body: "The daily tracker is ready; consider reminding the guardian to review it before the next check-in.",
+          },
+        },
+        dedupeKey: "heartbeat:test",
+        confidence: 0.9,
+      },
+    };
+
+    const decision = await evaluateSignal(
+      makeSignal({
+        sourceEventName: "heartbeat.alert",
+        sourceChannel: "watcher",
+        contextPayload: {
+          summary:
+            "The daily tracker is ready; consider reminding the guardian to review it before the next check-in.",
+          conversationTitle: "Running Habit Tracking",
+        },
+        attentionHints: {
+          requiresAction: true,
+          urgency: "medium",
+          isAsyncBackground: true,
+          visibleInSourceNow: false,
+        },
+      }),
+      ["vellum"] as NotificationChannel[],
+    );
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.title).toBe("Heartbeat Alert");
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      "I found something worth your attention in a heartbeat check. Open the conversation for details.",
+    );
+    expect(decision.renderedCopy.vellum?.body).not.toContain(
+      "reminding the guardian",
+    );
+  });
+
+  test("keeps direct guardian-facing heartbeat copy", async () => {
+    configuredProvider = { sendMessage: async () => ({}) };
+    extractedToolUse = {
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["vellum"],
+        reasoningSummary: "Heartbeat found a useful follow-up.",
+        renderedCopy: {
+          vellum: {
+            title: "Tracker Ready",
+            body: "Your daily tracker is ready. Review it before the next check-in.",
+          },
+        },
+        dedupeKey: "heartbeat:direct-copy-test",
+        confidence: 0.9,
+      },
+    };
+
+    const decision = await evaluateSignal(
+      makeSignal({
+        sourceEventName: "heartbeat.alert",
+        sourceChannel: "watcher",
+        contextPayload: {
+          summary:
+            "The daily tracker is ready; consider reminding the guardian to review it before the next check-in.",
+          conversationTitle: "Running Habit Tracking",
+        },
+        attentionHints: {
+          requiresAction: true,
+          urgency: "medium",
+          isAsyncBackground: true,
+          visibleInSourceNow: false,
+        },
+      }),
+      ["vellum"] as NotificationChannel[],
+    );
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.title).toBe("Tracker Ready");
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      "Your daily tracker is ready. Review it before the next check-in.",
+    );
+  });
+
   test("enforces free-text answer instructions for guardian.question when requestCode exists", async () => {
     const signal = makeSignal({
       contextPayload: {

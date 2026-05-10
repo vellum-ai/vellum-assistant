@@ -203,6 +203,19 @@ export function markStaleRunningAsError(
 }
 
 /**
+ * Count the number of heartbeat runs that completed with status `ok`.
+ */
+export function countCompletedHeartbeatRuns(): number {
+  const db = getDb();
+  const row = db
+    .select({ count: sql<number>`count(*)` })
+    .from(heartbeatRuns)
+    .where(eq(heartbeatRuns.status, "ok"))
+    .get();
+  return row?.count ?? 0;
+}
+
+/**
  * List heartbeat runs ordered by `scheduledFor` descending.
  */
 export function listHeartbeatRuns(limit = 20): HeartbeatRunRecord[] {

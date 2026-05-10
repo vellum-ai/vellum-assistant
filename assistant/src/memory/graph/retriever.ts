@@ -14,7 +14,6 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { ContentBlock, ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
-import { isMemoryV2ReadActive } from "../context-search/sources/memory-v2.js";
 import { embedWithRetry } from "../embed.js";
 import {
   generateSparseEmbedding,
@@ -426,12 +425,12 @@ interface ContextLoadResult {
 export async function loadContextMemory(
   opts: ContextLoadOpts,
 ): Promise<ContextLoadResult> {
-  // v2 owns the read path when both gates are on. The v1 collection is in
-  // active retirement and querying it can OOM-crash Qdrant via a corrupted
-  // sparse segment, so we skip the embedding work and downstream searches
+  // v2 owns the read path when enabled. The v1 collection is in active
+  // retirement and querying it can OOM-crash Qdrant via a corrupted sparse
+  // segment, so we skip the embedding work and downstream searches
   // entirely. Caller (`runContextLoad`) sees zero nodes and routes to the
   // v2 activation pipeline.
-  if (isMemoryV2ReadActive(opts.config)) {
+  if (opts.config.memory.v2.enabled) {
     return {
       nodes: [],
       serendipityNodes: [],

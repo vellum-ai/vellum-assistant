@@ -34,9 +34,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-const { _setOverridesForTesting } =
-  await import("../config/assistant-feature-flags.js");
-
 // Mock conversation store
 const createdConversations: Array<{
   title: string;
@@ -137,7 +134,6 @@ describe("FilingService", () => {
     } catch {
       // best-effort
     }
-    _setOverridesForTesting({});
   });
 
   beforeEach(() => {
@@ -344,8 +340,7 @@ describe("FilingService", () => {
   });
 
   describe("memory v2 gate", () => {
-    test("start() does not schedule timers when v2 flag and config are both on", () => {
-      _setOverridesForTesting({ "memory-v2-enabled": true });
+    test("start() does not schedule timers when memory.v2.enabled is true", () => {
       mockConfig.memory.v2.enabled = true;
 
       const service = createService();
@@ -355,20 +350,8 @@ describe("FilingService", () => {
       expect(service.nextCompactionAt).toBeNull();
     });
 
-    test("start() does not schedule timers when only the flag is on", () => {
-      _setOverridesForTesting({ "memory-v2-enabled": true });
+    test("start() schedules timers when memory.v2.enabled is false (v1 filing runs)", () => {
       mockConfig.memory.v2.enabled = false;
-
-      const service = createService();
-      service.start();
-
-      expect(service.nextRunAt).toBeNull();
-      expect(service.nextCompactionAt).toBeNull();
-    });
-
-    test("start() schedules timers when only the config is on", () => {
-      _setOverridesForTesting({ "memory-v2-enabled": false });
-      mockConfig.memory.v2.enabled = true;
 
       const service = createService();
       service.start();

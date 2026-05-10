@@ -119,6 +119,12 @@ export interface EventHandlerState {
   deferredOrderingError: string | null;
   contextTooLargeDetected: boolean;
   /**
+   * Set when the provider rejects with an image-dimension error. The agent
+   * loop strips or downscales oversized image blocks from ctx.messages and
+   * retries once before surfacing an error to the user.
+   */
+  imageTooLargeDetected: boolean;
+  /**
    * The provider error object when context_too_large is detected, preserved
    * so `parseActualTokensFromError` can prefer the typed
    * `ContextOverflowError` fields over the string-regex fallback. The
@@ -127,6 +133,11 @@ export interface EventHandlerState {
    */
   contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
+  /**
+   * First persisted assistant row in this run; history keeps this id when it
+   * merges tool-turn rows into one display bubble.
+   */
+  firstAssistantMessageId: string | undefined;
   lastAssistantMessageId: string | undefined;
   readonly pendingToolResults: Map<string, PendingToolResult>;
   readonly persistedToolUseIds: Set<string>;
@@ -170,6 +181,16 @@ export interface EventHandlerState {
       approvalMode?: string;
       approvalReason?: string;
       riskThreshold?: string;
+      /** Display-only regex ladder for the rule editor (narrowest → broadest). */
+      riskScopeOptions?: Array<{ pattern: string; label: string }>;
+      /** Minimatch save patterns for the rule editor (narrowest → broadest). */
+      riskAllowlistOptions?: Array<{
+        label: string;
+        description: string;
+        pattern: string;
+      }>;
+      /** Directory scope ladder for the rule editor. */
+      riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
     }
   >;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
@@ -210,8 +231,10 @@ export function createEventHandlerState(): EventHandlerState {
     orderingErrorDetected: false,
     deferredOrderingError: null,
     contextTooLargeDetected: false,
+    imageTooLargeDetected: false,
     contextTooLargeError: null,
     providerErrorUserMessage: null,
+    firstAssistantMessageId: undefined,
     lastAssistantMessageId: undefined,
     pendingToolResults: new Map(),
     persistedToolUseIds: new Set(),
@@ -233,6 +256,12 @@ export function createEventHandlerState(): EventHandlerState {
     currentTurnToolUseIds: [],
     turnStartedAt: Date.now(),
   };
+}
+
+export function getClientDisplayMessageId(
+  state: EventHandlerState,
+): string | undefined {
+  return state.firstAssistantMessageId ?? state.lastAssistantMessageId;
 }
 
 // ── Shared Helper ────────────────────────────────────────────────────
@@ -554,6 +583,14 @@ export function handleToolResult(
       approvalMode: event.approvalMode,
       approvalReason: event.approvalReason,
       riskThreshold: event.riskThreshold,
+      // Capture the 3 risk-option arrays so the persisted tool_use block
+      // carries the same chip ladder as the live tool_result event. Without
+      // these, hydrated chips from chat history fall back to the synthesized
+      // `*` allowlist and an empty scope ladder (see the comment on
+      // `synthesizeFallbackOption` in web's RuleEditorModal).
+      riskScopeOptions: event.riskScopeOptions,
+      riskAllowlistOptions: event.riskAllowlistOptions,
+      riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
     });
   }
 
@@ -633,6 +670,7 @@ export function handleToolResult(
     matchedTrustRuleId: event.matchedTrustRuleId,
     isContainerized: event.isContainerized,
     riskScopeOptions: event.riskScopeOptions,
+    riskAllowlistOptions: event.riskAllowlistOptions,
     riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
     approvalMode: event.approvalMode,
     approvalReason: event.approvalReason,
@@ -694,6 +732,19 @@ function annotatePersistedAssistantMessage(
         if (risk.approvalMode) rec._approvalMode = risk.approvalMode;
         if (risk.approvalReason) rec._approvalReason = risk.approvalReason;
         if (risk.riskThreshold) rec._riskThreshold = risk.riskThreshold;
+        // Persist the 3 risk-option arrays so the rule editor's chip ladder
+        // survives chat-history reload. These mirror the same-named fields
+        // on the live `tool_result` event; clients should read them back via
+        // `shared.ts` and treat them identically to the live values.
+        if (risk.riskScopeOptions && risk.riskScopeOptions.length > 0)
+          rec._riskScopeOptions = risk.riskScopeOptions;
+        if (risk.riskAllowlistOptions && risk.riskAllowlistOptions.length > 0)
+          rec._riskAllowlistOptions = risk.riskAllowlistOptions;
+        if (
+          risk.riskDirectoryScopeOptions &&
+          risk.riskDirectoryScopeOptions.length > 0
+        )
+          rec._riskDirectoryScopeOptions = risk.riskDirectoryScopeOptions;
         modified = true;
       }
     }
@@ -749,6 +800,10 @@ function handleError(
     if (classified.code === "CONTEXT_TOO_LARGE") {
       state.contextTooLargeDetected = true;
       state.contextTooLargeError = event.error;
+    } else if (classified.code === "IMAGE_TOO_LARGE") {
+      // Trigger silent recovery: the agent loop will strip/downscale images
+      // in ctx.messages and retry once before surfacing an error.
+      state.imageTooLargeDetected = true;
     } else if (
       classified.code === "PROVIDER_ORDERING" ||
       classified.code === "PROVIDER_WEB_SEARCH"
@@ -972,6 +1027,7 @@ export async function handleMessageComplete(
     DEFAULT_TIMEOUTS.persistence,
   )) as PersistAddResult;
   const assistantMsg = assistantPersistResult.message;
+  state.firstAssistantMessageId ??= assistantMsg.id;
   state.lastAssistantMessageId = assistantMsg.id;
 
   // Backfill message_id on all LLM request logs from this turn.

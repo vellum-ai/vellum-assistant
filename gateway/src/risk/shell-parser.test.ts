@@ -592,4 +592,163 @@ describe("Shell Parser", () => {
       ).toBe(true);
     });
   });
+
+  // ── originalCommand & synthetic flag ─────────────────────────────
+
+  describe("originalCommand", () => {
+    test("preserves the literal input verbatim for simple command", async () => {
+      const result = await parse("ls -la /tmp");
+      expect(result.originalCommand).toBe("ls -la /tmp");
+    });
+
+    test("preserves separator characters that segment reconstruction loses", async () => {
+      // `;` and newlines are dropped by the segment walker — originalCommand
+      // is the only place to recover the exact text the user typed.
+      const result = await parse("ls; rm -rf /tmp/foo");
+      expect(result.originalCommand).toBe("ls; rm -rf /tmp/foo");
+    });
+
+    test("preserves text for unparseable commands", async () => {
+      const cmd = "cat /a/(b)/c.txt";
+      const result = await parse(cmd);
+      expect(result.originalCommand).toBe(cmd);
+    });
+  });
+
+  describe("synthetic segment flag", () => {
+    test("legitimate pipeline siblings are NOT synthetic", async () => {
+      const result = await parse("ls -la | grep foo");
+      expect(result.segments).toHaveLength(2);
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+    });
+
+    test("legitimate `;`-separated siblings are NOT synthetic", async () => {
+      const result = await parse("ls; rm -rf /tmp/foo");
+      expect(result.segments).toHaveLength(2);
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+    });
+
+    test("legitimate newline-separated siblings are NOT synthetic", async () => {
+      const result = await parse("ls\nrm -rf /tmp/foo");
+      expect(result.segments).toHaveLength(2);
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+    });
+
+    test("legitimate `&&`-joined commands are NOT synthetic", async () => {
+      const result = await parse("ls && pwd");
+      expect(result.segments).toHaveLength(2);
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+    });
+
+    test("legitimate `||`-joined commands are NOT synthetic", async () => {
+      const result = await parse("ls || pwd");
+      expect(result.segments).toHaveLength(2);
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+    });
+
+    test("subshell segments ARE synthetic", async () => {
+      // (cd /tmp && ls) — intentional grouping. Inner segments come from
+      // a nested execution context, so consumers that show wildcard
+      // suggestions to the user should not surface them as top-level.
+      const result = await parse("(cd /tmp && ls)");
+      expect(result.segments.length).toBeGreaterThan(0);
+      expect(result.segments.every((s) => s.synthetic === true)).toBe(true);
+    });
+
+    test("if-statement body segments ARE synthetic", async () => {
+      const result = await parse("if true; then rm -rf /; fi");
+      expect(result.segments.length).toBeGreaterThan(0);
+      expect(result.segments.every((s) => s.synthetic === true)).toBe(true);
+    });
+
+    test("while-loop body segments ARE synthetic", async () => {
+      const result = await parse("while true; do echo hi; done");
+      expect(result.segments.length).toBeGreaterThan(0);
+      expect(result.segments.every((s) => s.synthetic === true)).toBe(true);
+    });
+
+    test("parse-recovery: unquoted parens in path mark ALL siblings synthetic", async () => {
+      // The canonical bug: `(...)` in a path argument makes tree-sitter
+      // split into multiple top-level statements with no separator.
+      const result = await parse("cat /a/(b)/c.txt");
+      expect(result.segments.length).toBeGreaterThan(1);
+      // Every fragment — including the first `cat /a/` piece — must be
+      // synthetic, because none of them represents a command the user
+      // independently typed.
+      expect(result.segments.every((s) => s.synthetic === true)).toBe(true);
+    });
+
+    test("parse-recovery in multi-stage pipeline marks ALL siblings synthetic", async () => {
+      // The original bug repro from the iPhone screenshot.
+      const cmd =
+        "cat /workspace/vellum-assistant-platform/web/src/app/(app)/admin/organizations/[id]/page.tsx | grep -A 30 -B 5 \"credit\\|Credit\" | head -80";
+      const result = await parse(cmd);
+      expect(result.segments.length).toBeGreaterThan(1);
+      expect(result.segments.every((s) => s.synthetic === true)).toBe(true);
+      // The fragment programs the parser invented (e.g. `app`,
+      // `/admin/organizations/[id]/page.tsx`) should never be surfaced as
+      // independent top-level commands.
+      const programs = result.segments.map((s) => s.program);
+      expect(programs).toContain("app");
+      expect(programs).toContain("/admin/organizations/[id]/page.tsx");
+    });
+
+    test("brackets in path do NOT trigger parse-recovery", async () => {
+      // tree-sitter handles unquoted brackets in paths cleanly — only
+      // parens cause the recovery split that motivated the synthetic flag.
+      const result = await parse("cat /a/[b]/c");
+      expect(result.segments).toHaveLength(1);
+      expect(result.segments[0].synthetic).toBeFalsy();
+    });
+
+    test("dangerous command inside a subshell is still classified as dangerous", async () => {
+      // Regression check: marking subshell segments synthetic must NOT
+      // hide them from risk classification — `(rm -rf /)` is still high.
+      const result = await parse("(rm -rf /)");
+      expect(result.segments.length).toBeGreaterThan(0);
+      const rmSeg = result.segments.find((s) => s.program === "rm");
+      expect(rmSeg).toBeDefined();
+      expect(rmSeg!.synthetic).toBe(true);
+      expect(rmSeg!.args).toEqual(["-rf", "/"]);
+    });
+
+    test("non-ASCII text before a separator does not trigger spurious recovery", async () => {
+      // Regression: tree-sitter byte offsets vs. JS UTF-16 code units.
+      // For `echo café; ls`, the `é` is 2 bytes in UTF-8 but 1 code
+      // unit in JS — using `source.slice(byteStart, byteEnd)` shifts
+      // the gap window and misses the `;`, marking both siblings as
+      // synthetic.
+      const result = await parse("echo café; ls");
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+      const programs = result.segments.map((s) => s.program);
+      expect(programs).toEqual(["echo", "ls"]);
+    });
+
+    test("multi-byte emoji before a separator does not trigger spurious recovery", async () => {
+      // 🎉 is 4 bytes in UTF-8 (and 2 UTF-16 code units), exercising
+      // the surrogate-pair branch of the byte-vs-code-unit fix.
+      const result = await parse("echo 🎉; pwd");
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+      const programs = result.segments.map((s) => s.program);
+      expect(programs).toEqual(["echo", "pwd"]);
+    });
+
+    test("`! cmd` does NOT mark the inner command synthetic", async () => {
+      // `negated_command` is a prefix operator on a pipeline, not a
+      // nested execution context. The user typed `ls` at the top level;
+      // it must retain its `ls *` wildcard scope option.
+      const result = await parse("! ls foo");
+      const lsSeg = result.segments.find((s) => s.program === "ls");
+      expect(lsSeg).toBeDefined();
+      expect(lsSeg!.synthetic).toBeFalsy();
+    });
+
+    test("`! pipeline` keeps every segment non-synthetic", async () => {
+      const result = await parse("! ls | grep foo");
+      const programs = result.segments.map((s) => s.program);
+      expect(programs).toContain("ls");
+      expect(programs).toContain("grep");
+      expect(result.segments.every((s) => !s.synthetic)).toBe(true);
+    });
+  });
 });

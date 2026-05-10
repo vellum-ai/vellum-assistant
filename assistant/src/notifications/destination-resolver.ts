@@ -126,6 +126,27 @@ export function resolveDestinations(
         );
         break;
       }
+      case "platform": {
+        // Platform delivery goes through the daemon's VellumPlatformClient —
+        // no external binding needed. Include guardianPrincipalId so the
+        // adapter can scope guardian-sensitive notifications.
+        const platformGuardian = findGuardianForChannel("vellum");
+        const platformMeta: Record<string, unknown> = {};
+        if (platformGuardian) {
+          platformMeta.guardianPrincipalId =
+            platformGuardian.contact.principalId;
+        }
+        result.set("platform", {
+          channel: "platform",
+          metadata:
+            Object.keys(platformMeta).length > 0 ? platformMeta : undefined,
+        });
+        log.debug(
+          { channel: "platform", source: "contacts", hasEndpoint: false },
+          "destination resolved",
+        );
+        break;
+      }
       default: {
         // Future deliverable channels without a resolver — skip silently.
         break;

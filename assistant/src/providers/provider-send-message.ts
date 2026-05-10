@@ -7,7 +7,12 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { getProvider, initializeProviders, listProviders } from "./registry.js";
+import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
+import {
+  getProvider,
+  initializeProviders,
+  listProviders,
+} from "./registry.js";
 import type {
   ContentBlock,
   Message,
@@ -107,11 +112,31 @@ export async function resolveConfiguredProvider(
     }
   }
 
-  const inferenceProvider = resolveCallSiteConfig(
-    callSite,
-    config.llm,
-    opts,
-  ).provider;
+  const resolved = resolveCallSiteConfig(callSite, config.llm, opts);
+  const inferenceProvider = resolved.provider;
+  const connectionName = resolved.provider_connection;
+
+  // Connection-aware path: when the resolved profile names a
+  // `provider_connection`, route auth through that row's resolver. Falls
+  // through to the legacy `getProvider(name)` path on any miss so existing
+  // profiles without `provider_connection` keep working unchanged.
+  if (connectionName) {
+    const connectionProvider = await tryResolveProviderForConnectionName(
+      connectionName,
+      config,
+      inferenceProvider,
+    );
+    if (connectionProvider) {
+      return {
+        provider: new CallSiteConfiguredProvider(
+          connectionProvider,
+          callSite,
+          opts.overrideProfile,
+        ),
+        configuredProviderName: inferenceProvider,
+      };
+    }
+  }
 
   try {
     const provider = getProvider(inferenceProvider);

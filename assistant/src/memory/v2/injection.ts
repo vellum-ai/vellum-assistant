@@ -94,8 +94,12 @@ export interface InjectMemoryV2BlockResult {
    */
   block: string | null;
   /**
-   * Slugs that were freshly attached on this turn. Empty when `block` is
-   * null. Returned for telemetry / debug logging by the call site.
+   * Slugs we attempted to attach this turn (top-K minus everInjected).
+   * Always populated even when `block` is `null` — phantom slugs whose
+   * backing page is missing on disk land here and are recorded in
+   * `everInjected` so we don't infinite-retry next turn. Callers using
+   * this for "we injected N slugs" telemetry should cross-reference
+   * `block !== null` (or the activation log's `page_missing` status).
    */
   toInject: string[];
 }
@@ -178,7 +182,12 @@ export async function injectMemoryV2Block(
   // prior cached attachments don't exist or have been thrown away. The user
   // message gets a complete top-K dump alongside the static
   // essentials/threads/recent block, then per-turn turns just add deltas.
-  const mode = params.mode ?? "per-turn";
+  //
+  // `mode` is `let` because the trailing try/finally promotes it to "errored"
+  // when the render/telemetry path throws — we still want a log row written
+  // (with whatever conceptRows we managed to build) so silent failures are
+  // observable in the database.
+  let mode: "context-load" | "per-turn" | "errored" = params.mode ?? "per-turn";
   const priorEverInjected: readonly EverInjectedEntry[] =
     priorState?.everInjected ?? [];
   const { topNow, toInject } = selectInjections({
@@ -206,9 +215,21 @@ export async function injectMemoryV2Block(
   // like concept slugs — once attached on a turn, the cached attachment lives
   // on that user message and the agent keeps seeing it across subsequent turns
   // until compaction evicts the turn.
+  //
+  // Skill slugs whose in-process cache entry is missing (e.g. startup race
+  // between the skill seed and the first turn, or stale Qdrant index pointing
+  // at an uninstalled skill) are excluded from `everInjected` so future
+  // per-turn runs re-attempt attachment once the cache is populated. Without
+  // this, the slug would be marked injected even though `renderInjectionBlock`
+  // silently dropped it.
+  const missingSkillSlugs = new Set(
+    slugsToRender.filter(
+      (slug) => isSkillSlug(slug) && !getSkillCapability(slug),
+    ),
+  );
   const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
   const newlyInjected = slugsToRender.filter(
-    (slug) => !everInjectedSet.has(slug),
+    (slug) => !everInjectedSet.has(slug) && !missingSkillSlugs.has(slug),
   );
   const nextEverInjected: EverInjectedEntry[] = [
     ...priorEverInjected,
@@ -223,35 +244,48 @@ export async function injectMemoryV2Block(
     updatedAt: Date.now(),
   };
 
-  await save(database, conversationId, nextActivationState);
+  // `conceptRows` and `block` are declared outside the try so the finally
+  // block can flush activation telemetry even if rendering, row-building, or
+  // the activation-state save throws partway through. Without this, a Zod
+  // failure on a single concept page (e.g. unrecognized frontmatter key)
+  // silently dropped the entire turn's activation log row, masking the
+  // underlying data-corruption bug.
+  let conceptRows: MemoryV2ConceptRowRecord[] = [];
+  let block: string | null = null;
+  let caughtErr: unknown = undefined;
+  const v2Cfg = config.memory.v2;
 
-  // Render before recording telemetry so the activation log can mark slugs
-  // whose backing file is gone — those are no-op renders that would otherwise
-  // be indistinguishable from successful "injected" rows in the log.
-  // `renderInjectionBlock` itself short-circuits on empty inputs.
-  const { block, missingSlugs } = await renderInjectionBlock(
-    workspaceDir,
-    slugsToRender,
-  );
-  const missingSlugSet = new Set(missingSlugs);
-  if (missingSlugs.length > 0) {
-    log.warn(
-      {
-        conversationId,
-        turn: currentTurn,
-        missingSlugs,
-        renderedCount: slugsToRender.length - missingSlugs.length,
-      },
-      "Memory v2 injection skipped slugs whose page was missing on disk — Qdrant index may be stale; consider reembed",
-    );
-  }
+  try {
+    await save(database, conversationId, nextActivationState);
 
-  // Record per-turn activation telemetry. Failures are warn-logged and never
-  // block memory injection.
-  const toInjectSet = new Set(toInject);
-  const renderedSet = new Set(slugsToRender);
-  const conceptRows: MemoryV2ConceptRowRecord[] = [...candidates].map(
-    (slug) => {
+    // Render before recording telemetry so the activation log can mark slugs
+    // whose backing file is gone or failed to load — those are no-op renders
+    // that would otherwise be indistinguishable from successful "injected"
+    // rows in the log. `renderInjectionBlock` itself short-circuits on empty
+    // inputs and emits per-slug `log.warn` for each corrupt page.
+    const rendered = await renderInjectionBlock(workspaceDir, slugsToRender);
+    block = rendered.block;
+    const { missingSlugs, corruptSlugs } = rendered;
+    const missingSlugSet = new Set(missingSlugs);
+    const corruptSlugSet = new Set(corruptSlugs);
+    if (missingSlugs.length > 0) {
+      log.warn(
+        {
+          conversationId,
+          turn: currentTurn,
+          missingSlugs,
+          renderedCount:
+            slugsToRender.length - missingSlugs.length - corruptSlugs.length,
+        },
+        "Memory v2 injection skipped slugs whose page was missing on disk — Qdrant index may be stale; consider reembed",
+      );
+    }
+
+    // Record per-turn activation telemetry. Failures are warn-logged in the
+    // finally block and never block memory injection.
+    const toInjectSet = new Set(toInject);
+    const renderedSet = new Set(slugsToRender);
+    conceptRows = [...candidates].map((slug) => {
       const breakdown = ownBreakdown.get(slug);
       const inPrior = fromPrior.has(slug);
       const inAnn = fromAnn.has(slug);
@@ -263,10 +297,11 @@ export async function injectMemoryV2Block(
       //   - per-turn: cached attachments from prior turns are still on the
       //     user message, so prior-everInjected slugs are `in_context` and
       //     the delta (`toInject`) is `injected`.
-      // `page_missing` overrides any "would-have-been-injected" status when
-      // `readPage` returned null for the slug — telemetry surfaces stale
-      // ANN/edge entries instead of silently masquerading as a successful
-      // injection.
+      // `page_missing` and `corrupt` override any "would-have-been-injected"
+      // status when `readPage` returned null or threw — telemetry surfaces
+      // stale ANN/edge entries and malformed pages instead of silently
+      // masquerading as successful injections. `corrupt` takes priority over
+      // `page_missing` since they're mutually exclusive per slug.
       let status: MemoryV2ConceptRowRecord["status"];
       if (mode === "context-load") {
         status = renderedSet.has(slug) ? "injected" : "not_injected";
@@ -279,6 +314,9 @@ export async function injectMemoryV2Block(
       }
       if (status === "injected" && missingSlugSet.has(slug)) {
         status = "page_missing";
+      }
+      if (corruptSlugSet.has(slug)) {
+        status = "corrupt";
       }
       return {
         slug,
@@ -296,35 +334,41 @@ export async function injectMemoryV2Block(
           inPrior && inAnn ? "both" : inPrior ? "prior_state" : "ann_top50",
         status,
       };
-    },
-  );
-  conceptRows.sort((a, b) => b.finalActivation - a.finalActivation);
-
-  const v2Cfg = config.memory.v2;
-  try {
-    recordMemoryV2ActivationLog({
-      conversationId,
-      turn: currentTurn,
-      mode,
-      concepts: conceptRows,
-      config: {
-        d: v2Cfg.d,
-        c_user: v2Cfg.c_user,
-        c_assistant: v2Cfg.c_assistant,
-        c_now: v2Cfg.c_now,
-        k: v2Cfg.k,
-        hops: v2Cfg.hops,
-        top_k: v2Cfg.top_k,
-        epsilon: v2Cfg.epsilon,
-      },
     });
+    conceptRows.sort((a, b) => b.finalActivation - a.finalActivation);
   } catch (err) {
-    log.warn(
-      { err, conversationId, turn: currentTurn },
-      "Failed to record memory v2 activation telemetry — continuing",
-    );
+    // Stash the error and let `finally` flush a best-effort telemetry row
+    // before we re-throw to the caller. `mode = "errored"` flags the row
+    // for observability dashboards / inspector queries.
+    caughtErr = err;
+    mode = "errored";
+  } finally {
+    try {
+      recordMemoryV2ActivationLog({
+        conversationId,
+        turn: currentTurn,
+        mode,
+        concepts: conceptRows,
+        config: {
+          d: v2Cfg.d,
+          c_user: v2Cfg.c_user,
+          c_assistant: v2Cfg.c_assistant,
+          c_now: v2Cfg.c_now,
+          k: v2Cfg.k,
+          hops: v2Cfg.hops,
+          top_k: v2Cfg.top_k,
+          epsilon: v2Cfg.epsilon,
+        },
+      });
+    } catch (telemetryErr) {
+      log.warn(
+        { err: telemetryErr, conversationId, turn: currentTurn },
+        "Failed to record memory v2 activation telemetry — continuing",
+      );
+    }
   }
 
+  if (caughtErr !== undefined) throw caughtErr;
   return { block, toInject: newlyInjected };
 }
 
@@ -358,7 +402,27 @@ interface RenderInjectionBlockResult {
    * edge-index entries that pointed at pages no longer on disk.
    */
   missingSlugs: string[];
+  /**
+   * Slugs whose `readPage` call threw (e.g. invalid frontmatter that fails
+   * Zod validation, unreadable file). These are reported separately from
+   * `missingSlugs` because they're a different failure mode — the file
+   * exists but is malformed, not absent — and surfaced so the caller can
+   * mark them in the activation log (`status: "corrupt"`). Per-page errors
+   * are isolated: one bad page no longer rejects the whole batch.
+   */
+  corruptSlugs: string[];
 }
+
+/**
+ * Leading instruction line emitted at the top of an injection block when at
+ * least one section was rendered from a page's `summary` field. Tells the
+ * agent the truncated entries are summaries and to read the underlying file
+ * if relevant. Suppressed when every section is a full-page fallback —
+ * claiming "these are summaries" over already-complete content would mislead
+ * the agent into wasted reads.
+ */
+const INJECTION_HEADER =
+  "**CRITICAL:** These are page summaries. Read the page file if it looks relevant.";
 
 /**
  * Render the inner content of the `<memory>` block for a list of slugs.
@@ -370,11 +434,15 @@ interface RenderInjectionBlockResult {
  * trailing `### Skills You Can Use` subsection; everything else is read
  * from disk via `readPage` and rendered as a concept-page section.
  *
- * Concept pages are read in parallel via `readPage`. Pages whose file has
- * gone missing between selection and render (e.g. consolidation deleted
- * them, folder reorg renamed the slug) are dropped from the rendered
- * block but reported back via `missingSlugs` so callers can surface the
- * divergence.
+ * Concept pages are read in parallel via `Promise.allSettled`. Per-page
+ * errors are isolated: a `readPage` rejection (e.g. invalid frontmatter
+ * failing Zod validation) collects the slug into `corruptSlugs` and the
+ * remaining pages still render normally. Pages whose file has gone missing
+ * between selection and render (e.g. consolidation deleted them, folder
+ * reorg renamed the slug) are dropped from the rendered block but reported
+ * back via `missingSlugs`. The two buckets are kept separate so callers can
+ * distinguish "file vanished" (stale index) from "file is malformed"
+ * (data-corruption / programmer error).
  *
  * Skill slugs whose entry the cache no longer knows (e.g. uninstalled
  * mid-run) are silently dropped, mirroring the missing-pages behavior but
@@ -383,22 +451,23 @@ interface RenderInjectionBlockResult {
  * skill is an expected catalog-level outcome rather than a stale-index
  * bug.
  *
- * The block shape mirrors the §5 layout — concept-page sections first,
- * skills subsection last — preserving the prompt format the agent sees:
+ * Each concept-page section is rendered as a path header followed by either
+ * the page's `summary` (when present in frontmatter) or the full page (the
+ * fallback for pages predating the summary field). Skills sit at the end
+ * under `### Skills You Can Use`, unchanged. The leading `**CRITICAL:**`
+ * line tells the agent how to read the block.
  *
- *   ### <concept-slug-1>
+ *   **CRITICAL:** These are page summaries. Read the page file if it looks relevant.
+ *
+ *   # memory/concepts/<concept-slug-1>.md
+ *   <summary-1>
+ *
+ *   # memory/concepts/<concept-slug-2>.md
  *   ---
  *   edges:
  *     - <neighbor-slug>
  *   ref_files:
  *     - <path/to/asset>
- *   ---
- *   <body-1>
- *
- *   ### <concept-slug-2>
- *   ---
- *   edges: []
- *   ref_files: []
  *   ---
  *   <body-2>
  *
@@ -413,23 +482,43 @@ async function renderInjectionBlock(
   const conceptSlugs = slugs.filter((s) => !isSkillSlug(s));
   const skillSlugs = slugs.filter((s) => isSkillSlug(s));
 
-  const pages = await Promise.all(
-    conceptSlugs.map(async (slug) => {
-      const page = await readPage(workspaceDir, slug);
-      return { slug, page };
-    }),
+  const settled = await Promise.allSettled(
+    conceptSlugs.map((slug) => readPage(workspaceDir, slug)),
   );
 
   const sections: string[] = [];
   const missingSlugs: string[] = [];
-  for (const { slug, page } of pages) {
+  const corruptSlugs: string[] = [];
+  let anySummarySection = false;
+  for (let i = 0; i < settled.length; i++) {
+    const slug = conceptSlugs[i]!;
+    const result = settled[i]!;
+    if (result.status === "rejected") {
+      corruptSlugs.push(slug);
+      log.warn(
+        { slug, err: result.reason },
+        "Memory v2 injection skipped slug whose page failed to load — frontmatter may be malformed",
+      );
+      continue;
+    }
+    const page = result.value;
     if (!page) {
       missingSlugs.push(slug);
       continue;
     }
+    const summary = page.frontmatter.summary?.trim();
+    const path = `memory/concepts/${slug}.md`;
+    if (summary && summary.length > 0) {
+      sections.push(`# ${path}\n${summary}`);
+      anySummarySection = true;
+      continue;
+    }
+    // Fallback: page predates the `summary` field (or the field was set to
+    // empty). Render the full page — frontmatter + body — so retrieval
+    // still surfaces the same content the agent saw before this change.
     const content = renderPageContent(page).trim();
     if (content.length === 0) continue;
-    sections.push(`### ${slug}\n${content}`);
+    sections.push(`# ${path}\n${content}`);
   }
 
   const skillLines: string[] = [];
@@ -442,10 +531,14 @@ async function renderInjectionBlock(
     sections.push(`### Skills You Can Use\n${skillLines.join("\n")}`);
   }
 
-  if (sections.length === 0) return { block: null, missingSlugs };
+  if (sections.length === 0) {
+    return { block: null, missingSlugs, corruptSlugs };
+  }
 
+  const body = sections.join("\n\n");
   return {
-    block: sections.join("\n\n"),
+    block: anySummarySection ? `${INJECTION_HEADER}\n\n${body}` : body,
     missingSlugs,
+    corruptSlugs,
   };
 }

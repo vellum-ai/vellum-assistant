@@ -50,7 +50,6 @@ import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-fl
 import { getConfig } from "../../config/loader.js";
 import { getInContextPkbPaths } from "../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../daemon/pkb-reminder-builder.js";
-import { isMemoryV2ReadActive } from "../../memory/context-search/sources/memory-v2.js";
 import { searchPkbFiles } from "../../memory/pkb/pkb-search.js";
 import { getLogger } from "../../util/logger.js";
 import { registerPlugin } from "../registry.js";
@@ -139,7 +138,7 @@ const diskPressureWarningInjector: Injector = {
  * state independent of PKB and fires unchanged.
  */
 function isPkbInjectionSilencedByV2(): boolean {
-  return isMemoryV2ReadActive(getConfig());
+  return getConfig().memory.v2.enabled;
 }
 
 /**

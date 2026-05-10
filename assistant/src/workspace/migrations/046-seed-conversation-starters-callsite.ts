@@ -7,15 +7,12 @@ import type { WorkspaceMigration } from "./types.js";
  * Seed a latency-optimized default for the `conversationStarters` LLM
  * call site.
  *
- * `conversationStarters` drives the reply-suggestion chip rendered in the
- * macOS client after every assistant turn. Migration 040 seeded most
- * trivial copy-generation call sites to haiku-4.5 but missed this one, so
- * it falls through to `llm.default` — on workspaces where the default is
- * a high-effort / extended-thinking configured model (e.g. Opus 4.x at
- * `effort: "xhigh"`), every turn completion kicks off an expensive
- * reasoning call that, to add insult to injury, rejects the assistant
- * message prefill the suggestion generator previously relied on with an
- * HTTP 400.
+ * `conversationStarters` drives the personalized starter chips rendered
+ * on the empty conversation page in the macOS client. Without this seed
+ * the call site falls through to `llm.default` — on workspaces where the
+ * default is a high-effort / extended-thinking configured model
+ * (e.g. Opus 4.x at `effort: "xhigh"`), chip generation kicks off an
+ * expensive reasoning call that adds noticeable cost and latency.
  *
  * Follows the same contract as `040-seed-latency-callsite-defaults`:
  *   - Skip entirely when `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH` is set

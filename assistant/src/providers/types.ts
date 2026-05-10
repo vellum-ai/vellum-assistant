@@ -91,6 +91,7 @@ export interface Message {
 }
 
 export type ModelIntent =
+  | "balanced"
   | "latency-optimized"
   | "quality-optimized"
   | "vision-optimized";

@@ -24,9 +24,10 @@ ${params.transcript}
 Write a short message (2-3 sentences) to the user explaining:
 1. What you built
 2. Why you built it (reference something specific from the conversation)
-3. Where to find it
+3. Where to find it: say the ${params.artifactType} is available in Library.
 
 Keep it warm and natural — not robotic. This should feel like a thoughtful gift, not a system notification.
+Do not call it an artifact, artifact panel, or artifact drawer.
 
 Respond in EXACTLY this format (no extra text before or after):
 
@@ -38,4 +39,20 @@ export function parseMessageCopy(text: string): string | null {
   if (!match) return null;
   const value = match[1].trim();
   return value.length > 0 ? value : null;
+}
+
+export function ensureMessageMentionsLibraryLocation(
+  message: string,
+  artifactType: "app" | "document",
+): string {
+  const trimmed = message
+    .replace(/\bartifact\s+(?:panel|drawer)\b/gi, "Library")
+    .replace(/\bartifacts\s+(?:panel|drawer)\b/gi, "Library")
+    .trim();
+  const mentionsLibrary = /\blibrary\b/i.test(trimmed);
+  if (mentionsLibrary) return trimmed;
+
+  const noun = artifactType === "app" ? "app" : "document";
+  const suffix = `You can find the ${noun} in Library.`;
+  return `${trimmed.replace(/[ \t]+$/, "").replace(/[.!?]*$/, ".")} ${suffix}`;
 }

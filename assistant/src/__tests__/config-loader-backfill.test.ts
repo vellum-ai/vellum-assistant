@@ -83,6 +83,14 @@ function writeConfig(obj: unknown): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n");
 }
 
+function mergeDefaultConfigAndSeedInferenceProfiles(): void {
+  const defaultConfigMerge = mergeDefaultWorkspaceConfig();
+  seedInferenceProfiles({
+    preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
+    preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tests: deepMergeOverwrite (unit) — JSON-null-as-deletion semantics
 //
@@ -417,8 +425,7 @@ describe("loadConfig startup behavior", () => {
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
-    seedInferenceProfiles();
-    mergeDefaultWorkspaceConfig();
+    mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
     expect(config.llm.default.provider).toBe("anthropic");
@@ -435,7 +442,219 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
   });
 
-  test("non-Anthropic hatch overlay does not activate Anthropic managed profile", () => {
+  test("non-Anthropic hatch overlay seeds custom-* profiles and activates custom-balanced", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: {
+              provider: "openai",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+    const mainAgentConfig = resolveCallSiteConfig("mainAgent", config.llm);
+
+    expect(config.llm.activeProfile).toBe("custom-balanced");
+    expect(config.llm.profiles["custom-balanced"]?.provider).toBe("openai");
+    expect(config.llm.profiles["custom-balanced"]?.model).toBe("gpt-5.4-mini");
+    expect(config.llm.profiles["custom-quality-optimized"]?.provider).toBe(
+      "openai",
+    );
+    expect(config.llm.profiles["custom-cost-optimized"]?.provider).toBe(
+      "openai",
+    );
+    expect(config.llm.profiles.balanced?.provider).toBe("anthropic");
+    expect(config.llm.profiles["quality-optimized"]?.provider).toBe(
+      "anthropic",
+    );
+    expect(config.llm.profiles["cost-optimized"]?.provider).toBe("anthropic");
+    expect(config.llm.default.provider).toBe("openai");
+    expect(config.llm.default.model).toBe("gpt-5.4-mini");
+    expect(mainAgentConfig.provider).toBe("openai");
+    expect(mainAgentConfig.model).toBe("gpt-5.4-mini");
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    expect(raw.llm.default.model).toBe(
+      raw.llm.profiles["custom-balanced"].model,
+    );
+  });
+
+  test("re-hatch from openai to anthropic resets stale custom-balanced active profile", () => {
+    // Pre-seed an OpenAI-style workspace: custom-balanced is active, default is
+    // openai. Simulates a workspace that previously hatched against OpenAI.
+    writeConfig({
+      llm: {
+        default: { provider: "openai", model: "gpt-5.4-mini" },
+        profiles: {
+          "custom-balanced": {
+            source: "managed",
+            provider: "openai",
+            model: "gpt-5.4-mini",
+          },
+        },
+        activeProfile: "custom-balanced",
+      },
+    });
+
+    const overlayPath = join(WORKSPACE_DIR, "rehatch-anthropic.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.default.provider).toBe("anthropic");
+    expect(raw.llm.default.model).toBe("claude-sonnet-4-6");
+  });
+
+  test("unknown overlay provider falls back to Anthropic seeding", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: {
+              provider: "unknownprov",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles["custom-balanced"]).toBeUndefined();
+    expect(raw.llm.profiles["custom-quality-optimized"]).toBeUndefined();
+    expect(raw.llm.profiles["custom-cost-optimized"]).toBeUndefined();
+    // The unrecognized provider should be rewritten on disk so subsequent
+    // loads don't trip Zod's enum validation warning.
+    expect(raw.llm.default.provider).toBe("anthropic");
+  });
+
+  test("preserves user-supplied non-catalog model on every restart (ollama custom model)", () => {
+    // Models the ollama case: catalog lists only `llama3.2` but the user has
+    // pulled `codellama`. The seeder must NOT silently overwrite their pick.
+    writeConfig({
+      llm: { default: { provider: "ollama", model: "codellama" } },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    let raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default.model).toBe("codellama");
+
+    // Re-run to confirm idempotency — the user's model survives every restart.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default.model).toBe("codellama");
+  });
+
+  test("syncs llm.default.model to active profile when missing or inconsistent, respects explicit user values", () => {
+    // 1. Missing on disk → write to active profile's model.
+    const overlayMissing = join(WORKSPACE_DIR, "overlay-missing.json");
+    writeFileSync(
+      overlayMissing,
+      JSON.stringify({ llm: { default: { provider: "openai" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayMissing;
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    let raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default.model).toBe(
+      raw.llm.profiles["custom-balanced"].model,
+    );
+
+    // 2. Inconsistent (previous default model belongs to a different provider)
+    //    is overwritten on the next seed run.
+    rmSync(CONFIG_PATH);
+    writeConfig({
+      llm: {
+        default: { provider: "openai", model: "claude-opus-4-7" },
+      },
+    });
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayMissing;
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default.model).toBe(
+      raw.llm.profiles["custom-balanced"].model,
+    );
+
+    // 3. Platform overlay supplies an explicit, internally-coherent
+    //    profile/active/default — the user's explicit choice is preserved.
+    rmSync(CONFIG_PATH);
+    const explicit = join(WORKSPACE_DIR, "overlay-explicit.json");
+    writeFileSync(
+      explicit,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "openai", model: "gpt-5.4" },
+            profiles: {
+              balanced: {
+                source: "managed",
+                provider: "openai",
+                model: "gpt-5.4",
+                label: "Platform Balanced",
+              },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = explicit;
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.default.model).toBe("gpt-5.4");
+  });
+
+  test("platform-provided profile fragments are not polluted by managed seeds", () => {
+    writeConfig({
+      llm: {
+        default: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+        },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            maxTokens: 16000,
+            effort: "high",
+            thinking: { enabled: true, streamThinking: true },
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -446,6 +665,15 @@ describe("loadConfig startup behavior", () => {
               provider: "openai",
               model: "gpt-5.4",
             },
+            profiles: {
+              balanced: {
+                source: "managed",
+                provider: "openai",
+                model: "gpt-5.4",
+                label: "Platform Balanced",
+              },
+            },
+            activeProfile: "balanced",
           },
         },
         null,
@@ -454,25 +682,77 @@ describe("loadConfig startup behavior", () => {
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
-    seedInferenceProfiles();
-    mergeDefaultWorkspaceConfig();
+    mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
     const mainAgentConfig = resolveCallSiteConfig("mainAgent", config.llm);
 
-    expect(config.llm.default.provider).toBe("openai");
-    expect(config.llm.default.model).toBe("gpt-5.4");
-    expect(config.llm.activeProfile).toBeUndefined();
-    expect(config.llm.profiles.balanced?.provider).toBeUndefined();
+    expect(config.llm.activeProfile).toBe("balanced");
+    expect(config.llm.profiles.balanced).toEqual({
+      source: "managed",
+      provider: "openai",
+      model: "gpt-5.4",
+      label: "Platform Balanced",
+    });
     expect(mainAgentConfig.provider).toBe("openai");
     expect(mainAgentConfig.model).toBe("gpt-5.4");
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-    expect(raw.llm.default).toEqual({
+    expect(raw.llm.profiles.balanced).toEqual({
+      source: "managed",
       provider: "openai",
       model: "gpt-5.4",
+      label: "Platform Balanced",
     });
-    expect(raw.llm.activeProfile).toBeUndefined();
-    expect(raw.llm.profiles.balanced).toEqual({});
+    expect(raw.llm.profiles.balanced.maxTokens).toBeUndefined();
+    expect(raw.llm.profiles.balanced.thinking).toBeUndefined();
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const afterRestart = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(afterRestart.llm.activeProfile).toBe("balanced");
+    expect(afterRestart.llm.profiles.balanced).toEqual({
+      source: "managed",
+      provider: "openai",
+      model: "gpt-5.4",
+      label: "Platform Balanced",
+    });
+  });
+
+  test("quarantines corrupt config before merging hatch overlay", () => {
+    writeFileSync(CONFIG_PATH, "{not valid json");
+
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: {
+              provider: "anthropic",
+              model: "claude-opus-4-7",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const quarantined = readdirSync(WORKSPACE_DIR).filter((n) =>
+      n.startsWith("config.json.corrupt-"),
+    );
+    expect(quarantined.length).toBeGreaterThan(0);
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+    });
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
   });
 
   test("still quarantines corrupt JSON", () => {

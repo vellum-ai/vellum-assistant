@@ -114,6 +114,13 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Background sweep pass for V2 memory maintenance.",
     domain: "memory",
   },
+  memoryV2Consolidation: {
+    id: "memoryV2Consolidation",
+    displayName: "Memory V2 Consolidation",
+    description:
+      "Routes accumulated buffer entries into concept pages and rewrites the recent summary during V2 memory maintenance.",
+    domain: "memory",
+  },
   recall: {
     id: "recall",
     displayName: "Recall",
@@ -152,7 +159,14 @@ const CATALOG_RECORD: CatalogRecord = {
     id: "conversationStarters",
     displayName: "Conversation Starters",
     description:
-      "Generates suggested conversation openers for the home screen.",
+      "Generates the personalized starter chips on the empty conversation page.",
+    domain: "ui",
+  },
+  replySuggestion: {
+    id: "replySuggestion",
+    displayName: "Reply Suggestion",
+    description:
+      "Generates the tab-to-accept reply hint shown in the chat composer after each assistant turn.",
     domain: "ui",
   },
   conversationTitle: {

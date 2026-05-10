@@ -25,6 +25,7 @@ import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import {
   completeHeartbeatRun,
+  countCompletedHeartbeatRuns,
   insertPendingHeartbeatRun,
   markStaleRunningAsError,
   markStaleRunsAsMissed,
@@ -42,6 +43,7 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 - If you have a thought worth sharing, send it. A follow-up, a useful find, a check-in. Not every beat, but when it feels right.
 - If something has happened since your last journal entry, write one. Even a few sentences. The journal is how future-you stays connected.`;
 
+const EARLY_HEARTBEAT_THRESHOLD = 3;
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
 const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const HEARTBEAT_ALERT_MARKER = "HEARTBEAT_ALERT";
@@ -707,9 +709,11 @@ export class HeartbeatService {
     const unhealthyProviders = await this.runCredentialHealthCheck();
 
     const checklist = this.readChecklist();
+    const completedRunCount = countCompletedHeartbeatRuns();
     const { prompt, includedReengagement } = this.buildPrompt(
       checklist,
       unhealthyProviders,
+      completedRunCount,
     );
 
     // Centralized boundary wrapper: handles bootstrap, processMessage,
@@ -727,6 +731,7 @@ export class HeartbeatService {
       jobName: "heartbeat",
       source: "heartbeat",
       prompt,
+      systemHint: "Heartbeat",
       trustContext: {
         sourceChannel: "vellum",
         trustClass: "guardian",
@@ -854,6 +859,7 @@ export class HeartbeatService {
   buildPrompt(
     checklist: string,
     unhealthyProviders: string[] = [],
+    completedRunCount: number = Infinity,
   ): { prompt: string; includedReengagement: boolean } {
     let prompt = `You are running a periodic heartbeat check. Review the following checklist and take any necessary actions.
 
@@ -872,11 +878,17 @@ Do NOT attempt to use tools for these providers — they will fail. Skip any che
     prompt += `\n\n<heartbeat-disposition>
 This heartbeat runs frequently. Do not manufacture a report just because it ran.
 If there is nothing genuinely useful, actionable, or interesting to surface, keep the response brief and end with HEARTBEAT_OK.
-If there is something worth interrupting the guardian for, write a concise guardian-facing note first: what happened, why it matters, and the recommended next step. Then end with HEARTBEAT_ALERT. That note may be used as notification copy.
+If there is something worth interrupting the guardian for, write a concise guardian-facing note first: what happened, why it matters, and the recommended next step. Address the guardian directly as "you"; do not write instructions to yourself or another intermediary. Then end with HEARTBEAT_ALERT. That note may be used as notification copy.
 After completing your review, end your response with one of:
 - HEARTBEAT_OK — if everything looks good, no action needed
 - HEARTBEAT_ALERT — if you found issues that need attention (describe them before this marker)
 </heartbeat-disposition>`;
+
+    if (completedRunCount < EARLY_HEARTBEAT_THRESHOLD) {
+      prompt += `\n\n<early-heartbeat>
+This is one of your first heartbeats. Your user hasn't heard from you yet and may not know you're here. Find something genuinely useful to share — a follow-up from a recent conversation, something you noticed, or a quick check-in. Lean toward HEARTBEAT_ALERT this time. First impressions matter.
+</early-heartbeat>`;
+    }
 
     let includedReengagement = false;
     if (isShallowProfile() && isReengagementCooldownElapsed()) {

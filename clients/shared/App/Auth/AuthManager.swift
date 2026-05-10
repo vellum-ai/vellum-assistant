@@ -309,11 +309,15 @@ public final class AuthManager {
                     continuation.resume(throwing: AuthServiceError.authCallbackFailed("No callback URL received."))
                 }
             }
-            // Use an ephemeral (private) session so each auth attempt starts
-            // with a clean cookie jar. Without this, stale WorkOS cookies
-            // from a failed attempt (e.g. signup_closed) persist and cause
-            // an infinite error loop on retry.
-            session.prefersEphemeralWebBrowserSession = true
+            // Rely on Apple's default (non-ephemeral) browser session so the
+            // user's existing IdP cookies in Safari are visible during auth —
+            // otherwise Google re-prompts for credentials on every login,
+            // defeating SSO inside ASWebAuthenticationSession. (The iOS
+            // counterpart in vellum-assistant-platform opts into ephemeral
+            // mode separately for a platform-specific signup_closed loop
+            // that this client does not have.)
+            //
+            // https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession/prefersephemeralwebbrowsersession
             session.presentationContextProvider = WebAuthPresentationContext.shared
             self.webAuthSession = session
             session.start()
