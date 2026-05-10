@@ -44,6 +44,7 @@ import {
 } from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
@@ -60,6 +61,7 @@ import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
+import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
@@ -361,6 +363,20 @@ export async function runDaemon(): Promise<void> {
         seedOAuthProviders();
       } catch (err) {
         log.warn({ err }, "OAuth provider seeding failed — continuing startup");
+      }
+    }
+
+    // Seed canonical inference provider_connections and backfill any legacy
+    // profiles that pre-date the connection field. Idempotent — runs every
+    // boot so new canonicals propagate and manual config.json edits self-heal.
+    if (dbReady) {
+      try {
+        runProviderConnectionsBackfill(getDb());
+      } catch (err) {
+        log.warn(
+          { err },
+          "provider_connections backfill failed — continuing startup",
+        );
       }
     }
 

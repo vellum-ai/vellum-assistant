@@ -325,6 +325,14 @@ export const ProfileEntry = LLMConfigFragment.extend({
   source: ProfileSource.optional(),
   label: z.string().min(1).optional(),
   description: z.string().optional(),
+  /**
+   * Name of a `provider_connections` row to use for this profile.
+   * When set, the dispatcher resolves auth from the connection instead of
+   * the global `services.inference.mode` toggle. Additive alongside the
+   * legacy `provider` + `source` fields; those remain as read-only
+   * deprecated fallbacks for profiles not yet backfilled.
+   */
+  provider_connection: z.string().min(1).optional(),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 

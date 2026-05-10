@@ -208,6 +208,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "config/bundled-skills/image-studio/tools/media-generate-image.ts", // image generation tool API key lookup
       "config/bundled-skills/media-processing/tools/analyze-keyframes.ts", // keyframe analysis tool API key lookup
       "providers/registry.ts", // provider registry API key lookup for initialization
+      "providers/inference/resolve-auth.ts", // provider_connection auth resolver (api_key path reads vault, mirrors registry.ts)
       "providers/provider-availability.ts", // provider availability API key check
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "memory/embedding-backend.ts", // embedding backend API key lookup

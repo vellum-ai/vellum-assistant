@@ -4,6 +4,7 @@ export * from "./calls.js";
 export * from "./contacts.js";
 export * from "./conversations.js";
 export * from "./guardian.js";
+export * from "./inference.js";
 export * from "./infrastructure.js";
 export * from "./memory-core.js";
 export * from "./memory-graph.js";
