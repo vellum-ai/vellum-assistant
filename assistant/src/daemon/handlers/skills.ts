@@ -1362,7 +1362,7 @@ export async function searchSkills(
 
     // Search both community registries in parallel (non-fatal on failure)
     const [clawhubResult, skillsshResult] = await Promise.allSettled([
-      clawhubSearch(query),
+      clawhubSearch(query, { limit }),
       searchSkillsRegistry(query, limit),
     ]);
 
