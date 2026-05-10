@@ -61,7 +61,7 @@ Examples:
         .action(async (_opts: Record<string, unknown>, cmd: Command) => {
           const r = await cliIpcCall<AuthStatusResult>("auth_status");
 
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
 
           if (!r.result) {
             log.error("auth_status returned ok with no result body");
