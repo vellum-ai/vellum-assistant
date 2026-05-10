@@ -17,7 +17,7 @@ Already-injected pages. Pages whose IDs appear in \`<already_injected_ids>\` wer
 
 Time. Bias toward pages that match the current state implied by \`<now>\` and the active conversational threads (what is happening today, what was just decided, who is being discussed). Stale pages with no bearing on the live conversation should be skipped even if their summaries look superficially relevant.
 
-Emit your selection by calling \`select_pages_to_inject\` with the chosen \`ids\`. Return an empty array to abstain.
+Emit your selection by calling \`select_pages_to_inject\` with the chosen \`page_ids\`. Return an empty array to abstain.
 
 # Concept Page Index
 

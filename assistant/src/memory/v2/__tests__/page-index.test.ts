@@ -8,7 +8,7 @@
  * without breaking writes.
  */
 
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -106,13 +106,34 @@ describe("getPageIndex", () => {
     await writePage(workspaceDir, makePage("alice", { summary: "First" }));
 
     const first = await getPageIndex(workspaceDir);
-    // Mutate disk after the first read; without the cache the second call
-    // would observe the new page and return a different object.
-    await writePage(workspaceDir, makePage("bob", { summary: "Second" }));
+    // Mutate disk after the first read WITHOUT going through `writePage`,
+    // which would invalidate the page-index cache by design. The raw
+    // filesystem write simulates an out-of-band file appearing — without
+    // the cache the second call would observe it and return a different
+    // object.
+    writeFileSync(
+      join(workspaceDir, "memory", "concepts", "bob.md"),
+      "---\nedges: []\nref_files: []\nref_urls: []\nsummary: Second\n---\n",
+      "utf-8",
+    );
 
     const second = await getPageIndex(workspaceDir);
     expect(second).toBe(first);
     expect(second.entries.map((e) => e.slug)).toEqual(["alice"]);
+  });
+
+  test("writePage invalidates the cache so the next call sees the new page", async () => {
+    await writePage(workspaceDir, makePage("alice", { summary: "First" }));
+    const before = await getPageIndex(workspaceDir);
+
+    // `writePage` calls `invalidatePageIndex(workspaceDir)` as a side
+    // effect — verify that contract here so the cache-hit test above
+    // can't accidentally pass because writePage stopped invalidating.
+    await writePage(workspaceDir, makePage("bob", { summary: "Second" }));
+
+    const after = await getPageIndex(workspaceDir);
+    expect(after).not.toBe(before);
+    expect(after.entries.map((e) => e.slug)).toEqual(["alice", "bob"]);
   });
 
   test("invalidatePageIndex(workspaceDir) forces a rebuild on the next call", async () => {

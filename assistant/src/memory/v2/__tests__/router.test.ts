@@ -311,6 +311,23 @@ describe("runRouter — successful tool_use", () => {
     expect(call.tools?.[0].name).toBe("select_pages_to_inject");
   });
 
+  test("tool maxItems reflects configured max_page_ids", async () => {
+    providerStub = makeProvider(toolUseResponse([1]));
+
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ maxPageIds: 50 }),
+    });
+
+    const [call] = providerCalls;
+    const schema = call.tools?.[0].input_schema as {
+      properties: { page_ids: { maxItems: number } };
+    };
+    expect(schema.properties.page_ids.maxItems).toBe(50);
+    expect(call.tools?.[0].description).toContain("up to 50");
+  });
+
   test("system prompt carries the rendered page index", async () => {
     providerStub = makeProvider(toolUseResponse([1]));
 

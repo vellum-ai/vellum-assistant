@@ -30,7 +30,7 @@ const PAGE_INDEX_PLACEHOLDER = "{{PAGE_INDEX}}";
 /**
  * Router prompt — picks at most a handful of concept pages to inject for the
  * next assistant turn. The model emits a `select_pages_to_inject` tool call
- * with an `ids` array; the runtime parses the response via the tool
+ * with a `page_ids` array; the runtime parses the response via the tool
  * definition declared in the router job module.
  *
  * Recent message context and `<now>` / `<already_injected_ids>` blocks are
@@ -53,7 +53,7 @@ Already-injected pages. Pages whose IDs appear in \`<already_injected_ids>\` wer
 
 Time. Bias toward pages that match the current state implied by \`<now>\` and the active conversational threads (what is happening today, what was just decided, who is being discussed). Stale pages with no bearing on the live conversation should be skipped even if their summaries look superficially relevant.
 
-Emit your selection by calling \`select_pages_to_inject\` with the chosen \`ids\`. Return an empty array to abstain.
+Emit your selection by calling \`select_pages_to_inject\` with the chosen \`page_ids\`. Return an empty array to abstain.
 
 # Concept Page Index
 

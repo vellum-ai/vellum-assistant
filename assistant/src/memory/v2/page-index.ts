@@ -18,7 +18,13 @@
 
 import { getLogger } from "../../util/logger.js";
 import { listPages, readPage } from "./page-store.js";
-import { listSkillEntries, SKILL_SLUG_PREFIX } from "./skill-store.js";
+
+// Dynamic import for `./skill-store.js` happens inside `getPageIndex` so that
+// modules that only need `invalidatePageIndex` (page-store.ts,
+// tool-side-effects.ts) don't transitively pull in the embedding-backend
+// chain via skill-store. Loading it at call time keeps the invalidation hook
+// cheap and avoids cross-module import cycles in tests that mock jobs-store
+// or embedding-backend.
 
 const log = getLogger("memory-v2-page-index");
 
@@ -112,6 +118,8 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     });
   }
 
+  const { listSkillEntries, SKILL_SLUG_PREFIX } =
+    await import("./skill-store.js");
   for (const entry of listSkillEntries()) {
     drafts.push({
       slug: `${SKILL_SLUG_PREFIX}${entry.id}`,

@@ -82,29 +82,31 @@ export interface RouterResult {
 const ROUTER_TOOL_NAME = "select_pages_to_inject";
 
 /**
- * Tool definition handed to the provider. The JSON schema is what the model
- * sees; the Zod schema below validates the response at runtime.
+ * Build the tool definition handed to the provider. The JSON schema is what
+ * the model sees; the Zod schema below validates the response at runtime.
  *
- * `maxItems: 25` matches the schema-level upper bound on
- * `config.memory.v2.router.max_page_ids` so the model can't blow past the
- * runtime cap by emitting more IDs than the provider hard-limits accept.
+ * `maxItems` mirrors the runtime `config.memory.v2.router.max_page_ids` cap
+ * so the model is told the same upper bound the post-call truncation
+ * enforces. Built per-call rather than module-scoped because the cap is
+ * configurable per workspace.
  */
-const ROUTER_TOOL: ToolDefinition = {
-  name: ROUTER_TOOL_NAME,
-  description:
-    "Choose up to N concept page IDs to inject for the next reply. Return [] if nothing in the index is relevant — abstaining is encouraged when the turn is small-talk or already adequately covered by already_injected_ids.",
-  input_schema: {
-    type: "object",
-    properties: {
-      page_ids: {
-        type: "array",
-        items: { type: "integer" },
-        maxItems: 25,
+function buildRouterTool(maxPageIds: number): ToolDefinition {
+  return {
+    name: ROUTER_TOOL_NAME,
+    description: `Choose up to ${maxPageIds} concept page IDs to inject for the next reply. Return [] if nothing in the index is relevant — abstaining is encouraged when the turn is small-talk or already adequately covered by already_injected_ids.`,
+    input_schema: {
+      type: "object",
+      properties: {
+        page_ids: {
+          type: "array",
+          items: { type: "integer" },
+          maxItems: maxPageIds,
+        },
       },
+      required: ["page_ids"],
     },
-    required: ["page_ids"],
-  },
-};
+  };
+}
 
 const RouterResultSchema = z.object({
   page_ids: z.array(z.number().int()),
@@ -211,11 +213,14 @@ export async function runRouter(
     ],
   };
 
+  const maxPageIds = config.memory?.v2?.router?.max_page_ids ?? 25;
+  const routerTool = buildRouterTool(maxPageIds);
+
   let response;
   try {
     response = await provider.sendMessage(
       [userMsg],
-      [ROUTER_TOOL],
+      [routerTool],
       systemPrompt,
       {
         config: {
@@ -249,7 +254,6 @@ export async function runRouter(
   }
 
   const N = pageIndex.entries.length;
-  const max = config.memory?.v2?.router?.max_page_ids ?? 25;
 
   const inRangeIds: number[] = [];
   const droppedIds: number[] = [];
@@ -267,11 +271,11 @@ export async function runRouter(
     );
   }
 
-  const truncated = inRangeIds.length > max;
-  const finalIds = truncated ? inRangeIds.slice(0, max) : inRangeIds;
+  const truncated = inRangeIds.length > maxPageIds;
+  const finalIds = truncated ? inRangeIds.slice(0, maxPageIds) : inRangeIds;
   if (truncated) {
     log.warn(
-      { returned: inRangeIds.length, max },
+      { returned: inRangeIds.length, max: maxPageIds },
       "Router returned more page IDs than max_page_ids; truncating",
     );
   }
