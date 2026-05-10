@@ -10,7 +10,7 @@ let mockResponse: unknown = {
 };
 
 // Mock BEFORE importing the command module
-mock.module("../../ipc/cli-client.js", () => ({
+mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params: Record<string, unknown>) => {
     mockCalls.push([method, params]);
     return mockResponse;
@@ -21,7 +21,7 @@ mock.module("../../ipc/cli-client.js", () => ({
 }));
 
 // Also mock the logger to suppress output
-mock.module("../../util/logger.js", () => ({
+mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
     warn: () => {},
