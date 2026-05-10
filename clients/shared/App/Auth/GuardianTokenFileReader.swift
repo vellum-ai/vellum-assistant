@@ -95,7 +95,7 @@ public enum GuardianTokenFileReader {
     /// file does not exist, is unreadable, or the refresh token is already
     /// expired.
     public static func importIfAvailable(assistantId: String) -> Bool {
-        let path = guardianTokenPath(for: assistantId)
+        let path = guardianTokenPath(for: assistantId, paths: VellumPaths.current)
         let nowMs = Int(Date().timeIntervalSince1970 * 1000)
 
         let decision = decideImport(fromPath: path, nowMs: nowMs)
