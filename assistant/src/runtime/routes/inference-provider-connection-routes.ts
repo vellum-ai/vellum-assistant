@@ -123,6 +123,12 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   const { name } = pathParams;
   if (!name) throw new BadRequestError("name is required");
 
+  // Existence check first so a stale `llm.default.provider_connection`
+  // reference to a missing connection returns 404 (not 409).
+  if (!getConnection(getDb(), name)) {
+    throw new NotFoundError(`Connection "${name}" not found.`);
+  }
+
   const config = getConfigReadOnly();
 
   // llm.default carries provider_connection (LLMConfigBase).

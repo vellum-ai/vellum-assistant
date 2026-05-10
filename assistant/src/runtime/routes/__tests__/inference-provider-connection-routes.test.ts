@@ -348,6 +348,23 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     expect((err as ConflictError).message).toContain("llm.default");
   });
 
+  test("throws 404 (not 409) when llm.default references a missing connection", async () => {
+    // Stale ref in config: llm.default points at a connection that was
+    // already deleted. Delete on the dangling name must return 404 so
+    // callers can distinguish stale config from active conflicts.
+    fakeConfig = {
+      llm: {
+        default: { provider_connection: "ghost-conn" },
+      },
+    };
+
+    await expect(
+      call(findHandler("inference_provider_connections_delete"), {
+        pathParams: { name: "ghost-conn" },
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
   test("throws 409 when both llm.default and a profile reference the connection", async () => {
     seedConnection({ name: "shared-conn", provider: "anthropic", auth: { type: "none" } });
     fakeConfig = {
