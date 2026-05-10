@@ -147,6 +147,21 @@ describe("skills list", () => {
 
     expect(exitCode).not.toBe(0);
   });
+
+  test("--json IPC failure emits ok:false with error to stdout, exitCode set", async () => {
+    mockIpcResults = [{ ok: false, error: "Connection refused" }];
+
+    const { exitCode, stdout } = await runCommand([
+      "skills",
+      "list",
+      "--json",
+    ]);
+
+    // Machine readers expect JSON on both success and failure paths.
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toEqual({ ok: false, error: "Connection refused" });
+    expect(exitCode).not.toBe(0);
+  });
 });
 
 // ===========================================================================
@@ -193,6 +208,23 @@ describe("skills inspect", () => {
 
     expect(exitCode).not.toBe(0);
   });
+
+  test("--json IPC failure emits ok:false with error to stdout, exitCode set", async () => {
+    mockIpcResults = [
+      { ok: false, error: "Skill not found", statusCode: 404 },
+    ];
+
+    const { exitCode, stdout } = await runCommand([
+      "skills",
+      "inspect",
+      "nonexistent",
+      "--json",
+    ]);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toEqual({ ok: false, error: "Skill not found" });
+    expect(exitCode).not.toBe(0);
+  });
 });
 
 // ===========================================================================
@@ -217,6 +249,23 @@ describe("skills uninstall", () => {
 
     const { exitCode } = await runCommand(["skills", "uninstall", "weather"]);
 
+    expect(exitCode).not.toBe(0);
+  });
+
+  test("--json IPC failure emits ok:false with error to stdout, exitCode set", async () => {
+    mockIpcResults = [
+      { ok: false, error: "Not found", statusCode: 404 },
+    ];
+
+    const { exitCode, stdout } = await runCommand([
+      "skills",
+      "uninstall",
+      "weather",
+      "--json",
+    ]);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toEqual({ ok: false, error: "Not found" });
     expect(exitCode).not.toBe(0);
   });
 });
@@ -355,6 +404,26 @@ describe("skills add", () => {
       "vercel-labs/skills@find-skills",
     ]);
 
+    expect(exitCode).not.toBe(0);
+  });
+
+  test("--json IPC failure emits ok:false with error to stdout, exitCode set", async () => {
+    mockIpcResults = [
+      { ok: false, error: "Not a valid skills.sh source" },
+    ];
+
+    const { exitCode, stdout } = await runCommand([
+      "skills",
+      "add",
+      "garbage-input",
+      "--json",
+    ]);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toEqual({
+      ok: false,
+      error: "Not a valid skills.sh source",
+    });
     expect(exitCode).not.toBe(0);
   });
 });

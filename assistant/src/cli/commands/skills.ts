@@ -5,6 +5,44 @@ import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Map an IPC failure to a CLI exit code, mirroring `exitFromIpcResult`'s
+ * status→exit table without calling `process.exit` (so callers can flush
+ * stdout before the process tears down).
+ */
+function exitCodeFromStatus(statusCode: number | undefined): number {
+  if (statusCode === undefined) return 10;
+  if (statusCode >= 500) return 3;
+  if (statusCode >= 400) return 2;
+  return 1;
+}
+
+/**
+ * Surface an IPC failure on a CLI command that supports `--json`. When `json`
+ * is true, emit a `{ok:false,error}` document to stdout and set `exitCode`
+ * without writing to stderr — so machine readers can parse output uniformly
+ * across success and failure paths. When `json` is false, fall back to
+ * `exitFromIpcResult` for the existing stderr-write + `process.exit`
+ * behaviour, preserving the human-mode UX.
+ */
+function exitFromCliResult(
+  r: { ok: false; error?: string; statusCode?: number },
+  json: boolean,
+): void {
+  if (json) {
+    console.log(
+      JSON.stringify({ ok: false, error: r.error ?? "Unknown error" }),
+    );
+    process.exitCode = exitCodeFromStatus(r.statusCode);
+    return;
+  }
+  exitFromIpcResult(r);
+}
+
+// ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
@@ -62,11 +100,10 @@ Examples:
             }>;
           }>("listSkills", { queryParams: {} });
           if (!r.ok)
-            return exitFromIpcResult({
-              ok: false,
-              error: r.error,
-              statusCode: r.statusCode,
-            });
+            return exitFromCliResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              opts.json ?? false,
+            );
           const allSkills = r
             .result!.skills.map((s) => ({
               id: s.id,
@@ -141,11 +178,10 @@ Examples:
             } | null;
           }>("skillsLocalInspect", { pathParams: { id: skillId } });
           if (!r.ok)
-            return exitFromIpcResult({
-              ok: false,
-              error: r.error,
-              statusCode: r.statusCode,
-            });
+            return exitFromCliResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              opts.json ?? false,
+            );
           const detail = r.result!;
           if (opts.json) {
             console.log(JSON.stringify({ ok: true, skill: detail }));
@@ -455,11 +491,10 @@ Examples:
             pathParams: { id: skillId },
           });
           if (!r.ok)
-            return exitFromIpcResult({
-              ok: false,
-              error: r.error,
-              statusCode: r.statusCode,
-            });
+            return exitFromCliResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              opts.json ?? false,
+            );
           if (opts.json) {
             console.log(JSON.stringify({ ok: true, skillId }));
           } else {
@@ -519,11 +554,10 @@ Examples:
               },
             );
             if (!r.ok)
-              return exitFromIpcResult({
-                ok: false,
-                error: r.error,
-                statusCode: r.statusCode,
-              });
+              return exitFromCliResult(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                json,
+              );
 
             if (json) {
               console.log(
