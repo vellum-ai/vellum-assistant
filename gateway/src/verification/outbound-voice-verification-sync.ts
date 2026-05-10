@@ -71,69 +71,54 @@ async function syncOutboundVoiceVerifications(): Promise<void> {
   // startOutboundVoice). We filter by verification_purpose = 'guardian' to
   // skip trusted-contact sessions, which have their own activation path.
   //
-  // ORDER BY updated_at ASC matters: when multiple consumed sessions appear
-  // in the same poll (e.g. startup lookback or two verifications inside the
-  // 5s window), the conflict path below revokes any existing binding. Oldest
-  // first guarantees the most recent verification wins.
+  // ORDER BY updated_at DESC + process-first-and-break: the single-guardian
+  // invariant means there is exactly one active phone binding at a time, so
+  // only the most recent verification matters. Older rows in the same batch
+  // (e.g. from the 24h startup lookback) are obsolete — processing them
+  // would just churn through superseded rebinds before landing on the same
+  // final state.
   const result = (await ipcCallAssistant("db_proxy", {
-    sql: `SELECT consumed_by_external_user_id, consumed_by_chat_id, updated_at
+    sql: `SELECT consumed_by_external_user_id, consumed_by_chat_id
           FROM channel_verification_sessions
           WHERE channel = 'phone'
             AND status = 'consumed'
             AND verification_purpose = 'guardian'
             AND expected_phone_e164 IS NOT NULL
             AND updated_at > ?
-          ORDER BY updated_at ASC`,
+          ORDER BY updated_at DESC
+          LIMIT 1`,
     mode: "query",
     bind: [since],
   })) as DbProxyResult;
 
-  if (!result.rows?.length) {
+  const row = result.rows?.[0];
+  if (!row) {
     lastSyncAt = now;
     return;
   }
 
-  log.info(
-    { count: result.rows.length, since },
-    "Outbound voice verification sync: found consumed sessions",
-  );
-
-  // Track the highest updated_at we successfully processed. On any failure
-  // we keep lastSyncAt at the predecessor watermark so the failing row is
-  // re-queried next pass. createPhoneGuardianBinding is idempotent — already-
-  // bound rows short-circuit, so retried successes are a no-op.
-  let highWatermark = since;
-  let anyFailed = false;
-
-  for (const row of result.rows) {
-    const phoneNumber = row.consumed_by_external_user_id as string | null;
-    const rowUpdatedAt = (row.updated_at as number | null) ?? since;
-
-    if (!phoneNumber) {
-      // Malformed row — never going to succeed, advance past it.
-      highWatermark = Math.max(highWatermark, rowUpdatedAt);
-      continue;
-    }
-
-    const chatId = (row.consumed_by_chat_id as string | null) ?? phoneNumber;
-
-    try {
-      await createPhoneGuardianBinding(phoneNumber, chatId);
-      highWatermark = Math.max(highWatermark, rowUpdatedAt);
-    } catch (err) {
-      anyFailed = true;
-      log.warn(
-        { err, phoneNumber },
-        "Outbound voice verification sync: binding creation failed; will retry",
-      );
-      // Stop advancing the watermark past this row — we want the next poll
-      // to re-select it. Subsequent rows in this batch may still process,
-      // but we won't advance lastSyncAt past the failure point.
-      break;
-    }
+  const phoneNumber = row.consumed_by_external_user_id as string | null;
+  if (!phoneNumber) {
+    log.warn(
+      "Outbound voice verification sync: newest row missing consumed_by_external_user_id; advancing cursor",
+    );
+    lastSyncAt = now;
+    return;
   }
 
-  lastSyncAt = anyFailed ? highWatermark : now;
+  const chatId = (row.consumed_by_chat_id as string | null) ?? phoneNumber;
+
+  try {
+    await createPhoneGuardianBinding(phoneNumber, chatId);
+    lastSyncAt = now;
+  } catch (err) {
+    log.warn(
+      { err, phoneNumber },
+      "Outbound voice verification sync: binding creation failed; will retry next poll",
+    );
+    // Leave lastSyncAt at `since` so the row is re-queried next pass.
+    // createPhoneGuardianBinding is idempotent on retry.
+  }
 }
 
 async function createPhoneGuardianBinding(
