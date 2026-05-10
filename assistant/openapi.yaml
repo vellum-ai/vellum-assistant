@@ -5825,6 +5825,239 @@ paths:
           required: true
           schema:
             type: string
+  /v1/email/download:
+    get:
+      operationId: email_download_get
+      summary: Download a specific email message
+      description: Download a specific email message by ID.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema: {}
+      parameters:
+        - name: messageId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Email message ID
+  /v1/email/list:
+    get:
+      operationId: email_list_get
+      summary: List email messages
+      description: List received and sent emails for this assistant, with optional filtering.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items: {}
+                  count:
+                    type: number
+                required:
+                  - results
+                  - count
+                additionalProperties: false
+      parameters:
+        - name: direction
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter by direction: inbound, outbound, or all"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Maximum number of results
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Only show messages since this date (ISO 8601)
+  /v1/email/register:
+    post:
+      operationId: email_register_post
+      summary: Register an email address
+      description: Register a new email address on the Vellum platform for the current assistant.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  address:
+                    type: string
+                  created_at:
+                    type: string
+                required:
+                  - id
+                  - address
+                  - created_at
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  minLength: 1
+                  description: The local part of the email address
+              required:
+                - username
+              additionalProperties: false
+  /v1/email/send:
+    post:
+      operationId: email_send_post
+      summary: Send an email
+      description: Send an email from the assistant's registered email address via the Vellum runtime proxy.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  delivery_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                  - delivery_id
+                  - status
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                to:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+                  description: Recipient email address(es)
+                text:
+                  type: string
+                  minLength: 1
+                  description: Email body (plain text)
+                subject:
+                  description: Subject line
+                  type: string
+                html:
+                  description: HTML body (auto-generated from text if omitted)
+                  type: string
+                cc:
+                  description: CC recipients
+                  type: array
+                  items:
+                    type: string
+                bcc:
+                  description: BCC recipients
+                  type: array
+                  items:
+                    type: string
+                reply_to:
+                  description: Reply-to email ID
+                  type: string
+              required:
+                - to
+                - text
+              additionalProperties: false
+  /v1/email/status:
+    get:
+      operationId: email_status_get
+      summary: Get email address status and usage
+      description: Show the email address registered for this assistant along with current usage and quota information.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address:
+                    type: string
+                  status:
+                    type: string
+                  created_at:
+                    type: string
+                  usage:
+                    type: object
+                    properties:
+                      sent_today:
+                        type: number
+                      daily_limit:
+                        type: number
+                      received_today:
+                        type: number
+                      sent_this_month:
+                        type: number
+                      received_this_month:
+                        type: number
+                    required:
+                      - sent_today
+                      - daily_limit
+                      - received_today
+                      - sent_this_month
+                      - received_this_month
+                    additionalProperties: false
+                required:
+                  - address
+                  - status
+                  - created_at
+                  - usage
+                additionalProperties: false
+  /v1/email/unregister:
+    post:
+      operationId: email_unregister_post
+      summary: Unregister the email address
+      description: Remove the email address currently registered for this assistant.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unregistered:
+                    type: string
+                required:
+                  - unregistered
+                additionalProperties: false
   /v1/events:
     get:
       operationId: events_get
