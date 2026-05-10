@@ -10977,6 +10977,24 @@ paths:
           required: true
           schema:
             type: string
+  /v1/skills/{id}/local-inspect:
+    get:
+      operationId: skills_by_id_localinspect_get
+      summary: Local skill inspect
+      description:
+        Return full local detail for an installed or bundled skill, including featureFlag, toolManifest,
+        installMeta, configEntry, and directoryPath.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/skills/{id}/update:
     post:
       operationId: skills_by_id_update_post
