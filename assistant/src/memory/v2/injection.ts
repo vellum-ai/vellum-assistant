@@ -182,12 +182,7 @@ export async function injectMemoryV2Block(
   // prior cached attachments don't exist or have been thrown away. The user
   // message gets a complete top-K dump alongside the static
   // essentials/threads/recent block, then per-turn turns just add deltas.
-  //
-  // `mode` is `let` because the trailing try/finally promotes it to "errored"
-  // when the render/telemetry path throws — we still want a log row written
-  // (with whatever conceptRows we managed to build) so silent failures are
-  // observable in the database.
-  let mode: "context-load" | "per-turn" | "errored" = params.mode ?? "per-turn";
+  const mode: InjectMemoryV2Mode = params.mode ?? "per-turn";
   const priorEverInjected: readonly EverInjectedEntry[] =
     priorState?.everInjected ?? [];
   const { topNow, toInject } = selectInjections({
@@ -201,10 +196,110 @@ export async function injectMemoryV2Block(
   // even on a "no new injection" turn, prior-state activations decay via the
   // candidate-set carry-forward and need to be rewritten so `epsilon`-trimmed
   // slugs drop out of consideration next turn.
-  const nextState: Record<string, number> = {};
+  const nextStateMap: Record<string, number> = {};
   for (const [slug, value] of finalActivation) {
-    if (value > epsilon) nextState[slug] = value;
+    if (value > epsilon) nextStateMap[slug] = value;
   }
+
+  // Build the rich per-candidate telemetry rows up front (status assigned
+  // later by `finalizeInjection` once we know what actually rendered).
+  const telemetryRows: MemoryV2ConceptRowRecord[] = [...candidates].map(
+    (slug) => {
+      const breakdown = ownBreakdown.get(slug);
+      const inPrior = fromPrior.has(slug);
+      const inAnn = fromAnn.has(slug);
+      return {
+        slug,
+        finalActivation: finalActivation.get(slug) ?? 0,
+        ownActivation: ownActivation.get(slug) ?? 0,
+        priorActivation: breakdown?.priorContribution ?? 0,
+        simUser: breakdown?.simUser ?? 0,
+        simAssistant: breakdown?.simAssistant ?? 0,
+        simNow: breakdown?.simNow ?? 0,
+        simUserRerankBoost: breakdown?.simUserRerankBoost ?? 0,
+        simAssistantRerankBoost: breakdown?.simAssistantRerankBoost ?? 0,
+        inRerankPool: breakdown?.inRerankPool ?? false,
+        spreadContribution: spreadContribution.get(slug) ?? 0,
+        source:
+          inPrior && inAnn ? "both" : inPrior ? "prior_state" : "ann_top50",
+        status: "not_injected",
+      };
+    },
+  );
+
+  return finalizeInjection({
+    workspaceDir,
+    database,
+    conversationId,
+    mode,
+    currentTurn,
+    messageId,
+    priorEverInjected,
+    slugsToRender,
+    telemetryRows,
+    config,
+    nextStateMap,
+    candidates,
+  });
+}
+
+/**
+ * Tail of `injectMemoryV2Block` extracted as a private helper so the
+ * router branch (PR 10) can reuse the same persistence + render +
+ * telemetry-finalization pipeline. Performs:
+ *
+ *   1. Build `nextEverInjected` from `slugsToRender`, filtering out skill
+ *      slugs whose capability cache entry is missing so future turns
+ *      re-attempt attachment once the cache is populated.
+ *   2. Persist the next activation_state row.
+ *   3. Render the injection block.
+ *   4. Finalize per-row `status` (`injected | in_context | not_injected |
+ *      page_missing | corrupt`) on the caller-provided telemetry rows
+ *      using the render result.
+ *   5. Sort rows by `finalActivation` descending and flush the activation
+ *      log — even when an error is thrown partway through, so silent
+ *      failures remain observable.
+ *   6. Return the rendered block plus `toInject = newlyInjected`.
+ *
+ * The caller pre-builds `telemetryRows` with all per-candidate breakdown
+ * fields filled in (router-mode callers can pass zeros where the
+ * breakdown doesn't apply) and a placeholder `status: "not_injected"`
+ * which this helper overwrites. `nextStateMap` and `candidates` are the
+ * activation pipeline's sparse next-state and full candidate pool;
+ * router-mode callers pass an empty map / empty set.
+ */
+async function finalizeInjection(args: {
+  workspaceDir: string;
+  database: DrizzleDb;
+  conversationId: string;
+  mode: InjectMemoryV2Mode;
+  currentTurn: number;
+  messageId: string;
+  priorEverInjected: readonly EverInjectedEntry[];
+  slugsToRender: string[];
+  telemetryRows: MemoryV2ConceptRowRecord[];
+  config: AssistantConfig;
+  nextStateMap: Record<string, number>;
+  candidates: ReadonlySet<string>;
+}): Promise<InjectMemoryV2BlockResult> {
+  const {
+    workspaceDir,
+    database,
+    conversationId,
+    currentTurn,
+    messageId,
+    priorEverInjected,
+    slugsToRender,
+    telemetryRows,
+    config,
+    nextStateMap,
+  } = args;
+
+  // `mode` is `let` because the trailing try/finally promotes it to "errored"
+  // when the render/telemetry path throws — we still want a log row written
+  // (with whatever rows we managed to build) so silent failures are
+  // observable in the database.
+  let mode: "context-load" | "per-turn" | "errored" = args.mode;
 
   // Mark every rendered slug as ever-injected so future per-turn deltas don't
   // re-attach the same content. On context-load this is the full top-K (we
@@ -238,20 +333,25 @@ export async function injectMemoryV2Block(
 
   const nextActivationState: ActivationState = {
     messageId,
-    state: nextState,
+    state: nextStateMap,
     everInjected: nextEverInjected,
     currentTurn,
     updatedAt: Date.now(),
   };
 
-  // `conceptRows` and `block` are declared outside the try so the finally
-  // block can flush activation telemetry even if rendering, row-building, or
-  // the activation-state save throws partway through. Without this, a Zod
-  // failure on a single concept page (e.g. unrecognized frontmatter key)
-  // silently dropped the entire turn's activation log row, masking the
-  // underlying data-corruption bug.
-  let conceptRows: MemoryV2ConceptRowRecord[] = [];
+  // `block` and `conceptRowsForLog` are declared outside the try so the
+  // finally block can flush activation telemetry even if rendering, status
+  // finalization, or the activation-state save throws partway through.
+  // Without this, a Zod failure on a single concept page (e.g. unrecognized
+  // frontmatter key) silently dropped the entire turn's activation log row,
+  // masking the underlying data-corruption bug.
+  //
+  // `conceptRowsForLog` only receives the caller-provided `telemetryRows`
+  // *after* status finalization succeeds — matching the prior behavior where
+  // an early `save()` / `renderInjectionBlock()` throw produced an empty
+  // `concepts` array on the log row.
   let block: string | null = null;
+  let conceptRowsForLog: MemoryV2ConceptRowRecord[] = [];
   let caughtErr: unknown = undefined;
   const v2Cfg = config.memory.v2;
 
@@ -281,33 +381,29 @@ export async function injectMemoryV2Block(
       );
     }
 
-    // Record per-turn activation telemetry. Failures are warn-logged in the
-    // finally block and never block memory injection.
-    const toInjectSet = new Set(toInject);
+    // Finalize per-row status onto the caller-provided telemetry rows.
+    //   - context-load: cache was wiped (turn 1 / post-compaction), so
+    //     `slugsToRender = topNow` and every rendered slug is freshly
+    //     injected on this turn. `in_context` is unreachable because there
+    //     is no prior cached attachment for the inspector to point at.
+    //   - per-turn: cached attachments from prior turns are still on the
+    //     user message, so prior-everInjected slugs are `in_context` and
+    //     the delta (`slugsToRender`, which equals `toInject` in this mode)
+    //     is `injected`.
+    // `page_missing` and `corrupt` override any "would-have-been-injected"
+    // status when `readPage` returned null or threw — telemetry surfaces
+    // stale ANN/edge entries and malformed pages instead of silently
+    // masquerading as successful injections. `corrupt` takes priority over
+    // `page_missing` since they're mutually exclusive per slug.
     const renderedSet = new Set(slugsToRender);
-    conceptRows = [...candidates].map((slug) => {
-      const breakdown = ownBreakdown.get(slug);
-      const inPrior = fromPrior.has(slug);
-      const inAnn = fromAnn.has(slug);
-      // Status reflects what was rendered for *this* turn:
-      //   - context-load: cache was wiped (turn 1 / post-compaction), so
-      //     `slugsToRender = topNow` and every rendered slug is freshly
-      //     injected on this turn. `in_context` is unreachable because there
-      //     is no prior cached attachment for the inspector to point at.
-      //   - per-turn: cached attachments from prior turns are still on the
-      //     user message, so prior-everInjected slugs are `in_context` and
-      //     the delta (`toInject`) is `injected`.
-      // `page_missing` and `corrupt` override any "would-have-been-injected"
-      // status when `readPage` returned null or threw — telemetry surfaces
-      // stale ANN/edge entries and malformed pages instead of silently
-      // masquerading as successful injections. `corrupt` takes priority over
-      // `page_missing` since they're mutually exclusive per slug.
+    for (const row of telemetryRows) {
+      const slug = row.slug;
       let status: MemoryV2ConceptRowRecord["status"];
       if (mode === "context-load") {
         status = renderedSet.has(slug) ? "injected" : "not_injected";
       } else if (everInjectedSet.has(slug)) {
         status = "in_context";
-      } else if (toInjectSet.has(slug)) {
+      } else if (renderedSet.has(slug)) {
         status = "injected";
       } else {
         status = "not_injected";
@@ -318,24 +414,10 @@ export async function injectMemoryV2Block(
       if (corruptSlugSet.has(slug)) {
         status = "corrupt";
       }
-      return {
-        slug,
-        finalActivation: finalActivation.get(slug) ?? 0,
-        ownActivation: ownActivation.get(slug) ?? 0,
-        priorActivation: breakdown?.priorContribution ?? 0,
-        simUser: breakdown?.simUser ?? 0,
-        simAssistant: breakdown?.simAssistant ?? 0,
-        simNow: breakdown?.simNow ?? 0,
-        simUserRerankBoost: breakdown?.simUserRerankBoost ?? 0,
-        simAssistantRerankBoost: breakdown?.simAssistantRerankBoost ?? 0,
-        inRerankPool: breakdown?.inRerankPool ?? false,
-        spreadContribution: spreadContribution.get(slug) ?? 0,
-        source:
-          inPrior && inAnn ? "both" : inPrior ? "prior_state" : "ann_top50",
-        status,
-      };
-    });
-    conceptRows.sort((a, b) => b.finalActivation - a.finalActivation);
+      row.status = status;
+    }
+    telemetryRows.sort((a, b) => b.finalActivation - a.finalActivation);
+    conceptRowsForLog = telemetryRows;
   } catch (err) {
     // Stash the error and let `finally` flush a best-effort telemetry row
     // before we re-throw to the caller. `mode = "errored"` flags the row
@@ -348,7 +430,7 @@ export async function injectMemoryV2Block(
         conversationId,
         turn: currentTurn,
         mode,
-        concepts: conceptRows,
+        concepts: conceptRowsForLog,
         config: {
           d: v2Cfg.d,
           c_user: v2Cfg.c_user,

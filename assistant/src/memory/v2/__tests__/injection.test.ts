@@ -1465,4 +1465,73 @@ describe("injectMemoryV2Block", () => {
     expect(row.turn).toBe(1);
     expect(row.concepts).toEqual([]);
   });
+
+  test("activation pipeline routes through `finalizeInjection` — telemetry shape and config snapshot match the contract", async () => {
+    // Pure-refactor regression check: `injectMemoryV2Block` now delegates the
+    // tail (state save + render + telemetry finalization + log write) to a
+    // private `finalizeInjection` helper. This test asserts the helper is
+    // exercised by verifying `recordMemoryV2ActivationLog` is called with the
+    // same arg shape as before — same conversationId/turn/mode, same config
+    // snapshot, and a fully populated concept row whose status was finalized
+    // to `"injected"` on the freshly-attached slug.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-finalize",
+      currentTurn: 7,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-finalize",
+      config: makeConfig(),
+    });
+
+    // The helper rendered + persisted just like the original tail did.
+    expect(result.block).toContain("alice-vscode");
+    expect(result.toInject).toEqual(["alice-vscode"]);
+
+    expect(telemetryState.recordCalls.length).toBe(1);
+    const row = telemetryState.recordCalls[0] as {
+      conversationId: string;
+      turn: number;
+      mode: string;
+      concepts: Array<{
+        slug: string;
+        status: string;
+        finalActivation: number;
+      }>;
+      config: {
+        d: number;
+        c_user: number;
+        c_assistant: number;
+        c_now: number;
+        k: number;
+        hops: number;
+        top_k: number;
+        epsilon: number;
+      };
+    };
+    expect(row.conversationId).toBe("conv-finalize");
+    expect(row.turn).toBe(7);
+    expect(row.mode).toBe("per-turn");
+    // Config snapshot must include all eight tunables — proves the helper is
+    // pulling from `config.memory.v2` rather than synthesizing a partial.
+    expect(Object.keys(row.config).sort()).toEqual(
+      [
+        "c_assistant",
+        "c_now",
+        "c_user",
+        "d",
+        "epsilon",
+        "hops",
+        "k",
+        "top_k",
+      ].sort(),
+    );
+    // Status finalization ran inside the helper — alice was selected and
+    // rendered, so its row reads `injected`.
+    const aliceRow = row.concepts.find((c) => c.slug === "alice-vscode");
+    expect(aliceRow?.status).toBe("injected");
+  });
 });
