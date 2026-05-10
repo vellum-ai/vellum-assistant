@@ -10143,6 +10143,70 @@ paths:
                 - type
                 - name
               additionalProperties: false
+  /v1/sequence/enrollment/cancel:
+    post:
+      operationId: sequence_enrollment_cancel_post
+      tags:
+        - sequence
+      responses:
+        "200":
+          description: Successful response
+  /v1/sequence/get:
+    get:
+      operationId: sequence_get_get
+      tags:
+        - sequence
+      responses:
+        "200":
+          description: Successful response
+  /v1/sequence/guardrails:
+    get:
+      operationId: sequence_guardrails_get
+      tags:
+        - sequence
+      responses:
+        "200":
+          description: Successful response
+  /v1/sequence/guardrails/set:
+    post:
+      operationId: sequence_guardrails_set_post
+      tags:
+        - sequence
+      responses:
+        "200":
+          description: Successful response
+  /v1/sequence/list:
+    get:
+      operationId: sequence_list_get
+      tags:
+        - sequence
+      responses:
+        "200":
+          description: Successful response
+  /v1/sequence/pause:
+    post:
+      operationId: sequence_pause_post
+      tags:
+        - sequence
+      responses:
+        "200":
+          description: Successful response
+  /v1/sequence/resume:
+    post:
+      operationId: sequence_resume_post
+      tags:
+        - sequence
+      responses:
+        "200":
+          description: Successful response
+  /v1/sequence/stats:
+    get:
+      operationId: sequence_stats_get
+      tags:
+        - sequence
+      responses:
+        "200":
+          description: Successful response
   /v1/settings/avatar/generate:
     post:
       operationId: settings_avatar_generate_post

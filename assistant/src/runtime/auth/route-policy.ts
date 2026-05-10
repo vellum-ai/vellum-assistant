@@ -822,3 +822,44 @@ registerPolicy("x", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
 });
+
+// Sequence routes: local-only (CLI / IPC callers)
+registerPolicy("sequence/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("sequence/get", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("sequence/pause", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("sequence/resume", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("sequence/enrollment/cancel", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("sequence/stats", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("sequence/guardrails", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("sequence/guardrails/set", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});

@@ -51,7 +51,7 @@ function handleSequenceGet(args: RouteHandlerArgs) {
 }
 
 function handleSequencePause(args: RouteHandlerArgs) {
-  const id = (args.body as any)?.id as string | undefined;
+  const id = args.body?.id as string | undefined;
   if (!id) throw new BadRequestError("id is required");
 
   const sequence = updateSequence(id, { status: "paused" });
@@ -60,7 +60,7 @@ function handleSequencePause(args: RouteHandlerArgs) {
 }
 
 function handleSequenceResume(args: RouteHandlerArgs) {
-  const id = (args.body as any)?.id as string | undefined;
+  const id = args.body?.id as string | undefined;
   if (!id) throw new BadRequestError("id is required");
 
   const sequence = updateSequence(id, { status: "active" });
@@ -69,7 +69,7 @@ function handleSequenceResume(args: RouteHandlerArgs) {
 }
 
 function handleSequenceEnrollmentCancel(args: RouteHandlerArgs) {
-  const enrollmentId = (args.body as any)?.enrollmentId as string | undefined;
+  const enrollmentId = args.body?.enrollmentId as string | undefined;
   if (!enrollmentId) throw new BadRequestError("enrollmentId is required");
 
   exitEnrollment(enrollmentId, "cancelled");
@@ -108,8 +108,8 @@ const VALID_GUARDRAIL_KEYS = [
 type GuardrailKey = (typeof VALID_GUARDRAIL_KEYS)[number];
 
 function handleSequenceGuardrailsSet(args: RouteHandlerArgs) {
-  const key = (args.body as any)?.key as string | undefined;
-  const value = (args.body as any)?.value as string | undefined;
+  const key = args.body?.key as string | undefined;
+  const value = args.body?.value as string | undefined;
 
   if (!key) throw new BadRequestError("key is required");
   if (value === undefined) throw new BadRequestError("value is required");
