@@ -103,9 +103,11 @@ Examples:
               path: string;
               mode: "platform" | "self-hosted";
             }>("webhooks_register", {
-              type,
-              path: opts.path,
-              source: opts.source,
+              body: {
+                type,
+                path: opts.path,
+                source: opts.source,
+              },
             });
             if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
             if (shouldOutputJson(cmd)) {

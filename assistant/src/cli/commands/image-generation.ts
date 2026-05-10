@@ -195,11 +195,13 @@ Examples:
           text?: string;
           resolvedModel: string;
         }>("image_generation_generate", {
-          prompt,
-          mode,
-          model: modelOverride,
-          variants,
-          ...(sourceImages && { sourceImages }),
+          body: {
+            prompt,
+            mode,
+            model: modelOverride,
+            variants,
+            ...(sourceImages && { sourceImages }),
+          },
         });
 
         if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, generate);
