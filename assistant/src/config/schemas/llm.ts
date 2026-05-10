@@ -283,6 +283,16 @@ const PricingOverrideSchema = z.object({
  */
 export const LLMConfigBase = z.object({
   provider: LLMProvider.default("anthropic"),
+  /**
+   * Name of a `provider_connections` row to use for this resolved config.
+   * Optional and additive: when set, the dispatcher resolves auth from the
+   * connection (mix-and-match managed/your-own per profile). When unset,
+   * the dispatcher falls back to the legacy `provider` lookup.
+   *
+   * Lives on the merged base type so it flows through `resolveCallSiteConfig`
+   * naturally — the underlying profile-level field is on `ProfileEntry`.
+   */
+  provider_connection: z.string().min(1).optional(),
   model: ModelSchema.default("claude-opus-4-7"),
   maxTokens: MaxTokensSchema.default(64000),
   effort: EffortEnum.default("max"),

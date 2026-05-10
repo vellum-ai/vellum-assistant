@@ -7,7 +7,15 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { getProvider, initializeProviders, listProviders } from "./registry.js";
+import { getDb } from "../memory/db-connection.js";
+import { getLogger } from "../util/logger.js";
+import { getConnection } from "./inference/connections.js";
+import {
+  getProvider,
+  initializeProviders,
+  listProviders,
+  resolveProviderFromConnection,
+} from "./registry.js";
 import type {
   ContentBlock,
   Message,
@@ -20,6 +28,8 @@ import type {
 
 // Re-export the typed context-overflow error so callsites that dispatch on
 // this category do not need to reach into `./types.js` directly.
+
+const log = getLogger("provider-send-message");
 
 export interface ConfiguredProviderResult {
   provider: Provider;
@@ -107,11 +117,30 @@ export async function resolveConfiguredProvider(
     }
   }
 
-  const inferenceProvider = resolveCallSiteConfig(
-    callSite,
-    config.llm,
-    opts,
-  ).provider;
+  const resolved = resolveCallSiteConfig(callSite, config.llm, opts);
+  const inferenceProvider = resolved.provider;
+  const connectionName = resolved.provider_connection;
+
+  // Connection-aware path: when the resolved profile names a
+  // `provider_connection`, route auth through that row's resolver. Falls
+  // through to the legacy `getProvider(name)` path on any miss so existing
+  // profiles without `provider_connection` keep working unchanged.
+  if (connectionName) {
+    const connectionProvider = await tryResolveFromConnection(
+      connectionName,
+      config,
+    );
+    if (connectionProvider) {
+      return {
+        provider: new CallSiteConfiguredProvider(
+          connectionProvider,
+          callSite,
+          opts.overrideProfile,
+        ),
+        configuredProviderName: inferenceProvider,
+      };
+    }
+  }
 
   try {
     const provider = getProvider(inferenceProvider);
@@ -126,6 +155,41 @@ export async function resolveConfiguredProvider(
   } catch {
     return null;
   }
+}
+
+/**
+ * Look up a `provider_connections` row by name and resolve a Provider
+ * instance bound to that connection's auth. Returns null on miss (the
+ * connection doesn't exist, auth resolution fails, or the connection's
+ * provider impl is unavailable). Caller falls back to legacy registry
+ * dispatch on null.
+ *
+ * Logged-warn-and-fall-through is intentional: a misconfigured connection
+ * shouldn't break inference, just emit a signal and route through the
+ * legacy path so the system stays operational.
+ */
+async function tryResolveFromConnection(
+  connectionName: string,
+  config: ReturnType<typeof getConfig>,
+): Promise<Provider | null> {
+  let connection;
+  try {
+    connection = getConnection(getDb(), connectionName);
+  } catch (err) {
+    log.warn(
+      { err, connectionName },
+      "provider_connection lookup failed — falling back to legacy registry dispatch",
+    );
+    return null;
+  }
+  if (!connection) {
+    log.warn(
+      { connectionName },
+      "provider_connection not found — falling back to legacy registry dispatch",
+    );
+    return null;
+  }
+  return resolveProviderFromConnection(connection, config);
 }
 
 /**
