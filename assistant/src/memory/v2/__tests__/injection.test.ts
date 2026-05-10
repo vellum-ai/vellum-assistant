@@ -227,7 +227,6 @@ mock.module("../page-store.js", () => ({
 
 interface RouterResultStub {
   selectedSlugs: string[];
-  rawIds: number[];
   failureReason: string | null;
 }
 
@@ -242,7 +241,6 @@ mock.module("../router.js", () => ({
     return (
       routerState.nextResult ?? {
         selectedSlugs: [],
-        rawIds: [],
         failureReason: null,
       }
     );
@@ -1590,7 +1588,6 @@ describe("injectMemoryV2Block", () => {
       // candidate set comes straight from the router's `selectedSlugs`.
       routerState.nextResult = {
         selectedSlugs: ["alice-vscode"],
-        rawIds: [1],
         failureReason: null,
       };
 
@@ -1643,7 +1640,6 @@ describe("injectMemoryV2Block", () => {
     test("flag-on: router failure logs warn, writes mode:`errored` telemetry, returns null block", async () => {
       routerState.nextResult = {
         selectedSlugs: [],
-        rawIds: [],
         failureReason: "api_error",
       };
 
@@ -1686,7 +1682,6 @@ describe("injectMemoryV2Block", () => {
     test("flag-on: router abstention (empty selectedSlugs, no failure) writes mode:`router` row with no injected pages", async () => {
       routerState.nextResult = {
         selectedSlugs: [],
-        rawIds: [],
         failureReason: null,
       };
 
@@ -1726,7 +1721,6 @@ describe("injectMemoryV2Block", () => {
     test("flag-on: router-selected slug whose page is missing on disk records `page_missing` and is NOT added to everInjected", async () => {
       routerState.nextResult = {
         selectedSlugs: ["phantom-router-slug"],
-        rawIds: [99],
         failureReason: null,
       };
 
@@ -1776,7 +1770,6 @@ describe("injectMemoryV2Block", () => {
       // Turn 1: router picks alice. Standard append.
       routerState.nextResult = {
         selectedSlugs: ["alice-vscode"],
-        rawIds: [1],
         failureReason: null,
       };
       const turn1 = await injectMemoryV2Block({
@@ -1798,7 +1791,6 @@ describe("injectMemoryV2Block", () => {
       telemetryState.recordCalls.length = 0;
       routerState.nextResult = {
         selectedSlugs: ["alice-vscode", "bob-coffee"],
-        rawIds: [1, 2],
         failureReason: null,
       };
       const turn2 = await injectMemoryV2Block({
@@ -1832,7 +1824,6 @@ describe("injectMemoryV2Block", () => {
       // Turn 1: seed everInjected with alice.
       routerState.nextResult = {
         selectedSlugs: ["alice-vscode"],
-        rawIds: [1],
         failureReason: null,
       };
       await injectMemoryV2Block({
@@ -1852,7 +1843,6 @@ describe("injectMemoryV2Block", () => {
       // not `source: router`.
       routerState.nextResult = {
         selectedSlugs: ["bob-coffee"],
-        rawIds: [2],
         failureReason: null,
       };
       await injectMemoryV2Block({
@@ -1889,7 +1879,6 @@ describe("injectMemoryV2Block", () => {
       stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
       routerState.nextResult = {
         selectedSlugs: ["should-not-be-used"],
-        rawIds: [42],
         failureReason: null,
       };
 
