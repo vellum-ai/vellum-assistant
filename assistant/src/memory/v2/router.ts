@@ -12,13 +12,15 @@
  *   - validate the tool input via Zod,
  *   - map back to slugs and let the caller drive injection.
  *
- * Cache strategy. Two ephemeral breakpoints carry the bulk of the routing
- * cost across turns:
+ * Cache strategy. Two 1h ephemeral breakpoints carry the bulk of the
+ * routing cost across turns:
  *   1. The last text block of the system prompt — the page index is the
  *      single largest input and changes only when concept pages are edited.
- *   2. The first user-message block (`<now>`) — stable across consecutive
- *      router calls within the same minute even though the trailing
- *      already-injected/last-turn block changes every turn.
+ *      Auto-applied by the Anthropic provider at the configured 1h TTL.
+ *   2. The first user-message block (`<now>`) — stable across most turns
+ *      since NOW.md only changes when the model rewrites it. We set the 1h
+ *      TTL explicitly here to match the provider-side breakpoints; the
+ *      default 5m would force unnecessary cache re-creation.
  * The Anthropic provider also auto-applies a 1h breakpoint on the last text
  * block of a turn-starting user message, so the trailing uncached block does
  * not need an explicit `cache_control`.
@@ -28,13 +30,13 @@
  * `injectMemoryV2Block`; until then nothing in the daemon calls it.
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../config/types.js";
-import { getAssistantName } from "../../daemon/identity-helpers.js";
+import {
+  getAssistantName,
+  resolveUserName,
+} from "../../daemon/identity-helpers.js";
 import {
   extractToolUse,
   getConfiguredProvider,
@@ -67,14 +69,11 @@ export type RouterFailureReason =
 /**
  * Result of a single router call. `selectedSlugs` preserves the order the
  * model returned and is already capped at `config.memory.v2.router.max_page_ids`
- * with out-of-range IDs dropped. `rawIds` is the model-returned ID list before
- * mapping (post-truncation, post-range-filter) for diagnostics.
+ * with out-of-range IDs dropped.
  */
 export interface RouterResult {
   /** Selected page slugs in the order the model returned them. */
   selectedSlugs: string[];
-  /** Numeric IDs the model returned (post-filter, post-truncate). */
-  rawIds: number[];
   /** `null` on success; one of the failure reasons above otherwise. */
   failureReason: RouterFailureReason | null;
 }
@@ -113,7 +112,7 @@ const RouterResultSchema = z.object({
 
 /** Empty-result helper so call sites don't reconstruct the shape inline. */
 function emptyResult(reason: RouterFailureReason | null): RouterResult {
-  return { selectedSlugs: [], rawIds: [], failureReason: reason };
+  return { selectedSlugs: [], failureReason: reason };
 }
 
 interface RunRouterParams {
@@ -193,11 +192,12 @@ export async function runRouter(
     if (idx) priorIds.push(idx.id);
   }
 
-  // Cache breakpoint 2 — `<now>` is stable for the duration of a minute, so
-  // the bulk of the user message rides the cache when the assistant chains
-  // tool calls. The trailing block has no `cache_control`; the Anthropic
-  // provider auto-applies a 1h breakpoint on the last text block of a
-  // turn-starting user message, which covers it.
+  // Cache breakpoint 2 — `<now>` is stable across most turns (NOW.md only
+  // changes when the model rewrites it), so the bulk of the user message
+  // rides the cache. We use a 1h TTL to match the system-prompt breakpoint
+  // and the provider's auto-applied breakpoints. The trailing block has no
+  // `cache_control`; the Anthropic provider auto-applies a 1h breakpoint on
+  // the last text block of a turn-starting user message, which covers it.
   const userMsg: Message = {
     role: "user",
     content: [
@@ -280,49 +280,36 @@ export async function runRouter(
   // catch repeats from the model.
   const seen = new Set<number>();
   const selectedSlugs: string[] = [];
-  const rawIds: number[] = [];
   for (const id of finalIds) {
     if (seen.has(id)) continue;
     seen.add(id);
     const entry = pageIndex.byId.get(id);
     if (!entry) continue;
-    rawIds.push(id);
     selectedSlugs.push(entry.slug);
   }
 
-  return { selectedSlugs, rawIds, failureReason: null };
+  return { selectedSlugs, failureReason: null };
 }
 
 /**
  * Build a text content block carrying an ephemeral `cache_control`
- * breakpoint. The Anthropic SDK accepts the field as an extra property on
- * text blocks, but our internal `TextContent` type intentionally omits it
- * (only the Anthropic provider transforms it onto the wire), so we reach
- * through a `Record` cast here for the same reason `client.ts` does — it
- * keeps the core types provider-agnostic.
+ * breakpoint with a 1h TTL. The Anthropic SDK accepts the field as an extra
+ * property on text blocks, but our internal `TextContent` type intentionally
+ * omits it (only the Anthropic provider transforms it onto the wire), so we
+ * reach through a `Record` cast here for the same reason `client.ts` does —
+ * it keeps the core types provider-agnostic. The 1h TTL matches the
+ * provider's auto-applied breakpoints (see `cacheTtl` in
+ * `providers/anthropic/client.ts`); the `<now>` block is stable across most
+ * turns, so default 5m would force unnecessary re-creation. The
+ * `extended-cache-ttl-2025-04-11` beta header is added unconditionally for
+ * non-Haiku models in `client.ts`, so this works without any call-site
+ * config.
  */
 function cachedTextBlock(text: string): ContentBlock {
   const block: ContentBlock = { type: "text", text };
   (block as unknown as Record<string, unknown>).cache_control = {
     type: "ephemeral",
+    ttl: "1h",
   };
   return block;
-}
-
-/**
- * Read the guardian's display name from `users/default.md`. Mirrors
- * `sweep-job.ts`'s `resolveUserName` so the two background jobs agree on
- * which file they read and what label they fall back to.
- */
-function resolveUserName(workspaceDir: string): string | null {
-  try {
-    const content = readFileSync(
-      join(workspaceDir, "users", "default.md"),
-      "utf-8",
-    );
-    const match = content.match(/\*\*Name:\*\*\s*(.+)/);
-    return match?.[1]?.trim() || null;
-  } catch {
-    return null;
-  }
 }
