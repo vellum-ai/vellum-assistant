@@ -36,7 +36,7 @@ function flattenConfig(
   return result;
 }
 
-/** Matches config paths like `services.inference.mode`, `services.image-generation.mode`, etc. */
+/** Matches config paths like `services.image-generation.mode`, `services.web-search.mode`, etc. */
 const SERVICE_MODE_PATH_RE = /^services\.[^.]+\.mode$/;
 
 export function registerConfigCommand(program: Command): void {

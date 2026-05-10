@@ -68,7 +68,6 @@ function getDebugInfo() {
       configuredProvider: config.llm.default.provider,
       registeredProviders,
       routingSources,
-      inferenceMode: config.services.inference.mode,
     },
     memory: {
       conversationCount,

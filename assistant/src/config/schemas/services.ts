@@ -28,14 +28,15 @@ const BaseServiceSchema = z.object({
 });
 
 /**
- * Inference service entry. Carries only the routing `mode`
- * (`managed` vs `your-own`) — the provider and model live under
- * `llm.default.{provider, model}` (see `schemas/llm.ts`). PR 19 of the
- * unify-llm-callsites plan removed the `provider` and `model` fields here;
- * legacy configs that still carry them have those keys stripped by
- * workspace migration `039-drop-legacy-llm-keys`.
+ * Inference service entry. Carries no fields — routing is now governed
+ * entirely by `provider_connections` rows and the `provider_connection`
+ * reference on each `llm.profile`. The namespace is kept so callers
+ * that walk `config.services.inference` do not need updating.
+ *
+ * Legacy `provider`, `model`, and `mode` fields are stripped by workspace
+ * migrations `039-drop-legacy-llm-keys` and `076-drop-services-inference-mode`.
  */
-const InferenceServiceSchema = BaseServiceSchema;
+const InferenceServiceSchema = z.object({});
 
 const ImageGenerationServiceSchema = BaseServiceSchema.extend({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),

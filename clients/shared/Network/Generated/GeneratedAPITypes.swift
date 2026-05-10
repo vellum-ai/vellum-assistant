@@ -5955,6 +5955,79 @@ public struct WorkspaceFilesListResponseFile: Codable, Sendable {
     }
 }
 
+// MARK: - Inference provider connection types (Phase 1.2, PR-B)
+
+/// Auth configuration for a provider connection.
+/// `type` is one of: `api_key`, `platform`, `none`, `oauth_subscription`, `service_account`.
+/// `credential` is required for `api_key`, `oauth_subscription`, and `service_account` types.
+public struct ProviderConnectionAuth: Codable, Sendable {
+    public let type: String
+    public let credential: String?
+
+    public init(type: String, credential: String? = nil) {
+        self.type = type
+        self.credential = credential
+    }
+}
+
+/// A named provider connection stored in the assistant database.
+public struct ProviderConnection: Codable, Sendable {
+    public let name: String
+    /// One of: `anthropic`, `openai`, `gemini`, `ollama`, `fireworks`, `openrouter`.
+    public let provider: String
+    public let auth: ProviderConnectionAuth
+    public let createdAt: Int
+    public let updatedAt: Int
+
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, createdAt: Int, updatedAt: Int) {
+        self.name = name
+        self.provider = provider
+        self.auth = auth
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+/// Response body for `GET /v1/inference/provider-connections`.
+public struct ListProviderConnectionsResponse: Codable, Sendable {
+    public let connections: [ProviderConnection]
+
+    public init(connections: [ProviderConnection]) {
+        self.connections = connections
+    }
+}
+
+/// Request body for `POST /v1/inference/provider-connections`.
+public struct CreateProviderConnectionRequest: Codable, Sendable {
+    public let name: String
+    public let provider: String
+    public let auth: ProviderConnectionAuth
+
+    public init(name: String, provider: String, auth: ProviderConnectionAuth) {
+        self.name = name
+        self.provider = provider
+        self.auth = auth
+    }
+}
+
+/// Request body for `PATCH /v1/inference/provider-connections/:name`.
+public struct UpdateProviderConnectionRequest: Codable, Sendable {
+    public let auth: ProviderConnectionAuth
+
+    public init(auth: ProviderConnectionAuth) {
+        self.auth = auth
+    }
+}
+
+/// Response body for `DELETE /v1/inference/provider-connections/:name`.
+public struct DeleteProviderConnectionResponse: Codable, Sendable {
+    public let ok: Bool
+
+    public init(ok: Bool) {
+        self.ok = ok
+    }
+}
+
 /// Server → Client prompt requesting the user to enter a contact channel address.
 /// Emitted by the contacts/prompt IPC route when the assistant needs a new contact.
 public struct ContactRequest: Codable, Sendable {

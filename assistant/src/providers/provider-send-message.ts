@@ -7,12 +7,9 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { getLogger } from "../util/logger.js";
 import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
-import {
-  getProvider,
-  initializeProviders,
-  listProviders,
-} from "./registry.js";
+import { initializeProviders, listProviders } from "./registry.js";
 import type {
   ContentBlock,
   Message,
@@ -23,8 +20,7 @@ import type {
   ToolUseContent,
 } from "./types.js";
 
-// Re-export the typed context-overflow error so callsites that dispatch on
-// this category do not need to reach into `./types.js` directly.
+const log = getLogger("provider-send-message");
 
 export interface ConfiguredProviderResult {
   provider: Provider;
@@ -116,41 +112,41 @@ export async function resolveConfiguredProvider(
   const inferenceProvider = resolved.provider;
   const connectionName = resolved.provider_connection;
 
-  // Connection-aware path: when the resolved profile names a
-  // `provider_connection`, route auth through that row's resolver. Falls
-  // through to the legacy `getProvider(name)` path on any miss so existing
-  // profiles without `provider_connection` keep working unchanged.
-  if (connectionName) {
-    const connectionProvider = await tryResolveProviderForConnectionName(
-      connectionName,
-      config,
-      inferenceProvider,
+  // Connection-aware path: every dispatch goes through `provider_connection`.
+  // The boot-time backfill ensures every profile has one in production.
+  // When unset (test envs that skip backfill, freshly-installed configs
+  // not yet backfilled, or users who manually cleared the field), we
+  // return null so callsites with deterministic fallbacks (invite
+  // instructions, telegram username resolution, etc.) keep working.
+  // Hard config errors — connection lookup failure, provider mismatch —
+  // still throw via `tryResolveProviderForConnectionName` below.
+  if (!connectionName) {
+    log.debug(
+      { callSite, inferenceProvider },
+      "resolveCallSiteConfig yielded no provider_connection — returning null so callsite can fall back",
     );
-    if (connectionProvider) {
-      return {
-        provider: new CallSiteConfiguredProvider(
-          connectionProvider,
-          callSite,
-          opts.overrideProfile,
-        ),
-        configuredProviderName: inferenceProvider,
-      };
-    }
-  }
-
-  try {
-    const provider = getProvider(inferenceProvider);
-    return {
-      provider: new CallSiteConfiguredProvider(
-        provider,
-        callSite,
-        opts.overrideProfile,
-      ),
-      configuredProviderName: inferenceProvider,
-    };
-  } catch {
     return null;
   }
+
+  const connectionProvider = await tryResolveProviderForConnectionName(
+    connectionName,
+    config,
+    inferenceProvider,
+  );
+  if (!connectionProvider) {
+    // Soft credential failure — the connection resolved to no usable
+    // adapter (credential missing, transient auth failure, etc.).
+    // Callers handle null as "no provider available" rather than crash.
+    return null;
+  }
+  return {
+    provider: new CallSiteConfiguredProvider(
+      connectionProvider,
+      callSite,
+      opts.overrideProfile,
+    ),
+    configuredProviderName: inferenceProvider,
+  };
 }
 
 /**

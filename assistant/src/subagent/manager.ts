@@ -181,9 +181,12 @@ export class SubagentManager {
 
     // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
-    // Connection-aware default-provider resolution; falls back to legacy
-    // registry lookup when `llm.default.provider_connection` isn't set or
-    // resolution misses. Per-call `callSite` routing is layered next.
+    // Connection-aware default-provider resolution. Throws
+    // `ConnectionResolutionError` if `llm.default.provider_connection` is
+    // unset or the connection row is missing/mismatched (config bugs).
+    // Returns null on soft credential failures (vault miss, transient
+    // auth) — handled below as "no provider available". Per-call
+    // `callSite` routing is layered next.
     const baseProvider = await resolveDefaultProvider(appConfig);
     if (!baseProvider) {
       throw new Error(
