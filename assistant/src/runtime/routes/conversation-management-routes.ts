@@ -46,6 +46,7 @@ import {
   setConversationKeyIfAbsent,
 } from "../../memory/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
+import { getQdrantClient } from "../../memory/qdrant-client.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -240,7 +241,10 @@ function handleRenameConversation({
   return { ok: true };
 }
 
-function handleClearAllConversations({ headers = {}, body = {} }: RouteHandlerArgs) {
+async function handleClearAllConversations({
+  headers = {},
+  body = {},
+}: RouteHandlerArgs) {
   const confirm = (headers["x-confirm-destructive"] as string | undefined)
     ?? (body as Record<string, unknown>).confirm;
   if (confirm !== "clear-all-conversations") {
@@ -250,6 +254,29 @@ function handleClearAllConversations({ headers = {}, body = {} }: RouteHandlerAr
     );
   }
   clearAllConversations();
+
+  // Drop the Qdrant collection so vector data does not survive the clear.
+  // Mirrors the pre-thin-IPC CLI behavior, which initialised a Qdrant client
+  // and called deleteCollection() after the SQLite wipe. The daemon already
+  // owns an initialised client; deleteCollection() is internally defensive
+  // (returns false when the collection is missing or Qdrant is unreachable),
+  // and ensureCollection() will recreate the collection on next use.
+  try {
+    const qdrant = getQdrantClient();
+    const deleted = await qdrant.deleteCollection();
+    log.info(
+      { qdrantDeleted: deleted },
+      deleted
+        ? "Cleared Qdrant vector collection after clearAllConversations"
+        : "Qdrant vector collection not found or unreachable — skipped",
+    );
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to clear Qdrant collection after clearAllConversations — skipped",
+    );
+  }
+
   return undefined;
 }
 
