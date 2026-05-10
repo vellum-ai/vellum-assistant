@@ -152,7 +152,14 @@ function ensureProviderConnection(
   db: DrizzleDb,
   globalMode: string,
 ): boolean {
-  if (entry.provider_connection != null) return false;
+  // Treat empty/whitespace strings the same as missing — `resolveDefaultProvider`
+  // (and friends) use a falsy check on the field, so a manually cleared
+  // `provider_connection: ""` would otherwise skip backfill and then hard-throw
+  // at runtime. Self-heal those alongside null/undefined.
+  const existing = entry.provider_connection;
+  const hasValid =
+    typeof existing === "string" && existing.trim() !== "";
+  if (hasValid) return false;
 
   const provider = entry.provider as string | undefined;
   if (!provider) return false;
