@@ -7192,6 +7192,597 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/inference/provider-connections:
+    get:
+      operationId: inference_providerconnections_get
+      summary: List provider connections
+      description: Return all provider connections. Optionally filter by provider with ?provider=<name>.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        provider:
+                          type: string
+                          enum:
+                            - anthropic
+                            - openai
+                            - gemini
+                            - ollama
+                            - fireworks
+                            - openrouter
+                        auth:
+                          oneOf:
+                            - type: object
+                              properties:
+                                type:
+                                  type: string
+                                  const: api_key
+                                credential:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - type
+                                - credential
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                type:
+                                  type: string
+                                  const: platform
+                              required:
+                                - type
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                type:
+                                  type: string
+                                  const: none
+                              required:
+                                - type
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                type:
+                                  type: string
+                                  const: oauth_subscription
+                                credential:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - type
+                                - credential
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                type:
+                                  type: string
+                                  const: service_account
+                                credential:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - type
+                                - credential
+                              additionalProperties: false
+                        createdAt:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        updatedAt:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                      required:
+                        - name
+                        - provider
+                        - auth
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
+                required:
+                  - connections
+                additionalProperties: false
+      parameters:
+        - name: provider
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter"
+    post:
+      operationId: inference_providerconnections_post
+      summary: Create a provider connection
+      description: Create a new named provider connection. Fails with 409 if a connection with this name already exists.
+      tags:
+        - inference
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                  provider:
+                    type: string
+                    enum:
+                      - anthropic
+                      - openai
+                      - gemini
+                      - ollama
+                      - fireworks
+                      - openrouter
+                  auth:
+                    oneOf:
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: api_key
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: platform
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: none
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: oauth_subscription
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: service_account
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                  createdAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  updatedAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - name
+                  - provider
+                  - auth
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          description: Invalid provider or auth schema
+        "409":
+          description: Connection name already exists
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                provider:
+                  type: string
+                  enum:
+                    - anthropic
+                    - openai
+                    - gemini
+                    - ollama
+                    - fireworks
+                    - openrouter
+                auth:
+                  oneOf:
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: api_key
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: platform
+                      required:
+                        - type
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: none
+                      required:
+                        - type
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: oauth_subscription
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: service_account
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+              required:
+                - name
+                - provider
+                - auth
+              additionalProperties: false
+  /v1/inference/provider-connections/{name}:
+    delete:
+      operationId: inference_providerconnections_by_name_delete
+      summary: Delete a provider connection
+      description: Delete a provider connection. Fails with 409 if any profile or call-site references it.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                  - ok
+                additionalProperties: false
+        "404":
+          description: Connection not found
+        "409":
+          description: Connection is referenced by profile(s) or call site(s)
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+    get:
+      operationId: inference_providerconnections_by_name_get
+      summary: Get a provider connection
+      description: Return a single provider connection by name.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                  provider:
+                    type: string
+                    enum:
+                      - anthropic
+                      - openai
+                      - gemini
+                      - ollama
+                      - fireworks
+                      - openrouter
+                  auth:
+                    oneOf:
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: api_key
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: platform
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: none
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: oauth_subscription
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: service_account
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                  createdAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  updatedAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - name
+                  - provider
+                  - auth
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "404":
+          description: Connection not found
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: inference_providerconnections_by_name_patch
+      summary: Update a provider connection's auth
+      description: Update the auth configuration for an existing connection. Cannot rename or change the provider.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                  provider:
+                    type: string
+                    enum:
+                      - anthropic
+                      - openai
+                      - gemini
+                      - ollama
+                      - fireworks
+                      - openrouter
+                  auth:
+                    oneOf:
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: api_key
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: platform
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: none
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: oauth_subscription
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: service_account
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                  createdAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  updatedAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - name
+                  - provider
+                  - auth
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          description: Invalid auth schema
+        "404":
+          description: Connection not found
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                auth:
+                  oneOf:
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: api_key
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: platform
+                      required:
+                        - type
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: none
+                      required:
+                        - type
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: oauth_subscription
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: service_account
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+              required:
+                - auth
+              additionalProperties: false
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get
