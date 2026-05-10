@@ -9351,6 +9351,31 @@ paths:
                       - name
                       - status
                     additionalProperties: false
+  /v1/public-routes/inspect:
+    get:
+      operationId: publicroutes_inspect_get
+      summary: Inspect a user-defined route handler
+      tags:
+        - routes
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Route path relative to /x/
+  /v1/public-routes/list:
+    get:
+      operationId: publicroutes_list_get
+      summary: List user-defined route handlers
+      tags:
+        - routes
+      responses:
+        "200":
+          description: Successful response
   /v1/recordings/pause:
     post:
       operationId: recordings_pause_post
