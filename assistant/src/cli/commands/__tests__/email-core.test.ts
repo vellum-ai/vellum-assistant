@@ -56,49 +56,6 @@ mock.module("../../../util/logger.js", () => ({
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
 
-const { registerEmailCommand } = await import("../email.js");
-
-// ---------------------------------------------------------------------------
-// Test helper
-// ---------------------------------------------------------------------------
-
-async function runCommand(
-  args: string[],
-): Promise<{ stdout: string; exitCode: number }> {
-  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
-  const stdoutChunks: string[] = [];
-
-  process.stdout.write = ((chunk: unknown) => {
-    stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
-    return true;
-  }) as typeof process.stdout.write;
-
-  process.exitCode = 0;
-
-  try {
-    const program = new Command();
-    program.exitOverride();
-    program.configureOutput({
-      writeErr: () => {},
-      writeOut: (str: string) => stdoutChunks.push(str),
-    });
-    registerEmailCommand(program);
-    await program.parseAsync(["node", "assistant", ...args]);
-  } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
-  } finally {
-    process.stdout.write = originalStdoutWrite;
-  }
-
-  const exitCode = process.exitCode ?? 0;
-  process.exitCode = 0;
-
-  return {
-    exitCode,
-    stdout: stdoutChunks.join(""),
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -208,7 +165,7 @@ describe("email register", () => {
         error: "Daemon down",
         statusCode: undefined,
       }),
-    );
+    ) as any;
 
     mock.module("../../../ipc/cli-client.js", () => ({
       cliIpcCall: mockIpcCallFn,
@@ -253,7 +210,7 @@ describe("email send", () => {
       cliIpcCallStream: mock(() =>
         Promise.resolve({ ok: false, error: "not used" }),
       ),
-      exitFromIpcResult: mock((r: { error?: string }) => {
+      exitFromIpcResult: mock((_r: { error?: string }) => {
         process.exitCode = 10;
       }),
     }));
@@ -294,7 +251,7 @@ describe("email send", () => {
       cliIpcCallStream: mock(() =>
         Promise.resolve({ ok: false, error: "not used" }),
       ),
-      exitFromIpcResult: mock((r: { error?: string }) => {
+      exitFromIpcResult: mock((_r: { error?: string }) => {
         process.exitCode = 10;
       }),
     }));
@@ -336,7 +293,7 @@ describe("email send", () => {
       cliIpcCallStream: mock(() =>
         Promise.resolve({ ok: false, error: "not used" }),
       ),
-      exitFromIpcResult: mock((r: { error?: string }) => {
+      exitFromIpcResult: mock((_r: { error?: string }) => {
         process.exitCode = 10;
       }),
     }));
@@ -380,7 +337,7 @@ describe("email list", () => {
       cliIpcCallStream: mock(() =>
         Promise.resolve({ ok: false, error: "not used" }),
       ),
-      exitFromIpcResult: mock((r: { error?: string }) => {
+      exitFromIpcResult: mock((_r: { error?: string }) => {
         process.exitCode = 10;
       }),
     }));
@@ -409,7 +366,7 @@ describe("email list", () => {
       cliIpcCallStream: mock(() =>
         Promise.resolve({ ok: false, error: "not used" }),
       ),
-      exitFromIpcResult: mock((r: { error?: string }) => {
+      exitFromIpcResult: mock((_r: { error?: string }) => {
         process.exitCode = 10;
       }),
     }));
@@ -443,7 +400,7 @@ describe("email list", () => {
       cliIpcCallStream: mock(() =>
         Promise.resolve({ ok: false, error: "not used" }),
       ),
-      exitFromIpcResult: mock((r: { error?: string }) => {
+      exitFromIpcResult: mock((_r: { error?: string }) => {
         process.exitCode = 10;
       }),
     }));
@@ -496,7 +453,7 @@ describe("email status", () => {
       cliIpcCallStream: mock(() =>
         Promise.resolve({ ok: false, error: "not used" }),
       ),
-      exitFromIpcResult: mock((r: { error?: string }) => {
+      exitFromIpcResult: mock((_r: { error?: string }) => {
         process.exitCode = 10;
       }),
     }));
@@ -531,7 +488,7 @@ describe("email unregister", () => {
       cliIpcCallStream: mock(() =>
         Promise.resolve({ ok: false, error: "not used" }),
       ),
-      exitFromIpcResult: mock((r: { error?: string }) => {
+      exitFromIpcResult: mock((_r: { error?: string }) => {
         process.exitCode = 10;
       }),
     }));
@@ -579,7 +536,7 @@ describe("email download", () => {
       cliIpcCallStream: mock(() =>
         Promise.resolve({ ok: false, error: "not used" }),
       ),
-      exitFromIpcResult: mock((r: { error?: string }) => {
+      exitFromIpcResult: mock((_r: { error?: string }) => {
         process.exitCode = 10;
       }),
     }));

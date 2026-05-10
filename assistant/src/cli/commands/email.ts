@@ -11,10 +11,10 @@ import { pipeline } from "node:stream/promises";
 import type { Command } from "commander";
 
 import { getAssistantDomain } from "../../config/env.js";
-import { VellumPlatformClient } from "../../platform/client.js";
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
-import { getCliLogger } from "../logger.js";
+import { VellumPlatformClient } from "../../platform/client.js";
 import { registerCommand } from "../lib/register-command.js";
+import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
 const log = getCliLogger("email");
@@ -71,7 +71,7 @@ Examples:
             "email_register",
             { username },
           );
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
           } else {
@@ -124,7 +124,7 @@ Examples:
             "email_unregister",
             {},
           );
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
           } else {
@@ -166,7 +166,7 @@ Examples:
               received_this_month: number;
             };
           }>("email_status", {});
-          if (!r.ok) return exitFromIpcResult(r, cmd);
+          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
           const statusData = r.result!;
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, statusData);
@@ -238,7 +238,7 @@ Examples:
               }[];
               count: number;
             }>("email_list", params);
-            if (!r.ok) return exitFromIpcResult(r, cmd);
+            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
             const data = r.result!;
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
@@ -318,7 +318,7 @@ Examples:
               references: string[];
               created_at: string;
             }>("email_download", { messageId });
-            if (!r.ok) return exitFromIpcResult(r, cmd);
+            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
             const msg = r.result!;
 
             const fmt = opts.format ?? "text";
@@ -467,7 +467,7 @@ Examples:
               "email_send",
               params,
             );
-            if (!r.ok) return exitFromIpcResult(r, cmd);
+            if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
             const data = r.result!;
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
