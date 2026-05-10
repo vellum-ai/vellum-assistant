@@ -2867,6 +2867,11 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                  channel:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                    description: Updated channel
                   contact:
                     type: object
                     properties: {}
@@ -2874,6 +2879,7 @@ paths:
                     description: Updated contact (if applicable)
                 required:
                   - ok
+                  - channel
                   - contact
                 additionalProperties: false
       parameters:
@@ -2968,7 +2974,7 @@ paths:
     post:
       operationId: contacts_post
       summary: Create or update a contact
-      description: Create a new contact or update an existing one. Supports upsert by contactId or channel handle.
+      description: Create a new contact or update an existing one. Supports upsert by id or channel handle.
       tags:
         - contacts
       responses:
@@ -2997,9 +3003,9 @@ paths:
             schema:
               type: object
               properties:
-                contactId:
+                id:
+                  description: Existing contact ID (for update); omit to create
                   type: string
-                  description: Existing contact ID (for update)
                 displayName:
                   type: string
                   description: Display name
@@ -3013,7 +3019,6 @@ paths:
                   additionalProperties: {}
                   description: Assistant-side metadata
               required:
-                - contactId
                 - displayName
                 - channels
                 - assistantMetadata

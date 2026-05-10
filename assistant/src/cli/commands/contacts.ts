@@ -342,7 +342,7 @@ Examples:
                 } catch { writeError(cmd, `Invalid JSON for --channels: ${opts.channels}`); process.exitCode = 1; return; }
               }
               const r = await cliIpcCall<{ ok: true; contact: Record<string, unknown> }>("upsert_contact", {
-                body: { contactId: opts.id, displayName: opts.displayName, notes: opts.notes, role: opts.role, contactType: opts.contactType, channels },
+                body: { id: opts.id, displayName: opts.displayName, notes: opts.notes, role: opts.role, contactType: opts.contactType, channels },
               });
               if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode });
               if (shouldOutputJson(cmd)) { writeOutput(cmd, { ok: true, contact: r.result!.contact }); return; }

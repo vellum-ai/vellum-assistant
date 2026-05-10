@@ -292,7 +292,7 @@ describe("contacts merge", () => {
 // ---------------------------------------------------------------------------
 
 describe("contacts upsert", () => {
-  test("--display-name Alice sends correct body (contactId undefined)", async () => {
+  test("--display-name Alice sends correct body (id undefined)", async () => {
     mockResponses.push({
       ok: true,
       result: {
@@ -320,10 +320,10 @@ describe("contacts upsert", () => {
     expect(ipcCalls[0].method).toBe("upsert_contact");
     const body = ipcCalls[0].params!.body as Record<string, unknown>;
     expect(body.displayName).toBe("Alice");
-    expect(body.contactId).toBeUndefined();
+    expect(body.id).toBeUndefined();
   });
 
-  test("--display-name Alice --id existing-id sets body.contactId", async () => {
+  test("--display-name Alice --id existing-id sets body.id", async () => {
     mockResponses.push({
       ok: true,
       result: {
@@ -350,7 +350,7 @@ describe("contacts upsert", () => {
     ]);
 
     const body = ipcCalls[0].params!.body as Record<string, unknown>;
-    expect(body.contactId).toBe("existing-id");
+    expect(body.id).toBe("existing-id");
     expect(body.displayName).toBe("Alice");
   });
 

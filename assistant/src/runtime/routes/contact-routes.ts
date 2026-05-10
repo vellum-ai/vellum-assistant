@@ -495,10 +495,13 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     summary: "Create or update a contact",
     description:
-      "Create a new contact or update an existing one. Supports upsert by contactId or channel handle.",
+      "Create a new contact or update an existing one. Supports upsert by id or channel handle.",
     tags: ["contacts"],
     requestBody: z.object({
-      contactId: z.string().describe("Existing contact ID (for update)"),
+      id: z
+        .string()
+        .optional()
+        .describe("Existing contact ID (for update); omit to create"),
       displayName: z.string().describe("Display name"),
       channels: z
         .array(z.unknown())
@@ -551,6 +554,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       ok: z.boolean(),
+      channel: z.object({}).passthrough().describe("Updated channel"),
       contact: z
         .object({})
         .passthrough()
@@ -758,6 +762,7 @@ function handleUpdateContactChannelRoute(args: RouteHandlerArgs) {
   const parentContact = getContact(updated.contactId);
   return {
     ok: true,
+    channel: updated,
     contact: parentContact
       ? withGuardianNameOverride(parentContact)
       : undefined,
