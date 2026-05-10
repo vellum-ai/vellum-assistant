@@ -37,9 +37,7 @@ struct CallSiteOverridesSheet: View {
     /// Captured once so each row sees the same catalog without each row
     /// re-querying the store on every render.
     private var providerIds: [String] {
-        store.inferenceMode == "managed"
-            ? store.managedCapableProviders.map(\.id)
-            : store.dynamicProviderIds
+        store.dynamicProviderIds
     }
 
     private var availableModels: [String: [String]] {

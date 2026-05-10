@@ -64,15 +64,11 @@ struct WebSearchServiceCard: View {
     /// True when the user has made changes worth saving.
     private var hasChanges: Bool {
         if draftMode == "managed" {
-            // Managed + Your Own inference: managed web search is not yet available.
-            if store.inferenceMode == "your-own" {
-                return false
-            }
-            // Managed + Managed inference but not logged in: nothing actionable.
+            // Managed but not logged in: nothing actionable.
             if !isLoggedIn {
                 return false
             }
-            // Managed + Managed inference + logged in: only mode change matters.
+            // Managed + logged in: only mode change matters.
             return draftMode != store.webSearchMode
         }
 
@@ -96,9 +92,7 @@ struct WebSearchServiceCard: View {
             subtitle: "Configure how your assistant should search the web",
             draftMode: $draftMode,
             managedContent: {
-                if store.inferenceMode == "your-own" {
-                    managedUnavailableMessage
-                } else if isLoggedIn {
+                if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         managedIncludedMessage
                         if hasChanges {
@@ -158,19 +152,6 @@ struct WebSearchServiceCard: View {
             draftProvider = newValue
             initialProvider = newValue
         }
-        .onChange(of: store.inferenceMode) { _, newValue in
-            // Auto-correct invalid states when inference mode changes.
-            if newValue == "your-own" && draftMode == "managed" {
-                // Managed web search is not yet available without managed inference.
-                draftMode = "your-own"
-            }
-            if newValue == "managed" && draftProvider == "inference-provider-native" {
-                // Only auto-correct when the managed provider lacks native web search support.
-                if !store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: store.selectedModel) {
-                    draftProvider = "perplexity"
-                }
-            }
-        }
         .onChange(of: store.selectedInferenceProvider) { _, newProvider in
             // Auto-correct when the inference provider changes to one that
             // does not support native web search while provider-native is selected.
@@ -204,12 +185,6 @@ struct WebSearchServiceCard: View {
 
     private var managedIncludedMessage: some View {
         Text("Web search is included with managed inference.")
-            .font(VFont.bodyMediumLighter)
-            .foregroundStyle(VColor.contentDefault)
-    }
-
-    private var managedUnavailableMessage: some View {
-        Text("Managed web search requires managed inference.")
             .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentDefault)
     }

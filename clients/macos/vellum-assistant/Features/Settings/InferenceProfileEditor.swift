@@ -299,10 +299,7 @@ struct InferenceProfileEditor: View {
     }
 
     var availableProviderIds: [String] {
-        if store.inferenceMode == "managed" {
-            return store.managedCapableProviders.map(\.id)
-        }
-        return store.dynamicProviderIds
+        store.dynamicProviderIds
     }
 
     private var providerField: some View {
