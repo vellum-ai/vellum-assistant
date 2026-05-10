@@ -499,6 +499,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "backups/create", scopes: ["settings.write"] },
   { endpoint: "backups/restore", scopes: ["settings.write"] },
   { endpoint: "backups/verify", scopes: ["settings.read"] },
+  { endpoint: "backup/enable", scopes: ["settings.write"] },
+  { endpoint: "backup/disable", scopes: ["settings.write"] },
+  { endpoint: "backup/destinations", scopes: ["settings.read"] },
+  { endpoint: "backup/destinations/add", scopes: ["settings.write"] },
+  { endpoint: "backup/destinations/remove", scopes: ["settings.write"] },
+  { endpoint: "backup/destinations/set-encrypt", scopes: ["settings.write"] },
+  { endpoint: "backup/status", scopes: ["settings.read"] },
 
   // Settings (voice, avatar, client settings)
   { endpoint: "settings/voice", scopes: ["settings.write"] },
@@ -828,6 +835,19 @@ registerPolicy("background-tools", {
 
 registerPolicy("background-tools/cancel", {
   requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// TTS CLI synthesis: local-only (CLI / IPC callers)
+registerPolicy("tts/synthesize-cli", {
+  requiredScopes: ["chat.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// STT file transcription: local-only — handler reads/transcodes an arbitrary
+// host filesystem path, so non-local callers cannot be allowed to drive it.
+registerPolicy("stt/transcribe-file", {
+  requiredScopes: ["chat.write"],
   allowedPrincipalTypes: ["local"],
 });
 
