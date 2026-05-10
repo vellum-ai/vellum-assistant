@@ -1,5 +1,5 @@
 /**
- * Cycle-3 satellite-path gate test.
+ * Satellite-path gate test for `CallSiteRoutingProvider`.
  *
  * The dispatcher gate (`dispatch-connection-routing.test.ts`) proves that
  * the canonical `getConfiguredProvider()` path honors `provider_connection`.
@@ -9,22 +9,17 @@
  * at construction time and reuse it across many `sendMessage` calls,
  * routing per-call via `options.config.callSite`.
  *
- * If `CallSiteRoutingProvider` falls back to `getProvider(name)` when an
- * alternate-callSite profile names a `provider_connection`, the satellites
- * silently lose connection-awareness for any callSite distinct from the
- * default profile. This test proves the wrapper now consults the
- * connection-resolution hook before the legacy registry.
- *
- * Hard gates:
- *   1. A call with `callSite: <site>` whose profile names a connection
- *      invokes the connection-resolution hook with that name.
- *   2. The actual sendMessage transport that runs is the connection-bound
- *      Provider stub, not the default and not the legacy `getProvider(name)`
- *      result.
- *   3. A call with `callSite: <site>` whose profile has NO connection still
- *      falls through to legacy `getProvider(name)`.
- *   4. A call with no callSite goes straight to the default provider — no
- *      hook invocation, no registry lookup.
+ * `CallSiteRoutingProvider` does not use a legacy registry fallback.
+ * The contract is:
+ *   - Connection set, resolves cleanly → route through that connection.
+ *   - Connection set, resolves to null (soft credential failure) →
+ *     fall back to default Provider for graceful per-call degradation.
+ *   - Connection set, hard config error (not_found / mismatch) → throw
+ *     `ConnectionResolutionError`.
+ *   - Connection unset, profile.provider matches default → reuse default.
+ *   - Connection unset, profile.provider differs from default → throw
+ *     (alternate-provider routing requires a connection).
+ *   - No callSite → straight to default (no resolution work).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -115,10 +110,10 @@ mock.module("../inference/connections.js", () => ({
 const connectionsThatThrowOnResolve = new Set<string>();
 
 mock.module("../registry.js", () => ({
+  // The wrapper does not import getProvider. Kept here only so test files
+  // that share this mock module shape compile.
   getProvider: (name: string) => {
-    const p = fakeProviders.get(`legacy:${name}`);
-    if (!p) throw new Error(`legacy getProvider unknown: ${name}`);
-    return p;
+    throw new Error(`legacy getProvider should not be called: ${name}`);
   },
   initializeProviders: async () => {},
   listProviders: () => Array.from(fakeProviders.values()),
@@ -136,6 +131,7 @@ mock.module("../registry.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { wrapWithCallSiteRouting } from "../call-site-routing.js";
+import { ConnectionResolutionError } from "../connection-resolution.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -185,11 +181,10 @@ const providersConfigStub = {
 describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", () => {
   beforeEach(reset);
 
-  test("alternate-profile callSite with provider_connection routes through that connection's auth", async () => {
+  test("provider_connection set + resolves cleanly → routes through that connection's auth", async () => {
     // Default = anthropic, but the rollup callSite is configured to use a
     // different profile that names a `provider_connection`.
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
-    fakeProviders.set("legacy:anthropic", defaultProvider);
 
     registerConnection(
       {
@@ -231,27 +226,30 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     expect(resolveProviderCalls[0].auth.type).toBe("platform");
 
     // Hard gate #2: the actual transport that ran was the connection-bound
-    // stub, NOT the default and NOT the (mocked) legacy registry result.
+    // stub, NOT the default.
     expect(sendMessageCalls.length).toBe(1);
     expect(sendMessageCalls[0].tag).toBe("connection-managed");
-    expect((response as unknown as { tag: string }).tag).toBe("connection-managed");
+    expect((response as unknown as { tag: string }).tag).toBe(
+      "connection-managed",
+    );
   });
 
-  test("alternate-profile callSite WITHOUT provider_connection falls through to legacy registry", async () => {
+  test("connection unset + profile.provider matches default → reuses default (no resolution work)", async () => {
+    // The lenient path. A profile whose provider matches the default's name
+    // but doesn't (yet) carry a provider_connection should NOT throw — the
+    // default IS the connection-aware route in that case.
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
-    fakeProviders.set("legacy:anthropic", defaultProvider);
-    fakeProviders.set("legacy:openai", makeFakeProvider("legacy-openai", "openai"));
 
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
-        "openai-profile": {
-          provider: "openai",
-          // no provider_connection — must use getProvider("openai") fallback
+        "anthropic-bare": {
+          provider: "anthropic",
+          // no provider_connection — but provider matches default's name
         },
       },
       callSites: {
-        memoryRetrieval: { profile: "openai-profile" },
+        memoryRetrieval: { profile: "anthropic-bare" },
       },
     });
 
@@ -267,16 +265,63 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
       { config: { callSite: "memoryRetrieval" } },
     );
 
-    // Connection-resolution hook MUST NOT have fired.
+    // No connection lookup attempted at all.
     expect(resolveProviderCalls.length).toBe(0);
-    // Legacy registry path produced the openai stub.
+    // Default ran the call.
     expect(sendMessageCalls.length).toBe(1);
-    expect(sendMessageCalls[0].tag).toBe("legacy-openai");
+    expect(sendMessageCalls[0].tag).toBe("default-anthropic");
   });
 
-  test("alternate-profile callSite with unknown provider_connection falls through to legacy", async () => {
+  test("connection unset + profile.provider differs from default → throws ConnectionResolutionError(missing_connection)", async () => {
+    // Alternate-provider routing requires a connection. Without one,
+    // misconfigurations throw rather than silently dispatching to a
+    // mismatched backend.
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
-    fakeProviders.set("legacy:anthropic", defaultProvider);
+
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      profiles: {
+        "openai-profile": {
+          provider: "openai",
+          // No provider_connection — alternate-provider routing demands
+          // one; this profile is expected to throw
+          // `ConnectionResolutionError(missing_connection)`.
+        },
+      },
+      callSites: {
+        memoryRetrieval: { profile: "openai-profile" },
+      },
+    });
+
+    const wrapped = wrapWithCallSiteRouting(
+      defaultProvider,
+      providersConfigStub,
+    );
+
+    let caught: unknown;
+    try {
+      await wrapped.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        [],
+        undefined,
+        { config: { callSite: "memoryRetrieval" } },
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ConnectionResolutionError);
+    expect((caught as ConnectionResolutionError).reason).toBe(
+      "missing_connection",
+    );
+    // Connection-resolution hook MUST NOT have fired — threw before.
+    expect(resolveProviderCalls.length).toBe(0);
+    // Default's transport was never invoked either.
+    expect(sendMessageCalls.length).toBe(0);
+  });
+
+  test("provider_connection set but unknown → throws ConnectionResolutionError(not_found)", async () => {
+    const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
 
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
@@ -296,34 +341,34 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
       providersConfigStub,
     );
 
-    const response = await wrapped.sendMessage(
-      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-      [],
-      undefined,
-      { config: { callSite: "conversationTitle" } },
-    );
+    let caught: unknown;
+    try {
+      await wrapped.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        [],
+        undefined,
+        { config: { callSite: "conversationTitle" } },
+      );
+    } catch (err) {
+      caught = err;
+    }
 
-    // Connection lookup attempted (hook called) but returned null.
+    expect(caught).toBeInstanceOf(ConnectionResolutionError);
+    expect((caught as ConnectionResolutionError).reason).toBe("not_found");
+    expect((caught as ConnectionResolutionError).connectionName).toBe(
+      "does-not-exist",
+    );
+    // Resolver was never reached (connection lookup returned null).
     expect(resolveProviderCalls.length).toBe(0);
-    // Profile's resolved provider matches default → reused default
-    // instance (no legacy lookup needed). System stays operational.
-    expect(sendMessageCalls.length).toBe(1);
-    expect(sendMessageCalls[0].tag).toBe("default-anthropic");
-    expect((response as unknown as { tag: string }).tag).toBe("default-anthropic");
+    expect(sendMessageCalls.length).toBe(0);
   });
 
-  test("provider/connection mismatch falls through to legacy — no silent misroute", async () => {
+  test("provider/connection mismatch → throws ConnectionResolutionError(provider_mismatch)", async () => {
     // Misconfiguration: profile says provider=openai but provider_connection
-    // points at an anthropic-flavored row. Without the validation we'd dispatch
-    // OpenAI traffic to an Anthropic backend (or vice versa). With validation
-    // we fall through to the legacy `getProvider("openai")` path so the
-    // request goes where the profile's `provider` field said.
+    // points at an anthropic row. Connection validation throws
+    // `ConnectionResolutionError(provider_mismatch)` so OpenAI traffic
+    // never dispatches to an Anthropic backend.
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
-    fakeProviders.set("legacy:anthropic", defaultProvider);
-    fakeProviders.set(
-      "legacy:openai",
-      makeFakeProvider("legacy-openai", "openai"),
-    );
 
     registerConnection(
       {
@@ -331,9 +376,8 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
         provider: "anthropic",
         auth: { type: "platform" },
       },
-      // Note: even though the connection has a stub bound, it should NEVER
-      // be reached because the connection's provider doesn't match the
-      // profile's provider.
+      // Stub registered but should NEVER run — the mismatch check throws
+      // before `resolveProviderFromConnection` is called.
       makeFakeProvider("WRONG-connection-anthropic", "anthropic"),
     );
 
@@ -357,30 +401,37 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
       providersConfigStub,
     );
 
-    await wrapped.sendMessage(
-      [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-      [],
-      undefined,
-      { config: { callSite: "replySuggestion" } },
-    );
+    let caught: unknown;
+    try {
+      await wrapped.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        [],
+        undefined,
+        { config: { callSite: "replySuggestion" } },
+      );
+    } catch (err) {
+      caught = err;
+    }
 
-    // The hook MUST NOT have produced a Provider — the validation check
-    // returned null without reaching `resolveProviderFromConnection`.
+    expect(caught).toBeInstanceOf(ConnectionResolutionError);
+    expect((caught as ConnectionResolutionError).reason).toBe(
+      "provider_mismatch",
+    );
+    expect((caught as ConnectionResolutionError).connectionName).toBe(
+      "anthropic-managed",
+    );
+    // Resolver was never reached (mismatch check fires first).
     expect(resolveProviderCalls.length).toBe(0);
-    // Legacy registry path produced the openai stub (matching profile.provider,
-    // NOT the connection's anthropic).
-    expect(sendMessageCalls.length).toBe(1);
-    expect(sendMessageCalls[0].tag).toBe("legacy-openai");
+    expect(sendMessageCalls.length).toBe(0);
   });
 
-  test("transient auth-resolution failure falls through to legacy — does NOT hard-fail dispatch", async () => {
+  test("transient auth-resolution failure → falls back to default (graceful per-call degradation)", async () => {
     // Simulates a transient error inside `resolveProviderFromConnection`
     // (e.g. a credential read fails, or managed-proxy context lookup
-    // throws). The wrapper MUST log and fall through to the legacy
-    // registry path; throwing through to the dispatcher would take
-    // inference offline for any callsite using a connection-bound profile.
+    // throws). The connection-resolution helper catches transient throws
+    // and returns null. The wrapper then falls back to the default
+    // Provider so a credential blip does not take inference offline.
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
-    fakeProviders.set("legacy:anthropic", defaultProvider);
 
     registerConnection(
       {
@@ -420,11 +471,11 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
       { config: { callSite: "replySuggestion" } },
     );
 
-    // The hook DID fire (we got past the connection lookup + validation).
+    // The resolver DID fire (we got past the connection lookup + validation).
     expect(resolveProviderCalls.length).toBe(1);
     expect(resolveProviderCalls[0].name).toBe("flaky-managed");
-    // ...but the throw was caught and we fell through. Profile's
-    // resolved provider matches default → reused default instance.
+    // Helper caught the throw and returned null → wrapper fell back to
+    // default for graceful per-call degradation.
     expect(sendMessageCalls.length).toBe(1);
     expect(sendMessageCalls[0].tag).toBe("default-anthropic");
   });

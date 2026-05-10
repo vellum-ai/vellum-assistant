@@ -79,9 +79,11 @@ const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
 export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
   return async (context, options = {}) => {
     const config = loadConfig();
-    // Connection-aware default-provider resolution. If the default profile
-    // names a `provider_connection`, route through that connection's auth;
-    // otherwise fall through to the legacy registry lookup.
+    // Connection-aware default-provider resolution. Throws
+    // `ConnectionResolutionError` on hard config errors (missing /
+    // unknown / mismatched connection). Returns null on soft credential
+    // failures (vault miss, transient auth) — we treat null as "no
+    // provider available" and skip generating copy.
     const baseProvider: Provider | null = await resolveDefaultProvider(config);
     if (!baseProvider) return null;
     // Wrap so per-call `callSite` can route to an alternative provider
@@ -138,12 +140,13 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
   return async (context) => {
     const config = loadConfig();
     // Connection-aware default + per-call routing. `resolveDefaultProvider`
-    // returns null when neither the `provider_connection` path nor the
-    // legacy registry can produce a Provider, which is the right "no
-    // provider available" signal here. (We do not pre-gate on
-    // `listProviders()` because in `your-own` configurations the default
-    // provider may live entirely behind a `provider_connection` and never
-    // appear in the legacy registry list.)
+    // throws `ConnectionResolutionError` on hard config errors (missing /
+    // unknown / mismatched connection) and returns null on soft credential
+    // failures (vault miss, transient auth) — we treat null as "no
+    // provider available" and throw a domain-specific error below. We do
+    // not pre-gate on `listProviders()` because the default provider lives
+    // behind a `provider_connection` and never appears in the registry's
+    // initialization-time provider list.
     const baseProvider = await resolveDefaultProvider(config);
     if (!baseProvider) {
       throw new Error("No provider available for approval conversation");

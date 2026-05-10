@@ -1,7 +1,8 @@
 /**
  * Provider wrapper that routes each `sendMessage` call to a different
  * underlying provider transport when the per-call `options.config.callSite`
- * resolves to a provider name that differs from the default.
+ * resolves to a profile that names a `provider_connection` distinct from
+ * the default's.
  *
  * Without this wrapper the conversation-level provider transport is fixed at
  * construction time, so a per-call-site `llm.callSites.<id>.provider`
@@ -11,21 +12,22 @@
  * though the main agent runs on Anthropic" silently fail.
  *
  * `CallSiteRoutingProvider` consults `resolveCallSiteConfig` per call. When
- * the resolved provider name differs from the default's name and the
- * registry can produce a Provider for it, the call is delegated to that
- * provider; otherwise it falls back to the default. Other Provider interface
- * surface area (`name`, `tokenEstimationProvider`) is delegated to the
- * default so wrappers further out (e.g. `RateLimitProvider`) still see a
- * stable identity.
+ * the resolved profile names a `provider_connection`, the wrapper resolves
+ * that connection and delegates the call to its bound Provider. Other
+ * Provider interface surface area (`name`, `tokenEstimationProvider`) is
+ * delegated to the default so wrappers further out (e.g. `RateLimitProvider`)
+ * still see a stable identity.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
+import {
+  ConnectionResolutionError,
+  tryResolveProviderForConnectionName,
+} from "./connection-resolution.js";
 import type { ProvidersConfig } from "./registry.js";
-import { getProvider } from "./registry.js";
 import type {
   Message,
   Provider,
@@ -55,22 +57,22 @@ export class CallSiteRoutingProvider implements Provider {
 
   constructor(
     private readonly defaultProvider: Provider,
-    private readonly getProviderByName: (name: string) => Provider | undefined,
     /**
-     * Optional async hook invoked when the resolved profile names a
+     * Async hook invoked when the resolved profile names a
      * `provider_connection`. Returning a Provider routes the call through
-     * that connection's auth; returning null falls through to the
-     * legacy `getProviderByName(resolved.provider)` path.
+     * that connection's auth; returning null signals a soft credential
+     * failure (no usable adapter) and the wrapper falls back to the
+     * default Provider for graceful per-call degradation. Hard config
+     * errors (lookup_failed / not_found / provider_mismatch) throw
+     * `ConnectionResolutionError` and propagate to the caller — those
+     * are misconfigurations that need to be fixed, not silently routed
+     * around.
      *
-     * `expectedProvider` is the provider name the resolved profile declared.
-     * The hook should verify the connection's provider matches and fall
-     * through (return null) on mismatch.
-     *
-     * Optional so existing callers without connection-awareness still
-     * compile; satellites pass `tryResolveProviderForConnectionName`-bound
-     * closures to opt in.
+     * `expectedProvider` is the provider name the resolved profile
+     * declared. The hook verifies the connection's provider matches
+     * and throws on mismatch.
      */
-    private readonly resolveByConnection?: (
+    private readonly resolveByConnection: (
       connectionName: string,
       expectedProvider: string,
     ) => Promise<Provider | null>,
@@ -115,14 +117,19 @@ export class CallSiteRoutingProvider implements Provider {
    * Pick the provider to route this call through.
    *
    * Resolution order:
-   *   1. No callSite → default provider (legacy short-circuit).
-   *   2. Resolved profile names a `provider_connection` → async-resolve
-   *      through that connection's auth via `resolveByConnection`. On miss
-   *      we fall through to the next step (don't break inference).
+   *   1. No callSite → default provider (legacy short-circuit; no
+   *      resolution work needed).
+   *   2. Resolved profile names a `provider_connection` → resolve through
+   *      that connection's auth. Hard config errors propagate as throws.
+   *      Soft credential failures fall back to the default Provider so
+   *      a transient credential blip does not take a conversation
+   *      offline.
    *   3. Resolved profile's `provider` matches the default's name → reuse
-   *      the default provider instance (avoids redundant lookup).
-   *   4. Otherwise consult `getProviderByName(resolved.provider)`; fall
-   *      back to default if the registry can't produce one.
+   *      the default provider instance (no connection-aware lookup
+   *      needed; the default IS the connection-aware route).
+   *   4. Resolved profile's `provider` differs from the default but no
+   *      `provider_connection` is set → throw. This is a configuration
+   *      bug: alternate-provider routing requires a connection.
    */
   private async selectProvider(
     options?: SendMessageOptions,
@@ -135,26 +142,33 @@ export class CallSiteRoutingProvider implements Provider {
       overrideProfile,
     });
 
-    if (resolved.provider_connection && this.resolveByConnection) {
+    if (resolved.provider_connection) {
       const connectionProvider = await this.resolveByConnection(
         resolved.provider_connection,
         resolved.provider,
       );
       if (connectionProvider) return connectionProvider;
+      // Soft credential failure — the connection-resolution helper
+      // returned null because the underlying auth bundle yields no
+      // usable adapter (or threw transiently). Reuse the default for
+      // graceful per-call degradation.
+      return this.defaultProvider;
     }
 
     if (resolved.provider === this.defaultProvider.name) {
       return this.defaultProvider;
     }
 
-    const alternative = this.getProviderByName(resolved.provider);
-    return alternative ?? this.defaultProvider;
+    throw new ConnectionResolutionError(
+      "<resolved-callsite>",
+      "missing_connection",
+      `call-site "${callSite}" resolves to provider "${resolved.provider}" but no provider_connection is set — alternate-provider routing requires a connection`,
+    );
   }
 }
 
 /**
- * Wrap a base Provider with `CallSiteRoutingProvider` configured to resolve
- * alternate-profile routing through the global registry and to route
+ * Wrap a base Provider with `CallSiteRoutingProvider` configured to route
  * `provider_connection` references through the shared connection-resolution
  * helper.
  *
@@ -168,13 +182,6 @@ export function wrapWithCallSiteRouting(
 ): Provider {
   return new CallSiteRoutingProvider(
     base,
-    (name) => {
-      try {
-        return getProvider(name);
-      } catch {
-        return undefined;
-      }
-    },
     (connectionName, expectedProvider) =>
       tryResolveProviderForConnectionName(
         connectionName,
