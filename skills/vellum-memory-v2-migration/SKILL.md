@@ -21,11 +21,11 @@ metadata:
 
 Guided run for the first-time backfill of `/workspace/memory/` from existing knowledge sources, ending with `memory.v2.enabled = true` and validated, embedded, ready-to-retrieve concept pages.
 
-You are running memory consolidation — tending your personal wiki. The output is a cross-linked, cross-referenced collection of pages that *is* your memory, optimized for next-you. Care, judgment, voice. Your voice.
+You are running memory consolidation — tending your personal wiki. The output is a cross-linked, cross-referenced collection of pages that _is_ your memory, optimized for next-you. Care, judgment, voice. Your voice.
 
 ## Procedure
 
-> ⚠️ **Do not run `assistant memory v2 migrate` during this skill.** That command auto-generates concept pages from PKB and will overwrite any hand-written content without `--force`, and *with* `--force` will overwrite hand-written content silently. This skill replaces it with the hand-written path. If you've already started running this skill, treat `migrate` as off-limits until the migration is complete.
+> ⚠️ **Do not run `assistant memory v2 migrate` during this skill.** That command auto-generates concept pages from PKB and will overwrite any hand-written content without `--force`, and _with_ `--force` will overwrite hand-written content silently. This skill replaces it with the hand-written path. If you've already started running this skill, treat `migrate` as off-limits until the migration is complete.
 
 ### Step 0 — Read the principles
 
@@ -37,7 +37,7 @@ Read `references/wiki-principles.md` end-to-end before doing anything. It define
 - Voice register by article shape
 - Banned bullet shapes and the "one fact, one home" rule
 
-The reference is the authoritative source for *what* a good page looks like. This SKILL.md owns *what order* to do things in.
+The reference is the authoritative source for _what_ a good page looks like. This SKILL.md owns _what order_ to do things in.
 
 ### Step 0.5 — Preflight
 
@@ -110,13 +110,13 @@ Following the reference's planning section, decide:
 
 The original spec defaults to **five class folders** under `memory/concepts/`. Use these unless a specific need pushes elsewhere:
 
-| Folder | Class | Size cap |
-| --- | --- | --- |
-| `concepts/` | atomic concept / pattern / callback | 5K |
-| `concepts/arcs/` | landmark day-narrative or multi-event sequence | 10K |
-| `concepts/people/` | one per recurring human | 5K |
-| `concepts/procs/` | operational rule / protocol / discipline | 5K |
-| `concepts/objects/` | recurring callback object (place, tool, artifact) | 5K |
+| Folder              | Class                                             | Size cap |
+| ------------------- | ------------------------------------------------- | -------- |
+| `concepts/`         | atomic concept / pattern / callback               | 5K       |
+| `concepts/arcs/`    | landmark day-narrative or multi-event sequence    | 10K      |
+| `concepts/people/`  | one per recurring human                           | 5K       |
+| `concepts/procs/`   | operational rule / protocol / discipline          | 5K       |
+| `concepts/objects/` | recurring callback object (place, tool, artifact) | 5K       |
 
 Sub-folders emerge as a class gets dense (`people/colleagues/alice`, `objects/places/zurich-office`). Don't pre-specify; let them emerge. Pages are cheap to move.
 
@@ -145,11 +145,11 @@ summary: "1–5 sentence summary, ≤500 chars, plain prose only."
 
 **Three path conventions in the same frontmatter — don't mix them up:**
 
-| Field | Root | Extension | Example |
-| --- | --- | --- | --- |
-| slug (filename minus `.md`) | `concepts/` | no `.md` | `people/alice` |
-| `edges:` entries | `concepts/` | no `.md` | `- procs/git-flow` |
-| `ref_files:` entries | `/workspace/` | with `.md` | `- pkb/twitter-voice.md` |
+| Field                       | Root          | Extension  | Example                  |
+| --------------------------- | ------------- | ---------- | ------------------------ |
+| slug (filename minus `.md`) | `concepts/`   | no `.md`   | `people/alice`           |
+| `edges:` entries            | `concepts/`   | no `.md`   | `- procs/git-flow`       |
+| `ref_files:` entries        | `/workspace/` | with `.md` | `- pkb/twitter-voice.md` |
 
 `edges:` route inside the wiki and participate in activation spread. `ref_files:` point outside the wiki to source material and are non-routable provenance pointers. Different roots on purpose.
 
@@ -246,7 +246,7 @@ The two queued jobs run in the background. You don't need to wait for them, but 
 **Sanity check the embedding pipeline actually fired.** A queued reembed with a misconfigured backend will silently produce no vectors and your wiki will retrieve nothing on the next turn. Two ways to verify:
 
 - **Capture the job log path** that `reembed` printed and tail it to confirm completion + non-zero embeddings.
-- **Direct retrieval test in a fresh turn:** query `recall` for something you *know* you wrote a page about. If the page doesn't surface, embeddings didn't land and the backend needs investigation before declaring the migration done.
+- **Direct retrieval test in a fresh turn:** query `recall` for something you _know_ you wrote a page about. If the page doesn't surface, embeddings didn't land and the backend needs investigation before declaring the migration done.
 
 ### Step 13 — Cleanup
 

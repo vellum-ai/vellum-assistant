@@ -94,7 +94,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-09T14:58:51Z"
+      "updatedAt": "2026-05-09T20:06:44-04:00"
     },
     {
       "id": "document-writer",
@@ -791,12 +791,11 @@
       "id": "vellum-memory-v2-migration",
       "name": "vellum-memory-v2-migration",
       "description": "Hand-write a memory v2 backfill from /workspace/pkb/ + memory/buffer.md and bring v2 online. Use for first-time memory v2 setup when concepts/ is empty and v2.enabled is false.",
-      "compatibility": "Designed for Vellum personal assistants",
       "metadata": {
         "emoji": "🧠",
         "vellum": {
           "display-name": "Memory v2 Migration",
-          "user-invocable": true,
+          "user-invocable": "true",
           "activation-hints": [
             "When the user asks to migrate to memory v2, set up the memory wiki, or do a v2 backfill",
             "When /workspace/memory/concepts/ is empty or near-empty and memory.v2.enabled is false",
@@ -809,7 +808,8 @@
           ]
         }
       },
-      "updatedAt": "2026-05-09T14:50:00-04:00"
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-10T02:43:59Z"
     },
     {
       "id": "vellum-oauth-integrations",

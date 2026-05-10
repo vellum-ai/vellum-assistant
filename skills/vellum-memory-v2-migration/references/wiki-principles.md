@@ -1,6 +1,6 @@
 # Wiki principles
 
-You are tending a personal wiki — a cross-linked, continuously-edited collection of pages that *is* your memory. Pages are articles. Edges are **directed** "see also" links: source page → target page, like wiki "see also" sections that point one way. "What links here" (the inbound list) is computed by the retrieval engine at activation time, not stored. Categories (folders) grow with the corpus; they're editable, not pre-specified. Same shape every wiki has had since wikis were invented. You are the sole editor and the sole reader, writing for next-you.
+You are tending a personal wiki — a cross-linked, continuously-edited collection of pages that _is_ your memory. Pages are articles. Edges are **directed** "see also" links: source page → target page, like wiki "see also" sections that point one way. "What links here" (the inbound list) is computed by the retrieval engine at activation time, not stored. Categories (folders) grow with the corpus; they're editable, not pre-specified. Same shape every wiki has had since wikis were invented. You are the sole editor and the sole reader, writing for next-you.
 
 You're not summarizing for an audience. You're nesting and reorganizing your own memory until it actually works for next-you. Care, judgment, voice. Your voice.
 
@@ -14,9 +14,9 @@ You're not summarizing for an audience. You're nesting and reorganizing your own
 
 Every wiki has both kinds of articles, and so does yours.
 
-- **Event articles** — what HAPPENED. A day, a moment, a conversation, a procedure invented mid-crisis, a recurring pattern that just got named. These read narratively. They have a mood. They carry receipts. *(In wiki terms: "1995 Kobe earthquake," "First Council of Nicaea," "Rosa Parks (refusal of seat).")*
+- **Event articles** — what HAPPENED. A day, a moment, a conversation, a procedure invented mid-crisis, a recurring pattern that just got named. These read narratively. They have a mood. They carry receipts. _(In wiki terms: "1995 Kobe earthquake," "First Council of Nicaea," "Rosa Parks (refusal of seat).")_
 
-- **Topic articles** — what IS. The current state of a thing you'd want to query directly. What medications the principal takes. Who the primary doctor is. The team roster. Service credentials. *(In wiki terms: "Geology of California," "Stripe (company)," "List of supplements.")*
+- **Topic articles** — what IS. The current state of a thing you'd want to query directly. What medications the principal takes. Who the primary doctor is. The team roster. Service credentials. _(In wiki terms: "Geology of California," "Stripe (company)," "List of supplements.")_
 
 The same source observation can update both. New lab results update a bloodwork topic article AND a day-arc event article. Both, in parallel.
 
@@ -24,7 +24,7 @@ The same source observation can update both. New lab results update a bloodwork 
 
 # Gravity wells
 
-Some articles everything links to — the article about the principal, the article about you (the assistant), articles about your shared work or recurring contexts. They're hub pages. Every cluster eventually wires through them. They need active discipline or they balloon into giant dumps. The fix isn't to write less *about* the hub; it's to keep the hub itself terse and let the spokes hold the detail.
+Some articles everything links to — the article about the principal, the article about you (the assistant), articles about your shared work or recurring contexts. They're hub pages. Every cluster eventually wires through them. They need active discipline or they balloon into giant dumps. The fix isn't to write less _about_ the hub; it's to keep the hub itself terse and let the spokes hold the detail.
 
 # Categories — class-by-folder
 
@@ -42,24 +42,24 @@ Every retrieval turn loads a finite bundle of articles — call it a 10–20K-to
 Two consequences that change everything below:
 
 1. **Trust adjacency.** If a fact lives on a page this article edges to, that page loads if it matters. Don't restate it.
-2. **Trust `recall`.** If a fact is findable via a query (*"who's the most senior IC on the team?"*), it doesn't need to live on every related entity page. Pull-on-demand beats push-everywhere.
+2. **Trust `recall`.** If a fact is findable via a query (_"who's the most senior IC on the team?"_), it doesn't need to live on every related entity page. Pull-on-demand beats push-everywhere.
 
 # Article skeleton
 
 SKILL.md shows the YAML frontmatter shape. Two rules-of-thumb on top:
 
 - **Caps.** ~5–8 bullets per topic/concept article. ~10–12 per arc/event article (which can use bold inline labels: `**the open**: ...`). If you're approaching the cap, the page is doing too many jobs.
-- **Bullets carry implications.** A good bullet is "fact + implication folded in" — not just the fact, not a paragraph of analysis. The implication is what makes the fact retrievable for the *kind* of question you'll have later.
+- **Bullets carry implications.** A good bullet is "fact + implication folded in" — not just the fact, not a paragraph of analysis. The implication is what makes the fact retrievable for the _kind_ of question you'll have later.
 
 # One fact, one home
 
 Each fact gets exactly ONE place on the page. Before shipping any page, run this checklist:
 
 - Does the header say what bullet 1 says? → cut one.
-- Does bullet 2 restate bullet 1 from a different analytic angle (*"what it is"* / *"what it admits"* / *"what it confirms"*)? → these are the same bullet pretending to be three. Pick one.
+- Does bullet 2 restate bullet 1 from a different analytic angle (_"what it is"_ / _"what it admits"_ / _"what it confirms"_)? → these are the same bullet pretending to be three. Pick one.
 - Does the page name a fact 3+ times across header + role bullet + section bullet + footer? → it lives in zero places that matter. Consolidate.
 
-The intra-page redundancy bug is the loudest source of bloat. A person-page repeating *"head of X"* four times across header and bullets, or a metaphor unpacked through four analytic lenses — same bug.
+The intra-page redundancy bug is the loudest source of bloat. A person-page repeating _"head of X"_ four times across header and bullets, or a metaphor unpacked through four analytic lenses — same bug.
 
 # Route, don't restate
 
@@ -78,12 +78,12 @@ The test: **if you delete the bullet, does the fact still exist somewhere reacha
 
 The hoarder voice survives the section-ban by hiding inside bullets. Each of these LOOKS like content but isn't:
 
-- **Archaeology.** *"first appearance in the wiki: <date>, surfaced <date> during reorg pass."* Metadata about WHEN the page was written. Zero retrieval value. Drop.
-- **Hub-restating.** *"place in org hierarchy: <list of all five other team members>."* Enumerating the topic-hub from the entity page. Drop — the hub holds it.
-- **Interpretation gloss.** *"what it admits / what it confirms / what made the test crisp / the architecture of their attention."* Analytic essays disguised as bullets. These belong on the ARC page where journal-voice lives, not the entity/object page.
-- **Term/glyph gloss.** *"the X glyph specifically — gen-z register = …"* Explaining widely-understood references. Drop.
-- **Family / sister / sits-next-to.** *"family: thing-A, thing-B, thing-C."* Manual cross-reference list-making. `recall` handles this in one search.
-- **Behavioral coaching.** *"deployable when X / soft touch / don't tease about it casually / hold harder next time."* Future-instruction. Wiki ≠ behavioral coaching. Cut.
+- **Archaeology.** _"first appearance in the wiki: <date>, surfaced <date> during reorg pass."_ Metadata about WHEN the page was written. Zero retrieval value. Drop.
+- **Hub-restating.** _"place in org hierarchy: <list of all five other team members>."_ Enumerating the topic-hub from the entity page. Drop — the hub holds it.
+- **Interpretation gloss.** _"what it admits / what it confirms / what made the test crisp / the architecture of their attention."_ Analytic essays disguised as bullets. These belong on the ARC page where journal-voice lives, not the entity/object page.
+- **Term/glyph gloss.** _"the X glyph specifically — gen-z register = …"_ Explaining widely-understood references. Drop.
+- **Family / sister / sits-next-to.** _"family: thing-A, thing-B, thing-C."_ Manual cross-reference list-making. `recall` handles this in one search.
+- **Behavioral coaching.** _"deployable when X / soft touch / don't tease about it casually / hold harder next time."_ Future-instruction. Wiki ≠ behavioral coaching. Cut.
 - **Per-event recap on entity pages.** A person's page re-narrating an arc that has its own page. The arc owns the event; the entity page edges and stops.
 
 If a bullet falls into one of these shapes, ask: **would future-me search for this exact fact, or is it interpretation/coaching/restating?** If the second — cut.
@@ -127,7 +127,7 @@ SKILL.md owns the step-by-step procedure. Three philosophical points to hold whi
 **Recall ≠ memory.** `recall` results are search-tool synthesis — they CAN hallucinate. Search-tool synthesis can fabricate convincing-sounding but wrong details. Three failure modes worth naming, in increasing order of how-hard-to-catch:
 
 - **Wrong attribute on a real entity.** A real person assigned a wrong job title, a real project given a wrong date. Easiest to catch — the entity exists, only the predicate is off.
-- **Plausible composite people.** Two real coworkers whose roles overlap get synthesized into a third fictional one. The fictional one has plausible attributes drawn from both. Hardest to catch on review because every fact "checks out" against *some* real source.
+- **Plausible composite people.** Two real coworkers whose roles overlap get synthesized into a third fictional one. The fictional one has plausible attributes drawn from both. Hardest to catch on review because every fact "checks out" against _some_ real source.
 - **Quote drift.** A real person said something close-but-not-exact to what `recall` returns. The shape is right, the words are not. Damaging when the quote becomes load-bearing.
 
 Treat results as candidates to verify before encoding into the wiki, especially load-bearing claims about people's roles, dates, or exact quotes. The verification cost is low; the cost of a fabricated entity becoming a wiki citizen is high.
