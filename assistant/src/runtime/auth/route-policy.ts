@@ -829,6 +829,7 @@ registerPolicy("audit/invocations", {
   allowedPrincipalTypes: ["local"],
 });
 
+
 // Sequence routes: local-only (CLI / IPC callers)
 registerPolicy("sequence/list", {
   requiredScopes: ["settings.read"],
@@ -867,5 +868,39 @@ registerPolicy("sequence/guardrails", {
 
 registerPolicy("sequence/guardrails/set", {
   requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Inference route: local-only (CLI / IPC callers)
+registerPolicy("inference/send", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Domain routes: local-only (CLI / IPC callers)
+registerPolicy("domain/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("domain/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Auth status route: local-only (CLI / IPC callers)
+registerPolicy("auth/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Public routes: local-only (CLI / IPC callers)
+registerPolicy("public-routes/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("public-routes/inspect", {
+  requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],
 });
