@@ -5309,6 +5309,24 @@ paths:
           required: true
           schema:
             type: string
+  /v1/domain/register:
+    post:
+      operationId: domain_register_post
+      summary: Register a custom subdomain
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
+  /v1/domain/status:
+    get:
+      operationId: domain_status_get
+      summary: Get domain registration status
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
   /v1/events:
     get:
       operationId: events_get
