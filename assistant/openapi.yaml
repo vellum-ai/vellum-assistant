@@ -1333,6 +1333,15 @@ paths:
           schema:
             type: string
           description: Max rows (default 20, max 500)
+  /v1/auth/status:
+    get:
+      operationId: auth_status_get
+      summary: Get platform authentication status and identity
+      tags:
+        - auth
+      responses:
+        "200":
+          description: Successful response
   /v1/avatar/character-components:
     get:
       operationId: avatar_charactercomponents_get
