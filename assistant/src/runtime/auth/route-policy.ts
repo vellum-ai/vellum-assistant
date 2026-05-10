@@ -848,6 +848,16 @@ registerPolicy("email/download", {
   allowedPrincipalTypes: ["local"],
 });
 
+registerPolicy("email/attachment-list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/attachment-get", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // User-defined routes under /x/*
 registerPolicy("x", {
   requiredScopes: ["settings.read"],

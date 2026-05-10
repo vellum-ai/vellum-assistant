@@ -5293,6 +5293,83 @@ paths:
           required: true
           schema:
             type: string
+  /v1/email/attachment-get:
+    get:
+      operationId: email_attachmentget_get
+      summary: Stream-download an email attachment
+      description:
+        Download the binary content of a specific email attachment as a chunked stream. Response headers include
+        content-type from the upstream and x-filename derived from content-disposition.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: messageId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Email message ID
+        - name: attachmentId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Attachment ID
+  /v1/email/attachment-list:
+    get:
+      operationId: email_attachmentlist_get
+      summary: List attachments for an email message
+      description:
+        Return attachment metadata (id, filename, content_type, size_bytes, content_id, created_at) for all
+        attachments on a given email message.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        filename:
+                          type: string
+                        content_type:
+                          type: string
+                        size_bytes:
+                          type: number
+                        content_id:
+                          type: string
+                        created_at:
+                          type: string
+                      required:
+                        - id
+                        - filename
+                        - content_type
+                        - size_bytes
+                        - content_id
+                        - created_at
+                      additionalProperties: false
+                required:
+                  - results
+                additionalProperties: false
+      parameters:
+        - name: messageId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Email message ID
   /v1/email/download:
     get:
       operationId: email_download_get
