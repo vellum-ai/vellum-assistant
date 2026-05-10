@@ -5976,10 +5976,10 @@ public struct ProviderConnection: Codable, Sendable {
     /// One of: `anthropic`, `openai`, `gemini`, `ollama`, `fireworks`, `openrouter`.
     public let provider: String
     public let auth: ProviderConnectionAuth
-    public let createdAt: Double
-    public let updatedAt: Double
+    public let createdAt: Int
+    public let updatedAt: Int
 
-    public init(name: String, provider: String, auth: ProviderConnectionAuth, createdAt: Double, updatedAt: Double) {
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, createdAt: Int, updatedAt: Int) {
         self.name = name
         self.provider = provider
         self.auth = auth

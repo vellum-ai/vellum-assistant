@@ -331,41 +331,39 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     expect((err as ConflictError).message).toContain("my-profile");
   });
 
-  test("throws 409 when a call site references the connection", async () => {
-    seedConnection({ name: "cs-conn", provider: "openai", auth: { type: "platform" } });
+  test("throws 409 when llm.default references the connection", async () => {
+    seedConnection({ name: "default-conn", provider: "anthropic", auth: { type: "platform" } });
     fakeConfig = {
       llm: {
-        callSites: {
-          "code-review": { provider_connection: "cs-conn" },
-        },
+        default: { provider_connection: "default-conn" },
       },
     };
 
     const err = await call(
       findHandler("inference_provider_connections_delete"),
-      { pathParams: { name: "cs-conn" } },
+      { pathParams: { name: "default-conn" } },
     ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictError);
-    expect((err as ConflictError).message).toContain("code-review");
+    expect((err as ConflictError).message).toContain("default-conn");
+    expect((err as ConflictError).message).toContain("llm.default");
   });
 
-  test("throws 409 when both profile and call site reference the connection", async () => {
+  test("throws 409 when both llm.default and a profile reference the connection", async () => {
     seedConnection({ name: "shared-conn", provider: "anthropic", auth: { type: "none" } });
     fakeConfig = {
       llm: {
+        default: { provider_connection: "shared-conn" },
         profiles: { "prof-a": { provider_connection: "shared-conn" } },
-        callSites: { "site-b": { provider_connection: "shared-conn" } },
       },
     };
 
+    // llm.default check fires first (before profiles check).
     const err = await call(
       findHandler("inference_provider_connections_delete"),
       { pathParams: { name: "shared-conn" } },
     ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictError);
-    // Message should mention both the profile and the call site.
-    expect((err as ConflictError).message).toContain("prof-a");
-    expect((err as ConflictError).message).toContain("site-b");
+    expect((err as ConflictError).message).toContain("llm.default");
   });
 });
 

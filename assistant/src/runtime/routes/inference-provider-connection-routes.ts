@@ -124,20 +124,22 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   if (!name) throw new BadRequestError("name is required");
 
   const config = getConfigReadOnly();
+
+  // llm.default carries provider_connection (LLMConfigBase).
+  if ((config.llm?.default as Record<string, unknown> | undefined)?.provider_connection === name) {
+    throw new ConflictError(
+      `Connection "${name}" is referenced by llm.default. Update llm.default.provider_connection before deleting.`,
+    );
+  }
+
+  // llm.profiles.*: only ProfileEntry has provider_connection.
   const profiles = config.llm?.profiles ?? {};
   const referencingProfiles = Object.entries(profiles)
     .filter(([, p]) => (p as Record<string, unknown>).provider_connection === name)
     .map(([profileName]) => profileName);
 
-  const callSites = config.llm?.callSites ?? {};
-  const referencingCallSites = Object.entries(callSites)
-    .filter(([, s]) => (s as Record<string, unknown>).provider_connection === name)
-    .map(([siteName]) => siteName);
-
-  const allReferencing = [...referencingProfiles, ...referencingCallSites];
-
   const result = deleteConnection(getDb(), name, {
-    referencingProfiles: allReferencing,
+    referencingProfiles,
   });
 
   if (!result.ok) {
@@ -145,15 +147,8 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
       throw new NotFoundError(`Connection "${name}" not found.`);
     }
     if (result.error.code === "has_references") {
-      const parts: string[] = [];
-      if (referencingProfiles.length > 0) {
-        parts.push(`profiles: ${referencingProfiles.join(", ")}`);
-      }
-      if (referencingCallSites.length > 0) {
-        parts.push(`call sites: ${referencingCallSites.join(", ")}`);
-      }
       throw new ConflictError(
-        `Connection "${name}" is referenced by ${result.error.count} item(s): ${parts.join("; ")}.`,
+        `Connection "${name}" is referenced by ${result.error.count} profile(s): ${referencingProfiles.join(", ")}.`,
       );
     }
     throw new BadRequestError("Delete failed.");
