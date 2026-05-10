@@ -1,10 +1,10 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import { log } from "../logger.js";
 import { formatJson, formatMarkdown } from "../lib/conversation-formatter.js";
 import { registerCommand } from "../lib/register-command.js";
 import { timeAgo } from "../lib/time.js";
+import { log } from "../logger.js";
 import { registerConversationsDeferCommand } from "./conversations-defer.js";
 import { registerConversationsImportCommand } from "./conversations-import.js";
 
@@ -149,7 +149,8 @@ Examples:
           const trimmedTitle = title.trim();
           if (!trimmedTitle) {
             log.error("Error: title must be a non-empty string");
-            process.exit(1);
+            process.exitCode = 1;
+            return;
           }
 
           const ipcResult = await cliIpcCall<{ ok: boolean; error?: string }>(
@@ -163,7 +164,8 @@ Examples:
             log.error(
               `Rename failed: ${ipcResult.error}. Run 'assistant conversations list' to verify the conversation exists.`,
             );
-            process.exit(1);
+            process.exitCode = 1;
+            return;
           }
 
           const result = ipcResult.result!;
@@ -171,7 +173,8 @@ Examples:
             log.error(
               `Rename failed: ${result.error}. Run 'assistant conversations list' to see available conversations.`,
             );
-            process.exit(1);
+            process.exitCode = 1;
+            return;
           }
 
           log.info(
@@ -213,7 +216,8 @@ Examples:
               const format = opts?.format ?? "md";
               if (format !== "md" && format !== "json") {
                 log.error('Error: format must be "md" or "json"');
-                process.exit(1);
+                process.exitCode = 1;
+                return;
               }
 
               let id = conversationId;
@@ -229,7 +233,8 @@ Examples:
                   !(listR.result?.conversations?.length)
                 ) {
                   log.error("No conversations found");
-                  process.exit(1);
+                  process.exitCode = 1;
+                  return;
                 }
                 id = listR.result!.conversations![0].id;
               }

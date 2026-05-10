@@ -3664,6 +3664,22 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/export:
+    get:
+      operationId: conversations_by_id_export_get
+      summary: Export a conversation
+      description: Return the full conversation with all messages for export. Supports prefix matching on conversation ID.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations/{id}/inference-profile:
     put:
       operationId: conversations_by_id_inferenceprofile_put
