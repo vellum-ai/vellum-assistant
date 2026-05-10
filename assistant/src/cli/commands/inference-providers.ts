@@ -1,12 +1,17 @@
 /**
- * `assistant inference connections` CLI namespace.
+ * `assistant inference providers` CLI namespace.
  *
- * Subcommands:
- *   list    — list all connections (optionally filtered by provider)
- *   get     — show a single connection
- *   create  — create a new connection
- *   update  — update a connection's auth
- *   delete  — delete a connection (rejects if profiles reference it)
+ * Provider-scoped admin commands. Currently exposes one subcommand:
+ *
+ *   `assistant inference providers connections <verb>`
+ *     list    — list all connections (optionally filtered by provider)
+ *     get     — show a single connection
+ *     create  — create a new connection
+ *     update  — update a connection's auth
+ *     delete  — delete a connection (rejects if profiles reference it)
+ *
+ * Future provider-scoped commands (capabilities, picklists, etc.) hang off
+ * the `providers` namespace alongside `connections`.
  */
 
 import type { Command } from "commander";
@@ -400,8 +405,12 @@ function attachDeleteSubcommand(connections: Command): void {
 // Registration
 // ---------------------------------------------------------------------------
 
-export function attachConnectionsSubcommand(inference: Command): void {
-  const connections = inference
+export function attachProvidersSubcommand(inference: Command): void {
+  const providers = inference
+    .command("providers")
+    .description("Inference provider admin commands");
+
+  const connections = providers
     .command("connections")
     .description("Manage provider connections (auth configs for inference)");
 
@@ -418,12 +427,12 @@ Canonical connections (seeded on every boot):
   ollama-local       → provider=ollama,    auth=none
 
 Examples:
-  $ assistant inference connections list
-  $ assistant inference connections get anthropic-managed
-  $ assistant inference connections create anthropic-personal \\
+  $ assistant inference providers connections list
+  $ assistant inference providers connections get anthropic-managed
+  $ assistant inference providers connections create anthropic-personal \\
       --provider anthropic --auth api_key --credential credential/anthropic/api_key
-  $ assistant inference connections update anthropic-personal --auth platform
-  $ assistant inference connections delete anthropic-personal`,
+  $ assistant inference providers connections update anthropic-personal --auth platform
+  $ assistant inference providers connections delete anthropic-personal`,
   );
 
   attachListSubcommand(connections);
