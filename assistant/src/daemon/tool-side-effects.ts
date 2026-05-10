@@ -12,6 +12,7 @@ import { isAbsolute, resolve, sep } from "node:path";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { addAppConversationId } from "../memory/app-store.js";
 import { invalidateEdgeIndex } from "../memory/v2/edge-index.js";
+import { invalidatePageIndex } from "../memory/v2/page-index.js";
 import { getConceptsDir } from "../memory/v2/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
@@ -245,10 +246,10 @@ registerHook("bash", (_name, input, result) => {
   }
 });
 
-// Invalidate the in-memory v2 edge index when the LLM writes or edits a file
-// under `memory/concepts/`. The page-store invalidates on programmatic writes;
-// this hook covers consolidation, where the LLM edits page frontmatter through
-// the file tools rather than through `writePage`.
+// Invalidate the in-memory v2 edge index and page index when the LLM writes
+// or edits a file under `memory/concepts/`. The page-store invalidates on
+// programmatic writes; this hook covers consolidation, where the LLM edits
+// page frontmatter through the file tools rather than through `writePage`.
 function invalidateEdgeIndexIfConceptPage(
   input: Record<string, unknown>,
 ): void {
@@ -264,6 +265,7 @@ function invalidateEdgeIndexIfConceptPage(
     : conceptsRoot + sep;
   if (absPath.startsWith(rootWithSep)) {
     invalidateEdgeIndex(workspaceDir);
+    invalidatePageIndex(workspaceDir);
   }
 }
 registerHook("file_write", (_name, input) =>
