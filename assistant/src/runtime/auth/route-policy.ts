@@ -829,6 +829,12 @@ registerPolicy("audit/invocations", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Auth status route: local-only (CLI / IPC callers)
+registerPolicy("auth/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Public routes: local-only (CLI / IPC callers)
 registerPolicy("public-routes/list", {
   requiredScopes: ["settings.read"],
