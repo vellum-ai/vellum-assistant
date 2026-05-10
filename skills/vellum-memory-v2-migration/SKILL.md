@@ -1,6 +1,6 @@
 ---
 name: vellum-memory-v2-migration
-description: Hand-write a memory v2 backfill from /workspace/pkb/ + memory/buffer.md and bring v2 online. Use for first-time memory v2 setup when concepts/ is empty and v2.enabled is false.
+description: Perform a one-time migration from memory v1, to memory v2, which was introduced in 0.8.0.
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🧠"
@@ -8,13 +8,11 @@ metadata:
     display-name: "Memory v2 Migration"
     user-invocable: true
     activation-hints:
-      - "When the user asks to migrate to memory v2, set up the memory wiki, or do a v2 backfill"
+      - "When the user asks to migrate to memory v2"
       - "When /workspace/memory/concepts/ is empty or near-empty and memory.v2.enabled is false"
-      - "When /workspace/pkb/ or /workspace/memory/buffer.md has substantive content that needs to become the wiki"
     avoid-when:
       - "When concept pages are already populated and memory.v2.enabled is already true"
       - "When /workspace/pkb/ and /workspace/memory/buffer.md are both empty (nothing to migrate)"
-      - "Never run `assistant memory v2 migrate` during this skill — it overwrites hand-written pages"
 ---
 
 # Memory v2 Migration
@@ -70,6 +68,16 @@ assistant inference session open <profile-name> --ttl 2h
 The `--ttl 2h` overrides the 30m default — comfortable headroom for a typical migration without leaving a forever-pinned session if the close in Step 14.5 is skipped. The session is conversation-scoped and stays active across all migration turns.
 
 If `assistant inference session` isn't on your binary (older builds before the inference-session CLI shipped), proceed without it — the migration still works, the model just won't be pinned. Skip the close in Step 14.5 too.
+
+**(4) User confirmation.** Before starting any work, confirm the user understands what they're signing up for. The migration is judgment-heavy LLM work — every concept page, buffer entry, and always-loaded file goes through inference. Duration and cost scale with the size of the existing knowledge base: a workspace with months of history and hundreds of buffer entries will take meaningfully longer and cost meaningfully more than a fresh one.
+
+Use the CLI confirmation prompt:
+
+```
+assistant ui confirm "This migration will read all of your existing memories and knowledge base entries, distill them into concept pages, and re-embed everything. Depending on how long your assistant has been running and how many memories you have, this could take a while and cost real money. Proceed?"
+```
+
+If the user declines, stop the skill immediately — no sentinel commit, no work. If `assistant ui confirm` isn't available on this binary, ask the user directly in conversation instead.
 
 ### Step 1 — Open a paper trail
 
