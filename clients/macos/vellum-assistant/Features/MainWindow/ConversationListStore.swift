@@ -901,26 +901,23 @@ final class ConversationListStore {
             mergeGroups(from: responseGroups)
         }
 
+        // Snapshot-mutate to collapse N per-row didSets into one.
+        var snapshot = conversations
         for conversation in response.conversations {
-            // If a local conversation already exists, merge server pin/order metadata.
-            if let existingIdx = conversations.firstIndex(where: { $0.conversationId == conversation.id }) {
-                conversations[existingIdx] = conversationModel(
+            if let existingIdx = snapshot.firstIndex(where: { $0.conversationId == conversation.id }) {
+                snapshot[existingIdx] = conversationModel(
                     from: conversation,
-                    localId: conversations[existingIdx].id,
-                    createdAt: conversations[existingIdx].createdAt,
-                    isArchived: conversations[existingIdx].isArchived
+                    localId: snapshot[existingIdx].id,
+                    createdAt: snapshot[existingIdx].createdAt,
+                    isArchived: snapshot[existingIdx].isArchived
                 )
-                mergeAssistantAttention(from: conversation, intoConversationAt: existingIdx)
+                applyAssistantAttention(from: conversation, into: &snapshot[existingIdx])
                 continue
             }
 
-            let conversationModel = conversationModel(
-                from: conversation
-            )
-            // VM creation is lazy — getOrCreateViewModel() will instantiate
-            // when the conversation is first accessed (e.g. selected by the user).
-            conversations.append(conversationModel)
+            snapshot.append(conversationModel(from: conversation))
         }
+        conversations = snapshot
 
         if let hasMore = response.hasMore {
             hasMoreConversations = hasMore
@@ -1134,14 +1131,15 @@ final class ConversationListStore {
 
     // MARK: - Attention Merge
 
-    func mergeAssistantAttention(
+    /// Apply assistant-attention fields from a server response item into a
+    /// conversation value, reconciling any pending optimistic seen/unread
+    /// override. Operates on an `inout` value so callers that process a batch
+    /// of conversations can apply attention to a local snapshot and write
+    /// `conversations` back once — collapsing N `didSet` invocations into one.
+    func applyAssistantAttention(
         from item: ConversationListResponseItem,
-        intoConversationAt index: Int
+        into conversation: inout ConversationModel
     ) {
-        // Copy-modify-writeback: mutate a local copy and write back once to
-        // trigger a single conversations.didSet (and one recomputeDerivedProperties)
-        // instead of one per field assignment.
-        var conversation = conversations[index]
         let serverUnseen = item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
         conversation.hasUnseenLatestAssistantMessage =
             conversation.shouldSuppressUnreadIndicator ? false : serverUnseen
@@ -1162,8 +1160,8 @@ final class ConversationListStore {
                 if !conversation.hasUnseenLatestAssistantMessage {
                     pendingAttentionOverrides.removeValue(forKey: conversationId)
                 } else if targetLatestAssistantMessageAt == nil {
-                    // When target is nil (e.g. notification-created conversation before history loads),
-                    // drop the override if the server reports unseen — the server has newer info.
+                    // When target is nil (e.g. notification-created conversation before
+                    // history loads), drop the override — the server has newer info.
                     pendingAttentionOverrides.removeValue(forKey: conversationId)
                 } else if let targetLatestAssistantMessageAt,
                           let serverLatestAssistantMessageAt = conversation.latestAssistantMessageAt,
@@ -1196,7 +1194,18 @@ final class ConversationListStore {
                 }
             }
         }
+    }
 
+    /// Single-row convenience: apply attention merge directly to
+    /// `conversations[index]` with one `conversations.didSet`. Use
+    /// `applyAssistantAttention(from:into:)` directly when processing a batch
+    /// so the loop can coalesce N rows into a single writeback.
+    func mergeAssistantAttention(
+        from item: ConversationListResponseItem,
+        intoConversationAt index: Int
+    ) {
+        var conversation = conversations[index]
+        applyAssistantAttention(from: item, into: &conversation)
         conversations[index] = conversation
     }
 
