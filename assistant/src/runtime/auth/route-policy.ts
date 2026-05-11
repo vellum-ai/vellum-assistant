@@ -597,6 +597,18 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Image generation
   { endpoint: "image-generation/generate", scopes: ["settings.write"] },
+
+  // Auth introspection (returns platform identity for the calling actor)
+  { endpoint: "auth/info", scopes: ["settings.read"] },
+
+  // OAuth provider mutations (mirror oauth/apps.create/.delete shape)
+  { endpoint: "oauth/providers.register", scopes: ["settings.write"] },
+  { endpoint: "oauth/providers.update", scopes: ["settings.write"] },
+  { endpoint: "oauth/providers.delete", scopes: ["settings.write"] },
+
+  // OAuth app upsert + lookup
+  { endpoint: "oauth/apps.upsert", scopes: ["settings.write"] },
+  { endpoint: "oauth/apps/lookup", scopes: ["settings.read"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
@@ -637,6 +649,9 @@ const INTERNAL_ENDPOINTS = [
   "internal/mcp/reload", // ← new
   "internal/oauth/connect/start",
   "internal/oauth/connect/status",
+  "internal/mcp/list",
+  "internal/mcp/add",
+  "internal/mcp/remove",
 ];
 for (const endpoint of INTERNAL_ENDPOINTS) {
   registerPolicy(endpoint, {
@@ -917,4 +932,110 @@ registerPolicy("email/attachment-list", {
 registerPolicy("x", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+});
+
+// Audit log read (CLI-local introspection of tool invocations)
+registerPolicy("audit", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Conversation CLI routes (IPC-local — feed `assistant conversations list/create/export/clear`)
+registerPolicy("conversations/cli/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("conversations/cli/create", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("conversations/cli/export", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+// `conversations/cli/clear` wipes every conversation + message + vector
+// collection. Elevated to settings.write and locked to local callers,
+// mirroring the `conversations/clear-all` and `conversations/wipe` gates.
+registerPolicy("conversations/cli/clear", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// CLI-driven LLM dispatch. Aligns with `tts/synthesize-cli` and
+// `stt/transcribe-file` — IPC-local with chat.write because the handler
+// drives a model call on behalf of the caller.
+registerPolicy("inference/send", {
+  requiredScopes: ["chat.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Platform connection management (IPC-local CLI workflow)
+registerPolicy("platform/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("platform/connect", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("platform/disconnect", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("platform/callback-routes", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("platform/callback-routes/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Email sequences (IPC-local CLI workflow). Reads use settings.read, writes
+// use settings.write.
+registerPolicy("sequences/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/get", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/pause", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/resume", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/cancel-enrollment", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/stats", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+// Both GET and POST live on `sequences/guardrails`; the POST variant flips
+// to settings.write below.
+registerPolicy("sequences/guardrails", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/guardrails:POST", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// User-defined route inspection (CLI: `assistant routes list/inspect`).
+// Reads the workspace `routes/` directory and dynamically imports modules
+// — keep firmly local-only.
+registerPolicy("user-routes/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("user-routes/inspect", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
 });
