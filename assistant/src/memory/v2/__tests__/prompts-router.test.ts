@@ -1,11 +1,14 @@
 /**
  * Tests for `assistant/src/memory/v2/prompts/router.ts` —
- * specifically `renderRouterPrompt`, which substitutes the assistant name,
- * user name, and rendered page index into the bundled router prompt body.
+ * `renderRouterPrompt` (placeholder substitution in the bundled body) and
+ * `resolveRouterPrompt` (file-override path with fallback).
  */
-import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { renderRouterPrompt } from "../prompts/router.js";
+import { renderRouterPrompt, resolveRouterPrompt } from "../prompts/router.js";
 
 const SAMPLE_INDEX = `[1] morning-routine — coffee, walk, journal (edges: 2)
 [2] journal-style — terse, dated, no fluff (edges: 1)
@@ -171,5 +174,83 @@ describe("renderRouterPrompt — content expectations", () => {
     });
 
     expect(out.toLowerCase()).toContain("essentials");
+  });
+});
+
+describe("resolveRouterPrompt — override path", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "vellum-router-prompt-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const STD_OPTS = {
+    assistantName: "Aria",
+    userName: "Alice",
+    pageIndexBlock: SAMPLE_INDEX,
+  };
+
+  test("null overridePath returns the bundled prompt verbatim", () => {
+    expect(resolveRouterPrompt(null, STD_OPTS)).toEqual(
+      renderRouterPrompt(STD_OPTS),
+    );
+  });
+
+  test("loads override and substitutes placeholders", () => {
+    const overridePath = join(tmpDir, "router.md");
+    writeFileSync(
+      overridePath,
+      "Hi {{ASSISTANT_NAME}}, you are routing for {{USER_NAME}}.\n\n{{PAGE_INDEX}}",
+      "utf-8",
+    );
+
+    const out = resolveRouterPrompt(overridePath, STD_OPTS);
+    expect(out).toContain("Hi Aria, you are routing for Alice.");
+    expect(out).toContain(SAMPLE_INDEX);
+    expect(out).not.toContain("{{ASSISTANT_NAME}}");
+    expect(out).not.toContain("{{PAGE_INDEX}}");
+  });
+
+  test("missing override file falls back to bundled prompt", () => {
+    const overridePath = join(tmpDir, "does-not-exist.md");
+    expect(resolveRouterPrompt(overridePath, STD_OPTS)).toEqual(
+      renderRouterPrompt(STD_OPTS),
+    );
+  });
+
+  test("empty override file falls back to bundled prompt", () => {
+    const overridePath = join(tmpDir, "empty.md");
+    writeFileSync(overridePath, "   \n\t\n", "utf-8");
+    expect(resolveRouterPrompt(overridePath, STD_OPTS)).toEqual(
+      renderRouterPrompt(STD_OPTS),
+    );
+  });
+
+  test("override that is a directory falls back to bundled prompt", () => {
+    // Pass the temp directory itself as the override path — lstat sees a
+    // directory, not a regular file, so the loader bails to bundled.
+    expect(resolveRouterPrompt(tmpDir, STD_OPTS)).toEqual(
+      renderRouterPrompt(STD_OPTS),
+    );
+  });
+
+  test("override applies neutral fallbacks for missing names", () => {
+    const overridePath = join(tmpDir, "neutral.md");
+    writeFileSync(
+      overridePath,
+      "Hi {{ASSISTANT_NAME}}, routing for {{USER_NAME}}.",
+      "utf-8",
+    );
+
+    const out = resolveRouterPrompt(overridePath, {
+      assistantName: null,
+      userName: null,
+      pageIndexBlock: "",
+    });
+    expect(out).toBe("Hi the assistant, routing for the user.");
   });
 });
