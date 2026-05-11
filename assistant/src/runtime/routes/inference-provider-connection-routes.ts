@@ -135,6 +135,7 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   if ((config.llm?.default as Record<string, unknown> | undefined)?.provider_connection === name) {
     throw new ConflictError(
       `Connection "${name}" is referenced by llm.default. Update llm.default.provider_connection before deleting.`,
+      { referencedBy: ["llm.default"] },
     );
   }
 
@@ -155,6 +156,7 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
     if (result.error.code === "has_references") {
       throw new ConflictError(
         `Connection "${name}" is referenced by ${result.error.count} profile(s): ${referencingProfiles.join(", ")}.`,
+        { referencedBy: referencingProfiles },
       );
     }
     throw new BadRequestError("Delete failed.");

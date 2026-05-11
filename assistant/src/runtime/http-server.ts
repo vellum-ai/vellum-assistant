@@ -630,6 +630,7 @@ export class RuntimeHttpServer {
             err.code as HttpErrorCode,
             err.message,
             err.statusCode,
+            err.details,
           );
         }
         throw err;

@@ -1,30 +1,38 @@
 import type { Command } from "commander";
 
 import { getApexDomain, getAssistantDomain } from "../../config/env.js";
-import {
-  loadRawConfig,
-  saveRawConfig,
-  setNestedValue,
-} from "../../config/loader.js";
-import { VellumPlatformClient } from "../../platform/client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
 const log = getCliLogger("domain");
 
+function handleDomainIpcError(
+  r: { ok: false; error?: string; statusCode?: number },
+  cmd: Command,
+): void {
+  if (shouldOutputJson(cmd)) {
+    writeOutput(cmd, { error: r.error ?? "Unknown error" });
+    process.exitCode = 1;
+    return;
+  }
+  exitFromIpcResult(r);
+}
+
 export function registerDomainCommand(program: Command): void {
   const apexDomain = getApexDomain();
   const baseDomain = getAssistantDomain();
-  const domain = program
-    .command("domain")
-    .description(
-      `Register and manage this assistant's custom subdomain on ${baseDomain}`,
-    )
-    .option("--json", "Machine-readable compact JSON output");
+  registerCommand(program, {
+    name: "domain",
+    transport: "ipc",
+    description: `Register and manage this assistant's custom subdomain on ${baseDomain}`,
+    build: (domain) => {
+      domain.option("--json", "Machine-readable compact JSON output");
 
-  domain.addHelpText(
-    "after",
-    `
+      domain.addHelpText(
+        "after",
+        `
 Each assistant can register its own subdomain (e.g. velly.${baseDomain})
 for email and web presence. DNS managed by the Vellum platform.
 
@@ -32,16 +40,16 @@ Examples:
   $ assistant domain register velly
   $ assistant domain register --json
   $ assistant domain status`,
-  );
+      );
 
-  domain
-    .command("register [subdomain]")
-    .description(
-      `Register a custom subdomain on ${baseDomain} for this assistant`,
-    )
-    .addHelpText(
-      "after",
-      `
+      domain
+        .command("register [subdomain]")
+        .description(
+          `Register a custom subdomain on ${baseDomain} for this assistant`,
+        )
+        .addHelpText(
+          "after",
+          `
 Arguments:
   subdomain   The subdomain to register (e.g. "velly" → velly.${baseDomain}).
               If omitted, the platform derives it from the assistant's name.
@@ -58,104 +66,60 @@ Examples:
 
   $ assistant domain register velly --json
   {"domain":"velly.${baseDomain}","id":"...","status":"active","verified":true}`,
-    )
-    .action(
-      async (subdomain: string | undefined, _opts: unknown, cmd: Command) => {
-        try {
-          const client = await VellumPlatformClient.create();
-          if (!client) {
-            throw new Error(
-              "Platform credentials not configured. Run: assistant platform connect",
-            );
-          }
-          if (!client.platformAssistantId) {
-            throw new Error(
-              "Assistant ID not configured. Run: assistant platform connect",
-            );
-          }
-
-          const body: Record<string, string> = {};
-          if (subdomain) {
-            body.subdomain = subdomain;
-          }
-
-          const response = await client.fetch(
-            `/v1/assistants/${client.platformAssistantId}/domains/`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-            },
-          );
-
-          if (!response.ok) {
-            const respBody = (await response
-              .json()
-              .catch(() => ({}))) as Record<string, unknown>;
-            const detail =
-              respBody.detail ??
-              (Array.isArray(respBody.subdomain)
-                ? respBody.subdomain[0]
-                : undefined) ??
-              `HTTP ${response.status}`;
-            throw new Error(String(detail));
-          }
-
-          const data = (await response.json()) as {
-            id: string;
-            subdomain?: string;
-            domain?: string;
-            status?: string;
-            verified?: boolean;
-            created_at?: string;
-            created?: string;
-          };
-
-          // Persist the subdomain to config so getAssistantDomain() can use it
-          const registeredSubdomain =
-            data.subdomain ??
-            data.domain?.replace(`.${apexDomain}`, "") ??
-            subdomain;
-          if (registeredSubdomain) {
-            const raw = loadRawConfig();
-            setNestedValue(raw, "platform.subdomain", registeredSubdomain);
-            saveRawConfig(raw);
-          }
-
-          const displayDomain =
-            data.domain ??
-            (registeredSubdomain
-              ? `${registeredSubdomain}.${apexDomain}`
-              : "unknown");
-
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, data);
-          } else {
-            log.info(`✓ Registered ${displayDomain}`);
-            if (data.verified === false) {
-              log.info(
-                "  ⚠ Domain verification pending — this usually resolves within a few seconds.",
-              );
+        )
+        .action(
+          async (subdomain: string | undefined, _opts: unknown, cmd: Command) => {
+            const body: Record<string, string> = {};
+            if (subdomain) {
+              body.subdomain = subdomain;
             }
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, { error: message });
-          } else {
-            log.error(`Error: ${message}`);
-          }
-          process.exitCode = 1;
-        }
-      },
-    );
 
-  domain
-    .command("status")
-    .description("Show this assistant's domain registration and health")
-    .addHelpText(
-      "after",
-      `
+            const r = await cliIpcCall<{
+              id: string;
+              subdomain?: string;
+              domain?: string;
+              status?: string;
+              verified?: boolean;
+              created_at?: string;
+              created?: string;
+            }>("domain_register", { body });
+
+            if (!r.ok)
+              return handleDomainIpcError(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
+
+            const data = r.result!;
+            const registeredSubdomain =
+              data.subdomain ??
+              data.domain?.replace(`.${apexDomain}`, "") ??
+              subdomain;
+            const displayDomain =
+              data.domain ??
+              (registeredSubdomain
+                ? `${registeredSubdomain}.${apexDomain}`
+                : "unknown");
+
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, data);
+            } else {
+              log.info(`✓ Registered ${displayDomain}`);
+              if (data.verified === false) {
+                log.info(
+                  "  ⚠ Domain verification pending — this usually resolves within a few seconds.",
+                );
+              }
+            }
+          },
+        );
+
+      domain
+        .command("status")
+        .description("Show this assistant's domain registration and health")
+        .addHelpText(
+          "after",
+          `
 Shows the domain currently registered for this assistant, including
 verification status and DNS health.
 
@@ -168,94 +132,52 @@ Examples:
 
   $ assistant domain status --json
   {"domain":"velly.${baseDomain}","status":"active","verified":true,...}`,
-    )
-    .action(async (_opts: unknown, cmd: Command) => {
-      try {
-        const client = await VellumPlatformClient.create();
-        if (!client) {
-          throw new Error(
-            "Platform credentials not configured. Run: assistant platform connect",
-          );
-        }
-        if (!client.platformAssistantId) {
-          throw new Error(
-            "Assistant ID not configured. Run: assistant platform connect",
-          );
-        }
+        )
+        .action(async (_opts: unknown, cmd: Command) => {
+          const r = await cliIpcCall<{
+            results: {
+              id: string;
+              subdomain?: string;
+              domain?: string;
+              status?: string;
+              verified?: boolean;
+              created_at?: string;
+              created?: string;
+            }[];
+          }>("domain_status");
 
-        const response = await client.fetch(
-          `/v1/assistants/${client.platformAssistantId}/domains/`,
-        );
+          if (!r.ok)
+            return handleDomainIpcError(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
 
-        if (!response.ok) {
-          const respBody = (await response.json().catch(() => ({}))) as Record<
-            string,
-            unknown
-          >;
-          const detail = respBody.detail ?? `HTTP ${response.status}`;
-          throw new Error(String(detail));
-        }
+          const data = r.result!;
+          const domains = data.results ?? [];
 
-        const data = (await response.json()) as {
-          results: {
-            id: string;
-            subdomain?: string;
-            domain?: string;
-            status?: string;
-            verified?: boolean;
-            created_at?: string;
-            created?: string;
-          }[];
-        };
-
-        const domains = data.results ?? [];
-
-        // Sync subdomain to config if not already cached
-        if (domains.length > 0) {
-          const first = domains[0];
-          const sub =
-            first.subdomain ?? first.domain?.replace(`.${apexDomain}`, "");
-          if (sub) {
-            const raw = loadRawConfig();
-            const existing = (raw as Record<string, Record<string, unknown>>)
-              .platform?.subdomain;
-            if (existing !== sub) {
-              setNestedValue(raw, "platform.subdomain", sub);
-              saveRawConfig(raw);
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, data);
+          } else if (domains.length === 0) {
+            log.info(
+              "No domain registered for this assistant. Run: assistant domain register [subdomain]",
+            );
+          } else {
+            for (const d of domains) {
+              const displayDomain =
+                d.domain ??
+                (d.subdomain ? `${d.subdomain}.${apexDomain}` : "unknown");
+              const createdRaw = d.created_at ?? d.created;
+              const createdDate = createdRaw
+                ? createdRaw.split("T")[0]
+                : "unknown";
+              log.info(`Domain:   ${displayDomain}`);
+              if (d.status != null) log.info(`Status:   ${d.status}`);
+              if (d.verified != null)
+                log.info(`Verified: ${d.verified ? "yes" : "no"}`);
+              log.info(`Created:  ${createdDate}`);
             }
           }
-        }
-
-        if (shouldOutputJson(cmd)) {
-          writeOutput(cmd, data);
-        } else if (domains.length === 0) {
-          log.info(
-            "No domain registered for this assistant. Run: assistant domain register [subdomain]",
-          );
-        } else {
-          for (const d of domains) {
-            const displayDomain =
-              d.domain ??
-              (d.subdomain ? `${d.subdomain}.${apexDomain}` : "unknown");
-            const createdRaw = d.created_at ?? d.created;
-            const createdDate = createdRaw
-              ? createdRaw.split("T")[0]
-              : "unknown";
-            log.info(`Domain:   ${displayDomain}`);
-            if (d.status != null) log.info(`Status:   ${d.status}`);
-            if (d.verified != null)
-              log.info(`Verified: ${d.verified ? "yes" : "no"}`);
-            log.info(`Created:  ${createdDate}`);
-          }
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (shouldOutputJson(cmd)) {
-          writeOutput(cmd, { error: message });
-        } else {
-          log.error(`Error: ${message}`);
-        }
-        process.exitCode = 1;
-      }
-    });
+        });
+    },
+  });
 }

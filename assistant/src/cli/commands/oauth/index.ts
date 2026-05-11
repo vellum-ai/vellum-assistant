@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { registerCommand } from "../../lib/register-command.js";
 import { registerAppCommands } from "./apps.js";
 import { registerConnectCommand } from "./connect.js";
 import { registerDisconnectCommand } from "./disconnect.js";
@@ -11,16 +12,17 @@ import { registerStatusCommand } from "./status.js";
 import { registerTokenCommand } from "./token.js";
 
 export function registerOAuthCommand(program: Command): void {
-  const oauth = program
-    .command("oauth")
-    .description(
+  registerCommand(program, {
+    name: "oauth",
+    transport: "ipc",
+    description:
       "Manage the full OAuth lifecycle — registering providers, creating apps, connecting accounts, and making authenticated requests",
-    )
-    .option("--json", "Machine-readable compact JSON output");
+    build: (oauth) => {
+      oauth.option("--json", "Machine-readable compact JSON output");
 
-  oauth.addHelpText(
-    "after",
-    `
+      oauth.addHelpText(
+        "after",
+        `
 OAuth providers may support up to two modes – "managed" and "your-own".
   managed:
     Requires a Vellum Platform account. For providers that support it, managed mode offloads the burden of needing to create and register an oauth app.
@@ -43,59 +45,61 @@ Examples:
   assistant oauth ping google
   assistant oauth request --provider google /gmail/v1/users/me/messages
   assistant oauth disconnect google`,
-  );
+      );
 
-  // ---------------------------------------------------------------------------
-  // providers — subcommand group
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // providers — subcommand group
+      // -----------------------------------------------------------------------
 
-  registerProviderCommands(oauth);
+      registerProviderCommands(oauth);
 
-  // ---------------------------------------------------------------------------
-  // mode — get or set OAuth mode (managed vs your-own) for a provider
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // mode — get or set OAuth mode (managed vs your-own) for a provider
+      // -----------------------------------------------------------------------
 
-  registerModeCommand(oauth);
+      registerModeCommand(oauth);
 
-  // ---------------------------------------------------------------------------
-  // apps — subcommand group
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // apps — subcommand group
+      // -----------------------------------------------------------------------
 
-  registerAppCommands(oauth);
+      registerAppCommands(oauth);
 
-  // ---------------------------------------------------------------------------
-  // connect — unified connect command (auto-detects managed vs BYO)
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // connect — unified connect command (auto-detects managed vs BYO)
+      // -----------------------------------------------------------------------
 
-  registerConnectCommand(oauth);
+      registerConnectCommand(oauth);
 
-  // ---------------------------------------------------------------------------
-  // status — unified connection status
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // status — unified connection status
+      // -----------------------------------------------------------------------
 
-  registerStatusCommand(oauth);
+      registerStatusCommand(oauth);
 
-  // ---------------------------------------------------------------------------
-  // ping — ping to see if a provider is connected and healthy
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // ping — ping to see if a provider is connected and healthy
+      // -----------------------------------------------------------------------
 
-  registerPingCommand(oauth);
+      registerPingCommand(oauth);
 
-  // ---------------------------------------------------------------------------
-  // request — curl-like authenticated request command
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // request — curl-like authenticated request command
+      // -----------------------------------------------------------------------
 
-  registerRequestCommand(oauth);
+      registerRequestCommand(oauth);
 
-  // ---------------------------------------------------------------------------
-  // disconnect — unified disconnect with auto-detected managed/BYO routing
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // disconnect — unified disconnect with auto-detected managed/BYO routing
+      // -----------------------------------------------------------------------
 
-  registerDisconnectCommand(oauth);
+      registerDisconnectCommand(oauth);
 
-  // ---------------------------------------------------------------------------
-  // token — retrieve a valid oauth token (your-own mode only)
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // token — retrieve a valid oauth token (your-own mode only)
+      // -----------------------------------------------------------------------
 
-  registerTokenCommand(oauth);
+      registerTokenCommand(oauth);
+    },
+  });
 }
