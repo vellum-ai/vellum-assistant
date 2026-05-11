@@ -337,13 +337,19 @@ struct ProvidersSheet: View {
                         editorAuthTypeField
                         if editorDraft.authType == "api_key" {
                             editorApiKeyField
-                            // Note: Advanced disclosure stays visible even
-                            // when there are zero credentials — the empty
-                            // state inside shows a "+ New Credential" button
-                            // which is the only path to building a named
-                            // credential before saving an API key. Hiding the
-                            // whole section regresses that affordance
-                            // (Codex P2, PR #30294).
+                            // Note: Advanced disclosure is gated by
+                            // `shouldShowAdvancedSection` and only renders
+                            // once at least one credential exists for the
+                            // provider (or the user is mid-create). In the
+                            // empty state, the plain `editorApiKeyField`
+                            // above is the path: saving auto-creates
+                            // `credential/<provider>/api_key`. This is a
+                            // deliberate simplification (provider-conn UX
+                            // iter2, item 6) — users who want a *named*
+                            // credential save first with the default ref,
+                            // then re-open the editor to use Advanced.
+                            // This supersedes the earlier "keep Advanced
+                            // visible always" guidance from PR #30294.
                             editorAdvancedSection
                         } else if editorDraft.authType == "platform" {
                             editorPlatformNote
