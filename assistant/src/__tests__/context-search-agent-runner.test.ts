@@ -226,7 +226,11 @@ describe("runAgenticRecall", () => {
     const searchCalls: SearchCall[] = [];
 
     const result = await runAgenticRecall(
-      { query: "Where does Alice live?", sources: ["pkb"], max_results: 5 },
+      {
+        query: "Where does Alice live?",
+        sources: ["conversations"],
+        max_results: 5,
+      },
       makeContext(),
       {
         searchOptions: {
@@ -234,8 +238,8 @@ describe("runAgenticRecall", () => {
             makeAdapter(
               {
                 "alice lives residence": [
-                  makeEvidence("pkb:alice-home", {
-                    source: "pkb",
+                  makeEvidence("conversations:alice-home", {
+                    source: "conversations",
                     title: "people/alice.md",
                     locator: "people/alice.md:6",
                     excerpt:
@@ -248,10 +252,9 @@ describe("runAgenticRecall", () => {
                 ],
               },
               searchCalls,
-              "pkb",
+              "conversations",
             ),
           ],
-          readPkbContextEvidence: () => [],
         },
       },
     );
@@ -268,7 +271,7 @@ describe("runAgenticRecall", () => {
     });
     expect(result.content).toContain("Found evidence:");
     expect(result.content).toContain("Lives at Bob's parents' house in Katy");
-    expect(result.content).toContain("Searched sources: pkb.");
+    expect(result.content).toContain("Searched sources: conversations.");
   });
 
   test("seeds lead-in questions with declarative chain searches", async () => {
@@ -278,14 +281,14 @@ describe("runAgenticRecall", () => {
         answer:
           "Bob's April 24 letter followed the proud moment, the 1-in-99 hypothetical, and the direct evening disclosure.",
         confidence: "high",
-        citation_ids: ["pkb:bob-letter-chain"],
+        citation_ids: ["conversations:bob-letter-chain"],
       }),
     ]);
 
     const result = await runAgenticRecall(
       {
         query: "What led to Bob's April 24 letter?",
-        sources: ["pkb"],
+        sources: ["conversations"],
         max_results: 5,
       },
       makeContext(),
@@ -295,8 +298,8 @@ describe("runAgenticRecall", () => {
             makeAdapter(
               {
                 "bob april 24 letter": [
-                  makeEvidence("pkb:bob-letter-chain", {
-                    source: "pkb",
+                  makeEvidence("conversations:bob-letter-chain", {
+                    source: "conversations",
                     title: "archive/2026-04-24.md",
                     locator: "archive/2026-04-24.md:42",
                     excerpt:
@@ -309,10 +312,9 @@ describe("runAgenticRecall", () => {
                 ],
               },
               searchCalls,
-              "pkb",
+              "conversations",
             ),
           ],
-          readPkbContextEvidence: () => [],
         },
       },
     );
@@ -324,7 +326,7 @@ describe("runAgenticRecall", () => {
       "bob april 24 letter context reason before chain",
     ]);
     expect(result.content).toContain("1-in-99 hypothetical");
-    expect(result.content).toContain("Searched sources: pkb.");
+    expect(result.content).toContain("Searched sources: conversations.");
   });
 
   test("executes follow-up search_sources through narrowed local searches", async () => {
@@ -497,66 +499,6 @@ describe("runAgenticRecall", () => {
     expect(result.evidence.map((item) => item.id)).toEqual([
       "workspace:pointer",
       "workspace:scratch/handoff.md:1:path",
-    ]);
-  });
-
-  test("auto-inspects PKB-relative paths as workspace paths", async () => {
-    const root = makeTempDir();
-    writeWorkspaceFile(
-      root,
-      "pkb/archive/2026-04-24.md",
-      "The archive has the exact letter chain.",
-    );
-
-    const result = await runAgenticRecall(
-      {
-        query: "letter chain",
-        sources: ["pkb"],
-        max_results: 5,
-      },
-      makeContext(undefined, root),
-      {
-        searchOptions: {
-          adapters: [
-            makeAdapter(
-              {
-                "letter chain": [
-                  makeEvidence("pkb:pointer", {
-                    source: "pkb",
-                    title: "archive/2026-04-24.md",
-                    locator: "archive/2026-04-24.md:42",
-                    excerpt: "The exact note is archive/2026-04-24.md.",
-                    metadata: {
-                      retrieval: "lexical",
-                      path: "archive/2026-04-24.md",
-                    },
-                  }),
-                ],
-              },
-              [],
-              "pkb",
-            ),
-          ],
-          readPkbContextEvidence: () => [],
-        },
-      },
-    );
-
-    expect(result.debug.inspectCalls).toEqual([
-      {
-        round: 0,
-        paths: ["pkb/archive/2026-04-24.md"],
-        reason:
-          "Automatically inspect exact workspace paths surfaced by seed evidence.",
-        evidenceCount: 1,
-      },
-    ]);
-    expect(result.content).toContain(
-      "Inspected workspace paths: pkb/archive/2026-04-24.md.",
-    );
-    expect(result.evidence.map((item) => item.id)).toEqual([
-      "pkb:pointer",
-      "workspace:pkb/archive/2026-04-24.md:1:path",
     ]);
   });
 
@@ -782,7 +724,7 @@ describe("runAgenticRecall", () => {
     const result = await runAgenticRecall(
       {
         query: "launch notes",
-        sources: ["memory", "pkb", "workspace"],
+        sources: ["memory", "conversations", "workspace"],
         max_results: 3,
       },
       makeContext(),
@@ -805,15 +747,15 @@ describe("runAgenticRecall", () => {
             makeAdapter(
               {
                 "launch notes": [
-                  makeEvidence("pkb:included", {
-                    source: "pkb",
+                  makeEvidence("conversations:included", {
+                    source: "conversations",
                     excerpt: longExcerpt,
                     score: 0.8,
                   }),
                 ],
               },
               [],
-              "pkb",
+              "conversations",
             ),
             makeAdapter(
               {
@@ -829,7 +771,6 @@ describe("runAgenticRecall", () => {
               "workspace",
             ),
           ],
-          readPkbContextEvidence: () => [],
         },
       },
     );
@@ -840,7 +781,7 @@ describe("runAgenticRecall", () => {
     }>;
     const prompt = messages[0]?.content[0]?.text ?? "";
     expect(prompt).toContain(
-      "Allowed citation_ids: memory:included, pkb:included",
+      "Allowed citation_ids: memory:included, conversations:included",
     );
     expect(prompt).not.toContain("workspace:omitted");
     expect(result.debug).toMatchObject({
@@ -903,63 +844,6 @@ describe("runAgenticRecall", () => {
       fallbackReason: "provider_error",
       fallbackDetail: "provider unavailable",
     });
-  });
-
-  test("keeps auto-injected context behind concrete evidence after agent searches", async () => {
-    configuredProvider = makeProvider([
-      toolResponse("search_sources", {
-        query: "follow up",
-        sources: ["workspace"],
-        reason: "Need concrete follow-up evidence.",
-      }),
-      textResponse("not a finish"),
-    ]);
-
-    const result = await runAgenticRecall(
-      {
-        query: "launch notes",
-        sources: ["pkb", "workspace"],
-        max_results: 3,
-      },
-      makeContext(),
-      {
-        searchOptions: {
-          adapters: [
-            makeAdapter({}, [], "pkb"),
-            makeAdapter(
-              {
-                "launch notes": [makeEvidence("workspace:seed")],
-                "follow up": [makeEvidence("workspace:searched")],
-              },
-              [],
-              "workspace",
-            ),
-          ],
-          readPkbContextEvidence: () => [
-            makeEvidence("pkb:auto-inject", {
-              source: "pkb",
-              title: "PKB auto-injected context",
-              locator: "pkb:auto-inject",
-              excerpt: "Always-present background context.",
-            }),
-            makeEvidence("pkb:NOW.md", {
-              source: "pkb",
-              title: "NOW.md",
-              locator: "NOW.md",
-              excerpt: "Always-present NOW context.",
-            }),
-          ],
-        },
-      },
-    );
-
-    expect(result.debug.mode).toBe("deterministic_fallback");
-    expect(result.evidence.map((item) => item.id)).toEqual([
-      "workspace:seed",
-      "workspace:searched",
-      "pkb:NOW.md",
-      "pkb:auto-inject",
-    ]);
   });
 
   test("routes provider calls through the recall call site with temperature zero and thinking disabled", async () => {

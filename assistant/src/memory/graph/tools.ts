@@ -14,13 +14,13 @@ import {
 const RECALL_DEPTHS = ["fast", "standard", "deep"] as const;
 
 /**
- * Explicit local information search across memory, PKB, conversations, and
+ * Explicit local information search across memory, conversations, and
  * workspace files.
  */
 export const graphRecallDefinition: ToolDefinition = {
   name: "recall",
   description:
-    'Search local information the moment you feel uncertain. Use recall for memory, the personal knowledge base, past conversations, and workspace files — before you guess, before you ask, before you hedge. Auto-injection is incomplete by design; it surfaces patterns, not the specifics you need to answer well. If you catch yourself reaching for "I think", "I believe", "if I remember", "didn\'t we", "last time" — that\'s the signal. Recall. If the user references someone, a place, a decision, a document, or prior work you should be able to find locally — recall. Call it multiple times per conversation if the turn warrants it. Be specific in your query for best results.',
+    'Search local information the moment you feel uncertain. Use recall for memory, past conversations, and workspace files — before you guess, before you ask, before you hedge. Auto-injection is incomplete by design; it surfaces patterns, not the specifics you need to answer well. If you catch yourself reaching for "I think", "I believe", "if I remember", "didn\'t we", "last time" — that\'s the signal. Recall. If the user references someone, a place, a decision, a document, or prior work you should be able to find locally — recall. Call it multiple times per conversation if the turn warrants it. Be specific in your query for best results.',
   input_schema: {
     type: "object",
     properties: {
@@ -36,7 +36,7 @@ export const graphRecallDefinition: ToolDefinition = {
           enum: [...ALL_RECALL_SOURCES],
         },
         description:
-          "Optional local sources to search. Omit to search memory, PKB, conversations, and workspace files.",
+          "Optional local sources to search. Omit to search memory, conversations, and workspace files.",
       },
       max_results: {
         type: "integer",

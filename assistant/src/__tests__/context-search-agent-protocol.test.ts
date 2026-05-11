@@ -51,7 +51,7 @@ describe("recall agent protocol tool definitions", () => {
       schemaProperties(SEARCH_SOURCES_TOOL_DEFINITION).sources.items,
     ).toEqual({
       type: "string",
-      enum: ["memory", "pkb", "conversations", "workspace"],
+      enum: ["memory", "conversations", "workspace"],
     });
     expect(
       schemaProperties(SEARCH_SOURCES_TOOL_DEFINITION).limit,
@@ -242,7 +242,7 @@ describe("recall agent validation helpers", () => {
     });
 
     expect(prompt).toContain("memory: durable memory graph facts");
-    expect(prompt).toContain("pkb: personal knowledge base");
+    expect(prompt).not.toContain("pkb: personal knowledge base");
     expect(prompt).toContain("conversations: past assistant conversations");
     expect(prompt).toContain("workspace: files and text");
   });

@@ -58,7 +58,6 @@ const DEFAULT_MAX_SEARCH_CALLS = 4;
 
 const RECALL_SOURCE_DESCRIPTIONS: Record<RecallSource, string> = {
   memory: "durable memory graph facts and relationship/context memories",
-  pkb: "personal knowledge base notes, NOW context, and pinned context",
   conversations: "past assistant conversations and conversation summaries",
   workspace: "files and text available in the current workspace",
 };

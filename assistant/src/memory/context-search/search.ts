@@ -31,21 +31,10 @@ export interface DeterministicRecallSearchResult extends RecallSearchResult {
 
 export interface DeterministicRecallSearchOptions {
   adapters?: readonly RecallSourceAdapter[];
-  readPkbContextEvidence?: (
-    context: RecallSearchContext,
-  ) => Promise<readonly RecallEvidence[]> | readonly RecallEvidence[];
 }
 
 const SOURCE_PRIORITY = new Map<RecallSource, number>(
   ALL_RECALL_SOURCES.map((source, index) => [source, index]),
-);
-
-const AUTO_INJECTED_PKB_CONTEXT_EVIDENCE_IDS = new Set([
-  "pkb:auto-inject",
-  "pkb:NOW.md",
-]);
-const AUTO_INJECTED_PKB_CONTEXT_TEXT_CAP = Math.floor(
-  RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE / 2,
 );
 
 export async function runDeterministicRecallSearch(
@@ -64,19 +53,6 @@ export async function runDeterministicRecallSearch(
     normalizedInput.sources.map((source) => [source, []]),
   );
   const errorsBySource = new Map<RecallSource, string>();
-
-  if (normalizedInput.sources.includes("pkb")) {
-    try {
-      const contextEvidence = await readPkbContextEvidenceForSearch(
-        context,
-        options,
-      );
-      appendEvidence(evidenceBySource, "pkb", contextEvidence);
-    } catch (err) {
-      if (isAbortLikeError(err)) throw err;
-      errorsBySource.set("pkb", errorToMessage(err));
-    }
-  }
 
   const selectedAdapters = normalizedInput.sources.flatMap((source) => {
     const adapter = adapterBySource.get(source);
@@ -147,10 +123,6 @@ async function loadDefaultRecallSourceAdapter(
       const { searchMemorySource } = await import("./sources/memory.js");
       return { source, search: searchMemorySource };
     }
-    case "pkb": {
-      const { searchPkbSource } = await import("./sources/pkb.js");
-      return { source, search: searchPkbSource };
-    }
     case "conversations": {
       const { searchConversationSource } =
         await import("./sources/conversations.js");
@@ -161,21 +133,6 @@ async function loadDefaultRecallSourceAdapter(
       return { source, search: searchWorkspaceSource };
     }
   }
-
-  const exhaustiveSource: never = source;
-  throw new Error(`Unknown recall source: ${String(exhaustiveSource)}`);
-}
-
-async function readPkbContextEvidenceForSearch(
-  context: RecallSearchContext,
-  options: DeterministicRecallSearchOptions,
-): Promise<readonly RecallEvidence[]> {
-  if (options.readPkbContextEvidence) {
-    return options.readPkbContextEvidence(context);
-  }
-
-  const { readPkbContextEvidence } = await import("./sources/pkb.js");
-  return readPkbContextEvidence(context);
 }
 
 function appendEvidence(
@@ -226,7 +183,7 @@ function retrievalRankBoost(item: RecallEvidence): number {
   if (retrieval === "path") return 0.45;
   if (retrieval === "structured-json") return 0.4;
   if (retrieval === "section") return 0.35;
-  if (retrieval === "lexical") return item.source === "pkb" ? 1.5 : 0.25;
+  if (retrieval === "lexical") return 0.25;
   return 0;
 }
 
@@ -258,17 +215,11 @@ function capEvidence(
   evidence: readonly RecallEvidence[],
   maxResults: number,
 ): RecallEvidence[] {
-  const autoInjectedContextEvidence = evidence.filter(
-    isAutoInjectedPkbContextEvidence,
-  );
-  const regularEvidence = evidence.filter(
-    (item) => !isAutoInjectedPkbContextEvidence(item),
-  );
   const capped: RecallEvidence[] = [];
   const textSizeBySource = new Map<RecallSource, number>();
   let totalTextSize = 0;
 
-  for (const item of regularEvidence) {
+  for (const item of evidence) {
     if (capped.length >= maxResults) {
       break;
     }
@@ -282,63 +233,7 @@ function capEvidence(
     if (appended.totalRemaining <= 0) break;
   }
 
-  for (let index = 0; index < autoInjectedContextEvidence.length; index += 1) {
-    if (capped.length >= maxResults) {
-      break;
-    }
-
-    const item = autoInjectedContextEvidence[index];
-    if (!item) continue;
-
-    const autoInjectedRemaining = autoInjectedContextEvidence.length - index;
-    const reservedTextBudget = getReservedAutoInjectedTextBudget(item, {
-      textSizeBySource,
-      totalTextSize,
-      autoInjectedRemaining,
-    });
-    const appended = appendCappedEvidence(item, {
-      capped,
-      textSizeBySource,
-      totalTextSize,
-      textBudget: reservedTextBudget,
-    });
-    totalTextSize = appended.totalTextSize;
-    if (appended.totalRemaining <= 0) {
-      break;
-    }
-  }
-
   return capped;
-}
-
-export function isAutoInjectedPkbContextEvidence(
-  item: RecallEvidence,
-): boolean {
-  return (
-    item.source === "pkb" && AUTO_INJECTED_PKB_CONTEXT_EVIDENCE_IDS.has(item.id)
-  );
-}
-
-function getReservedAutoInjectedTextBudget(
-  item: RecallEvidence,
-  state: {
-    textSizeBySource: Map<RecallSource, number>;
-    totalTextSize: number;
-    autoInjectedRemaining: number;
-  },
-): number {
-  const sourceTextSize = state.textSizeBySource.get(item.source) ?? 0;
-  const autoInjectedSourceCap =
-    item.source === "pkb"
-      ? AUTO_INJECTED_PKB_CONTEXT_TEXT_CAP
-      : RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE;
-  const sourceRemaining = autoInjectedSourceCap - sourceTextSize;
-  const totalRemaining = RECALL_TOTAL_EVIDENCE_TEXT_CAP - state.totalTextSize;
-  const remaining = Math.min(sourceRemaining, totalRemaining);
-  if (remaining <= 0) {
-    return 0;
-  }
-  return Math.max(1, Math.floor(remaining / state.autoInjectedRemaining));
 }
 
 function appendCappedEvidence(
@@ -347,17 +242,12 @@ function appendCappedEvidence(
     capped: RecallEvidence[];
     textSizeBySource: Map<RecallSource, number>;
     totalTextSize: number;
-    textBudget?: number;
   },
 ): { totalTextSize: number; totalRemaining: number } {
   const sourceTextSize = state.textSizeBySource.get(item.source) ?? 0;
   const sourceRemaining = RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE - sourceTextSize;
   const totalRemaining = RECALL_TOTAL_EVIDENCE_TEXT_CAP - state.totalTextSize;
-  const remaining = Math.min(
-    sourceRemaining,
-    totalRemaining,
-    state.textBudget ?? Number.MAX_SAFE_INTEGER,
-  );
+  const remaining = Math.min(sourceRemaining, totalRemaining);
   if (remaining <= 0) {
     return { totalTextSize: state.totalTextSize, totalRemaining };
   }

@@ -41,8 +41,13 @@ describe("normalizeRecallInput", () => {
 
   test("de-duplicates sources while preserving first-seen order", () => {
     expect(
-      normalizeRecallSources(["workspace", "memory", "workspace", "pkb"]),
-    ).toEqual(["workspace", "memory", "pkb"]);
+      normalizeRecallSources([
+        "workspace",
+        "memory",
+        "workspace",
+        "conversations",
+      ]),
+    ).toEqual(["workspace", "memory", "conversations"]);
   });
 
   test("rejects unknown sources before adapters are run", async () => {
