@@ -33,8 +33,8 @@ mock.module("../config/env.js", () => ({
   getGatewayPort: () => 0,
 }));
 
-// contact-search now calls cliIpcCall instead of the gateway HTTP.
-// Mock the IPC client to dispatch search_contacts to the real store
+// Skill tools call cliIpcCall instead of the gateway HTTP.
+// Mock the IPC client to dispatch contact reads/merge to the real store
 // (backed by the test DB) without needing a running IPC server.
 mock.module("../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
@@ -43,10 +43,6 @@ mock.module("../ipc/cli-client.js", () => ({
     const pathParams = (params?.pathParams ?? {}) as Record<string, string>;
     if (method === "search_contacts") {
       return { ok: true, result: store.searchContacts(body) };
-    }
-    if (method === "upsert_contact") {
-      const contact = store.upsertContact(body as never);
-      return { ok: true, result: { ok: true, contact } };
     }
     if (method === "getContact") {
       const id = pathParams.id ?? (body as { id?: string }).id;
@@ -67,7 +63,8 @@ import type { Database } from "bun:sqlite";
 
 import { executeContactMerge } from "../config/bundled-skills/contacts/tools/contact-merge.js";
 import { executeContactSearch } from "../config/bundled-skills/contacts/tools/contact-search.js";
-import { executeContactUpsert } from "../config/bundled-skills/contacts/tools/contact-upsert.js";
+import { upsertContact } from "../contacts/contact-store.js";
+import type { ContactWithChannels } from "../contacts/types.js";
 import { getDb, resetDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { ROUTES } from "../runtime/routes/contact-routes.js";
@@ -105,14 +102,6 @@ beforeAll(() => {
             qp[k] = v;
           });
           const result = listRoute.handler({ queryParams: qp });
-          return Response.json(result);
-        }
-        if (path === "/v1/contacts" && req.method === "POST") {
-          const upsertRoute = ROUTES.find(
-            (r) => r.operationId === "upsert_contact",
-          )!;
-          const body = (await req.json()) as Record<string, unknown>;
-          const result = upsertRoute.handler({ body });
           return Response.json(result);
         }
       } catch (err) {
@@ -156,142 +145,28 @@ function clearContacts(): void {
   getRawDb().run("DELETE FROM contacts");
 }
 
-// ── contact_upsert ──────────────────────────────────────────────────
+// ── fixture helper ──────────────────────────────────────────────────
+//
+// The contact_upsert skill tool was removed (gateway is now the source of
+// truth — see PR #30141 + the follow-up that deleted this daemon route).
+// For test fixtures we go straight to the store, which is still the
+// underlying write path used by the gateway dual-write and the assistant CLI.
 
-describe("contact_upsert tool", () => {
-  beforeEach(clearContacts);
-
-  test("creates a new contact with display name only", async () => {
-    const result = await executeContactUpsert({ display_name: "Alice" }, ctx);
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Created contact");
-    expect(result.content).toContain("Alice");
+function upsertFixture(params: {
+  display_name: string;
+  notes?: string;
+  channels?: Array<{ type: string; address: string; is_primary?: boolean }>;
+}): ContactWithChannels {
+  return upsertContact({
+    displayName: params.display_name,
+    notes: params.notes,
+    channels: params.channels?.map((ch) => ({
+      type: ch.type,
+      address: ch.address,
+      isPrimary: ch.is_primary,
+    })),
   });
-
-  test("creates a contact with all fields", async () => {
-    const result = await executeContactUpsert(
-      {
-        display_name: "Bob",
-        notes:
-          "Colleague at Acme Corp, prefers professional tone, responds within hours",
-        channels: [
-          { type: "email", address: "bob@example.com", is_primary: true },
-          { type: "slack", address: "@bob" },
-        ],
-      },
-      ctx,
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Bob");
-    expect(result.content).toContain("Notes: Colleague at Acme Corp");
-    expect(result.content).toContain("email: bob@example.com");
-    expect(result.content).toContain("slack: @bob");
-  });
-
-  test("ignores external identity bindings supplied through tool input", async () => {
-    const result = await executeContactUpsert(
-      {
-        display_name: "Eve",
-        channels: [
-          {
-            type: "slack",
-            address: "@eve",
-            external_user_id: "UATTACKER",
-            external_chat_id: "DATTACKER",
-          },
-        ],
-      },
-      ctx,
-    );
-
-    expect(result.isError).toBe(false);
-
-    const row = getRawDb()
-      .query(
-        "SELECT external_user_id, external_chat_id FROM contact_channels WHERE type = 'slack' AND address = '@eve'",
-      )
-      .get() as {
-      external_user_id: string | null;
-      external_chat_id: string | null;
-    };
-
-    expect(row.external_user_id).toBeNull();
-    expect(row.external_chat_id).toBeNull();
-  });
-
-  test("updates an existing contact by ID", async () => {
-    const createResult = await executeContactUpsert(
-      { display_name: "Charlie" },
-      ctx,
-    );
-    expect(createResult.isError).toBe(false);
-
-    // Extract ID from output
-    const idMatch = createResult.content.match(/Contact (\S+)/);
-    expect(idMatch).not.toBeNull();
-    const contactId = idMatch![1];
-
-    const updateResult = await executeContactUpsert(
-      {
-        id: contactId,
-        display_name: "Charlie Updated",
-        notes: "Updated notes for Charlie",
-      },
-      ctx,
-    );
-
-    expect(updateResult.isError).toBe(false);
-    expect(updateResult.content).toContain("Updated contact");
-    expect(updateResult.content).toContain("Charlie Updated");
-    expect(updateResult.content).toContain("Notes: Updated notes for Charlie");
-  });
-
-  test("auto-matches by channel address on create", async () => {
-    // Create a contact with an email
-    await executeContactUpsert(
-      {
-        display_name: "Diana",
-        channels: [{ type: "email", address: "diana@example.com" }],
-      },
-      ctx,
-    );
-
-    // Upsert with same email but different display name
-    const result = await executeContactUpsert(
-      {
-        display_name: "Diana Updated",
-        channels: [{ type: "email", address: "diana@example.com" }],
-      },
-      ctx,
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Updated contact");
-    expect(result.content).toContain("Diana Updated");
-
-    // Should still be just 1 contact
-    const count = getRawDb()
-      .query("SELECT COUNT(*) as c FROM contacts")
-      .get() as { c: number };
-    expect(count.c).toBe(1);
-  });
-
-  test("rejects missing display_name", async () => {
-    const result = await executeContactUpsert({}, ctx);
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("display_name is required");
-  });
-
-  test("rejects empty display_name", async () => {
-    const result = await executeContactUpsert({ display_name: "   " }, ctx);
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("display_name is required");
-  });
-});
+}
 
 // ── contact_search ──────────────────────────────────────────────────
 
@@ -299,8 +174,8 @@ describe("contact_search tool", () => {
   beforeEach(clearContacts);
 
   test("searches by display name", async () => {
-    await executeContactUpsert({ display_name: "Alice Smith" }, ctx);
-    await executeContactUpsert({ display_name: "Bob Jones" }, ctx);
+    upsertFixture({ display_name: "Alice Smith" });
+    upsertFixture({ display_name: "Bob Jones" });
 
     const result = await executeContactSearch({ query: "Alice" }, ctx);
 
@@ -310,13 +185,10 @@ describe("contact_search tool", () => {
   });
 
   test("searches by channel address", async () => {
-    await executeContactUpsert(
-      {
-        display_name: "Charlie",
-        channels: [{ type: "email", address: "charlie@example.com" }],
-      },
-      ctx,
-    );
+    upsertFixture({
+      display_name: "Charlie",
+      channels: [{ type: "email", address: "charlie@example.com" }],
+    });
 
     const result = await executeContactSearch(
       { channel_address: "charlie@example" },
@@ -328,7 +200,7 @@ describe("contact_search tool", () => {
   });
 
   test("returns no results message when nothing matches", async () => {
-    await executeContactUpsert({ display_name: "Existing" }, ctx);
+    upsertFixture({ display_name: "Existing" });
 
     const result = await executeContactSearch({ query: "Nonexistent" }, ctx);
 
@@ -346,16 +218,13 @@ describe("contact_search tool", () => {
   });
 
   test("searches by channel address with type filter", async () => {
-    await executeContactUpsert(
-      {
-        display_name: "Frank",
-        channels: [
-          { type: "email", address: "frank@example.com" },
-          { type: "slack", address: "frank@example.com" },
-        ],
-      },
-      ctx,
-    );
+    upsertFixture({
+      display_name: "Frank",
+      channels: [
+        { type: "email", address: "frank@example.com" },
+        { type: "slack", address: "frank@example.com" },
+      ],
+    });
 
     const result = await executeContactSearch(
       {
@@ -375,32 +244,17 @@ describe("contact_search tool", () => {
 describe("contact_merge tool", () => {
   beforeEach(clearContacts);
 
-  function extractContactId(result: { content: string }): string {
-    const match = result.content.match(/Contact (\S+)/);
-    expect(match).not.toBeNull();
-    return match![1];
-  }
-
   test("merges two contacts", async () => {
-    const r1 = await executeContactUpsert(
-      {
-        display_name: "Alice (Email)",
-        notes: "Prefers email",
-        channels: [{ type: "email", address: "alice@example.com" }],
-      },
-      ctx,
-    );
-    const r2 = await executeContactUpsert(
-      {
-        display_name: "Alice (Slack)",
-        notes: "Active on Slack",
-        channels: [{ type: "slack", address: "@alice" }],
-      },
-      ctx,
-    );
-
-    const keepId = extractContactId(r1);
-    const mergeId = extractContactId(r2);
+    const keepId = upsertFixture({
+      display_name: "Alice (Email)",
+      notes: "Prefers email",
+      channels: [{ type: "email", address: "alice@example.com" }],
+    }).id;
+    const mergeId = upsertFixture({
+      display_name: "Alice (Slack)",
+      notes: "Active on Slack",
+      channels: [{ type: "slack", address: "@alice" }],
+    }).id;
 
     const result = await executeContactMerge(
       {
@@ -438,8 +292,7 @@ describe("contact_merge tool", () => {
   });
 
   test("returns error for nonexistent keep_id", async () => {
-    const r = await executeContactUpsert({ display_name: "Exists" }, ctx);
-    const existingId = extractContactId(r);
+    const existingId = upsertFixture({ display_name: "Exists" }).id;
 
     const result = await executeContactMerge(
       {
@@ -454,8 +307,7 @@ describe("contact_merge tool", () => {
   });
 
   test("returns error for nonexistent merge_id", async () => {
-    const r = await executeContactUpsert({ display_name: "Exists" }, ctx);
-    const existingId = extractContactId(r);
+    const existingId = upsertFixture({ display_name: "Exists" }).id;
 
     const result = await executeContactMerge(
       {

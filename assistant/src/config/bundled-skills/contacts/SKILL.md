@@ -15,27 +15,7 @@ Manage the user's contacts, relationship graph, access control (trusted contacts
 
 ## Contact Management
 
-### Create or update a contact
-
-Create a new contact or update an existing one in the relationship graph. Use this to track people the user interacts with across channels.
-
-```bash
-assistant contacts upsert --display-name "<name>" --notes "<notes>" --channels '<json_array>' --json
-```
-
-To update an existing contact, include the `--id` flag.
-
-Required flags:
-
-- `--display-name` -- the contact's name
-
-Optional flags:
-
-- `--id` -- contact ID to update (omit to create new, or auto-match by channel address)
-- `--notes` -- free-text notes about this contact (e.g. relationship, communication preferences, response expectations)
-- `--role` -- contact role: `contact` or `guardian` (default: `contact`)
-- `--contact-type` -- contact type: `human` or `assistant` (default: `human`)
-- `--channels` -- JSON array of channel objects, each with `type`, `address`, and optional `isPrimary`, `externalUserId`, `externalChatId`, `status`, `policy`
+> **Contact writes are guardian-only.** You can list, search, and merge contacts, but creating contacts and granting access happen through the guardian-facing flows: the **Contacts tab in the assistant web UI** for new contacts and channel verification, and `assistant contacts invites create` for invite-based onboarding. The LLM does **not** have a direct create/update tool — when a user asks for one, walk them to the guardian flow instead.
 
 ### Search contacts
 
@@ -116,25 +96,12 @@ The response contains `{ ok: true, contacts: [...] }` where each contact has:
 
 ### Allow a user (add trusted contact)
 
-Use this when the user wants to grant someone access to message the assistant. **Always confirm with the user before executing this action.**
+You can't add a trusted contact directly — contact writes are guardian-only. When the user wants to grant someone access, walk them through one of these guardian paths:
 
-Ask the user: _"I'll add [name/identifier] on [channel] as an allowed contact. Should I proceed?"_
+1. **Web UI** — open the Contacts tab in the assistant dashboard, click "Add contact", and verify the channel via the outbound verification flow (SMS code, Telegram message, etc.).
+2. **Invite link** — for channels that support it (Telegram, email, etc.), create an invite with `assistant contacts invites create --source-channel <channel> --contact-id <existing_contact_id>` (the contact must already exist).
 
-```bash
-assistant contacts upsert --display-name "<display_name>" --channels '[{"type":"<channel>","address":"<user_id>","externalUserId":"<user_id>","status":"active","policy":"allow"}]' --json
-```
-
-Required flags:
-
-- `--display-name` -- human-readable name for the contact
-- `--channels` -- at least one channel entry with:
-  - `type` -- the channel type (e.g., `telegram`)
-  - `address` -- the channel-specific identifier
-  - `externalUserId` -- the user's ID on that channel (or `externalChatId` for chat-based channels)
-  - `status` -- set to `"active"` for immediate access
-  - `policy` -- set to `"allow"` to grant messaging access
-
-If the user provides a name but not an external ID, explain that you need the channel-specific user ID or chat ID to create the contact entry. For Telegram, this is a numeric user ID.
+If the user insists on adding someone, tell them: _"I can't add trusted contacts directly — that's a guardian-only action. You can add them from the Contacts tab in the assistant dashboard, or I can create an invite link for an existing contact."_
 
 ### Revoke a user (remove access)
 
@@ -169,7 +136,7 @@ Replace `<channel_id>` with the channel's `id` from the contact's `channels` arr
 
 Invite links let the guardian share a link or code that automatically grants access when used. Telegram invites use a deep link; voice invites use a phone number + numeric code; email, WhatsApp, and Slack invites use a 6-digit code that the invitee sends to the assistant on the respective channel.
 
-**Every invite must be bound to a contact.** Before creating an invite, look up the contact with `assistant contacts list` or create one with `assistant contacts upsert`, then pass the contact's `id` via the required `--contact-id` flag.
+**Every invite must be bound to a contact.** Before creating an invite, look up the contact with `assistant contacts list` and pass the contact's `id` via the required `--contact-id` flag. **You cannot create new contacts** — if the target contact doesn't exist yet, tell the user to add them from the **Contacts tab in the assistant web UI** first, then come back to create the invite.
 
 ### Create a Telegram invite link
 
@@ -216,7 +183,7 @@ echo "$INVITE_URL"
 Required flags:
 
 - `--source-channel` -- must be `telegram`
-- `--contact-id` -- the ID of the contact this invite is for. Look up or create the contact first with `assistant contacts list` or `assistant contacts upsert`.
+- `--contact-id` -- the ID of the contact this invite is for. Look up the contact first with `assistant contacts list`. New contacts must be added via the Contacts tab in the assistant web UI; you cannot create them here.
 
 Optional flags:
 
@@ -256,7 +223,7 @@ assistant contacts invites create --source-channel phone --contact-id "<contact_
 Required flags:
 
 - `--source-channel` -- must be `phone`
-- `--contact-id` -- the ID of the contact this invite is for. Look up or create the contact first with `assistant contacts list` or `assistant contacts upsert`.
+- `--contact-id` -- the ID of the contact this invite is for. Look up the contact first with `assistant contacts list`. New contacts must be added via the Contacts tab in the assistant web UI; you cannot create them here.
 - `--expected-external-user-id` -- the invitee's phone number in E.164 format (e.g., `+15551234567`)
 - `--friend-name` -- the invitee's display name (e.g., "Mom", "Dr. Smith"). Used during the voice verification call to personalize the experience.
 - `--guardian-name` -- the guardian's display name (e.g., "Alex"). Used during the voice verification call so the invitee knows who invited them.
@@ -302,7 +269,7 @@ assistant contacts invites create --source-channel email --contact-id "<contact_
 Required flags:
 
 - `--source-channel` -- must be `email`
-- `--contact-id` -- the ID of the contact this invite is for. Look up or create the contact first with `assistant contacts list` or `assistant contacts upsert`.
+- `--contact-id` -- the ID of the contact this invite is for. Look up the contact first with `assistant contacts list`. New contacts must be added via the Contacts tab in the assistant web UI; you cannot create them here.
 
 The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInstruction, channelHandle, ... } }`.
 
@@ -333,7 +300,7 @@ assistant contacts invites create --source-channel whatsapp --contact-id "<conta
 Required flags:
 
 - `--source-channel` -- must be `whatsapp`
-- `--contact-id` -- the ID of the contact this invite is for. Look up or create the contact first with `assistant contacts list` or `assistant contacts upsert`.
+- `--contact-id` -- the ID of the contact this invite is for. Look up the contact first with `assistant contacts list`. New contacts must be added via the Contacts tab in the assistant web UI; you cannot create them here.
 
 The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInstruction, channelHandle?, ... } }`.
 
@@ -366,7 +333,7 @@ assistant contacts invites create --source-channel slack --contact-id "<contact_
 Required flags:
 
 - `--source-channel` -- must be `slack`
-- `--contact-id` -- the ID of the contact this invite is for. Look up or create the contact first with `assistant contacts list` or `assistant contacts upsert`.
+- `--contact-id` -- the ID of the contact this invite is for. Look up the contact first with `assistant contacts list`. New contacts must be added via the Contacts tab in the assistant web UI; you cannot create them here.
 
 The response follows the same shape as email and WhatsApp invites (`inviteCode`, `guardianInstruction`, `channelHandle`).
 
@@ -497,7 +464,7 @@ Each channel has:
 
 **"Who can message me?"** -- List all contacts with `assistant contacts list --json`, present active channels as a formatted list.
 
-**"Add my friend to Telegram"** -- Ask for their Telegram user ID (numeric) and display name, confirm, then create a contact with `assistant contacts upsert` including a channel entry with `policy: "allow"` and `status: "active"`.
+**"Add my friend to Telegram"** -- You can't add trusted contacts directly (guardian-only action). Tell the user to add the contact from the Contacts tab in the assistant dashboard, where they can enter the Telegram user ID and verify the channel. Once the contact exists, you can create an invite with `assistant contacts invites create --source-channel telegram --contact-id <contact_id>`.
 
 **"Remove [name]'s access"** -- List contacts with `assistant contacts list --json` to find them, identify the channel to revoke, confirm the revocation, then run `assistant contacts channels update-status <channel_id> --status revoked --json`.
 
