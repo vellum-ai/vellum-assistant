@@ -164,6 +164,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "confirm", scopes: ["approval.write"] },
   { endpoint: "secret", scopes: ["approval.write"] },
   { endpoint: "trust-rules", scopes: ["approval.write"] },
+  { endpoint: "question-response", scopes: ["approval.write"] },
   { endpoint: "host-app-control-result", scopes: ["approval.write"] },
   { endpoint: "host-bash-result", scopes: ["approval.write"] },
   { endpoint: "host-browser-result", scopes: ["approval.write"] },
@@ -571,10 +572,22 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Inference provider connections
   { endpoint: "inference/provider-connections:GET", scopes: ["settings.read"] },
-  { endpoint: "inference/provider-connections:POST", scopes: ["settings.write"] },
-  { endpoint: "inference/provider-connections/detail:GET", scopes: ["settings.read"] },
-  { endpoint: "inference/provider-connections/detail:PATCH", scopes: ["settings.write"] },
-  { endpoint: "inference/provider-connections/detail:DELETE", scopes: ["settings.write"] },
+  {
+    endpoint: "inference/provider-connections:POST",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "inference/provider-connections/detail:GET",
+    scopes: ["settings.read"],
+  },
+  {
+    endpoint: "inference/provider-connections/detail:PATCH",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "inference/provider-connections/detail:DELETE",
+    scopes: ["settings.write"],
+  },
 
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
