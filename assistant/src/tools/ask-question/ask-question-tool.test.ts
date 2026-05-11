@@ -49,9 +49,14 @@ describe("AskQuestionTool definition", () => {
     expect(def.description).toContain("free-text fallback is always added");
     expect(def.description).toContain("do not");
     expect(def.description).toContain("'something else'");
+    expect(def.description).toContain("plain-text clarification");
+    expect(def.description).toContain("obvious from context");
 
     const schema = def.input_schema as {
-      properties: Record<string, { type?: string; minItems?: number; maxItems?: number }>;
+      properties: Record<
+        string,
+        { type?: string; minItems?: number; maxItems?: number }
+      >;
       required: string[];
     };
     expect(schema.required).toEqual(["question", "options"]);
