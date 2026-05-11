@@ -110,7 +110,7 @@ final class ProviderConnectionClientTests: XCTestCase {
     func testListReturnsEmptyWhenClientReturnsEmpty() async {
         mock.listResponse = []
         let result = await mock.listProviderConnections(provider: nil)
-        XCTAssertEqual(result, [])
+        XCTAssertEqual(result?.count, 0)
         XCTAssertEqual(mock.listCallCount, 1)
         XCTAssertNil(mock.listProviderArg as Any? as? String)
     }
