@@ -122,6 +122,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "credentials delete",
   "credentials inspect",
   "credentials reveal",
+  "credentials status",
   "gateway",
   "gateway logs",
   "gateway logs tail",
