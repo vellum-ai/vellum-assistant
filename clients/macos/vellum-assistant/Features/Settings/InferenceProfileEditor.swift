@@ -27,6 +27,14 @@ struct InferenceProfileEditor: View {
     @Binding var profile: InferenceProfile
     var isReadOnly: Bool = false
     var isCreating: Bool = false
+    /// Provider connections available for the Connection sub-dropdown. The
+    /// editor reads this list, filters by the currently-selected provider
+    /// and `.status == .active`, and lets the user route the profile to a
+    /// specific row. Defaults to empty so test constructions and callers
+    /// that don't care about connection routing still compile — daemons
+    /// older than the `provider_connection`-aware profile schema continue
+    /// to behave as "pick the first active connection for the provider."
+    var connections: [ProviderConnection] = []
     let onSave: () -> Void
     var onSaveAs: (() -> Void)?
     let onCancel: () -> Void
@@ -126,6 +134,7 @@ struct InferenceProfileEditor: View {
                     descriptionField
                     keyField
                     providerField
+                    connectionField
                     modelField
                     if visibility.maxTokens {
                         maxTokensField
@@ -326,6 +335,12 @@ struct InferenceProfileEditor: View {
                         } else {
                             profile.model = nil
                         }
+                        // Reset connection binding too: a stale name almost
+                        // certainly points at a different provider's row, and
+                        // the daemon would reject it at resolve time. Falling
+                        // back to "Any active <provider> connection" matches
+                        // the dispatcher's legacy behavior.
+                        profile.providerConnection = nil
                         Self.clampMaxOutputTokensForSelectedModel(&profile)
                         Self.clampContextWindowForSelectedModel(&profile)
                     }
@@ -335,6 +350,73 @@ struct InferenceProfileEditor: View {
                 }
             )
         }
+    }
+
+    /// Active connections that match the currently-selected provider. Used
+    /// by `connectionField` to populate its dropdown and to gate visibility:
+    /// when zero match the dropdown is hidden entirely (the daemon's legacy
+    /// fallback applies) rather than rendering a placeholder with no
+    /// actionable options.
+    var availableConnectionsForProvider: [ProviderConnection] {
+        guard let provider = profile.provider, !provider.isEmpty else { return [] }
+        return connections.filter { $0.provider == provider && $0.status == .active }
+    }
+
+    /// Connection sub-dropdown. Renders only when a provider is selected
+    /// AND that provider has at least one active connection in
+    /// ``connections``. The first option preserves the pre-#5 default
+    /// ("the daemon picks the first active connection") so existing
+    /// profiles keep working without an explicit migration.
+    @ViewBuilder
+    private var connectionField: some View {
+        let available = availableConnectionsForProvider
+        if !available.isEmpty, let provider = profile.provider {
+            labeled(
+                "Connection",
+                accessory: {
+                    // Surface the "stale binding" state: the saved name
+                    // doesn't match any active connection for the provider.
+                    // Most commonly this fires when a connection was
+                    // disabled or deleted outside the editor.
+                    if let bound = profile.providerConnection,
+                       !bound.isEmpty,
+                       !available.contains(where: { $0.name == bound }) {
+                        VBadge(
+                            label: "Not found",
+                            tone: .warning,
+                            emphasis: .subtle
+                        )
+                    }
+                }
+            ) {
+                VDropdown(
+                    placeholder: "Any active connection\u{2026}",
+                    selection: Binding(
+                        get: { profile.providerConnection ?? "" },
+                        set: { newValue in
+                            profile.providerConnection = newValue.isEmpty ? nil : newValue
+                        }
+                    ),
+                    options: [
+                        (
+                            label: "Any active \(store.dynamicProviderDisplayName(provider)) connection",
+                            value: ""
+                        )
+                    ] + available.map { conn in
+                        (label: Self.connectionDisplayName(conn), value: conn.name)
+                    }
+                )
+            }
+        }
+    }
+
+    /// Prefer the human-readable label when present; fall back to the
+    /// connection's stored `name` (which is the on-disk identifier). Mirrors
+    /// the convention used by `ProvidersSheet` row rendering so the two
+    /// surfaces stay visually consistent.
+    static func connectionDisplayName(_ conn: ProviderConnection) -> String {
+        if let label = conn.label, !label.isEmpty { return label }
+        return conn.name
     }
 
     private var modelField: some View {

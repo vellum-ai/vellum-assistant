@@ -26,6 +26,19 @@ struct InferenceProfilesSheet: View {
     @ObservedObject var store: SettingsStore
     @Binding var isPresented: Bool
 
+    /// Connection client used to populate the editor's per-provider
+    /// Connection dropdown (audit finding #5). Injected so tests can stub
+    /// the network. Defaults to the production client; matches the pattern
+    /// already established by `ProvidersSheet`.
+    var connectionClient: ProviderConnectionClientProtocol = ProviderConnectionClient()
+
+    /// Cached active+disabled connection list. The editor reads this via
+    /// the `connections:` parameter and filters down to `.active` matches
+    /// for the currently-selected provider. Refreshed on appear and after
+    /// each editor commit so users who add a connection in another surface
+    /// see it without a manual reload.
+    @State private var connections: [ProviderConnection] = []
+
     @State private var editorState: EditorState?
 
     /// Local working copy for the active editor session. Bound into
@@ -89,10 +102,18 @@ struct InferenceProfilesSheet: View {
         .sheet(item: $blockedState) { _ in
             blockedDeleteSheet
         }
-        .onChange(of: editorState) { _, newValue in
+        .onChange(of: editorState) { oldValue, newValue in
             if newValue == nil {
                 editorDraft = InferenceProfile(name: "")
                 editorOriginalName = nil
+            }
+            // Re-fetch when the editor transitions from open → closed so a
+            // freshly-added connection (created in another sheet) shows up
+            // the next time the editor opens. Also covers the create-mode
+            // case where the daemon just wrote a new profile that may
+            // reference a connection added in the same session.
+            if oldValue != nil && newValue == nil {
+                Task { await refreshConnections() }
             }
         }
         .onChange(of: blockedState) { _, newValue in
@@ -100,6 +121,7 @@ struct InferenceProfilesSheet: View {
                 replacementSelection = ""
             }
         }
+        .task { await refreshConnections() }
         .animation(VAnimation.fast, value: editorState != nil)
     }
 
@@ -301,6 +323,7 @@ struct InferenceProfilesSheet: View {
             profile: $editorDraft,
             isReadOnly: isViewMode,
             isCreating: isCreateMode,
+            connections: connections,
             onSave: {
                 Task { await commitEditor() }
             },
@@ -312,6 +335,17 @@ struct InferenceProfilesSheet: View {
                 editorState = nil
             }
         )
+    }
+
+    /// Loads provider connections used by the editor's per-provider
+    /// Connection dropdown. Tolerant: on transport failure the cached list
+    /// is preserved (stale-but-correct beats blank) — same posture as
+    /// `SettingsStore.providerKeys`.
+    private func refreshConnections() async {
+        guard let fetched = await connectionClient.listProviderConnections(provider: nil) else {
+            return
+        }
+        connections = fetched
     }
 
     // MARK: - Blocked Delete Sheet

@@ -45,6 +45,18 @@ public struct InferenceProfile: Hashable, Identifiable {
     public var profileDescription: String?
 
     public var provider: String?
+
+    /// Name of a `provider_connections` row to bind this profile to. When set,
+    /// the daemon dispatcher resolves auth from this specific connection
+    /// instead of falling back to "the first active connection for the
+    /// provider." Mirrors `ProfileEntry.provider_connection` in
+    /// `assistant/src/config/schemas/llm.ts`.
+    ///
+    /// Wire shape is `provider_connection` (snake_case) because the daemon's
+    /// Zod schema declares the field with that literal key; see
+    /// `LLMConfigBase.provider_connection` in `llm.ts`.
+    public var providerConnection: String?
+
     public var model: String?
     public var maxTokens: Int?
     public var effort: String?
@@ -96,6 +108,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         label: String? = nil,
         profileDescription: String? = nil,
         provider: String? = nil,
+        providerConnection: String? = nil,
         model: String? = nil,
         maxTokens: Int? = nil,
         effort: String? = nil,
@@ -112,6 +125,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         self.label = label
         self.profileDescription = profileDescription
         self.provider = provider
+        self.providerConnection = providerConnection
         self.model = model
         self.maxTokens = maxTokens
         self.effort = effort
@@ -134,6 +148,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         label: String? = nil,
         profileDescription: String? = nil,
         provider: String? = nil,
+        providerConnection: String? = nil,
         model: String? = nil,
         maxTokens: Int? = nil,
         effort: String? = nil,
@@ -151,6 +166,7 @@ public struct InferenceProfile: Hashable, Identifiable {
             label: label,
             profileDescription: profileDescription,
             provider: provider,
+            providerConnection: providerConnection,
             model: model,
             maxTokens: maxTokens,
             effort: effort,
@@ -176,6 +192,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         self.label = (json["label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.profileDescription = (json["description"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.provider = (json["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        self.providerConnection = (json["provider_connection"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.model = (json["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.maxTokens = Self.intValue(json["maxTokens"])
         self.effort = (json["effort"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -198,6 +215,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         var merged = self
         if let v = fragment.status { merged.status = v }
         if let v = fragment.provider { merged.provider = v }
+        if let v = fragment.providerConnection { merged.providerConnection = v }
         if let v = fragment.model { merged.model = v }
         if let v = fragment.maxTokens { merged.maxTokens = v }
         if let v = fragment.effort { merged.effort = v }
@@ -225,6 +243,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         if let label { result["label"] = label }
         if let profileDescription { result["description"] = profileDescription }
         if let provider { result["provider"] = provider }
+        if let providerConnection { result["provider_connection"] = providerConnection }
         if let model { result["model"] = model }
         if let maxTokens { result["maxTokens"] = maxTokens }
         if let effort { result["effort"] = effort }
@@ -266,6 +285,7 @@ public struct InferenceProfile: Hashable, Identifiable {
             "label",
             "description",
             "provider",
+            "provider_connection",
             "model",
             "maxTokens",
             "effort",
@@ -311,6 +331,7 @@ public struct InferenceProfile: Hashable, Identifiable {
             && lhs.label == rhs.label
             && lhs.profileDescription == rhs.profileDescription
             && lhs.provider == rhs.provider
+            && lhs.providerConnection == rhs.providerConnection
             && lhs.model == rhs.model
             && lhs.maxTokens == rhs.maxTokens
             && lhs.effort == rhs.effort
@@ -329,6 +350,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         hasher.combine(label)
         hasher.combine(profileDescription)
         hasher.combine(provider)
+        hasher.combine(providerConnection)
         hasher.combine(model)
         hasher.combine(maxTokens)
         hasher.combine(effort)

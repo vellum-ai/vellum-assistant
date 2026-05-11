@@ -55,9 +55,15 @@ final class InferenceProfilesSheetTests: XCTestCase {
         ])
     }
 
-    private func makeSheet() -> InferenceProfilesSheet {
+    private func makeSheet(
+        connectionClient: ProviderConnectionClientProtocol = MockProviderConnectionClient()
+    ) -> InferenceProfilesSheet {
         let isPresented = Binding<Bool>(get: { true }, set: { _ in })
-        return InferenceProfilesSheet(store: store, isPresented: isPresented)
+        return InferenceProfilesSheet(
+            store: store,
+            isPresented: isPresented,
+            connectionClient: connectionClient
+        )
     }
 
     // MARK: - Body construction

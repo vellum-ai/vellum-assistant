@@ -788,4 +788,115 @@ final class InferenceProfileEditorTests: XCTestCase {
         _ = editor.body
         XCTAssertEqual(cancelCalls, 0)
     }
+
+    // MARK: - Connection sub-dropdown (audit finding #5)
+
+    /// Two active openai connections + one disabled + one of a different
+    /// provider. With provider == "openai" the filter must yield exactly
+    /// the two active openai rows in input order.
+    func testAvailableConnectionsForProviderFiltersByProviderAndStatus() {
+        let connections: [ProviderConnection] = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", status: .active, label: "Personal"),
+            Self.makeConnection(name: "work-openai", provider: "openai", status: .active, label: "Work"),
+            Self.makeConnection(name: "legacy-openai", provider: "openai", status: .disabled, label: "Legacy"),
+            Self.makeConnection(name: "anthropic-main", provider: "anthropic", status: .active, label: "Main"),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft", provider: "openai")),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        let available = editor.availableConnectionsForProvider
+        XCTAssertEqual(available.map { $0.name }, ["personal-openai", "work-openai"])
+    }
+
+    /// When no provider is selected, no connections are surfaced — the
+    /// daemon's dispatcher has nothing to bind against until the user
+    /// picks a provider, so the dropdown stays hidden.
+    func testAvailableConnectionsForProviderIsEmptyWhenProviderUnset() {
+        let connections = [
+            Self.makeConnection(name: "openai", provider: "openai", status: .active),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft", provider: nil)),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertTrue(editor.availableConnectionsForProvider.isEmpty)
+    }
+
+    /// Empty `connections` (the default — e.g. the daemon predates the
+    /// connections API) must not crash the filter.
+    func testAvailableConnectionsForProviderIsEmptyWhenConnectionsEmpty() {
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft", provider: "openai")),
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertTrue(editor.availableConnectionsForProvider.isEmpty)
+    }
+
+    /// Display label prefers the human-readable `label` (e.g. "Personal")
+    /// over the internal `name`. Falls back to `name` when label is nil OR
+    /// empty so a daemon that sends `""` for the label doesn't render an
+    /// invisible row.
+    func testConnectionDisplayNamePrefersLabel() {
+        let withLabel = Self.makeConnection(name: "personal-openai", label: "Personal")
+        XCTAssertEqual(InferenceProfileEditor.connectionDisplayName(withLabel), "Personal")
+
+        let withoutLabel = Self.makeConnection(name: "personal-openai", label: nil)
+        XCTAssertEqual(InferenceProfileEditor.connectionDisplayName(withoutLabel), "personal-openai")
+
+        let emptyLabel = Self.makeConnection(name: "personal-openai", label: "")
+        XCTAssertEqual(InferenceProfileEditor.connectionDisplayName(emptyLabel), "personal-openai")
+    }
+
+    /// The editor must still build when a `connections:` list is passed in
+    /// alongside other knobs — body construction is the safety net for any
+    /// SwiftUI type-inference regression we'd otherwise miss until a
+    /// snapshot build.
+    func testEditorBodyBuildsWithConnections() {
+        let connections = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", label: "Personal"),
+            Self.makeConnection(name: "work-openai", provider: "openai", label: "Work"),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "personal",
+                provider: "openai",
+                providerConnection: "personal-openai",
+                model: "gpt-5"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNotNil(editor.body)
+    }
+
+    /// Test helper mirroring `ProvidersSheetTests.makeConnection` so the
+    /// two surfaces use identical fixture shapes.
+    private static func makeConnection(
+        name: String = "my-conn",
+        provider: String = "openai",
+        authType: String = "api_key",
+        status: ConnectionStatus = .active,
+        label: String? = nil
+    ) -> ProviderConnection {
+        ProviderConnection(
+            name: name,
+            provider: provider,
+            auth: ProviderConnectionAuth(type: authType, credential: "sk-test"),
+            status: status,
+            label: label,
+            createdAt: 0,
+            updatedAt: 0
+        )
+    }
 }
