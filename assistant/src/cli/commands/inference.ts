@@ -1,16 +1,36 @@
+/**
+ * `assistant inference` and `assistant llm` CLI namespace.
+ *
+ * Subcommands:
+ *   - `send`       — Send a message to the configured LLM (via `inference_send` IPC)
+ *   - `session`    — Manage conversation-scoped inference profile sessions
+ *   - `providers`  — Inference provider admin commands
+ *
+ * The `llm` alias exposes only `send`.
+ */
+
 import { readFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import { getConfigReadOnly } from "../../config/loader.js";
-import {
-  extractAllText,
-  getConfiguredProvider,
-  userMessage,
-} from "../../providers/provider-send-message.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { attachProvidersSubcommand } from "./inference-providers.js";
 import { attachSessionSubcommand } from "./inference-session.js";
+
+// ── Types ────────────────────────────────────────────────────────────
+
+interface InferenceSendResult {
+  response: string;
+  model: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
+
+// ── Send subcommand ──────────────────────────────────────────────────
 
 /**
  * Attach the `send` subcommand to the given command group (`inference` or
@@ -80,30 +100,6 @@ Examples:
           return;
         }
 
-        // Validate --profile against the configured profile catalog.
-        // The resolver silently falls through on unknown profile names, so
-        // we surface a useful error here instead of a silent default.
-        if (profile !== undefined) {
-          const profiles = getConfigReadOnly().llm?.profiles ?? {};
-          if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
-            const available = Object.keys(profiles).sort();
-            const hint =
-              available.length > 0
-                ? ` Available profiles: ${available.join(", ")}.`
-                : " No profiles defined in llm.profiles.";
-            const msg = `Profile "${profile}" is not defined in llm.profiles.${hint}`;
-            if (jsonOutput) {
-              process.stdout.write(
-                JSON.stringify({ ok: false, error: msg }) + "\n",
-              );
-            } else {
-              log.error(msg);
-            }
-            process.exitCode = 1;
-            return;
-          }
-        }
-
         // Determine user message: positional args or stdin.
         let messageText = messageParts.length > 0 ? messageParts.join(" ") : "";
 
@@ -129,80 +125,60 @@ Examples:
           return;
         }
 
-        // Resolve provider, optionally layering a one-shot profile override.
-        const provider = await getConfiguredProvider("inference", {
-          overrideProfile: profile,
-        });
-        if (!provider) {
-          const msg =
-            "No LLM provider is configured. Run 'assistant config set llm.default.provider <provider>' to set one up.";
+        // Build IPC body
+        const body: Record<string, unknown> = { message: messageText };
+        if (systemPrompt) body.systemPrompt = systemPrompt;
+        if (model) body.model = model;
+        if (profile) body.profile = profile;
+        if (maxTokens) body.maxTokens = maxTokens;
+
+        const ipcResult = await cliIpcCall<InferenceSendResult>(
+          "inference_send",
+          { body },
+        );
+
+        if (!ipcResult.ok) {
           if (jsonOutput) {
             process.stdout.write(
-              JSON.stringify({ ok: false, error: msg }) + "\n",
+              JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
             );
           } else {
-            log.error(msg);
+            log.error(ipcResult.error ?? "Unknown error occurred");
           }
           process.exitCode = 1;
           return;
         }
 
-        try {
-          const response = await provider.sendMessage(
-            [userMessage(messageText)],
-            undefined,
-            systemPrompt,
-            {
-              config: {
-                callSite: "inference",
-                max_tokens: maxTokens,
-                model,
-              },
-            },
+        const result = ipcResult.result!;
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              response: result.response,
+              model: result.model,
+              usage: result.usage,
+            }) + "\n",
           );
-
-          const text = extractAllText(response);
-
-          if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({
-                ok: true,
-                response: text,
-                model: response.model,
-                usage: {
-                  inputTokens: response.usage.inputTokens,
-                  outputTokens: response.usage.outputTokens,
-                },
-              }) + "\n",
-            );
-          } else {
-            process.stdout.write(text + "\n");
-          }
-        } catch (err) {
-          const msg =
-            err instanceof Error ? err.message : "Unknown error occurred";
-          if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({ ok: false, error: msg }) + "\n",
-            );
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
+        } else {
+          process.stdout.write(result.response + "\n");
         }
       },
     );
 }
+
+// ── Registration ─────────────────────────────────────────────────────
 
 /**
  * Register `inference` and `llm` command groups on the top-level program.
  * Both expose `send`. Profile management is only available under `inference`.
  */
 export function registerInferenceCommand(program: Command): void {
-  const inference = program
-    .command("inference")
-    .description("LLM inference operations");
-
+  registerCommand(program, {
+    name: "inference",
+    transport: "ipc",
+    description: "LLM inference operations",
+    build: (inference) => {
   inference.addHelpText(
     "after",
     `
@@ -220,6 +196,8 @@ Examples:
   attachSendSubcommand(inference);
   attachSessionSubcommand(inference);
   attachProvidersSubcommand(inference);
+    },
+  });
 
   const llm = program
     .command("llm")

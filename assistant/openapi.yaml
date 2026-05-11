@@ -9034,6 +9034,66 @@ paths:
               required:
                 - auth
               additionalProperties: false
+  /v1/inference/send:
+    post:
+      operationId: inference_send_post
+      summary: Send a message to the configured LLM
+      description:
+        Send a user message to the configured LLM provider and return the model response. Optionally specify a
+        system prompt, model override, named profile, or max tokens.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: string
+                  model:
+                    type: string
+                  usage:
+                    type: object
+                    properties:
+                      inputTokens:
+                        type: number
+                      outputTokens:
+                        type: number
+                    required:
+                      - inputTokens
+                      - outputTokens
+                    additionalProperties: false
+                required:
+                  - response
+                  - model
+                  - usage
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  minLength: 1
+                systemPrompt:
+                  type: string
+                model:
+                  type: string
+                profile:
+                  type: string
+                maxTokens:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - message
+              additionalProperties: false
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get
