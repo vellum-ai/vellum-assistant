@@ -50,17 +50,17 @@ The app uses `window.vellum.*` APIs that are normally injected by the Vellum vie
 
 **Common APIs to shim (implement only what the app actually uses):**
 
-| Bridge API | Standalone replacement | Notes |
-|-----------|----------------------|-------|
-| `vellum.data.query()` | localStorage-backed store | Read the app code to determine the record shape — some apps expect `{id, data: {...}}` wrappers, others use flat records |
-| `vellum.data.create(...)` | localStorage insert with `crypto.randomUUID()` | Match the argument signature the app passes (some pass a payload, others pass `{id, ...fields}`) |
-| `vellum.data.update(...)` | localStorage update | Match the argument signature (typically `(id, payload)`) |
-| `vellum.data.delete(...)` | localStorage delete | Typically `(id)` |
-| `vellum.fetch(path, opts)` | `console.warn` + return empty success Response | Custom routes aren't available standalone |
-| `vellum.sendAction(id, data)` | No-op with `console.warn` | Surface actions aren't available standalone |
-| `vellum.openLink(url)` | `window.open(url, '_blank')` | |
-| `vellum.widgets.toast(msg)` | Create a temporary styled `<div>` that auto-dismisses | |
-| `vellum.route` | `null` | Deep-link routes aren't available standalone |
+| Bridge API                    | Standalone replacement                                | Notes                                                                                                                    |
+| ----------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `vellum.data.query()`         | localStorage-backed store                             | Read the app code to determine the record shape — some apps expect `{id, data: {...}}` wrappers, others use flat records |
+| `vellum.data.create(...)`     | localStorage insert with `crypto.randomUUID()`        | Match the argument signature the app passes (some pass a payload, others pass `{id, ...fields}`)                         |
+| `vellum.data.update(...)`     | localStorage update                                   | Match the argument signature (typically `(id, payload)`)                                                                 |
+| `vellum.data.delete(...)`     | localStorage delete                                   | Typically `(id)`                                                                                                         |
+| `vellum.fetch(path, opts)`    | `console.warn` + return empty success Response        | Custom routes aren't available standalone                                                                                |
+| `vellum.sendAction(id, data)` | No-op with `console.warn`                             | Surface actions aren't available standalone                                                                              |
+| `vellum.openLink(url)`        | `window.open(url, '_blank')`                          |                                                                                                                          |
+| `vellum.widgets.toast(msg)`   | Create a temporary styled `<div>` that auto-dismisses |                                                                                                                          |
+| `vellum.route`                | `null`                                                | Deep-link routes aren't available standalone                                                                             |
 
 **Structure:** Wrap everything in an IIFE that guards against the real bridge: `(function() { if (window.vellum) return; ... })();`
 
@@ -83,7 +83,10 @@ Create a `vercel.json` in the dist directory:
 ```json
 {
   "rewrites": [
-    { "source": "/((?!main\\.js|main\\.css|vellum-shim\\.js|assets/).*)", "destination": "/index.html" }
+    {
+      "source": "/((?!main\\.js|main\\.css|vellum-shim\\.js|assets/).*)",
+      "destination": "/index.html"
+    }
   ]
 }
 ```
@@ -122,6 +125,7 @@ This produces static files in `frontend/dist/`.
 ```
 
 **Key steps:**
+
 ```bash
 mkdir -p <project>/vercel-deploy/api
 
@@ -210,6 +214,7 @@ def seed_default_user(db: Session):
 ```
 
 This routes:
+
 - `/api/*` → Python serverless function
 - Everything else → React SPA (index.html)
 
@@ -229,17 +234,17 @@ curl -s <deployed-url>/api/health
 
 ## Gotchas & Limitations
 
-| Issue | Solution |
-|-------|----------|
-| SQLite resets on cold start | Seed ALL required data in index.py startup |
-| No persistent storage | Acceptable for demos. For production, use Vercel Postgres or Supabase |
-| No auth | Fine for demos/portfolios. Add auth layer for real apps |
-| `requirements.txt` location | Must be inside `api/` folder (next to index.py) |
-| Module imports in routers | Use `sys.path.insert(0, os.path.dirname(__file__))` in index.py |
-| CORS | Set `allow_origins=["*"]` for demo deployments |
-| `--name` flag deprecated | Don't use `--name` with Vercel CLI, just deploy from the directory |
-| Vellum bridge APIs | Use the vellum-shim.js to provide localStorage-backed data + no-op stubs |
-| npm not available | Use `bun install -g vercel` to install Vercel CLI in sandbox |
+| Issue                       | Solution                                                                 |
+| --------------------------- | ------------------------------------------------------------------------ |
+| SQLite resets on cold start | Seed ALL required data in index.py startup                               |
+| No persistent storage       | Acceptable for demos. For production, use Vercel Postgres or Supabase    |
+| No auth                     | Fine for demos/portfolios. Add auth layer for real apps                  |
+| `requirements.txt` location | Must be inside `api/` folder (next to index.py)                          |
+| Module imports in routers   | Use `sys.path.insert(0, os.path.dirname(__file__))` in index.py          |
+| CORS                        | Set `allow_origins=["*"]` for demo deployments                           |
+| `--name` flag deprecated    | Don't use `--name` with Vercel CLI, just deploy from the directory       |
+| Vellum bridge APIs          | Use the vellum-shim.js to provide localStorage-backed data + no-op stubs |
+| npm not available           | Use `bun install -g vercel` to install Vercel CLI in sandbox             |
 
 ## Vercel CLI Quick Reference
 

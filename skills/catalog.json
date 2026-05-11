@@ -73,7 +73,7 @@
     {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
-      "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data",
+      "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) or a Vellum app to Vercel as a serverless demo with seeded data",
       "metadata": {
         "emoji": "🚀",
         "vellum": {
@@ -81,7 +81,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-17T03:13:56-04:00"
+      "updatedAt": "2026-05-11T16:06:19-04:00"
     },
     {
       "id": "discord-app-setup",
@@ -842,7 +842,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-11T04:56:56Z"
+      "updatedAt": "2026-05-11T00:04:24-07:00"
     },
     {
       "id": "vellum-skills-catalog",
