@@ -870,6 +870,66 @@ paths:
               required:
                 - galleryAppId
               additionalProperties: false
+  /v1/apps/import-bundle:
+    post:
+      operationId: apps_importbundle_post
+      summary: Import a .vbundle file
+      description: Upload, validate, and install a .vbundle archive as a new local app.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  appId:
+                    type: string
+                  name:
+                    type: string
+                  scanResult:
+                    type: object
+                    properties:
+                      passed:
+                        type: boolean
+                      blocked:
+                        type: array
+                        items:
+                          type: string
+                      warnings:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - passed
+                      - blocked
+                      - warnings
+                    additionalProperties: false
+                  signatureResult:
+                    type: object
+                    properties:
+                      trustTier:
+                        type: string
+                      signerKeyId:
+                        type: string
+                      signerDisplayName:
+                        type: string
+                      signerAccount:
+                        type: string
+                    required:
+                      - trustTier
+                    additionalProperties: false
+                required:
+                  - success
+                  - appId
+                  - name
+                  - scanResult
+                  - signatureResult
+                additionalProperties: false
   /v1/apps/open-bundle:
     post:
       operationId: apps_openbundle_post

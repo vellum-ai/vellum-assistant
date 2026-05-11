@@ -320,6 +320,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/restore", scopes: ["settings.write"] },
   { endpoint: "apps/bundle", scopes: ["settings.write"] },
   { endpoint: "apps/open-bundle", scopes: ["settings.write"] },
+  { endpoint: "apps/import-bundle", scopes: ["settings.write"] },
   { endpoint: "apps/shared-list", scopes: ["settings.read"] },
   { endpoint: "apps/fork", scopes: ["settings.write"] },
   { endpoint: "apps/share-cloud", scopes: ["settings.write"] },
