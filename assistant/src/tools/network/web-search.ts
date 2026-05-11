@@ -21,11 +21,38 @@ const TAVILY_API_URL = "https://api.tavily.com/search";
 
 type WebSearchProvider = "perplexity" | "brave" | "tavily";
 
-const WEB_SEARCH_FALLBACK_ORDER: readonly WebSearchProvider[] = [
-  "perplexity",
-  "brave",
-  "tavily",
-];
+/**
+ * Arguments passed to every {@link WebSearchAdapter}. The full superset is
+ * always supplied; individual adapters ignore the fields they don't use
+ * (e.g. Perplexity ignores `count`, `offset`, and `freshness`).
+ */
+interface WebSearchAdapterArgs {
+  query: string;
+  count: number;
+  offset: number;
+  freshness: string | undefined;
+  apiKey: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * One built-in web-search provider. Each adapter owns its HTTP shape,
+ * freshness mapping, retry behaviour, and result formatter. Registering a
+ * new provider becomes a single entry in {@link WEB_SEARCH_ADAPTERS}.
+ */
+interface WebSearchAdapter {
+  /** Stable provider identifier (matches config + secret-catalog values). */
+  readonly id: WebSearchProvider;
+  /** Secret-catalog key used to look up the API key via `getProviderKeyAsync`. */
+  readonly secretKey: string;
+  /**
+   * Position in the fallback chain (lower = earlier). Used when the
+   * configured provider has no key and we try other BYOK providers.
+   */
+  readonly fallbackOrder: number;
+  /** Execute one search against the provider's API. */
+  execute(args: WebSearchAdapterArgs): Promise<ToolExecutionResult>;
+}
 
 interface BraveSearchResult {
   title: string;
@@ -75,16 +102,8 @@ function getWebSearchProvider(): WebSearchProvider {
 async function getApiKey(
   provider: WebSearchProvider,
 ): Promise<string | undefined> {
-  if (provider === "brave") {
-    return (await getProviderKeyAsync("brave")) ?? undefined;
-  }
-
-  if (provider === "tavily") {
-    return (await getProviderKeyAsync("tavily")) ?? undefined;
-  }
-
-  // Perplexity
-  return (await getProviderKeyAsync("perplexity")) ?? undefined;
+  const adapter = WEB_SEARCH_ADAPTERS[provider];
+  return (await getProviderKeyAsync(adapter.secretKey)) ?? undefined;
 }
 
 function fallbackProvidersFor(
@@ -447,6 +466,62 @@ async function executeTavilySearch(
   };
 }
 
+// ----------------------------------------------------------------------------
+// Adapter registry
+//
+// Each built-in provider exposes a {@link WebSearchAdapter} wrapping its
+// existing execute function. Adding a new provider means adding one adapter
+// const and one entry to `WEB_SEARCH_ADAPTERS` — the dispatcher, fallback
+// chain, and api-key lookup all derive from this table.
+// ----------------------------------------------------------------------------
+
+const perplexitySearchAdapter: WebSearchAdapter = {
+  id: "perplexity",
+  secretKey: "perplexity",
+  fallbackOrder: 1,
+  execute: ({ query, apiKey, signal }) =>
+    executePerplexitySearch(query, apiKey, signal),
+};
+
+const braveSearchAdapter: WebSearchAdapter = {
+  id: "brave",
+  secretKey: "brave",
+  fallbackOrder: 2,
+  execute: ({ query, count, offset, freshness, apiKey, signal }) =>
+    executeBraveSearch(query, count, offset, freshness, apiKey, signal),
+};
+
+const tavilySearchAdapter: WebSearchAdapter = {
+  id: "tavily",
+  secretKey: "tavily",
+  fallbackOrder: 3,
+  execute: ({ query, count, freshness, apiKey, signal }) =>
+    executeTavilySearch(query, count, freshness, apiKey, signal),
+};
+
+/**
+ * All built-in web-search adapters keyed by provider id. The
+ * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
+ * provider added to the union without a corresponding adapter.
+ */
+const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
+  perplexity: perplexitySearchAdapter,
+  brave: braveSearchAdapter,
+  tavily: tavilySearchAdapter,
+};
+
+/**
+ * Fallback chain derived from {@link WEB_SEARCH_ADAPTERS}. Sorted by each
+ * adapter's `fallbackOrder` (lower first). Used when the configured provider
+ * has no API key and we try other BYOK providers before giving up.
+ */
+const WEB_SEARCH_FALLBACK_ORDER: readonly WebSearchProvider[] = Object.values(
+  WEB_SEARCH_ADAPTERS,
+)
+  .slice()
+  .sort((a, b) => a.fallbackOrder - b.fallbackOrder)
+  .map((adapter) => adapter.id);
+
 class WebSearchTool implements Tool {
   name = "web_search";
   description =
@@ -530,44 +605,25 @@ class WebSearchTool implements Tool {
     try {
       log.debug({ query, provider }, "Executing web search");
 
-      if (provider === "brave") {
-        const count =
-          typeof input.count === "number"
-            ? Math.min(20, Math.max(1, Math.round(input.count)))
-            : 10;
-        const offset =
-          typeof input.offset === "number"
-            ? Math.min(9, Math.max(0, Math.round(input.offset)))
-            : 0;
-        const freshness =
-          typeof input.freshness === "string" ? input.freshness : undefined;
-        return await executeBraveSearch(
-          query,
-          count,
-          offset,
-          freshness,
-          apiKey,
-          context.signal,
-        );
-      }
+      const count =
+        typeof input.count === "number"
+          ? Math.min(20, Math.max(1, Math.round(input.count)))
+          : 10;
+      const offset =
+        typeof input.offset === "number"
+          ? Math.min(9, Math.max(0, Math.round(input.offset)))
+          : 0;
+      const freshness =
+        typeof input.freshness === "string" ? input.freshness : undefined;
 
-      if (provider === "tavily") {
-        const count =
-          typeof input.count === "number"
-            ? Math.min(20, Math.max(1, Math.round(input.count)))
-            : 10;
-        const freshness =
-          typeof input.freshness === "string" ? input.freshness : undefined;
-        return await executeTavilySearch(
-          query,
-          count,
-          freshness,
-          apiKey,
-          context.signal,
-        );
-      }
-
-      return await executePerplexitySearch(query, apiKey, context.signal);
+      return await WEB_SEARCH_ADAPTERS[provider].execute({
+        query,
+        count,
+        offset,
+        freshness,
+        apiKey,
+        signal: context.signal,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error({ err }, "Web search failed");
