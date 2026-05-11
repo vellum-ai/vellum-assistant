@@ -62,24 +62,23 @@ Create `vellum-shim.js` in the app's `dist/` directory. This shim provides stand
   }
 
   window.vellum = {
-    // Data store backed by localStorage (flat per-app records, no table param)
+    // Data store backed by localStorage — returns {id, data} wrappers
     data: {
       query: function() {
-        var store = loadStore();
-        return Object.values(store);
+        return Object.values(loadStore());
       },
-      create: function(record) {
+      create: function(payload) {
         var store = loadStore();
-        var id = record.id || crypto.randomUUID();
-        record.id = id;
+        var id = crypto.randomUUID();
+        var record = { id: id, data: payload };
         store[id] = record;
         saveStore(store);
         return record;
       },
-      update: function(id, data) {
+      update: function(id, payload) {
         var store = loadStore();
         if (!store[id]) return null;
-        Object.assign(store[id], data);
+        store[id].data = payload;
         saveStore(store);
         return store[id];
       },
