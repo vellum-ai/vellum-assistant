@@ -40,18 +40,19 @@ const STORE_PATH = join(TEST_DIR, "keys.enc");
  * Regression test for the env-var fallback in `getProviderKeyAsync`.
  *
  * PR #27126 introduced `getLlmProviderEnvVar` which is LLM-scoped only.
- * After that PR, calls like `getProviderKeyAsync("brave")` and
- * `getProviderKeyAsync("perplexity")` stopped resolving the env var when
- * the secure store was empty, breaking web-search for users with
- * env-var-sourced Brave/Perplexity keys. The fix (this PR) routes the
- * fallback through `getAnyProviderEnvVar` which consults both the LLM
- * catalog and the search-provider map.
+ * After that PR, calls like `getProviderKeyAsync("brave")`,
+ * `getProviderKeyAsync("perplexity")`, and other search-provider keys stopped
+ * resolving the env var when the secure store was empty, breaking web-search
+ * for users with env-var-sourced search keys. The fix routes the fallback
+ * through `getAnyProviderEnvVar` which consults both the LLM catalog and the
+ * search-provider map.
  */
 describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
   const SAVED_ENV: Record<string, string | undefined> = {};
   const MANAGED_VARS = [
     "BRAVE_API_KEY",
     "PERPLEXITY_API_KEY",
+    "TAVILY_API_KEY",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
   ];
@@ -95,6 +96,11 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
   test("returns PERPLEXITY_API_KEY from process.env when secure store is empty", async () => {
     process.env.PERPLEXITY_API_KEY = "pplx-env-test";
     expect(await getProviderKeyAsync("perplexity")).toBe("pplx-env-test");
+  });
+
+  test("returns TAVILY_API_KEY from process.env when secure store is empty", async () => {
+    process.env.TAVILY_API_KEY = "tavily-env-test";
+    expect(await getProviderKeyAsync("tavily")).toBe("tavily-env-test");
   });
 
   test("returns ANTHROPIC_API_KEY from process.env when secure store is empty (LLM regression)", async () => {

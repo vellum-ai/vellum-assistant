@@ -45,6 +45,7 @@ enum APIKeyManager {
         "openai",
         "openrouter",
         "perplexity",
+        "tavily",
     ]
 
     /// Provider identifiers whose API keys are synced to the daemon as

@@ -185,10 +185,11 @@ public struct LLMProviderEntry: Decodable {
 
 /// Top-level schema for `llm-provider-catalog.json`.
 ///
-/// The JSON file is generated from `meta/llm-provider-catalog.json` and
-/// copied into `Contents/Resources` by the client build. The hard-coded
-/// fallback below keeps startup resilient when the bundled resource is
-/// missing, unreadable, or corrupt.
+/// The JSON file is generated from `assistant/src/providers/model-catalog.ts`
+/// by `bun run sync:llm-catalog` and bundled into `VellumAssistantShared`
+/// as a SwiftPM resource. The bundled JSON is the single source of truth;
+/// if it is missing, unreadable, or corrupt the registry traps at first
+/// access — a build/bundling bug, not a runtime fallback condition.
 public struct LLMProviderCatalog: Decodable {
     public let version: Int
     public let providers: [LLMProviderEntry]
@@ -208,15 +209,14 @@ public enum LLMProviderRegistry {
 
     /// The default provider (first entry).
     ///
-    /// The bundled JSON and the fallback both guarantee at least one
-    /// provider, so this is non-optional. If the invariant is ever violated
-    /// (the JSON is decoded but empty AND the fallback is missing), this
-    /// will trap — which is the correct failure mode for a build/bundling
-    /// bug, not silent degradation.
+    /// The bundled JSON guarantees at least one provider, so this is
+    /// non-optional. If the invariant is ever violated (the JSON is
+    /// decoded but empty), this will trap — which is the correct failure
+    /// mode for a build/bundling bug, not silent degradation.
     public static var defaultProvider: LLMProviderEntry {
         guard let first = shared.providers.first else {
             preconditionFailure(
-                "LLMProviderRegistry has no providers — bundled JSON empty and fallback missing"
+                "LLMProviderRegistry has no providers — bundled JSON empty"
             )
         }
         return first
@@ -238,289 +238,70 @@ public enum LLMProviderRegistry {
     }
 }
 
-// MARK: - Fallback
-
-/// Hard-coded fallback catalog used when the bundled JSON is missing or
-/// corrupt. Keeps client startup resilient — the app can always show at
-/// least the current set of providers.
-///
-/// The entries below mirror the startup-critical subset of
-/// `meta/llm-provider-catalog.json`: provider/model identity, setup metadata,
-/// defaults, context and output budgets, and long-context signals needed by
-/// settings before bundled JSON loads. Pricing and capability flags are
-/// intentionally omitted from the hard-coded fallback; the bundled JSON
-/// catalog remains authoritative when present.
-private let fallbackCatalog = LLMProviderCatalog(
-    version: 0,
-    providers: [
-        LLMProviderEntry(
-            id: "anthropic",
-            displayName: "Anthropic",
-            subtitle: "Claude models from Anthropic. Requires an Anthropic API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your Anthropic API key to use Claude.",
-            envVar: "ANTHROPIC_API_KEY",
-            apiKeyPlaceholder: "sk-ant-api03-...",
-            credentialsGuide: LLMCredentialsGuide(
-                description: "Sign in to the Anthropic console, go to API Keys, and create a new key.",
-                url: "https://console.anthropic.com/settings/keys",
-                linkLabel: "Open Anthropic Console"
-            ),
-            defaultModel: "claude-opus-4-7",
-            models: [
-                LLMModelEntry(
-                    id: "claude-opus-4-7",
-                    displayName: "Claude Opus 4.7",
-                    contextWindowTokens: 1_000_000,
-                    defaultContextWindowTokens: 200_000,
-                    longContextPricingThresholdTokens: 200_000,
-                    longContextMode: .nativeModel,
-                    maxOutputTokens: 128_000
-                ),
-                LLMModelEntry(
-                    id: "claude-opus-4-6",
-                    displayName: "Claude Opus 4.6",
-                    contextWindowTokens: 1_000_000,
-                    defaultContextWindowTokens: 200_000,
-                    longContextPricingThresholdTokens: 200_000,
-                    longContextMode: .nativeModel,
-                    maxOutputTokens: 128_000
-                ),
-                LLMModelEntry(
-                    id: "claude-sonnet-4-6",
-                    displayName: "Claude Sonnet 4.6",
-                    contextWindowTokens: 1_000_000,
-                    defaultContextWindowTokens: 200_000,
-                    longContextPricingThresholdTokens: 200_000,
-                    longContextMode: .nativeModel,
-                    maxOutputTokens: 64_000
-                ),
-                LLMModelEntry(
-                    id: "claude-haiku-4-5-20251001",
-                    displayName: "Claude Haiku 4.5",
-                    contextWindowTokens: 200_000,
-                    defaultContextWindowTokens: 200_000,
-                    longContextMode: .unsupported,
-                    maxOutputTokens: 64_000
-                ),
-            ]
-        ),
-        LLMProviderEntry(
-            id: "openai",
-            displayName: "OpenAI",
-            subtitle: "GPT models from OpenAI. Requires an OpenAI API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your OpenAI API key to use GPT models.",
-            envVar: "OPENAI_API_KEY",
-            apiKeyPlaceholder: "sk-proj-...",
-            credentialsGuide: LLMCredentialsGuide(
-                description: "Log in to the OpenAI platform, go to API Keys, and generate a new secret key.",
-                url: "https://platform.openai.com/api-keys",
-                linkLabel: "Open OpenAI Platform"
-            ),
-            defaultModel: "gpt-5.5",
-            models: [
-                LLMModelEntry(
-                    id: "gpt-5.5",
-                    displayName: "GPT-5.5",
-                    contextWindowTokens: 1_050_000,
-                    defaultContextWindowTokens: 200_000,
-                    longContextPricingThresholdTokens: 272_000,
-                    longContextMode: .nativeModel,
-                    maxOutputTokens: 128_000
-                ),
-                LLMModelEntry(
-                    id: "gpt-5.5-pro",
-                    displayName: "GPT-5.5 Pro",
-                    contextWindowTokens: 1_050_000,
-                    defaultContextWindowTokens: 200_000,
-                    longContextPricingThresholdTokens: 272_000,
-                    longContextMode: .nativeModel,
-                    maxOutputTokens: 128_000
-                ),
-                LLMModelEntry(
-                    id: "gpt-5.4",
-                    displayName: "GPT-5.4",
-                    contextWindowTokens: 1_050_000,
-                    defaultContextWindowTokens: 200_000,
-                    longContextMode: .nativeModel,
-                    maxOutputTokens: 128_000
-                ),
-                LLMModelEntry(
-                    id: "gpt-5.2",
-                    displayName: "GPT-5.2",
-                    contextWindowTokens: 400_000,
-                    defaultContextWindowTokens: 200_000,
-                    longContextMode: .nativeModel,
-                    maxOutputTokens: 128_000
-                ),
-                LLMModelEntry(
-                    id: "gpt-5.4-mini",
-                    displayName: "GPT-5.4 Mini",
-                    contextWindowTokens: 400_000,
-                    defaultContextWindowTokens: 200_000,
-                    longContextMode: .nativeModel,
-                    maxOutputTokens: 128_000
-                ),
-                LLMModelEntry(
-                    id: "gpt-5.4-nano",
-                    displayName: "GPT-5.4 Nano",
-                    contextWindowTokens: 400_000,
-                    defaultContextWindowTokens: 200_000,
-                    longContextMode: .nativeModel,
-                    maxOutputTokens: 128_000
-                ),
-            ]
-        ),
-        LLMProviderEntry(
-            id: "gemini",
-            displayName: "Google Gemini",
-            subtitle: "Gemini models from Google. Requires a Gemini API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your Gemini API key to use Google Gemini models.",
-            envVar: "GEMINI_API_KEY",
-            apiKeyPlaceholder: "AIza...",
-            credentialsGuide: LLMCredentialsGuide(
-                description: "Visit Google AI Studio, sign in with your Google account, and create an API key.",
-                url: "https://aistudio.google.com/apikey",
-                linkLabel: "Open Google AI Studio"
-            ),
-            defaultModel: "gemini-2.5-flash",
-            models: [
-                LLMModelEntry(id: "gemini-3.1-pro-preview", displayName: "Gemini 3.1 Pro Preview"),
-                LLMModelEntry(
-                    id: "gemini-3.1-pro-preview-customtools",
-                    displayName: "Gemini 3.1 Pro Preview (Custom Tools)"
-                ),
-                LLMModelEntry(id: "gemini-3-flash-preview", displayName: "Gemini 3 Flash Preview"),
-                LLMModelEntry(
-                    id: "gemini-3.1-flash-lite-preview",
-                    displayName: "Gemini 3.1 Flash-Lite Preview"
-                ),
-                LLMModelEntry(id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash"),
-                LLMModelEntry(id: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite"),
-                LLMModelEntry(id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro"),
-            ]
-        ),
-        LLMProviderEntry(
-            id: "ollama",
-            displayName: "Ollama",
-            subtitle: "Run open-source models locally with Ollama. No API key required.",
-            setupMode: .keyless,
-            setupHint: "Install Ollama locally and pull a model to get started.",
-            envVar: nil,
-            apiKeyPlaceholder: nil,
-            credentialsGuide: nil,
-            defaultModel: "llama3.2",
-            models: [
-                LLMModelEntry(id: "llama3.2", displayName: "Llama 3.2"),
-                LLMModelEntry(id: "mistral", displayName: "Mistral"),
-            ]
-        ),
-        LLMProviderEntry(
-            id: "fireworks",
-            displayName: "Fireworks",
-            subtitle: "Open-weight models hosted on Fireworks. Requires a Fireworks API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your Fireworks API key to use hosted open-weight models.",
-            envVar: "FIREWORKS_API_KEY",
-            apiKeyPlaceholder: "fw_...",
-            credentialsGuide: LLMCredentialsGuide(
-                description: "Sign in to Fireworks, open Account → API Keys, and create a new key.",
-                url: "https://fireworks.ai/account/api-keys",
-                linkLabel: "Open Fireworks API Keys"
-            ),
-            defaultModel: "accounts/fireworks/models/kimi-k2p5",
-            models: [
-                LLMModelEntry(
-                    id: "accounts/fireworks/models/kimi-k2p5",
-                    displayName: "Kimi K2.5"
-                ),
-            ]
-        ),
-        LLMProviderEntry(
-            id: "openrouter",
-            displayName: "OpenRouter",
-            subtitle: "Access many model providers through a single OpenRouter API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your OpenRouter API key to access models from multiple providers.",
-            envVar: "OPENROUTER_API_KEY",
-            apiKeyPlaceholder: "sk-or-v1-...",
-            credentialsGuide: LLMCredentialsGuide(
-                description: "Sign in to OpenRouter, open Keys, and create a new API key.",
-                url: "https://openrouter.ai/keys",
-                linkLabel: "Open OpenRouter Keys"
-            ),
-            defaultModel: "x-ai/grok-4.20-beta",
-            models: [
-                // Anthropic
-                LLMModelEntry(id: "anthropic/claude-opus-4.7", displayName: "Claude Opus 4.7"),
-                LLMModelEntry(id: "anthropic/claude-opus-4.6", displayName: "Claude Opus 4.6"),
-                LLMModelEntry(id: "anthropic/claude-sonnet-4.6", displayName: "Claude Sonnet 4.6"),
-                LLMModelEntry(id: "anthropic/claude-haiku-4.5", displayName: "Claude Haiku 4.5"),
-                // xAI
-                LLMModelEntry(id: "x-ai/grok-4.20-beta", displayName: "Grok 4.20 Beta"),
-                LLMModelEntry(id: "x-ai/grok-4", displayName: "Grok 4"),
-                // DeepSeek
-                LLMModelEntry(id: "deepseek/deepseek-r1-0528", displayName: "DeepSeek R1"),
-                LLMModelEntry(id: "deepseek/deepseek-chat-v3-0324", displayName: "DeepSeek V3"),
-                // Qwen
-                LLMModelEntry(id: "qwen/qwen3.5-plus-02-15", displayName: "Qwen 3.5 Plus"),
-                LLMModelEntry(id: "qwen/qwen3.5-397b-a17b", displayName: "Qwen 3.5 397B"),
-                LLMModelEntry(id: "qwen/qwen3.5-flash-02-23", displayName: "Qwen 3.5 Flash"),
-                LLMModelEntry(id: "qwen/qwen3-coder-next", displayName: "Qwen 3 Coder"),
-                // Moonshot
-                LLMModelEntry(id: "moonshotai/kimi-k2.5", displayName: "Kimi K2.5"),
-                // Mistral
-                LLMModelEntry(id: "mistralai/mistral-medium-3", displayName: "Mistral Medium 3"),
-                LLMModelEntry(id: "mistralai/mistral-small-2603", displayName: "Mistral Small 4"),
-                LLMModelEntry(id: "mistralai/devstral-2512", displayName: "Devstral 2"),
-                // Meta
-                LLMModelEntry(id: "meta-llama/llama-4-maverick", displayName: "Llama 4 Maverick"),
-                LLMModelEntry(id: "meta-llama/llama-4-scout", displayName: "Llama 4 Scout"),
-                // Amazon
-                LLMModelEntry(id: "amazon/nova-pro-v1", displayName: "Amazon Nova Pro"),
-            ]
-        ),
-    ]
-)
-
 // MARK: - Loader
 
 /// Cached catalog loaded once per process lifetime.
+///
 /// The bundled `llm-provider-catalog.json` is immutable at runtime, so
 /// reading it more than once is unnecessary I/O. Swift guarantees
 /// thread-safe lazy initialization of static properties.
+///
+/// Lookup uses `Bundle.vellumShared` rather than SwiftPM's synthesized
+/// `Bundle.module`: macOS codesigning requires resources inside
+/// `.app/Contents/Resources`, and `Bundle.module` resolves through
+/// `Bundle.main.bundleURL` (the `.app` root) which misses that path in
+/// shipping builds. The helper tries `.app/Contents/Resources/<bundle>`
+/// first, falls back to `swift run`-style adjacency, and handles the
+/// Xcode-framework + previews cases that already ship Lucide icons and
+/// integration logos. Tests link `VellumAssistantShared` directly so
+/// the helper still finds the bundle alongside the xctest binary —
+/// the catalog tests exercise the bundled JSON, not a hardcoded mirror.
+///
+/// A failed lookup here means the JSON was dropped from
+/// `clients/Package.swift`, the generator (§G) failed to refresh it,
+/// or the macOS build script stopped copying the SPM `.bundle` artifact
+/// into `Contents/Resources`. All build-time bugs — we trap loudly
+/// rather than silently degrade.
 private let _cachedLLMProviderCatalog: LLMProviderCatalog = {
-    guard let url = Bundle.main.url(forResource: "llm-provider-catalog", withExtension: "json") else {
-        log.warning("llm-provider-catalog.json not found in bundle — using fallback catalog")
-        return fallbackCatalog
+    guard let url = Bundle.vellumShared.url(forResource: "llm-provider-catalog", withExtension: "json") else {
+        preconditionFailure(
+            "llm-provider-catalog.json missing from VellumAssistantShared resource bundle — "
+            + "check `.copy(\"Resources/llm-provider-catalog.json\")` in clients/Package.swift, "
+            + "that `bun run sync:llm-catalog` has been run, and that "
+            + "`clients/macos/build.sh` copies the SPM bundle into Contents/Resources."
+        )
     }
-    guard let data = try? Data(contentsOf: url) else {
-        log.error("Failed to read llm-provider-catalog.json from bundle")
-        return fallbackCatalog
+    let data: Data
+    do {
+        data = try Data(contentsOf: url)
+    } catch {
+        preconditionFailure(
+            "Failed to read bundled llm-provider-catalog.json: \(error.localizedDescription)"
+        )
     }
     do {
         let catalog = try JSONDecoder().decode(LLMProviderCatalog.self, from: data)
         guard !catalog.providers.isEmpty else {
-            log.error("llm-provider-catalog.json decoded but contains no providers — using fallback catalog")
-            return fallbackCatalog
+            preconditionFailure(
+                "Bundled llm-provider-catalog.json decoded but contains no providers."
+            )
         }
         return catalog
     } catch {
-        log.error("Failed to decode llm-provider-catalog.json: \(error.localizedDescription, privacy: .public)")
-        return fallbackCatalog
+        preconditionFailure(
+            "Failed to decode bundled llm-provider-catalog.json: \(error.localizedDescription)"
+        )
     }
 }()
 
-/// Load the LLM provider catalog from the app bundle's Resources.
+/// Load the LLM provider catalog from the `VellumAssistantShared` bundle.
 ///
 /// Returns a cached result after the first call — the bundled JSON never
 /// changes at runtime so re-reading from disk is unnecessary.
 ///
-/// If the JSON file is missing, unreadable, or corrupt the function
-/// returns a hard-coded fallback containing the current provider set so
-/// that client startup is never blocked.
+/// The bundled JSON is the single source of truth. If it is missing,
+/// unreadable, or corrupt the call traps — that's a build/bundling bug
+/// to surface immediately, not a runtime condition to paper over.
 public func loadLLMProviderCatalog() -> LLMProviderCatalog {
     LLMProviderRegistry.shared
 }

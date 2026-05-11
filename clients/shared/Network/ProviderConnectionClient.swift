@@ -179,3 +179,23 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         return names.isEmpty ? [] : names
     }
 }
+
+// MARK: - ProviderConnection helpers
+
+extension ProviderConnection {
+    /// Return a copy of this connection with `status` replaced. Used by the
+    /// inline list-row toggle for optimistic + rollback updates without
+    /// needing the auto-generated struct's properties to be mutable.
+    func withStatus(_ newStatus: ConnectionStatus) -> ProviderConnection {
+        ProviderConnection(
+            name: name,
+            provider: provider,
+            auth: auth,
+            status: newStatus,
+            label: label,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            isManaged: isManaged
+        )
+    }
+}

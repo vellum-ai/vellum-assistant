@@ -3,7 +3,7 @@ import XCTest
 
 final class LLMProviderRegistryTests: XCTestCase {
 
-    func testFallbackContainsExpectedProvidersInOrder() {
+    func testCatalogContainsExpectedProvidersInOrder() {
         let ids = LLMProviderRegistry.providers.map(\.id)
         XCTAssertEqual(
             ids,
@@ -11,7 +11,7 @@ final class LLMProviderRegistryTests: XCTestCase {
         )
     }
 
-    func testFallbackHasSixProviders() {
+    func testCatalogHasSixProviders() {
         XCTAssertEqual(LLMProviderRegistry.providers.count, 6)
     }
 
@@ -29,9 +29,9 @@ final class LLMProviderRegistryTests: XCTestCase {
         }
     }
 
-    func testGeminiFallbackModelsIncludeGemini3BeforeGemini25() {
+    func testGeminiCatalogModelsIncludeGemini3BeforeGemini25() {
         guard let gemini = LLMProviderRegistry.provider(id: "gemini") else {
-            return XCTFail("Expected Gemini provider in fallback catalog")
+            return XCTFail("Expected Gemini provider in bundled catalog")
         }
 
         XCTAssertEqual(gemini.defaultModel, "gemini-2.5-flash")
@@ -72,7 +72,10 @@ final class LLMProviderRegistryTests: XCTestCase {
         XCTAssertEqual(ollama?.setupMode, .keyless)
         XCTAssertNil(ollama?.envVar)
         XCTAssertNil(ollama?.apiKeyPlaceholder)
-        XCTAssertNil(ollama?.credentialsGuide)
+        // Keyless providers can still expose an install/setup guide; Ollama
+        // links to its download page even though there is no API key field.
+        XCTAssertNotNil(ollama?.credentialsGuide)
+        XCTAssertEqual(ollama?.credentialsGuide?.linkLabel, "Download Ollama")
     }
 
     func testProviderLookupReturnsNilForUnknownId() {
@@ -85,7 +88,7 @@ final class LLMProviderRegistryTests: XCTestCase {
         XCTAssertEqual(model?.displayName, "Claude Opus 4.7")
     }
 
-    func testFallbackContextDefaultsDoNotExceedModelLimits() {
+    func testContextDefaultsDoNotExceedModelLimits() {
         for provider in LLMProviderRegistry.providers {
             for model in provider.models {
                 guard
@@ -104,7 +107,7 @@ final class LLMProviderRegistryTests: XCTestCase {
         }
     }
 
-    func testOpenAIGPT55ProFallbackMetadataMatchesCatalogContract() {
+    func testOpenAIGPT55ProMetadataMatchesCatalogContract() {
         let model = LLMProviderRegistry.model(provider: "openai", id: "gpt-5.5-pro")
         XCTAssertEqual(model?.displayName, "GPT-5.5 Pro")
         XCTAssertEqual(model?.contextWindowTokens, 1_050_000)

@@ -42,6 +42,12 @@ struct ProvidersSheet: View {
     /// that matches the user's current credential selection.
     @State private var loadMaskedTask: Task<Void, Never>?
 
+    /// Connection names with an in-flight status PATCH from the inline row
+    /// toggle. Used to drop subsequent toggle attempts so a fast off→on→off
+    /// sequence can't produce out-of-order responses that clobber the user's
+    /// final intent.
+    @State private var inFlightStatusToggles: Set<String> = []
+
     // MARK: - Nested Types
 
     struct ConnectionDraft {
@@ -62,14 +68,18 @@ struct ProvidersSheet: View {
         /// Opened for connections whose `isManaged` flag is true (the daemon
         /// sets this for the canonical anthropic-managed / openai-managed /
         /// gemini-managed rows). The daemon write-protects DELETE + PATCH-auth
-        /// on these rows; the UI mirrors that by disabling every input and
-        /// hiding the Save button. Mirrors the `view` mode in
-        /// `InferenceProfilesSheet`.
-        case view(name: String)
+        /// on these rows. The UI mirrors that by disabling the auth-related
+        /// fields (Auth Type, API Key, Advanced/Credential Reference) but
+        /// leaves Display Name + Status editable — those are exactly the
+        /// PATCH fields the daemon allows on managed rows.
+        case managedEdit(name: String)
     }
 
-    private var isViewMode: Bool {
-        if case .view = editorState { return true }
+    /// True when the editor is in managed-edit mode. Selectively disables the
+    /// auth-related fields (Auth Type, API Key, Credential Reference) while
+    /// leaving Display Name + Status editable.
+    private var isAuthLocked: Bool {
+        if case .managedEdit = editorState { return true }
         return false
     }
 
@@ -216,64 +226,37 @@ struct ProvidersSheet: View {
 
     private func connectionRow(_ conn: ProviderConnection) -> some View {
         let isManaged = conn.isManaged
+        let isDisabled = conn.status == .disabled
         return HStack(alignment: .center, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                if let label = conn.label {
+                if let label = conn.label, !label.isEmpty {
                     Text(label)
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentDefault)
-                    HStack(spacing: VSpacing.xs) {
-                        Text("@\(conn.name)")
-                            .font(VFont.bodySmallDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                        if isManaged {
-                            VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
-                                .help("Connections managed by Vellum cannot be edited or deleted")
-                        }
-                        VBadge(
-                            label: store.dynamicProviderDisplayName(conn.provider),
-                            tone: .neutral,
-                            emphasis: .subtle
-                        )
-                        VBadge(
-                            label: authTypeLabel(conn.auth.type),
-                            tone: authTypeTone(conn.auth.type),
-                            emphasis: .subtle
-                        )
-                        if conn.status == .disabled {
-                            VBadge(label: "Disabled", tone: .warning, emphasis: .subtle)
-                        }
-                    }
+                    connectionRowMetadata(conn, primary: "@\(conn.name)")
                 } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text(conn.name)
-                            .font(VFont.bodyMediumEmphasised)
-                            .foregroundStyle(VColor.contentDefault)
-                        if isManaged {
-                            VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
-                                .help("Connections managed by Vellum cannot be edited or deleted")
-                        }
-                        VBadge(
-                            label: store.dynamicProviderDisplayName(conn.provider),
-                            tone: .neutral,
-                            emphasis: .subtle
-                        )
-                        VBadge(
-                            label: authTypeLabel(conn.auth.type),
-                            tone: authTypeTone(conn.auth.type),
-                            emphasis: .subtle
-                        )
-                        if conn.status == .disabled {
-                            VBadge(label: "Disabled", tone: .warning, emphasis: .subtle)
-                        }
-                    }
+                    Text(conn.name)
+                        .font(VFont.bodyMediumEmphasised)
+                        .foregroundStyle(VColor.contentDefault)
+                    connectionRowMetadata(conn, primary: nil)
                 }
             }
+            .opacity(isDisabled ? 0.55 : 1.0)
             Spacer(minLength: 0)
-            HStack(spacing: VSpacing.xs) {
-                VButton(label: isManaged ? "View" : "Edit", style: .ghost) {
+            HStack(spacing: VSpacing.sm) {
+                VToggle(
+                    isOn: Binding(
+                        get: { conn.status == .active },
+                        set: { newActive in
+                            Task { await setStatus(conn, active: newActive) }
+                        }
+                    )
+                )
+                .accessibilityLabel("\(isDisabled ? "Activate" : "Disable") connection \(conn.label?.isEmpty == false ? conn.label! : conn.name)")
+                .help(isDisabled ? "Disabled — toggle to activate" : "Active — toggle to disable")
+                VButton(label: "Edit", style: .ghost) {
                     if isManaged {
-                        beginView(conn)
+                        beginManagedEdit(conn)
                     } else {
                         beginEdit(conn)
                     }
@@ -287,6 +270,35 @@ struct ProvidersSheet: View {
         }
         .padding(.vertical, VSpacing.xs)
         .contentShape(Rectangle())
+    }
+
+    /// The chip strip rendered under the connection name. Pulled out so the
+    /// label-present and label-absent branches share one source of truth for
+    /// what metadata appears (and in what order). `primary`, if non-nil, is
+    /// shown as the first chip (used for `@key` when a label takes the
+    /// primary slot).
+    private func connectionRowMetadata(_ conn: ProviderConnection, primary: String?) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            if let primary {
+                Text(primary)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+            if conn.isManaged {
+                VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
+                    .help("Managed by Vellum — auth is locked, but you can rename or disable this connection.")
+            }
+            VBadge(
+                label: store.dynamicProviderDisplayName(conn.provider),
+                tone: .neutral,
+                emphasis: .subtle
+            )
+            VBadge(
+                label: authTypeLabel(conn.auth.type),
+                tone: authTypeTone(conn.auth.type),
+                emphasis: .subtle
+            )
+        }
     }
 
     private func authTypeLabel(_ type: String) -> String {
@@ -317,15 +329,25 @@ struct ProvidersSheet: View {
                     if case .create = editorState {
                         editorProviderField
                     }
-                    editorAuthTypeField
-                    if editorDraft.authType == "api_key" {
-                        editorApiKeyField
-                        editorAdvancedSection
-                    } else if editorDraft.authType == "platform" {
-                        editorPlatformNote
-                    } else if editorDraft.authType == "none" {
-                        editorNoneNote
+                    Group {
+                        editorAuthTypeField
+                        if editorDraft.authType == "api_key" {
+                            editorApiKeyField
+                            // Note: Advanced disclosure stays visible even
+                            // when there are zero credentials — the empty
+                            // state inside shows a "+ New Credential" button
+                            // which is the only path to building a named
+                            // credential before saving an API key. Hiding the
+                            // whole section regresses that affordance
+                            // (Codex P2, PR #30294).
+                            editorAdvancedSection
+                        } else if editorDraft.authType == "platform" {
+                            editorPlatformNote
+                        } else if editorDraft.authType == "none" {
+                            editorNoneNote
+                        }
                     }
+                    .disabled(isAuthLocked)
                     editorStatusToggle
                     if let actionError {
                         Text(actionError)
@@ -334,7 +356,6 @@ struct ProvidersSheet: View {
                     }
                 }
                 .padding(VSpacing.lg)
-                .disabled(isViewMode)
             }
             SettingsDivider()
             editorFooter
@@ -354,7 +375,7 @@ struct ProvidersSheet: View {
                 switch editorState {
                 case .create: return "New Connection"
                 case .edit(let name): return "Edit \"\(name)\""
-                case .view(let name): return "View \"\(name)\""
+                case .managedEdit(let name): return "Edit \"\(name)\""
                 case nil: return ""
                 }
             }()
@@ -362,15 +383,15 @@ struct ProvidersSheet: View {
                 Text(title)
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
-                if isViewMode {
-                    Text("Managed by Vellum — cannot be edited or deleted.")
+                if isAuthLocked {
+                    Text("Managed by Vellum — auth is locked, but you can rename or disable this connection.")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
                 }
             }
             Spacer(minLength: 0)
             VButton(
-                label: isViewMode ? "Done" : "Cancel",
+                label: "Cancel",
                 style: .ghost,
                 tintColor: VColor.contentTertiary
             ) {
@@ -638,14 +659,12 @@ struct ProvidersSheet: View {
     private var editorFooter: some View {
         HStack {
             Spacer()
-            VButton(label: isViewMode ? "Done" : "Cancel", style: .outlined) {
+            VButton(label: "Cancel", style: .outlined) {
                 editorState = nil
                 actionError = nil
             }
-            if !isViewMode {
-                VButton(label: "Save", style: .primary) {
-                    Task { await commitEditor() }
-                }
+            VButton(label: "Save", style: .primary) {
+                Task { await commitEditor() }
             }
         }
         .padding(VSpacing.lg)
@@ -727,10 +746,12 @@ struct ProvidersSheet: View {
         }
     }
 
-    /// Open the editor in read-only view mode for a managed connection.
-    /// All inputs are disabled and Save is hidden via `isViewMode`. Mirrors
-    /// the managed-profile `beginView` flow in `InferenceProfilesSheet`.
-    private func beginView(_ conn: ProviderConnection) {
+    /// Open the editor for a Vellum-managed connection. Auth-related fields
+    /// (Auth Type, API Key, Credential Reference) are disabled via
+    /// `isAuthLocked` so the daemon's write-protection on `auth` for managed
+    /// rows isn't surprising; Display Name + Status remain editable to match
+    /// what the daemon allows on managed PATCHes.
+    private func beginManagedEdit(_ conn: ProviderConnection) {
         actionError = nil
         isKeyDirty = true
         editorDraft = ConnectionDraft(
@@ -741,13 +762,51 @@ struct ProvidersSheet: View {
             credential: conn.auth.credential ?? "",
             status: conn.status
         )
-        editorState = .view(name: conn.name)
+        editorState = .managedEdit(name: conn.name)
 
         if conn.auth.type == "api_key", let credential = conn.auth.credential, !credential.isEmpty {
             Task {
                 await loadMaskedValue(for: credential)
                 await loadAvailableCredentials()
             }
+        }
+    }
+
+    /// Inline status toggle from the list row. Optimistically updates the
+    /// row, PATCHes the daemon with just the new status (auth + label stay
+    /// untouched), and rolls back on failure. Mirrors the daemon's accept-
+    /// status-only PATCH path so managed connections can be toggled too.
+    ///
+    /// `inFlightStatusToggles` guards against overlapping toggles for the
+    /// same row — a fast off→on→off sequence would otherwise produce
+    /// out-of-order PATCH responses that clobber the user's final intent.
+    private func setStatus(_ conn: ProviderConnection, active: Bool) async {
+        guard !inFlightStatusToggles.contains(conn.name) else { return }
+        let newStatus: ConnectionStatus = active ? .active : .disabled
+        let previous = conn.status
+        inFlightStatusToggles.insert(conn.name)
+        defer { inFlightStatusToggles.remove(conn.name) }
+
+        // Optimistic update — `ProviderConnection` is an immutable struct,
+        // so swap in a new value with just `status` flipped.
+        if let idx = connections.firstIndex(where: { $0.name == conn.name }) {
+            connections[idx] = conn.withStatus(newStatus)
+        }
+        guard let updated = await client.updateProviderConnection(
+            name: conn.name,
+            auth: conn.auth,
+            status: newStatus,
+            label: .none
+        ) else {
+            // Roll back on failure.
+            if let idx = connections.firstIndex(where: { $0.name == conn.name }) {
+                connections[idx] = conn.withStatus(previous)
+            }
+            actionError = "Couldn't update \"\(conn.name)\". Please try again."
+            return
+        }
+        if let idx = connections.firstIndex(where: { $0.name == conn.name }) {
+            connections[idx] = updated
         }
     }
 
@@ -816,7 +875,12 @@ struct ProvidersSheet: View {
             connections.append(created)
             editorState = nil
 
-        case .edit(let originalName):
+        case .edit(let originalName), .managedEdit(let originalName):
+            // Managed-edit and user-edit share the same PATCH path. The auth
+            // fields are locked in the UI for managed connections, so the
+            // draft's authType/credential haven't changed; if a user
+            // somehow bypassed that, the daemon enforces the same
+            // write-protection and returns a 400 we surface as actionError.
             guard let updated = await client.updateProviderConnection(
                 name: originalName,
                 auth: auth,
@@ -832,11 +896,6 @@ struct ProvidersSheet: View {
                 connections[idx] = updated
             }
             editorState = nil
-
-        case .view:
-            // View mode hides the Save button (`isViewMode` in editorFooter),
-            // so this branch should be unreachable. No-op for exhaustiveness.
-            break
 
         case nil:
             break

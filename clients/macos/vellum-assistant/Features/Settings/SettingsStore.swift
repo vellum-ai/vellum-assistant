@@ -65,6 +65,7 @@ public final class SettingsStore: ObservableObject {
     @Published var apiKeySaving: Bool = false
     @Published var braveKeySaveError: String?
     @Published var perplexityKeySaveError: String?
+    @Published var tavilyKeySaveError: String?
     @Published var imageGenKeySaveError: String?
     @Published var imageGenKeySaving: Bool = false
 
@@ -312,12 +313,13 @@ public final class SettingsStore: ObservableObject {
     @Published var yourOwnOAuthConnectingAppId: String? = nil
     @Published var yourOwnOAuthProviderMetadata: [String: OAuthProviderMetadata] = [:]
 
-    static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
+    static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave", "tavily"]
 
     static let webSearchProviderDisplayNames: [String: String] = [
         "inference-provider-native": "Provider Native",
         "perplexity": "Perplexity",
         "brave": "Brave",
+        "tavily": "Tavily",
     ]
 
     // MARK: - Managed Assistant Recovery Mode State
@@ -984,6 +986,35 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    func saveTavilyKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        tavilyKeySaveError = nil
+        removeDeletionTombstone(type: "api_key", name: "tavily")
+        Task {
+            let result = await APIKeyManager.setKey(trimmed, for: "tavily")
+            if result.success {
+                let _: Void = APIKeyManager.deleteKey(for: "tavily")
+                scheduleRoutingSourceRefresh()
+                onSuccess?()
+            } else if let error = result.error {
+                tavilyKeySaveError = error
+                if !result.isTransient {
+                    let _: Void = APIKeyManager.deleteKey(for: "tavily")
+                }
+            }
+        }
+    }
+
+    func clearTavilyKey() {
+        APIKeyManager.deleteKey(for: "tavily")
+        scheduleRoutingSourceRefresh()
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: "tavily")
+            if !deleted { addDeletionTombstone(type: "api_key", name: "tavily") }
+        }
+    }
+
     func saveImageGenKey(_ raw: String, for provider: String = "gemini", onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -1404,10 +1435,10 @@ public final class SettingsStore: ObservableObject {
         return true
     }
 
-    /// Re-sync locally-known keys to daemon on reconnect.
-    /// Pushes keys present in the credential store via the async gateway API,
-    /// and replays any pending deletion tombstones so user-initiated clears
-    /// are eventually consistent.
+    /// Replay any pending deletion tombstones on reconnect so user-initiated
+    /// clears are eventually consistent if the daemon was unreachable when
+    /// the user clicked. (Legacy file→daemon resync removed — settings
+    /// writes go straight to the daemon now.)
     private func syncAllKeysToDaemon() {
         Task {
             // In managed mode, auth is handled by SessionTokenManager — no actor token needed.
@@ -1419,13 +1450,6 @@ public final class SettingsStore: ObservableObject {
             if !isManagedMode {
                 guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
             }
-
-            for provider in APIKeyManager.allSyncableProviders {
-                if let key = APIKeyManager.getKey(for: provider) {
-                    _ = await APIKeyManager.setKey(key, for: provider)
-                }
-            }
-
             await replayDeletionTombstones()
         }
     }

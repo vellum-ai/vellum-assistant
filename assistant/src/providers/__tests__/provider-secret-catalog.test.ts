@@ -39,4 +39,10 @@ describe("API_KEY_PROVIDERS", () => {
     expect(API_KEY_PROVIDERS).toContain("openai");
     expect(API_KEY_PROVIDERS).toContain("gemini");
   });
+
+  test("includes search providers", () => {
+    expect(API_KEY_PROVIDERS).toContain("brave");
+    expect(API_KEY_PROVIDERS).toContain("perplexity");
+    expect(API_KEY_PROVIDERS).toContain("tavily");
+  });
 });

@@ -15,7 +15,7 @@ Tell the user:
 > Since I can't open pages in your browser from here, you'll need:
 >
 > 1. A Google account with access to Google Cloud Console
-> 2. About 5 minutes
+> 2. About 3-5 minutes
 >
 > Ready to start?
 
@@ -39,24 +39,24 @@ Tell the user:
 
 Wait for confirmation. Record the project ID for subsequent steps.
 
-## Path B Step 3: Enable APIs
+## Path B Step 3: Enable APIs + Configure Consent Screen + Add Scopes
+
+After receiving the project ID, present API enabling, consent screen configuration, and scope setup together in one message. Substitute the user's `PROJECT_ID` into all URLs.
 
 Tell the user:
 
-> **Step 2: Enable Gmail and Calendar APIs**
+> **Step 2: Enable APIs, configure consent screen, and add scopes**
+>
+> Now that I have your project ID, here are the next steps — work through them in order:
+>
+> **Part A: Enable Gmail and Calendar APIs**
 >
 > Open each link below and click **Enable**:
 >
 > 1. Gmail API: `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID`
 > 2. Calendar API: `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID`
 >
-> Let me know when both are enabled.
-
-## Path B Step 4: Configure OAuth Consent Screen
-
-Tell the user:
-
-> **Step 3: Configure the OAuth consent screen**
+> **Part B: Configure the OAuth consent screen**
 >
 > Open: `https://console.cloud.google.com/auth/branding?project=PROJECT_ID`
 >
@@ -71,40 +71,43 @@ Tell the user:
 >
 > **If you see a Branding page** (with fields for App name, support email, etc.):
 >
-> - **3a. Branding** - Fill in:
+> - **Branding** - Fill in:
 >   - App name: **Vellum Assistant**
 >   - User support email: **your email**
 >   - Developer contact email: **your email**
 >   - Click **Save**
-> - **3b. Audience** - Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
+> - **Audience** - Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
 >   - Set user type to **External** if not already set
 >   - Scroll to **Test users**, click **+ Add users**, add **your email**, click **Save**
 >
-> **Then, regardless of which flow you saw:**
+> **Part C: Add scopes (regardless of which flow you saw above)**
 >
-> - **Scopes** - Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
->   - Click **Add or Remove Scopes** - a panel will open
->   - Scroll down to the **"Manually add scopes"** text box and paste these (comma-separated):
->     `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
->   - Click **Update** at the bottom of the panel
->   - Back on the main page, scroll down and click **Save**
+> Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
+>
+> - Click **Add or Remove Scopes** - a panel will open
+> - Scroll down to the **"Manually add scopes"** text box and paste these (comma-separated):
+>   `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
+> - Click **Update** at the bottom of the panel
+> - Back on the main page, scroll down and click **Save**
 >
 > **Quick note on email safety:** The `gmail.modify` and `gmail.send` scopes let me create drafts and, when you explicitly ask, send them. By default I only create drafts — nothing leaves your outbox without your approval. If you'd rather I only have read access to your email for now, you can remove those two from the list before pasting - everything else will still work fine, and you can always add them later.
 >
-> Let me know when all parts are done.
+> Let me know when you've finished all parts.
 
-## Path B Step 5: Create Web Application Credentials
+## Path B Step 4: Create Credentials + Collect Client ID & Secret
 
-Before sending the next step, resolve the concrete callback URL:
+Before sending this step, resolve the concrete callback URL:
 
 - Read the configured public gateway URL from `ingress.publicBaseUrl`.
 - If it is missing, load and run the `public-ingress` skill first: call `skill_load` with `skill: "public-ingress"`, then follow its instructions.
 - Build `oauthCallbackUrl` as `<public gateway URL>/webhooks/oauth/callback`.
 - Replace `OAUTH_CALLBACK_URL` below with that concrete value. Never send the placeholder literally.
 
+In this step, present credential creation instructions AND collect both the Client ID and Client Secret in the same turn. Output the chat text first (including the Client ID request), then invoke the `credential_store prompt` tool call for the Client Secret in the same turn.
+
 Tell the user:
 
-> **Step 4: Create OAuth credentials**
+> **Step 3: Create OAuth credentials**
 >
 > Open: `https://console.cloud.google.com/auth/clients/create?project=PROJECT_ID`
 >
@@ -116,31 +119,22 @@ Tell the user:
 > 3. Under **Authorized redirect URIs**, click **Add URI** and paste the redirect URI shown above
 > 4. Click **Create**
 >
-> When the dialog appears, copy the Client ID and Client Secret. You'll send them to me next.
+> After you click **Create** and the dialog appears — paste your **Client ID** here in chat, and paste the full **Client Secret** into the secure form I've just opened.
 
-## Path B Step 6: Store Credentials
+Then, in the same turn, invoke:
 
-### Path B Step 6a: Client ID
+```
+credential_store prompt:
+  service: "google"
+  field: "client_secret"
+  label: "OAuth Client Secret"
+  description: "Copy the full Client Secret (including the GOCSPX- prefix) from the dialog and paste it here."
+  placeholder: "GOCSPX-..."
+```
 
-Tell the user:
+The `credential_store prompt` is a secure input (not visible in chat), so there is no risk of channel scanners triggering on the `GOCSPX-` prefix. Collect the entire Client Secret value directly — do not ask the user to split or strip any prefix.
 
-> **Step 5a: Send your Client ID**
->
-> Send me the **Client ID** from the dialog. It looks like `123456789-xxxxx.apps.googleusercontent.com`.
-
-### Path B Step 6b: Client Secret Split Entry
-
-The Google client secret starts with `GOCSPX-`, which can trigger channel secret scanners. Ask for only the suffix.
-
-Tell the user:
-
-> **Step 5b: Send your Client Secret**
->
-> Your Client Secret starts with `GOCSPX-`. Please send me only the part **after** `GOCSPX-` as a standalone message with no other text.
-
-After the user sends the suffix, reconstruct the full secret as `GOCSPX-<suffix>`.
-
-## Path B Step 7: Register, Authorize, and Verify
+## Path B Step 5: Authorize and Verify
 
 Follow the `vellum-oauth-integrations` workflow to register the OAuth app, connect, and verify.
 

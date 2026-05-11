@@ -43,6 +43,17 @@ describe("WebSearchTool", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain("No web search API key configured");
     });
+
+    test("returns error when no API key is configured (tavily)", async () => {
+      delete process.env.TAVILY_API_KEY;
+      const result = await executeWebSearch(
+        { query: "test" },
+        undefined,
+        "tavily",
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("No web search API key configured");
+    });
   });
 
   describe("input validation", () => {
@@ -508,6 +519,159 @@ describe("WebSearchTool", () => {
       expect(result.content).toContain("Network unreachable");
     });
   });
+
+  describe("Tavily API responses", () => {
+    test("formats results", async () => {
+      const mockResponse = {
+        results: [
+          {
+            title: "Tavily Result",
+            url: "https://example.com/tavily",
+            content: "A Tavily search snippet.",
+            score: 0.9234,
+          },
+        ],
+      };
+
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })) as unknown as typeof fetch;
+
+      const result = await executeWebSearch(
+        { query: "test" },
+        "tvly-key",
+        "tavily",
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Tavily Result");
+      expect(result.content).toContain("https://example.com/tavily");
+      expect(result.content).toContain("A Tavily search snippet");
+      expect(result.content).toContain("Score: 0.923");
+    });
+
+    test("handles empty response", async () => {
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })) as unknown as typeof fetch;
+
+      const result = await executeWebSearch(
+        { query: "noresults" },
+        "tvly-key",
+        "tavily",
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("No results found");
+    });
+
+    test("maps count and freshness into Tavily request body", async () => {
+      let capturedHeaders: Record<string, string> = {};
+      let capturedBody: Record<string, unknown> = {};
+      globalThis.fetch = (async (_url: string, init: RequestInit) => {
+        capturedHeaders = Object.fromEntries(
+          Object.entries(init.headers as Record<string, string>),
+        );
+        capturedBody = JSON.parse(init.body as string);
+        return new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as unknown as typeof fetch;
+
+      await executeWebSearch(
+        { query: "test query", count: 50, freshness: "pw" },
+        "tvly-my-key",
+        "tavily",
+      );
+      expect(capturedHeaders.Authorization).toBe("Bearer tvly-my-key");
+      expect(capturedHeaders["Content-Type"]).toBe("application/json");
+      expect(capturedBody.query).toBe("test query");
+      expect(capturedBody.search_depth).toBe("advanced");
+      expect(capturedBody.max_results).toBe(20);
+      expect(capturedBody.time_range).toBe("week");
+    });
+
+    test("omits invalid freshness values", async () => {
+      let capturedBody: Record<string, unknown> = {};
+      globalThis.fetch = (async (_url: string, init: RequestInit) => {
+        capturedBody = JSON.parse(init.body as string);
+        return new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as unknown as typeof fetch;
+
+      await executeWebSearch(
+        { query: "test query", freshness: "invalid" },
+        "tvly-my-key",
+        "tavily",
+      );
+      expect(capturedBody.time_range).toBeUndefined();
+    });
+
+    test("handles 401 unauthorized", async () => {
+      globalThis.fetch = (async () =>
+        new Response("Unauthorized", {
+          status: 401,
+        })) as unknown as typeof fetch;
+
+      const result = await executeWebSearch(
+        { query: "test" },
+        "bad-key",
+        "tavily",
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Invalid or expired");
+    });
+
+    test("retries on 429 and succeeds", async () => {
+      let callCount = 0;
+      globalThis.fetch = (async () => {
+        callCount++;
+        if (callCount <= 2) {
+          return new Response("Too Many Requests", { status: 429 });
+        }
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                title: "Found it",
+                url: "https://example.com/found",
+                content: "Found it with Tavily",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }) as unknown as typeof fetch;
+
+      const result = await executeWebSearch(
+        { query: "test" },
+        "tvly-key",
+        "tavily",
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Found it with Tavily");
+      expect(callCount).toBe(3);
+    });
+
+    test("handles network errors", async () => {
+      globalThis.fetch = (async () => {
+        throw new Error("Network unreachable");
+      }) as unknown as typeof fetch;
+
+      const result = await executeWebSearch(
+        { query: "test" },
+        "tvly-key",
+        "tavily",
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Network unreachable");
+    });
+  });
 });
 
 interface BraveSearchResult {
@@ -527,6 +691,17 @@ interface PerplexityResponse {
   citations?: string[];
 }
 
+interface TavilySearchResult {
+  title?: string;
+  url?: string;
+  content?: string;
+  score?: number;
+}
+
+interface TavilySearchResponse {
+  results?: TavilySearchResult[];
+}
+
 /**
  * Helper that exercises the web search logic directly, bypassing module
  * registration concerns. This replicates the core execute path from
@@ -535,7 +710,7 @@ interface PerplexityResponse {
 async function executeWebSearch(
   input: Record<string, unknown>,
   apiKey?: string,
-  provider: "brave" | "perplexity" = "brave",
+  provider: "brave" | "perplexity" | "tavily" = "brave",
 ): Promise<{ content: string; isError: boolean }> {
   const query = input.query;
   if (!query || typeof query !== "string") {
@@ -548,13 +723,17 @@ async function executeWebSearch(
   if (!apiKey) {
     return {
       content:
-        "Error: No web search API key configured. Set it via `keys set perplexity <key>` or `keys set brave <key>`, or configure it from the Settings page under API Keys.",
+        "Error: No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, or `keys set tavily <key>`, or configure it from the Settings page under API Keys.",
       isError: true,
     };
   }
 
   if (provider === "perplexity") {
     return executePerplexitySearchHelper(query as string, apiKey);
+  }
+
+  if (provider === "tavily") {
+    return executeTavilySearchHelper(input, query as string, apiKey);
   }
 
   return executeBraveSearchHelper(input, query as string, apiKey);
@@ -757,6 +936,128 @@ async function executePerplexitySearchHelper(
     return {
       content:
         "Error: Perplexity rate limit exceeded after retries. Try again shortly.",
+      isError: true,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: `Error: Web search failed: ${msg}`, isError: true };
+  }
+}
+
+function tavilyTimeRangeForFreshness(
+  freshness: string | undefined,
+): "day" | "week" | "month" | "year" | undefined {
+  switch (freshness) {
+    case "pd":
+      return "day";
+    case "pw":
+      return "week";
+    case "pm":
+      return "month";
+    case "py":
+      return "year";
+    default:
+      return undefined;
+  }
+}
+
+async function executeTavilySearchHelper(
+  input: Record<string, unknown>,
+  query: string,
+  apiKey: string,
+): Promise<{ content: string; isError: boolean }> {
+  const count =
+    typeof input.count === "number"
+      ? Math.min(20, Math.max(1, Math.round(input.count)))
+      : 10;
+  const timeRange = tavilyTimeRangeForFreshness(
+    typeof input.freshness === "string" ? input.freshness : undefined,
+  );
+  const body: Record<string, unknown> = {
+    query,
+    search_depth: "advanced",
+    max_results: count,
+  };
+  if (timeRange) body.time_range = timeRange;
+
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 1;
+
+  try {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const response = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "X-Client-Source": "vellum-assistant",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as TavilySearchResponse;
+        const results = data.results ?? [];
+
+        if (results.length === 0) {
+          return {
+            content: `No results found for "${query}".`,
+            isError: false,
+          };
+        }
+
+        const lines: string[] = [`Web search results for "${query}":\n`];
+
+        for (let i = 0; i < results.length; i++) {
+          const r = results[i];
+          const title = r.title?.trim() || r.url?.trim() || "Untitled result";
+          lines.push(`${i + 1}. ${title}`);
+          if (r.url) lines.push(`   URL: ${r.url}`);
+          if (r.content) lines.push(`   ${r.content}`);
+          if (typeof r.score === "number") {
+            lines.push(`   Score: ${r.score.toFixed(3)}`);
+          }
+          lines.push("");
+        }
+
+        return { content: lines.join("\n"), isError: false };
+      }
+
+      await response.text();
+
+      if (response.status === 401 || response.status === 403) {
+        return {
+          content: "Error: Invalid or expired Tavily API key",
+          isError: true,
+        };
+      }
+
+      if (response.status === 429 && attempt < MAX_RETRIES) {
+        const retryAfter = response.headers.get("retry-after");
+        const delayMs =
+          retryAfter && !isNaN(Number(retryAfter))
+            ? Number(retryAfter) * 1000
+            : BASE_DELAY_MS * Math.pow(2, attempt);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      if (response.status === 429) {
+        return {
+          content:
+            "Error: Tavily Search rate limit exceeded after retries. Try again shortly.",
+          isError: true,
+        };
+      }
+      return {
+        content: `Error: Tavily Search API returned status ${response.status}`,
+        isError: true,
+      };
+    }
+
+    return {
+      content:
+        "Error: Tavily Search rate limit exceeded after retries. Try again shortly.",
       isError: true,
     };
   } catch (err) {

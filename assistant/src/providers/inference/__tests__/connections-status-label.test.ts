@@ -6,7 +6,13 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrateCreateProviderConnections } from "../../../memory/migrations/243-provider-connections.js";
 import { migrateProviderConnectionStatusLabel } from "../../../memory/migrations/244-provider-connection-status-label.js";
 import * as schema from "../../../memory/schema.js";
-import { createConnection, getConnection, updateConnection } from "../connections.js";
+import {
+  createConnection,
+  getConnection,
+  listConnections,
+  seedCanonicalConnections,
+  updateConnection,
+} from "../connections.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -103,5 +109,74 @@ describe("connection CRUD status + label defaults", () => {
     if (result.ok) {
       expect(result.connection.label).toBeNull();
     }
+  });
+});
+
+describe("seedCanonicalConnections labels", () => {
+  test("first boot seeds default labels on all three managed connections", () => {
+    const db = bootDb();
+    seedCanonicalConnections(db);
+
+    const conns = listConnections(db);
+    const byName = Object.fromEntries(conns.map((c) => [c.name, c]));
+
+    expect(byName["anthropic-managed"]?.label).toBe("Anthropic");
+    expect(byName["openai-managed"]?.label).toBe("OpenAI");
+    expect(byName["gemini-managed"]?.label).toBe("Google Gemini");
+  });
+
+  test("second boot preserves user-customized label", () => {
+    const db = bootDb();
+    seedCanonicalConnections(db);
+
+    // User customizes the label.
+    updateConnection(db, "anthropic-managed", {
+      auth: { type: "platform" },
+      label: "Work Anthropic",
+    });
+
+    // Reboot.
+    seedCanonicalConnections(db);
+
+    const conn = getConnection(db, "anthropic-managed");
+    expect(conn?.label).toBe("Work Anthropic");
+  });
+
+  test("second boot backfills default label when existing row has null label", () => {
+    const db = bootDb();
+
+    // `bootDb()` runs migration 243 which already inserted the three
+    // canonical rows with `label=null` (the label column was added by 244
+    // and defaults NULL for pre-existing rows). This matches the state
+    // every pre-label install carries forward into the boot that ships
+    // the label seed.
+    const before = getConnection(db, "anthropic-managed");
+    expect(before?.label).toBeNull();
+
+    seedCanonicalConnections(db);
+
+    const after = getConnection(db, "anthropic-managed");
+    expect(after?.label).toBe("Anthropic");
+  });
+
+  test("backfill leaves explicit empty-overwrite null untouched on subsequent boot", () => {
+    const db = bootDb();
+    seedCanonicalConnections(db);
+
+    // User clears the label (PATCH label: null).
+    updateConnection(db, "openai-managed", {
+      auth: { type: "platform" },
+      label: null,
+    });
+
+    // Subsequent boots refill it — there's no distinction between "user
+    // explicitly cleared" and "pre-seed row that never had one". Treating
+    // both as "fill with default" is intentional; users who want a blank
+    // label aren't a real cohort and we'd rather guarantee the default is
+    // present for everyone.
+    seedCanonicalConnections(db);
+
+    const conn = getConnection(db, "openai-managed");
+    expect(conn?.label).toBe("OpenAI");
   });
 });

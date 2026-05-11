@@ -10,9 +10,8 @@
 ## CLI verb checklist
 <!-- For PRs that add a new IPC route under assistant/src/runtime/routes/: -->
 <!-- - [ ] Does this route need an `assistant` CLI verb? If yes, add a thin -->
-<!--       wrapper in assistant/src/cli/commands/ via registerCommand and an -->
-<!--       entry in assistant/src/cli/COMMAND_INVENTORY.md (same PR or a -->
-<!--       follow-up). -->
+<!--       wrapper in assistant/src/cli/commands/ via registerCommand (same -->
+<!--       PR or a follow-up). -->
 <!-- - [ ] If no, leave a one-line note explaining why (e.g. internal-only, -->
 <!--       composed by another command). -->
 <!-- Delete this section if your PR does not add any new routes. -->
