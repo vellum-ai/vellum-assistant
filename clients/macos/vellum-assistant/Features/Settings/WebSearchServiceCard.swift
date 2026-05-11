@@ -58,12 +58,15 @@ struct WebSearchServiceCard: View {
         if isPerplexity { return perplexityHasKey }
         if isBrave { return braveHasKey }
         if isTavily { return tavilyHasKey }
+        assertionFailure("selectedProviderHasKey called for non-key provider: \(draftProvider)")
         return false
     }
 
     private var selectedProviderKeyText: Binding<String> {
         if isPerplexity { return $perplexityKeyText }
         if isBrave { return $braveKeyText }
+        if isTavily { return $tavilyKeyText }
+        assertionFailure("selectedProviderKeyText called for non-key provider: \(draftProvider)")
         return $tavilyKeyText
     }
 
@@ -71,6 +74,7 @@ struct WebSearchServiceCard: View {
         if isPerplexity { return store.perplexityKeySaveError }
         if isBrave { return store.braveKeySaveError }
         if isTavily { return store.tavilyKeySaveError }
+        assertionFailure("selectedProviderKeyError called for non-key provider: \(draftProvider)")
         return nil
     }
 

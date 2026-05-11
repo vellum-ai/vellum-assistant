@@ -439,11 +439,11 @@ describe("web_search tool", () => {
     expect(result.content).toContain("No results found");
   });
 
-  test("Tavily handles 401/403 auth errors", async () => {
+  test.each([401, 403])("Tavily handles %d auth error", async (status) => {
     mockWebSearchProvider = "tavily";
     mockTavilySecureKey = "bad-key";
     globalThis.fetch = (async () => {
-      return new Response("Unauthorized", { status: 401 });
+      return new Response("Auth error", { status });
     }) as any;
 
     const result = await execute({ query: "test" });
