@@ -429,8 +429,8 @@ async function importBundle(
       scanBundle(tempPath),
       verifyBundleSignature(tempPath).catch(
         (): Awaited<ReturnType<typeof verifyBundleSignature>> => ({
-          trustTier: "unsigned",
-          message: "Signature verification failed",
+          trustTier: "tampered",
+          message: "Signature verification failed — bundle may be tampered",
         }),
       ),
     ]);
@@ -454,7 +454,12 @@ async function importBundle(
 
     // Extract manifest
     const manifestFile = zip.file("manifest.json");
-    let manifest: { name?: string; description?: string; entry?: string } = {};
+    let manifest: {
+      name?: string;
+      description?: string;
+      entry?: string;
+      format_version?: number;
+    } = {};
     if (manifestFile) {
       const manifestText = await manifestFile.async("text");
       manifest = JSON.parse(manifestText);
@@ -463,6 +468,7 @@ async function importBundle(
     const appName = manifest.name ?? "Imported App";
     const appDescription = manifest.description;
     const entry = manifest.entry ?? "index.html";
+    const isMultiFile = manifest.format_version === 2;
 
     // Extract entry HTML
     const entryFile = zip.file(entry);
@@ -485,7 +491,33 @@ async function importBundle(
       schemaJson: JSON.stringify({ type: "object", properties: {} }),
       htmlDefinition,
       icon,
+      formatVersion: isMultiFile ? 2 : undefined,
     });
+
+    // For multi-file apps, extract compiled dist assets (main.js, main.css)
+    // into the app's dist/ directory so the app can run correctly.
+    if (isMultiFile) {
+      const appDir = getAppDirPath(newApp.id);
+      const distDir = join(appDir, "dist");
+      mkdirSync(distDir, { recursive: true });
+
+      // Write dist/index.html
+      writeFileSync(join(distDir, "index.html"), htmlDefinition, "utf-8");
+
+      // Write dist/main.js if present in the bundle
+      const mainJsFile = zip.file("main.js");
+      if (mainJsFile) {
+        const mainJs = await mainJsFile.async("text");
+        writeFileSync(join(distDir, "main.js"), mainJs, "utf-8");
+      }
+
+      // Write dist/main.css if present in the bundle
+      const mainCssFile = zip.file("main.css");
+      if (mainCssFile) {
+        const mainCss = await mainCssFile.async("text");
+        writeFileSync(join(distDir, "main.css"), mainCss, "utf-8");
+      }
+    }
 
     return {
       success: true,
