@@ -23,6 +23,7 @@ struct TopBarView: View {
     let sidebarExpandedWidth: CGFloat
     let sidebarCollapsedWidth: CGFloat
     let onCopyConversation: () -> Void
+    let onCopyConversationId: () -> Void
     let onRenameConversation: () -> Void
     let onOpenForkParent: () -> Void
 
@@ -180,6 +181,7 @@ struct TopBarView: View {
                     sidebarCollapsedWidth: sidebarCollapsedWidth,
                     isSettingsOpen: isSettingsOpen,
                     onCopy: onCopyConversation,
+                    onCopyConversationId: onCopyConversationId,
                     onForkConversation: {
                         Task { await conversationManager.forkActiveConversation() }
                     },

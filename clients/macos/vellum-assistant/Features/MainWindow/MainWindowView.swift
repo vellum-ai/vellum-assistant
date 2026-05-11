@@ -285,9 +285,14 @@ struct MainWindowView: View {
             participantNames: names
         )
         guard !markdown.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(markdown, forType: .string)
+        VCopyButton.copyToPasteboard(markdown)
         windowState.showToast(message: "Conversation copied to clipboard", style: .success)
+    }
+
+    func copyActiveConversationIdToClipboard() {
+        guard let conversationId = conversationManager.activeConversation?.conversationId else { return }
+        VCopyButton.copyToPasteboard(conversationId)
+        windowState.showToast(message: "Conversation ID copied to clipboard", style: .success)
     }
 
     var conversationHeaderPresentation: ConversationHeaderPresentation {
@@ -635,6 +640,7 @@ struct MainWindowView: View {
                 sidebarExpandedWidth: sidebarExpandedWidth,
                 sidebarCollapsedWidth: sidebarCollapsedWidth,
                 onCopyConversation: { copyActiveConversationToClipboard() },
+                onCopyConversationId: { copyActiveConversationIdToClipboard() },
                 onRenameConversation: { startRenameActiveConversation() },
                 onOpenForkParent: { openForkParentConversation() }
             )
@@ -821,6 +827,7 @@ struct ConversationTitleOverlay: View {
     let sidebarCollapsedWidth: CGFloat
     let isSettingsOpen: Bool
     let onCopy: () -> Void
+    let onCopyConversationId: () -> Void
     let onForkConversation: () -> Void
     let onPin: () -> Void
     let onUnpin: () -> Void
@@ -843,6 +850,7 @@ struct ConversationTitleOverlay: View {
         ConversationTitleActionsControl(
             presentation: presentation,
             onCopy: onCopy,
+            onCopyConversationId: onCopyConversationId,
             onForkConversation: onForkConversation,
             onPin: onPin,
             onUnpin: onUnpin,
