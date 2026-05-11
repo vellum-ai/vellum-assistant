@@ -594,6 +594,103 @@ describe("Managed connection write protection", () => {
   });
 });
 
+// ── isManaged response flag ───────────────────────────────────────────────────
+
+describe("isManaged flag on connection responses", () => {
+  const MANAGED_NAMES = ["anthropic-managed", "openai-managed", "gemini-managed"] as const;
+
+  describe("GET list", () => {
+    test("returns isManaged: true for canonical names and false for user-created rows", async () => {
+      for (const name of MANAGED_NAMES) {
+        seedConnection({ name, provider: name.replace("-managed", ""), auth: { type: "platform" } });
+      }
+      seedConnection({ name: "my-custom-anthropic", provider: "anthropic", auth: { type: "api_key", credential: "ref/k" } });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_list"),
+        {},
+      )) as { connections: Array<{ name: string; isManaged: boolean }> };
+
+      const byName = Object.fromEntries(result.connections.map((c) => [c.name, c.isManaged]));
+      expect(byName["anthropic-managed"]).toBe(true);
+      expect(byName["openai-managed"]).toBe(true);
+      expect(byName["gemini-managed"]).toBe(true);
+      expect(byName["my-custom-anthropic"]).toBe(false);
+    });
+  });
+
+  describe("GET single", () => {
+    test("returns isManaged: true for a managed name", async () => {
+      seedConnection({ name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" } });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_get"),
+        { pathParams: { name: "anthropic-managed" } },
+      )) as { name: string; isManaged: boolean };
+
+      expect(result.isManaged).toBe(true);
+    });
+
+    test("returns isManaged: false for a user-created name", async () => {
+      seedConnection({ name: "my-openai", provider: "openai", auth: { type: "api_key", credential: "ref/k" } });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_get"),
+        { pathParams: { name: "my-openai" } },
+      )) as { name: string; isManaged: boolean };
+
+      expect(result.isManaged).toBe(false);
+    });
+  });
+
+  describe("POST create", () => {
+    test("returns isManaged: false on a freshly-created user connection", async () => {
+      const result = (await call(
+        findHandler("inference_provider_connections_create"),
+        {
+          body: {
+            name: "my-new-anthropic",
+            provider: "anthropic",
+            auth: { type: "api_key", credential: "ref/k" },
+          },
+        },
+      )) as { name: string; isManaged: boolean };
+
+      expect(result.isManaged).toBe(false);
+    });
+  });
+
+  describe("PATCH update", () => {
+    test("returns isManaged: true after relabeling a managed connection", async () => {
+      seedConnection({ name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" } });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_update"),
+        {
+          pathParams: { name: "anthropic-managed" },
+          body: { auth: { type: "platform" }, label: "Vellum Anthropic" },
+        },
+      )) as { name: string; isManaged: boolean };
+
+      expect(result.isManaged).toBe(true);
+    });
+
+    test("returns isManaged: false after updating a user connection", async () => {
+      seedConnection({ name: "my-openai", provider: "openai", auth: { type: "api_key", credential: "ref/k" } });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_update"),
+        {
+          pathParams: { name: "my-openai" },
+          body: { auth: { type: "api_key", credential: "ref/k2" } },
+        },
+      )) as { name: string; isManaged: boolean };
+
+      expect(result.isManaged).toBe(false);
+    });
+  });
+});
+
 // ── Auth / route-policy wiring ────────────────────────────────────────────────
 
 describe("Route policy registrations", () => {

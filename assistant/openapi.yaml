@@ -8661,6 +8661,8 @@ paths:
                           type: integer
                           minimum: -9007199254740991
                           maximum: 9007199254740991
+                        isManaged:
+                          type: boolean
                       required:
                         - name
                         - provider
@@ -8669,6 +8671,7 @@ paths:
                         - label
                         - createdAt
                         - updatedAt
+                        - isManaged
                       additionalProperties: false
                 required:
                   - connections
@@ -8778,6 +8781,8 @@ paths:
                     type: integer
                     minimum: -9007199254740991
                     maximum: 9007199254740991
+                  isManaged:
+                    type: boolean
                 required:
                   - name
                   - provider
@@ -8786,6 +8791,7 @@ paths:
                   - label
                   - createdAt
                   - updatedAt
+                  - isManaged
                 additionalProperties: false
         "400":
           description: Invalid provider or auth schema
@@ -9011,6 +9017,8 @@ paths:
                     type: integer
                     minimum: -9007199254740991
                     maximum: 9007199254740991
+                  isManaged:
+                    type: boolean
                 required:
                   - name
                   - provider
@@ -9019,6 +9027,7 @@ paths:
                   - label
                   - createdAt
                   - updatedAt
+                  - isManaged
                 additionalProperties: false
         "404":
           description: Connection not found
@@ -9129,6 +9138,8 @@ paths:
                     type: integer
                     minimum: -9007199254740991
                     maximum: 9007199254740991
+                  isManaged:
+                    type: boolean
                 required:
                   - name
                   - provider
@@ -9137,6 +9148,7 @@ paths:
                   - label
                   - createdAt
                   - updatedAt
+                  - isManaged
                 additionalProperties: false
         "400":
           description: Invalid auth schema, or attempt to change auth on a managed connection

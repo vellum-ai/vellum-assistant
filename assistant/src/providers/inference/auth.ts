@@ -89,6 +89,15 @@ export const ProviderConnectionSchema = z.object({
   label: z.string().min(1).nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
+  /**
+   * Whether this row is a Vellum-managed connection (`anthropic-managed`,
+   * `openai-managed`, `gemini-managed`). Derived from
+   * `MANAGED_CONNECTION_NAMES` in `connections.ts` at serialize time; the
+   * DB column does not exist. Clients use this to render the read-only
+   * "Vellum" badge + view-only editor and to disable the delete affordance
+   * without mirroring the canonical name list locally.
+   */
+  isManaged: z.boolean(),
 });
 
 export type ProviderConnection = z.infer<typeof ProviderConnectionSchema>;
