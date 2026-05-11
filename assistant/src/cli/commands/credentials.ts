@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 
-import type { CredentialPromptResult } from "../../runtime/routes/credential-prompt-routes.js";
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import type { CredentialPromptResult } from "../../runtime/routes/credential-prompt-routes.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";

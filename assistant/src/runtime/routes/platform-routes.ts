@@ -15,18 +15,18 @@
  */
 
 import { isPlatformRemote } from "../../config/env-registry.js";
-import { ipcGetVelayStatus } from "../../ipc/gateway-client.js";
 import {
   registerCallbackRoute,
   resolvePlatformCallbackRegistrationContext,
 } from "../../inbound/platform-callback-registration.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { ipcGetVelayStatus } from "../../ipc/gateway-client.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
 } from "../../security/secure-keys.js";
+import { buildAssistantEvent } from "../assistant-event.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import {
   BadRequestError,
   InternalError,

@@ -1,8 +1,8 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
-import { timeAgo } from "../lib/time-ago.js";
 import { registerCommand } from "../lib/register-command.js";
+import { timeAgo } from "../lib/time-ago.js";
 import { log } from "../logger.js";
 import { registerConversationsDeferCommand } from "./conversations-defer.js";
 import { registerConversationsImportCommand } from "./conversations-import.js";
