@@ -1,15 +1,32 @@
 import type { Command } from "commander";
 
-import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
-import { cliIpcCall } from "../../ipc/cli-client.js";
-import { McpClient } from "../../mcp/client.js";
-import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
-import { openInHostBrowser } from "../../util/browser.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { openInHostBrowser } from "../lib/open-browser.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
-const HEALTH_CHECK_TIMEOUT_MS = 10_000;
+// ---------------------------------------------------------------------------
+// Shared types for IPC responses
+// ---------------------------------------------------------------------------
+
+interface McpServerEntry {
+  id: string;
+  status: string;
+  transport: {
+    type: string;
+    url?: string;
+    command?: string;
+    args?: string[];
+  };
+  enabled: boolean;
+  defaultRiskLevel: string;
+  allowedTools?: string[];
+  blockedTools?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Auth polling helper
+// ---------------------------------------------------------------------------
 
 async function pollMcpAuthStatus(
   serverId: string,
@@ -55,52 +72,36 @@ async function pollMcpAuthStatus(
   };
 }
 
-export async function checkServerHealth(
-  serverId: string,
-  config: McpServerConfig,
-  timeoutMs = HEALTH_CHECK_TIMEOUT_MS,
-): Promise<string> {
-  const client = new McpClient(serverId);
-  try {
-    await Promise.race([
-      client.connect(config.transport),
-      new Promise<never>((_, reject) => {
-        const t = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-        if (typeof t === "object" && "unref" in t) t.unref();
-      }),
-    ]);
+// ---------------------------------------------------------------------------
+// Display helper for list output
+// ---------------------------------------------------------------------------
 
-    if (client.isConnected) {
-      await client.disconnect();
-      return "\u2713 Connected";
-    }
-
-    // connect() swallows errors — check lastError to distinguish auth from
-    // transport failures (DNS, TLS, 500, stdio crash, etc.).
-    const err = client.lastError;
-    if (err) {
-      const message = err.message;
-      if (message.includes("timeout")) {
-        return "\u2717 Timed out";
-      }
-      return `\u2717 Error: ${message}`;
-    }
-
-    return "! Needs authentication";
-  } catch (err) {
-    // Only the external timeout Promise can throw here (connect() never does).
-    try {
-      await client.disconnect();
-    } catch {
-      /* ignore */
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("timeout")) {
-      return "\u2717 Timed out";
-    }
-    return `\u2717 Error: ${message}`;
+function printServerEntry(entry: McpServerEntry): void {
+  log.info(`  ${entry.id}`);
+  log.info(`    Status:    ${entry.status}`);
+  log.info(`    Transport: ${entry.transport?.type ?? "unknown"}`);
+  if (entry.transport?.type === "stdio") {
+    log.info(
+      `    Command:   ${entry.transport.command} ${(
+        entry.transport.args ?? []
+      ).join(" ")}`,
+    );
+  } else if (entry.transport && "url" in entry.transport) {
+    log.info(`    URL:       ${entry.transport.url}`);
   }
+  log.info(`    Risk:      ${entry.defaultRiskLevel}`);
+  if (entry.allowedTools) {
+    log.info(`    Allowed:   ${entry.allowedTools.join(", ")}`);
+  }
+  if (entry.blockedTools) {
+    log.info(`    Blocked:   ${entry.blockedTools.join(", ")}`);
+  }
+  log.info("");
 }
+
+// ---------------------------------------------------------------------------
+// Command registration
+// ---------------------------------------------------------------------------
 
 export function registerMcpCommand(program: Command): void {
   registerCommand(program, {
@@ -150,21 +151,29 @@ Shows each configured MCP server with its current status and configuration:
   Allowed      Tool allowlist filter (if configured)
   Blocked      Tool blocklist filter (if configured)
 
-When output is a TTY, health checks run in parallel with live status updates.
-In non-TTY mode (piped), checks run sequentially. With --json, outputs raw
-server config without running health checks.
+Health checks run on the daemon side. With --json, outputs the raw server
+list including health status.
 
 Examples:
   $ assistant mcp list
   $ assistant mcp list --json`,
     )
     .action(async (opts: { json?: boolean }) => {
-      const raw = loadRawConfig();
-      const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
-      const servers = mcpConfig?.servers ?? {};
-      const entries = Object.entries(servers) as [string, McpServerConfig][];
+      const result = await cliIpcCall<{ servers: McpServerEntry[] }>(
+        "internal_mcp_list",
+      );
 
-      if (entries.length === 0) {
+      if (!result.ok) {
+        return exitFromIpcResult({
+          ok: false,
+          error: result.error,
+          statusCode: result.statusCode,
+        });
+      }
+
+      const servers = result.result?.servers ?? [];
+
+      if (servers.length === 0) {
         if (opts.json) {
           process.stdout.write(JSON.stringify([], null, 2) + "\n");
         } else {
@@ -174,128 +183,15 @@ Examples:
       }
 
       if (opts.json) {
-        const result = entries
-          .filter(([, config]) => config && typeof config === "object")
-          .map(([id, config]) => ({ id, ...config }));
-        process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+        process.stdout.write(JSON.stringify(servers, null, 2) + "\n");
         return;
       }
 
-      log.info(`${entries.length} MCP server(s) configured:\n`);
+      log.info(`${servers.length} MCP server(s) configured:\n`);
 
-      const isTTY = process.stdout.isTTY;
-
-      if (isTTY) {
-        // TTY path: print placeholders, run health checks in parallel, update in-place with ANSI codes
-        let lineCount = 0;
-        const healthChecks: {
-          id: string;
-          cfg: McpServerConfig;
-          statusLine: number;
-        }[] = [];
-
-        for (const [id, cfg] of entries) {
-          if (!cfg || typeof cfg !== "object") {
-            log.info(`  ${id} (invalid config — skipped)\n`);
-            lineCount += 2;
-            continue;
-          }
-          const enabled = cfg.enabled !== false;
-          const transport = cfg.transport;
-          const risk = cfg.defaultRiskLevel ?? "high";
-          const statusText = !enabled ? "✗ disabled" : "⏳ Checking...";
-
-          log.info(`  ${id}`);
-          lineCount++;
-          const statusLine = lineCount;
-          log.info(`    Status:    ${statusText}`);
-          lineCount++;
-          log.info(`    Transport: ${transport?.type ?? "unknown"}`);
-          lineCount++;
-          if (transport?.type === "stdio") {
-            log.info(
-              `    Command:   ${transport.command} ${(
-                transport.args ?? []
-              ).join(" ")}`,
-            );
-            lineCount++;
-          } else if (transport && "url" in transport) {
-            log.info(`    URL:       ${transport.url}`);
-            lineCount++;
-          }
-          log.info(`    Risk:      ${risk}`);
-          lineCount++;
-          if (cfg.allowedTools) {
-            log.info(`    Allowed:   ${cfg.allowedTools.join(", ")}`);
-            lineCount++;
-          }
-          if (cfg.blockedTools) {
-            log.info(`    Blocked:   ${cfg.blockedTools.join(", ")}`);
-            lineCount++;
-          }
-          log.info("");
-          lineCount++;
-
-          if (enabled) {
-            healthChecks.push({ id, cfg, statusLine });
-          }
-        }
-
-        if (healthChecks.length === 0) return;
-
-        // Run health checks in parallel, update status lines in-place with ANSI codes
-        await Promise.all(
-          healthChecks.map(async ({ id, cfg, statusLine }) => {
-            const health = await checkServerHealth(id, cfg);
-            const up = lineCount - statusLine;
-            process.stdout.write(
-              `\x1b[${up}A\r\x1b[2K    Status:    ${health}\x1b[${up}B\r`,
-            );
-          }),
-        );
-      } else {
-        // Non-TTY path: run health checks sequentially, print final status directly (no ANSI codes)
-        for (const [id, cfg] of entries) {
-          if (!cfg || typeof cfg !== "object") {
-            log.info(`  ${id} (invalid config — skipped)\n`);
-            continue;
-          }
-          const enabled = cfg.enabled !== false;
-          const transport = cfg.transport;
-          const risk = cfg.defaultRiskLevel ?? "high";
-
-          let statusText: string;
-          if (!enabled) {
-            statusText = "✗ disabled";
-          } else {
-            statusText = await checkServerHealth(id, cfg);
-          }
-
-          log.info(`  ${id}`);
-          log.info(`    Status:    ${statusText}`);
-          log.info(`    Transport: ${transport?.type ?? "unknown"}`);
-          if (transport?.type === "stdio") {
-            log.info(
-              `    Command:   ${transport.command} ${(
-                transport.args ?? []
-              ).join(" ")}`,
-            );
-          } else if (transport && "url" in transport) {
-            log.info(`    URL:       ${transport.url}`);
-          }
-          log.info(`    Risk:      ${risk}`);
-          if (cfg.allowedTools) {
-            log.info(`    Allowed:   ${cfg.allowedTools.join(", ")}`);
-          }
-          if (cfg.blockedTools) {
-            log.info(`    Blocked:   ${cfg.blockedTools.join(", ")}`);
-          }
-          log.info("");
-        }
+      for (const entry of servers) {
+        printServerEntry(entry);
       }
-
-      // Health checks may leave MCP transports alive — force exit
-      process.exit(0);
     });
 
   mcp
@@ -378,78 +274,29 @@ Examples:
           disabled?: boolean;
         },
       ) => {
-        const raw = loadRawConfig();
-        if (!raw.mcp) raw.mcp = { servers: {} };
-        const mcpConfig = raw.mcp as Record<string, unknown>;
-        if (!mcpConfig.servers) mcpConfig.servers = {};
-        const servers = mcpConfig.servers as Record<string, unknown>;
-
-        if (servers[name]) {
-          log.error(
-            `MCP server "${name}" already exists. Remove it first with: assistant mcp remove ${name}`,
-          );
-          process.exitCode = 1;
-          return;
-        }
-
-        let transport: Record<string, unknown>;
-        switch (opts.transportType) {
-          case "stdio":
-            if (!opts.command) {
-              log.error("--command is required for stdio transport");
-              process.exitCode = 1;
-              return;
-            }
-            transport = {
-              type: "stdio",
+        const result = await cliIpcCall<{ added: true }>(
+          "internal_mcp_add",
+          {
+            body: {
+              name,
+              transportType: opts.transportType,
+              url: opts.url,
               command: opts.command,
-              args: opts.args ?? [],
-            };
-            break;
-          case "sse":
-          case "streamable-http":
-            if (!opts.url) {
-              log.error(
-                `--url is required for ${opts.transportType} transport`,
-              );
-              process.exitCode = 1;
-              return;
-            }
-            transport = { type: opts.transportType, url: opts.url };
-            break;
-          default:
-            log.error(
-              `Unknown transport type: ${opts.transportType}. Must be stdio, sse, or streamable-http`,
-            );
-            process.exitCode = 1;
-            return;
-        }
+              args: opts.args,
+              risk: opts.risk,
+              disabled: opts.disabled,
+            },
+          },
+        );
 
-        if (!["low", "medium", "high"].includes(opts.risk)) {
-          log.error(
-            `Invalid risk level: ${opts.risk}. Must be low, medium, or high`,
-          );
+        if (!result.ok) {
+          log.error(result.error ?? "Failed to add MCP server");
           process.exitCode = 1;
           return;
         }
 
-        servers[name] = {
-          transport,
-          enabled: !opts.disabled,
-          defaultRiskLevel: opts.risk,
-        };
-
-        saveRawConfig(raw);
         log.info(`Added MCP server "${name}" (${opts.transportType})`);
-        const reloadResult = await cliIpcCall("internal_mcp_reload", { body: {} });
-        if (!reloadResult.ok) {
-          log.warn(
-            `Could not signal reload: ${reloadResult.error}. ` +
-              `Run 'assistant mcp reload' once the assistant is up.`,
-          );
-        } else {
-          log.info("The running assistant is reloading MCP servers now.");
-        }
+        log.info("The running assistant is reloading MCP servers now.");
       },
     );
 
@@ -479,28 +326,6 @@ Examples:
   $ assistant mcp auth remote-api`,
     )
     .action(async (name: string) => {
-      const raw = loadRawConfig();
-      const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
-      const servers = mcpConfig?.servers ?? {};
-      const serverConfig = (servers as Record<string, McpServerConfig>)[name];
-
-      if (!serverConfig) {
-        log.error(
-          `MCP server "${name}" not found. Add it first with: assistant mcp add`,
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      const transport = serverConfig.transport;
-      if (transport.type !== "sse" && transport.type !== "streamable-http") {
-        log.error(
-          `OAuth is only supported for sse/streamable-http transports (server "${name}" uses ${transport.type})`,
-        );
-        process.exitCode = 1;
-        return;
-      }
-
       // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
       const startResult = await cliIpcCall<{
         auth_url: string;
@@ -517,7 +342,7 @@ Examples:
       if (startResult.ok && startResult.result?.auth_url) {
         const authUrl = startResult.result.auth_url;
         log.info(`Opening browser for "${name}" OAuth authorization...`);
-        await openInHostBrowser(authUrl);
+        openInHostBrowser(authUrl);
         log.info(`If the browser did not open, visit:\n${authUrl}`);
         log.info(
           "Waiting for authorization in browser... (press Ctrl+C to cancel)",
@@ -588,31 +413,17 @@ Examples:
   $ assistant mcp remove legacy-sse`,
     )
     .action(async (name: string) => {
-      const raw = loadRawConfig();
-      const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
-      const servers = mcpConfig?.servers as Record<string, unknown> | undefined;
+      const result = await cliIpcCall<{ removed: true }>(
+        "internal_mcp_remove",
+        { body: { name } },
+      );
 
-      if (!servers || !servers[name]) {
-        log.error(`MCP server "${name}" not found.`);
+      if (!result.ok) {
+        log.error(result.error ?? `Failed to remove MCP server "${name}".`);
         process.exitCode = 1;
         return;
       }
 
-      // Best-effort cleanup of any OAuth credentials stored for this server
-      const serverConfig = servers[name] as Record<string, unknown>;
-      const transport = serverConfig?.transport as
-        | Record<string, unknown>
-        | undefined;
-      if (transport?.type === "sse" || transport?.type === "streamable-http") {
-        try {
-          await deleteMcpOAuthCredentials(name);
-        } catch {
-          // Ignore — credentials may not exist
-        }
-      }
-
-      delete servers[name];
-      saveRawConfig(raw);
       log.info(`Removed MCP server "${name}".`);
       log.info(
         "The running assistant will pick up this change automatically. " +

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -42,11 +42,15 @@ mock.module("../ipc/cli-client.js", () => ({
     params?: Record<string, unknown>,
     opts?: { timeoutMs?: number },
   ) => mockCliIpcCallFn(method, params, opts),
+  exitFromIpcResult: (r: { ok: false; error?: string; statusCode?: number }) => {
+    process.stderr.write((r.error ?? "Unknown error") + "\n");
+    process.exitCode = 10;
+  },
 }));
 
-let mockOpenInHostBrowserFn = mock(async (_url: string) => {});
+let mockOpenInHostBrowserFn = mock((_url: string) => {});
 
-mock.module("../util/browser.js", () => ({
+mock.module("../cli/lib/open-browser.js", () => ({
   openInHostBrowser: (url: string) => mockOpenInHostBrowserFn(url),
 }));
 
@@ -74,36 +78,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../mcp/mcp-oauth-provider.js", () => ({
-  deleteMcpOAuthCredentials: async () => {},
-}));
-
-mock.module("../mcp/client.js", () => ({
-  McpClient: class {
-    async connect() {
-      throw new Error("Connection refused");
-    }
-    async disconnect() {}
-    get isConnected() {
-      return false;
-    }
-  },
-}));
-
 const { registerMcpCommand } = await import("../cli/commands/mcp.js");
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
 let testDataDir: string;
-let configPath: string;
-
-function writeConfig(config: Record<string, unknown>): void {
-  writeFileSync(configPath, JSON.stringify(config), "utf-8");
-}
-
-function readConfig(): Record<string, unknown> {
-  return JSON.parse(readFileSync(configPath, "utf-8"));
-}
 
 async function runMcp(
   subcommand: string,
@@ -128,7 +107,7 @@ async function runMcp(
     if (code !== undefined) process.exitCode = code;
   }) as typeof process.exit;
 
-  // Point config loader at the test data dir
+  // Point workspace dir at the test data dir
   process.env.VELLUM_WORKSPACE_DIR = testDataDir;
 
   try {
@@ -174,8 +153,6 @@ describe("assistant mcp list", () => {
       `vellum-mcp-cli-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     mkdirSync(testDataDir, { recursive: true });
-    configPath = join(testDataDir, "config.json");
-    writeConfig({});
   });
 
   afterAll(() => {
@@ -183,7 +160,12 @@ describe("assistant mcp list", () => {
   });
 
   beforeEach(() => {
-    writeConfig({});
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: { servers: [] },
+      }),
+    );
   });
 
   test("shows message when no MCP servers configured", async () => {
@@ -193,20 +175,25 @@ describe("assistant mcp list", () => {
   });
 
   test("lists configured servers", async () => {
-    writeConfig({
-      mcp: {
-        servers: {
-          "test-server": {
-            transport: {
-              type: "streamable-http",
-              url: "https://example.com/mcp",
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          servers: [
+            {
+              id: "test-server",
+              status: "✓ Connected",
+              transport: {
+                type: "streamable-http",
+                url: "https://example.com/mcp",
+              },
+              enabled: true,
+              defaultRiskLevel: "medium",
             },
-            enabled: true,
-            defaultRiskLevel: "medium",
-          },
+          ],
         },
-      },
-    });
+      }),
+    );
 
     const { stdout, exitCode } = await runMcpList();
     expect(exitCode).toBe(0);
@@ -218,17 +205,22 @@ describe("assistant mcp list", () => {
   });
 
   test("shows disabled status", async () => {
-    writeConfig({
-      mcp: {
-        servers: {
-          "disabled-server": {
-            transport: { type: "sse", url: "https://example.com/sse" },
-            enabled: false,
-            defaultRiskLevel: "high",
-          },
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          servers: [
+            {
+              id: "disabled-server",
+              status: "✗ disabled",
+              transport: { type: "sse", url: "https://example.com/sse" },
+              enabled: false,
+              defaultRiskLevel: "high",
+            },
+          ],
         },
-      },
-    });
+      }),
+    );
 
     const { stdout, exitCode } = await runMcpList();
     expect(exitCode).toBe(0);
@@ -236,21 +228,26 @@ describe("assistant mcp list", () => {
   });
 
   test("shows stdio command info", async () => {
-    writeConfig({
-      mcp: {
-        servers: {
-          "stdio-server": {
-            transport: {
-              type: "stdio",
-              command: "npx",
-              args: ["-y", "some-mcp-server"],
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          servers: [
+            {
+              id: "stdio-server",
+              status: "✓ Connected",
+              transport: {
+                type: "stdio",
+                command: "npx",
+                args: ["-y", "some-mcp-server"],
+              },
+              enabled: true,
+              defaultRiskLevel: "low",
             },
-            enabled: true,
-            defaultRiskLevel: "low",
-          },
+          ],
         },
-      },
-    });
+      }),
+    );
 
     const { stdout, exitCode } = await runMcpList();
     expect(exitCode).toBe(0);
@@ -261,20 +258,25 @@ describe("assistant mcp list", () => {
   });
 
   test("--json outputs valid JSON", async () => {
-    writeConfig({
-      mcp: {
-        servers: {
-          "json-server": {
-            transport: {
-              type: "streamable-http",
-              url: "https://example.com/mcp",
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          servers: [
+            {
+              id: "json-server",
+              status: "✓ Connected",
+              transport: {
+                type: "streamable-http",
+                url: "https://example.com/mcp",
+              },
+              enabled: true,
+              defaultRiskLevel: "high",
             },
-            enabled: true,
-            defaultRiskLevel: "high",
-          },
+          ],
         },
-      },
-    });
+      }),
+    );
 
     const { stdout, exitCode } = await runMcpList(["--json"]);
     expect(exitCode).toBe(0);
@@ -300,8 +302,6 @@ describe("assistant mcp add", () => {
       `vellum-mcp-add-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     mkdirSync(testDataDir, { recursive: true });
-    configPath = join(testDataDir, "config.json");
-    writeConfig({});
   });
 
   afterAll(() => {
@@ -309,7 +309,9 @@ describe("assistant mcp add", () => {
   });
 
   beforeEach(() => {
-    writeConfig({});
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({ ok: true, result: { added: true } }),
+    );
   });
 
   test("adds a streamable-http server", async () => {
@@ -324,19 +326,19 @@ describe("assistant mcp add", () => {
     expect(exitCode).toBe(0);
     expect(stdout).toContain('Added MCP server "test-http"');
 
-    const updated = readConfig();
-    const servers = (updated.mcp as Record<string, unknown> | undefined)
-      ?.servers as Record<string, unknown> | undefined;
-    const server = servers?.["test-http"] as Record<string, unknown>;
-    expect(server).toBeDefined();
-    expect((server.transport as Record<string, unknown>).type).toBe(
-      "streamable-http",
+    // Verify IPC was called with correct params
+    const addCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_add",
     );
-    expect((server.transport as Record<string, unknown>).url).toBe(
-      "https://example.com/mcp",
-    );
-    expect(server.defaultRiskLevel).toBe("medium");
-    expect(server.enabled).toBe(true);
+    expect(addCall).toBeDefined();
+    const body = (addCall![1] as Record<string, unknown>).body as Record<
+      string,
+      unknown
+    >;
+    expect(body.name).toBe("test-http");
+    expect(body.transportType).toBe("streamable-http");
+    expect(body.url).toBe("https://example.com/mcp");
+    expect(body.risk).toBe("medium");
   });
 
   test("adds a stdio server with args", async () => {
@@ -354,14 +356,17 @@ describe("assistant mcp add", () => {
     expect(exitCode).toBe(0);
     expect(stdout).toContain('Added MCP server "test-stdio"');
 
-    const updated = readConfig();
-    const servers = (updated.mcp as Record<string, unknown> | undefined)
-      ?.servers as Record<string, unknown> | undefined;
-    const server = servers?.["test-stdio"] as Record<string, unknown>;
-    const transport = server.transport as Record<string, unknown>;
-    expect(transport.type).toBe("stdio");
-    expect(transport.command).toBe("npx");
-    expect(transport.args).toEqual(["-y", "some-server"]);
+    const addCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_add",
+    );
+    expect(addCall).toBeDefined();
+    const body = (addCall![1] as Record<string, unknown>).body as Record<
+      string,
+      unknown
+    >;
+    expect(body.transportType).toBe("stdio");
+    expect(body.command).toBe("npx");
+    expect(body.args).toEqual(["-y", "some-server"]);
   });
 
   test("adds server as disabled with --disabled flag", async () => {
@@ -374,25 +379,24 @@ describe("assistant mcp add", () => {
     ]);
     expect(exitCode).toBe(0);
 
-    const updated = readConfig();
-    const servers = (updated.mcp as Record<string, unknown> | undefined)
-      ?.servers as Record<string, unknown> | undefined;
-    const server = servers?.["test-disabled"] as Record<string, unknown>;
-    expect(server.enabled).toBe(false);
+    const addCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_add",
+    );
+    expect(addCall).toBeDefined();
+    const body = (addCall![1] as Record<string, unknown>).body as Record<
+      string,
+      unknown
+    >;
+    expect(body.disabled).toBe(true);
   });
 
-  test("rejects duplicate server name", async () => {
-    writeConfig({
-      mcp: {
-        servers: {
-          existing: {
-            transport: { type: "sse", url: "https://example.com" },
-            enabled: true,
-            defaultRiskLevel: "high",
-          },
-        },
-      },
-    });
+  test("rejects duplicate server name via IPC error", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: 'MCP server "existing" already exists. Remove it first with: assistant mcp remove existing',
+      }),
+    );
 
     const { stderr } = await runMcpAdd("existing", [
       "-t",
@@ -403,12 +407,26 @@ describe("assistant mcp add", () => {
     expect(stderr).toContain("already exists");
   });
 
-  test("rejects stdio without --command", async () => {
+  test("rejects stdio without --command via IPC error", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "--command is required for stdio transport",
+      }),
+    );
+
     const { stderr } = await runMcpAdd("bad-stdio", ["-t", "stdio"]);
     expect(stderr).toContain("--command is required");
   });
 
-  test("rejects streamable-http without --url", async () => {
+  test("rejects streamable-http without --url via IPC error", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "--url is required for streamable-http transport",
+      }),
+    );
+
     const { stderr } = await runMcpAdd("bad-http", ["-t", "streamable-http"]);
     expect(stderr).toContain("--url is required");
   });
@@ -422,15 +440,21 @@ describe("assistant mcp add", () => {
     ]);
     expect(exitCode).toBe(0);
 
-    const updated = readConfig();
-    const servers = (updated.mcp as Record<string, unknown> | undefined)
-      ?.servers as Record<string, unknown> | undefined;
-    const server = servers?.["default-risk"] as Record<string, unknown>;
-    expect(server.defaultRiskLevel).toBe("high");
+    const addCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_add",
+    );
+    expect(addCall).toBeDefined();
+    const body = (addCall![1] as Record<string, unknown>).body as Record<
+      string,
+      unknown
+    >;
+    expect(body.risk).toBe("high");
   });
 
-  test("calls cliIpcCall with internal_mcp_reload after saving server", async () => {
-    mockCliIpcCallFn = mock(() => Promise.resolve({ ok: true }));
+  test("calls cliIpcCall with internal_mcp_add", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({ ok: true, result: { added: true } }),
+    );
 
     await runMcpAdd("reload-test-server", [
       "-t",
@@ -439,11 +463,10 @@ describe("assistant mcp add", () => {
       "https://example.com/sse",
     ]);
 
-    const reloadCall = mockCliIpcCallFn.mock.calls.find(
-      (c) => c[0] === "internal_mcp_reload",
+    const addCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_add",
     );
-    expect(reloadCall).toBeDefined();
-    expect(reloadCall![1]).toEqual({ body: {} });
+    expect(addCall).toBeDefined();
   });
 });
 
@@ -456,8 +479,6 @@ describe("assistant mcp remove", () => {
         .slice(2)}`,
     );
     mkdirSync(testDataDir, { recursive: true });
-    configPath = join(testDataDir, "config.json");
-    writeConfig({});
   });
 
   afterAll(() => {
@@ -465,67 +486,38 @@ describe("assistant mcp remove", () => {
   });
 
   beforeEach(() => {
-    writeConfig({});
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({ ok: true, result: { removed: true } }),
+    );
   });
 
   test("removes an existing server", async () => {
-    writeConfig({
-      mcp: {
-        servers: {
-          "my-server": {
-            transport: { type: "sse", url: "https://example.com/sse" },
-            enabled: true,
-            defaultRiskLevel: "high",
-          },
-        },
-      },
-    });
-
     const { stdout, exitCode } = await runMcpRemove("my-server");
     expect(exitCode).toBe(0);
     expect(stdout).toContain('Removed MCP server "my-server"');
 
-    const updated = readConfig();
-    const servers = (updated.mcp as Record<string, unknown> | undefined)
-      ?.servers as Record<string, unknown> | undefined;
-    expect(servers?.["my-server"]).toBeUndefined();
+    const removeCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_remove",
+    );
+    expect(removeCall).toBeDefined();
+    const body = (removeCall![1] as Record<string, unknown>).body as Record<
+      string,
+      unknown
+    >;
+    expect(body.name).toBe("my-server");
   });
 
   test("errors when server does not exist", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: 'MCP server "nonexistent" not found.',
+      }),
+    );
+
     const { stderr, exitCode } = await runMcpRemove("nonexistent");
     expect(exitCode).toBe(1);
     expect(stderr).toContain("not found");
-  });
-
-  test("preserves other servers when removing one", async () => {
-    writeConfig({
-      mcp: {
-        servers: {
-          "keep-me": {
-            transport: {
-              type: "streamable-http",
-              url: "https://example.com/keep",
-            },
-            enabled: true,
-            defaultRiskLevel: "low",
-          },
-          "remove-me": {
-            transport: { type: "sse", url: "https://example.com/remove" },
-            enabled: true,
-            defaultRiskLevel: "high",
-          },
-        },
-      },
-    });
-
-    const { exitCode } = await runMcpRemove("remove-me");
-    expect(exitCode).toBe(0);
-
-    const updated = readConfig();
-    const servers = (updated.mcp as Record<string, unknown> | undefined)
-      ?.servers as Record<string, unknown> | undefined;
-    expect(servers?.["remove-me"]).toBeUndefined();
-    expect(servers?.["keep-me"]).toBeDefined();
   });
 });
 
@@ -536,8 +528,6 @@ describe("assistant mcp reload", () => {
       `vellum-mcp-reload-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     mkdirSync(testDataDir, { recursive: true });
-    configPath = join(testDataDir, "config.json");
-    writeConfig({});
   });
 
   afterAll(() => {
@@ -575,49 +565,26 @@ describe("assistant mcp reload", () => {
 });
 
 describe("assistant mcp auth — IPC path", () => {
-  let ipcTestDataDir: string;
-  let ipcConfigPath: string;
-
   beforeAll(() => {
-    ipcTestDataDir = join(
+    testDataDir = join(
       tmpdir(),
       `vellum-mcp-auth-ipc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
-    mkdirSync(ipcTestDataDir, { recursive: true });
-    ipcConfigPath = join(ipcTestDataDir, "config.json");
-    writeFileSync(
-      ipcConfigPath,
-      JSON.stringify({
-        mcp: {
-          servers: {
-            srv: {
-              transport: { type: "sse", url: "https://mcp.example.com/sse" },
-              enabled: true,
-              defaultRiskLevel: "high",
-            },
-          },
-        },
-      }),
-      "utf-8",
-    );
+    mkdirSync(testDataDir, { recursive: true });
   });
 
   afterAll(() => {
-    rmSync(ipcTestDataDir, { recursive: true, force: true });
+    rmSync(testDataDir, { recursive: true, force: true });
   });
 
   beforeEach(() => {
-    // runMcp() sets VELLUM_WORKSPACE_DIR = testDataDir; align the module-level
-    // variable with the IPC-specific directory so the config loader sees the
-    // SSE server config created in beforeAll.
-    testDataDir = ipcTestDataDir;
     mockCliIpcCallFn = mock(() =>
       Promise.resolve({
         ok: false,
         error: "Could not connect to assistant daemon. Is it running?",
       }),
     );
-    mockOpenInHostBrowserFn = mock(async (_url: string) => {});
+    mockOpenInHostBrowserFn = mock((_url: string) => {});
     stdoutLines = [];
     stderrLines = [];
     process.exitCode = 0;
@@ -680,7 +647,7 @@ describe("assistant mcp auth — IPC path", () => {
     expect(stderr).toContain("Is it running?");
   });
 
-  test("IPC start returns ok=false with a real daemon error → exits 1 without falling back to loopback", async () => {
+  test("IPC start returns ok=false with a real daemon error → exits 1 without opening browser", async () => {
     mockCliIpcCallFn = mock(() =>
       Promise.resolve({
         ok: false,
@@ -690,9 +657,6 @@ describe("assistant mcp auth — IPC path", () => {
 
     await runMcp("auth", ["srv"]);
 
-    // Should have surfaced the daemon error and set exit code 1, not fallen
-    // back to loopback (which would have constructed the OAuth provider and
-    // possibly opened a browser via the loopback path).
     expect(process.exitCode).toBe(1);
     expect(mockOpenInHostBrowserFn).not.toHaveBeenCalled();
     // Exactly one IPC call (the start) — no polling, no retry.
@@ -700,7 +664,7 @@ describe("assistant mcp auth — IPC path", () => {
     expect(mockCliIpcCallFn.mock.calls[0][0]).toBe("internal_mcp_auth_start");
   });
 
-  test("polling complete → exits 0 (daemon-side reload triggers itself; CLI no longer writes file signal)", async () => {
+  test("polling complete → exits 0", async () => {
     let ipcCallIndex = 0;
     mockCliIpcCallFn = mock(() => {
       ipcCallIndex++;
@@ -720,8 +684,6 @@ describe("assistant mcp auth — IPC path", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Authentication successful");
-    // The IPC success path relies on the daemon-side orchestrator to call
-    // reloadMcpServers() itself on completion — no CLI-side signal needed.
   });
 
   test("polling error → exits 1 with error message", async () => {

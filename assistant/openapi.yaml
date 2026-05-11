@@ -8894,6 +8894,43 @@ paths:
           required: true
           schema:
             type: string
+  /v1/internal/mcp/add:
+    post:
+      operationId: internal_mcp_add_post
+      summary: Add an MCP server configuration
+      description: Writes a new MCP server entry to config.json and triggers a reload.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                transportType:
+                  type: string
+                url:
+                  type: string
+                command:
+                  type: string
+                args:
+                  type: array
+                  items:
+                    type: string
+                risk:
+                  type: string
+                disabled:
+                  type: boolean
+              required:
+                - name
+                - transportType
+              additionalProperties: false
   /v1/internal/mcp/auth/start:
     post:
       operationId: internal_mcp_auth_start_post
@@ -8934,6 +8971,16 @@ paths:
           required: true
           schema:
             type: string
+  /v1/internal/mcp/list:
+    get:
+      operationId: internal_mcp_list_get
+      summary: List MCP servers with health status
+      description: Returns configured MCP servers with live health-check results (connected, needs auth, error, disabled).
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
   /v1/internal/mcp/reload:
     post:
       operationId: internal_mcp_reload_post
@@ -8944,6 +8991,28 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/internal/mcp/remove:
+    post:
+      operationId: internal_mcp_remove_post
+      summary: Remove an MCP server configuration
+      description: Removes an MCP server from config.json, cleans up OAuth credentials, and triggers a reload.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required:
+                - name
+              additionalProperties: false
   /v1/internal/oauth/callback:
     post:
       operationId: internal_oauth_callback_post
