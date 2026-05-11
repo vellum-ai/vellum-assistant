@@ -354,7 +354,7 @@ describe("email list", () => {
     registerEmailCmd(program);
     await program.parseAsync(["node", "assistant", "email", "list"]);
 
-    expect(mockIpcCallFn).toHaveBeenCalledWith("email_list", { queryParams: {} });
+    expect(mockIpcCallFn).toHaveBeenCalledWith("email_list", { queryParams: { limit: "20" } });
   });
 
   test("passes direction param when --direction given", async () => {

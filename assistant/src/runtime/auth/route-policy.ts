@@ -888,12 +888,16 @@ registerPolicy("email/download", {
   allowedPrincipalTypes: ["local"],
 });
 
-registerPolicy("email/attachment-list", {
+// Email attachment-get streams binary bytes via an IPC envelope ({ stream,
+// headers }). HTTP callers would receive the envelope serialized as JSON
+// rather than a usable byte stream, so gate the route to local principals
+// (CLI / IPC) only. Aligns with tts/synthesize-cli + stt/transcribe-file.
+registerPolicy("email/attachment-get", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],
 });
 
-registerPolicy("email/attachment-get", {
+registerPolicy("email/attachment-list", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],
 });

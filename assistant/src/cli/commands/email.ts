@@ -493,10 +493,26 @@ Examples:
             // Resolve body text: --body > --file > stdin
             let text = opts.body;
             if (!text && opts.file) {
-              text = readFileSync(opts.file, "utf-8");
+              try {
+                text = readFileSync(opts.file, "utf-8");
+              } catch (err) {
+                log.error(
+                  `Failed to read --file ${opts.file}: ${err instanceof Error ? err.message : String(err)}`,
+                );
+                process.exitCode = 1;
+                return;
+              }
             }
             if (!text && !process.stdin.isTTY) {
-              text = readFileSync("/dev/stdin", "utf-8");
+              try {
+                text = readFileSync("/dev/stdin", "utf-8");
+              } catch (err) {
+                log.error(
+                  `Failed to read body from stdin: ${err instanceof Error ? err.message : String(err)}`,
+                );
+                process.exitCode = 1;
+                return;
+              }
             }
             if (!text) {
               log.error(
@@ -509,7 +525,15 @@ Examples:
             // Read HTML file if --html given; pass raw content to route
             let html: string | undefined;
             if (opts.html) {
-              html = readFileSync(opts.html, "utf-8");
+              try {
+                html = readFileSync(opts.html, "utf-8");
+              } catch (err) {
+                log.error(
+                  `Failed to read --html ${opts.html}: ${err instanceof Error ? err.message : String(err)}`,
+                );
+                process.exitCode = 1;
+                return;
+              }
             }
 
             const params: Record<string, unknown> = { to, text };
