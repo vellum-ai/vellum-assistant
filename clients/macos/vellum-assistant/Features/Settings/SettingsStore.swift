@@ -3442,6 +3442,18 @@ public final class SettingsStore: ObservableObject {
     /// re-creates the key). (Codex P1, iter2.)
     @discardableResult
     func setProfileStatus(name: String, active: Bool) async -> Bool {
+        // Existence guard: if the profile is no longer in `profiles` (e.g. a
+        // concurrent config sync removed it between render and the toggle
+        // handler firing), skip the PATCH entirely. Sending a status-only
+        // payload here would be deep-merged by the daemon and resurrect the
+        // profile key with `{ status: ... }` only — leaving a partial /
+        // orphaned profile in pickers. Same resurrection class of bug as
+        // the toggle→delete race already serialized via
+        // `pendingStatusPatches`. (Codex P2, iter2 round 2.)
+        guard profiles.contains(where: { $0.name == name }) else {
+            log.warning("setProfileStatus called for missing profile \(name, privacy: .public); skipping PATCH to avoid resurrection")
+            return false
+        }
         let previousStatus = profiles.first(where: { $0.name == name })?.status
         let nextLocalStatus: String? = active ? nil : "disabled"
         let wireStatus: String = active ? "active" : "disabled"
