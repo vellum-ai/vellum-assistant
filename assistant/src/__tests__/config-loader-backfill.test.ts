@@ -442,6 +442,46 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
   });
 
+  test("re-hatch from openai to anthropic resets stale active profile to balanced", () => {
+    // Pre-seed an OpenAI-style workspace: user-defined custom-balanced profile
+    // is active, default is openai. Simulates a workspace that hatched against
+    // OpenAI under the pre-1.2 model.
+    writeConfig({
+      llm: {
+        default: { provider: "openai", model: "gpt-5.4-mini" },
+        profiles: {
+          "custom-balanced": {
+            source: "user",
+            provider: "openai",
+            model: "gpt-5.4-mini",
+          },
+        },
+        activeProfile: "custom-balanced",
+      },
+    });
+
+    const overlayPath = join(WORKSPACE_DIR, "rehatch-anthropic.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-managed",
+    );
+    // The legacy custom-balanced profile is preserved on disk — the user can
+    // still switch back to it via the Providers UI — but it's no longer the
+    // routed active.
+    expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
+  });
+
   test("preserves user-supplied non-catalog model on every restart (ollama custom model)", () => {
     // Models the ollama case: catalog lists only `llama3.2` but the user has
     // pulled `codellama`. The seeder must NOT silently overwrite their pick.

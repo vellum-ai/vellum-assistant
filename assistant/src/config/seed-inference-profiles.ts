@@ -82,17 +82,27 @@ export type SeedInferenceProfilesOptions = {
  * Seed managed inference profiles into the workspace config.
  *
  * Called on every daemon startup after workspace migrations and default-config
- * overlay merge, but before the first `loadConfig()`. The 3 Anthropic-managed
- * profiles (`balanced`, `quality-optimized`, `cost-optimized`) are always
- * written so users can target Anthropic via their own key. When the resolved
- * default provider is non-Anthropic, the 3 `custom-*` profiles are also
- * materialized using `resolveModelIntent` against that provider, and
- * `custom-balanced` becomes the active profile for fresh hatches.
+ * overlay merge, but before the first `loadConfig()`. Ensures the 3 managed
+ * profiles (`balanced`, `quality-optimized`, `cost-optimized`) exist at their
+ * canonical names. Existing on-disk entries are never overwritten — platform
+ * overlays (covered by `preserveProfileNames`) and user edits via the
+ * Providers UI both stay authoritative across boots.
  *
- * Default-config overlays can provide their own profile fragments and active
- * profile. Lifecycle passes those explicit fields in `options`, letting local
- * hatches still receive managed defaults while platform-owned profile choices
- * remain authoritative.
+ * Each materialized managed profile carries `provider_connection:
+ * "anthropic-managed"`. Dispatch resolves auth from that connection (seeded
+ * as `{ type: "platform" }` by `seedCanonicalConnections`). Users who want
+ * a different provider create a user-defined connection + profile pair via
+ * the Providers UI; this function never materializes user profiles.
+ *
+ * Active profile resolution:
+ *   - `options.preserveActiveProfile === true` (overlay supplied an
+ *     explicit `activeProfile`): keep the on-disk choice when it points
+ *     at an existing profile.
+ *   - Otherwise: fall back to `"balanced"` when the on-disk
+ *     `activeProfile` is missing, points at a deleted profile, or points
+ *     at a profile whose `provider` no longer matches the current
+ *     `llm.default.provider` (e.g. a legacy overlay that re-hatches from
+ *     OpenAI to Anthropic by updating only `default.provider`).
  */
 export function seedInferenceProfiles(
   options: SeedInferenceProfilesOptions = {},
@@ -112,11 +122,8 @@ export function seedInferenceProfiles(
 
   // Seed the 3 managed profiles at their canonical names on fresh installs.
   // Each points at the `anthropic-managed` provider connection (seeded by
-  // `seedCanonicalConnections`). We never overwrite an existing on-disk
-  // entry: platform overlays (covered by `preserveProfileNames`) and user
-  // edits via the Providers UI both stay authoritative across boots. The
-  // daemon's job here is only to ensure the canonical names exist for a
-  // fresh hatch.
+  // `seedCanonicalConnections`). Skip overlays (`preservedProfileNames`)
+  // and any name already on disk — those stay authoritative.
   for (const [name, template] of Object.entries(ANTHROPIC_PROFILE_TEMPLATES)) {
     if (preservedProfileNames.has(name)) continue;
     if (readObject(profiles[name]) !== null) continue;
@@ -124,17 +131,34 @@ export function seedInferenceProfiles(
   }
 
   const requestedActiveProfile = readString(llm.activeProfile);
-  const requestedActiveExists =
-    requestedActiveProfile !== undefined &&
-    readObject(profiles[requestedActiveProfile]) !== null;
+  const requestedActiveEntry =
+    requestedActiveProfile !== undefined
+      ? readObject(profiles[requestedActiveProfile])
+      : null;
+  const requestedActiveExists = requestedActiveEntry !== null;
   const shouldPreserveActiveProfile =
     options.preserveActiveProfile === true && requestedActiveExists;
 
-  // Active profile resolution: an existing valid choice wins. Otherwise fall
-  // back to the managed "balanced" default. User profiles created through
-  // the Providers UI keep their own activeProfile selection — we only
-  // reassign when the requested profile doesn't exist.
-  if (!shouldPreserveActiveProfile && !requestedActiveExists) {
+  // When the overlay didn't claim ownership of `activeProfile`, detect a
+  // stale choice from a legacy re-hatch: the active profile's `provider`
+  // no longer matches `llm.default.provider`. The clearest case is an
+  // OpenAI→Anthropic re-hatch that updates only `default.provider` and
+  // leaves the previous `custom-balanced` active. Reset to `balanced` so
+  // the user lands on the managed default for the new provider.
+  let activeProviderMismatch = false;
+  if (!shouldPreserveActiveProfile && requestedActiveExists) {
+    const activeProvider = readString(requestedActiveEntry?.provider);
+    const defaultProvider = readString(readObject(llm.default)?.provider);
+    activeProviderMismatch =
+      activeProvider !== undefined &&
+      defaultProvider !== undefined &&
+      activeProvider !== defaultProvider;
+  }
+
+  if (
+    !shouldPreserveActiveProfile &&
+    (!requestedActiveExists || activeProviderMismatch)
+  ) {
     llm.activeProfile = "balanced";
   }
 
