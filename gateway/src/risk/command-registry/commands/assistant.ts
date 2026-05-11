@@ -18,9 +18,6 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "audit",
   "auth",
   "auth info",
-  "autonomy",
-  "autonomy get",
-  "autonomy set",
   "avatar",
   "avatar generate",
   "avatar set",
@@ -364,7 +361,6 @@ const riskOverrides: AssistantRiskOverride[] = [
 
   // Mutating assistant state / external side effects
   { path: "attachment register", risk: "medium" },
-  { path: "autonomy set", risk: "medium" },
   { path: "avatar generate", risk: "low" },
   { path: "avatar set", risk: "low" },
   { path: "avatar remove", risk: "low" },

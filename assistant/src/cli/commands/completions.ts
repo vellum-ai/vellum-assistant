@@ -130,7 +130,6 @@ _assistant() {
         'trust:View trust rules'
         'memory:Manage long-term memory'
         'contacts:Manage the contact graph'
-        'autonomy:View and configure autonomy tiers'
         'audit:Show recent tool invocations'
         'completions:Generate shell completion script'
         'help:Display help'
@@ -169,7 +168,6 @@ function generateFishCompletion(
     trust: "View trust rules",
     memory: "Manage long-term memory",
     contacts: "Manage the contact graph",
-    autonomy: "View and configure autonomy tiers",
     audit: "Show recent tool invocations",
     completions: "Generate shell completion script",
     help: "Display help",

@@ -540,7 +540,6 @@ describe("command-registry", () => {
         "attachment",
         "audit",
         "auth",
-        "autonomy",
         "avatar",
         "backup",
         "bash",
