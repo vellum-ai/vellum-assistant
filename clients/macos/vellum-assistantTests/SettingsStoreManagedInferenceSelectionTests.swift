@@ -225,7 +225,7 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
     func testNonNativeWebSearchCapableProviderFallsBackToPerplexity() {
         // When the inference provider doesn't support native web search,
         // isNativeWebSearchCapable should return false, indicating the UI
-        // should enforce fallback to perplexity or brave.
+        // should enforce fallback to a key-based provider such as Perplexity, Brave, or Tavily.
         XCTAssertFalse(store.isNativeWebSearchCapable("gemini", model: "gemini-2.5-pro"))
         XCTAssertFalse(store.isNativeWebSearchCapable("ollama", model: "llama3"))
         XCTAssertFalse(store.isNativeWebSearchCapable("fireworks", model: "accounts/fireworks/models/kimi-k2"))

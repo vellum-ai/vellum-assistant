@@ -20,6 +20,7 @@ const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
 const VALID_WEB_SEARCH_PROVIDERS = [
   "perplexity",
   "brave",
+  "tavily",
   "inference-provider-native",
 ] as const;
 

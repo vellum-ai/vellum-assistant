@@ -134,6 +134,17 @@ describe("AssistantConfigSchema", () => {
     expect(result.auditLog).toEqual({ retentionDays: 0 });
   });
 
+  test("accepts Tavily as a web search provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "web-search": { mode: "your-own", provider: "tavily" },
+      },
+    });
+
+    expect(result.services["web-search"].provider).toBe("tavily");
+    expect(result.services["web-search"].mode).toBe("your-own");
+  });
+
   test("accepts valid complete config", () => {
     const input = {
       llm: {
