@@ -221,22 +221,19 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/lifecycle.ts", // CES client injection into secure-keys at startup
       "daemon/daemon-skill-host.ts", // SkillHost secureKeys facet adapter (delegates to getProviderKeyAsync)
       "runtime/routes/credential-prompt-routes.ts", // Route for secure credential prompt (stores secret via setSecureKeyAsync)
+      "runtime/routes/credential-routes.ts", // CLI credential management routes (CLI-migrated to IPC)
+      "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
       "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
       "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup
       "tts/providers/xai-provider.ts", // xAI TTS API key lookup
-      "meet/session-manager.ts", // Meet bot container provisioning (provider API key lookup for Deepgram/TTS)
       "credential-health/credential-health-service.ts", // credential health check reads access tokens for liveness pings
       "ipc/skill-routes/providers.ts", // skill IPC route exposes provider key lookup to hosted skills
       "runtime/routes/avatar-routes.ts", // avatar generate route reads platform_base_url from credential store
-      "cli/commands/credentials.ts", // CLI credential management commands
       "cli/commands/keys.ts", // CLI provider key management
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
-      "cli/commands/platform/connect.ts", // CLI platform connect credential check
-      "cli/commands/platform/disconnect.ts", // CLI platform disconnect credential lookup
-      "cli/commands/platform/index.ts", // CLI platform status credential check
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

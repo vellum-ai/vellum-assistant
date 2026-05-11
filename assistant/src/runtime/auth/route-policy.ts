@@ -1039,3 +1039,44 @@ registerPolicy("user-routes/inspect", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],
 });
+
+// OAuth CLI commands (IPC-local — `assistant oauth status/ping/token/...`).
+// Migrated from CLI process to daemon IPC handlers in #30251; the existing
+// `oauth/*` entries in ACTOR_ENDPOINTS cover the actor-token surface, these
+// register policies for the CLI-only IPC paths added in that migration.
+registerPolicy("oauth/disconnect", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/mode", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/mode.set", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/ping", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/token", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/request", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/managed-connect.start", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/managed-connect/poll", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
