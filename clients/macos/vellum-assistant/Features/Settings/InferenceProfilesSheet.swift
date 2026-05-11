@@ -67,6 +67,12 @@ struct InferenceProfilesSheet: View {
     @State private var dropTargetProfileName: String?
     @State private var dropIndicatorAtBottom: Bool = false
 
+    /// Guards against overlapping status PATCHes for the same profile.
+    /// A rapid off→on→off would otherwise produce out-of-order responses
+    /// that clobber the user's final intent. Mirrors `ProvidersSheet`'s
+    /// `inFlightStatusToggles`.
+    @State private var inFlightStatusToggles: Set<String> = []
+
     enum EditorState: Equatable {
         case create
         case edit(name: String)
@@ -238,8 +244,11 @@ struct InferenceProfilesSheet: View {
 
     /// Single row: display name + optional badge on the leading column,
     /// summary on the trailing column. Managed profiles disable Edit and
-    /// Delete but keep Duplicate available.
+    /// Delete but keep Duplicate available. The inline status toggle
+    /// works for managed profiles too — `status` is a UI-level concern
+    /// the user always owns (mirrors `ProvidersSheet`'s connection row).
     private func profileRow(_ profile: InferenceProfile) -> some View {
+        let isActive = profile.status != "disabled"
         HStack(alignment: .center, spacing: VSpacing.md) {
             VIconView(.gripVertical, size: 14)
                 .foregroundStyle(VColor.contentTertiary)
@@ -281,17 +290,46 @@ struct InferenceProfilesSheet: View {
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
+            .opacity(isActive ? 1.0 : 0.55)
             Spacer(minLength: 0)
-            VButton(label: profile.isManaged ? "View" : "Edit", style: .ghost) {
-                if profile.isManaged {
-                    beginView(profile.name)
-                } else {
-                    beginEdit(profile.name)
+            HStack(spacing: VSpacing.sm) {
+                VToggle(
+                    isOn: Binding(
+                        get: { isActive },
+                        set: { newActive in
+                            Task { await setProfileStatus(profile, active: newActive) }
+                        }
+                    )
+                )
+                .accessibilityLabel("\(isActive ? "Disable" : "Activate") profile \(profile.displayName)")
+                .help(isActive ? "Active — toggle to hide from pickers" : "Disabled — toggle to show in pickers")
+                VButton(label: profile.isManaged ? "View" : "Edit", style: .ghost) {
+                    if profile.isManaged {
+                        beginView(profile.name)
+                    } else {
+                        beginEdit(profile.name)
+                    }
                 }
             }
         }
         .padding(.vertical, VSpacing.xs)
         .contentShape(Rectangle())
+    }
+
+    /// Inline status toggle handler. Guards against overlapping toggles
+    /// for the same profile via `inFlightStatusToggles`; the underlying
+    /// `SettingsStore.setProfileStatus` does the optimistic update +
+    /// rollback. Failures surface in `actionError` so the row's
+    /// trailing UI doesn't silently swallow them.
+    private func setProfileStatus(_ profile: InferenceProfile, active: Bool) async {
+        guard !inFlightStatusToggles.contains(profile.name) else { return }
+        inFlightStatusToggles.insert(profile.name)
+        defer { inFlightStatusToggles.remove(profile.name) }
+
+        let success = await store.setProfileStatus(name: profile.name, active: active)
+        if !success {
+            actionError = "Couldn't update \"\(profile.displayName)\". Please try again."
+        }
     }
 
     @ViewBuilder

@@ -80,6 +80,15 @@ struct InferenceProfileEditor: View {
 
     // MARK: - Validation
 
+    /// True when the user hasn't picked a provider yet. Provider is now
+    /// required (the old "None (inherit defaults)" affordance was removed
+    /// because the inherit-defaults pathway encouraged accidental fallbacks
+    /// to the global default model — defeating the point of named profiles).
+    var isProviderMissing: Bool {
+        let provider = profile.provider ?? ""
+        return provider.isEmpty
+    }
+
     /// True when the user has picked a provider but no model — the most
     /// common partial-edit state. Disables Save and shows the badge.
     var isModelMissing: Bool {
@@ -101,10 +110,10 @@ struct InferenceProfileEditor: View {
         return !catalog.contains(model)
     }
 
-    /// Combined gate for the Save button: any model-validation problem
-    /// blocks Save.
+    /// Combined gate for the Save button: provider must be picked AND
+    /// model must be valid.
     var canSave: Bool {
-        !isModelMissing && !isModelInvalid
+        !isProviderMissing && !isModelMissing && !isModelInvalid
     }
 
     var parameterVisibility: InferenceProfileParameterVisibility {
@@ -313,7 +322,18 @@ struct InferenceProfileEditor: View {
     }
 
     private var providerField: some View {
-        labeled("Provider") {
+        labeled(
+            "Provider",
+            accessory: {
+                if isProviderMissing {
+                    VBadge(
+                        label: "Pick a provider",
+                        tone: .warning,
+                        emphasis: .subtle
+                    )
+                }
+            }
+        ) {
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
                 selection: Binding(

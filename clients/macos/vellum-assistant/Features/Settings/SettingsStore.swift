@@ -3414,6 +3414,47 @@ public final class SettingsStore: ObservableObject {
         return success
     }
 
+    /// Flips the visibility status of an inference profile in-place.
+    /// Used by the inline list-row toggle in `InferenceProfilesSheet` so
+    /// users can hide a profile from pickers without opening the editor.
+    ///
+    /// Wire shape: `{ llm: { profiles: { <name>: { status: "active" | "disabled" } } } }`.
+    /// Bypasses `InferenceProfile.toJSON()` which omits status when active
+    /// (absent==active convention) — the schema accepts the literal
+    /// "active" string and treats it equivalently to absent, but the
+    /// daemon's deep-merge only updates the field when the key is present.
+    ///
+    /// Optimistic update + rollback on failure mirrors the provider
+    /// connection status toggle pattern in `ProvidersSheet`.
+    @discardableResult
+    func setProfileStatus(name: String, active: Bool) async -> Bool {
+        let previousStatus = profiles.first(where: { $0.name == name })?.status
+        let nextLocalStatus: String? = active ? nil : "disabled"
+        let wireStatus: String = active ? "active" : "disabled"
+
+        // Optimistic update
+        if let idx = profiles.firstIndex(where: { $0.name == name }) {
+            var copy = profiles[idx]
+            copy.status = nextLocalStatus
+            profiles[idx] = copy
+        }
+
+        let success = await settingsClient.patchConfig([
+            "llm": ["profiles": [name: ["status": wireStatus]]]
+        ])
+
+        if !success {
+            log.error("Failed to patch status for llm.profiles.\(name, privacy: .public)")
+            // Roll back
+            if let idx = profiles.firstIndex(where: { $0.name == name }) {
+                var copy = profiles[idx]
+                copy.status = previousStatus
+                profiles[idx] = copy
+            }
+        }
+        return success
+    }
+
     /// Replaces the Settings-UI-managed leaves for a profile. Unlike
     /// `setProfile`, nil fields in `fragment` are treated as removals by
     /// the assistant route, so hidden or toggled-off editor controls do not

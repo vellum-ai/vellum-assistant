@@ -233,7 +233,11 @@ struct ProvidersSheet: View {
                     Text(label)
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentDefault)
-                    connectionRowMetadata(conn, primary: "@\(conn.name)")
+                    // No leading "@" on the connection key — the chip strip
+                    // already groups it next to the provider + auth metadata,
+                    // and the prefix made the key look like a handle when
+                    // it's just an internal identifier.
+                    connectionRowMetadata(conn, primary: conn.name)
                 } else {
                     Text(conn.name)
                         .font(VFont.bodyMediumEmphasised)
@@ -517,50 +521,60 @@ struct ProvidersSheet: View {
         }
     }
 
+    /// Whether the Advanced disclosure (credential picker + "New Credential"
+    /// CTA) should render. Only shows when there's at least one credential
+    /// already stored for the provider, OR when the user is mid-create. In
+    /// the empty state the API Key field above is the only path needed —
+    /// saving a key auto-creates `credential/<provider>/api_key`, so the
+    /// disclosure has nothing meaningful to offer.
+    private var shouldShowAdvancedSection: Bool {
+        let providerCredentials = availableCredentials.filter { $0.service == editorDraft.provider }
+        return !providerCredentials.isEmpty || isCreatingNewCredential
+    }
+
+    @ViewBuilder
     private var editorAdvancedSection: some View {
-        VDisclosureSection(
-            title: "Advanced",
-            subtitle: "Credential reference",
-            isExpanded: $editorDraft.isAdvancedExpanded
-        ) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Credential Reference")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
+        if shouldShowAdvancedSection {
+            VDisclosureSection(
+                title: "Advanced",
+                subtitle: "Credential reference",
+                isExpanded: $editorDraft.isAdvancedExpanded
+            ) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Credential Reference")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentSecondary)
 
-                if availableCredentials.isEmpty && !isCreatingNewCredential {
-                    Text("No credentials stored yet. Save an API key above to create one automatically.")
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                } else if !availableCredentials.isEmpty {
                     let options = credentialDropdownOptions
-                    VDropdown(
-                        placeholder: "Select a credential\u{2026}",
-                        selection: $editorDraft.credential,
-                        options: options,
-                        menuWidth: 360
-                    ) { newValue in
-                        Task { await loadMaskedValue(for: newValue) }
+                    if !options.isEmpty {
+                        VDropdown(
+                            placeholder: "Select a credential\u{2026}",
+                            selection: $editorDraft.credential,
+                            options: options,
+                            menuWidth: 360
+                        ) { newValue in
+                            Task { await loadMaskedValue(for: newValue) }
+                        }
                     }
-                }
 
-                if isCreatingNewCredential {
-                    newCredentialForm
-                }
+                    if isCreatingNewCredential {
+                        newCredentialForm
+                    }
 
-                // Sticky footer: Create new credential button
-                HStack {
-                    Spacer()
-                    VButton(
-                        label: isCreatingNewCredential ? "Cancel" : "+ New Credential",
-                        style: .ghost,
-                        size: .compact
-                    ) {
-                        if isCreatingNewCredential {
-                            isCreatingNewCredential = false
-                            newCredentialName = ""
-                        } else {
-                            isCreatingNewCredential = true
+                    // Sticky footer: Create new credential button
+                    HStack {
+                        Spacer()
+                        VButton(
+                            label: isCreatingNewCredential ? "Cancel" : "+ New Credential",
+                            style: .ghost,
+                            size: .compact
+                        ) {
+                            if isCreatingNewCredential {
+                                isCreatingNewCredential = false
+                                newCredentialName = ""
+                            } else {
+                                isCreatingNewCredential = true
+                            }
                         }
                     }
                 }
