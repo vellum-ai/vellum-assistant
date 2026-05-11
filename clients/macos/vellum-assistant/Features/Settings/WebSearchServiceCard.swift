@@ -9,13 +9,14 @@ import VellumAssistantShared
 /// - **Managed + Your Own inference**: Message that managed web search is not yet available.
 /// - **Your Own**: Provider picker + API key. Provider Native is available whenever the
 ///   inference provider supports native web search (e.g. Anthropic, OpenAI), regardless of
-///   inference mode. Perplexity and Brave are always available as key-based alternatives.
+///   inference mode. Perplexity, Brave, and Tavily are always available as key-based alternatives.
 @MainActor
 struct WebSearchServiceCard: View {
     @ObservedObject var store: SettingsStore
     var authManager: AuthManager
     @Binding var perplexityKeyText: String
     @Binding var braveKeyText: String
+    @Binding var tavilyKeyText: String
     var showToast: (String, ToastInfo.Style) -> Void
 
     /// Local draft of the mode selection — only persisted on Save.
@@ -28,6 +29,8 @@ struct WebSearchServiceCard: View {
     @State private var perplexityHasKey = false
     /// Whether the Brave provider has a stored API key (fetched per-component).
     @State private var braveHasKey = false
+    /// Whether the Tavily provider has a stored API key (fetched per-component).
+    @State private var tavilyHasKey = false
     /// Tail of the serial chain of in-flight `services.web-search.provider` PATCHes.
     /// Both the auto-fallback writes in `onChange` and the explicit `save()` write
     /// go through `enqueueProviderWrite` — chaining on this task guarantees the
@@ -43,8 +46,32 @@ struct WebSearchServiceCard: View {
         draftProvider == "brave"
     }
 
+    private var isTavily: Bool {
+        draftProvider == "tavily"
+    }
+
     private var needsAPIKey: Bool {
-        isPerplexity || isBrave
+        isPerplexity || isBrave || isTavily
+    }
+
+    private var selectedProviderHasKey: Bool {
+        if isPerplexity { return perplexityHasKey }
+        if isBrave { return braveHasKey }
+        if isTavily { return tavilyHasKey }
+        return false
+    }
+
+    private var selectedProviderKeyText: Binding<String> {
+        if isPerplexity { return $perplexityKeyText }
+        if isBrave { return $braveKeyText }
+        return $tavilyKeyText
+    }
+
+    private var selectedProviderKeyError: String? {
+        if isPerplexity { return store.perplexityKeySaveError }
+        if isBrave { return store.braveKeySaveError }
+        if isTavily { return store.tavilyKeySaveError }
+        return nil
     }
 
     private var isLoggedIn: Bool {
@@ -57,8 +84,8 @@ struct WebSearchServiceCard: View {
     /// regardless of whether inference is managed or your-own.
     private var availableProviders: [String] {
         store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: store.selectedModel)
-            ? ["inference-provider-native", "perplexity", "brave"]
-            : ["perplexity", "brave"]
+            ? ["inference-provider-native", "perplexity", "brave", "tavily"]
+            : ["perplexity", "brave", "tavily"]
     }
 
     /// True when the user has made changes worth saving.
@@ -80,6 +107,8 @@ struct WebSearchServiceCard: View {
                 return !perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             } else if isBrave {
                 return !braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            } else if isTavily {
+                return !tavilyKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
             return false
         }()
@@ -113,17 +142,9 @@ struct WebSearchServiceCard: View {
                             hasChanges: hasChanges,
                             onSave: { save() },
                             onReset: {
-                                if isPerplexity {
-                                    store.clearPerplexityKey()
-                                    perplexityHasKey = false
-                                    perplexityKeyText = ""
-                                } else if isBrave {
-                                    store.clearBraveKey()
-                                    braveHasKey = false
-                                    braveKeyText = ""
-                                }
+                                clearSelectedProviderKey()
                             },
-                            showReset: isPerplexity ? perplexityHasKey : braveHasKey
+                            showReset: selectedProviderHasKey
                         )
                     } else {
                         PickerWithInlineSave(
@@ -144,6 +165,7 @@ struct WebSearchServiceCard: View {
         .task {
             perplexityHasKey = await APIKeyManager.hasKey(for: "perplexity")
             braveHasKey = await APIKeyManager.hasKey(for: "brave")
+            tavilyHasKey = await APIKeyManager.hasKey(for: "tavily")
         }
         .onChange(of: store.webSearchMode) { _, newValue in
             draftMode = newValue
@@ -157,8 +179,8 @@ struct WebSearchServiceCard: View {
             // does not support native web search while provider-native is selected.
             // Persist the fix so the daemon's services.web-search.provider does
             // not remain pinned to "inference-provider-native" while the new
-            // provider can't support it — otherwise getWebSearchProvider falls
-            // back to Perplexity and breaks search for users without a key.
+            // provider can't support it — otherwise the custom web_search tool
+            // takes over and may route through an unintended key-based provider.
             if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(newProvider, model: store.selectedModel) {
                 draftProvider = "perplexity"
                 if store.webSearchProvider == "inference-provider-native" {
@@ -230,9 +252,9 @@ struct WebSearchServiceCard: View {
     private var apiKeySection: some View {
         APIKeyTextField(
             label: "API Key",
-            hasKey: isPerplexity ? perplexityHasKey : braveHasKey,
-            text: isPerplexity ? $perplexityKeyText : $braveKeyText,
-            errorMessage: isPerplexity ? store.perplexityKeySaveError : store.braveKeySaveError,
+            hasKey: selectedProviderHasKey,
+            text: selectedProviderKeyText,
+            errorMessage: selectedProviderKeyError,
             maxWidth: 400
         )
     }
@@ -255,22 +277,46 @@ struct WebSearchServiceCard: View {
                 _ = await store.setWebSearchProvider(capturedProvider).value
             }
 
-            if isPerplexity && !perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                store.savePerplexityKey(perplexityKeyText, onSuccess: { [self] in
-                    perplexityHasKey = true
-                })
-                perplexityKeyText = ""
-            }
-            if isBrave && !braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                store.saveBraveKey(braveKeyText, onSuccess: { [self] in
-                    braveHasKey = true
-                })
-                braveKeyText = ""
-            }
+            saveSelectedProviderKeyIfNeeded()
         }
 
         // Update initial provider to reflect persisted state
         initialProvider = draftProvider
+    }
+
+    private func saveSelectedProviderKeyIfNeeded() {
+        if isPerplexity && !perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            store.savePerplexityKey(perplexityKeyText, onSuccess: { [self] in
+                perplexityHasKey = true
+            })
+            perplexityKeyText = ""
+        } else if isBrave && !braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            store.saveBraveKey(braveKeyText, onSuccess: { [self] in
+                braveHasKey = true
+            })
+            braveKeyText = ""
+        } else if isTavily && !tavilyKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            store.saveTavilyKey(tavilyKeyText, onSuccess: { [self] in
+                tavilyHasKey = true
+            })
+            tavilyKeyText = ""
+        }
+    }
+
+    private func clearSelectedProviderKey() {
+        if isPerplexity {
+            store.clearPerplexityKey()
+            perplexityHasKey = false
+            perplexityKeyText = ""
+        } else if isBrave {
+            store.clearBraveKey()
+            braveHasKey = false
+            braveKeyText = ""
+        } else if isTavily {
+            store.clearTavilyKey()
+            tavilyHasKey = false
+            tavilyKeyText = ""
+        }
     }
 
     /// Serializes provider PATCHes by chaining each new write onto the tail of

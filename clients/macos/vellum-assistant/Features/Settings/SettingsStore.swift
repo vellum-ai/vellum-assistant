@@ -65,6 +65,7 @@ public final class SettingsStore: ObservableObject {
     @Published var apiKeySaving: Bool = false
     @Published var braveKeySaveError: String?
     @Published var perplexityKeySaveError: String?
+    @Published var tavilyKeySaveError: String?
     @Published var imageGenKeySaveError: String?
     @Published var imageGenKeySaving: Bool = false
 
@@ -312,12 +313,13 @@ public final class SettingsStore: ObservableObject {
     @Published var yourOwnOAuthConnectingAppId: String? = nil
     @Published var yourOwnOAuthProviderMetadata: [String: OAuthProviderMetadata] = [:]
 
-    static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
+    static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave", "tavily"]
 
     static let webSearchProviderDisplayNames: [String: String] = [
         "inference-provider-native": "Provider Native",
         "perplexity": "Perplexity",
         "brave": "Brave",
+        "tavily": "Tavily",
     ]
 
     // MARK: - Managed Assistant Recovery Mode State
@@ -981,6 +983,35 @@ public final class SettingsStore: ObservableObject {
         Task {
             let deleted = await APIKeyManager.deleteKey(for: "perplexity")
             if !deleted { addDeletionTombstone(type: "api_key", name: "perplexity") }
+        }
+    }
+
+    func saveTavilyKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        tavilyKeySaveError = nil
+        removeDeletionTombstone(type: "api_key", name: "tavily")
+        Task {
+            let result = await APIKeyManager.setKey(trimmed, for: "tavily")
+            if result.success {
+                let _: Void = APIKeyManager.deleteKey(for: "tavily")
+                scheduleRoutingSourceRefresh()
+                onSuccess?()
+            } else if let error = result.error {
+                tavilyKeySaveError = error
+                if !result.isTransient {
+                    let _: Void = APIKeyManager.deleteKey(for: "tavily")
+                }
+            }
+        }
+    }
+
+    func clearTavilyKey() {
+        APIKeyManager.deleteKey(for: "tavily")
+        scheduleRoutingSourceRefresh()
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: "tavily")
+            if !deleted { addDeletionTombstone(type: "api_key", name: "tavily") }
         }
     }
 
