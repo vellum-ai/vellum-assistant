@@ -151,9 +151,7 @@ function ensureProviderConnection(
 
   let connectionName: string;
 
-  if (provider === "ollama") {
-    connectionName = "ollama-local";
-  } else if (globalMode === "managed" && MANAGED_PROVIDERS.has(provider)) {
+  if (globalMode === "managed" && MANAGED_PROVIDERS.has(provider)) {
     connectionName = `${provider}-managed`;
   } else {
     // "your-own" path (or provider not managed-supported): ensure a

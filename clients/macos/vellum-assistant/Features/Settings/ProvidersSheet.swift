@@ -205,6 +205,7 @@ struct ProvidersSheet: View {
         switch type {
         case "api_key": return "API Key"
         case "platform": return "Platform"
+        case "none": return "None"
         case "oauth_subscription": return "OAuth"
         case "service_account": return "Service Account"
         default: return type
@@ -232,6 +233,8 @@ struct ProvidersSheet: View {
                         editorCredentialField
                     } else if editorDraft.authType == "platform" {
                         editorPlatformNote
+                    } else if editorDraft.authType == "none" {
+                        editorNoneNote
                     }
                     if let actionError {
                         Text(actionError)
@@ -310,6 +313,7 @@ struct ProvidersSheet: View {
                 options: [
                     (label: "API Key", value: "api_key"),
                     (label: "Platform (managed by Vellum)", value: "platform"),
+                    (label: "None (no credentials)", value: "none"),
                 ]
             )
         }
@@ -335,6 +339,19 @@ struct ProvidersSheet: View {
             VIconView(.info, size: 16)
                 .foregroundStyle(VColor.contentSecondary)
             Text("Managed by Vellum — no additional credentials required.")
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentSecondary)
+        }
+        .padding(VSpacing.md)
+        .background(VColor.surfaceBase)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+    }
+
+    private var editorNoneNote: some View {
+        HStack(spacing: VSpacing.sm) {
+            VIconView(.info, size: 16)
+                .foregroundStyle(VColor.contentSecondary)
+            Text("No authentication required — the provider handles access locally.")
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
         }

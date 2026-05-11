@@ -202,11 +202,10 @@ const CANONICAL_CONNECTIONS: Array<{ name: string; provider: string; auth: Auth 
   { name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" } },
   { name: "openai-managed",    provider: "openai",    auth: { type: "platform" } },
   { name: "gemini-managed",    provider: "gemini",    auth: { type: "platform" } },
-  { name: "ollama-local",      provider: "ollama",    auth: { type: "none" } },
 ];
 
 /**
- * Upsert the four canonical connections on every boot. Existing rows are
+ * Upsert the three canonical connections on every boot. Existing rows are
  * updated to the latest provider/auth values so Vellum can push connection
  * changes to customers in new releases.
  */

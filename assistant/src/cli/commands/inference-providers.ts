@@ -334,7 +334,6 @@ Canonical connections (seeded on every boot):
   anthropic-managed  → provider=anthropic, auth=platform
   openai-managed     → provider=openai,    auth=platform
   gemini-managed     → provider=gemini,    auth=platform
-  ollama-local       → provider=ollama,    auth=none
 
 Examples:
   $ assistant inference providers connections list
