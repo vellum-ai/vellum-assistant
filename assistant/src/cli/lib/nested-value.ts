@@ -1,13 +1,44 @@
 /**
- * Thin re-export of the nested-value helpers from `config/loader.ts`.
+ * Dotted-path get/set helpers for the CLI.
  *
- * The `cli/no-daemon-internals` ESLint rule forbids `ipc`-tagged CLI
- * commands from importing `../../config/loader.js` directly (it pulls in
- * daemon-only globals like the config cache and file watcher). These two
- * functions are pure and dependency-free, so we re-export them through the
- * cli/lib/ helper namespace, which IS on the IPC import allowlist.
+ * These two functions are byte-for-byte equivalent to the implementations in
+ * `config/loader.ts` (see `getNestedValue` / `setNestedValue` there). They
+ * are inlined here so the IPC-tagged `config` command can walk dotted paths
+ * without importing `config/loader.js`, which has module-level side effects
+ * (config cache, file watcher, etc.) inappropriate for the CLI process.
  *
- * Helper modules (no `registerCommand` call) are exempt from the rule,
- * so the daemon-internal import below is allowed here.
+ * Loader and CLI both call `setNestedValue("a.b.c", v)`-style helpers - if
+ * the behavior needs to change in one place, change it in both.
  */
-export { getNestedValue, setNestedValue } from "../../config/loader.js";
+
+export function getNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+): unknown {
+  const keys = path.split(".");
+  let current: unknown = obj;
+  for (const key of keys) {
+    if (current == null || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+export function setNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const keys = path.split(".");
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i]!;
+    if (current[key] == null || typeof current[key] !== "object") {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]!] = value;
+}

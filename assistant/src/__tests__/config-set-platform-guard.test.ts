@@ -4,6 +4,11 @@ import { Command } from "commander";
 
 // ---------------------------------------------------------------------------
 // Mock state
+//
+// The `config` CLI is now an IPC-tagged command (routed via cliIpcCall) so
+// these tests assert on the IPC calls the CLI emits, not on direct loader
+// writes. The only non-IPC interaction is `requirePlatformConnection`, which
+// reads the platform client - mocked below.
 // ---------------------------------------------------------------------------
 
 let mockPlatformClientCreate: () => Promise<Record<
@@ -11,20 +16,20 @@ let mockPlatformClientCreate: () => Promise<Record<
   unknown
 > | null> = async () => null;
 
-let mockLoadRawConfig: () => Record<string, unknown> = () => ({});
-const mockSaveRawConfigCalls: Array<Record<string, unknown>> = [];
-const mockSetNestedValueCalls: Array<{
-  obj: Record<string, unknown>;
-  key: string;
-  value: unknown;
+const mockIpcCalls: Array<{
+  method: string;
+  params?: Record<string, unknown>;
 }> = [];
-let mockGetNestedValue: (
-  obj: Record<string, unknown>,
-  key: string,
-) => unknown = () => undefined;
+
+let mockIpcResult: {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  statusCode?: number;
+} = { ok: true, result: { ok: true } };
 
 // ---------------------------------------------------------------------------
-// Mocks — platform/client (controls requirePlatformConnection)
+// Mocks - platform/client (controls requirePlatformConnection)
 // ---------------------------------------------------------------------------
 
 mock.module("../platform/client.js", () => ({
@@ -34,57 +39,37 @@ mock.module("../platform/client.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mocks — config/loader
+// Mocks - ipc/cli-client (the CLI's only write path)
 // ---------------------------------------------------------------------------
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ services: {} }),
-  loadConfig: () => ({ services: {} }),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => mockLoadRawConfig(),
-  saveRawConfig: (raw: Record<string, unknown>) => {
-    mockSaveRawConfigCalls.push(raw);
-  },
-  applyNestedDefaults: (c: unknown) => c,
-  deepMergeOverwrite: (a: unknown) => a,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: (obj: Record<string, unknown>, key: string) =>
-    mockGetNestedValue(obj, key),
-  setNestedValue: (
-    obj: Record<string, unknown>,
-    key: string,
-    value: unknown,
+mock.module("../ipc/cli-client.js", () => ({
+  cliIpcCall: async (
+    method: string,
+    params?: Record<string, unknown>,
   ) => {
-    mockSetNestedValueCalls.push({ obj, key, value });
-    const keys = key.split(".");
-    let current = obj;
-    for (let i = 0; i < keys.length - 1; i++) {
-      const segment = keys[i]!;
-      if (
-        current[segment] == null ||
-        typeof current[segment] !== "object" ||
-        Array.isArray(current[segment])
-      ) {
-        current[segment] = {};
-      }
-      current = current[segment] as Record<string, unknown>;
-    }
-    current[keys[keys.length - 1]!] = value;
+    mockIpcCalls.push({ method, params });
+    return mockIpcResult;
   },
-  API_KEY_PROVIDERS: [
-    "anthropic",
-    "openai",
-    "gemini",
-    "ollama",
-    "fireworks",
-    "openrouter",
-    "brave",
-    "perplexity",
-  ],
+  exitFromIpcResult: (r: {
+    error?: string;
+    statusCode?: number;
+  }) => {
+    process.stderr.write((r.error ?? "Unknown error") + "\n");
+    if (r.statusCode === undefined) {
+      process.exitCode = 10;
+    } else if (r.statusCode >= 500) {
+      process.exitCode = 3;
+    } else if (r.statusCode >= 400) {
+      process.exitCode = 2;
+    } else {
+      process.exitCode = 1;
+    }
+    throw new Error(`exitFromIpcResult(${r.statusCode ?? "no-status"})`);
+  },
 }));
 
 // ---------------------------------------------------------------------------
-// Mocks — util/logger (suppress log output)
+// Mocks - util/logger (suppress log output)
 // ---------------------------------------------------------------------------
 
 mock.module("../util/logger.js", () => ({
@@ -103,7 +88,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mocks — oauth/oauth-store (transitive dep of oauth/shared.ts)
+// Mocks - oauth/oauth-store (transitive dep guard for oauth/shared.ts)
 // ---------------------------------------------------------------------------
 
 mock.module("../oauth/oauth-store.js", () => ({
@@ -187,17 +172,15 @@ async function runCli(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("config set — platform connection guard for service mode paths", () => {
+describe("config set - platform connection guard for service mode paths", () => {
   beforeEach(() => {
     // Default: not connected to platform
     mockPlatformClientCreate = async () => null;
-    mockLoadRawConfig = () => ({});
-    mockSaveRawConfigCalls.length = 0;
-    mockSetNestedValueCalls.length = 0;
-    mockGetNestedValue = () => undefined;
+    mockIpcCalls.length = 0;
+    mockIpcResult = { ok: true, result: { ok: true } };
   });
 
-  test("config set services.image-generation.mode your-own — succeeds without platform connection", async () => {
+  test("config set services.image-generation.mode your-own - succeeds without platform connection", async () => {
     const { exitCode } = await runCli([
       "node",
       "assistant",
@@ -209,16 +192,18 @@ describe("config set — platform connection guard for service mode paths", () =
     ]);
 
     expect(exitCode).toBe(0);
-    // Config should have been written — setting to "your-own" doesn't need platform
-    expect(mockSetNestedValueCalls).toHaveLength(1);
-    expect(mockSetNestedValueCalls[0]!.key).toBe(
-      "services.image-generation.mode",
-    );
-    expect(mockSetNestedValueCalls[0]!.value).toBe("your-own");
-    expect(mockSaveRawConfigCalls).toHaveLength(1);
+    // The CLI should have emitted exactly one config_set IPC call.
+    const setCalls = mockIpcCalls.filter((c) => c.method === "config_set");
+    expect(setCalls).toHaveLength(1);
+    expect(setCalls[0]!.params).toEqual({
+      body: {
+        path: "services.image-generation.mode",
+        value: "your-own",
+      },
+    });
   });
 
-  test("config set calls.enabled true — succeeds without platform connection", async () => {
+  test("config set calls.enabled true - succeeds without platform connection and parses to boolean", async () => {
     const { exitCode } = await runCli([
       "node",
       "assistant",
@@ -229,21 +214,17 @@ describe("config set — platform connection guard for service mode paths", () =
     ]);
 
     expect(exitCode).toBe(0);
-    // Config should have been written
-    expect(mockSetNestedValueCalls).toHaveLength(1);
-    expect(mockSetNestedValueCalls[0]!.key).toBe("calls.enabled");
-    expect(mockSetNestedValueCalls[0]!.value).toBe(true);
-    expect(mockSaveRawConfigCalls).toHaveLength(1);
+    const setCalls = mockIpcCalls.filter((c) => c.method === "config_set");
+    expect(setCalls).toHaveLength(1);
+    expect(setCalls[0]!.params).toEqual({
+      body: { path: "calls.enabled", value: true },
+    });
   });
 
-  test("config set ingress.publicBaseUrl overwrites existing value", async () => {
-    mockLoadRawConfig = () => ({
-      ingress: {
-        publicBaseUrl: "https://stale-velay.example.test",
-        publicBaseUrlManagedBy: "velay",
-      },
-    });
-
+  test("config set ingress.publicBaseUrl - sends the new value to the daemon", async () => {
+    // Daemon-side semantics (sibling preservation, deep-merge avoidance) are
+    // covered by daemon route tests. Here we only verify the CLI sends the
+    // correct dotted-path + value pair via IPC.
     const { exitCode } = await runCli([
       "node",
       "assistant",
@@ -254,16 +235,17 @@ describe("config set — platform connection guard for service mode paths", () =
     ]);
 
     expect(exitCode).toBe(0);
-    expect(mockSaveRawConfigCalls).toHaveLength(1);
-    expect(mockSaveRawConfigCalls[0]).toEqual({
-      ingress: {
-        publicBaseUrl: "https://manual.example.test",
-        publicBaseUrlManagedBy: "velay",
+    const setCalls = mockIpcCalls.filter((c) => c.method === "config_set");
+    expect(setCalls).toHaveLength(1);
+    expect(setCalls[0]!.params).toEqual({
+      body: {
+        path: "ingress.publicBaseUrl",
+        value: "https://manual.example.test",
       },
     });
   });
 
-  test("config set services.web-search.mode managed — fails when not connected", async () => {
+  test("config set services.web-search.mode managed - fails when not connected, no IPC write emitted", async () => {
     const { exitCode, stdout } = await runCli([
       "node",
       "assistant",
@@ -278,7 +260,10 @@ describe("config set — platform connection guard for service mode paths", () =
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("vellum platform connect");
-    expect(mockSaveRawConfigCalls).toHaveLength(0);
+    // The guard runs *before* the IPC call - no config_set should have been
+    // emitted.
+    expect(
+      mockIpcCalls.filter((c) => c.method === "config_set"),
+    ).toHaveLength(0);
   });
-
 });

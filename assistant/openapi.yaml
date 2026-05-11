@@ -3135,6 +3135,18 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/config/allowlist/validate:
+    get:
+      operationId: config_allowlist_validate_get
+      summary: Validate secret-allowlist.json regex patterns
+      description:
+        "Compile each regex pattern in secret-allowlist.json and return any syntax errors. Returns { exists: false
+        } if no file is present."
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
   /v1/config/embeddings:
     get:
       operationId: config_embeddings_get
@@ -3259,6 +3271,18 @@ paths:
           schema:
             type: string
           description: Optional dotted path to a config sub-key
+  /v1/config/set:
+    post:
+      operationId: config_set_post
+      summary: Set a single config path
+      description:
+        Assign a value at a dotted config path with direct-replacement semantics (preserves explicit null, replaces
+        object subtrees instead of merging). Used by the `assistant config set <key> <value>` CLI command.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
   /v1/confirm:
     post:
       operationId: confirm_post

@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
-import { getNestedValue, setNestedValue } from "../lib/nested-value.js";
+import { getNestedValue } from "../lib/nested-value.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { requirePlatformConnection } from "./oauth/shared.js";
@@ -33,8 +33,8 @@ function flattenConfig(
 const SERVICE_MODE_PATH_RE = /^services\.[^.]+\.mode$/;
 
 /**
- * Fetch the full raw config from the daemon via IPC.
- * On transport / daemon error, prints a helpful message and exits.
+ * Fetch the full raw config from the assistant via IPC.
+ * On transport / connection error, prints a helpful message and exits.
  */
 async function fetchRawConfig(
   cmd: Command,
@@ -57,9 +57,9 @@ export function registerConfigCommand(program: Command): void {
   config.addHelpText(
     "after",
     `
-Configuration is managed by the assistant daemon. The CLI sends every
-read/write through the daemon's IPC channel so the in-memory cache,
-provider registry, and file-watcher stay coherent with config.json.
+Configuration is managed by the assistant. The CLI sends every read/write
+through the assistant so the in-memory cache, provider registry, and
+file-watcher stay coherent with config.json.
 
 Keys support dotted paths for nested values (e.g. calls.enabled,
 twilio.accountSid). Values are auto-parsed as JSON (booleans, numbers,
@@ -92,9 +92,10 @@ Arguments:
           true, "42" becomes number 42). Falls back to plain string if JSON
           parsing fails.
 
-The CLI sends the change to the daemon, which deep-merges it into
-config.json, invalidates caches, and reinitializes providers so the new
-value takes effect immediately.
+The CLI sends the change to the assistant, which assigns the value at the
+given path, invalidates caches, and reinitializes providers so the new
+value takes effect immediately. Object subtrees replace (not merge), and
+explicit null is preserved.
 
 To manage API keys, use "assistant keys set <provider> <key>" instead.
 
@@ -118,11 +119,12 @@ Examples:
           if (!connected) return;
         }
 
-        // Build a single-key deep-merge patch object from the dotted path.
-        const patch: Record<string, unknown> = {};
-        setNestedValue(patch, key, parsed);
-
-        const result = await cliIpcCall("config_patch", { body: patch });
+        // Direct-replacement set semantics (preserves null, replaces objects).
+        // See conversation-query-routes.ts:handleSetConfig for why this is a
+        // separate route from config_patch.
+        const result = await cliIpcCall("config_set", {
+          body: { path: key, value: parsed },
+        });
         if (!result.ok) {
           exitFromIpcResult(result, cmd);
           return;
@@ -141,7 +143,7 @@ Arguments:
   key   Dotted path to the config key (e.g. llm.default.provider,
         calls.enabled)
 
-Fetches the full config from the daemon and prints the value at the
+Fetches the full config from the assistant and prints the value at the
 given key path. If the key is not set, prints "(not set)". Object
 values are pretty-printed as indented JSON.
 
@@ -175,7 +177,7 @@ Examples:
 Arguments:
   path   Optional dotted path to a config key (e.g. calls, memory.segmentation)
 
-Asks the daemon for the JSON Schema of the entire config object, or
+Asks the assistant for the JSON Schema of the entire config object, or
 the sub-schema at the given path. Useful for understanding available
 fields, their types, defaults, and constraints.
 
@@ -206,7 +208,7 @@ Examples:
     .addHelpText(
       "after",
       `
-Fetches the full raw configuration from the daemon and prints it as
+Fetches the full raw configuration from the assistant and prints it as
 pretty-printed JSON. If no configuration has been set, prints
 "No configuration set".
 
@@ -263,40 +265,35 @@ patterns. Exits with code 1 if any patterns are invalid, or prints a success
 message if all patterns are valid. If no secret-allowlist.json file exists,
 reports that and exits normally.
 
-This subcommand reads the allowlist file directly from disk via a dynamic
-require — no daemon route exists yet. (TODO: add config_allowlist_validate
-IPC route so this command can be a pure thin wrapper too.)
-
 Examples:
   $ assistant config validate-allowlist`,
     )
-    .action(() => {
-      const { validateAllowlistFile } =
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require("../../security/secret-allowlist.js") as typeof import("../../security/secret-allowlist.js");
-      try {
-        const errors = validateAllowlistFile();
-        if (errors == null) {
-          log.info("No secret-allowlist.json file found");
-          return;
-        }
-        if (errors.length === 0) {
-          log.info("All patterns in secret-allowlist.json are valid");
-          return;
-        }
-        log.error(
-          `Found ${errors.length} invalid pattern(s) in secret-allowlist.json:`,
-        );
-        for (const e of errors) {
-          log.error(`  [${e.index}] "${e.pattern}": ${e.message}`);
-        }
-        process.exit(1);
-      } catch (err) {
-        log.error(
-          `Failed to read secret-allowlist.json: ${(err as Error).message}`,
-        );
-        process.exit(1);
+    .action(async (_opts: unknown, cmd: Command) => {
+      const result = await cliIpcCall<{
+        exists: boolean;
+        errors?: Array<{ index: number; pattern: string; message: string }>;
+      }>("config_allowlist_validate");
+      if (!result.ok) {
+        exitFromIpcResult(result, cmd);
+        return;
       }
+      const payload = result.result;
+      if (!payload || !payload.exists) {
+        log.info("No secret-allowlist.json file found");
+        return;
+      }
+      const errors = payload.errors ?? [];
+      if (errors.length === 0) {
+        log.info("All patterns in secret-allowlist.json are valid");
+        return;
+      }
+      log.error(
+        `Found ${errors.length} invalid pattern(s) in secret-allowlist.json:`,
+      );
+      for (const e of errors) {
+        log.error(`  [${e.index}] "${e.pattern}": ${e.message}`);
+      }
+      process.exit(1);
     });
     },
   });

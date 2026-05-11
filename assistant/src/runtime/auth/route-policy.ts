@@ -401,6 +401,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Config JSON Schema (full or scoped sub-schema)
   { endpoint: "config/schema:GET", scopes: ["settings.read"] },
   { endpoint: "config:PATCH", scopes: ["settings.write"] },
+  // Direct single-path set (preserves null, replaces objects)
+  { endpoint: "config/set:POST", scopes: ["settings.write"] },
+  // Secret-allowlist regex validation (read-only)
+  { endpoint: "config/allowlist/validate:GET", scopes: ["settings.read"] },
 
   // LLM call site catalog
   { endpoint: "config/llm/call-sites:GET", scopes: ["settings.read"] },
