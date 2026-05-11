@@ -59,7 +59,7 @@ export async function setVercelConfig(
   }
 
   upsertCredentialMetadata("vercel", "api_token", {
-    allowedTools: ["deploy", "publish_page"],
+    allowedTools: ["deploy", "publish_page", "bash"],
     injectionTemplates: [
       {
         hostPattern: "api.vercel.com",

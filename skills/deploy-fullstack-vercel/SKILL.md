@@ -62,31 +62,30 @@ Create `vellum-shim.js` in the app's `dist/` directory. This shim provides stand
   }
 
   window.vellum = {
-    // Data store backed by localStorage
+    // Data store backed by localStorage (flat per-app records, no table param)
     data: {
-      query: function(table) {
+      query: function() {
         var store = loadStore();
-        return Object.values(store[table] || {});
+        return Object.values(store);
       },
-      create: function(table, record) {
+      create: function(record) {
         var store = loadStore();
-        if (!store[table]) store[table] = {};
         var id = record.id || crypto.randomUUID();
         record.id = id;
-        store[table][id] = record;
+        store[id] = record;
         saveStore(store);
         return record;
       },
-      update: function(table, id, data) {
+      update: function(id, data) {
         var store = loadStore();
-        if (!store[table] || !store[table][id]) return null;
-        Object.assign(store[table][id], data);
+        if (!store[id]) return null;
+        Object.assign(store[id], data);
         saveStore(store);
-        return store[table][id];
+        return store[id];
       },
-      delete: function(table, id) {
+      delete: function(id) {
         var store = loadStore();
-        if (store[table]) delete store[table][id];
+        delete store[id];
         saveStore(store);
         return true;
       }
@@ -135,7 +134,7 @@ Create `vellum-shim.js` in the app's `dist/` directory. This shim provides stand
 Add a `<script src="vellum-shim.js"></script>` tag in `dist/index.html` BEFORE any `<script type="module">` tags:
 
 ```bash
-sed -i '' 's|<script type="module"|<script src="vellum-shim.js"></script>\n<script type="module"|' dist/index.html
+sed -i 's|<script type="module"|<script src="vellum-shim.js"></script>\n<script type="module"|' dist/index.html
 ```
 
 ### 4. Deploy the App
@@ -149,7 +148,7 @@ Create a `vercel.json` in the dist directory:
 ```json
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!main\\.js|main\\.css|vellum-shim\\.js|assets/).*)", "destination": "/index.html" }
   ]
 }
 ```
