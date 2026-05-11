@@ -100,7 +100,7 @@ function ensureEventLoopDelayMonitorStarted(): void {
   }
 }
 
-interface EventLoopDelaySnapshot {
+export interface EventLoopDelaySnapshot {
   mean_ms: number | null;
   p99_ms: number | null;
   max_ms: number | null;
@@ -145,6 +145,37 @@ export type SseShedReporter = (
 ) => void;
 
 /**
+ * Build the structured payload sent to Sentry when an SSE subscriber is
+ * shed under backpressure.
+ *
+ * The conversation key is deliberately excluded: for channel-backed
+ * conversations (WhatsApp, Telegram, etc.) the key embeds external
+ * identifiers — phone numbers, chat IDs — and Sentry contexts are not
+ * run through the PII redactor in `instrument.ts` (only
+ * `exception.values`, `breadcrumbs`, and `extra` are). Correlation
+ * with the client-side `sse_watchdog_fired` event is achieved via the
+ * `client_id` tag + timestamp instead.
+ */
+export function buildSseShedSentryContext(
+  reason: SseShedReason,
+  inst: SseSubscriberInstrumentation,
+  elDelay: EventLoopDelaySnapshot,
+  nowMs: number,
+): Record<string, unknown> {
+  return {
+    reason,
+    subscription_age_ms: nowMs - inst.subscribedAtMs,
+    events_delivered: inst.eventsDelivered,
+    heartbeats_sent: inst.heartbeatsSent,
+    client_id: inst.clientId,
+    interface_id: inst.interfaceId,
+    event_loop_delay_mean_ms: elDelay.mean_ms,
+    event_loop_delay_p99_ms: elDelay.p99_ms,
+    event_loop_delay_max_ms: elDelay.max_ms,
+  };
+}
+
+/**
  * Report a backpressure-shed event from an SSE subscriber to logs and Sentry.
  *
  * SSE subscribers are shed when `controller.desiredSize <= 0`: the consumer
@@ -160,19 +191,16 @@ export type SseShedReporter = (
  */
 const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
   const elDelay = sampleEventLoopDelay();
-  const context = {
+  const sentryContext = buildSseShedSentryContext(
     reason,
-    subscription_age_ms: Date.now() - inst.subscribedAtMs,
-    events_delivered: inst.eventsDelivered,
-    heartbeats_sent: inst.heartbeatsSent,
-    client_id: inst.clientId,
-    interface_id: inst.interfaceId,
-    conversation_key: inst.conversationKey,
-    event_loop_delay_mean_ms: elDelay.mean_ms,
-    event_loop_delay_p99_ms: elDelay.p99_ms,
-    event_loop_delay_max_ms: elDelay.max_ms,
-  };
-  log.warn(context, "sse subscriber shed under backpressure");
+    inst,
+    elDelay,
+    Date.now(),
+  );
+  log.warn(
+    { ...sentryContext, conversation_key: inst.conversationKey },
+    "sse subscriber shed under backpressure",
+  );
 
   try {
     Sentry.withScope((scope) => {
@@ -180,7 +208,7 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
       scope.setTag("sse_shed_reason", reason);
       if (inst.clientId) scope.setTag("client_id", inst.clientId);
       if (inst.interfaceId) scope.setTag("interface_id", inst.interfaceId);
-      scope.setContext("sse_shed", context);
+      scope.setContext("sse_shed", sentryContext);
       Sentry.captureMessage(`sse_subscriber_shed:${reason}`);
     });
   } catch {
@@ -366,6 +394,7 @@ export function handleSubscribeAssistantEvents(
         }
 
         controller.enqueue(encoder.encode(formatSseHeartbeat()));
+        instrumentation.heartbeatsSent += 1;
 
         heartbeatTimer = setInterval(() => {
           try {

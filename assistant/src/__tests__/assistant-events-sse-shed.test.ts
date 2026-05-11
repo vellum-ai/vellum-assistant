@@ -15,6 +15,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
+  buildSseShedSentryContext,
   handleSubscribeAssistantEvents,
   type SseShedReason,
   type SseSubscriberInstrumentation,
@@ -90,6 +91,9 @@ describe("SSE route — backpressure shed observability", () => {
     expect(reports.length).toBe(1);
     expect(reports[0]?.reason).toBe("callback_backpressure");
     expect(reports[0]?.events_delivered).toBe(SSE_HIGH_WATER_MARK - 1);
+    // The initial heartbeat enqueued by start() must be counted so the
+    // reported queue depth matches what was actually pushed.
+    expect(reports[0]?.heartbeats_sent).toBe(1);
     expect(reports[0]?.conversation_key).toBe("shed-cb-test");
     expect(typeof reports[0]?.subscription_age_ms).toBe("number");
 
@@ -179,5 +183,50 @@ describe("SSE route — backpressure shed observability", () => {
     expect(reports[0]?.interface_id).toBe("macos");
 
     ac.abort();
+  });
+});
+
+describe("buildSseShedSentryContext", () => {
+  const inst: SseSubscriberInstrumentation = {
+    subscribedAtMs: 1_000,
+    eventsDelivered: 7,
+    heartbeatsSent: 3,
+    clientId: "client-xyz",
+    interfaceId: "macos",
+    // Channel-backed conversation key embedding a phone number.
+    conversationKey: "asst:self:whatsapp:447123456789",
+  };
+  const elDelay = { mean_ms: 1.2, p99_ms: 3.4, max_ms: 5.6 };
+
+  test("omits conversation_key so Sentry contexts do not leak PII", () => {
+    const ctx = buildSseShedSentryContext(
+      "callback_backpressure",
+      inst,
+      elDelay,
+      2_500,
+    );
+    expect(ctx).not.toHaveProperty("conversation_key");
+    expect(ctx).not.toHaveProperty("conversationKey");
+    expect(JSON.stringify(ctx)).not.toContain("447123456789");
+  });
+
+  test("preserves non-PII per-subscriber and runtime fields", () => {
+    const ctx = buildSseShedSentryContext(
+      "heartbeat_backpressure",
+      inst,
+      elDelay,
+      2_500,
+    );
+    expect(ctx).toMatchObject({
+      reason: "heartbeat_backpressure",
+      subscription_age_ms: 1_500,
+      events_delivered: 7,
+      heartbeats_sent: 3,
+      client_id: "client-xyz",
+      interface_id: "macos",
+      event_loop_delay_mean_ms: 1.2,
+      event_loop_delay_p99_ms: 3.4,
+      event_loop_delay_max_ms: 5.6,
+    });
   });
 });
