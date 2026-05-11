@@ -41,6 +41,49 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// ── Mock oauth-store so handleOAuthConnectStart can run without a seeded DB ──
+type MockProviderRow = {
+  authorizeUrl?: string;
+  requiresClientSecret?: boolean;
+  [key: string]: unknown;
+};
+
+const DEFAULT_PROVIDER: MockProviderRow = {
+  authorizeUrl: "https://accounts.google.com/o/oauth2/auth",
+  requiresClientSecret: false,
+};
+
+let mockGetProvider: (service: string) => MockProviderRow | undefined = () =>
+  DEFAULT_PROVIDER;
+let mockGetAppByProviderAndClientId: (
+  service: string,
+  clientId: string,
+) => Record<string, unknown> | undefined = (_service, clientId) => ({
+  id: "test-app-id",
+  provider: "google",
+  clientId,
+});
+let mockGetMostRecentAppByProvider: (
+  service: string,
+) => Record<string, unknown> | undefined = () => ({
+  id: "test-app-id",
+  provider: "google",
+  clientId: "default-client-id",
+});
+let mockGetAppClientSecret: (
+  row: Record<string, unknown>,
+) => Promise<string | undefined> = async () => undefined;
+
+mock.module("../oauth/oauth-store.js", () => ({
+  getProvider: (service: string) => mockGetProvider(service),
+  getAppByProviderAndClientId: (service: string, clientId: string) =>
+    mockGetAppByProviderAndClientId(service, clientId),
+  getMostRecentAppByProvider: (service: string) =>
+    mockGetMostRecentAppByProvider(service),
+  getAppClientSecret: (row: Record<string, unknown>) =>
+    mockGetAppClientSecret(row),
+}));
+
 // NOTE: Do NOT mock oauth-connect-state — use the real module so we can
 // verify state transitions via getOAuthConnectState.
 
@@ -65,6 +108,23 @@ function findRoute(operationId: string) {
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 describe("oauth-connect-routes", () => {
+  beforeEach(() => {
+    // Reset oauth-store mocks to permissive defaults so every test starts
+    // from a clean baseline regardless of what the previous test set.
+    mockGetProvider = () => DEFAULT_PROVIDER;
+    mockGetAppByProviderAndClientId = (_service, clientId) => ({
+      id: "test-app-id",
+      provider: "google",
+      clientId,
+    });
+    mockGetMostRecentAppByProvider = () => ({
+      id: "test-app-id",
+      provider: "google",
+      clientId: "default-client-id",
+    });
+    mockGetAppClientSecret = async () => undefined;
+  });
+
   describe("POST internal/oauth/connect/start", () => {
     beforeEach(() => {
       capturedOnDeferredComplete = undefined;
@@ -104,17 +164,6 @@ describe("oauth-connect-routes", () => {
             service: "google",
             clientId: "my-client-id",
             callbackTransport: "ftp",
-          },
-        }),
-      ).rejects.toBeInstanceOf(BadRequestError);
-    });
-
-    test("missing clientId throws BadRequestError", async () => {
-      await expect(
-        findRoute("internal_oauth_connect_start").handler({
-          body: {
-            service: "google",
-            callbackTransport: "gateway",
           },
         }),
       ).rejects.toBeInstanceOf(BadRequestError);
@@ -182,6 +231,120 @@ describe("oauth-connect-routes", () => {
           },
         }),
       ).rejects.toBeInstanceOf(InternalError);
+    });
+
+    test("unknown provider throws NotFoundError", async () => {
+      mockGetProvider = () => undefined;
+      await expect(
+        findRoute("internal_oauth_connect_start").handler({
+          body: {
+            service: "made-up-service",
+            clientId: "my-client-id",
+            callbackTransport: "gateway",
+          },
+        }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    test("manual-token provider rejected even when clientId is explicitly supplied", async () => {
+      // Codex/Devin finding on PR #30251: the manual-token check used to live
+      // inside `if (!clientId)`, so callers passing `--client-id` for a
+      // manual-token provider (e.g. slack_channel, telegram) bypassed it.
+      mockGetProvider = () => ({
+        authorizeUrl: "urn:manual-token",
+        requiresClientSecret: false,
+      });
+      await expect(
+        findRoute("internal_oauth_connect_start").handler({
+          body: {
+            service: "slack_channel",
+            clientId: "any-client-id",
+            callbackTransport: "gateway",
+          },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestError);
+    });
+
+    test("manual-token provider rejected when no clientId is supplied", async () => {
+      mockGetProvider = () => ({
+        authorizeUrl: "urn:manual-token",
+        requiresClientSecret: false,
+      });
+      await expect(
+        findRoute("internal_oauth_connect_start").handler({
+          body: {
+            service: "slack_channel",
+            callbackTransport: "gateway",
+          },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestError);
+    });
+
+    test("explicit clientId with no registered app throws NotFoundError", async () => {
+      // Devin finding on PR #30251: the explicit-clientId branch used to
+      // silently continue when getAppByProviderAndClientId returned null,
+      // letting orchestrateOAuthConnect fail later with a less helpful error.
+      mockGetAppByProviderAndClientId = () => undefined;
+      await expect(
+        findRoute("internal_oauth_connect_start").handler({
+          body: {
+            service: "google",
+            clientId: "unregistered-client-id",
+            callbackTransport: "gateway",
+          },
+        }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    test("no clientId and no registered app throws BadRequestError", async () => {
+      mockGetMostRecentAppByProvider = () => undefined;
+      await expect(
+        findRoute("internal_oauth_connect_start").handler({
+          body: {
+            service: "google",
+            callbackTransport: "gateway",
+          },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestError);
+    });
+
+    test("missing client_secret when provider requiresClientSecret throws BadRequestError", async () => {
+      // Devin finding on PR #30251: requiresClientSecret was only checked
+      // inside the `!clientId` branch. Hoisting it ensures explicit-clientId
+      // callers also fail fast with an actionable error.
+      mockGetProvider = () => ({
+        authorizeUrl: "https://accounts.example.com/o/oauth2/auth",
+        requiresClientSecret: true,
+      });
+      mockGetAppClientSecret = async () => undefined;
+      await expect(
+        findRoute("internal_oauth_connect_start").handler({
+          body: {
+            service: "github",
+            clientId: "explicit-client-id",
+            callbackTransport: "gateway",
+          },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestError);
+    });
+
+    test("explicit clientId + stored secret succeeds without caller-supplied secret", async () => {
+      mockGetProvider = () => ({
+        authorizeUrl: "https://accounts.example.com/o/oauth2/auth",
+        requiresClientSecret: true,
+      });
+      mockGetAppClientSecret = async () => "stored-secret-from-keyring";
+      const result = await findRoute("internal_oauth_connect_start").handler({
+        body: {
+          service: "github",
+          clientId: "explicit-client-id",
+          callbackTransport: "gateway",
+        },
+      });
+      expect(result).toMatchObject({
+        auth_url: "https://accounts.google.com/o/oauth2/auth?client_id=test",
+        state: "test-state-uuid-abc123",
+      });
     });
   });
 

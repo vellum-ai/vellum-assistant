@@ -47,26 +47,28 @@ async function handleOAuthConnectStart({
 
   if (!service) throw new BadRequestError("service is required");
 
-  // When clientId is not provided, resolve from the DB
+  // Provider row drives validation that applies regardless of whether the
+  // caller supplied an explicit clientId: existence, manual-token rejection,
+  // and the requiresClientSecret check below.
+  const providerRow = getProvider(service);
+  if (!providerRow) {
+    throw new NotFoundError(
+      `Unknown provider "${service}". Run 'assistant oauth providers list' to see available providers.`,
+    );
+  }
+
+  // Manual-token providers don't use OAuth2 browser flows.
+  if (providerRow.authorizeUrl === "urn:manual-token") {
+    throw new BadRequestError(
+      `"${service}" uses manual token configuration, not an OAuth browser flow. ` +
+        `Set the token with: assistant credentials set <token_value> --service ${service} --field <field_name>`,
+    );
+  }
+
   let clientId = rawClientId;
   let clientSecret = rawClientSecret;
 
   if (!clientId) {
-    const providerRow = getProvider(service);
-    if (!providerRow) {
-      throw new NotFoundError(
-        `Unknown provider "${service}". Run 'assistant oauth providers list' to see available providers.`,
-      );
-    }
-
-    // Manual-token providers don't use OAuth2 browser flows
-    if (providerRow.authorizeUrl === "urn:manual-token") {
-      throw new BadRequestError(
-        `"${service}" uses manual token configuration, not an OAuth browser flow. ` +
-          `Set the token with: assistant credentials set <token_value> --service ${service} --field <field_name>`,
-      );
-    }
-
     const dbApp = getMostRecentAppByProvider(service);
     if (!dbApp) {
       throw new BadRequestError(
@@ -79,21 +81,26 @@ async function handleOAuthConnectStart({
       const storedSecret = await getAppClientSecret(dbApp);
       if (storedSecret) clientSecret = storedSecret;
     }
-
-    // Check if client_secret is required but missing
-    if (clientSecret === undefined && providerRow.requiresClientSecret) {
-      throw new BadRequestError(
-        `client_secret is required for ${service} but not found. ` +
-          `Store it with 'assistant oauth apps upsert --client-secret'.`,
+  } else {
+    // clientId was explicitly provided — resolve its app.
+    const dbApp = getAppByProviderAndClientId(service, clientId);
+    if (!dbApp) {
+      throw new NotFoundError(
+        `No registered app found for "${service}" with client_id "${clientId}". ` +
+          `Register one with 'assistant oauth apps upsert'.`,
       );
     }
-  } else if (clientId) {
-    // clientId was explicitly provided — resolve its app
-    const dbApp = getAppByProviderAndClientId(service, clientId);
-    if (dbApp && clientSecret === undefined) {
+    if (clientSecret === undefined) {
       const storedSecret = await getAppClientSecret(dbApp);
       if (storedSecret) clientSecret = storedSecret;
     }
+  }
+
+  if (clientSecret === undefined && providerRow.requiresClientSecret) {
+    throw new BadRequestError(
+      `client_secret is required for ${service} but not found. ` +
+        `Store it with 'assistant oauth apps upsert --client-secret'.`,
+    );
   }
 
   if (callbackTransport !== "loopback" && callbackTransport !== "gateway") {

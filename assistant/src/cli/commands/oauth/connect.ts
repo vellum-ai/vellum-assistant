@@ -144,7 +144,7 @@ Examples:
           const providerRow = providerCheck.result?.provider as
             | Record<string, unknown>
             | undefined;
-          const authorizeUrl = providerRow?.auth_url as string | undefined;
+          const authorizeUrl = providerRow?.authUrl as string | undefined;
 
           // ---------------------------------------------------------------
           // 2. Detect mode via IPC

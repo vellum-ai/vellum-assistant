@@ -11,17 +11,6 @@ import { VellumPlatformClient } from "../../../platform/client.js";
 import { writeOutput } from "../../output.js";
 
 // ---------------------------------------------------------------------------
-// Shared types
-// ---------------------------------------------------------------------------
-
-export interface PlatformConnectionEntry {
-  id: string;
-  account_label?: string;
-  scopes_granted?: string[];
-  status?: string;
-}
-
-// ---------------------------------------------------------------------------
 // Platform connection helpers
 // ---------------------------------------------------------------------------
 
