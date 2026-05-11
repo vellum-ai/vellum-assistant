@@ -436,6 +436,37 @@ export function findAnalysisConversationFor(
 }
 
 /**
+ * Find the most recent memory-retrospective background conversation rooted
+ * at `parentConversationId`. Used by the memory-retrospective job handler
+ * to load the prior retrospective's `remember` calls into the new run's
+ * `<already_remembered>` block — bounded source-of-truth for "what the
+ * prior pass already saved" that scales as the source conversation grows.
+ *
+ * Returns `null` when no prior retrospective exists yet (first run).
+ *
+ * Hits `idx_conversations_fork_parent_conversation_id` for the
+ * `forkParentConversationId` lookup.
+ */
+export function findMostRecentRetrospectiveFor(
+  parentConversationId: string,
+): { id: string } | null {
+  const db = getDb();
+  const row = db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.source, "memory-retrospective"),
+        eq(conversations.forkParentConversationId, parentConversationId),
+      ),
+    )
+    .orderBy(desc(conversations.createdAt))
+    .limit(1)
+    .get();
+  return row ? { id: row.id } : null;
+}
+
+/**
  * Returns the `source` column for the given conversation, or null if
  * not found. Tiny convenience used by the recursion guard in the
  * auto-analyze loop.
