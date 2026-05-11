@@ -15041,6 +15041,62 @@ paths:
           schema:
             type: string
           description: Include unmodified defaults
+    post:
+      operationId: trustrules_post
+      summary: Create a trust rule
+      description: "Create a user-defined trust rule. Body: { tool, pattern, risk, description }."
+      tags:
+        - trust-rules
+      responses:
+        "200":
+          description: Successful response
+  /v1/trust-rules/{id}:
+    delete:
+      operationId: trustrules_by_id_delete
+      summary: Delete a trust rule
+      description: Delete a user-defined trust rule by id.
+      tags:
+        - trust-rules
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: trustrules_by_id_patch
+      summary: Update a trust rule
+      description: "Update a trust rule's risk and/or description. Body: { risk?, description? }."
+      tags:
+        - trust-rules
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/trust-rules/{id}/reset:
+    post:
+      operationId: trustrules_by_id_reset_post
+      summary: Reset a default trust rule
+      description: Reset a default-origin trust rule to its registry-defined risk and description.
+      tags:
+        - trust-rules
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/trust-rules/suggest:
     post:
       operationId: trustrules_suggest_post
