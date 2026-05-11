@@ -77,8 +77,8 @@ export class UnprocessableEntityError extends RouteError {
 }
 
 export class ConflictError extends RouteError {
-  constructor(message: string) {
-    super(message, "CONFLICT", 409);
+  constructor(message: string, details?: unknown) {
+    super(message, "CONFLICT", 409, details);
     this.name = "ConflictError";
   }
 }
