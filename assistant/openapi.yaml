@@ -12249,6 +12249,11 @@ paths:
                 overwrite:
                   description: Replace an existing install. Defaults to true for back-compat with the legacy in-process API.
                   type: boolean
+                catalogOnly:
+                  description:
+                    When true, restrict to bundled and Vellum catalog skills only — do not fall through to community
+                    registries.
+                  type: boolean
               required:
                 - slug
                 - url
