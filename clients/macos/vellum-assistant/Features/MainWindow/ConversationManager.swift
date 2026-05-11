@@ -1,7 +1,6 @@
-import SwiftUI
-import VellumAssistantShared
 import Foundation
 import UserNotifications
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationManager")
