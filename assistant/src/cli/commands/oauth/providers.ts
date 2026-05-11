@@ -1,40 +1,64 @@
 import { type Command } from "commander";
 
-import { loadConfig } from "../../../config/loader.js";
-import {
-  deleteApp,
-  deleteConnection,
-  deleteProvider,
-  disconnectOAuthProvider,
-  getProvider,
-  listApps,
-  listConnections,
-  listProviders,
-  registerProvider,
-  updateProvider,
-} from "../../../oauth/oauth-store.js";
-import {
-  type SerializedProvider,
-  serializeProvider,
-} from "../../../oauth/provider-serializer.js";
-import { isProviderVisible } from "../../../oauth/provider-visibility.js";
-import { SEEDED_PROVIDER_KEYS } from "../../../oauth/seed-providers.js";
+import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { registerCommand } from "../../lib/register-command.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 const log = getCliLogger("cli");
 
-const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface SerializedProvider {
+  providerKey: string;
+  displayName?: string | null;
+  description?: string | null;
+  supportsManagedMode?: boolean;
+  managedServiceIsPaid?: boolean;
+  defaultScopes?: string[];
+  authUrl?: string;
+  tokenUrl?: string;
+  refreshUrl?: string | null;
+  dashboardUrl?: string | null;
+  appType?: string | null;
+  requiresClientSecret?: boolean;
+  clientIdPlaceholder?: string | null;
+  scopeSeparator?: string;
+  tokenEndpointAuthMethod?: string | null;
+  tokenExchangeBodyFormat?: string | null;
+  extraParams?: unknown;
+  redirectUri?: string | null;
+  baseUrl?: string | null;
+  userinfoUrl?: string | null;
+  pingUrl?: string | null;
+  pingMethod?: string | null;
+  pingHeaders?: unknown;
+  pingBody?: unknown;
+  revokeUrl?: string | null;
+  revokeBodyTemplate?: unknown;
+  loopbackPort?: number | null;
+  injectionTemplates?: unknown;
+  identityUrl?: string | null;
+  identityMethod?: string | null;
+  identityHeaders?: unknown;
+  identityBody?: unknown;
+  identityResponsePaths?: string[] | null;
+  identityFormat?: string | null;
+  identityOkField?: string | null;
+  availableScopes?: unknown;
+  setupNotes?: string[] | unknown;
+  featureFlag?: string | null;
+  logoUrl?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 // ---------------------------------------------------------------------------
 // Text formatting helpers (non-JSON output)
 // ---------------------------------------------------------------------------
 
-/**
- * Format available scopes for text output.
- * Returns a single-line string for URLs, or a multi-line bullet list for
- * structured scope arrays.
- */
 function formatAvailableScopes(
   availableScopes: unknown,
   indent: string = "    ",
@@ -55,7 +79,6 @@ function formatAvailableScopes(
   return null;
 }
 
-/** Render a single provider as a concise summary line for `list`. */
 function formatProviderSummary(p: SerializedProvider): string {
   const name = p.displayName ?? p.providerKey;
   const desc = p.description ? ` — ${p.description}` : "";
@@ -71,7 +94,6 @@ function formatProviderSummary(p: SerializedProvider): string {
   );
 }
 
-/** Format a JSON value as indented text for `get` detail output. */
 function formatJsonValue(value: unknown, indent: string = "    "): string {
   const json = JSON.stringify(value, null, 2);
   return json
@@ -80,7 +102,6 @@ function formatJsonValue(value: unknown, indent: string = "    "): string {
     .join("\n");
 }
 
-/** Render a single provider as structured text for `get` with all fields. */
 function formatProviderDetail(p: SerializedProvider): string {
   const lines: string[] = [];
   const name = p.displayName ?? p.providerKey;
@@ -159,11 +180,7 @@ function formatProviderDetail(p: SerializedProvider): string {
 
 /**
  * Resolve a logo URL from CLI flags, enforcing mutual exclusion between
- * --logo-url and --logo-simpleicons-slug. Returns:
- *   - `undefined` when neither flag is set (caller should leave the field unchanged)
- *   - `null` when `--logo-url ""` is passed (clear the stored value)
- *   - a non-empty string URL otherwise
- * Throws when both flags are set simultaneously.
+ * --logo-url and --logo-simpleicons-slug.
  */
 function resolveLogoUrlFromFlags(opts: {
   logoUrl?: string;
@@ -182,51 +199,22 @@ function resolveLogoUrlFromFlags(opts: {
     return `https://cdn.simpleicons.org/${encodeURIComponent(slug)}`;
   }
   if (opts.logoUrl !== undefined) {
-    // Trim whitespace so copy-paste-padded URLs don't fail to parse on the
-    // client. Empty string (after trimming) clears the stored value
-    // (matches --revoke-url semantics documented in the `update` command
-    // help text).
     const trimmed = opts.logoUrl.trim();
     return trimmed === "" ? null : trimmed;
   }
   return undefined;
 }
 
-/**
- * Resolve the redirect URI for a provider based on its loopback port.
- *
- * Resolves the loopback redirect URI for display purposes. Gateway
- * redirect URIs are resolved dynamically at connect time.
- */
-function resolveRedirectUri(loopbackPort: number | null): string | null {
-  if (!loopbackPort) {
-    // No fixed port — loopback still works at runtime with an OS-assigned
-    // port, but we can't predict the redirect URI ahead of time.  Return
-    // a sentinel so callers know the transport is loopback-dynamic rather
-    // than unsupported.
-    return "http://localhost:<dynamic>/oauth/callback";
-  }
-  return `http://localhost:${loopbackPort}${LOOPBACK_CALLBACK_PATH}`;
-}
-
-/** Serialize a provider row with the CLI-resolved redirect URI. */
-function parseProviderRow(row: ReturnType<typeof getProvider>) {
-  if (!row) return row;
-  return serializeProvider(row, {
-    redirectUri: resolveRedirectUri(row.loopbackPort),
-  });
-}
-
 export function registerProviderCommands(oauth: Command): void {
-  const providers = oauth
-    .command("providers")
-    .description(
+  registerCommand(oauth, {
+    name: "providers",
+    transport: "ipc",
+    description:
       "Fetch configured OAuth providers and register custom providers of your own",
-    );
-
-  providers.addHelpText(
-    "after",
-    `
+    build: (providers) => {
+      providers.addHelpText(
+        "after",
+        `
 Providers define the protocol-level configuration for an OAuth integration:
 authorization URL, token URL, default scopes, and other endpoint details.
 
@@ -234,26 +222,26 @@ They are seeded on startup for built-in integrations (e.g. Google, Slack,
 GitHub) but can also be registered dynamically via the "register" subcommand.
 
 Each provider is identified by a provider key (e.g. "google").`,
-  );
+      );
 
-  // ---------------------------------------------------------------------------
-  // providers list
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // providers list
+      // -----------------------------------------------------------------------
 
-  providers
-    .command("list")
-    .description("List all registered OAuth providers")
-    .option(
-      "--provider-key <key>",
-      'Filter by provider key substring (case-insensitive). Comma-separated values are OR\'d (e.g. "google,slack")',
-    )
-    .option(
-      "--supports-managed",
-      "Only show providers that support managed mode",
-    )
-    .addHelpText(
-      "after",
-      `
+      providers
+        .command("list")
+        .description("List all registered OAuth providers")
+        .option(
+          "--provider-key <key>",
+          'Filter by provider key substring (case-insensitive). Comma-separated values are OR\'d (e.g. "google,slack")',
+        )
+        .option(
+          "--supports-managed",
+          "Only show providers that support managed mode",
+        )
+        .addHelpText(
+          "after",
+          `
 Returns registered OAuth providers, including both built-in providers
 seeded at startup and any dynamically registered via "providers register".
 
@@ -273,67 +261,76 @@ Examples:
   $ assistant oauth providers list --provider-key notion --json
   $ assistant oauth providers list --supports-managed
   $ assistant oauth providers list --supports-managed --json`,
-    )
-    .action(
-      (
-        opts: { providerKey?: string; supportsManaged?: boolean },
-        cmd: Command,
-      ) => {
-        try {
-          const config = loadConfig();
-          let allProviders = listProviders();
-          allProviders = allProviders.filter((r) =>
-            isProviderVisible(r, config),
-          );
-          let rows = allProviders.map(parseProviderRow);
+        )
+        .action(
+          async (
+            opts: { providerKey?: string; supportsManaged?: boolean },
+            cmd: Command,
+          ) => {
+            const queryParams: Record<string, string> = {};
+            if (opts.supportsManaged) {
+              queryParams.supports_managed_mode = "true";
+            }
+            const r = await cliIpcCall<{
+              providers: SerializedProvider[];
+            }>("oauth_providers_get", {
+              queryParams,
+            });
 
-          if (opts.providerKey) {
-            const needles = opts.providerKey
-              .split(",")
-              .map((n) => n.trim().toLowerCase())
-              .filter(Boolean);
-            rows = rows.filter(
-              (r) =>
-                r &&
-                needles.some((needle) =>
-                  r.providerKey.toLowerCase().includes(needle),
-                ),
+            if (!r.ok) return exitFromIpcResult(r);
+
+            // The route returns snake_case summaries; map to camelCase for
+            // display consistency with the existing CLI contract.
+            let rows: SerializedProvider[] = (r.result?.providers ?? []).map(
+              (p: Record<string, unknown>) => ({
+                providerKey: p.provider_key as string,
+                displayName: p.display_name as string | null,
+                description: p.description as string | null,
+                supportsManagedMode: p.supports_managed_mode as boolean,
+                managedServiceIsPaid: p.managed_service_is_paid as boolean,
+                requiresClientSecret: p.requires_client_secret as boolean,
+                logoUrl: p.logo_url as string | null,
+                dashboardUrl: p.dashboard_url as string | null,
+                clientIdPlaceholder: p.client_id_placeholder as string | null,
+                featureFlag: p.feature_flag as string | null,
+              }),
             );
-          }
 
-          if (opts.supportsManaged) {
-            rows = rows.filter((r) => r && r.supportsManagedMode);
-          }
+            if (opts.providerKey) {
+              const needles = opts.providerKey
+                .split(",")
+                .map((n) => n.trim().toLowerCase())
+                .filter(Boolean);
+              rows = rows.filter(
+                (r) =>
+                  r &&
+                  needles.some((needle) =>
+                    r.providerKey.toLowerCase().includes(needle),
+                  ),
+              );
+            }
 
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, rows);
-          } else {
-            const validRows = rows.filter(
-              (r): r is NonNullable<typeof r> => r != null,
-            );
-            const lines = validRows.map(formatProviderSummary);
-            process.stdout.write(
-              `${validRows.length} provider(s):\n\n${lines.join("\n\n")}\n`,
-            );
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
-          process.exitCode = 1;
-        }
-      },
-    );
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, rows);
+            } else {
+              const lines = rows.map(formatProviderSummary);
+              process.stdout.write(
+                `${rows.length} provider(s):\n\n${lines.join("\n\n")}\n`,
+              );
+            }
+          },
+        );
 
-  // ---------------------------------------------------------------------------
-  // providers get <provider-key>
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // providers get <provider-key>
+      // -----------------------------------------------------------------------
 
-  providers
-    .command("get <provider-key>")
-    .description("Show details of a specific OAuth provider")
-    .addHelpText(
-      "after",
-      `
+      providers
+        .command("get <provider-key>")
+        .description("Show details of a specific OAuth provider")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   provider-key   Provider key (e.g. "google").
                  Must match the key used during registration or seeding.
@@ -345,184 +342,175 @@ if the provider key is not found.
 Examples:
   $ assistant oauth providers get google
   $ assistant oauth providers get twitter --json`,
-    )
-    .action((provider: string, _opts: unknown, cmd: Command) => {
-      try {
-        const row = getProvider(provider);
+        )
+        .action(async (provider: string, _opts: unknown, cmd: Command) => {
+          const r = await cliIpcCall<{ provider: SerializedProvider }>(
+            "oauth_providers_by_providerKey_get",
+            { pathParams: { providerKey: provider } },
+          );
 
-        if (!row) {
-          writeOutput(cmd, {
-            ok: false,
-            error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
-          });
-          process.exitCode = 1;
-          return;
-        }
+          if (!r.ok) {
+            if (r.statusCode === 404) {
+              writeOutput(cmd, {
+                ok: false,
+                error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
+              });
+              process.exitCode = 1;
+              return;
+            }
+            return exitFromIpcResult(r);
+          }
 
-        if (!isProviderVisible(row, loadConfig())) {
-          writeOutput(cmd, {
-            ok: false,
-            error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
-          });
-          process.exitCode = 1;
-          return;
-        }
+          const parsed = r.result?.provider;
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, parsed);
+          } else if (parsed) {
+            process.stdout.write(formatProviderDetail(parsed) + "\n");
+          }
+        });
 
-        const parsed = parseProviderRow(row);
-        if (shouldOutputJson(cmd)) {
-          writeOutput(cmd, parsed);
-        } else if (parsed) {
-          process.stdout.write(formatProviderDetail(parsed) + "\n");
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
-        process.exitCode = 1;
-      }
-    });
+      // -----------------------------------------------------------------------
+      // providers register
+      // -----------------------------------------------------------------------
 
-  // ---------------------------------------------------------------------------
-  // providers register
-  // ---------------------------------------------------------------------------
-
-  providers
-    .command("register")
-    .description("Register a new OAuth provider configuration")
-    .requiredOption(
-      "--provider-key <key>",
-      "Unique provider key (e.g. \"custom-service\"). Must not collide with an existing key from 'assistant oauth providers list'.",
-    )
-    .requiredOption(
-      "--auth-url <url>",
-      "OAuth authorization endpoint URL (e.g. https://accounts.example.com/o/oauth2/auth)",
-    )
-    .requiredOption(
-      "--token-url <url>",
-      "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
-    )
-    .option(
-      "--refresh-url <url>",
-      "OAuth token refresh endpoint URL. Defaults to --token-url when omitted. Set this when the provider uses a different endpoint for the refresh_token grant than for the authorization_code grant.",
-    )
-    .option("--base-url <url>", "API base URL for the service")
-    .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
-    .option(
-      "--scopes <scopes>",
-      'Comma-separated default scopes (e.g. "read,write,profile")',
-    )
-    .option(
-      "--scope-separator <sep>",
-      'Separator used to join scopes in the authorize URL (default: " "). Use "," for providers like Linear that expect comma-separated scopes.',
-    )
-    .option(
-      "--token-auth-method <method>",
-      'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
-    )
-    .option(
-      "--token-exchange-body-format <format>",
-      'Body encoding for the token exchange request: "form" (application/x-www-form-urlencoded, default) or "json" (application/json)',
-      "form",
-    )
-    .option(
-      "--ping-url <url>",
-      'Health-check endpoint URL for token validation (e.g. "https://api.example.com/user"). Used by "assistant oauth ping" to verify a stored token.',
-    )
-    .option(
-      "--ping-method <method>",
-      "HTTP method for the ping endpoint: GET (default) or POST",
-    )
-    .option(
-      "--ping-headers <json>",
-      'JSON object of extra headers for the ping request (e.g. \'{"Notion-Version":"2022-06-28"}\')',
-    )
-    .option(
-      "--ping-body <json>",
-      'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
-    )
-    .option(
-      "--revoke-url <url>",
-      'OAuth token revocation endpoint URL. Called best-effort during disconnect to invalidate the access token upstream (e.g. "https://oauth2.googleapis.com/revoke"). When omitted, disconnect is local-only — the upstream token is left valid until it naturally expires.',
-    )
-    .option(
-      "--revoke-body-template <json>",
-      'JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution (e.g. \'{"token":"{access_token}","client_id":"{client_id}"}\'). The body is form-encoded and POSTed to --revoke-url.',
-    )
-    .option(
-      "--display-name <name>",
-      "Human-readable display name for the provider",
-    )
-    .option("--description <text>", "Short description of the provider")
-    .option(
-      "--dashboard-url <url>",
-      "URL to the provider's developer console / dashboard",
-    )
-    .option(
-      "--logo-url <url>",
-      "URL to the provider's logo image (SVG or PNG). Mutually exclusive with --logo-simpleicons-slug.",
-    )
-    .option(
-      "--logo-simpleicons-slug <slug>",
-      'Simple Icons slug (e.g. "notion", "linear"). Resolves to https://cdn.simpleicons.org/<slug>. Mutually exclusive with --logo-url.',
-    )
-    .option(
-      "--client-id-placeholder <text>",
-      "Placeholder text shown in the client ID input field",
-    )
-    .option(
-      "--no-client-secret",
-      "Mark this provider as not requiring a client secret (default: required)",
-    )
-    .option(
-      "--loopback-port <port>",
-      "Fixed port for the local OAuth callback server (e.g. 17322). When set, the redirect URI is http://localhost:<port>/oauth/callback",
-    )
-    .option(
-      "--injection-templates <json>",
-      'JSON array of token injection templates — each with hostPattern, injectionType, headerName, valuePrefix (e.g. \'[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]\')',
-    )
-    .option(
-      "--app-type <type>",
-      'What the provider calls its OAuth apps (e.g. "OAuth App", "Desktop app", "Public integration")',
-    )
-    .option(
-      "--identity-url <url>",
-      "Identity verification endpoint URL — called after OAuth to identify the connected account",
-    )
-    .option(
-      "--identity-method <method>",
-      "HTTP method for the identity endpoint: GET (default) or POST",
-    )
-    .option(
-      "--identity-headers <json>",
-      'JSON object of extra headers for the identity request (e.g. \'{"Notion-Version":"2022-06-28"}\')',
-    )
-    .option(
-      "--identity-body <body>",
-      'JSON body to send with the identity request (e.g. \'{"query":"{ viewer { email } }"}\')',
-    )
-    .option(
-      "--identity-response-paths <paths>",
-      'Comma-separated dot-notation paths to extract identity from the response (e.g. "email,name,person.email")',
-    )
-    .option(
-      "--identity-format <template>",
-      'Format template for the extracted identity using ${pathName} tokens from --identity-response-paths (e.g. "@${login}" or "@${user} (${team})")',
-    )
-    .option(
-      "--identity-ok-field <field>",
-      'Dot-notation path to a boolean field that must be truthy for the response to be considered valid (e.g. "ok")',
-    )
-    .option(
-      "--setup-notes <json>",
-      'JSON array of setup instruction notes shown during guided setup (e.g. \'["Enable the Gmail API","Add test users"]\')',
-    )
-    .option(
-      "--available-scopes <value>",
-      "Available scopes: either a JSON array of {scope, description?} objects or a URL to the provider scope docs",
-    )
-    .addHelpText(
-      "after",
-      `
+      providers
+        .command("register")
+        .description("Register a new OAuth provider configuration")
+        .requiredOption(
+          "--provider-key <key>",
+          "Unique provider key (e.g. \"custom-service\"). Must not collide with an existing key from 'assistant oauth providers list'.",
+        )
+        .requiredOption(
+          "--auth-url <url>",
+          "OAuth authorization endpoint URL (e.g. https://accounts.example.com/o/oauth2/auth)",
+        )
+        .requiredOption(
+          "--token-url <url>",
+          "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
+        )
+        .option(
+          "--refresh-url <url>",
+          "OAuth token refresh endpoint URL. Defaults to --token-url when omitted.",
+        )
+        .option("--base-url <url>", "API base URL for the service")
+        .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
+        .option(
+          "--scopes <scopes>",
+          'Comma-separated default scopes (e.g. "read,write,profile")',
+        )
+        .option(
+          "--scope-separator <sep>",
+          'Separator used to join scopes in the authorize URL (default: " ").',
+        )
+        .option(
+          "--token-auth-method <method>",
+          'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
+        )
+        .option(
+          "--token-exchange-body-format <format>",
+          'Body encoding for the token exchange request: "form" (default) or "json"',
+          "form",
+        )
+        .option(
+          "--ping-url <url>",
+          "Health-check endpoint URL for token validation",
+        )
+        .option(
+          "--ping-method <method>",
+          "HTTP method for the ping endpoint: GET (default) or POST",
+        )
+        .option(
+          "--ping-headers <json>",
+          "JSON object of extra headers for the ping request",
+        )
+        .option(
+          "--ping-body <json>",
+          "JSON body to send with the ping request",
+        )
+        .option(
+          "--revoke-url <url>",
+          "OAuth token revocation endpoint URL",
+        )
+        .option(
+          "--revoke-body-template <json>",
+          "JSON object body template for the revoke request",
+        )
+        .option(
+          "--display-name <name>",
+          "Human-readable display name for the provider",
+        )
+        .option("--description <text>", "Short description of the provider")
+        .option(
+          "--dashboard-url <url>",
+          "URL to the provider's developer console / dashboard",
+        )
+        .option(
+          "--logo-url <url>",
+          "URL to the provider's logo image. Mutually exclusive with --logo-simpleicons-slug.",
+        )
+        .option(
+          "--logo-simpleicons-slug <slug>",
+          'Simple Icons slug (e.g. "notion"). Mutually exclusive with --logo-url.',
+        )
+        .option(
+          "--client-id-placeholder <text>",
+          "Placeholder text shown in the client ID input field",
+        )
+        .option(
+          "--no-client-secret",
+          "Mark this provider as not requiring a client secret",
+        )
+        .option(
+          "--loopback-port <port>",
+          "Fixed port for the local OAuth callback server",
+        )
+        .option(
+          "--injection-templates <json>",
+          "JSON array of token injection templates",
+        )
+        .option(
+          "--app-type <type>",
+          'What the provider calls its OAuth apps (e.g. "OAuth App")',
+        )
+        .option(
+          "--identity-url <url>",
+          "Identity verification endpoint URL",
+        )
+        .option(
+          "--identity-method <method>",
+          "HTTP method for the identity endpoint: GET (default) or POST",
+        )
+        .option(
+          "--identity-headers <json>",
+          "JSON object of extra headers for the identity request",
+        )
+        .option(
+          "--identity-body <body>",
+          "JSON body to send with the identity request",
+        )
+        .option(
+          "--identity-response-paths <paths>",
+          "Comma-separated dot-notation paths to extract identity from the response",
+        )
+        .option(
+          "--identity-format <template>",
+          "Format template for the extracted identity",
+        )
+        .option(
+          "--identity-ok-field <field>",
+          "Dot-notation path to a boolean field that must be truthy for the response to be valid",
+        )
+        .option(
+          "--setup-notes <json>",
+          "JSON array of setup instruction notes shown during guided setup",
+        )
+        .option(
+          "--available-scopes <value>",
+          "Available scopes: either a JSON array of {scope, description?} objects or a URL",
+        )
+        .addHelpText(
+          "after",
+          `
 Registers a new OAuth provider configuration in the local store for custom
 integrations not covered by the built-in provider seeds. The provider key
 must be unique — if it collides with an existing key, the command fails.
@@ -531,10 +519,6 @@ Run 'assistant oauth providers list' to see existing keys.
 On success, returns the full provider row including generated timestamps.
 After registering, create an OAuth app with 'assistant oauth apps create'
 and then connect with 'assistant oauth connect <provider-key>'.
-
-Token injection templates control how the OAuth access token is injected
-into outgoing HTTP requests matched by host pattern. Identity config
-defines how the assistant verifies the connected account after OAuth.
 
 Examples:
   $ assistant oauth providers register \\
@@ -545,536 +529,418 @@ Examples:
       --provider-key my-service \\
       --auth-url https://my-service.com/auth \\
       --token-url https://my-service.com/token \\
-      --scopes read,write --json
-  $ assistant oauth providers register \\
-      --provider-key my-graphql-api \\
-      --auth-url https://example.com/auth \\
-      --token-url https://example.com/token \\
-      --ping-url https://example.com/graphql \\
-      --ping-method POST \\
-      --ping-body '{"query":"{ viewer { id } }"}'
-  $ assistant oauth providers register \\
-      --provider-key linear-custom \\
-      --auth-url https://linear.app/oauth/authorize \\
-      --token-url https://api.linear.app/oauth/token \\
-      --scopes read,write \\
-      --scope-separator ","
-  $ assistant oauth providers register \\
-      --provider-key split-grants \\
-      --auth-url https://example.com/oauth/authorize \\
-      --token-url https://example.com/oauth/token \\
-      --refresh-url https://example.com/oauth/refresh
-  $ assistant oauth providers register \\
-      --provider-key my-api \\
-      --auth-url https://example.com/auth \\
-      --token-url https://example.com/token \\
-      --loopback-port 17400 \\
-      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]' \\
-      --identity-url https://api.example.com/me \\
-      --identity-response-paths email,name
-  $ assistant oauth providers register \\
-      --provider-key custom-revokable \\
-      --auth-url https://example.com/oauth/authorize \\
-      --token-url https://example.com/oauth/token \\
-      --revoke-url https://example.com/oauth/revoke \\
-      --revoke-body-template '{"token":"{access_token}","client_id":"{client_id}"}'
-  $ assistant oauth providers register \\
-      --provider-key notion-custom \\
-      --auth-url https://api.notion.com/v1/oauth/authorize \\
-      --token-url https://api.notion.com/v1/oauth/token \\
-      --token-exchange-body-format json \\
-      --logo-simpleicons-slug notion`,
-    )
-    .action(
-      (
-        opts: {
-          providerKey: string;
-          authUrl: string;
-          tokenUrl: string;
-          refreshUrl?: string;
-          baseUrl?: string;
-          userinfoUrl?: string;
-          scopes?: string;
-          scopeSeparator?: string;
-          tokenAuthMethod?: string;
-          tokenExchangeBodyFormat?: string;
-          pingUrl?: string;
-          pingMethod?: string;
-          pingHeaders?: string;
-          pingBody?: string;
-          revokeUrl?: string;
-          revokeBodyTemplate?: string;
-          displayName?: string;
-          description?: string;
-          dashboardUrl?: string;
-          logoUrl?: string;
-          logoSimpleiconsSlug?: string;
-          clientIdPlaceholder?: string;
-          clientSecret: boolean;
-          loopbackPort?: string;
-          injectionTemplates?: string;
-          appType?: string;
-          identityUrl?: string;
-          identityMethod?: string;
-          identityHeaders?: string;
-          identityBody?: string;
-          identityResponsePaths?: string;
-          identityFormat?: string;
-          identityOkField?: string;
-          setupNotes?: string;
-          availableScopes?: string;
-        },
-        cmd: Command,
-      ) => {
-        try {
-          const resolvedLogoUrl = resolveLogoUrlFromFlags(opts);
-          if (resolvedLogoUrl === null) {
-            throw new Error(
-              "Cannot clear logo_url with empty --logo-url during registration. Omit the flag instead.",
-            );
-          }
+      --scopes read,write --json`,
+        )
+        .action(
+          async (
+            opts: {
+              providerKey: string;
+              authUrl: string;
+              tokenUrl: string;
+              refreshUrl?: string;
+              baseUrl?: string;
+              userinfoUrl?: string;
+              scopes?: string;
+              scopeSeparator?: string;
+              tokenAuthMethod?: string;
+              tokenExchangeBodyFormat?: string;
+              pingUrl?: string;
+              pingMethod?: string;
+              pingHeaders?: string;
+              pingBody?: string;
+              revokeUrl?: string;
+              revokeBodyTemplate?: string;
+              displayName?: string;
+              description?: string;
+              dashboardUrl?: string;
+              logoUrl?: string;
+              logoSimpleiconsSlug?: string;
+              clientIdPlaceholder?: string;
+              clientSecret: boolean;
+              loopbackPort?: string;
+              injectionTemplates?: string;
+              appType?: string;
+              identityUrl?: string;
+              identityMethod?: string;
+              identityHeaders?: string;
+              identityBody?: string;
+              identityResponsePaths?: string;
+              identityFormat?: string;
+              identityOkField?: string;
+              setupNotes?: string;
+              availableScopes?: string;
+            },
+            cmd: Command,
+          ) => {
+            try {
+              const resolvedLogoUrl = resolveLogoUrlFromFlags(opts);
+              if (resolvedLogoUrl === null) {
+                throw new Error(
+                  "Cannot clear logo_url with empty --logo-url during registration. Omit the flag instead.",
+                );
+              }
 
-          const row = registerProvider({
-            provider: opts.providerKey,
-            authorizeUrl: opts.authUrl,
-            tokenExchangeUrl: opts.tokenUrl,
-            refreshUrl: opts.refreshUrl,
-            baseUrl: opts.baseUrl,
-            userinfoUrl: opts.userinfoUrl,
-            defaultScopes: opts.scopes ? opts.scopes.split(",") : [],
-            availableScopes: opts.availableScopes
-              ? opts.availableScopes.startsWith("http")
-                ? opts.availableScopes
-                : JSON.parse(opts.availableScopes)
-              : undefined,
-            scopeSeparator: opts.scopeSeparator,
-            tokenEndpointAuthMethod: opts.tokenAuthMethod,
-            tokenExchangeBodyFormat: opts.tokenExchangeBodyFormat,
-            pingUrl: opts.pingUrl,
-            pingMethod: opts.pingMethod,
-            pingHeaders: opts.pingHeaders
-              ? JSON.parse(opts.pingHeaders)
-              : undefined,
-            pingBody: opts.pingBody ? JSON.parse(opts.pingBody) : undefined,
-            revokeUrl: opts.revokeUrl,
-            revokeBodyTemplate: opts.revokeBodyTemplate
-              ? JSON.parse(opts.revokeBodyTemplate)
-              : undefined,
-            displayLabel: opts.displayName,
-            description: opts.description,
-            dashboardUrl: opts.dashboardUrl,
-            logoUrl: resolvedLogoUrl,
-            clientIdPlaceholder: opts.clientIdPlaceholder,
-            requiresClientSecret: opts.clientSecret ? 1 : 0,
-            loopbackPort: opts.loopbackPort
-              ? parseInt(opts.loopbackPort, 10)
-              : undefined,
-            injectionTemplates: opts.injectionTemplates
-              ? JSON.parse(opts.injectionTemplates)
-              : undefined,
-            appType: opts.appType,
-            identityUrl: opts.identityUrl,
-            identityMethod: opts.identityMethod,
-            identityHeaders: opts.identityHeaders
-              ? JSON.parse(opts.identityHeaders)
-              : undefined,
-            identityBody: opts.identityBody
-              ? JSON.parse(opts.identityBody)
-              : undefined,
-            identityResponsePaths: opts.identityResponsePaths
-              ? opts.identityResponsePaths.split(",")
-              : undefined,
-            identityFormat: opts.identityFormat,
-            identityOkField: opts.identityOkField,
-            setupNotes: opts.setupNotes
-              ? JSON.parse(opts.setupNotes)
-              : undefined,
-          });
+              const body: Record<string, unknown> = {
+                provider_key: opts.providerKey,
+                auth_url: opts.authUrl,
+                token_url: opts.tokenUrl,
+              };
 
-          writeOutput(cmd, parseProviderRow(row));
-        } catch (err) {
-          let message = err instanceof Error ? err.message : String(err);
-          if (message.includes("already exists")) {
-            message += ` Run 'assistant oauth providers list' to see existing providers, or choose a different --provider-key.`;
-          }
-          writeOutput(cmd, { ok: false, error: message });
-          process.exitCode = 1;
-        }
-      },
-    );
+              if (opts.refreshUrl !== undefined)
+                body.refresh_url = opts.refreshUrl;
+              if (opts.baseUrl !== undefined) body.base_url = opts.baseUrl;
+              if (opts.userinfoUrl !== undefined)
+                body.userinfo_url = opts.userinfoUrl;
+              body.default_scopes = opts.scopes ? opts.scopes.split(",") : [];
+              if (opts.scopeSeparator !== undefined)
+                body.scope_separator = opts.scopeSeparator;
+              if (opts.tokenAuthMethod !== undefined)
+                body.token_endpoint_auth_method = opts.tokenAuthMethod;
+              if (opts.tokenExchangeBodyFormat !== undefined)
+                body.token_exchange_body_format = opts.tokenExchangeBodyFormat;
+              if (opts.pingUrl !== undefined) body.ping_url = opts.pingUrl;
+              if (opts.pingMethod !== undefined)
+                body.ping_method = opts.pingMethod;
+              if (opts.pingHeaders !== undefined)
+                body.ping_headers = JSON.parse(opts.pingHeaders);
+              if (opts.pingBody !== undefined)
+                body.ping_body = JSON.parse(opts.pingBody);
+              if (opts.revokeUrl !== undefined) body.revoke_url = opts.revokeUrl;
+              if (opts.revokeBodyTemplate !== undefined)
+                body.revoke_body_template = JSON.parse(opts.revokeBodyTemplate);
+              if (opts.displayName !== undefined)
+                body.display_name = opts.displayName;
+              if (opts.description !== undefined)
+                body.description = opts.description;
+              if (opts.dashboardUrl !== undefined)
+                body.dashboard_url = opts.dashboardUrl;
+              if (resolvedLogoUrl !== undefined)
+                body.logo_url = resolvedLogoUrl;
+              if (opts.clientIdPlaceholder !== undefined)
+                body.client_id_placeholder = opts.clientIdPlaceholder;
+              body.requires_client_secret = opts.clientSecret;
+              if (opts.loopbackPort !== undefined)
+                body.loopback_port = parseInt(opts.loopbackPort, 10);
+              if (opts.injectionTemplates !== undefined)
+                body.injection_templates = JSON.parse(opts.injectionTemplates);
+              if (opts.appType !== undefined) body.app_type = opts.appType;
+              if (opts.identityUrl !== undefined)
+                body.identity_url = opts.identityUrl;
+              if (opts.identityMethod !== undefined)
+                body.identity_method = opts.identityMethod;
+              if (opts.identityHeaders !== undefined)
+                body.identity_headers = JSON.parse(opts.identityHeaders);
+              if (opts.identityBody !== undefined)
+                body.identity_body = JSON.parse(opts.identityBody);
+              if (opts.identityResponsePaths !== undefined)
+                body.identity_response_paths =
+                  opts.identityResponsePaths.split(",");
+              if (opts.identityFormat !== undefined)
+                body.identity_format = opts.identityFormat;
+              if (opts.identityOkField !== undefined)
+                body.identity_ok_field = opts.identityOkField;
+              if (opts.setupNotes !== undefined)
+                body.setup_notes = JSON.parse(opts.setupNotes);
+              if (opts.availableScopes !== undefined) {
+                body.available_scopes = opts.availableScopes.startsWith("http")
+                  ? opts.availableScopes
+                  : JSON.parse(opts.availableScopes);
+              }
 
-  // ---------------------------------------------------------------------------
-  // providers update <provider-key>
-  // ---------------------------------------------------------------------------
+              const r = await cliIpcCall<{ provider: SerializedProvider }>(
+                "oauth_providers_post",
+                { body },
+              );
 
-  providers
-    .command("update <provider-key>")
-    .description("Update an existing custom OAuth provider configuration")
-    .option(
-      "--auth-url <url>",
-      "OAuth authorization endpoint URL (e.g. https://accounts.example.com/o/oauth2/auth)",
-    )
-    .option(
-      "--token-url <url>",
-      "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
-    )
-    .option(
-      "--refresh-url <url>",
-      "OAuth token refresh endpoint URL. Defaults to --token-url when omitted. Set this when the provider uses a different endpoint for the refresh_token grant than for the authorization_code grant.",
-    )
-    .option("--base-url <url>", "API base URL for the service")
-    .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
-    .option(
-      "--scopes <scopes>",
-      'Comma-separated default scopes (e.g. "read,write,profile")',
-    )
-    .option(
-      "--scope-separator <sep>",
-      'Separator used to join scopes in the authorize URL (default: " "). Use "," for providers like Linear that expect comma-separated scopes.',
-    )
-    .option(
-      "--token-auth-method <method>",
-      'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
-    )
-    .option(
-      "--token-exchange-body-format <format>",
-      'Body encoding for the token exchange request: "form" (application/x-www-form-urlencoded, default) or "json" (application/json)',
-    )
-    .option(
-      "--ping-url <url>",
-      'Health-check endpoint URL for token validation (e.g. "https://api.example.com/user"). Used by "assistant oauth ping" to verify a stored token.',
-    )
-    .option(
-      "--ping-method <method>",
-      "HTTP method for the ping endpoint: GET (default) or POST",
-    )
-    .option(
-      "--ping-headers <json>",
-      'JSON object of extra headers for the ping request (e.g. \'{"Notion-Version":"2022-06-28"}\')',
-    )
-    .option(
-      "--ping-body <json>",
-      'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
-    )
-    .option(
-      "--revoke-url <url>",
-      "OAuth token revocation endpoint URL. Called best-effort during disconnect to invalidate the access token upstream. Pass an empty string to clear.",
-    )
-    .option(
-      "--revoke-body-template <json>",
-      "JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution. Pass an empty string to clear.",
-    )
-    .option(
-      "--display-name <name>",
-      "Human-readable display name for the provider",
-    )
-    .option("--description <text>", "Short description of the provider")
-    .option(
-      "--dashboard-url <url>",
-      "URL to the provider's developer console / dashboard",
-    )
-    .option(
-      "--logo-url <url>",
-      "URL to the provider's logo image (SVG or PNG). Mutually exclusive with --logo-simpleicons-slug.",
-    )
-    .option(
-      "--logo-simpleicons-slug <slug>",
-      'Simple Icons slug (e.g. "notion", "linear"). Resolves to https://cdn.simpleicons.org/<slug>. Mutually exclusive with --logo-url.',
-    )
-    .option(
-      "--client-id-placeholder <text>",
-      "Placeholder text shown in the client ID input field",
-    )
-    .option(
-      "--no-client-secret",
-      "Mark this provider as not requiring a client secret (default: required)",
-    )
-    .option(
-      "--loopback-port <port>",
-      "Fixed port for the local OAuth callback server (e.g. 17322). When set, the redirect URI is http://localhost:<port>/oauth/callback",
-    )
-    .option(
-      "--injection-templates <json>",
-      'JSON array of token injection templates — each with hostPattern, injectionType, headerName, valuePrefix (e.g. \'[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]\')',
-    )
-    .option(
-      "--app-type <type>",
-      'What the provider calls its OAuth apps (e.g. "OAuth App", "Desktop app", "Public integration")',
-    )
-    .option(
-      "--identity-url <url>",
-      "Identity verification endpoint URL — called after OAuth to identify the connected account",
-    )
-    .option(
-      "--identity-method <method>",
-      "HTTP method for the identity endpoint: GET (default) or POST",
-    )
-    .option(
-      "--identity-headers <json>",
-      'JSON object of extra headers for the identity request (e.g. \'{"Notion-Version":"2022-06-28"}\')',
-    )
-    .option(
-      "--identity-body <body>",
-      'JSON body to send with the identity request (e.g. \'{"query":"{ viewer { email } }"}\')',
-    )
-    .option(
-      "--identity-response-paths <paths>",
-      'Comma-separated dot-notation paths to extract identity from the response (e.g. "email,name,person.email")',
-    )
-    .option(
-      "--identity-format <template>",
-      'Format template for the extracted identity using ${pathName} tokens from --identity-response-paths (e.g. "@${login}" or "@${user} (${team})")',
-    )
-    .option(
-      "--identity-ok-field <field>",
-      'Dot-notation path to a boolean field that must be truthy for the response to be considered valid (e.g. "ok")',
-    )
-    .option(
-      "--setup-notes <json>",
-      'JSON array of setup instruction notes shown during guided setup (e.g. \'["Enable the Gmail API","Add test users"]\')',
-    )
-    .option(
-      "--available-scopes <value>",
-      "Available scopes: either a JSON array of {scope, description?} objects or a URL to the provider scope docs",
-    )
-    .addHelpText(
-      "after",
-      `
+              if (!r.ok) {
+                let message = r.error ?? "Unknown error";
+                if (message.includes("already exists")) {
+                  message += ` Run 'assistant oauth providers list' to see existing providers, or choose a different --provider-key.`;
+                }
+                writeOutput(cmd, { ok: false, error: message });
+                process.exitCode = 1;
+                return;
+              }
+
+              writeOutput(cmd, r.result?.provider);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              writeOutput(cmd, { ok: false, error: message });
+              process.exitCode = 1;
+            }
+          },
+        );
+
+      // -----------------------------------------------------------------------
+      // providers update <provider-key>
+      // -----------------------------------------------------------------------
+
+      providers
+        .command("update <provider-key>")
+        .description("Update an existing custom OAuth provider configuration")
+        .option(
+          "--auth-url <url>",
+          "OAuth authorization endpoint URL",
+        )
+        .option(
+          "--token-url <url>",
+          "OAuth token endpoint URL",
+        )
+        .option(
+          "--refresh-url <url>",
+          "OAuth token refresh endpoint URL",
+        )
+        .option("--base-url <url>", "API base URL for the service")
+        .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
+        .option(
+          "--scopes <scopes>",
+          'Comma-separated default scopes (e.g. "read,write,profile")',
+        )
+        .option(
+          "--scope-separator <sep>",
+          'Separator used to join scopes in the authorize URL',
+        )
+        .option(
+          "--token-auth-method <method>",
+          'How the client authenticates at the token endpoint',
+        )
+        .option(
+          "--token-exchange-body-format <format>",
+          'Body encoding for the token exchange request: "form" or "json"',
+        )
+        .option("--ping-url <url>", "Health-check endpoint URL")
+        .option(
+          "--ping-method <method>",
+          "HTTP method for the ping endpoint: GET (default) or POST",
+        )
+        .option("--ping-headers <json>", "JSON object of extra headers for the ping request")
+        .option("--ping-body <json>", "JSON body for the ping request")
+        .option(
+          "--revoke-url <url>",
+          "OAuth token revocation endpoint URL. Pass empty string to clear.",
+        )
+        .option(
+          "--revoke-body-template <json>",
+          "JSON object body template for the revoke request. Pass empty string to clear.",
+        )
+        .option("--display-name <name>", "Human-readable display name")
+        .option("--description <text>", "Short description")
+        .option("--dashboard-url <url>", "Developer console / dashboard URL")
+        .option(
+          "--logo-url <url>",
+          "URL to the provider's logo image. Mutually exclusive with --logo-simpleicons-slug.",
+        )
+        .option(
+          "--logo-simpleicons-slug <slug>",
+          'Simple Icons slug. Mutually exclusive with --logo-url.',
+        )
+        .option("--client-id-placeholder <text>", "Placeholder for client ID input")
+        .option("--no-client-secret", "Mark as not requiring a client secret")
+        .option("--loopback-port <port>", "Fixed port for the local OAuth callback server")
+        .option("--injection-templates <json>", "JSON array of token injection templates")
+        .option("--app-type <type>", "What the provider calls its OAuth apps")
+        .option("--identity-url <url>", "Identity verification endpoint URL")
+        .option("--identity-method <method>", "HTTP method for identity endpoint")
+        .option("--identity-headers <json>", "JSON object of extra headers for identity request")
+        .option("--identity-body <body>", "JSON body for identity request")
+        .option("--identity-response-paths <paths>", "Comma-separated dot-notation paths")
+        .option("--identity-format <template>", "Format template for extracted identity")
+        .option("--identity-ok-field <field>", "Dot-notation path to a boolean ok field")
+        .option("--setup-notes <json>", "JSON array of setup instruction notes")
+        .option("--available-scopes <value>", "Available scopes: JSON array or URL")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   provider-key   Provider key to update (e.g. "custom-api").
                  Run 'assistant oauth providers list' to see all registered providers.
 
 Only the fields you specify are updated — all other fields remain unchanged.
 Built-in providers (e.g. "google", "slack") cannot be updated; they are
-managed by the system and reset on startup. To create a custom provider with
-different settings, use 'assistant oauth providers register'.
-
-Token injection templates control how the OAuth access token is injected
-into outgoing HTTP requests matched by host pattern. Identity config
-defines how the assistant verifies the connected account after OAuth.
+managed by the system and reset on startup.
 
 Examples:
   $ assistant oauth providers update custom-api --display-name "My Custom API"
   $ assistant oauth providers update custom-api --scopes read,write --auth-url https://new.example.com/auth
   $ assistant oauth providers update custom-api --ping-url https://api.example.com/me --json
-  $ assistant oauth providers update custom-api --scope-separator ","
-  $ assistant oauth providers update custom-api --refresh-url https://example.com/oauth/refresh
-  $ assistant oauth providers update custom-api \\
-      --identity-url https://api.example.com/me \\
-      --identity-response-paths email,name
-  $ assistant oauth providers update custom-api \\
-      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'
-  $ assistant oauth providers update custom-api \\
-      --revoke-url https://api.example.com/oauth/revoke \\
-      --revoke-body-template '{"token":"{access_token}"}'
-  $ assistant oauth providers update custom-api --logo-simpleicons-slug notion
   $ assistant oauth providers update custom-api --logo-url ""`,
-    )
-    .action(
-      (
-        provider: string,
-        opts: {
-          authUrl?: string;
-          tokenUrl?: string;
-          refreshUrl?: string;
-          baseUrl?: string;
-          userinfoUrl?: string;
-          scopes?: string;
-          scopeSeparator?: string;
-          tokenAuthMethod?: string;
-          tokenExchangeBodyFormat?: string;
-          pingUrl?: string;
-          pingMethod?: string;
-          pingHeaders?: string;
-          pingBody?: string;
-          revokeUrl?: string;
-          revokeBodyTemplate?: string;
-          displayName?: string;
-          description?: string;
-          dashboardUrl?: string;
-          logoUrl?: string;
-          logoSimpleiconsSlug?: string;
-          clientIdPlaceholder?: string;
-          clientSecret: boolean;
-          loopbackPort?: string;
-          injectionTemplates?: string;
-          appType?: string;
-          identityUrl?: string;
-          identityMethod?: string;
-          identityHeaders?: string;
-          identityBody?: string;
-          identityResponsePaths?: string;
-          identityFormat?: string;
-          identityOkField?: string;
-          setupNotes?: string;
-          availableScopes?: string;
-        },
-        cmd: Command,
-      ) => {
-        try {
-          // Verify provider exists
-          const existing = getProvider(provider);
-          if (!existing) {
-            writeOutput(cmd, {
-              ok: false,
-              error: `Provider "${provider}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
-            });
-            process.exitCode = 1;
-            return;
-          }
+        )
+        .action(
+          async (
+            provider: string,
+            opts: {
+              authUrl?: string;
+              tokenUrl?: string;
+              refreshUrl?: string;
+              baseUrl?: string;
+              userinfoUrl?: string;
+              scopes?: string;
+              scopeSeparator?: string;
+              tokenAuthMethod?: string;
+              tokenExchangeBodyFormat?: string;
+              pingUrl?: string;
+              pingMethod?: string;
+              pingHeaders?: string;
+              pingBody?: string;
+              revokeUrl?: string;
+              revokeBodyTemplate?: string;
+              displayName?: string;
+              description?: string;
+              dashboardUrl?: string;
+              logoUrl?: string;
+              logoSimpleiconsSlug?: string;
+              clientIdPlaceholder?: string;
+              clientSecret: boolean;
+              loopbackPort?: string;
+              injectionTemplates?: string;
+              appType?: string;
+              identityUrl?: string;
+              identityMethod?: string;
+              identityHeaders?: string;
+              identityBody?: string;
+              identityResponsePaths?: string;
+              identityFormat?: string;
+              identityOkField?: string;
+              setupNotes?: string;
+              availableScopes?: string;
+            },
+            cmd: Command,
+          ) => {
+            try {
+              const body: Record<string, unknown> = {};
 
-          if (!isProviderVisible(existing, loadConfig())) {
-            writeOutput(cmd, {
-              ok: false,
-              error: `Provider "${provider}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
-            });
-            process.exitCode = 1;
-            return;
-          }
+              if (opts.authUrl !== undefined) body.auth_url = opts.authUrl;
+              if (opts.tokenUrl !== undefined) body.token_url = opts.tokenUrl;
+              if (opts.refreshUrl !== undefined)
+                body.refresh_url = opts.refreshUrl;
+              if (opts.baseUrl !== undefined) body.base_url = opts.baseUrl;
+              if (opts.userinfoUrl !== undefined)
+                body.userinfo_url = opts.userinfoUrl;
+              if (opts.scopes !== undefined)
+                body.default_scopes = opts.scopes.split(",");
+              if (opts.scopeSeparator !== undefined)
+                body.scope_separator = opts.scopeSeparator;
+              if (opts.tokenAuthMethod !== undefined)
+                body.token_endpoint_auth_method = opts.tokenAuthMethod;
+              if (opts.tokenExchangeBodyFormat !== undefined)
+                body.token_exchange_body_format = opts.tokenExchangeBodyFormat;
+              if (opts.pingUrl !== undefined) body.ping_url = opts.pingUrl;
+              if (opts.pingMethod !== undefined)
+                body.ping_method = opts.pingMethod;
+              if (opts.pingHeaders !== undefined)
+                body.ping_headers = JSON.parse(opts.pingHeaders);
+              if (opts.pingBody !== undefined)
+                body.ping_body = JSON.parse(opts.pingBody);
+              if (opts.revokeUrl !== undefined) {
+                body.revoke_url =
+                  opts.revokeUrl === "" ? null : opts.revokeUrl;
+              }
+              if (opts.revokeBodyTemplate !== undefined) {
+                body.revoke_body_template =
+                  opts.revokeBodyTemplate === ""
+                    ? null
+                    : JSON.parse(opts.revokeBodyTemplate);
+              }
+              if (opts.displayName !== undefined)
+                body.display_name = opts.displayName;
+              if (opts.description !== undefined)
+                body.description = opts.description;
+              if (opts.dashboardUrl !== undefined)
+                body.dashboard_url = opts.dashboardUrl;
+              if (opts.clientIdPlaceholder !== undefined)
+                body.client_id_placeholder = opts.clientIdPlaceholder;
 
-          // Block updates to built-in providers
-          if (SEEDED_PROVIDER_KEYS.has(provider)) {
-            writeOutput(cmd, {
-              ok: false,
-              error: `Cannot update built-in provider "${provider}". Built-in providers are managed by the system and reset on startup. To create a custom provider with different settings, use 'assistant oauth providers register --provider-key <your-custom-key> ...'`,
-            });
-            process.exitCode = 1;
-            return;
-          }
+              const resolvedLogoUrl = resolveLogoUrlFromFlags(opts);
+              if (resolvedLogoUrl !== undefined) {
+                body.logo_url = resolvedLogoUrl;
+              }
 
-          // Build params object from provided options, omitting undefined values
-          const params: Record<string, unknown> = {};
+              if (cmd.getOptionValueSource("clientSecret") === "cli") {
+                body.requires_client_secret = opts.clientSecret;
+              }
 
-          if (opts.authUrl !== undefined) params.authorizeUrl = opts.authUrl;
-          if (opts.tokenUrl !== undefined)
-            params.tokenExchangeUrl = opts.tokenUrl;
-          if (opts.refreshUrl !== undefined)
-            params.refreshUrl = opts.refreshUrl;
-          if (opts.baseUrl !== undefined) params.baseUrl = opts.baseUrl;
-          if (opts.userinfoUrl !== undefined)
-            params.userinfoUrl = opts.userinfoUrl;
-          if (opts.scopes !== undefined)
-            params.defaultScopes = opts.scopes.split(",");
-          if (opts.scopeSeparator !== undefined)
-            params.scopeSeparator = opts.scopeSeparator;
-          if (opts.tokenAuthMethod !== undefined)
-            params.tokenEndpointAuthMethod = opts.tokenAuthMethod;
-          if (opts.tokenExchangeBodyFormat !== undefined)
-            params.tokenExchangeBodyFormat = opts.tokenExchangeBodyFormat;
-          if (opts.pingUrl !== undefined) params.pingUrl = opts.pingUrl;
-          if (opts.pingMethod !== undefined)
-            params.pingMethod = opts.pingMethod;
-          if (opts.pingHeaders !== undefined)
-            params.pingHeaders = JSON.parse(opts.pingHeaders);
-          if (opts.pingBody !== undefined)
-            params.pingBody = JSON.parse(opts.pingBody);
-          if (opts.revokeUrl !== undefined) {
-            // Empty string means "clear" — normalize to null so the stored
-            // value matches the "disabled" semantics documented in the help
-            // text. `updateProvider`'s Partial type accepts `string | null`
-            // for this field so drizzle writes `null` to clear the column.
-            params.revokeUrl = opts.revokeUrl === "" ? null : opts.revokeUrl;
-          }
-          if (opts.revokeBodyTemplate !== undefined) {
-            // Empty string means "clear" — normalize to null to match --revoke-url's
-            // empty-string-clear semantics documented in the help text. The
-            // updateProvider type accepts `Record<string, string> | null` for this.
-            params.revokeBodyTemplate =
-              opts.revokeBodyTemplate === ""
-                ? null
-                : JSON.parse(opts.revokeBodyTemplate);
-          }
-          if (opts.displayName !== undefined)
-            params.displayLabel = opts.displayName;
-          if (opts.description !== undefined)
-            params.description = opts.description;
-          if (opts.dashboardUrl !== undefined)
-            params.dashboardUrl = opts.dashboardUrl;
-          if (opts.clientIdPlaceholder !== undefined)
-            params.clientIdPlaceholder = opts.clientIdPlaceholder;
+              if (opts.loopbackPort !== undefined)
+                body.loopback_port = parseInt(opts.loopbackPort, 10);
+              if (opts.injectionTemplates !== undefined)
+                body.injection_templates = JSON.parse(opts.injectionTemplates);
+              if (opts.appType !== undefined) body.app_type = opts.appType;
+              if (opts.identityUrl !== undefined)
+                body.identity_url = opts.identityUrl;
+              if (opts.identityMethod !== undefined)
+                body.identity_method = opts.identityMethod;
+              if (opts.identityHeaders !== undefined)
+                body.identity_headers = JSON.parse(opts.identityHeaders);
+              if (opts.identityBody !== undefined)
+                body.identity_body = JSON.parse(opts.identityBody);
+              if (opts.identityResponsePaths !== undefined)
+                body.identity_response_paths =
+                  opts.identityResponsePaths.split(",");
+              if (opts.identityFormat !== undefined)
+                body.identity_format = opts.identityFormat;
+              if (opts.identityOkField !== undefined)
+                body.identity_ok_field = opts.identityOkField;
+              if (opts.setupNotes !== undefined)
+                body.setup_notes = JSON.parse(opts.setupNotes);
+              if (opts.availableScopes !== undefined) {
+                if (opts.availableScopes === "") {
+                  body.available_scopes = null;
+                } else {
+                  body.available_scopes =
+                    opts.availableScopes.startsWith("http")
+                      ? opts.availableScopes
+                      : JSON.parse(opts.availableScopes);
+                }
+              }
 
-          const resolvedLogoUrl = resolveLogoUrlFromFlags(opts);
-          if (resolvedLogoUrl !== undefined) {
-            params.logoUrl = resolvedLogoUrl;
-          }
+              if (Object.keys(body).length === 0) {
+                writeOutput(cmd, {
+                  ok: false,
+                  error:
+                    "Nothing to update. Provide at least one option to change (e.g. --auth-url, --scopes, --display-name). Run 'assistant oauth providers update --help' for all options.",
+                });
+                process.exitCode = 1;
+                return;
+              }
 
-          // Handle the negated --no-client-* flag: Commander defaults
-          // opts.clientSecret to true; the negated form sets it to false.
-          // Use getOptionValueSource to detect explicit user intent.
-          if (cmd.getOptionValueSource("clientSecret") === "cli") {
-            params.requiresClientSecret = opts.clientSecret ? 1 : 0;
-          }
+              const r = await cliIpcCall<{ provider: SerializedProvider }>(
+                "oauth_providers_by_providerKey_patch",
+                { pathParams: { providerKey: provider }, body },
+              );
 
-          if (opts.loopbackPort !== undefined)
-            params.loopbackPort = parseInt(opts.loopbackPort, 10);
-          if (opts.injectionTemplates !== undefined)
-            params.injectionTemplates = JSON.parse(opts.injectionTemplates);
-          if (opts.appType !== undefined) params.appType = opts.appType;
-          if (opts.identityUrl !== undefined)
-            params.identityUrl = opts.identityUrl;
-          if (opts.identityMethod !== undefined)
-            params.identityMethod = opts.identityMethod;
-          if (opts.identityHeaders !== undefined)
-            params.identityHeaders = JSON.parse(opts.identityHeaders);
-          if (opts.identityBody !== undefined)
-            params.identityBody = JSON.parse(opts.identityBody);
-          if (opts.identityResponsePaths !== undefined)
-            params.identityResponsePaths =
-              opts.identityResponsePaths.split(",");
-          if (opts.identityFormat !== undefined)
-            params.identityFormat = opts.identityFormat;
-          if (opts.identityOkField !== undefined)
-            params.identityOkField = opts.identityOkField;
-          if (opts.setupNotes !== undefined)
-            params.setupNotes = JSON.parse(opts.setupNotes);
-          if (opts.availableScopes !== undefined) {
-            if (opts.availableScopes === "") {
-              params.availableScopes = null;
-            } else {
-              params.availableScopes = opts.availableScopes.startsWith("http")
-                ? opts.availableScopes
-                : JSON.parse(opts.availableScopes);
+              if (!r.ok) {
+                writeOutput(cmd, {
+                  ok: false,
+                  error: r.error ?? "Unknown error",
+                });
+                process.exitCode = 1;
+                return;
+              }
+
+              writeOutput(cmd, r.result?.provider);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              writeOutput(cmd, { ok: false, error: message });
+              process.exitCode = 1;
             }
-          }
+          },
+        );
 
-          // Check if any fields were actually provided
-          if (Object.keys(params).length === 0) {
-            writeOutput(cmd, {
-              ok: false,
-              error:
-                "Nothing to update. Provide at least one option to change (e.g. --auth-url, --scopes, --display-name). Run 'assistant oauth providers update --help' for all options.",
-            });
-            process.exitCode = 1;
-            return;
-          }
+      // -----------------------------------------------------------------------
+      // providers delete <provider-key>
+      // -----------------------------------------------------------------------
 
-          const row = updateProvider(provider, params);
-
-          writeOutput(cmd, parseProviderRow(row));
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
-          process.exitCode = 1;
-        }
-      },
-    );
-
-  // ---------------------------------------------------------------------------
-  // providers delete <provider-key>
-  // ---------------------------------------------------------------------------
-
-  providers
-    .command("delete <provider-key>")
-    .description(
-      "Delete a custom OAuth provider and optionally its associated apps and connections",
-    )
-    .option(
-      "--force",
-      "Cascade-delete all associated apps and connections before removing the provider",
-    )
-    .addHelpText(
-      "after",
-      `
+      providers
+        .command("delete <provider-key>")
+        .description(
+          "Delete a custom OAuth provider and optionally its associated apps and connections",
+        )
+        .option(
+          "--force",
+          "Cascade-delete all associated apps and connections before removing the provider",
+        )
+        .addHelpText(
+          "after",
+          `
 Arguments:
   provider-key   Provider key to delete (e.g. "custom-api").
                  Run 'assistant oauth providers list' to see registered providers.
@@ -1092,92 +958,37 @@ Examples:
   $ assistant oauth providers delete custom-api
   $ assistant oauth providers delete custom-api --force
   $ assistant oauth providers delete custom-api --force --json`,
-    )
-    .action(
-      async (provider: string, opts: { force?: boolean }, cmd: Command) => {
-        try {
-          const providerRow = getProvider(provider);
-          if (!providerRow) {
-            writeOutput(cmd, {
-              ok: false,
-              error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers.`,
+        )
+        .action(
+          async (provider: string, opts: { force?: boolean }, cmd: Command) => {
+            const r = await cliIpcCall<{
+              ok: boolean;
+              deleted: {
+                provider: number;
+                apps: number;
+                connections: number;
+              };
+            }>("oauth_providers_by_providerKey_delete", {
+              pathParams: { providerKey: provider },
+              body: { force: opts.force ?? false },
             });
-            process.exitCode = 1;
-            return;
-          }
 
-          if (!isProviderVisible(providerRow, loadConfig())) {
-            writeOutput(cmd, {
-              ok: false,
-              error: `Provider not found: "${provider}". Run 'assistant oauth providers list' to see all registered providers.`,
-            });
-            process.exitCode = 1;
-            return;
-          }
-
-          if (SEEDED_PROVIDER_KEYS.has(provider) && !opts.force) {
-            log.info(
-              `Note: "${provider}" is a built-in provider and will be re-created on next startup.`,
-            );
-          }
-
-          const dependentApps = listApps().filter(
-            (a) => a.provider === provider,
-          );
-          const dependentConnections = listConnections(provider);
-          const appCount = dependentApps.length;
-          const connCount = dependentConnections.length;
-
-          if ((appCount > 0 || connCount > 0) && !opts.force) {
-            writeOutput(cmd, {
-              ok: false,
-              error: `Cannot delete provider "${provider}": ${appCount} app(s) and ${connCount} connection(s) depend on it. Use --force to cascade-delete all dependent apps and connections, or remove them manually first with 'assistant oauth apps delete' and 'assistant oauth disconnect'.`,
-            });
-            process.exitCode = 1;
-            return;
-          }
-
-          // Warn about built-in providers when --force is used
-          if (SEEDED_PROVIDER_KEYS.has(provider) && opts.force) {
-            log.info(
-              `Note: "${provider}" is a built-in provider and will be re-created on next startup.`,
-            );
-          }
-
-          // Cascade-delete connections first, then apps, then the provider.
-          // Use disconnectOAuthProvider to clean up OAuth tokens from secure
-          // storage in addition to deleting the connection DB row.
-          for (const conn of dependentConnections) {
-            const result = await disconnectOAuthProvider(
-              provider,
-              undefined,
-              conn.id as string,
-            );
-            if (result === "error") {
-              log.info(
-                `Warning: failed to clean up tokens for connection ${conn.id} — deleting connection row to continue cascade.`,
-              );
-              deleteConnection(conn.id);
+            if (!r.ok) {
+              writeOutput(cmd, {
+                ok: false,
+                error: r.error ?? "Unknown error",
+              });
+              process.exitCode = 1;
+              return;
             }
-          }
-          for (const app of dependentApps) {
-            await deleteApp(app.id);
-          }
-          deleteProvider(provider);
 
-          if (!shouldOutputJson(cmd)) {
-            log.info(`Deleted provider: ${provider}`);
-          }
+            if (!shouldOutputJson(cmd)) {
+              log.info(`Deleted provider: ${provider}`);
+            }
 
-          writeOutput(cmd, {
-            ok: true,
-            deleted: { provider: 1, apps: appCount, connections: connCount },
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
-          process.exitCode = 1;
-        }
-      },
-    );
+            writeOutput(cmd, r.result);
+          },
+        );
+    },
+  });
 }
