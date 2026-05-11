@@ -129,9 +129,12 @@ export function invalidateOrgIdCache(
  * The org ID is cached per (token, platformUrl) for 60 seconds to avoid
  * redundant HTTP requests in tight polling loops.
  *
- * Auth errors (401 / 403) from the org-ID fetch are logged with a
- * user-friendly message before re-throwing, so callers don't need to
- * repeat that logic.
+ * Auth errors (401 / 403) from the org-ID fetch are wrapped in a
+ * user-friendly Error message before re-throwing, so callers can surface
+ * a useful message without doing their own classification. Callers that
+ * handle the throw (e.g. `syncCloudAssistants`) stay silent on stderr;
+ * callers that let it bubble get a single clean line from the top-level
+ * runner.
  */
 export async function authHeaders(
   token: string,
@@ -163,11 +166,9 @@ export async function authHeaders(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("401") || msg.includes("403")) {
-      console.error("Authentication failed. Run 'vellum login' to refresh.");
-    } else {
-      console.error(`Failed to fetch organization: ${msg}`);
+      throw new Error("Authentication failed. Run 'vellum login' to refresh.");
     }
-    throw err;
+    throw new Error(`Failed to fetch organization: ${msg}`);
   }
 }
 
