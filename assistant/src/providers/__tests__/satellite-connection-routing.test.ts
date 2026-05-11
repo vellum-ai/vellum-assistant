@@ -130,6 +130,7 @@ mock.module("../registry.js", () => ({
 // Imports (after mocks).
 // ---------------------------------------------------------------------------
 
+import { LLMSchema } from "../../config/schemas/llm.js";
 import { wrapWithCallSiteRouting } from "../call-site-routing.js";
 import { ConnectionResolutionError } from "../connection-resolution.js";
 
@@ -162,7 +163,7 @@ function reset(): void {
 // helper passes it straight to `resolveProviderFromConnection`, which is
 // fully mocked above — so a minimal shape is fine.
 const providersConfigStub = {
-  llm: { default: { provider: "anthropic", model: "claude-opus-4-7" } },
+  llm: LLMSchema.parse({}),
   services: {
     inference: {},
     "image-generation": {

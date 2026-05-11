@@ -14,6 +14,7 @@
  * shared rate-limit timestamps, broadcast).
  */
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
@@ -230,7 +231,7 @@ export async function getOrCreateConversation(
       const baseProvider = await resolveDefaultProvider(config);
       if (!baseProvider) {
         throw new Error(
-          `Conversation: default provider '${config.llm.default.provider}' is not registered`,
+          `Conversation: default provider '${resolveCallSiteConfig("mainAgent", config.llm).provider}' is not registered`,
         );
       }
       // Per-call `callSite` routing layered on top, with connection-awareness

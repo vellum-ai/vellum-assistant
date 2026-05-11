@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getOllamaBaseUrlEnv } from "../config/env.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import type { AssistantConfig } from "../config/types.js";
 import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
@@ -778,7 +779,7 @@ export async function selectedBackendSupportsMultimodal(
 
 async function isOllamaConfigured(config: AssistantConfig): Promise<boolean> {
   return (
-    config.llm.default.provider === "ollama" ||
+    resolveCallSiteConfig("mainAgent", config.llm).provider === "ollama" ||
     Boolean(await getProviderKeyAsync("ollama")) ||
     Boolean(getOllamaBaseUrlEnv())
   );

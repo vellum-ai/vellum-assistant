@@ -10,6 +10,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
 import { findConversation } from "../daemon/conversation-store.js";
@@ -190,7 +191,7 @@ export class SubagentManager {
     const baseProvider = await resolveDefaultProvider(appConfig);
     if (!baseProvider) {
       throw new Error(
-        `Subagent: default provider '${appConfig.llm.default.provider}' is not registered`,
+        `Subagent: default provider '${resolveCallSiteConfig("mainAgent", appConfig.llm).provider}' is not registered`,
       );
     }
     // Per-call `options.config.callSite` (e.g. `subagentSpawn`) can resolve
@@ -229,7 +230,7 @@ export class SubagentManager {
         config.systemPromptOverride ??
         buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
     }
-    const maxTokens = appConfig.llm.default.maxTokens;
+    const maxTokens = resolveCallSiteConfig("subagentSpawn", appConfig.llm).maxTokens;
     const workingDir = getSandboxWorkingDir();
 
     // ── Initialise state ────────────────────────────────────────────

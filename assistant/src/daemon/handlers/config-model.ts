@@ -1,3 +1,4 @@
+import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import {
   getConfig,
   loadRawConfig,
@@ -85,10 +86,11 @@ export function projectProviderForWire(
 /** Return current model configuration. */
 export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
-  const provider = config.llm.default.provider;
+  const resolved = resolveCallSiteConfig("mainAgent", config.llm);
+  const provider = resolved.provider;
 
   return {
-    model: config.llm.default.model,
+    model: resolved.model,
     provider,
     configuredProviders: await getConfiguredProviders(),
     availableModels: PROVIDER_CATALOG.find(
@@ -134,15 +136,16 @@ export async function setModel(
 
   // Resolve provider: explicit > MODEL_TO_PROVIDER lookup > current
   const current = getConfig();
+  const resolvedCurrent = resolveCallSiteConfig("mainAgent", current.llm);
   const resolvedProvider =
     explicitProvider ??
     MODEL_TO_PROVIDER[modelId] ??
-    current.llm.default.provider;
+    resolvedCurrent.provider;
 
   // Auto-reset model when provider changes and current modelId doesn't
   // belong to the new provider's catalog.
   if (
-    resolvedProvider !== current.llm.default.provider &&
+    resolvedProvider !== resolvedCurrent.provider &&
     !isModelInCatalog(resolvedProvider, modelId)
   ) {
     modelId = getProviderDefaultModel(resolvedProvider);
@@ -150,8 +153,8 @@ export async function setModel(
 
   // No-op guard: skip expensive reinitialization when nothing changed
   if (
-    modelId === current.llm.default.model &&
-    resolvedProvider === current.llm.default.provider
+    modelId === resolvedCurrent.model &&
+    resolvedProvider === resolvedCurrent.provider
   ) {
     return await getModelInfo();
   }
