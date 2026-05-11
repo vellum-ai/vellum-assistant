@@ -1451,10 +1451,11 @@ TTS_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/tts-provider-catalog.json"
 if [ -f "$TTS_PROVIDER_CATALOG" ]; then
     cp "$TTS_PROVIDER_CATALOG" "$RESOURCES_DIR/tts-provider-catalog.json"
 fi
-LLM_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/llm-provider-catalog.json"
-if [ -f "$LLM_PROVIDER_CATALOG" ]; then
-    cp "$LLM_PROVIDER_CATALOG" "$RESOURCES_DIR/llm-provider-catalog.json"
-fi
+# NOTE: llm-provider-catalog.json is bundled into the
+# VellumAssistantShared SPM resource bundle (see clients/Package.swift)
+# and loaded via Bundle.vellumShared at runtime; no main-bundle copy
+# needed. tts-provider-catalog.json still copies here because
+# TTSProviderRegistry continues to use Bundle.main.
 # Bundle Dockerfiles into Contents/Resources/dockerfiles/ for debug builds
 # so that the CLI's findRepoRoot() can locate them when running from a
 # packaged DMG.  This enables `vellum hatch --remote docker` to work
