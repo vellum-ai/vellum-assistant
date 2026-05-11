@@ -3,6 +3,7 @@
 > This is the constitutional foundation of Vellum. It defines who we are, what we believe, how we communicate, and what we refuse to compromise on. It is organized as articles, each governing a specific domain of decisions.
 
 *Ratified: May 11, 2026*
+
 *Last updated: May 11, 2026*
 
 ---
