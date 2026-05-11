@@ -10,6 +10,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "memory-retrospective",
+      "scope": "assistant",
+      "key": "memory-retrospective",
+      "label": "Memory retrospective pass",
+      "description": "Run a focused, memory-only retrospective during active conversations and at conversation lifecycle. The retrospective agent re-reads the messages added since the last successful run, dedupes against memory/archive/, and calls `remember` for what wasn't captured in the moment. Enabling this also relaxes the in-conversation pressure to call `remember` (lighter PKB reminder + relaxed tool description) so the assistant can stay present and trust the retrospective as the backstop.",
+      "defaultEnabled": false
+    },
+    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",

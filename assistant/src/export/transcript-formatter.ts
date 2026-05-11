@@ -97,6 +97,61 @@ function parseContent(raw: string): ContentBlock[] {
   }
 }
 
+type TranscriptMessage = ReturnType<typeof getMessages>[number];
+
+/**
+ * Format a slice of messages as a transcript body (no top-of-conversation
+ * header). Used by background jobs that process incremental slices — the
+ * memory-retrospective job re-renders only the messages added since its
+ * last successful run rather than the whole conversation. The format
+ * matches `buildAnalysisTranscript` per message so downstream agents see a
+ * consistent shape regardless of whether the input is a full transcript or
+ * a slice.
+ */
+export function formatMessageSliceForTranscript(
+  messages: TranscriptMessage[],
+): string {
+  const lines: string[] = [];
+  for (const msg of messages) {
+    appendMessageBlock(lines, msg);
+  }
+  return lines.join("\n");
+}
+
+function appendMessageBlock(lines: string[], msg: TranscriptMessage): void {
+  const role = formatRole(msg.role);
+  const time = formatTimestamp(msg.createdAt);
+  const content = parseContent(msg.content);
+  const text = extractAnalysisText(content);
+
+  lines.push(`## ${role} (${time})`);
+  lines.push(text);
+  lines.push("");
+
+  if (msg.metadata) {
+    try {
+      const parsed = messageMetadataSchema.safeParse(JSON.parse(msg.metadata));
+      if (parsed.success && parsed.data.subagentNotification) {
+        const notif = parsed.data.subagentNotification;
+        if (
+          (notif.status === "completed" ||
+            notif.status === "failed" ||
+            notif.status === "aborted") &&
+          notif.conversationId
+        ) {
+          const subMessages = getMessages(notif.conversationId);
+          lines.push(`### Subagent: ${notif.label} (${notif.status})`);
+          lines.push("");
+          lines.push(formatSubagentMessages(subMessages));
+          lines.push("");
+        }
+      }
+    } catch {
+      // Skip unparseable metadata
+    }
+  }
+}
+
 export function buildAnalysisTranscript(conversationId: string): string {
   const conversation = getConversation(conversationId);
   if (!conversation) {
@@ -124,11 +179,15 @@ export function buildAnalysisTranscript(conversationId: string): string {
     // Check for subagent notifications in metadata
     if (msg.metadata) {
       try {
-        const parsed = messageMetadataSchema.safeParse(JSON.parse(msg.metadata));
+        const parsed = messageMetadataSchema.safeParse(
+          JSON.parse(msg.metadata),
+        );
         if (parsed.success && parsed.data.subagentNotification) {
           const notif = parsed.data.subagentNotification;
           if (
-            (notif.status === "completed" || notif.status === "failed" || notif.status === "aborted") &&
+            (notif.status === "completed" ||
+              notif.status === "failed" ||
+              notif.status === "aborted") &&
             notif.conversationId
           ) {
             const subMessages = getMessages(notif.conversationId);

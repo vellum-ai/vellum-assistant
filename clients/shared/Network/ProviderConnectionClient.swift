@@ -186,7 +186,7 @@ extension ProviderConnection {
     /// Return a copy of this connection with `status` replaced. Used by the
     /// inline list-row toggle for optimistic + rollback updates without
     /// needing the auto-generated struct's properties to be mutable.
-    func withStatus(_ newStatus: ConnectionStatus) -> ProviderConnection {
+    public func withStatus(_ newStatus: ConnectionStatus) -> ProviderConnection {
         ProviderConnection(
             name: name,
             provider: provider,

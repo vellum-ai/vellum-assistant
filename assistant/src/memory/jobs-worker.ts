@@ -67,6 +67,8 @@ import {
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "./jobs-store.js";
+import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
+import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
 import {
   memoryV2ActivationRecomputeJob,
@@ -129,6 +131,19 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
   const recovered = resetRunningJobsToPending();
   if (recovered > 0) {
     log.info({ recovered }, "Recovered stale running memory jobs");
+  }
+
+  // After running-job recovery (so legitimate in-flight retries aren't
+  // swept), clean up orphan memory-retrospective background conversations
+  // left behind by daemon crashes mid-job. Best-effort — never block worker
+  // startup on cleanup failures.
+  try {
+    sweepOrphanMemoryRetrospectiveConversations();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Memory-retrospective startup cleanup failed; continuing worker startup",
+    );
   }
 
   let stopped = false;
@@ -585,6 +600,9 @@ async function processJob(
       return;
     case "memory_v2_activation_recompute":
       await memoryV2ActivationRecomputeJob(job, config);
+      return;
+    case "memory_retrospective":
+      await memoryRetrospectiveJob(job, config);
       return;
 
     default: {
