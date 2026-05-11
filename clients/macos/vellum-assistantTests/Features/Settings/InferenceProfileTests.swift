@@ -293,4 +293,34 @@ final class InferenceProfileTests: XCTestCase {
         XCTAssertEqual(profile.temperature, .value(0.7))
         XCTAssertEqual(profile.toJSON()["temperature"] as? Double, 0.7)
     }
+
+    // MARK: - merging(_:)
+
+    /// `setProfile`'s merge path (`SettingsStore.setProfile`) updates the
+    /// local cache via `merging(fragment)` after a partial-update PATCH
+    /// succeeds. A status flip in the fragment must propagate or the UI
+    /// will show the stale status until the next config refresh.
+    func testMergingAppliesStatusFromFragment() {
+        let base = InferenceProfile(name: "quality", status: nil, provider: "anthropic", model: "claude")
+        let fragment = InferenceProfile(name: "quality", status: "disabled")
+
+        let merged = base.merging(fragment)
+
+        XCTAssertEqual(merged.status, "disabled")
+        XCTAssertEqual(merged.provider, "anthropic")
+        XCTAssertEqual(merged.model, "claude")
+    }
+
+    /// Fragments that omit `status` (e.g. only `model` changed) must
+    /// preserve the current status — same `if let` pattern every other
+    /// field uses.
+    func testMergingPreservesStatusWhenFragmentOmitsIt() {
+        let base = InferenceProfile(name: "quality", status: "disabled", provider: "anthropic")
+        let fragment = InferenceProfile(name: "quality", model: "claude-3.5")
+
+        let merged = base.merging(fragment)
+
+        XCTAssertEqual(merged.status, "disabled")
+        XCTAssertEqual(merged.model, "claude-3.5")
+    }
 }

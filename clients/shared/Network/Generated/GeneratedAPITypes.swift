@@ -5998,6 +5998,21 @@ public struct ProviderConnection: Codable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
+
+    /// Decodes responses from daemons that predate the `status` field by
+    /// defaulting to `.active`. Mixed-version setups (the app explicitly
+    /// supports them via version-mismatch handling) would otherwise throw
+    /// `keyNotFound` and silently strand the Providers UI.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.provider = try container.decode(String.self, forKey: .provider)
+        self.auth = try container.decode(ProviderConnectionAuth.self, forKey: .auth)
+        self.status = try container.decodeIfPresent(ConnectionStatus.self, forKey: .status) ?? .active
+        self.label = try container.decodeIfPresent(String.self, forKey: .label)
+        self.createdAt = try container.decode(Int.self, forKey: .createdAt)
+        self.updatedAt = try container.decode(Int.self, forKey: .updatedAt)
+    }
 }
 
 /// Response body for `GET /v1/inference/provider-connections`.

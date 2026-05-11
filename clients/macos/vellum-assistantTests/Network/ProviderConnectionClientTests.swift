@@ -102,6 +102,59 @@ private func makeConnection(
 
 // MARK: - Tests
 
+/// Verifies the generated `ProviderConnection` Codable conformance keeps the
+/// macOS app working against daemons that predate the `status` field. Mixed-
+/// version setups must default missing `status` to `.active` rather than
+/// throwing `keyNotFound` and stranding the Providers UI.
+final class ProviderConnectionDecodingTests: XCTestCase {
+
+    private func decode(_ jsonString: String) throws -> ProviderConnection {
+        let data = jsonString.data(using: .utf8)!
+        return try JSONDecoder().decode(ProviderConnection.self, from: data)
+    }
+
+    func testDecodesStatusWhenPresent() throws {
+        let conn = try decode("""
+        {
+          "name": "my-conn",
+          "provider": "anthropic",
+          "auth": { "type": "api_key", "credential": "credential/anthropic/api_key" },
+          "status": "disabled",
+          "createdAt": 1,
+          "updatedAt": 2
+        }
+        """)
+        XCTAssertEqual(conn.status, .disabled)
+    }
+
+    func testDefaultsToActiveWhenStatusKeyMissing() throws {
+        let conn = try decode("""
+        {
+          "name": "my-conn",
+          "provider": "anthropic",
+          "auth": { "type": "api_key", "credential": "credential/anthropic/api_key" },
+          "createdAt": 1,
+          "updatedAt": 2
+        }
+        """)
+        XCTAssertEqual(conn.status, .active)
+    }
+
+    func testDefaultsToActiveWhenStatusIsExplicitNull() throws {
+        let conn = try decode("""
+        {
+          "name": "my-conn",
+          "provider": "anthropic",
+          "auth": { "type": "api_key", "credential": "credential/anthropic/api_key" },
+          "status": null,
+          "createdAt": 1,
+          "updatedAt": 2
+        }
+        """)
+        XCTAssertEqual(conn.status, .active)
+    }
+}
+
 @MainActor
 final class ProviderConnectionClientTests: XCTestCase {
 

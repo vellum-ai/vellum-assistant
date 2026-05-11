@@ -196,6 +196,7 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// with what the daemon will store after a partial-update PATCH.
     public func merging(_ fragment: InferenceProfile) -> InferenceProfile {
         var merged = self
+        if let v = fragment.status { merged.status = v }
         if let v = fragment.provider { merged.provider = v }
         if let v = fragment.model { merged.model = v }
         if let v = fragment.maxTokens { merged.maxTokens = v }
