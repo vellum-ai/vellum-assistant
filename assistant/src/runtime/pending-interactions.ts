@@ -47,6 +47,7 @@ export interface PendingInteraction {
   kind:
     | "confirmation"
     | "secret"
+    | "question"
     | "host_bash"
     | "host_file"
     | "host_cu"
