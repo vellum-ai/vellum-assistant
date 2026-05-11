@@ -206,11 +206,20 @@ public enum LLMProviderRegistry {
         shared.providers
     }
 
-    /// The default provider (first entry). The fallback guarantees at least
-    /// one provider so this is always non-nil in practice, but callers
-    /// should treat the optional as authoritative.
-    public static var defaultProvider: LLMProviderEntry? {
-        shared.providers.first
+    /// The default provider (first entry).
+    ///
+    /// The bundled JSON and the fallback both guarantee at least one
+    /// provider, so this is non-optional. If the invariant is ever violated
+    /// (the JSON is decoded but empty AND the fallback is missing), this
+    /// will trap — which is the correct failure mode for a build/bundling
+    /// bug, not silent degradation.
+    public static var defaultProvider: LLMProviderEntry {
+        guard let first = shared.providers.first else {
+            preconditionFailure(
+                "LLMProviderRegistry has no providers — bundled JSON empty and fallback missing"
+            )
+        }
+        return first
     }
 
     /// Look up a provider entry by its identifier.

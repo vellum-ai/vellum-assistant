@@ -16,7 +16,7 @@ final class LLMProviderRegistryTests: XCTestCase {
     }
 
     func testDefaultProviderIsAnthropic() {
-        XCTAssertEqual(LLMProviderRegistry.defaultProvider?.id, "anthropic")
+        XCTAssertEqual(LLMProviderRegistry.defaultProvider.id, "anthropic")
     }
 
     func testEachProviderDefaultModelAppearsInModels() {

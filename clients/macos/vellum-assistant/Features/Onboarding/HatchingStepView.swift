@@ -589,7 +589,9 @@ struct HatchingStepView: View {
     /// Most config default values are determined by the daemon process and may
     /// depend on whether the assistant is hatched on the Vellum Platform or not.
     private func buildOnboardingConfigValues() -> [String: String] {
-        let provider = state.selectedProvider.isEmpty ? "anthropic" : state.selectedProvider
+        let provider = state.selectedProvider.isEmpty
+            ? LLMProviderRegistry.defaultProvider.id
+            : state.selectedProvider
         return ["llm.default.provider": provider]
     }
 
