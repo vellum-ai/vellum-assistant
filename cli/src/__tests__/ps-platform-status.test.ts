@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,21 +11,30 @@ const testDir = mkdtempSync(join(tmpdir(), "cli-ps-platform-status-test-"));
 process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 // ---------------------------------------------------------------------------
-// Mocks — set up before importing the command under test
+// Mocks — set up before importing the command under test. All spies are
+// restored in afterAll so we don't leak module state to neighbouring suites.
 // ---------------------------------------------------------------------------
 
 import * as assistantConfig from "../lib/assistant-config.js";
 import * as orphanDetection from "../lib/orphan-detection.js";
 import * as platformClient from "../lib/platform-client.js";
 
-// Empty lockfile keeps the test focused on the "Platform: …" status line; we
-// don't care about any per-assistant rendering here.
-spyOn(assistantConfig, "loadAllAssistants").mockReturnValue([]);
-spyOn(assistantConfig, "getActiveAssistant").mockReturnValue(null);
-spyOn(orphanDetection, "detectOrphanedProcesses").mockResolvedValue([]);
-spyOn(platformClient, "getPlatformUrl").mockReturnValue(
-  "http://platform.test",
-);
+const loadAllAssistantsMock = spyOn(
+  assistantConfig,
+  "loadAllAssistants",
+).mockReturnValue([]);
+const getActiveAssistantMock = spyOn(
+  assistantConfig,
+  "getActiveAssistant",
+).mockReturnValue(null);
+const detectOrphanedProcessesMock = spyOn(
+  orphanDetection,
+  "detectOrphanedProcesses",
+).mockResolvedValue([]);
+const getPlatformUrlMock = spyOn(
+  platformClient,
+  "getPlatformUrl",
+).mockReturnValue("http://platform.test");
 
 // Per-test toggle for `readPlatformToken`.
 const readPlatformTokenMock = spyOn(
@@ -86,6 +95,13 @@ afterEach(() => {
 });
 
 afterAll(() => {
+  loadAllAssistantsMock.mockRestore();
+  getActiveAssistantMock.mockRestore();
+  detectOrphanedProcessesMock.mockRestore();
+  getPlatformUrlMock.mockRestore();
+  readPlatformTokenMock.mockRestore();
+  fetchCurrentUserMock.mockRestore();
+  fetchPlatformAssistantsMock.mockRestore();
   rmSync(testDir, { recursive: true, force: true });
 });
 
