@@ -151,20 +151,23 @@ function ensureProviderConnection(
 
   let connectionName: string;
 
-  if (provider === "ollama") {
-    connectionName = "ollama-local";
-  } else if (globalMode === "managed" && MANAGED_PROVIDERS.has(provider)) {
+  if (globalMode === "managed" && MANAGED_PROVIDERS.has(provider)) {
     connectionName = `${provider}-managed`;
   } else {
     // "your-own" path (or provider not managed-supported): ensure a
-    // personal connection exists.
+    // personal connection exists. Ollama is keyless, so it gets
+    // `auth: { type: "none" }`; everything else gets an api_key
+    // pointing at the conventional credential slot.
     connectionName = `${provider}-personal`;
     if (!getConnection(db, connectionName)) {
+      const isKeyless = provider === "ollama";
       const credName = credentialKey(provider, "api_key");
       const result = createConnection(db, {
         name: connectionName,
         provider,
-        auth: { type: "api_key", credential: credName },
+        auth: isKeyless
+          ? { type: "none" }
+          : { type: "api_key", credential: credName },
       });
       if (!result.ok) {
         log.warn(
@@ -174,7 +177,11 @@ function ensureProviderConnection(
         return false;
       }
       log.info(
-        { connectionName, provider, credential: credName },
+        {
+          connectionName,
+          provider,
+          credential: isKeyless ? null : credName,
+        },
         "Created personal connection during backfill",
       );
     }
