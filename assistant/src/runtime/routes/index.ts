@@ -82,6 +82,7 @@ import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
 import { ROUTES as OAUTH_APPS_ROUTES } from "./oauth-apps.js";
+import { ROUTES as PLATFORM_ROUTES } from "./platform-routes.js";
 import { ROUTES as OAUTH_CONNECT_ROUTES } from "./oauth-connect-routes.js";
 import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
 import { ROUTES as PLAYGROUND_ROUTES } from "./playground/index.js";
@@ -188,6 +189,7 @@ export const ROUTES: RouteDefinition[] = [
   ...NOTIFICATION_ROUTES,
   ...OAUTH_APPS_ROUTES,
   ...OAUTH_PROVIDERS_ROUTES,
+  ...PLATFORM_ROUTES,
   ...PLAYGROUND_ROUTES,
   ...PROFILER_ROUTES,
   ...PS_ROUTES,
