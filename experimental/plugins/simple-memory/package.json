@@ -1,11 +1,11 @@
 {
   "name": "@vellumai/simple-memory",
   "version": "0.0.1",
-  "description": "Phase 0 experimental memory plugin. Scaffolds the hooks (memoryRetrieval, injector, persistence observer, remember/recall tools, init/shutdown) a memory system would need against the agent-plugin-system contract — trivial in-memory implementation so the wires can be exercised end-to-end before the real logic moves into the harness.",
+  "description": "Simple memory plugin that fully exercises the full plugin API with the low cost, yet effective variants of the Vellum's memory defaults.",
   "private": true,
   "license": "MIT",
   "type": "module",
-  "main": "./register.ts",
+  "main": "./index.ts",
   "engines": {
     "node": ">=20.12.0"
   },
