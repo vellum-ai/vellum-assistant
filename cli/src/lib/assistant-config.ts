@@ -176,9 +176,18 @@ function parsePortFromUrl(url: unknown): number | undefined {
  * synthesises a full `resources` object when one is missing by inferring
  * ports from the entry's `runtimeUrl` and falling back to defaults.
  *
+ * Defaults to the current environment when `env` is not provided. Pass an
+ * explicit env when normalizing entries that were loaded from a different
+ * environment's lockfile (e.g. from {@link loadAllAssistantsAcrossEnvs});
+ * port defaults and the multi-instance dir are env-scoped, so cross-env
+ * callers must not inherit the current env's defaults.
+ *
  * Returns `true` if the entry was mutated (so the caller can persist).
  */
-export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
+export function migrateLegacyEntry(
+  raw: Record<string, unknown>,
+  env: EnvironmentDefinition = getCurrentEnvironment(),
+): boolean {
   if (typeof raw.cloud === "string" && raw.cloud !== "local") {
     return false;
   }
@@ -189,7 +198,6 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     return false;
   }
 
-  const env = getCurrentEnvironment();
   const defaultPorts = getDefaultPorts(env);
   let mutated = false;
 
@@ -379,7 +387,19 @@ export function loadAllAssistantsAcrossEnvs(
     if (!Array.isArray(entries)) continue;
     for (const raw of entries) {
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-      const entry = raw as AssistantEntry;
+      // Apply in-memory legacy normalization so callers see entries in the
+      // current shape (notably `resources.instanceDir`). We clone the raw
+      // object so this never leaks back to disk — `loadAllAssistantsAcrossEnvs`
+      // is a read path for foreign envs and must never write to their
+      // lockfiles. Migration is env-scoped (port defaults and multi-instance
+      // dir differ per env), so we pass the env explicitly.
+      const cloned = { ...(raw as Record<string, unknown>) };
+      try {
+        migrateLegacyEntry(cloned, env);
+      } catch {
+        // A bad seed shouldn't break enumeration; keep the original entry.
+      }
+      const entry = cloned as AssistantEntry;
       if (
         typeof entry.assistantId !== "string" ||
         typeof entry.runtimeUrl !== "string"

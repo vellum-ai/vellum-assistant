@@ -134,6 +134,81 @@ describe("getKnownPidsFromAssistants", () => {
     const pids = getKnownPidsFromAssistants([a, b]);
     expect(pids).toEqual(new Set(["100", "200", "101", "201"]));
   });
+
+  test("reads legacy daemon PID at .vellum/vellum.pid (pre workspace-migration 059)", () => {
+    const instanceDir = join(perTestDir, "legacy-daemon");
+    const vellumDir = join(instanceDir, ".vellum");
+    mkdirSync(vellumDir, { recursive: true });
+    writeFileSync(join(vellumDir, "vellum.pid"), "1234");
+
+    const entry: AssistantEntry = {
+      assistantId: "legacy-daemon",
+      runtimeUrl: "http://localhost:7821",
+      cloud: "local",
+      resources: {
+        instanceDir,
+        daemonPort: 7821,
+        gatewayPort: 7830,
+        qdrantPort: 6333,
+        cesPort: 8090,
+      },
+    };
+    const pids = getKnownPidsFromAssistants([entry]);
+    expect(pids).toEqual(new Set(["1234"]));
+  });
+
+  test("reads legacy qdrant PID at .vellum/qdrant.pid", () => {
+    const instanceDir = join(perTestDir, "legacy-qdrant");
+    const vellumDir = join(instanceDir, ".vellum");
+    mkdirSync(vellumDir, { recursive: true });
+    writeFileSync(join(vellumDir, "qdrant.pid"), "5678");
+
+    const entry: AssistantEntry = {
+      assistantId: "legacy-qdrant",
+      runtimeUrl: "http://localhost:7821",
+      cloud: "local",
+      resources: {
+        instanceDir,
+        daemonPort: 7821,
+        gatewayPort: 7830,
+        qdrantPort: 6333,
+        cesPort: 8090,
+      },
+    };
+    const pids = getKnownPidsFromAssistants([entry]);
+    expect(pids).toEqual(new Set(["5678"]));
+  });
+
+  test("collects both current and legacy PIDs when both files exist", () => {
+    // Mid-migration: daemon has moved but qdrant hasn't, or vice versa.
+    const instanceDir = join(perTestDir, "mid-migration");
+    const vellumDir = join(instanceDir, ".vellum");
+    mkdirSync(join(vellumDir, "workspace", "data", "qdrant"), {
+      recursive: true,
+    });
+    writeFileSync(join(vellumDir, "vellum.pid"), "100"); // legacy daemon
+    writeFileSync(join(vellumDir, "workspace", "vellum.pid"), "101"); // current daemon
+    writeFileSync(join(vellumDir, "qdrant.pid"), "200"); // legacy qdrant
+    writeFileSync(
+      join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid"),
+      "201", // current qdrant
+    );
+
+    const entry: AssistantEntry = {
+      assistantId: "mid-migration",
+      runtimeUrl: "http://localhost:7821",
+      cloud: "local",
+      resources: {
+        instanceDir,
+        daemonPort: 7821,
+        gatewayPort: 7830,
+        qdrantPort: 6333,
+        cesPort: 8090,
+      },
+    };
+    const pids = getKnownPidsFromAssistants([entry]);
+    expect(pids).toEqual(new Set(["100", "101", "200", "201"]));
+  });
 });
 
 describe("loadAllAssistantsAcrossEnvs", () => {
@@ -217,10 +292,46 @@ describe("loadAllAssistantsAcrossEnvs", () => {
     expect(all.map((e) => e.assistantId)).toEqual(["good"]);
   });
 
+  test("normalizes legacy entries without resources so PIDs can be collected", () => {
+    // A legacy entry in another env's lockfile may not have `resources` yet
+    // (it gets backfilled by `migrateLegacyEntry` on first read by that env's
+    // CLI). The cross-env loader must apply that normalization in memory so
+    // `getKnownPidsFromAssistants` can find the entry's PID files.
+    const envDir = mkdtempSync(join(testDir, "legacy-entry-"));
+    // Force the synthesized instanceDir to a known location by also setting
+    // configDirOverride — `getMultiInstanceDir` uses `xdgDataHome()` for
+    // production and `~/.local/share/vellum-${env}/assistants/` otherwise.
+    // We set HOME via `lockfileDirOverride`-equivalent indirection: the test
+    // just verifies the entry came back with `resources.instanceDir` set so
+    // the downstream PID file lookup has a valid root to scan.
+    writeFileSync(
+      join(envDir, "lockfile.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "no-resources",
+            runtimeUrl: "http://localhost:7821",
+            cloud: "local",
+            // Note: no `resources` field — simulates a pre-multi-instance entry.
+          },
+        ],
+      }),
+    );
+
+    const entries = loadAllAssistantsAcrossEnvs([
+      makeEnv("legacy", envDir),
+    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].resources).toBeDefined();
+    expect(typeof entries[0].resources?.instanceDir).toBe("string");
+    expect(entries[0].resources?.instanceDir.length).toBeGreaterThan(0);
+  });
+
   test("end-to-end: dev env's daemon is not flagged as orphan from local env", () => {
-    // Simulate Vargas's reported bug: `local` env has no assistants, but a
-    // `dev` env assistant is running with a recorded daemon PID. The orphan
-    // filter must treat that PID as known.
+    // Cross-env orphan-misclassification repro: `local` env has no assistants
+    // but a `dev` env assistant is running with recorded daemon/gateway/qdrant
+    // PIDs. The orphan filter must treat those PIDs as known so `vellum ps`
+    // doesn't surface them and `vellum clean` doesn't kill them.
     const devDir = mkdtempSync(join(testDir, "dev-"));
     const instanceDir = join(devDir, "instances", "quiet-finch");
     makeLocalEntry("quiet-finch", instanceDir, {

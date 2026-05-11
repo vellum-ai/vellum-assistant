@@ -82,6 +82,14 @@ export interface OrphanedProcess {
  * unlike the containers themselves). Other cloud topologies don't have
  * host-side processes that show up in `ps ax`.
  *
+ * Both current and legacy PID file locations are consulted. The daemon PID
+ * moved from `.vellum/vellum.pid` → `.vellum/workspace/vellum.pid` in
+ * workspace migration 059, and Qdrant's `.vellum/qdrant.pid` → nested
+ * `.vellum/workspace/data/qdrant/qdrant.pid` shows up in `retire-local.ts`
+ * as a still-supported fallback. An assistant in another env that hasn't
+ * run those migrations yet would still have its daemon/qdrant processes
+ * misclassified as orphans without these legacy paths.
+ *
  * This set is the basis for filtering the orphan list: if a running process
  * matches a recorded PID for *any* env's assistant, it's not an orphan.
  */
@@ -93,10 +101,15 @@ export function getKnownPidsFromAssistants(
     if (entry.cloud === "local" && entry.resources) {
       const vellumDir = join(entry.resources.instanceDir, ".vellum");
       const candidates = [
+        // Current locations
         getDaemonPidPath(entry.resources),
         join(vellumDir, "gateway.pid"),
         join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid"),
         join(vellumDir, "workspace", "embed-worker.pid"),
+        // Legacy locations (pre workspace-migration 059 daemon move, and
+        // pre-nested qdrant pid file).
+        join(vellumDir, "vellum.pid"),
+        join(vellumDir, "qdrant.pid"),
       ];
       for (const file of candidates) {
         const pid = readPidFile(file);
