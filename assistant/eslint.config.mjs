@@ -49,7 +49,7 @@ const eslintConfig = defineConfig([
     files: ["src/cli/commands/**/*.ts"],
     ignores: ["src/cli/commands/**/__tests__/**"],
     plugins: { cli: { rules: { "no-daemon-internals": cliNoDaemonInternals } } },
-    rules: { "cli/no-daemon-internals": "warn" },
+    rules: { "cli/no-daemon-internals": "error" },
   },
 ]);
 

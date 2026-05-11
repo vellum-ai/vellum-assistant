@@ -43,7 +43,6 @@ from `../lib/register-command.ts`. The three transport classes are:
 | `bootstrap` | Runs before the daemon is up (e.g. `assistant config init`). | Pre-daemon setup |
 
 The ESLint rule `cli/no-daemon-internals` enforces import allowlists per class.
-See `COMMAND_INVENTORY.md` for the full command inventory.
 
 ## Canonical example
 
