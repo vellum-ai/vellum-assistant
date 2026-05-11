@@ -11,6 +11,7 @@ import {
   isCesSecureInstallEnabled,
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
+import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
 import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
@@ -91,6 +92,7 @@ export const explicitTools: Tool[] = [
   recallTool,
   credentialStoreTool,
   notifyParentTool,
+  askQuestionTool,
   // NOTE: external skill tools (registered via registerExternalTools in
   // registry.ts) are intentionally NOT included here. `explicitTools` is a
   // module-level const whose value is fixed at first evaluation, so
