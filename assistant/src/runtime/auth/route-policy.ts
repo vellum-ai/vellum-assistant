@@ -397,6 +397,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Generic config read/patch
   { endpoint: "config:GET", scopes: ["settings.read"] },
+
+  // Config JSON Schema (full or scoped sub-schema)
+  { endpoint: "config/schema:GET", scopes: ["settings.read"] },
   { endpoint: "config:PATCH", scopes: ["settings.write"] },
 
   // LLM call site catalog

@@ -29,6 +29,8 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
+import { AssistantConfigSchema } from "../../config/schema.js";
+import { getSchemaAtPath } from "../../config/schema-utils.js";
 import { ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
@@ -413,6 +415,38 @@ function handleGetConfig() {
   }
 }
 
+/**
+ * Return the JSON Schema for the assistant config (full or scoped).
+ *
+ * The schema is derived from `AssistantConfigSchema` at runtime via
+ * `z.toJSONSchema()`. Pure read; no daemon state involved.
+ */
+function handleGetConfigSchema({ queryParams = {} }: RouteHandlerArgs) {
+  const rawPath = queryParams.path;
+  const path = typeof rawPath === "string" ? rawPath.trim() : "";
+
+  if (!path) {
+    return {
+      schema: z.toJSONSchema(AssistantConfigSchema, {
+        unrepresentable: "any",
+        io: "input",
+      }),
+    };
+  }
+
+  const subSchema = getSchemaAtPath(AssistantConfigSchema, path);
+  if (!subSchema) {
+    throw new BadRequestError(`No schema found at path: ${path}`);
+  }
+
+  return {
+    schema: z.toJSONSchema(subSchema, {
+      unrepresentable: "any",
+      io: "input",
+    }),
+  };
+}
+
 function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
   const llm = asMutablePlainObject(body.llm);
   if (!llm) return;
@@ -773,6 +807,24 @@ export const ROUTES: RouteDefinition[] = [
       "Deep-merge a partial JSON object into the settings.json configuration.",
     tags: ["config"],
     handler: handlePatchConfig,
+  },
+  {
+    operationId: "config_schema_get",
+    endpoint: "config/schema",
+    method: "GET",
+    policyKey: "config/schema",
+    summary: "Get config JSON Schema",
+    description:
+      "Return the JSON Schema for the assistant config, optionally scoped to a dotted-path sub-schema (e.g. ?path=calls).",
+    tags: ["config"],
+    queryParams: [
+      {
+        name: "path",
+        schema: { type: "string" },
+        description: "Optional dotted path to a config sub-key",
+      },
+    ],
+    handler: handleGetConfigSchema,
   },
   {
     operationId: "config_llm_profiles_replace",

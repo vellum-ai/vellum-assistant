@@ -1,14 +1,7 @@
 import type { Command } from "commander";
-import { z } from "zod";
 
-import {
-  getNestedValue,
-  loadRawConfig,
-  saveRawConfig,
-  setNestedValue,
-} from "../../config/loader.js";
-import { AssistantConfigSchema } from "../../config/schema.js";
-import { getSchemaAtPath } from "../../config/schema-utils.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { getNestedValue, setNestedValue } from "../lib/nested-value.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { requirePlatformConnection } from "./oauth/shared.js";
@@ -39,20 +32,38 @@ function flattenConfig(
 /** Matches config paths like `services.image-generation.mode`, `services.web-search.mode`, etc. */
 const SERVICE_MODE_PATH_RE = /^services\.[^.]+\.mode$/;
 
+/**
+ * Fetch the full raw config from the daemon via IPC.
+ * On transport / daemon error, prints a helpful message and exits.
+ */
+async function fetchRawConfig(
+  cmd: Command,
+): Promise<Record<string, unknown> | undefined> {
+  const ipcResult = await cliIpcCall<Record<string, unknown>>("config_get");
+  if (!ipcResult.ok) {
+    exitFromIpcResult(ipcResult, cmd);
+    return undefined;
+  }
+  return ipcResult.result ?? {};
+}
+
 export function registerConfigCommand(program: Command): void {
   registerCommand(program, {
     name: "config",
-    transport: "local",
+    transport: "ipc",
     description: "Manage configuration",
     build: (config) => {
 
   config.addHelpText(
     "after",
     `
-Configuration is stored in config.json in the assistant workspace directory.
-Keys support dotted paths for nested values (e.g. calls.enabled, twilio.accountSid).
-Values are auto-parsed as JSON (booleans, numbers, objects) with fallback to
-plain string if parsing fails.
+Configuration is managed by the assistant daemon. The CLI sends every
+read/write through the daemon's IPC channel so the in-memory cache,
+provider registry, and file-watcher stay coherent with config.json.
+
+Keys support dotted paths for nested values (e.g. calls.enabled,
+twilio.accountSid). Values are auto-parsed as JSON (booleans, numbers,
+objects) with fallback to plain string if parsing fails.
 
 API keys are managed separately via secure storage. Use "assistant keys list"
 and "assistant keys set <provider> <key>" to view and manage API keys.
@@ -81,7 +92,9 @@ Arguments:
           true, "42" becomes number 42). Falls back to plain string if JSON
           parsing fails.
 
-After writing the value to config.json, the change takes effect immediately.
+The CLI sends the change to the daemon, which deep-merges it into
+config.json, invalidates caches, and reinitializes providers so the new
+value takes effect immediately.
 
 To manage API keys, use "assistant keys set <provider> <key>" instead.
 
@@ -105,9 +118,15 @@ Examples:
           if (!connected) return;
         }
 
-        const raw = loadRawConfig();
-        setNestedValue(raw, key, parsed);
-        saveRawConfig(raw);
+        // Build a single-key deep-merge patch object from the dotted path.
+        const patch: Record<string, unknown> = {};
+        setNestedValue(patch, key, parsed);
+
+        const result = await cliIpcCall("config_patch", { body: patch });
+        if (!result.ok) {
+          exitFromIpcResult(result, cmd);
+          return;
+        }
         log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
       },
     );
@@ -122,8 +141,9 @@ Arguments:
   key   Dotted path to the config key (e.g. llm.default.provider,
         calls.enabled)
 
-Prints the value at the given key path. If the key is not set, prints
-"(not set)". Object values are pretty-printed as indented JSON.
+Fetches the full config from the daemon and prints the value at the
+given key path. If the key is not set, prints "(not set)". Object
+values are pretty-printed as indented JSON.
 
 To view API keys, use "assistant keys list" instead.
 
@@ -131,8 +151,9 @@ Examples:
   $ assistant config get llm.default.provider
   $ assistant config get calls.enabled`,
     )
-    .action((key: string) => {
-      const raw = loadRawConfig();
+    .action(async (key: string, _opts: unknown, cmd: Command) => {
+      const raw = await fetchRawConfig(cmd);
+      if (!raw) return;
       const value = getNestedValue(raw, key);
       if (value === undefined) {
         log.info(`(not set)`);
@@ -154,36 +175,25 @@ Examples:
 Arguments:
   path   Optional dotted path to a config key (e.g. calls, memory.segmentation)
 
-Prints the JSON Schema for the entire config object, or the sub-schema at the
-given path. Useful for understanding available fields, their types, defaults,
-and constraints.
+Asks the daemon for the JSON Schema of the entire config object, or
+the sub-schema at the given path. Useful for understanding available
+fields, their types, defaults, and constraints.
 
 Examples:
   $ assistant config schema
   $ assistant config schema calls
   $ assistant config schema memory.segmentation`,
     )
-    .action((path?: string) => {
-      if (!path) {
-        const jsonSchema = z.toJSONSchema(AssistantConfigSchema, {
-          unrepresentable: "any",
-          io: "input",
-        });
-        log.info(JSON.stringify(jsonSchema, null, 2));
+    .action(async (path: string | undefined, _opts: unknown, cmd: Command) => {
+      const result = await cliIpcCall<{ schema: unknown }>(
+        "config_schema_get",
+        path ? { queryParams: { path } } : undefined,
+      );
+      if (!result.ok) {
+        exitFromIpcResult(result, cmd);
         return;
       }
-
-      const subSchema = getSchemaAtPath(AssistantConfigSchema, path);
-      if (!subSchema) {
-        log.error(`No schema found at path: ${path}`);
-        process.exit(1);
-      }
-
-      const jsonSchema = z.toJSONSchema(subSchema, {
-        unrepresentable: "any",
-        io: "input",
-      });
-      log.info(JSON.stringify(jsonSchema, null, 2));
+      log.info(JSON.stringify(result.result?.schema ?? {}, null, 2));
     });
 
   config
@@ -196,8 +206,9 @@ Examples:
     .addHelpText(
       "after",
       `
-Dumps the full raw configuration from config.json as pretty-printed JSON.
-If no configuration has been set, prints "No configuration set".
+Fetches the full raw configuration from the daemon and prints it as
+pretty-printed JSON. If no configuration has been set, prints
+"No configuration set".
 
 The --search flag filters results by case-insensitive substring match against
 flattened dotted key paths. For example, --search calls matches calls.enabled,
@@ -208,8 +219,9 @@ Examples:
   $ assistant config list --search api
   $ assistant config list --search calls`,
     )
-    .action((opts: { search?: string }) => {
-      const raw = loadRawConfig();
+    .action(async (opts: { search?: string }, cmd: Command) => {
+      const raw = await fetchRawConfig(cmd);
+      if (!raw) return;
       if (Object.keys(raw).length === 0) {
         log.info("No configuration set");
         return;
@@ -250,6 +262,10 @@ for syntax errors. Reports the index and error message for any invalid
 patterns. Exits with code 1 if any patterns are invalid, or prints a success
 message if all patterns are valid. If no secret-allowlist.json file exists,
 reports that and exits normally.
+
+This subcommand reads the allowlist file directly from disk via a dynamic
+require — no daemon route exists yet. (TODO: add config_allowlist_validate
+IPC route so this command can be a pure thin wrapper too.)
 
 Examples:
   $ assistant config validate-allowlist`,
