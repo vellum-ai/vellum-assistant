@@ -265,8 +265,10 @@ const CANONICAL_CONNECTIONS: Array<{
  *   - PATCH that changes `auth` is blocked (auth is locked to `{type:"platform"}`
  *     so any other value would be reverted on the next boot upsert).
  *   - PATCH that changes `label` and/or `status` is allowed — users may legitimately
- *     disable or relabel the managed connection. Status/label are not touched by
- *     the boot upsert (see `seedCanonicalConnections`).
+ *     disable or relabel the managed connection. `status` is never touched by the
+ *     boot upsert. `label` is seeded on initial INSERT and backfilled when null
+ *     on subsequent boots so pre-seed installs pick up the default; a non-null
+ *     user-customized label is preserved (see `seedCanonicalConnections`).
  *
  * Mirrors `MANAGED_PROFILE_NAMES` (config/seed-inference-profiles.ts).
  */

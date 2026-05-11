@@ -42,6 +42,12 @@ struct ProvidersSheet: View {
     /// that matches the user's current credential selection.
     @State private var loadMaskedTask: Task<Void, Never>?
 
+    /// Connection names with an in-flight status PATCH from the inline row
+    /// toggle. Used to drop subsequent toggle attempts so a fast off→on→off
+    /// sequence can't produce out-of-order responses that clobber the user's
+    /// final intent.
+    @State private var inFlightStatusToggles: Set<String> = []
+
     // MARK: - Nested Types
 
     struct ConnectionDraft {
@@ -246,6 +252,7 @@ struct ProvidersSheet: View {
                         }
                     )
                 )
+                .accessibilityLabel("\(isDisabled ? "Activate" : "Disable") connection \(conn.label?.isEmpty == false ? conn.label! : conn.name)")
                 .help(isDisabled ? "Disabled — toggle to activate" : "Active — toggle to disable")
                 VButton(label: "Edit", style: .ghost) {
                     if isManaged {
@@ -326,12 +333,14 @@ struct ProvidersSheet: View {
                         editorAuthTypeField
                         if editorDraft.authType == "api_key" {
                             editorApiKeyField
-                            // Hide Advanced when there are no credentials and
-                            // the user isn't already creating one — an empty
-                            // disclosure with nothing actionable is confusing.
-                            if !availableCredentials.isEmpty || isCreatingNewCredential {
-                                editorAdvancedSection
-                            }
+                            // Note: Advanced disclosure stays visible even
+                            // when there are zero credentials — the empty
+                            // state inside shows a "+ New Credential" button
+                            // which is the only path to building a named
+                            // credential before saving an API key. Hiding the
+                            // whole section regresses that affordance
+                            // (Codex P2, PR #30294).
+                            editorAdvancedSection
                         } else if editorDraft.authType == "platform" {
                             editorPlatformNote
                         } else if editorDraft.authType == "none" {
@@ -767,13 +776,21 @@ struct ProvidersSheet: View {
     /// row, PATCHes the daemon with just the new status (auth + label stay
     /// untouched), and rolls back on failure. Mirrors the daemon's accept-
     /// status-only PATCH path so managed connections can be toggled too.
+    ///
+    /// `inFlightStatusToggles` guards against overlapping toggles for the
+    /// same row — a fast off→on→off sequence would otherwise produce
+    /// out-of-order PATCH responses that clobber the user's final intent.
     private func setStatus(_ conn: ProviderConnection, active: Bool) async {
+        guard !inFlightStatusToggles.contains(conn.name) else { return }
         let newStatus: ConnectionStatus = active ? .active : .disabled
         let previous = conn.status
-        // Optimistic update so the toggle doesn't visibly snap back while the
-        // round-trip is in flight.
+        inFlightStatusToggles.insert(conn.name)
+        defer { inFlightStatusToggles.remove(conn.name) }
+
+        // Optimistic update — `ProviderConnection` is an immutable struct,
+        // so swap in a new value with just `status` flipped.
         if let idx = connections.firstIndex(where: { $0.name == conn.name }) {
-            connections[idx].status = newStatus
+            connections[idx] = conn.withStatus(newStatus)
         }
         guard let updated = await client.updateProviderConnection(
             name: conn.name,
@@ -783,7 +800,7 @@ struct ProvidersSheet: View {
         ) else {
             // Roll back on failure.
             if let idx = connections.firstIndex(where: { $0.name == conn.name }) {
-                connections[idx].status = previous
+                connections[idx] = conn.withStatus(previous)
             }
             actionError = "Couldn't update \"\(conn.name)\". Please try again."
             return
