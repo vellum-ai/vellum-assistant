@@ -2,7 +2,7 @@
  * `simple_memory_recall` — return every simple-memory entry for the current conversation.
  */
 
-import { entriesFor } from "../state.js";
+import { entriesFor } from "../src/state.js";
 
 interface ToolContext {
   conversationId: string;

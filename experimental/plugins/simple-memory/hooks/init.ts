@@ -9,7 +9,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { type MemoryEntry, setState } from "../state.js";
+import { type MemoryEntry, setState } from "../src/state.js";
 
 interface InitLogger {
   info(obj: Record<string, unknown>, msg?: string): void;

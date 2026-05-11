@@ -4,7 +4,7 @@
 
 import { promises as fs } from "node:fs";
 
-import { clearState, requireState } from "../state.js";
+import { clearState, requireState } from "../src/state.js";
 
 interface ShutdownLogger {
   info(obj: Record<string, unknown>, msg?: string): void;

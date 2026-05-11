@@ -2,7 +2,7 @@
  * `simple_memory_remember` — append a freeform note for the current conversation.
  */
 
-import { appendEntry, type MemoryEntry, newEntryId } from "../state.js";
+import { appendEntry, type MemoryEntry, newEntryId } from "../src/state.js";
 
 interface ToolContext {
   conversationId: string;
