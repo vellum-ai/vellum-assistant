@@ -857,6 +857,17 @@ registerPolicy("stt/transcribe-file", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Domain management (IPC-local)
+registerPolicy("domain/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("domain/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Email management (IPC-local)
 registerPolicy("email/register", {
   requiredScopes: ["settings.write"],

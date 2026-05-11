@@ -84,7 +84,11 @@ Examples:
               created?: string;
             }>("domain_register", { body });
 
-            if (!r.ok) return handleDomainIpcError(r, cmd);
+            if (!r.ok)
+              return handleDomainIpcError(
+                { ok: false, error: r.error, statusCode: r.statusCode },
+                cmd,
+              );
 
             const data = r.result!;
             const registeredSubdomain =
@@ -142,7 +146,11 @@ Examples:
             }[];
           }>("domain_status");
 
-          if (!r.ok) return handleDomainIpcError(r, cmd);
+          if (!r.ok)
+            return handleDomainIpcError(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
 
           const data = r.result!;
           const domains = data.results ?? [];

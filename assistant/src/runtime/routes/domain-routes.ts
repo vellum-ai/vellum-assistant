@@ -150,7 +150,7 @@ async function handleDomainStatus(_args: RouteHandlerArgs) {
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "domain_register",
-    endpoint: "/domain/register",
+    endpoint: "domain/register",
     method: "POST",
     handler: handleDomainRegister,
     summary: "Register a subdomain for this assistant",
@@ -158,7 +158,7 @@ export const ROUTES: RouteDefinition[] = [
   },
   {
     operationId: "domain_status",
-    endpoint: "/domain/status",
+    endpoint: "domain/status",
     method: "GET",
     handler: handleDomainStatus,
     summary: "Show domain registration and health",
