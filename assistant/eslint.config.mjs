@@ -45,6 +45,12 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
+  // `cli/no-daemon-internals` enforces the CLI ↔ daemon import boundary.
+  // Locked in at `"error"` by Section J of the CLI → IPC refactor (DESIGN.md
+  // §8 Section J). Do not downgrade to `"warn"` without revisiting that
+  // decision — a soft rule here lets daemon-internal imports re-enter the
+  // CLI bundle, which is exactly the regression class this refactor exists
+  // to prevent.
   {
     files: ["src/cli/commands/**/*.ts"],
     ignores: ["src/cli/commands/**/__tests__/**"],
