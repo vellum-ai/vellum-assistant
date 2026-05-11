@@ -3240,6 +3240,25 @@ paths:
               required:
                 - baseUrl
               additionalProperties: false
+  /v1/config/schema:
+    get:
+      operationId: config_schema_get
+      summary: Get config JSON Schema
+      description:
+        Return the JSON Schema for the assistant config, optionally scoped to a dotted-path sub-schema (e.g.
+        ?path=calls).
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional dotted path to a config sub-key
   /v1/confirm:
     post:
       operationId: confirm_post
