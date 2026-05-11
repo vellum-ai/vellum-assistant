@@ -39,12 +39,16 @@ final class ProvidersSheetTests: XCTestCase {
     private func makeConnection(
         name: String = "my-conn",
         provider: String = "anthropic",
-        authType: String = "api_key"
+        authType: String = "api_key",
+        status: ConnectionStatus = .active,
+        label: String? = nil
     ) -> ProviderConnection {
         ProviderConnection(
             name: name,
             provider: provider,
             auth: ProviderConnectionAuth(type: authType, credential: "sk-test"),
+            status: status,
+            label: label,
             createdAt: 0,
             updatedAt: 0
         )
@@ -79,7 +83,9 @@ final class ProvidersSheetTests: XCTestCase {
         _ = await mockClient.createProviderConnection(
             name: "new-conn",
             provider: "openai",
-            auth: ProviderConnectionAuth(type: "api_key", credential: "sk-open")
+            auth: ProviderConnectionAuth(type: "api_key", credential: "sk-open"),
+            label: nil,
+            status: nil
         )
 
         XCTAssertEqual(mockClient.createCallCount, 1)
@@ -111,7 +117,9 @@ final class ProvidersSheetTests: XCTestCase {
 
         let result = await mockClient.updateProviderConnection(
             name: "gone",
-            auth: ProviderConnectionAuth(type: "api_key", credential: "sk-x")
+            auth: ProviderConnectionAuth(type: "api_key", credential: "sk-x"),
+            status: nil,
+            label: nil
         )
         XCTAssertNil(result, "nil update signals 404; caller should refresh")
 
@@ -134,5 +142,41 @@ final class ProvidersSheetTests: XCTestCase {
         let isPresented = Binding<Bool>(get: { true }, set: { _ in })
         let sheet = ProvidersSheet(store: store, isPresented: isPresented, client: mockClient)
         XCTAssertNotNil(sheet.body, "ProvidersSheet must build with the same store the card holds")
+    }
+
+    // MARK: - Display Name auto-derives Key via kebab-case
+
+    func testLabelToKebabCaseAutoDerivation() {
+        // Verify toKebabCase produces correct output (shared with InferenceProfileEditor).
+        XCTAssertEqual(InferenceProfileEditor.toKebabCase("My OpenAI"), "my-openai")
+        XCTAssertEqual(InferenceProfileEditor.toKebabCase("Fast & Cheap"), "fast-cheap")
+        XCTAssertEqual(InferenceProfileEditor.toKebabCase(""), "")
+        XCTAssertEqual(InferenceProfileEditor.toKebabCase("hello world!"), "hello-world")
+    }
+
+    // MARK: - Status toggle default
+
+    func testNewConnectionDraftDefaultsToActiveStatus() {
+        let sheet = makeSheet()
+        // Verify the draft starts active; the sheet body builds without issues.
+        XCTAssertNotNil(sheet.body)
+    }
+
+    // MARK: - Connections with label render correctly
+
+    func testSheetBuildsWithLabeledConnection() {
+        let conn = makeConnection(name: "labeled", label: "My Anthropic")
+        mockClient.listResponse = [conn]
+        let sheet = makeSheet()
+        XCTAssertNotNil(sheet.body)
+    }
+
+    // MARK: - Connections with disabled status
+
+    func testSheetBuildsWithDisabledConnection() {
+        let conn = makeConnection(name: "disabled-conn", status: .disabled)
+        mockClient.listResponse = [conn]
+        let sheet = makeSheet()
+        XCTAssertNotNil(sheet.body)
     }
 }

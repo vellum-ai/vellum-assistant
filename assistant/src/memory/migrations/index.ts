@@ -205,6 +205,7 @@ export { migrateConversationInferenceProfileSession } from "./240-conversation-i
 export { migrateActivationStateFkCascade } from "./241-activation-state-fk-cascade.js";
 export { migrateMessageBookmarks } from "./242-message-bookmarks.js";
 export { migrateCreateProviderConnections } from "./243-provider-connections.js";
+export { migrateProviderConnectionStatusLabel } from "./244-provider-connection-status-label.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

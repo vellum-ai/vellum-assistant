@@ -30,6 +30,11 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// that should be read-only in the UI. User-created profiles have `nil`.
     public var source: String?
 
+    /// Visibility status. `"active"` (default, represented as `nil` in the JSON)
+    /// means the profile is shown in pickers. `"disabled"` hides it from pickers
+    /// but keeps it visible in the profiles list so the user can re-enable it.
+    public var status: String?
+
     /// Human-readable label for pickers and list rows (e.g. "Quality").
     /// Falls back to `name` when absent — see `displayName`.
     public var label: String?
@@ -73,6 +78,10 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// profile to create a customizable variant.
     public var isManaged: Bool { source == "managed" }
 
+    /// Whether this profile is disabled. Disabled profiles are hidden from
+    /// picker UIs but remain visible in the profiles list for re-enabling.
+    public var isDisabled: Bool { status == "disabled" }
+
     /// Label for pickers and list rows. Prefers the explicit `label`
     /// (e.g. "Quality") and falls back to `name`.
     public var displayName: String { label ?? name }
@@ -83,6 +92,7 @@ public struct InferenceProfile: Hashable, Identifiable {
     public init(
         name: String,
         source: String? = nil,
+        status: String? = nil,
         label: String? = nil,
         profileDescription: String? = nil,
         provider: String? = nil,
@@ -98,6 +108,7 @@ public struct InferenceProfile: Hashable, Identifiable {
     ) {
         self.name = name
         self.source = source
+        self.status = status
         self.label = label
         self.profileDescription = profileDescription
         self.provider = provider
@@ -119,6 +130,7 @@ public struct InferenceProfile: Hashable, Identifiable {
     public init(
         name: String,
         source: String? = nil,
+        status: String? = nil,
         label: String? = nil,
         profileDescription: String? = nil,
         provider: String? = nil,
@@ -135,6 +147,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         self.init(
             name: name,
             source: source,
+            status: status,
             label: label,
             profileDescription: profileDescription,
             provider: provider,
@@ -159,6 +172,7 @@ public struct InferenceProfile: Hashable, Identifiable {
     public init(name: String, json: [String: Any]) {
         self.name = name
         self.source = (json["source"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        self.status = (json["status"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.label = (json["label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.profileDescription = (json["description"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.provider = (json["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -205,6 +219,8 @@ public struct InferenceProfile: Hashable, Identifiable {
     public func toJSON() -> [String: Any] {
         var result = preservedJSON
         if let source { result["source"] = source }
+        // Omit status when active (absent == active convention); always include when disabled.
+        if let status, status == "disabled" { result["status"] = status }
         if let label { result["label"] = label }
         if let profileDescription { result["description"] = profileDescription }
         if let provider { result["provider"] = provider }
@@ -245,6 +261,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         var preserved = json
         for key in [
             "source",
+            "status",
             "label",
             "description",
             "provider",
@@ -289,6 +306,7 @@ public struct InferenceProfile: Hashable, Identifiable {
     public static func == (lhs: InferenceProfile, rhs: InferenceProfile) -> Bool {
         lhs.name == rhs.name
             && lhs.source == rhs.source
+            && lhs.status == rhs.status
             && lhs.label == rhs.label
             && lhs.profileDescription == rhs.profileDescription
             && lhs.provider == rhs.provider
@@ -306,6 +324,7 @@ public struct InferenceProfile: Hashable, Identifiable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(name)
         hasher.combine(source)
+        hasher.combine(status)
         hasher.combine(label)
         hasher.combine(profileDescription)
         hasher.combine(provider)

@@ -12,7 +12,7 @@ import { z } from "zod";
 
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
-import { AuthSchema, ConnectionProviderSchema, ProviderConnectionSchema, VALID_CONNECTION_PROVIDERS } from "../../providers/inference/auth.js";
+import { AuthSchema, ConnectionProviderSchema, ConnectionStatusSchema, ProviderConnectionSchema, VALID_CONNECTION_PROVIDERS } from "../../providers/inference/auth.js";
 import {
   createConnection,
   deleteConnection,
@@ -74,10 +74,22 @@ function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
 
+  const statusResult = body.status !== undefined ? ConnectionStatusSchema.safeParse(body.status) : null;
+  if (statusResult && !statusResult.success) {
+    throw new BadRequestError(`Invalid status: must be "active" or "disabled"`);
+  }
+
+  const labelRaw = body.label;
+  if (labelRaw !== undefined && labelRaw !== null && (typeof labelRaw !== "string" || labelRaw.length === 0)) {
+    throw new BadRequestError(`Invalid label: must be a non-empty string or null`);
+  }
+
   const result = createConnection(getDb(), {
     name,
     provider: providerResult.data,
     auth: authResult.data,
+    ...(statusResult ? { status: statusResult.data } : {}),
+    ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
   });
 
   if (!result.ok) {
@@ -107,7 +119,21 @@ function handleUpdateConnection({ pathParams = {}, body = {} }: RouteHandlerArgs
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
 
-  const result = updateConnection(getDb(), name, { auth: authResult.data });
+  const statusResult = body.status !== undefined ? ConnectionStatusSchema.safeParse(body.status) : null;
+  if (statusResult && !statusResult.success) {
+    throw new BadRequestError(`Invalid status: must be "active" or "disabled"`);
+  }
+
+  const labelRaw = body.label;
+  if (labelRaw !== undefined && labelRaw !== null && (typeof labelRaw !== "string" || labelRaw.length === 0)) {
+    throw new BadRequestError(`Invalid label: must be a non-empty string or null`);
+  }
+
+  const result = updateConnection(getDb(), name, {
+    auth: authResult.data,
+    ...(statusResult ? { status: statusResult.data } : {}),
+    ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
+  });
 
   if (!result.ok) {
     if (result.error.code === "not_found") {
@@ -215,6 +241,8 @@ export const ROUTES: RouteDefinition[] = [
       name: z.string().min(1),
       provider: ConnectionProviderSchema,
       auth: AuthSchema,
+      label: z.string().min(1).optional(),
+      status: ConnectionStatusSchema.optional(),
     }),
     responseBody: providerConnectionResponseSchema,
     responseStatus: "201",
@@ -229,12 +257,16 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "inference/provider-connections/:name",
     method: "PATCH",
     policyKey: "inference/provider-connections/detail",
-    summary: "Update a provider connection's auth",
+    summary: "Update a provider connection",
     description:
-      "Update the auth configuration for an existing connection. Cannot rename or change the provider.",
+      "Update an existing connection. Cannot rename or change the provider.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
-    requestBody: z.object({ auth: AuthSchema }),
+    requestBody: z.object({
+      auth: AuthSchema,
+      status: ConnectionStatusSchema.optional(),
+      label: z.string().min(1).nullable().optional(),
+    }),
     responseBody: providerConnectionResponseSchema,
     additionalResponses: {
       "400": { description: "Invalid auth schema" },

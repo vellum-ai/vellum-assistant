@@ -11,6 +11,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { DrizzleDb } from "../../memory/db-connection.js";
 import { getSqliteFrom } from "../../memory/db-connection.js";
 import { migrateCreateProviderConnections } from "../../memory/migrations/243-provider-connections.js";
+import { migrateProviderConnectionStatusLabel } from "../../memory/migrations/244-provider-connection-status-label.js";
 import * as schema from "../../memory/schema.js";
 import { AuthSchema } from "../inference/auth.js";
 import {
@@ -33,6 +34,7 @@ function setupDb(): { db: DrizzleDb; raw: Database } {
   const db = drizzle(sqlite, { schema });
   const raw = getSqliteFrom(db);
   migrateCreateProviderConnections(db);
+  migrateProviderConnectionStatusLabel(db);
   return { db, raw };
 }
 

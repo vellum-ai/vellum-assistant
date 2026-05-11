@@ -36,13 +36,17 @@ final class MockProviderConnectionClient: ProviderConnectionClientProtocol {
     var createNameArg: String?
     var createProviderArg: String?
     var createAuthArg: ProviderConnectionAuth?
+    var createLabelArg: String?
+    var createStatusArg: ConnectionStatus?
     var createResponse: ProviderConnection? = nil
 
-    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth) async -> ProviderConnection? {
+    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, status: ConnectionStatus?) async -> ProviderConnection? {
         createCallCount += 1
         createNameArg = name
         createProviderArg = provider
         createAuthArg = auth
+        createLabelArg = label
+        createStatusArg = status
         return createResponse
     }
 
@@ -50,12 +54,16 @@ final class MockProviderConnectionClient: ProviderConnectionClientProtocol {
     var updateCallCount = 0
     var updateNameArg: String?
     var updateAuthArg: ProviderConnectionAuth?
+    var updateStatusArg: ConnectionStatus?
+    var updateLabelArg: String??
     var updateResponse: ProviderConnection? = nil
 
-    func updateProviderConnection(name: String, auth: ProviderConnectionAuth) async -> ProviderConnection? {
+    func updateProviderConnection(name: String, auth: ProviderConnectionAuth, status: ConnectionStatus?, label: String??) async -> ProviderConnection? {
         updateCallCount += 1
         updateNameArg = name
         updateAuthArg = auth
+        updateStatusArg = status
+        updateLabelArg = label
         return updateResponse
     }
 
@@ -77,12 +85,16 @@ private func makeConnection(
     name: String = "my-conn",
     provider: String = "anthropic",
     authType: String = "api_key",
-    credential: String? = "sk-test"
+    credential: String? = "sk-test",
+    status: ConnectionStatus = .active,
+    label: String? = nil
 ) -> ProviderConnection {
     ProviderConnection(
         name: name,
         provider: provider,
         auth: ProviderConnectionAuth(type: authType, credential: credential),
+        status: status,
+        label: label,
         createdAt: 0,
         updatedAt: 0
     )
@@ -157,7 +169,7 @@ final class ProviderConnectionClientTests: XCTestCase {
         let conn = makeConnection(name: "new-conn")
         mock.createResponse = conn
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-test")
-        let result = await mock.createProviderConnection(name: "new-conn", provider: "anthropic", auth: auth)
+        let result = await mock.createProviderConnection(name: "new-conn", provider: "anthropic", auth: auth, label: nil, status: nil)
         XCTAssertEqual(result?.name, "new-conn")
         XCTAssertEqual(mock.createNameArg, "new-conn")
         XCTAssertEqual(mock.createProviderArg, "anthropic")
@@ -168,14 +180,14 @@ final class ProviderConnectionClientTests: XCTestCase {
     func testCreateReturnsNilOn409NameConflict() async {
         mock.createResponse = nil
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-test")
-        let result = await mock.createProviderConnection(name: "existing", provider: "anthropic", auth: auth)
+        let result = await mock.createProviderConnection(name: "existing", provider: "anthropic", auth: auth, label: nil, status: nil)
         XCTAssertNil(result, "nil return models 409 name conflict")
     }
 
     func testCreateReturnsNilOn400InvalidAuth() async {
         mock.createResponse = nil
         let auth = ProviderConnectionAuth(type: "api_key", credential: "")
-        let result = await mock.createProviderConnection(name: "conn", provider: "anthropic", auth: auth)
+        let result = await mock.createProviderConnection(name: "conn", provider: "anthropic", auth: auth, label: nil, status: nil)
         XCTAssertNil(result, "nil return models 400 invalid auth")
     }
 
@@ -185,7 +197,7 @@ final class ProviderConnectionClientTests: XCTestCase {
         let conn = makeConnection(name: "conn")
         mock.updateResponse = conn
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-new")
-        let result = await mock.updateProviderConnection(name: "conn", auth: auth)
+        let result = await mock.updateProviderConnection(name: "conn", auth: auth, status: nil, label: nil)
         XCTAssertEqual(result?.name, "conn")
         XCTAssertEqual(mock.updateNameArg, "conn")
         XCTAssertEqual(mock.updateAuthArg?.credential, "sk-new")
@@ -194,7 +206,7 @@ final class ProviderConnectionClientTests: XCTestCase {
     func testUpdateReturnsNilOn404() async {
         mock.updateResponse = nil
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-x")
-        let result = await mock.updateProviderConnection(name: "missing", auth: auth)
+        let result = await mock.updateProviderConnection(name: "missing", auth: auth, status: nil, label: nil)
         XCTAssertNil(result)
     }
 

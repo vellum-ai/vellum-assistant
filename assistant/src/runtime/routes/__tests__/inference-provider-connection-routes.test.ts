@@ -384,6 +384,96 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
   });
 });
 
+// ── status + label fields ─────────────────────────────────────────────────────
+
+describe("POST with label and status", () => {
+  test("creates connection with label and status, both echoed in response", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "labeled-conn",
+          provider: "anthropic",
+          auth: { type: "platform" },
+          label: "My Anthropic",
+          status: "active",
+        },
+      },
+    )) as { name: string; label: string | null; status: string };
+    expect(result.name).toBe("labeled-conn");
+    expect(result.label).toBe("My Anthropic");
+    expect(result.status).toBe("active");
+  });
+
+  test("creates connection without label — label is null in response", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: { name: "no-label-conn", provider: "openai", auth: { type: "platform" } },
+      },
+    )) as { label: string | null; status: string };
+    expect(result.label).toBeNull();
+    expect(result.status).toBe("active");
+  });
+});
+
+describe("PATCH with status and label", () => {
+  test("updates status to disabled", async () => {
+    seedConnection({ name: "toggleable", provider: "anthropic", auth: { type: "platform" } });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "toggleable" },
+        body: { auth: { type: "platform" }, status: "disabled" },
+      },
+    )) as { status: string };
+    expect(result.status).toBe("disabled");
+  });
+
+  test("updates label to a string", async () => {
+    seedConnection({ name: "set-label", provider: "openai", auth: { type: "platform" } });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "set-label" },
+        body: { auth: { type: "platform" }, label: "My OpenAI" },
+      },
+    )) as { label: string | null };
+    expect(result.label).toBe("My OpenAI");
+  });
+
+  test("clears label by setting it to null", async () => {
+    seedConnection({ name: "clear-label", provider: "gemini", auth: { type: "platform" } });
+    // First set a label.
+    await call(findHandler("inference_provider_connections_update"), {
+      pathParams: { name: "clear-label" },
+      body: { auth: { type: "platform" }, label: "Old Label" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "clear-label" },
+        body: { auth: { type: "platform" }, label: null },
+      },
+    )) as { label: string | null };
+    expect(result.label).toBeNull();
+  });
+
+  test("rejects label: empty string with 400", async () => {
+    seedConnection({ name: "reject-empty", provider: "anthropic", auth: { type: "platform" } });
+
+    await expect(
+      call(findHandler("inference_provider_connections_update"), {
+        pathParams: { name: "reject-empty" },
+        body: { auth: { type: "platform" }, label: "" },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+});
+
 // ── Auth / route-policy wiring ────────────────────────────────────────────────
 
 describe("Route policy registrations", () => {

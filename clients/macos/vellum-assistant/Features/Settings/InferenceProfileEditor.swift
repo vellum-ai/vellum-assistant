@@ -146,6 +146,7 @@ struct InferenceProfileEditor: View {
                     if visibility.thinking {
                         thinkingSection
                     }
+                    statusToggle
                 }
                 .padding(VSpacing.lg)
             }
@@ -578,6 +579,18 @@ struct InferenceProfileEditor: View {
             // the daemon would ignore the leaf either way but the disabled
             // affordance keeps the UI honest.
             .disabled(!(profile.thinkingEnabled ?? false))
+        }
+    }
+
+    private var statusToggle: some View {
+        labeled("Status") {
+            VToggle(
+                isOn: Binding(
+                    get: { profile.status != "disabled" },
+                    set: { profile.status = $0 ? nil : "disabled" }
+                ),
+                label: "Active"
+            )
         }
     }
 

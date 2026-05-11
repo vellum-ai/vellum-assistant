@@ -14,8 +14,10 @@ public enum ProviderConnectionDeleteResult: Sendable {
 public protocol ProviderConnectionClientProtocol {
     func listProviderConnections(provider: String?) async -> [ProviderConnection]?
     func getProviderConnection(name: String) async -> ProviderConnection?
-    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth) async -> ProviderConnection?
-    func updateProviderConnection(name: String, auth: ProviderConnectionAuth) async -> ProviderConnection?
+    /// `label` and `status` are optional extras; pass `nil` to omit from the request body.
+    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, status: ConnectionStatus?) async -> ProviderConnection?
+    /// `status`: nil = omit from body (no change). `label`: nil outer = omit; `.some(nil)` = send null (clear); `.some("v")` = set.
+    func updateProviderConnection(name: String, auth: ProviderConnectionAuth, status: ConnectionStatus?, label: String??) async -> ProviderConnection?
     func deleteProviderConnection(name: String) async -> ProviderConnectionDeleteResult
 }
 
@@ -74,12 +76,20 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         }
     }
 
-    public func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth) async -> ProviderConnection? {
-        let body: [String: Any] = [
+    public func createProviderConnection(
+        name: String,
+        provider: String,
+        auth: ProviderConnectionAuth,
+        label: String? = nil,
+        status: ConnectionStatus? = nil
+    ) async -> ProviderConnection? {
+        var body: [String: Any] = [
             "name": name,
             "provider": provider,
             "auth": Self.authDict(for: auth),
         ]
+        if let label { body["label"] = label }
+        if let status { body["status"] = status.rawValue }
         do {
             let response = try await GatewayHTTPClient.post(
                 path: "inference/provider-connections",
@@ -96,9 +106,18 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         }
     }
 
-    public func updateProviderConnection(name: String, auth: ProviderConnectionAuth) async -> ProviderConnection? {
+    public func updateProviderConnection(
+        name: String,
+        auth: ProviderConnectionAuth,
+        status: ConnectionStatus? = nil,
+        label: String?? = nil
+    ) async -> ProviderConnection? {
         let encoded = Self.encodePath(name)
-        let body: [String: Any] = ["auth": Self.authDict(for: auth)]
+        var body: [String: Any] = ["auth": Self.authDict(for: auth)]
+        if let status { body["status"] = status.rawValue }
+        if let outerLabel = label {
+            body["label"] = outerLabel ?? NSNull()
+        }
         do {
             let response = try await GatewayHTTPClient.patch(
                 path: "inference/provider-connections/\(encoded)",

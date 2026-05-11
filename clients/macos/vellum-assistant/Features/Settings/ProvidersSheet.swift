@@ -18,6 +18,7 @@ struct ProvidersSheet: View {
     @State private var connections: [ProviderConnection] = []
     @State private var editorState: EditorState?
     @State private var editorDraft = ConnectionDraft()
+    @State private var isKeyDirty = false
     @State private var conflictInfo: ConflictInfo?
     @State private var actionError: String?
 
@@ -25,9 +26,11 @@ struct ProvidersSheet: View {
 
     struct ConnectionDraft {
         var name = ""
+        var label = ""
         var provider = ""
         var authType = "api_key"
         var credential = ""
+        var status: ConnectionStatus = .active
     }
 
     enum EditorState {
@@ -77,6 +80,7 @@ struct ProvidersSheet: View {
         .onChange(of: editorState) { _, newValue in
             if newValue == nil {
                 editorDraft = ConnectionDraft()
+                isKeyDirty = false
             }
         }
         .animation(VAnimation.fast, value: editorState != nil)
@@ -171,20 +175,47 @@ struct ProvidersSheet: View {
     private func connectionRow(_ conn: ProviderConnection) -> some View {
         HStack(alignment: .center, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                HStack(spacing: VSpacing.xs) {
-                    Text(conn.name)
+                if let label = conn.label {
+                    Text(label)
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentDefault)
-                    VBadge(
-                        label: store.dynamicProviderDisplayName(conn.provider),
-                        tone: .neutral,
-                        emphasis: .subtle
-                    )
-                    VBadge(
-                        label: authTypeLabel(conn.auth.type),
-                        tone: authTypeTone(conn.auth.type),
-                        emphasis: .subtle
-                    )
+                    HStack(spacing: VSpacing.xs) {
+                        Text("@\(conn.name)")
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                        VBadge(
+                            label: store.dynamicProviderDisplayName(conn.provider),
+                            tone: .neutral,
+                            emphasis: .subtle
+                        )
+                        VBadge(
+                            label: authTypeLabel(conn.auth.type),
+                            tone: authTypeTone(conn.auth.type),
+                            emphasis: .subtle
+                        )
+                        if conn.status == .disabled {
+                            VBadge(label: "Disabled", tone: .warning, emphasis: .subtle)
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text(conn.name)
+                            .font(VFont.bodyMediumEmphasised)
+                            .foregroundStyle(VColor.contentDefault)
+                        VBadge(
+                            label: store.dynamicProviderDisplayName(conn.provider),
+                            tone: .neutral,
+                            emphasis: .subtle
+                        )
+                        VBadge(
+                            label: authTypeLabel(conn.auth.type),
+                            tone: authTypeTone(conn.auth.type),
+                            emphasis: .subtle
+                        )
+                        if conn.status == .disabled {
+                            VBadge(label: "Disabled", tone: .warning, emphasis: .subtle)
+                        }
+                    }
                 }
             }
             Spacer(minLength: 0)
@@ -224,7 +255,8 @@ struct ProvidersSheet: View {
             SettingsDivider()
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    editorNameField
+                    editorLabelField
+                    editorKeyField
                     if case .create = editorState {
                         editorProviderField
                     }
@@ -236,6 +268,7 @@ struct ProvidersSheet: View {
                     } else if editorDraft.authType == "none" {
                         editorNoneNote
                     }
+                    editorStatusToggle
                     if let actionError {
                         Text(actionError)
                             .font(VFont.bodySmallDefault)
@@ -276,16 +309,57 @@ struct ProvidersSheet: View {
         .padding(VSpacing.lg)
     }
 
-    private var editorNameField: some View {
+    private var editorLabelField: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Name")
+            Text("Display Name")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            VTextField(
+                placeholder: "e.g. My OpenAI",
+                text: Binding(
+                    get: { editorDraft.label },
+                    set: { newValue in
+                        editorDraft.label = newValue
+                        if !isKeyDirty {
+                            editorDraft.name = InferenceProfileEditor.toKebabCase(newValue)
+                        }
+                    }
+                )
+            )
+        }
+    }
+
+    private var editorKeyField: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Key")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
             VTextField(
                 placeholder: "my-connection",
-                text: $editorDraft.name
+                text: Binding(
+                    get: { editorDraft.name },
+                    set: { newValue in
+                        isKeyDirty = true
+                        editorDraft.name = newValue
+                    }
+                )
             )
             .disabled(editorState != .create)
+        }
+    }
+
+    private var editorStatusToggle: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Status")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            VToggle(
+                isOn: Binding(
+                    get: { editorDraft.status == .active },
+                    set: { editorDraft.status = $0 ? .active : .disabled }
+                ),
+                label: "Active"
+            )
         }
     }
 
@@ -416,6 +490,7 @@ struct ProvidersSheet: View {
 
     private func beginCreate() {
         actionError = nil
+        isKeyDirty = false
         editorDraft = ConnectionDraft(
             provider: store.providerCatalog.first?.id ?? ""
         )
@@ -424,11 +499,14 @@ struct ProvidersSheet: View {
 
     private func beginEdit(_ conn: ProviderConnection) {
         actionError = nil
+        isKeyDirty = true
         editorDraft = ConnectionDraft(
             name: conn.name,
+            label: conn.label ?? "",
             provider: conn.provider,
             authType: conn.auth.type,
-            credential: conn.auth.credential ?? ""
+            credential: conn.auth.credential ?? "",
+            status: conn.status
         )
         editorState = .edit(name: conn.name)
     }
@@ -448,13 +526,17 @@ struct ProvidersSheet: View {
                 ? draft.credential.trimmingCharacters(in: .whitespacesAndNewlines)
                 : nil
         )
+        let label: String? = draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let status = draft.status
 
         switch editorState {
         case .create:
             guard let created = await client.createProviderConnection(
                 name: name,
                 provider: draft.provider,
-                auth: auth
+                auth: auth,
+                label: label,
+                status: status
             ) else {
                 actionError = "Couldn't create connection. Please try again."
                 return
@@ -465,7 +547,9 @@ struct ProvidersSheet: View {
         case .edit(let originalName):
             guard let updated = await client.updateProviderConnection(
                 name: originalName,
-                auth: auth
+                auth: auth,
+                status: status,
+                label: .some(label)
             ) else {
                 await refresh()
                 actionError = "Couldn't update connection. List refreshed."

@@ -8,6 +8,8 @@ import {
   AuthSchema,
   type ConnectionProvider,
   ConnectionProviderSchema,
+  type ConnectionStatus,
+  ConnectionStatusSchema,
   type ProviderConnection,
   VALID_CONNECTION_PROVIDERS,
 } from "./auth.js";
@@ -29,7 +31,9 @@ export function listConnections(
     if (!auth.success) return [];
     const provider = ConnectionProviderSchema.safeParse(row.provider);
     if (!provider.success) return [];
-    return [{ ...row, auth: auth.data, provider: provider.data }];
+    const statusResult = ConnectionStatusSchema.safeParse(row.status);
+    const status: ConnectionStatus = statusResult.success ? statusResult.data : "active";
+    return [{ ...row, auth: auth.data, provider: provider.data, status, label: row.label ?? null }];
   });
 }
 
@@ -48,7 +52,9 @@ export function getConnection(
   if (!auth.success) return null;
   const provider = ConnectionProviderSchema.safeParse(row.provider);
   if (!provider.success) return null;
-  return { ...row, auth: auth.data, provider: provider.data };
+  const statusResult = ConnectionStatusSchema.safeParse(row.status);
+  const status: ConnectionStatus = statusResult.success ? statusResult.data : "active";
+  return { ...row, auth: auth.data, provider: provider.data, status, label: row.label ?? null };
 }
 
 // ---------------------------------------------------------------------------
@@ -59,10 +65,14 @@ export type CreateConnectionInput = {
   name: string;
   provider: string;
   auth: Auth;
+  status?: ConnectionStatus;
+  label?: string | null;
 };
 
 export type UpdateConnectionInput = {
   auth: Auth;
+  status?: ConnectionStatus;
+  label?: string | null;
 };
 
 export type ConnectionCreateError =
@@ -102,11 +112,16 @@ export function createConnection(
     return { ok: false, error: { code: "already_exists" } };
   }
 
+  const status = input.status ?? "active";
+  const label = input.label ?? null;
+
   const now = Date.now();
   db.insert(providerConnections).values({
     name: input.name,
     provider,
     auth: JSON.stringify(authResult.data),
+    status,
+    label,
     createdAt: now,
     updatedAt: now,
   }).run();
@@ -121,6 +136,8 @@ export function createConnection(
       name: input.name,
       provider,
       auth: authResult.data,
+      status,
+      label,
       createdAt: now,
       updatedAt: now,
     },
@@ -143,8 +160,17 @@ export function updateConnection(
   }
 
   const now = Date.now();
+  const setClause: {
+    auth: string;
+    updatedAt: number;
+    status?: string;
+    label?: string | null;
+  } = { auth: JSON.stringify(authResult.data), updatedAt: now };
+  if (input.status !== undefined) setClause.status = input.status;
+  if (input.label !== undefined) setClause.label = input.label;
+
   db.update(providerConnections)
-    .set({ auth: JSON.stringify(authResult.data), updatedAt: now })
+    .set(setClause)
     .where(eq(providerConnections.name, name))
     .run();
 
@@ -153,7 +179,13 @@ export function updateConnection(
 
   return {
     ok: true,
-    connection: { ...existing, auth: authResult.data, updatedAt: now },
+    connection: {
+      ...existing,
+      auth: authResult.data,
+      status: input.status !== undefined ? input.status : existing.status,
+      label: input.label !== undefined ? input.label : existing.label,
+      updatedAt: now,
+    },
   };
 }
 

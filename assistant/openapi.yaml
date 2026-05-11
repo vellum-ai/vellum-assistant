@@ -8600,6 +8600,16 @@ paths:
                                 - type
                                 - credential
                               additionalProperties: false
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - disabled
+                        label:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                            - type: "null"
                         createdAt:
                           type: integer
                           minimum: -9007199254740991
@@ -8612,6 +8622,8 @@ paths:
                         - name
                         - provider
                         - auth
+                        - status
+                        - label
                         - createdAt
                         - updatedAt
                       additionalProperties: false
@@ -8705,6 +8717,16 @@ paths:
                           - type
                           - credential
                         additionalProperties: false
+                  status:
+                    type: string
+                    enum:
+                      - active
+                      - disabled
+                  label:
+                    anyOf:
+                      - type: string
+                        minLength: 1
+                      - type: "null"
                   createdAt:
                     type: integer
                     minimum: -9007199254740991
@@ -8717,6 +8739,8 @@ paths:
                   - name
                   - provider
                   - auth
+                  - status
+                  - label
                   - createdAt
                   - updatedAt
                 additionalProperties: false
@@ -8797,6 +8821,14 @@ paths:
                         - type
                         - credential
                       additionalProperties: false
+                label:
+                  type: string
+                  minLength: 1
+                status:
+                  type: string
+                  enum:
+                    - active
+                    - disabled
               required:
                 - name
                 - provider
@@ -8913,6 +8945,16 @@ paths:
                           - type
                           - credential
                         additionalProperties: false
+                  status:
+                    type: string
+                    enum:
+                      - active
+                      - disabled
+                  label:
+                    anyOf:
+                      - type: string
+                        minLength: 1
+                      - type: "null"
                   createdAt:
                     type: integer
                     minimum: -9007199254740991
@@ -8925,6 +8967,8 @@ paths:
                   - name
                   - provider
                   - auth
+                  - status
+                  - label
                   - createdAt
                   - updatedAt
                 additionalProperties: false
@@ -8938,8 +8982,8 @@ paths:
             type: string
     patch:
       operationId: inference_providerconnections_by_name_patch
-      summary: Update a provider connection's auth
-      description: Update the auth configuration for an existing connection. Cannot rename or change the provider.
+      summary: Update a provider connection
+      description: Update an existing connection. Cannot rename or change the provider.
       tags:
         - inference
       responses:
@@ -9016,6 +9060,16 @@ paths:
                           - type
                           - credential
                         additionalProperties: false
+                  status:
+                    type: string
+                    enum:
+                      - active
+                      - disabled
+                  label:
+                    anyOf:
+                      - type: string
+                        minLength: 1
+                      - type: "null"
                   createdAt:
                     type: integer
                     minimum: -9007199254740991
@@ -9028,6 +9082,8 @@ paths:
                   - name
                   - provider
                   - auth
+                  - status
+                  - label
                   - createdAt
                   - updatedAt
                 additionalProperties: false
@@ -9102,6 +9158,16 @@ paths:
                         - type
                         - credential
                       additionalProperties: false
+                status:
+                  type: string
+                  enum:
+                    - active
+                    - disabled
+                label:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
               required:
                 - auth
               additionalProperties: false

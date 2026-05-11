@@ -326,6 +326,9 @@ const LLMConfigFragment = z.object({
 });
 type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 
+export const ProfileStatusSchema = z.enum(["active", "disabled"]);
+export type ProfileStatus = z.infer<typeof ProfileStatusSchema>;
+
 /**
  * A named profile entry: an `LLMConfigFragment` augmented with
  * presentation/ownership metadata. These fields are intentionally kept off
@@ -343,6 +346,8 @@ export const ProfileEntry = LLMConfigFragment.extend({
    * not yet backfilled by the boot-time migration.
    */
   provider_connection: z.string().min(1).optional(),
+  /** Absent means active. */
+  status: ProfileStatusSchema.optional(),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 

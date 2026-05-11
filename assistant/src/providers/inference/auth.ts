@@ -71,6 +71,13 @@ export type ConnectionProvider = typeof VALID_CONNECTION_PROVIDERS[number];
 export const ConnectionProviderSchema = z.enum(VALID_CONNECTION_PROVIDERS);
 
 // ---------------------------------------------------------------------------
+// Connection status
+// ---------------------------------------------------------------------------
+
+export const ConnectionStatusSchema = z.enum(["active", "disabled"]);
+export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
+
+// ---------------------------------------------------------------------------
 // Full connection shape used by CRUD layer
 // ---------------------------------------------------------------------------
 
@@ -78,6 +85,8 @@ export const ProviderConnectionSchema = z.object({
   name: z.string().min(1),
   provider: ConnectionProviderSchema,
   auth: AuthSchema,
+  status: ConnectionStatusSchema,
+  label: z.string().min(1).nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
 });

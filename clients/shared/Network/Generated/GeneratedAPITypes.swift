@@ -5970,19 +5970,31 @@ public struct ProviderConnectionAuth: Codable, Sendable {
     }
 }
 
+/// Status of a provider connection. `active` (default) means the connection
+/// is offered in picker UIs. `disabled` hides it from pickers but keeps it
+/// visible in the settings sheet so the user can re-enable it.
+public enum ConnectionStatus: String, Codable, Sendable {
+    case active
+    case disabled
+}
+
 /// A named provider connection stored in the assistant database.
 public struct ProviderConnection: Codable, Sendable {
     public let name: String
     /// One of: `anthropic`, `openai`, `gemini`, `ollama`, `fireworks`, `openrouter`.
     public let provider: String
     public let auth: ProviderConnectionAuth
+    public let status: ConnectionStatus
+    public let label: String?
     public let createdAt: Int
     public let updatedAt: Int
 
-    public init(name: String, provider: String, auth: ProviderConnectionAuth, createdAt: Int, updatedAt: Int) {
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, status: ConnectionStatus = .active, label: String? = nil, createdAt: Int, updatedAt: Int) {
         self.name = name
         self.provider = provider
         self.auth = auth
+        self.status = status
+        self.label = label
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -6002,20 +6014,28 @@ public struct CreateProviderConnectionRequest: Codable, Sendable {
     public let name: String
     public let provider: String
     public let auth: ProviderConnectionAuth
+    public let label: String?
+    public let status: ConnectionStatus?
 
-    public init(name: String, provider: String, auth: ProviderConnectionAuth) {
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, label: String? = nil, status: ConnectionStatus? = nil) {
         self.name = name
         self.provider = provider
         self.auth = auth
+        self.label = label
+        self.status = status
     }
 }
 
 /// Request body for `PATCH /v1/inference/provider-connections/:name`.
 public struct UpdateProviderConnectionRequest: Codable, Sendable {
     public let auth: ProviderConnectionAuth
+    public let status: ConnectionStatus?
+    public let label: String?
 
-    public init(auth: ProviderConnectionAuth) {
+    public init(auth: ProviderConnectionAuth, status: ConnectionStatus? = nil, label: String? = nil) {
         self.auth = auth
+        self.status = status
+        self.label = label
     }
 }
 
