@@ -514,15 +514,16 @@ export async function runDaemon(): Promise<void> {
     // seeder and persisted alongside schema defaults.
     const defaultConfigMerge = mergeDefaultWorkspaceConfig();
 
-    // Seed managed inference profiles into the workspace config. Runs after
-    // workspace migrations and default-config merge, but before loadConfig() so
-    // fresh hatches have profiles on disk before the first config load. Any
-    // profile fields explicitly supplied by the default overlay stay
-    // authoritative for this startup.
+    // Seed inference profiles into the workspace config. Managed Anthropic
+    // profiles are overwritten on every boot so Vellum can push updates.
+    // Off-platform hatches additionally create user profiles + a personal
+    // provider connection for the hatch provider.
     try {
       seedInferenceProfiles({
         preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
         preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+        isHatch: defaultConfigMerge.hadOverlay,
+        db: dbReady ? getDb() : undefined,
       });
       log.info("Inference profile seeding complete");
     } catch (err) {

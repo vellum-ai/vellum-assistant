@@ -38,7 +38,7 @@ const MANAGED_PROVIDERS = new Set(["anthropic", "openai", "gemini"]);
  *   - self-heal manual config.json edits that drop the connection field
  *
  * Steps:
- *   1. Seed canonical connections (INSERT … ON CONFLICT DO NOTHING).
+ *   1. Upsert canonical connections.
  *   2. Walk `llm.default`, `llm.profiles.*`, `llm.callSites.*` in config.json.
  *   3. For each entry without `provider_connection`, derive one from the
  *      entry's `provider` field + the global inference mode and write it back.

@@ -1,19 +1,20 @@
+import type { DrizzleDb } from "../memory/db-connection.js";
+import {
+  createConnection,
+  getConnection,
+} from "../providers/inference/connections.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
 import type { ModelIntent } from "../providers/types.js";
+import { credentialKey } from "../security/credential-key.js";
+import { getLogger } from "../util/logger.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   type ProfileEntry,
 } from "./schemas/llm.js";
 
-/**
- * Provider connection backing every managed profile. Seeded by
- * `seedCanonicalConnections` in `providers/inference/connections.ts`; auth is
- * `{ type: "platform" }` so dispatch resolves credentials from the logged-in
- * Vellum account at call time. Users who want to use OpenAI / Gemini / a local
- * model create their own connection + profile through the Providers UI; the
- * daemon never auto-materializes a custom profile here.
- */
+const log = getLogger("seed-inference-profiles");
+
 const MANAGED_CONNECTION_NAME = "anthropic-managed";
 const MANAGED_PROFILE_PROVIDER: NonNullable<ProfileEntry["provider"]> =
   "anthropic";
@@ -23,15 +24,19 @@ const MANAGED_PROFILE_PROVIDER: NonNullable<ProfileEntry["provider"]> =
  * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
  * single source of truth for "which model does this intent map to?".
  */
-type ManagedProfileTemplate = Omit<ProfileEntry, "provider" | "model"> & {
+type ManagedProfileTemplate = Omit<
+  ProfileEntry,
+  "provider" | "model" | "provider_connection"
+> & {
   intent: ModelIntent;
 };
 
 /**
- * Anthropic-managed profiles. Always seeded so users can target Anthropic via
- * their own key, even when the resolved default provider is something else.
+ * Managed Anthropic profiles. Overwritten on every daemon boot so Vellum can
+ * push model/config updates to customers in new releases. Platform overlays
+ * (`preserveProfileNames`) take precedence when present.
  */
-const ANTHROPIC_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
+const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   balanced: {
     intent: "balanced",
     source: "managed",
@@ -64,45 +69,76 @@ const ANTHROPIC_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
 };
 
+/**
+ * User profile templates. Materialized at hatch time for off-platform
+ * installations. Each points at the user's personal provider connection
+ * (backed by their API key in CES).
+ */
+const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
+  "custom-balanced": {
+    intent: "balanced",
+    source: "user",
+    label: "Balanced",
+    description: "Good balance of quality, cost, and speed",
+    maxTokens: 16000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  "custom-quality-optimized": {
+    intent: "quality-optimized",
+    source: "user",
+    label: "Quality",
+    description: "Best results with the most capable model",
+    maxTokens: 32000,
+    effort: "max",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  "custom-cost-optimized": {
+    intent: "latency-optimized",
+    source: "user",
+    label: "Speed",
+    description: "Fastest responses at lower cost",
+    maxTokens: 8192,
+    effort: "low",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+};
+
 export const MANAGED_PROFILE_NAMES = new Set(
-  Object.keys(ANTHROPIC_PROFILE_TEMPLATES),
+  Object.keys(MANAGED_PROFILE_TEMPLATES),
 );
 
 export type SeedInferenceProfilesOptions = {
   /**
-   * Managed profile names supplied by the platform/default overlay for this
-   * startup. Those entries are already on disk by the time seeding runs and
-   * should remain authoritative for this boot.
+   * Profile names supplied by the platform/default overlay for this startup.
+   * Those entries are already on disk and should remain authoritative.
    */
   preserveProfileNames?: Iterable<string>;
   preserveActiveProfile?: boolean;
+  /** True when a hatch overlay was consumed this startup. */
+  isHatch?: boolean;
+  /** DB handle for creating user provider connections at hatch time. */
+  db?: DrizzleDb;
 };
 
 /**
- * Seed managed inference profiles into the workspace config.
+ * Seed inference profiles into the workspace config.
  *
- * Called on every daemon startup after workspace migrations and default-config
- * overlay merge, but before the first `loadConfig()`. Ensures the 3 managed
- * profiles (`balanced`, `quality-optimized`, `cost-optimized`) exist at their
- * canonical names. Existing on-disk entries are never overwritten — platform
- * overlays (covered by `preserveProfileNames`) and user edits via the
- * Providers UI both stay authoritative across boots.
+ * Runs on every daemon startup. Two responsibilities:
  *
- * Each materialized managed profile carries `provider_connection:
- * "anthropic-managed"`. Dispatch resolves auth from that connection (seeded
- * as `{ type: "platform" }` by `seedCanonicalConnections`). Users who want
- * a different provider create a user-defined connection + profile pair via
- * the Providers UI; this function never materializes user profiles.
+ * 1. **Managed profiles** (`balanced`, `quality-optimized`, `cost-optimized`):
+ *    overwritten on every boot so Vellum can push model/config updates to
+ *    customers. Each carries `provider_connection: "anthropic-managed"`.
+ *    Platform overlays (`preserveProfileNames`) take precedence.
  *
- * Active profile resolution:
- *   - `options.preserveActiveProfile === true` (overlay supplied an
- *     explicit `activeProfile`): keep the on-disk choice when it points
- *     at an existing profile.
- *   - Otherwise: fall back to `"balanced"` when the on-disk
- *     `activeProfile` is missing, points at a deleted profile, or points
- *     at a profile whose `provider` no longer matches the current
- *     `llm.default.provider` (e.g. a legacy overlay that re-hatches from
- *     OpenAI to Anthropic by updating only `default.provider`).
+ * 2. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
+ *    `custom-cost-optimized`): materialized once at hatch time for
+ *    off-platform installations. Each points at a personal provider
+ *    connection backed by the user's API key in CES. Subsequent boots
+ *    leave these untouched — the user owns them.
  */
 export function seedInferenceProfiles(
   options: SeedInferenceProfilesOptions = {},
@@ -120,16 +156,60 @@ export function seedInferenceProfiles(
   }
   const profiles = llm.profiles as Record<string, Record<string, unknown>>;
 
-  // Seed the 3 managed profiles at their canonical names on fresh installs.
-  // Each points at the `anthropic-managed` provider connection (seeded by
-  // `seedCanonicalConnections`). Skip overlays (`preservedProfileNames`)
-  // and any name already on disk — those stay authoritative.
-  for (const [name, template] of Object.entries(ANTHROPIC_PROFILE_TEMPLATES)) {
+  const isPlatform =
+    process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
+
+  // 1. Managed profiles. Off-platform: overwrite on every boot so Vellum can
+  //    push model/config updates in new releases. On-platform: insert only if
+  //    absent — the platform controls profiles through overlays.
+  for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
     if (preservedProfileNames.has(name)) continue;
-    if (readObject(profiles[name]) !== null) continue;
-    profiles[name] = materializeProfile(template);
+    if (isPlatform && readObject(profiles[name]) !== null) continue;
+    profiles[name] = materializeProfile(
+      template,
+      MANAGED_PROFILE_PROVIDER,
+      MANAGED_CONNECTION_NAME,
+    );
   }
 
+  // 2. User profiles — only at hatch time for off-platform installations.
+  let userConnectionName: string | undefined;
+  if (options.isHatch && !isPlatform) {
+    const hatchProvider = readString(readObject(llm.default)?.provider);
+    if (hatchProvider && hatchProvider !== "ollama") {
+      userConnectionName = `${hatchProvider}-personal`;
+
+      if (options.db) {
+        if (!getConnection(options.db, userConnectionName)) {
+          const credName = credentialKey(hatchProvider, "api_key");
+          const result = createConnection(options.db, {
+            name: userConnectionName,
+            provider: hatchProvider,
+            auth: { type: "api_key", credential: credName },
+          });
+          if (!result.ok) {
+            log.warn(
+              { provider: hatchProvider, error: result.error },
+              "Failed to create personal connection during hatch seeding",
+            );
+          }
+        }
+      }
+
+      const provider =
+        hatchProvider as NonNullable<ProfileEntry["provider"]>;
+      for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
+        if (preservedProfileNames.has(name)) continue;
+        profiles[name] = materializeProfile(
+          template,
+          provider,
+          userConnectionName,
+        );
+      }
+    }
+  }
+
+  // Active profile resolution.
   const requestedActiveProfile = readString(llm.activeProfile);
   const requestedActiveEntry =
     requestedActiveProfile !== undefined
@@ -139,41 +219,37 @@ export function seedInferenceProfiles(
   const shouldPreserveActiveProfile =
     options.preserveActiveProfile === true && requestedActiveExists;
 
-  // When the overlay didn't claim ownership of `activeProfile`, detect a
-  // stale choice from a legacy re-hatch: the active profile's `provider`
-  // no longer matches `llm.default.provider`. The clearest case is an
-  // OpenAI→Anthropic re-hatch that updates only `default.provider` and
-  // leaves the previous `custom-balanced` active. Reset to `balanced` so
-  // the user lands on the managed default for the new provider.
-  let activeProviderMismatch = false;
-  if (!shouldPreserveActiveProfile && requestedActiveExists) {
-    const activeProvider = readString(requestedActiveEntry?.provider);
-    const defaultProvider = readString(readObject(llm.default)?.provider);
-    activeProviderMismatch =
-      activeProvider !== undefined &&
-      defaultProvider !== undefined &&
-      activeProvider !== defaultProvider;
+  if (!shouldPreserveActiveProfile) {
+    if (options.isHatch) {
+      // Hatch = fresh setup. Pick the right default based on platform mode.
+      llm.activeProfile = userConnectionName ? "custom-balanced" : "balanced";
+    } else if (!requestedActiveExists) {
+      llm.activeProfile = "balanced";
+    }
   }
 
-  if (
-    !shouldPreserveActiveProfile &&
-    (!requestedActiveExists || activeProviderMismatch)
-  ) {
-    llm.activeProfile = "balanced";
-  }
-
+  // Profile ordering — ensure all seeded profiles appear in the order array.
   const profileOrder = Array.isArray(llm.profileOrder)
     ? (llm.profileOrder as string[])
     : [];
   const orderSet = new Set(profileOrder);
-  for (const name of Object.keys(ANTHROPIC_PROFILE_TEMPLATES)) {
+  for (const name of Object.keys(MANAGED_PROFILE_TEMPLATES)) {
     if (!orderSet.has(name)) {
       profileOrder.push(name);
       orderSet.add(name);
     }
   }
+  if (userConnectionName) {
+    for (const name of Object.keys(USER_PROFILE_TEMPLATES)) {
+      if (!orderSet.has(name)) {
+        profileOrder.push(name);
+        orderSet.add(name);
+      }
+    }
+  }
   llm.profileOrder = profileOrder;
 
+  // Tag any remaining profiles without a source as user-created.
   for (const [name, profile] of Object.entries(profiles)) {
     if (MANAGED_PROFILE_NAMES.has(name)) continue;
     if (
@@ -188,13 +264,17 @@ export function seedInferenceProfiles(
   saveRawConfig(config);
 }
 
-function materializeProfile(template: ManagedProfileTemplate): ProfileEntry {
+function materializeProfile(
+  template: ManagedProfileTemplate,
+  provider: NonNullable<ProfileEntry["provider"]>,
+  connectionName: string,
+): ProfileEntry {
   const { intent, ...rest } = template;
   return {
     ...rest,
-    provider: MANAGED_PROFILE_PROVIDER,
-    provider_connection: MANAGED_CONNECTION_NAME,
-    model: resolveModelIntent(MANAGED_PROFILE_PROVIDER, intent),
+    provider,
+    provider_connection: connectionName,
+    model: resolveModelIntent(provider, intent),
   };
 }
 

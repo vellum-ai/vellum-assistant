@@ -519,12 +519,14 @@ export function deepMergeOverwrite(
 }
 
 export type DefaultWorkspaceConfigMergeResult = {
+  hadOverlay: boolean;
   providedLlmProfileNames: Set<string>;
   providedLlmActiveProfile: boolean;
 };
 
 function emptyDefaultWorkspaceConfigMergeResult(): DefaultWorkspaceConfigMergeResult {
   return {
+    hadOverlay: false,
     providedLlmProfileNames: new Set(),
     providedLlmActiveProfile: false,
   };
@@ -570,6 +572,7 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
   );
   const providedProfiles = readPlainObject(llmDefaults?.profiles);
   const mergeResult: DefaultWorkspaceConfigMergeResult = {
+    hadOverlay: true,
     providedLlmProfileNames: new Set(
       providedProfiles ? Object.keys(providedProfiles) : [],
     ),
