@@ -282,6 +282,7 @@ struct ProvidersSheet: View {
                 placeholder: "my-connection",
                 text: $editorDraft.name
             )
+            .disabled(editorState != .create)
         }
     }
 

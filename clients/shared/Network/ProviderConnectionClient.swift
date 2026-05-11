@@ -139,10 +139,24 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
     }
 
     private func parseConflictRefs(from data: Data) -> [String] {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let refs = json["referencedBy"] as? [String] else {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return []
         }
-        return refs
+        if let refs = json["referencedBy"] as? [String] { return refs }
+        if let error = json["error"] as? [String: Any] {
+            if let refs = (error["details"] as? [String: Any])?["referencedBy"] as? [String] { return refs }
+            if let message = error["message"] as? String {
+                return parseProfileNames(from: message)
+            }
+        }
+        return []
+    }
+
+    private func parseProfileNames(from message: String) -> [String] {
+        guard let colonRange = message.range(of: ": ", options: .backwards) else { return [] }
+        var tail = String(message[colonRange.upperBound...])
+        if tail.hasSuffix(".") { tail = String(tail.dropLast()) }
+        let names = tail.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        return names.isEmpty ? [] : names
     }
 }

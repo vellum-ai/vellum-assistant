@@ -397,7 +397,6 @@ public final class SettingsStore: ObservableObject {
     private let channelClient: ChannelClientProtocol
     private let integrationClient: IntegrationClientProtocol
     private let settingsClient: SettingsClientProtocol
-    private let providerConnectionClient: ProviderConnectionClientProtocol
     private let currentDeviceTimezoneIdentifier: () -> String
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
@@ -468,7 +467,6 @@ public final class SettingsStore: ObservableObject {
         channelClient: ChannelClientProtocol = ChannelClient(),
         integrationClient: IntegrationClientProtocol = IntegrationClient(),
         settingsClient: SettingsClientProtocol = SettingsClient(),
-        providerConnectionClient: ProviderConnectionClientProtocol = ProviderConnectionClient(),
         configPath: String? = nil,
         currentDeviceTimezoneIdentifier: @escaping () -> String = { TimeZone.autoupdatingCurrent.identifier },
         verificationSessionTimeoutDuration: TimeInterval = 12,
@@ -480,7 +478,6 @@ public final class SettingsStore: ObservableObject {
         self.channelClient = channelClient
         self.integrationClient = integrationClient
         self.settingsClient = settingsClient
-        self.providerConnectionClient = providerConnectionClient
         self.currentDeviceTimezoneIdentifier = currentDeviceTimezoneIdentifier
         self.configPath = configPath
         self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
