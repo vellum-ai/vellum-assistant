@@ -409,7 +409,15 @@ Examples:
             }
 
             if (opts.output) {
-              writeFileSync(opts.output, content, "utf-8");
+              try {
+                writeFileSync(opts.output, content, "utf-8");
+              } catch (err) {
+                log.error(
+                  `Failed to write --output ${opts.output}: ${err instanceof Error ? err.message : String(err)}`,
+                );
+                process.exitCode = 1;
+                return;
+              }
               if (!shouldOutputJson(cmd)) {
                 log.info(`✓ Saved to ${opts.output}`);
               } else {
@@ -640,93 +648,112 @@ $ assistant email attachment msg_abc1 --list --json`,
               return;
             }
 
-            // Ensure output directory exists
+            // Ensure output directory exists and download attachment(s)
             const outDir = opts.output ?? ".";
-            mkdirSync(outDir, { recursive: true });
-
-            if (opts.all) {
-              // Download all attachments — list first to get filenames
-              const listR = await cliIpcCall<{ results: AttachmentMeta[] }>(
-                "email_attachment_list",
-                { queryParams: { messageId } },
+            try {
+              mkdirSync(outDir, { recursive: true });
+            } catch (err) {
+              log.error(
+                `Failed to create output directory ${outDir}: ${err instanceof Error ? err.message : String(err)}`,
               );
-              if (!listR.ok)
-                return handleEmailIpcError(
-                  {
-                    ok: false,
-                    error: listR.error,
-                    statusCode: listR.statusCode,
-                  },
-                  cmd,
+              process.exitCode = 1;
+              return;
+            }
+
+            try {
+              if (opts.all) {
+                // Download all attachments — list first to get filenames
+                const listR = await cliIpcCall<{ results: AttachmentMeta[] }>(
+                  "email_attachment_list",
+                  { queryParams: { messageId } },
                 );
-              const attachments = listR.result!.results ?? [];
-              if (attachments.length === 0) {
-                log.error("No attachments for this message.");
-                process.exitCode = 1;
-                return;
-              }
+                if (!listR.ok)
+                  return handleEmailIpcError(
+                    {
+                      ok: false,
+                      error: listR.error,
+                      statusCode: listR.statusCode,
+                    },
+                    cmd,
+                  );
+                const attachments = listR.result!.results ?? [];
+                if (attachments.length === 0) {
+                  log.error("No attachments for this message.");
+                  process.exitCode = 1;
+                  return;
+                }
 
-              const downloaded: { filename: string; size_bytes: number }[] = [];
-              for (const att of attachments) {
-                const dest = join(outDir, safeFilename(att.filename));
-                await streamDownloadAttachment(att.id, messageId, dest);
-                downloaded.push({
-                  filename: att.filename,
-                  size_bytes: att.size_bytes,
-                });
-              }
+                const downloaded: { filename: string; size_bytes: number }[] =
+                  [];
+                for (const att of attachments) {
+                  const dest = join(outDir, safeFilename(att.filename));
+                  await streamDownloadAttachment(att.id, messageId, dest);
+                  downloaded.push({
+                    filename: att.filename,
+                    size_bytes: att.size_bytes,
+                  });
+                }
 
-              if (shouldOutputJson(cmd)) {
-                writeOutput(cmd, {
-                  downloaded: downloaded.length,
-                  directory: outDir,
-                  files: downloaded,
-                });
+                if (shouldOutputJson(cmd)) {
+                  writeOutput(cmd, {
+                    downloaded: downloaded.length,
+                    directory: outDir,
+                    files: downloaded,
+                  });
+                } else {
+                  log.info(
+                    `✓ Downloaded ${downloaded.length} attachment(s) to ${outDir}`,
+                  );
+                  for (const f of downloaded) {
+                    log.info(
+                      `  - ${f.filename} (${formatBytes(f.size_bytes)})`,
+                    );
+                  }
+                }
               } else {
-                log.info(
-                  `✓ Downloaded ${downloaded.length} attachment(s) to ${outDir}`,
+                // Download single attachment — look up metadata from the list first
+                const listR = await cliIpcCall<{ results: AttachmentMeta[] }>(
+                  "email_attachment_list",
+                  { queryParams: { messageId } },
                 );
-                for (const f of downloaded) {
-                  log.info(`  - ${f.filename} (${formatBytes(f.size_bytes)})`);
+                if (!listR.ok)
+                  return handleEmailIpcError(
+                    {
+                      ok: false,
+                      error: listR.error,
+                      statusCode: listR.statusCode,
+                    },
+                    cmd,
+                  );
+                const meta = (listR.result!.results ?? []).find(
+                  (a) => a.id === attachmentId,
+                );
+                if (!meta) {
+                  log.error(`Attachment not found: ${attachmentId}`);
+                  process.exitCode = 2;
+                  return;
+                }
+                const dest = join(outDir, safeFilename(meta.filename));
+                await streamDownloadAttachment(attachmentId!, messageId, dest);
+
+                if (shouldOutputJson(cmd)) {
+                  writeOutput(cmd, {
+                    filename: meta.filename,
+                    size_bytes: meta.size_bytes,
+                    saved: dest,
+                  });
+                } else {
+                  log.info(
+                    `✓ Downloaded ${meta.filename} (${formatBytes(meta.size_bytes)})`,
+                  );
                 }
               }
-            } else {
-              // Download single attachment — look up metadata from the list first
-              const listR = await cliIpcCall<{ results: AttachmentMeta[] }>(
-                "email_attachment_list",
-                { queryParams: { messageId } },
+            } catch (err) {
+              log.error(
+                `Failed to download attachment: ${err instanceof Error ? err.message : String(err)}`,
               );
-              if (!listR.ok)
-                return handleEmailIpcError(
-                  {
-                    ok: false,
-                    error: listR.error,
-                    statusCode: listR.statusCode,
-                  },
-                  cmd,
-                );
-              const meta = (listR.result!.results ?? []).find(
-                (a) => a.id === attachmentId,
-              );
-              if (!meta) {
-                log.error(`Attachment not found: ${attachmentId}`);
-                process.exitCode = 2;
-                return;
-              }
-              const dest = join(outDir, safeFilename(meta.filename));
-              await streamDownloadAttachment(attachmentId!, messageId, dest);
-
-              if (shouldOutputJson(cmd)) {
-                writeOutput(cmd, {
-                  filename: meta.filename,
-                  size_bytes: meta.size_bytes,
-                  saved: dest,
-                });
-              } else {
-                log.info(
-                  `✓ Downloaded ${meta.filename} (${formatBytes(meta.size_bytes)})`,
-                );
-              }
+              process.exitCode = 1;
+              return;
             }
           },
         );
