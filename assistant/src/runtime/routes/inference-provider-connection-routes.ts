@@ -4,8 +4,8 @@
  * GET    /v1/inference/provider-connections          — list all connections (optional ?provider= filter)
  * GET    /v1/inference/provider-connections/:name    — single connection by name
  * POST   /v1/inference/provider-connections          — create a new connection
- * PATCH  /v1/inference/provider-connections/:name    — update auth (cannot rename or change provider)
- * DELETE /v1/inference/provider-connections/:name    — delete (rejects if profiles or call sites reference it)
+ * PATCH  /v1/inference/provider-connections/:name    — update auth/label/status (cannot rename or change provider; auth is locked to platform for managed connections)
+ * DELETE /v1/inference/provider-connections/:name    — delete (rejects if profiles or call sites reference it; rejects outright for managed connections)
  */
 
 import { z } from "zod";
@@ -18,6 +18,7 @@ import {
   deleteConnection,
   getConnection,
   listConnections,
+  MANAGED_CONNECTION_NAMES,
   updateConnection,
 } from "../../providers/inference/connections.js";
 import {
@@ -129,6 +130,16 @@ function handleUpdateConnection({ pathParams = {}, body = {} }: RouteHandlerArgs
     throw new BadRequestError(`Invalid label: must be a non-empty string or null`);
   }
 
+  // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
+  // `seedCanonicalConnections` would revert any other value on next restart;
+  // reject the write here so the surprise loop never happens. Label and status
+  // remain user-editable (the boot upsert leaves those alone).
+  if (MANAGED_CONNECTION_NAMES.has(name) && authResult.data.type !== "platform") {
+    throw new BadRequestError(
+      `Cannot change auth on managed connection "${name}". Auth is locked to platform.`,
+    );
+  }
+
   const result = updateConnection(getDb(), name, {
     auth: authResult.data,
     ...(statusResult ? { status: statusResult.data } : {}),
@@ -153,6 +164,17 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // reference to a missing connection returns 404 (not 409).
   if (!getConnection(getDb(), name)) {
     throw new NotFoundError(`Connection "${name}" not found.`);
+  }
+
+  // Managed connections are write-protected: `seedCanonicalConnections` would
+  // re-upsert them on the next daemon boot anyway, so a successful delete here
+  // produces a confusing delete → reappear loop. Reject outright. Mirrors
+  // `rejectManagedProfileDeletion` for managed profiles (which are similarly
+  // re-overlaid by `seed-inference-profiles.ts` on boot).
+  if (MANAGED_CONNECTION_NAMES.has(name)) {
+    throw new BadRequestError(
+      `Cannot delete managed connection "${name}". This is a Vellum-managed connection — disable it via PATCH status="disabled" if you want to opt out of platform inference.`,
+    );
   }
 
   const config = getConfigReadOnly();
@@ -259,7 +281,7 @@ export const ROUTES: RouteDefinition[] = [
     policyKey: "inference/provider-connections/detail",
     summary: "Update a provider connection",
     description:
-      "Update an existing connection. Cannot rename or change the provider.",
+      "Update an existing connection. Cannot rename or change the provider. For managed connections (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label and status remain editable.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     requestBody: z.object({
@@ -269,7 +291,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: providerConnectionResponseSchema,
     additionalResponses: {
-      "400": { description: "Invalid auth schema" },
+      "400": { description: "Invalid auth schema, or attempt to change auth on a managed connection" },
       "404": { description: "Connection not found" },
     },
     handler: handleUpdateConnection,
@@ -281,11 +303,12 @@ export const ROUTES: RouteDefinition[] = [
     policyKey: "inference/provider-connections/detail",
     summary: "Delete a provider connection",
     description:
-      "Delete a provider connection. Fails with 409 if any profile or call-site references it.",
+      "Delete a provider connection. Fails with 400 for managed connections (anthropic-managed, openai-managed, gemini-managed) which are re-seeded on boot. Fails with 409 if any profile or call-site references the connection.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     responseBody: z.object({ ok: z.literal(true) }),
     additionalResponses: {
+      "400": { description: "Connection is a Vellum-managed connection and cannot be deleted" },
       "404": { description: "Connection not found" },
       "409": { description: "Connection is referenced by profile(s) or call site(s)" },
     },

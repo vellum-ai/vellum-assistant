@@ -237,6 +237,24 @@ const CANONICAL_CONNECTIONS: Array<{ name: string; provider: string; auth: Auth 
 ];
 
 /**
+ * Names of the canonical Vellum-managed connections. These are seeded on every
+ * daemon boot via `seedCanonicalConnections` and represent the platform-managed
+ * inference route. They are write-protected at the route layer:
+ *   - DELETE is blocked outright (would resurrect on next boot anyway, but
+ *     blocking prevents a confusing delete → re-appear loop).
+ *   - PATCH that changes `auth` is blocked (auth is locked to `{type:"platform"}`
+ *     so any other value would be reverted on the next boot upsert).
+ *   - PATCH that changes `label` and/or `status` is allowed — users may legitimately
+ *     disable or relabel the managed connection. Status/label are not touched by
+ *     the boot upsert (see `seedCanonicalConnections`).
+ *
+ * Mirrors `MANAGED_PROFILE_NAMES` (config/seed-inference-profiles.ts).
+ */
+export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
+  CANONICAL_CONNECTIONS.map((c) => c.name),
+);
+
+/**
  * Upsert the three canonical connections on every boot. Existing rows are
  * updated to the latest provider/auth values so Vellum can push connection
  * changes to customers in new releases.
