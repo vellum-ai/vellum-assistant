@@ -2,13 +2,16 @@
  * Canonical source for API-key-addressable providers.
  *
  * This module composes the full set of providers that store API keys in
- * secure storage (the `api_key` secret type) from three sources:
+ * secure storage (the `api_key` secret type) from four sources:
  *
- * 1. **LLM / search providers** -- statically declared here because they
- *    have no separate catalog module yet.
- * 2. **STT providers** -- dynamically derived from the canonical STT
+ * 1. **LLM providers** -- derived from `PROVIDER_CATALOG`
+ *    (`model-catalog.ts`). Adding a provider to the catalog automatically
+ *    extends the API-key-addressable set.
+ * 2. **Search providers** -- statically declared (`brave`, `perplexity`);
+ *    no catalog module exists for search providers yet.
+ * 3. **STT providers** -- dynamically derived from the canonical STT
  *    provider catalog by reading credential-provider names.
- * 3. **TTS catalog providers** -- dynamically derived from the canonical
+ * 4. **TTS catalog providers** -- dynamically derived from the canonical
  *    TTS provider catalog by selecting entries whose secret requirements
  *    use the bare-name (non-credential) storage convention.
  *
@@ -18,30 +21,42 @@
  */
 
 import { listCatalogProviders } from "../tts/provider-catalog.js";
+import { PROVIDER_CATALOG } from "./model-catalog.js";
 import { listCredentialProviderNames as listSttCredentialProviderNames } from "./speech-to-text/provider-catalog.js";
 
 // ---------------------------------------------------------------------------
-// Static LLM / search providers
+// LLM and search providers
 // ---------------------------------------------------------------------------
 
 /**
- * LLM and search providers that store API keys under their bare provider
- * name in the secure credential store (e.g. `anthropic`, `openai`).
+ * LLM providers that store API keys under their bare provider name in the
+ * secure credential store (e.g. `anthropic`, `openai`).
  *
- * These are declared statically because no provider-catalog module exists
- * for them yet. When one is introduced, this array should be replaced with
- * a catalog-derived computation analogous to the TTS logic below.
+ * Derived from `PROVIDER_CATALOG` so that adding a new LLM provider to the
+ * catalog automatically extends the API-key-addressable provider set.
+ * `ollama` is intentionally included here even though it is `setupMode:
+ * "keyless"` — preserving the prior hardcoded behaviour (the keyless mode
+ * is enforced elsewhere; this list is purely about the set of bare-name
+ * credential-store keys accepted by `assistant keys ...`).
+ *
+ * Search providers (`brave`, `perplexity`) have no catalog module yet and
+ * remain statically declared below.
  */
-const LLM_AND_SEARCH_API_KEY_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "gemini",
-  "ollama",
-  "fireworks",
-  "openrouter",
-  "brave",
-  "perplexity",
-] as const;
+const LLM_API_KEY_PROVIDERS: readonly string[] = PROVIDER_CATALOG.map(
+  (p) => p.id,
+);
+
+/**
+ * Search API providers without a catalog module. When a search-provider
+ * catalog is introduced, replace this array with a catalog-derived
+ * computation analogous to the TTS logic below.
+ */
+const SEARCH_API_KEY_PROVIDERS = ["brave", "perplexity"] as const;
+
+const LLM_AND_SEARCH_API_KEY_PROVIDERS: readonly string[] = [
+  ...LLM_API_KEY_PROVIDERS,
+  ...SEARCH_API_KEY_PROVIDERS,
+];
 
 // ---------------------------------------------------------------------------
 // STT catalog-derived providers
