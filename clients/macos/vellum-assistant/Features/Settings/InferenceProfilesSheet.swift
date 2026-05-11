@@ -255,7 +255,7 @@ struct InferenceProfilesSheet: View {
     /// the user always owns (mirrors `ProvidersSheet`'s connection row).
     private func profileRow(_ profile: InferenceProfile) -> some View {
         let isActive = profile.status != "disabled"
-        HStack(alignment: .center, spacing: VSpacing.md) {
+        return HStack(alignment: .center, spacing: VSpacing.md) {
             VIconView(.gripVertical, size: 14)
                 .foregroundStyle(VColor.contentTertiary)
                 .frame(width: 18, height: 28)
