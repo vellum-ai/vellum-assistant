@@ -474,6 +474,126 @@ describe("PATCH with status and label", () => {
   });
 });
 
+// ── Managed-connection write protection ──────────────────────────────────────
+
+describe("Managed connection write protection", () => {
+  const MANAGED_NAMES = ["anthropic-managed", "openai-managed", "gemini-managed"] as const;
+
+  describe("DELETE", () => {
+    for (const name of MANAGED_NAMES) {
+      test(`rejects DELETE on ${name} with 400`, async () => {
+        seedConnection({ name, provider: name.replace("-managed", ""), auth: { type: "platform" } });
+
+        const err = await call(
+          findHandler("inference_provider_connections_delete"),
+          { pathParams: { name } },
+        ).catch((e: unknown) => e);
+
+        expect(err).toBeInstanceOf(BadRequestError);
+        expect((err as BadRequestError).message).toContain(name);
+        expect((err as BadRequestError).message).toContain("managed");
+      });
+    }
+
+    test("managed protection short-circuits before reference checks", async () => {
+      // Even though a profile references the managed connection, the error
+      // should be the managed-protection 400, not the references-409.
+      seedConnection({ name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" } });
+      fakeConfig = {
+        llm: {
+          profiles: {
+            "balanced": { provider_connection: "anthropic-managed" },
+          },
+        },
+      };
+
+      const err = await call(
+        findHandler("inference_provider_connections_delete"),
+        { pathParams: { name: "anthropic-managed" } },
+      ).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(BadRequestError);
+      expect((err as BadRequestError).message).toContain("managed");
+    });
+  });
+
+  describe("PATCH auth", () => {
+    for (const name of MANAGED_NAMES) {
+      test(`rejects auth change on ${name} from platform to api_key with 400`, async () => {
+        seedConnection({ name, provider: name.replace("-managed", ""), auth: { type: "platform" } });
+
+        const err = await call(
+          findHandler("inference_provider_connections_update"),
+          {
+            pathParams: { name },
+            body: { auth: { type: "api_key", credential: "ref/my-key" } },
+          },
+        ).catch((e: unknown) => e);
+
+        expect(err).toBeInstanceOf(BadRequestError);
+        expect((err as BadRequestError).message).toContain(name);
+        expect((err as BadRequestError).message).toContain("platform");
+      });
+
+      test(`rejects auth change on ${name} from platform to none with 400`, async () => {
+        seedConnection({ name, provider: name.replace("-managed", ""), auth: { type: "platform" } });
+
+        const err = await call(
+          findHandler("inference_provider_connections_update"),
+          {
+            pathParams: { name },
+            body: { auth: { type: "none" } },
+          },
+        ).catch((e: unknown) => e);
+
+        expect(err).toBeInstanceOf(BadRequestError);
+        expect((err as BadRequestError).message).toContain(name);
+      });
+    }
+
+    test("allows PATCH with auth still set to platform (no-op auth change)", async () => {
+      seedConnection({ name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" } });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_update"),
+        {
+          pathParams: { name: "anthropic-managed" },
+          body: { auth: { type: "platform" }, label: "Vellum-managed Anthropic" },
+        },
+      )) as { label: string | null };
+      expect(result.label).toBe("Vellum-managed Anthropic");
+    });
+  });
+
+  describe("PATCH status + label (allowed)", () => {
+    test("allows disabling a managed connection", async () => {
+      seedConnection({ name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" } });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_update"),
+        {
+          pathParams: { name: "anthropic-managed" },
+          body: { auth: { type: "platform" }, status: "disabled" },
+        },
+      )) as { status: string };
+      expect(result.status).toBe("disabled");
+    });
+
+    test("allows relabeling a managed connection", async () => {
+      seedConnection({ name: "openai-managed", provider: "openai", auth: { type: "platform" } });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_update"),
+        {
+          pathParams: { name: "openai-managed" },
+          body: { auth: { type: "platform" }, label: "Custom Label" },
+        },
+      )) as { label: string | null };
+      expect(result.label).toBe("Custom Label");
+    });
+  });
+});
+
 // ── Auth / route-policy wiring ────────────────────────────────────────────────
 
 describe("Route policy registrations", () => {
