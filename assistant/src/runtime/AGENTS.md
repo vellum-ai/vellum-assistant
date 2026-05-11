@@ -12,6 +12,10 @@ The single HTTP send endpoint is `POST /v1/messages`. Key behaviors:
 
 Do NOT add new send endpoints. All message ingress should go through `POST /v1/messages` (HTTP).
 
+### SSE backpressure shedding must be observable
+
+SSE handlers built on `ReadableStream` shed slow subscribers when `controller.desiredSize <= 0` to keep daemon memory bounded. Every shed site must emit a log line + Sentry capture so the daemon-side shed can be time-correlated with the client-side idle watchdog (otherwise stalls are invisible from both sides). See [WHATWG Streams — Backpressure](https://streams.spec.whatwg.org/#pipe-chains) and [Node `monitorEventLoopDelay`](https://nodejs.org/api/perf_hooks.html#perf_hooksmonitoreventloopdelayoptions).
+
 ### GET handler idempotency
 
 GET handlers must be safe and side-effect-free — they must not enqueue background jobs, mutate database state, or trigger writes. If a feature needs server-initiated work in response to a client request, use an explicit POST endpoint or a push-based flow (SSE event → client refetch). See [RFC 9110 §9.2.1 — Safe Methods](https://httpwg.org/specs/rfc9110.html#safe.methods).
