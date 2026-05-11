@@ -4,6 +4,11 @@ import XCTest
 /// Covers ``APIKeyManager/parseListCredentialsResponse(_:)`` — the shape
 /// handling for `GET /v1/secrets` when populating the credential reference
 /// dropdown in ProvidersSheet.
+///
+/// The dropdown is scoped to `credential`-type entries only. `api_key`-type
+/// entries back the inline API Key field at the top of the editor and are
+/// excluded here to avoid the dropdown writing a duplicate credential row
+/// when the user picks one.
 final class APIKeyManagerListCredentialsTests: XCTestCase {
 
     // MARK: - Empty payload
@@ -29,7 +34,7 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
         let json = """
         {
           "secrets": [
-            { "type": "api_key", "name": "anthropic" }
+            { "type": "credential", "name": "anthropic:api_key" }
           ]
         }
         """.data(using: .utf8)!
@@ -45,7 +50,7 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
         let json = """
         {
           "accounts": [
-            { "type": "api_key", "name": "openai" }
+            { "type": "credential", "name": "openai:api_key" }
           ]
         }
         """.data(using: .utf8)!
@@ -61,10 +66,10 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
         let json = """
         {
           "secrets": [
-            { "type": "api_key", "name": "anthropic" }
+            { "type": "credential", "name": "anthropic:api_key" }
           ],
           "accounts": [
-            { "type": "api_key", "name": "openai" }
+            { "type": "credential", "name": "openai:api_key" }
           ]
         }
         """.data(using: .utf8)!
@@ -75,13 +80,13 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
         XCTAssertEqual(result[0].service, "anthropic")
     }
 
-    // MARK: - api_key entries
+    // MARK: - api_key entries are excluded from the credential dropdown
 
-    func testApiKeyEntryMapsToServiceAndApiKeyField() {
+    func testApiKeyEntriesAreSkipped() {
         let json = """
         {
           "secrets": [
-            { "type": "api_key", "name": "gemini" },
+            { "type": "api_key", "name": "anthropic" },
             { "type": "api_key", "name": "openrouter" }
           ]
         }
@@ -89,25 +94,7 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
 
         let result = APIKeyManager.parseListCredentialsResponse(json)!
 
-        XCTAssertEqual(result.count, 2)
-        XCTAssertTrue(result.contains(where: { $0.service == "gemini" && $0.field == "api_key" }))
-        XCTAssertTrue(result.contains(where: { $0.service == "openrouter" && $0.field == "api_key" }))
-    }
-
-    func testSkipsApiKeyEntriesWithEmptyName() {
-        let json = """
-        {
-          "secrets": [
-            { "type": "api_key", "name": "" },
-            { "type": "api_key", "name": "anthropic" }
-          ]
-        }
-        """.data(using: .utf8)!
-
-        let result = APIKeyManager.parseListCredentialsResponse(json)!
-
-        XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result[0].service, "anthropic")
+        XCTAssertEqual(result.count, 0)
     }
 
     // MARK: - credential entries
@@ -146,23 +133,23 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
 
     // MARK: - Mixed entries
 
-    func testMixedApiKeyAndCredentialEntries() {
+    func testMixedEntriesReturnOnlyCredentialRows() {
         let json = """
         {
           "secrets": [
             { "type": "api_key", "name": "anthropic" },
             { "type": "credential", "name": "elevenlabs:api_key" },
-            { "type": "api_key", "name": "openai" }
+            { "type": "api_key", "name": "openai" },
+            { "type": "credential", "name": "deepgram:api_key" }
           ]
         }
         """.data(using: .utf8)!
 
         let result = APIKeyManager.parseListCredentialsResponse(json)!
 
-        XCTAssertEqual(result.count, 3)
-        XCTAssertTrue(result.contains(where: { $0.service == "anthropic" && $0.field == "api_key" }))
+        XCTAssertEqual(result.count, 2)
         XCTAssertTrue(result.contains(where: { $0.service == "elevenlabs" && $0.field == "api_key" }))
-        XCTAssertTrue(result.contains(where: { $0.service == "openai" && $0.field == "api_key" }))
+        XCTAssertTrue(result.contains(where: { $0.service == "deepgram" && $0.field == "api_key" }))
     }
 
     // MARK: - Malformed entries
@@ -171,8 +158,8 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
         let json = """
         {
           "secrets": [
-            { "name": "anthropic" },
-            { "type": "api_key", "name": "openai" }
+            { "name": "anthropic:api_key" },
+            { "type": "credential", "name": "openai:api_key" }
           ]
         }
         """.data(using: .utf8)!
@@ -188,7 +175,7 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
         {
           "secrets": [
             { "type": "credential", "name": "nocolon" },
-            { "type": "api_key", "name": "anthropic" }
+            { "type": "credential", "name": "anthropic:api_key" }
           ]
         }
         """.data(using: .utf8)!
@@ -204,7 +191,7 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
         {
           "secrets": [
             { "type": "credential", "name": ":api_key" },
-            { "type": "api_key", "name": "anthropic" }
+            { "type": "credential", "name": "anthropic:api_key" }
           ]
         }
         """.data(using: .utf8)!
@@ -220,7 +207,7 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
         {
           "secrets": [
             { "type": "credential", "name": "elevenlabs:" },
-            { "type": "api_key", "name": "anthropic" }
+            { "type": "credential", "name": "anthropic:api_key" }
           ]
         }
         """.data(using: .utf8)!
@@ -236,7 +223,7 @@ final class APIKeyManagerListCredentialsTests: XCTestCase {
         {
           "secrets": [
             { "type": "credential" },
-            { "type": "api_key", "name": "openai" }
+            { "type": "credential", "name": "openai:api_key" }
           ]
         }
         """.data(using: .utf8)!

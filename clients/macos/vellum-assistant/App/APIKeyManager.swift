@@ -309,6 +309,15 @@ enum APIKeyManager {
         }
     }
 
+    /// Surfaces only `credential`-type entries from the daemon's secret store.
+    ///
+    /// `api_key`-type entries are intentionally excluded: they back the inline
+    /// API Key field at the top of the provider editor, and the credential
+    /// dropdown is for picking *additional* credential references. Lumping them
+    /// in caused two failure modes the dropdown couldn't recover from —
+    /// `secrets/read` with `type:"credential"` returned not-found (the entry
+    /// lives under `type:"api_key"`), so saving a value would write a fresh
+    /// `credential`-type row alongside the original.
     static func parseListCredentialsResponse(_ data: Data) -> [(service: String, field: String)]? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
@@ -318,18 +327,13 @@ enum APIKeyManager {
             ?? []
         var results: [(service: String, field: String)] = []
         for entry in entries {
-            guard let type = entry["type"] as? String else { continue }
-            if type == "api_key", let name = entry["name"] as? String, !name.isEmpty {
-                results.append((service: name, field: "api_key"))
-            } else if type == "credential", let name = entry["name"] as? String {
-                let colonIdx = name.lastIndex(of: ":")
-                if let idx = colonIdx {
-                    let service = String(name[name.startIndex..<idx])
-                    let field = String(name[name.index(after: idx)...])
-                    if !service.isEmpty && !field.isEmpty {
-                        results.append((service: service, field: field))
-                    }
-                }
+            guard let type = entry["type"] as? String, type == "credential",
+                  let name = entry["name"] as? String else { continue }
+            guard let colonIdx = name.lastIndex(of: ":") else { continue }
+            let service = String(name[name.startIndex..<colonIdx])
+            let field = String(name[name.index(after: colonIdx)...])
+            if !service.isEmpty && !field.isEmpty {
+                results.append((service: service, field: field))
             }
         }
         return results

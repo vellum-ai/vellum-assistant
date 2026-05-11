@@ -37,8 +37,10 @@ struct ProvidersSheet: View {
     /// Name for a new credential being created.
     @State private var newCredentialName = ""
 
-    /// Whether we're saving the credential value.
-    @State private var isSavingKey = false
+    /// Tracks the in-flight `loadMaskedValue` task so a newer lookup cancels
+    /// the older one. Prevents a stale response from clobbering the value
+    /// that matches the user's current credential selection.
+    @State private var loadMaskedTask: Task<Void, Never>?
 
     // MARK: - Nested Types
 
@@ -107,7 +109,8 @@ struct ProvidersSheet: View {
                 availableCredentials = []
                 isCreatingNewCredential = false
                 newCredentialName = ""
-                isSavingKey = false
+                loadMaskedTask?.cancel()
+                loadMaskedTask = nil
             }
         }
         .animation(VAnimation.fast, value: editorState != nil)
@@ -543,17 +546,27 @@ struct ProvidersSheet: View {
     }
 
     private func loadMaskedValue(for credentialRef: String) async {
-        let parts = credentialRef.split(separator: "/")
-        guard parts.count >= 3, parts[0] == "credential" else {
-            maskedCredentialValue = nil
-            return
-        }
-        let service = String(parts[1])
-        let field = parts[2...].joined(separator: "/")
+        loadMaskedTask?.cancel()
+        let task = Task { @MainActor in
+            let parts = credentialRef.split(separator: "/")
+            guard parts.count >= 3, parts[0] == "credential" else {
+                maskedCredentialValue = nil
+                isLoadingCredential = false
+                return
+            }
+            let service = String(parts[1])
+            let field = parts[2...].joined(separator: "/")
 
-        isLoadingCredential = true
-        maskedCredentialValue = await APIKeyManager.maskedCredential(service: service, field: field)
-        isLoadingCredential = false
+            isLoadingCredential = true
+            let masked = await APIKeyManager.maskedCredential(service: service, field: field)
+            // A newer load may have started while we awaited the network call;
+            // skip writing stale results so the UI matches the latest selection.
+            guard !Task.isCancelled else { return }
+            maskedCredentialValue = masked
+            isLoadingCredential = false
+        }
+        loadMaskedTask = task
+        _ = await task.value
     }
 
     private func loadAvailableCredentials() async {
@@ -696,7 +709,6 @@ struct ProvidersSheet: View {
 
             let trimmedKey = draft.apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedKey.isEmpty {
-                isSavingKey = true
                 let parts = credentialRef.split(separator: "/")
                 let result: APIKeyManager.SetKeyResult
                 if parts.count >= 3 && parts[0] == "credential" {
@@ -706,13 +718,17 @@ struct ProvidersSheet: View {
                 } else {
                     result = await APIKeyManager.setKey(trimmedKey, for: draft.provider)
                 }
-                isSavingKey = false
 
                 if !result.success {
                     actionError = result.error ?? "Failed to save API key."
                     return
                 }
-            } else if maskedCredentialValue == nil, case .create = editorState {
+            } else if maskedCredentialValue == nil {
+                // Block save when there's no new key AND no existing credential to
+                // reference — applies to both create and edit (e.g. switching
+                // platform→api_key without supplying a value). Existing api_key
+                // edits hit this branch with maskedCredentialValue set (loaded by
+                // beginEdit), so a save-without-change still succeeds.
                 actionError = "Enter an API key or select an existing credential."
                 return
             }
