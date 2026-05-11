@@ -23,7 +23,7 @@ public enum TTSProviderSetupMode: String, Decodable {
 ///   field on the catalog entry supplies the service name; the field is always
 ///   `"api_key"`.
 /// - `apiKey`: Stored as a flat provider key via
-///   `APIKeyManager.setKey(_:for:)`. The `apiKeyProviderName` field on the
+///   the daemon via `APIKeyManager.setKey(_:for:)` (async). The `apiKeyProviderName` field on the
 ///   catalog entry supplies the key name.
 public enum TTSCredentialMode: String, Decodable {
     case credential
@@ -69,7 +69,7 @@ public struct TTSProviderCatalogEntry: Decodable {
     /// `nil` when the provider uses api-key mode.
     public let credentialNamespace: String?
     /// The key provider name used when `credentialMode` is `.apiKey`.
-    /// For example, `"deepgram"` maps to `APIKeyManager.getKey(for: "deepgram")`.
+    /// For example, `"deepgram"` maps to `APIKeyManager.hasKey(for: "deepgram")`.
     /// When a TTS provider shares an API key with another service (e.g.
     /// Deepgram TTS shares the `deepgram` key with Deepgram STT), this
     /// field names the shared credential.

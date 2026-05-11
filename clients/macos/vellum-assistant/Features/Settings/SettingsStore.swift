@@ -896,19 +896,12 @@ public final class SettingsStore: ObservableObject {
             let result = await APIKeyManager.setKey(trimmed, for: "anthropic")
             apiKeySaving = false
             if result.success {
-                // Drain any stale local file value so the next-launch resync
-                // doesn't push it back over the daemon's fresh write.
-                // `let _: Void` pins the sync overload — without it Swift's
-                // overload resolution inside this `Task` would pick the
-                // `async` deleteKey (which expects an `await`).
-                let _: Void = APIKeyManager.deleteKey(for: "anthropic")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
                 refreshModelInfo()
             } else if let error = result.error {
                 apiKeySaveError = error
                 if !result.isTransient {
-                    let _: Void = APIKeyManager.deleteKey(for: "anthropic")
                     hasKey = false
                     maskedKey = ""
                 }
@@ -917,7 +910,6 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearAPIKey() {
-        APIKeyManager.deleteKey(for: "anthropic")
         hasKey = false
         maskedKey = ""
         scheduleRoutingSourceRefresh()
@@ -936,20 +928,15 @@ public final class SettingsStore: ObservableObject {
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: "brave")
             if result.success {
-                let _: Void = APIKeyManager.deleteKey(for: "brave")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
                 braveKeySaveError = error
-                if !result.isTransient {
-                    let _: Void = APIKeyManager.deleteKey(for: "brave")
-                }
             }
         }
     }
 
     func clearBraveKey() {
-        APIKeyManager.deleteKey(for: "brave")
         scheduleRoutingSourceRefresh()
         Task {
             let deleted = await APIKeyManager.deleteKey(for: "brave")
@@ -965,20 +952,15 @@ public final class SettingsStore: ObservableObject {
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: "perplexity")
             if result.success {
-                let _: Void = APIKeyManager.deleteKey(for: "perplexity")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
                 perplexityKeySaveError = error
-                if !result.isTransient {
-                    let _: Void = APIKeyManager.deleteKey(for: "perplexity")
-                }
             }
         }
     }
 
     func clearPerplexityKey() {
-        APIKeyManager.deleteKey(for: "perplexity")
         scheduleRoutingSourceRefresh()
         Task {
             let deleted = await APIKeyManager.deleteKey(for: "perplexity")
@@ -994,20 +976,15 @@ public final class SettingsStore: ObservableObject {
         Task {
             let result = await APIKeyManager.setKey(trimmed, for: "tavily")
             if result.success {
-                let _: Void = APIKeyManager.deleteKey(for: "tavily")
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
                 tavilyKeySaveError = error
-                if !result.isTransient {
-                    let _: Void = APIKeyManager.deleteKey(for: "tavily")
-                }
             }
         }
     }
 
     func clearTavilyKey() {
-        APIKeyManager.deleteKey(for: "tavily")
         scheduleRoutingSourceRefresh()
         Task {
             let deleted = await APIKeyManager.deleteKey(for: "tavily")
@@ -1025,20 +1002,15 @@ public final class SettingsStore: ObservableObject {
             let result = await APIKeyManager.setKey(trimmed, for: provider)
             imageGenKeySaving = false
             if result.success {
-                let _: Void = APIKeyManager.deleteKey(for: provider)
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
             } else if let error = result.error {
                 imageGenKeySaveError = error
-                if !result.isTransient {
-                    let _: Void = APIKeyManager.deleteKey(for: provider)
-                }
             }
         }
     }
 
     func clearImageGenKey(for provider: String = "gemini") {
-        APIKeyManager.deleteKey(for: provider)
         scheduleRoutingSourceRefresh()
         Task {
             let deleted = await APIKeyManager.deleteKey(for: provider)
@@ -1047,7 +1019,6 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearAPIKeyForProvider(_ provider: String) {
-        APIKeyManager.deleteKey(for: provider)
         removeProviderKey(provider)
         scheduleRoutingSourceRefresh()
         refreshModelInfo()
@@ -1073,7 +1044,6 @@ public final class SettingsStore: ObservableObject {
                 apiKeySaving = false
             }
             if result.success {
-                let _: Void = APIKeyManager.deleteKey(for: provider)
                 insertProviderKey(provider)
                 scheduleRoutingSourceRefresh()
                 onSuccess?()
@@ -1083,9 +1053,6 @@ public final class SettingsStore: ObservableObject {
                     onError(error)
                 } else {
                     apiKeySaveError = error
-                }
-                if !result.isTransient {
-                    let _: Void = APIKeyManager.deleteKey(for: provider)
                 }
             }
         }
@@ -4041,16 +4008,12 @@ public final class SettingsStore: ObservableObject {
         removeDeletionTombstone(type: "api_key", name: keyProvider)
         let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
         if result.success {
-            let _: Void = APIKeyManager.deleteKey(for: keyProvider)
             insertProviderKey(keyProvider)
             scheduleRoutingSourceRefresh()
             return result
         }
         if let error = result.error {
             log.error("Failed to sync STT key for \(sttProviderId, privacy: .public): \(error, privacy: .public)")
-        }
-        if !result.isTransient {
-            let _: Void = APIKeyManager.deleteKey(for: keyProvider)
         }
         return result
     }
@@ -4073,7 +4036,6 @@ public final class SettingsStore: ObservableObject {
     /// remote credential stores.
     func clearSTTKey(sttProviderId: String) {
         let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
-        APIKeyManager.deleteKey(for: keyProvider)
         removeProviderKey(keyProvider)
         Task {
             let deleted = await APIKeyManager.deleteKey(for: keyProvider)
@@ -4184,7 +4146,6 @@ public final class SettingsStore: ObservableObject {
             Task {
                 let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
                 if result.success {
-                    let _: Void = APIKeyManager.deleteKey(for: keyProvider)
                     insertProviderKey(keyProvider)
                     onSuccess?()
                 } else if let error = result.error {
@@ -4209,7 +4170,6 @@ public final class SettingsStore: ObservableObject {
             }
         case .apiKey:
             let keyProvider = entry.apiKeyProviderName ?? entry.id
-            APIKeyManager.deleteKey(for: keyProvider)
             removeProviderKey(keyProvider)
             Task {
                 let deleted = await APIKeyManager.deleteKey(for: keyProvider)

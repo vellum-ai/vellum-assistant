@@ -504,11 +504,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // persisted value so it doesn't linger in UserDefaults.
         UserDefaults.standard.removeObject(forKey: "conversationTextZoomLevel")
 
-        // Migrate API keys from plaintext UserDefaults to credential storage
-        // (file-based credential storage). Safe to call on every
-        // launch — skips providers already present in credential storage.
-        APIKeyManager.migrateFromUserDefaults()
-
         if let envPath = MacOSClientFeatureFlagManager.findRepoEnvFile() {
             MacOSClientFeatureFlagManager.shared.loadFromFile(at: envPath)
         }
