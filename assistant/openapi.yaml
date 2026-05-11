@@ -3511,59 +3511,6 @@ paths:
           schema:
             type: string
           description: Filter by channel type
-    post:
-      operationId: contacts_post
-      summary: Create or update a contact
-      description: Create a new contact or update an existing one. Supports upsert by contactId or channel handle.
-      tags:
-        - contacts
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  contact:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
-                    description: Created or updated contact
-                required:
-                  - ok
-                  - contact
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                contactId:
-                  type: string
-                  description: Existing contact ID (for update)
-                displayName:
-                  type: string
-                  description: Display name
-                channels:
-                  type: array
-                  items: {}
-                  description: Channel objects with channelId, handle, displayName
-                assistantMetadata:
-                  type: object
-                  properties: {}
-                  additionalProperties: {}
-                  description: Assistant-side metadata
-              required:
-                - contactId
-                - displayName
-                - channels
-                - assistantMetadata
-              additionalProperties: false
   /v1/contacts/{id}:
     get:
       operationId: contacts_by_id_get
