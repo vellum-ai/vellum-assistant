@@ -3,7 +3,7 @@
  *
  * Two sources are merged into a single combined map:
  *
- *   1. Search-provider env vars — hardcoded below (Brave, Perplexity).
+ *   1. Search-provider env vars — hardcoded below (Brave, Perplexity, Tavily).
  *   2. LLM-provider env vars — sourced from `PROVIDER_CATALOG` in
  *      `assistant/src/providers/model-catalog.ts` via a locally-maintained
  *      mirror (the CLI does not import from `assistant/src/`; drift is caught
@@ -29,6 +29,7 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
 export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   brave: "BRAVE_API_KEY",
   perplexity: "PERPLEXITY_API_KEY",
+  tavily: "TAVILY_API_KEY",
 };
 
 /**
