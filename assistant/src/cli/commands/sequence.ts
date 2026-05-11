@@ -1,48 +1,17 @@
 /**
  * CLI command group: `assistant sequence`
  *
- * Manage email sequences — list, inspect, pause, resume, and view stats.
+ * Thin IPC wrapper — all logic lives in sequence-routes.ts.
  */
 
-import { Command } from "commander";
+import type { Command } from "commander";
 
-import { getDb } from "../../memory/db-connection.js";
-import {
-  getGuardrailConfig,
-  setGuardrailConfig,
-} from "../../sequence/guardrails.js";
-import {
-  countActiveEnrollments,
-  exitEnrollment,
-  getSequence,
-  listEnrollments,
-  listSequences,
-  updateSequence,
-} from "../../sequence/store.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function output(data: unknown, json: boolean): void {
-  process.stdout.write(
-    json ? JSON.stringify(data) + "\n" : JSON.stringify(data, null, 2) + "\n",
-  );
-}
-
-function exitError(message: string): void {
-  output({ ok: false, error: message }, true);
-  process.exitCode = 1;
-}
-
-function getJson(cmd: Command): boolean {
-  let c: Command | null = cmd;
-  while (c) {
-    if ((c.opts() as { json?: boolean }).json) return true;
-    c = c.parent;
-  }
-  return false;
-}
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -56,18 +25,44 @@ function formatDuration(ms: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface SequenceSummary {
+  id: string;
+  name: string;
+  status: string;
+  steps: { index: number; subjectTemplate: string; delaySeconds: number; requireApproval?: boolean }[];
+  activeEnrollments: number;
+  description?: string;
+  channel?: string;
+  exitOnReply?: boolean;
+}
+
+interface GuardrailConfig {
+  dailySendCap: number;
+  perSequenceHourlyRate: number;
+  minimumStepDelaySec: number;
+  maxActiveEnrollments: number;
+  duplicateEnrollmentCheck: boolean;
+  cooldownPeriodMs: number;
+}
+
+// ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
 export function registerSequenceCommand(program: Command): void {
-  const seqCmd = program
-    .command("sequence")
-    .description("Manage email sequences")
-    .option("--json", "Machine-readable JSON output");
+  registerCommand(program, {
+    name: "sequence",
+    transport: "ipc",
+    description: "Manage email sequences",
+    build: (seqCmd) => {
+      seqCmd.option("--json", "Machine-readable JSON output");
 
-  seqCmd.addHelpText(
-    "after",
-    `
+      seqCmd.addHelpText(
+        "after",
+        `
 Email sequences are automated multi-step email campaigns. Each sequence
 contains ordered steps with configurable delays, subject/body templates,
 and optional approval gates. Contacts are enrolled into a sequence and
@@ -85,16 +80,16 @@ Examples:
   $ assistant sequence get seq_abc123
   $ assistant sequence pause seq_abc123
   $ assistant sequence stats`,
-  );
+      );
 
-  // ── list ──────────────────────────────────────────────────────────
-  seqCmd
-    .command("list")
-    .description("List all sequences")
-    .option("--status <status>", "Filter by status (active, paused, archived)")
-    .addHelpText(
-      "after",
-      `
+      // ── list ──────────────────────────────────────────────────────
+      seqCmd
+        .command("list")
+        .description("List all sequences")
+        .option("--status <status>", "Filter by status (active, paused, archived)")
+        .addHelpText(
+          "after",
+          `
 Lists all sequences with summary info: name, ID, status, step count,
 and active enrollment count.
 
@@ -105,42 +100,46 @@ Examples:
   $ assistant sequence list
   $ assistant sequence list --status active
   $ assistant sequence list --status paused --json`,
-    )
-    .action((opts: { status?: string }, cmd: Command) => {
-      getDb();
-      const json = getJson(cmd);
-      const filter = opts.status
-        ? { status: opts.status as "active" | "paused" | "archived" }
-        : undefined;
-      const seqs = listSequences(filter);
+        )
+        .action(async (opts: { status?: string }) => {
+          const json = resolveJson(seqCmd);
+          const params: Record<string, unknown> = {};
+          if (opts.status) params.status = opts.status;
 
-      if (json) {
-        output({ ok: true, sequences: seqs }, true);
-        return;
-      }
+          const r = await cliIpcCall<{ sequences: SequenceSummary[] }>(
+            "sequence_list",
+            params,
+          );
+          if (!r.ok) return exitFromIpcResult(r);
 
-      if (seqs.length === 0) {
-        process.stdout.write("No sequences found.\n");
-        return;
-      }
+          const seqs = r.result!.sequences;
 
-      process.stdout.write(`${seqs.length} sequence(s):\n\n`);
-      for (const seq of seqs) {
-        const active = countActiveEnrollments(seq.id);
-        process.stdout.write(
-          `  ${seq.name} (${seq.id}) — ${seq.status}, ${seq.steps.length} steps, ${active} active\n`,
-        );
-      }
-      process.stdout.write("\n");
-    });
+          if (json) {
+            console.log(JSON.stringify({ ok: true, sequences: seqs }));
+            return;
+          }
 
-  // ── get ────────────────────────────────────────────────────────────
-  seqCmd
-    .command("get <id>")
-    .description("Get sequence details with enrollment stats")
-    .addHelpText(
-      "after",
-      `
+          if (seqs.length === 0) {
+            process.stdout.write("No sequences found.\n");
+            return;
+          }
+
+          process.stdout.write(`${seqs.length} sequence(s):\n\n`);
+          for (const seq of seqs) {
+            process.stdout.write(
+              `  ${seq.name} (${seq.id}) — ${seq.status}, ${seq.steps.length} steps, ${seq.activeEnrollments} active\n`,
+            );
+          }
+          process.stdout.write("\n");
+        });
+
+      // ── get ────────────────────────────────────────────────────────
+      seqCmd
+        .command("get <id>")
+        .description("Get sequence details with enrollment stats")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   id   The sequence ID (e.g. seq_abc123). Run 'assistant sequence list' to find IDs.
 
@@ -151,69 +150,54 @@ breakdown by status (active, paused, completed, replied, cancelled, failed).
 Examples:
   $ assistant sequence get seq_abc123
   $ assistant sequence get seq_abc123 --json`,
-    )
-    .action((id: string, _opts: Record<string, unknown>, cmd: Command) => {
-      getDb();
-      const json = getJson(cmd);
-      const seq = getSequence(id);
-      if (!seq) return exitError(`Sequence not found: ${id}`);
+        )
+        .action(async (id: string) => {
+          const json = resolveJson(seqCmd);
+          const r = await cliIpcCall<{
+            sequence: SequenceSummary;
+            enrollments: { total: number; byStatus: Record<string, number> };
+          }>("sequence_get", { id });
+          if (!r.ok) return exitFromIpcResult(r);
 
-      const enrollments = listEnrollments({ sequenceId: id });
-      const statusCounts = enrollments.reduce(
-        (acc, e) => {
-          acc[e.status] = (acc[e.status] || 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>,
-      );
+          const { sequence: seq, enrollments } = r.result!;
 
-      if (json) {
-        output(
-          {
-            ok: true,
-            sequence: seq,
-            enrollments: { total: enrollments.length, byStatus: statusCounts },
-          },
-          true,
-        );
-        return;
-      }
+          if (json) {
+            console.log(JSON.stringify({ ok: true, sequence: seq, enrollments }));
+            return;
+          }
 
-      const active = countActiveEnrollments(id);
-      process.stdout.write(`  Name:          ${seq.name}\n`);
-      process.stdout.write(`  ID:            ${seq.id}\n`);
-      process.stdout.write(`  Status:        ${seq.status}\n`);
-      process.stdout.write(`  Channel:       ${seq.channel}\n`);
-      if (seq.description)
-        process.stdout.write(`  Description:   ${seq.description}\n`);
-      process.stdout.write(`  Exit on reply: ${seq.exitOnReply}\n`);
-      process.stdout.write(`  Active:        ${active} enrollment(s)\n\n`);
+          process.stdout.write(`  Name:          ${seq.name}\n`);
+          process.stdout.write(`  ID:            ${seq.id}\n`);
+          process.stdout.write(`  Status:        ${seq.status}\n`);
+          if (seq.channel) process.stdout.write(`  Channel:       ${seq.channel}\n`);
+          if (seq.description)
+            process.stdout.write(`  Description:   ${seq.description}\n`);
+          process.stdout.write(`  Exit on reply: ${seq.exitOnReply}\n`);
+          process.stdout.write(`  Active:        ${seq.activeEnrollments} enrollment(s)\n\n`);
 
-      process.stdout.write(`  Steps (${seq.steps.length}):\n`);
-      for (const step of seq.steps) {
-        const delay = formatDuration(step.delaySeconds * 1000);
-        const approval = step.requireApproval ? " [approval required]" : "";
-        process.stdout.write(
-          `    ${step.index + 1}. "${
-            step.subjectTemplate
-          }" — delay: ${delay}${approval}\n`,
-        );
-      }
+          process.stdout.write(`  Steps (${seq.steps.length}):\n`);
+          for (const step of seq.steps) {
+            const delay = formatDuration(step.delaySeconds * 1000);
+            const approval = step.requireApproval ? " [approval required]" : "";
+            process.stdout.write(
+              `    ${step.index + 1}. "${step.subjectTemplate}" — delay: ${delay}${approval}\n`,
+            );
+          }
 
-      process.stdout.write(`\n  Enrollments: ${enrollments.length} total\n`);
-      for (const [status, count] of Object.entries(statusCounts)) {
-        process.stdout.write(`    ${status}: ${count}\n`);
-      }
-      process.stdout.write("\n");
-    });
+          process.stdout.write(`\n  Enrollments: ${enrollments.total} total\n`);
+          for (const [status, count] of Object.entries(enrollments.byStatus)) {
+            process.stdout.write(`    ${status}: ${count}\n`);
+          }
+          process.stdout.write("\n");
+        });
 
-  // ── pause ──────────────────────────────────────────────────────────
-  seqCmd
-    .command("pause <id>")
-    .description("Pause a sequence")
-    .addHelpText(
-      "after",
-      `
+      // ── pause ──────────────────────────────────────────────────────
+      seqCmd
+        .command("pause <id>")
+        .description("Pause a sequence")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   id   The sequence ID to pause (e.g. seq_abc123). Run 'assistant sequence list' to find IDs.
 
@@ -224,27 +208,26 @@ until the sequence is resumed. No-op if the sequence is already paused.
 Examples:
   $ assistant sequence pause seq_abc123
   $ assistant sequence pause seq_abc123 --json`,
-    )
-    .action((id: string, _opts: Record<string, unknown>, cmd: Command) => {
-      getDb();
-      const json = getJson(cmd);
-      const seq = getSequence(id);
-      if (!seq) return exitError(`Sequence not found: ${id}`);
-      if (seq.status === "paused") {
-        output({ ok: true, message: "Sequence is already paused." }, json);
-        return;
-      }
-      updateSequence(id, { status: "paused" });
-      output({ ok: true, message: `Sequence "${seq.name}" paused.` }, json);
-    });
+        )
+        .action(async (id: string) => {
+          const json = resolveJson(seqCmd);
+          const r = await cliIpcCall<{ message: string }>("sequence_pause", { id });
+          if (!r.ok) return exitFromIpcResult(r);
 
-  // ── resume ─────────────────────────────────────────────────────────
-  seqCmd
-    .command("resume <id>")
-    .description("Resume a paused sequence")
-    .addHelpText(
-      "after",
-      `
+          if (json) {
+            console.log(JSON.stringify({ ok: true, message: r.result!.message }));
+          } else {
+            process.stdout.write(r.result!.message + "\n");
+          }
+        });
+
+      // ── resume ─────────────────────────────────────────────────────
+      seqCmd
+        .command("resume <id>")
+        .description("Resume a paused sequence")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   id   The sequence ID to resume (e.g. seq_abc123). Run 'assistant sequence list' to find IDs.
 
@@ -254,27 +237,26 @@ active enrollments. No-op if the sequence is already active.
 Examples:
   $ assistant sequence resume seq_abc123
   $ assistant sequence resume seq_abc123 --json`,
-    )
-    .action((id: string, _opts: Record<string, unknown>, cmd: Command) => {
-      getDb();
-      const json = getJson(cmd);
-      const seq = getSequence(id);
-      if (!seq) return exitError(`Sequence not found: ${id}`);
-      if (seq.status === "active") {
-        output({ ok: true, message: "Sequence is already active." }, json);
-        return;
-      }
-      updateSequence(id, { status: "active" });
-      output({ ok: true, message: `Sequence "${seq.name}" resumed.` }, json);
-    });
+        )
+        .action(async (id: string) => {
+          const json = resolveJson(seqCmd);
+          const r = await cliIpcCall<{ message: string }>("sequence_resume", { id });
+          if (!r.ok) return exitFromIpcResult(r);
 
-  // ── cancel-enrollment ──────────────────────────────────────────────
-  seqCmd
-    .command("cancel-enrollment <enrollmentId>")
-    .description("Cancel a specific enrollment")
-    .addHelpText(
-      "after",
-      `
+          if (json) {
+            console.log(JSON.stringify({ ok: true, message: r.result!.message }));
+          } else {
+            process.stdout.write(r.result!.message + "\n");
+          }
+        });
+
+      // ── cancel-enrollment ──────────────────────────────────────────
+      seqCmd
+        .command("cancel-enrollment <enrollmentId>")
+        .description("Cancel a specific enrollment")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   enrollmentId   The enrollment ID to cancel (e.g. enr_xyz789). Run 'assistant sequence get <id>'
                  to see enrollment IDs for a sequence.
@@ -287,72 +269,70 @@ other enrollments.
 Examples:
   $ assistant sequence cancel-enrollment enr_xyz789
   $ assistant sequence cancel-enrollment enr_xyz789 --json`,
-    )
-    .action(
-      (enrollmentId: string, _opts: Record<string, unknown>, cmd: Command) => {
-        getDb();
-        const json = getJson(cmd);
-        exitEnrollment(enrollmentId, "cancelled");
-        output(
-          { ok: true, message: `Enrollment ${enrollmentId} cancelled.` },
-          json,
-        );
-      },
-    );
+        )
+        .action(async (enrollmentId: string) => {
+          const json = resolveJson(seqCmd);
+          const r = await cliIpcCall<{ message: string }>(
+            "sequence_cancel_enrollment",
+            { enrollmentId },
+          );
+          if (!r.ok) return exitFromIpcResult(r);
 
-  // ── stats ──────────────────────────────────────────────────────────
-  seqCmd
-    .command("stats")
-    .description("Overall sequence stats")
-    .addHelpText(
-      "after",
-      `
+          if (json) {
+            console.log(JSON.stringify({ ok: true, message: r.result!.message }));
+          } else {
+            process.stdout.write(r.result!.message + "\n");
+          }
+        });
+
+      // ── stats ──────────────────────────────────────────────────────
+      seqCmd
+        .command("stats")
+        .description("Overall sequence stats")
+        .addHelpText(
+          "after",
+          `
 Returns aggregate statistics across all sequences: total and active
 sequence counts, total and active enrollment counts.
 
 Examples:
   $ assistant sequence stats
   $ assistant sequence stats --json`,
-    )
-    .action((_opts: Record<string, unknown>, cmd: Command) => {
-      getDb();
-      const json = getJson(cmd);
-      const seqs = listSequences();
-      const activeSeqs = seqs.filter((s) => s.status === "active").length;
-      const allEnrollments = listEnrollments();
-      const activeEnrollments = allEnrollments.filter(
-        (e) => e.status === "active",
-      ).length;
+        )
+        .action(async () => {
+          const json = resolveJson(seqCmd);
+          const r = await cliIpcCall<{
+            totalSequences: number;
+            activeSequences: number;
+            totalEnrollments: number;
+            activeEnrollments: number;
+          }>("sequence_stats");
+          if (!r.ok) return exitFromIpcResult(r);
 
-      const stats = {
-        totalSequences: seqs.length,
-        activeSequences: activeSeqs,
-        totalEnrollments: allEnrollments.length,
-        activeEnrollments,
-      };
+          const stats = r.result!;
 
-      if (json) {
-        output({ ok: true, ...stats }, true);
-        return;
-      }
+          if (json) {
+            console.log(JSON.stringify({ ok: true, ...stats }));
+            return;
+          }
 
-      process.stdout.write(`Sequence Stats:\n`);
-      process.stdout.write(
-        `  Sequences:   ${stats.totalSequences} total, ${stats.activeSequences} active\n`,
-      );
-      process.stdout.write(
-        `  Enrollments: ${stats.totalEnrollments} total, ${stats.activeEnrollments} active\n\n`,
-      );
-    });
+          process.stdout.write(`Sequence Stats:\n`);
+          process.stdout.write(
+            `  Sequences:   ${stats.totalSequences} total, ${stats.activeSequences} active\n`,
+          );
+          process.stdout.write(
+            `  Enrollments: ${stats.totalEnrollments} total, ${stats.activeEnrollments} active\n\n`,
+          );
+        });
 
-  // ── guardrails ─────────────────────────────────────────────────────
-  const guardrailsCmd = seqCmd
-    .command("guardrails")
-    .description("View or update guardrail settings");
+      // ── guardrails ─────────────────────────────────────────────────
+      const guardrailsCmd = seqCmd
+        .command("guardrails")
+        .description("View or update guardrail settings");
 
-  guardrailsCmd.addHelpText(
-    "after",
-    `
+      guardrailsCmd.addHelpText(
+        "after",
+        `
 Guardrails are sequence-specific safety limits that prevent excessive
 sending and protect deliverability. They enforce daily send caps, per-sequence
 hourly rate limits, minimum delays between steps, maximum concurrent active
@@ -362,14 +342,14 @@ Examples:
   $ assistant sequence guardrails show
   $ assistant sequence guardrails set dailySendCap 200
   $ assistant sequence guardrails set cooldown_days 7`,
-  );
+      );
 
-  guardrailsCmd
-    .command("show")
-    .description("Show current guardrail configuration")
-    .addHelpText(
-      "after",
-      `
+      guardrailsCmd
+        .command("show")
+        .description("Show current guardrail configuration")
+        .addHelpText(
+          "after",
+          `
 Displays the current guardrail configuration with all safety limits:
 
   Daily send cap          Max emails sent per day across all sequences
@@ -382,39 +362,46 @@ Displays the current guardrail configuration with all safety limits:
 Examples:
   $ assistant sequence guardrails show
   $ assistant sequence guardrails show --json`,
-    )
-    .action((_opts: Record<string, unknown>, cmd: Command) => {
-      const json = getJson(cmd);
-      const cfg = getGuardrailConfig();
-      if (json) {
-        output({ ok: true, config: cfg }, true);
-        return;
-      }
-      process.stdout.write("Guardrail Configuration:\n");
-      process.stdout.write(`  Daily send cap:         ${cfg.dailySendCap}\n`);
-      process.stdout.write(
-        `  Hourly rate (per-seq):  ${cfg.perSequenceHourlyRate}\n`,
-      );
-      process.stdout.write(
-        `  Min step delay:         ${cfg.minimumStepDelaySec}s\n`,
-      );
-      process.stdout.write(
-        `  Max active enrollments: ${cfg.maxActiveEnrollments}\n`,
-      );
-      process.stdout.write(
-        `  Duplicate check:        ${cfg.duplicateEnrollmentCheck}\n`,
-      );
-      process.stdout.write(
-        `  Cooldown period:        ${formatDuration(cfg.cooldownPeriodMs)}\n\n`,
-      );
-    });
+        )
+        .action(async () => {
+          const json = resolveJson(seqCmd);
+          const r = await cliIpcCall<{ config: GuardrailConfig }>(
+            "sequence_guardrails_show",
+          );
+          if (!r.ok) return exitFromIpcResult(r);
 
-  guardrailsCmd
-    .command("set <key> <value>")
-    .description("Update a guardrail setting")
-    .addHelpText(
-      "after",
-      `
+          const cfg = r.result!.config;
+
+          if (json) {
+            console.log(JSON.stringify({ ok: true, config: cfg }));
+            return;
+          }
+
+          process.stdout.write("Guardrail Configuration:\n");
+          process.stdout.write(`  Daily send cap:         ${cfg.dailySendCap}\n`);
+          process.stdout.write(
+            `  Hourly rate (per-seq):  ${cfg.perSequenceHourlyRate}\n`,
+          );
+          process.stdout.write(
+            `  Min step delay:         ${cfg.minimumStepDelaySec}s\n`,
+          );
+          process.stdout.write(
+            `  Max active enrollments: ${cfg.maxActiveEnrollments}\n`,
+          );
+          process.stdout.write(
+            `  Duplicate check:        ${cfg.duplicateEnrollmentCheck}\n`,
+          );
+          process.stdout.write(
+            `  Cooldown period:        ${formatDuration(cfg.cooldownPeriodMs)}\n\n`,
+          );
+        });
+
+      guardrailsCmd
+        .command("set <key> <value>")
+        .description("Update a guardrail setting")
+        .addHelpText(
+          "after",
+          `
 Arguments:
   key     The guardrail setting name (see valid keys below)
   value   The new value (numeric for limits/caps, true/false for booleans)
@@ -433,71 +420,40 @@ Examples:
   $ assistant sequence guardrails set hourly_rate 50
   $ assistant sequence guardrails set duplicate_check true
   $ assistant sequence guardrails set cooldown_days 7`,
-    )
-    .action(
-      (
-        key: string,
-        value: string,
-        _opts: Record<string, unknown>,
-        cmd: Command,
-      ) => {
-        const json = getJson(cmd);
-        const numVal = Number(value);
-        const boolVal =
-          value === "true" ? true : value === "false" ? false : undefined;
+        )
+        .action(async (key: string, value: string) => {
+          const json = resolveJson(seqCmd);
+          const r = await cliIpcCall<{ message: string; config: GuardrailConfig }>(
+            "sequence_guardrails_set",
+            { key, value },
+          );
+          if (!r.ok) return exitFromIpcResult(r);
 
-        const patch: Partial<ReturnType<typeof getGuardrailConfig>> = {};
-        switch (key) {
-          case "dailySendCap":
-          case "daily_send_cap":
-            if (!Number.isFinite(numVal))
-              return exitError(`Invalid numeric value for ${key}: ${value}`);
-            patch.dailySendCap = numVal;
-            break;
-          case "perSequenceHourlyRate":
-          case "hourly_rate":
-            if (!Number.isFinite(numVal))
-              return exitError(`Invalid numeric value for ${key}: ${value}`);
-            patch.perSequenceHourlyRate = numVal;
-            break;
-          case "minimumStepDelaySec":
-          case "min_delay":
-            if (!Number.isFinite(numVal))
-              return exitError(`Invalid numeric value for ${key}: ${value}`);
-            patch.minimumStepDelaySec = numVal;
-            break;
-          case "maxActiveEnrollments":
-          case "max_enrollments":
-            if (!Number.isFinite(numVal))
-              return exitError(`Invalid numeric value for ${key}: ${value}`);
-            patch.maxActiveEnrollments = numVal;
-            break;
-          case "duplicateEnrollmentCheck":
-          case "duplicate_check":
-            if (boolVal === undefined)
-              return exitError("Value must be true or false");
-            patch.duplicateEnrollmentCheck = boolVal;
-            break;
-          case "cooldownPeriodMs":
-            if (!Number.isFinite(numVal))
-              return exitError(`Invalid numeric value for ${key}: ${value}`);
-            patch.cooldownPeriodMs = numVal;
-            break;
-          case "cooldown_days": {
-            if (!Number.isFinite(numVal))
-              return exitError(`Invalid numeric value for ${key}: ${value}`);
-            patch.cooldownPeriodMs = numVal * 24 * 60 * 60 * 1000;
-            break;
+          if (json) {
+            console.log(
+              JSON.stringify({
+                ok: true,
+                message: r.result!.message,
+                config: r.result!.config,
+              }),
+            );
+          } else {
+            process.stdout.write(r.result!.message + "\n");
           }
-          default:
-            return exitError(`Unknown guardrail key: ${key}`);
-        }
+        });
+    },
+  });
+}
 
-        const updated = setGuardrailConfig(patch);
-        output(
-          { ok: true, message: `Updated ${key} = ${value}`, config: updated },
-          json,
-        );
-      },
-    );
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function resolveJson(cmd: Command): boolean {
+  let c: Command | null = cmd;
+  while (c) {
+    if ((c.opts() as { json?: boolean }).json) return true;
+    c = c.parent;
+  }
+  return false;
 }

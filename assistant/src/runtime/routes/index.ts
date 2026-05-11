@@ -14,6 +14,8 @@ import { ROUTES as APP_ROUTES } from "./app-routes.js";
 import { ROUTES as APPROVAL_ROUTES } from "./approval-routes.js";
 import { ROUTES as ATTACHMENT_ROUTES } from "./attachment-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./audio-routes.js";
+import { ROUTES as AUDIT_ROUTES } from "./audit-routes.js";
+import { ROUTES as AUTH_ROUTES } from "./auth-routes.js";
 import { ROUTES as AVATAR_ROUTES } from "./avatar-routes.js";
 import { ROUTES as BACKGROUND_TOOL_ROUTES } from "./background-tool-routes.js";
 import { ROUTES as BACKUP_ROUTES } from "./backup-routes.js";
@@ -45,6 +47,7 @@ import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
+import { ROUTES as DOMAIN_ROUTES } from "./domain-routes.js";
 import { ROUTES as DOCUMENT_ROUTES } from "./documents-routes.js";
 import { ROUTES as EMAIL_ROUTES } from "./email-routes.js";
 import { ROUTES as EVENTS_ROUTES } from "./events-routes.js";
@@ -91,6 +94,7 @@ import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
+import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
@@ -108,6 +112,7 @@ import type { RouteDefinition } from "./types.js";
 import { ROUTES as UI_REQUEST_ROUTES } from "./ui-request-routes.js";
 import { ROUTES as UPGRADE_BROADCAST_ROUTES } from "./upgrade-broadcast-routes.js";
 import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
+import { ROUTES as USER_ROUTES_CLI } from "./user-routes-cli.js";
 import { ROUTES as USER_ROUTES } from "./user-routes.js";
 import { ROUTES as WAKE_CONVERSATION_ROUTES } from "./wake-conversation-routes.js";
 import { ROUTES as WATCHER_ROUTES } from "./watcher-routes.js";
@@ -124,6 +129,8 @@ export const ROUTES: RouteDefinition[] = [
   ...APP_ROUTES,
   ...APPROVAL_ROUTES,
   ...AUDIO_ROUTES,
+  ...AUDIT_ROUTES,
+  ...AUTH_ROUTES,
   ...AVATAR_ROUTES,
   ...BACKGROUND_TOOL_ROUTES,
   ...BACKUP_ROUTES,
@@ -155,6 +162,7 @@ export const ROUTES: RouteDefinition[] = [
   ...DEBUG_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
+  ...DOMAIN_ROUTES,
   ...DOCUMENT_ROUTES,
   ...EMAIL_ROUTES,
   ...EVENTS_ROUTES,
@@ -224,6 +232,8 @@ export const ROUTES: RouteDefinition[] = [
   ...WORKSPACE_COMMIT_ROUTES,
   ...WAKE_CONVERSATION_ROUTES,
   ...WORKSPACE_ROUTES,
+  ...SEQUENCE_ROUTES,
+  ...USER_ROUTES_CLI,
 
   // User-defined routes under /x/* — MUST be last so built-in routes
   // always take priority over the catch-all pattern.

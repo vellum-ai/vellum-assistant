@@ -5971,6 +5971,24 @@ paths:
           required: true
           schema:
             type: string
+  /v1/domain/register:
+    post:
+      operationId: domain_register_post
+      summary: Register a subdomain for this assistant
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
+  /v1/domain/status:
+    get:
+      operationId: domain_status_get
+      summary: Show domain registration and health
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
   /v1/email/attachment-get:
     get:
       operationId: email_attachmentget_get

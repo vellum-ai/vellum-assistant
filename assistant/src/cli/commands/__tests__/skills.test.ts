@@ -41,7 +41,11 @@ mock.module("../../../ipc/cli-client.js", () => ({
     const next = mockIpcResults.shift();
     return next ?? { ok: true, result: { skills: [] } };
   },
-  exitFromIpcResult: (r: { ok: boolean; error?: string; statusCode?: number }) => {
+  exitFromIpcResult: (r: {
+    ok: boolean;
+    error?: string;
+    statusCode?: number;
+  }) => {
     process.exitCode = r.statusCode ?? 1;
   },
 }));
@@ -137,7 +141,9 @@ describe("skills list", () => {
 
     expect(ipcCalls).toHaveLength(1);
     expect(ipcCalls[0]!.method).toBe("listSkills");
-    expect((ipcCalls[0]!.params as { queryParams: unknown }).queryParams).toEqual({});
+    expect(
+      (ipcCalls[0]!.params as { queryParams: unknown }).queryParams,
+    ).toEqual({});
   });
 
   test("IPC failure sets exitCode 1", async () => {
@@ -151,11 +157,7 @@ describe("skills list", () => {
   test("--json IPC failure emits ok:false with error to stdout, exitCode set", async () => {
     mockIpcResults = [{ ok: false, error: "Connection refused" }];
 
-    const { exitCode, stdout } = await runCommand([
-      "skills",
-      "list",
-      "--json",
-    ]);
+    const { exitCode, stdout } = await runCommand(["skills", "list", "--json"]);
 
     // Machine readers expect JSON on both success and failure paths.
     const parsed = JSON.parse(stdout);
@@ -196,9 +198,11 @@ describe("skills inspect", () => {
 
     expect(ipcCalls).toHaveLength(1);
     expect(ipcCalls[0]!.method).toBe("skillsLocalInspect");
-    expect((ipcCalls[0]!.params as { pathParams: unknown }).pathParams).toEqual({
-      id: "weather",
-    });
+    expect((ipcCalls[0]!.params as { pathParams: unknown }).pathParams).toEqual(
+      {
+        id: "weather",
+      },
+    );
   });
 
   test("IPC failure sets exitCode 1", async () => {
@@ -210,9 +214,7 @@ describe("skills inspect", () => {
   });
 
   test("--json IPC failure emits ok:false with error to stdout, exitCode set", async () => {
-    mockIpcResults = [
-      { ok: false, error: "Skill not found", statusCode: 404 },
-    ];
+    mockIpcResults = [{ ok: false, error: "Skill not found", statusCode: 404 }];
 
     const { exitCode, stdout } = await runCommand([
       "skills",
@@ -239,9 +241,11 @@ describe("skills uninstall", () => {
 
     expect(ipcCalls).toHaveLength(1);
     expect(ipcCalls[0]!.method).toBe("deleteSkill");
-    expect((ipcCalls[0]!.params as { pathParams: unknown }).pathParams).toEqual({
-      id: "weather",
-    });
+    expect((ipcCalls[0]!.params as { pathParams: unknown }).pathParams).toEqual(
+      {
+        id: "weather",
+      },
+    );
   });
 
   test("IPC failure sets exitCode 1", async () => {
@@ -253,9 +257,7 @@ describe("skills uninstall", () => {
   });
 
   test("--json IPC failure emits ok:false with error to stdout, exitCode set", async () => {
-    mockIpcResults = [
-      { ok: false, error: "Not found", statusCode: 404 },
-    ];
+    mockIpcResults = [{ ok: false, error: "Not found", statusCode: 404 }];
 
     const { exitCode, stdout } = await runCommand([
       "skills",
@@ -283,11 +285,14 @@ describe("skills install", () => {
     // No preflight via listSkills — the daemon's installSkill handler does
     // its own catalog lookup. Preflighting via listSkills(include=catalog)
     // would falsely "not found" when a community skill shadows a catalog id.
+    // catalogOnly:true restricts to bundled+catalog skills; community installs
+    // use `skills add` instead.
     expect(ipcCalls).toHaveLength(1);
     expect(ipcCalls[0]!.method).toBe("installSkill");
     expect((ipcCalls[0]!.params as { body: unknown }).body).toEqual({
       slug: "weather",
       overwrite: false,
+      catalogOnly: true,
     });
   });
 
@@ -315,6 +320,7 @@ describe("skills install", () => {
     expect((ipcCalls[0]!.params as { body: unknown }).body).toEqual({
       slug: "weather",
       overwrite: true,
+      catalogOnly: true,
     });
   });
 
@@ -408,9 +414,7 @@ describe("skills add", () => {
   });
 
   test("--json IPC failure emits ok:false with error to stdout, exitCode set", async () => {
-    mockIpcResults = [
-      { ok: false, error: "Not a valid skills.sh source" },
-    ];
+    mockIpcResults = [{ ok: false, error: "Not a valid skills.sh source" }];
 
     const { exitCode, stdout } = await runCommand([
       "skills",
