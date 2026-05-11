@@ -153,6 +153,33 @@ final class ProviderConnectionDecodingTests: XCTestCase {
         """)
         XCTAssertEqual(conn.status, .active)
     }
+
+    func testDecodesIsManagedWhenPresent() throws {
+        let conn = try decode("""
+        {
+          "name": "anthropic-managed",
+          "provider": "anthropic",
+          "auth": { "type": "platform" },
+          "isManaged": true,
+          "createdAt": 1,
+          "updatedAt": 2
+        }
+        """)
+        XCTAssertTrue(conn.isManaged)
+    }
+
+    func testDefaultsIsManagedToFalseWhenKeyMissing() throws {
+        let conn = try decode("""
+        {
+          "name": "my-conn",
+          "provider": "anthropic",
+          "auth": { "type": "api_key", "credential": "credential/anthropic/api_key" },
+          "createdAt": 1,
+          "updatedAt": 2
+        }
+        """)
+        XCTAssertFalse(conn.isManaged)
+    }
 }
 
 @MainActor

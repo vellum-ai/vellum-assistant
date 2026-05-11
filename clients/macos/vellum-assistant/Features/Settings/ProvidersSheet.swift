@@ -59,31 +59,13 @@ struct ProvidersSheet: View {
     enum EditorState {
         case create
         case edit(name: String)
-        /// Opened for connections whose names appear in
-        /// `managedConnectionNames` (anthropic-managed / openai-managed /
-        /// gemini-managed). The daemon write-protects DELETE + PATCH-auth
-        /// on these rows; the UI mirrors that by disabling every input
-        /// and hiding the Save button. Mirrors the `view` mode in
+        /// Opened for connections whose `isManaged` flag is true (the daemon
+        /// sets this for the canonical anthropic-managed / openai-managed /
+        /// gemini-managed rows). The daemon write-protects DELETE + PATCH-auth
+        /// on these rows; the UI mirrors that by disabling every input and
+        /// hiding the Save button. Mirrors the `view` mode in
         /// `InferenceProfilesSheet`.
         case view(name: String)
-    }
-
-    // MARK: - Managed connections
-
-    /// Names of provider connections that the daemon seeds on first boot
-    /// (and re-seeds via `seedCanonicalConnections` on every subsequent
-    /// boot). DELETE is rejected with 400 and PATCH cannot move
-    /// `auth.type` off `"platform"`. Keep in sync with
-    /// `MANAGED_CONNECTION_NAMES` in
-    /// `assistant/src/providers/inference/connections.ts`.
-    private static let managedConnectionNames: Set<String> = [
-        "anthropic-managed",
-        "openai-managed",
-        "gemini-managed",
-    ]
-
-    private func isManagedConnection(_ name: String) -> Bool {
-        Self.managedConnectionNames.contains(name)
     }
 
     private var isViewMode: Bool {
@@ -233,7 +215,7 @@ struct ProvidersSheet: View {
     }
 
     private func connectionRow(_ conn: ProviderConnection) -> some View {
-        let isManaged = isManagedConnection(conn.name)
+        let isManaged = conn.isManaged
         return HStack(alignment: .center, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 if let label = conn.label {

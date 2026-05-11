@@ -5988,8 +5988,14 @@ public struct ProviderConnection: Codable, Sendable {
     public let label: String?
     public let createdAt: Int
     public let updatedAt: Int
+    /// True for Vellum-managed canonical connections (`anthropic-managed`,
+    /// `openai-managed`, `gemini-managed`). The daemon derives this at
+    /// serialize time from its `MANAGED_CONNECTION_NAMES` set; clients use
+    /// it to render the read-only badge + view-only editor and to disable
+    /// the delete affordance without mirroring the canonical name list.
+    public let isManaged: Bool
 
-    public init(name: String, provider: String, auth: ProviderConnectionAuth, status: ConnectionStatus = .active, label: String? = nil, createdAt: Int, updatedAt: Int) {
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, status: ConnectionStatus = .active, label: String? = nil, createdAt: Int, updatedAt: Int, isManaged: Bool = false) {
         self.name = name
         self.provider = provider
         self.auth = auth
@@ -5997,12 +6003,14 @@ public struct ProviderConnection: Codable, Sendable {
         self.label = label
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.isManaged = isManaged
     }
 
-    /// Decodes responses from daemons that predate the `status` field by
-    /// defaulting to `.active`. Mixed-version setups (the app explicitly
-    /// supports them via version-mismatch handling) would otherwise throw
-    /// `keyNotFound` and silently strand the Providers UI.
+    /// Decodes responses from daemons that predate the `status` or `isManaged`
+    /// fields. `status` defaults to `.active`; `isManaged` defaults to `false`.
+    /// Mixed-version setups (the app explicitly supports them via
+    /// version-mismatch handling) would otherwise throw `keyNotFound` and
+    /// silently strand the Providers UI.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.name = try container.decode(String.self, forKey: .name)
@@ -6012,6 +6020,7 @@ public struct ProviderConnection: Codable, Sendable {
         self.label = try container.decodeIfPresent(String.self, forKey: .label)
         self.createdAt = try container.decode(Int.self, forKey: .createdAt)
         self.updatedAt = try container.decode(Int.self, forKey: .updatedAt)
+        self.isManaged = try container.decodeIfPresent(Bool.self, forKey: .isManaged) ?? false
     }
 }
 
