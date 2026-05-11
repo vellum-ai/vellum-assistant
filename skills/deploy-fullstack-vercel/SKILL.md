@@ -44,89 +44,25 @@ If found, the app depends on the Vellum bridge and needs a shim to work standalo
 
 ### 2. Create Vellum Bridge Shim
 
-Create `vellum-shim.js` in the app's `dist/` directory. This shim provides standalone implementations of the Vellum bridge APIs using browser-native alternatives:
+The app uses `window.vellum.*` APIs that are normally injected by the Vellum viewer. For standalone deployment, create a `vellum-shim.js` file in the app's `dist/` directory that provides browser-native replacements.
 
-```javascript
-// Vellum bridge shim for standalone deployment
-(function() {
-  if (window.vellum) return; // Bridge already present
+**Before writing the shim, read the app's compiled JavaScript** (`dist/main.js` or equivalent) to understand exactly which `window.vellum.*` APIs the app calls and what data shapes it expects. The shim must match the app's actual usage — don't guess at signatures.
 
-  const APP_KEY = 'vellum_app_data';
+**Common APIs to shim (implement only what the app actually uses):**
 
-  function loadStore() {
-    try { return JSON.parse(localStorage.getItem(APP_KEY) || '{}'); }
-    catch { return {}; }
-  }
-  function saveStore(store) {
-    localStorage.setItem(APP_KEY, JSON.stringify(store));
-  }
+| Bridge API | Standalone replacement | Notes |
+|-----------|----------------------|-------|
+| `vellum.data.query()` | localStorage-backed store | Read the app code to determine the record shape — some apps expect `{id, data: {...}}` wrappers, others use flat records |
+| `vellum.data.create(...)` | localStorage insert with `crypto.randomUUID()` | Match the argument signature the app passes (some pass a payload, others pass `{id, ...fields}`) |
+| `vellum.data.update(...)` | localStorage update | Match the argument signature (typically `(id, payload)`) |
+| `vellum.data.delete(...)` | localStorage delete | Typically `(id)` |
+| `vellum.fetch(path, opts)` | `console.warn` + return empty success Response | Custom routes aren't available standalone |
+| `vellum.sendAction(id, data)` | No-op with `console.warn` | Surface actions aren't available standalone |
+| `vellum.openLink(url)` | `window.open(url, '_blank')` | |
+| `vellum.widgets.toast(msg)` | Create a temporary styled `<div>` that auto-dismisses | |
+| `vellum.route` | `null` | Deep-link routes aren't available standalone |
 
-  window.vellum = {
-    // Data store backed by localStorage — returns {id, data} wrappers
-    data: {
-      query: function() {
-        return Object.values(loadStore());
-      },
-      create: function(payload) {
-        var store = loadStore();
-        var id = crypto.randomUUID();
-        var record = { id: id, data: payload };
-        store[id] = record;
-        saveStore(store);
-        return record;
-      },
-      update: function(id, payload) {
-        var store = loadStore();
-        if (!store[id]) return null;
-        store[id].data = payload;
-        saveStore(store);
-        return store[id];
-      },
-      delete: function(id) {
-        var store = loadStore();
-        delete store[id];
-        saveStore(store);
-        return true;
-      }
-    },
-
-    // fetch → no-op that returns empty success (custom routes not available standalone)
-    fetch: function(path, options) {
-      console.warn('[vellum-shim] fetch not available in standalone mode:', path);
-      return Promise.resolve(new Response(JSON.stringify({ success: true, result: [] }), {
-        status: 200, headers: { 'Content-Type': 'application/json' }
-      }));
-    },
-
-    // Surface actions → no-op
-    sendAction: function(actionId, data) {
-      console.warn('[vellum-shim] sendAction not available in standalone mode:', actionId);
-    },
-
-    // Link opening
-    openLink: function(url) { window.open(url, '_blank'); },
-
-    // Toast notifications via basic CSS
-    widgets: {
-      toast: function(message, options) {
-        var el = document.createElement('div');
-        el.textContent = message;
-        Object.assign(el.style, {
-          position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-          background: '#333', color: '#fff', padding: '12px 24px', borderRadius: '8px',
-          zIndex: '99999', fontSize: '14px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          transition: 'opacity 0.3s', opacity: '1'
-        });
-        document.body.appendChild(el);
-        setTimeout(function() { el.style.opacity = '0'; setTimeout(function() { el.remove(); }, 300); }, 3000);
-      }
-    },
-
-    // Route (not available standalone)
-    route: null
-  };
-})();
-```
+**Structure:** Wrap everything in an IIFE that guards against the real bridge: `(function() { if (window.vellum) return; ... })();`
 
 ### 3. Inject the Shim into index.html
 
