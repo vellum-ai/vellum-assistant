@@ -78,20 +78,29 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
         // no-op for tests
     }
 
+    func applyAssistantAttention(
+        from item: ConversationListResponseItem,
+        into conversation: inout ConversationModel
+    ) {
+        conversation.hasUnseenLatestAssistantMessage =
+            item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+        conversation.latestAssistantMessageAt =
+            item.assistantAttention?.latestAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+        conversation.lastSeenAssistantMessageAt =
+            item.assistantAttention?.lastSeenAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+    }
+
     func mergeAssistantAttention(
         from item: ConversationListResponseItem,
         intoConversationAt index: Int
     ) {
-        conversations[index].hasUnseenLatestAssistantMessage =
-            item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
-        conversations[index].latestAssistantMessageAt =
-            item.assistantAttention?.latestAssistantMessageAt.map {
-                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-            }
-        conversations[index].lastSeenAssistantMessageAt =
-            item.assistantAttention?.lastSeenAssistantMessageAt.map {
-                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-            }
+        var conversation = conversations[index]
+        applyAssistantAttention(from: item, into: &conversation)
+        conversations[index] = conversation
     }
 }
 
