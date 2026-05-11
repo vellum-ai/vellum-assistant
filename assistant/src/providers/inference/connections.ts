@@ -33,7 +33,14 @@ export function listConnections(
     if (!provider.success) return [];
     const statusResult = ConnectionStatusSchema.safeParse(row.status);
     const status: ConnectionStatus = statusResult.success ? statusResult.data : "active";
-    return [{ ...row, auth: auth.data, provider: provider.data, status, label: row.label ?? null }];
+    return [{
+      ...row,
+      auth: auth.data,
+      provider: provider.data,
+      status,
+      label: row.label ?? null,
+      isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
+    }];
   });
 }
 
@@ -54,7 +61,14 @@ export function getConnection(
   if (!provider.success) return null;
   const statusResult = ConnectionStatusSchema.safeParse(row.status);
   const status: ConnectionStatus = statusResult.success ? statusResult.data : "active";
-  return { ...row, auth: auth.data, provider: provider.data, status, label: row.label ?? null };
+  return {
+    ...row,
+    auth: auth.data,
+    provider: provider.data,
+    status,
+    label: row.label ?? null,
+    isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +154,7 @@ export function createConnection(
       label,
       createdAt: now,
       updatedAt: now,
+      isManaged: MANAGED_CONNECTION_NAMES.has(input.name),
     },
   };
 }
