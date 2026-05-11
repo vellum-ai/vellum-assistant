@@ -130,4 +130,7 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
 
   // -- Perplexity --
   { label: "Perplexity API Key", regex: /pplx-[A-Za-z0-9]{40,}/ },
+
+  // -- Tavily --
+  { label: "Tavily API Key", regex: /tvly-[A-Za-z0-9]{20,}/ },
 ];
