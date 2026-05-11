@@ -12247,7 +12247,7 @@ paths:
                     - clawhub
                     - skillssh
                 overwrite:
-                  description: Replace an existing install. Defaults to false.
+                  description: Replace an existing install. Defaults to true for back-compat with the legacy in-process API.
                   type: boolean
               required:
                 - slug
@@ -12472,6 +12472,12 @@ paths:
           schema:
             type: string
           description: Search query (required)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Max community results to fetch (default 25)
   /v1/slack/channels:
     get:
       operationId: slack_channels_get
