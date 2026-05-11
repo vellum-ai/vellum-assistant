@@ -166,14 +166,15 @@ describe("renderRouterPrompt — content expectations", () => {
     expect(out).toContain("<now>");
   });
 
-  test("warns against duplicating the always-on essentials block", () => {
+  test("biases toward inclusion when in doubt", () => {
     const out = renderRouterPrompt({
       assistantName: "Aria",
       userName: "Alice",
       pageIndexBlock: SAMPLE_INDEX,
     });
 
-    expect(out.toLowerCase()).toContain("essentials");
+    expect(out.toLowerCase()).toContain("lean toward inclusion");
+    expect(out.toLowerCase()).toContain("missing a relevant page");
   });
 });
 

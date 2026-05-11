@@ -5,7 +5,7 @@ exports[`renderRouterPrompt — determinism & snapshot stability snapshot of fix
 
 You will be shown the recent conversation, a \`<now>\` marker for the current time, an \`<already_injected_ids>\` block listing pages picked on the previous turn, and a \`# Concept Page Index\` listing every routable page on this workspace.
 
-Pick up to a handful of concept pages whose contents would meaningfully help Aria respond well on this turn. Abstain (return an empty list) when nothing in the index is clearly relevant — over-injection is worse than missing a page, because the always-on essentials/threads/recent/buffer block is already in context and you must not duplicate that material here.
+Pick the concept pages whose contents would help Aria respond well on this turn. Lean toward inclusion when in doubt — missing a relevant page is a worse error than surfacing a few unused ones, because the assistant can ignore extras but can't summon context that wasn't loaded. Abstain (return an empty list) only when nothing in the index plausibly bears on the turn.
 
 Index format. Each line of the index has the shape:
 

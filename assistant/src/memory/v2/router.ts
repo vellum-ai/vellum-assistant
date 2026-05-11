@@ -93,7 +93,7 @@ const ROUTER_TOOL_NAME = "select_pages_to_inject";
 function buildRouterTool(maxPageIds: number): ToolDefinition {
   return {
     name: ROUTER_TOOL_NAME,
-    description: `Choose up to ${maxPageIds} concept page IDs to inject for the next reply. Return [] if nothing in the index is relevant — abstaining is encouraged when the turn is small-talk or already adequately covered by already_injected_ids.`,
+    description: `Choose up to ${maxPageIds} concept page IDs to inject for the next reply. Lean toward inclusion when in doubt — missing a relevant page is a worse error than surfacing unused ones. Return [] only when nothing in the index plausibly bears on the turn.`,
     input_schema: {
       type: "object",
       properties: {
