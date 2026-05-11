@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
-import { resolvePricing } from "../util/pricing.js";
+import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
 
 /**
  * Parity guard: daemon LLM provider catalog vs client LLM catalog JSON.
@@ -51,6 +51,13 @@ interface ClientCatalogModel {
     outputPer1mTokens: number;
     cacheWritePer1mTokens?: number;
     cacheReadPer1mTokens?: number;
+    tiers?: Array<{
+      inputTokenThreshold: number;
+      inputPer1mTokens: number;
+      outputPer1mTokens: number;
+      cacheReadPer1mTokens?: number;
+      cacheWritePer1mTokens?: number;
+    }>;
   };
 }
 
@@ -252,11 +259,12 @@ describe("LLM catalog parity: daemon vs client", () => {
   // -----------------------------------------------------------------------
   // pricing.ts ↔ model-catalog.ts parity
   //
-  // PROVIDER_PRICING in `assistant/src/util/pricing.ts` powers cost tracking;
-  // the `pricing` metadata in PROVIDER_CATALOG is what clients display. They
-  // must agree on base input/output rates per priced catalog entry, otherwise
-  // users see one number in settings/onboarding while accounting reports a
-  // different one.
+  // `assistant/src/util/pricing.ts` reads pricing from `PROVIDER_CATALOG`
+  // (catalog-first) with a legacy fallback table for models we still bill
+  // for but no longer advertise. These tests probe `resolvePricing` /
+  // `resolvePricingForUsage` for every priced catalog model so any drift
+  // between the catalog row and the resolver's output (including cache
+  // discounts and long-context tier rates) fails CI.
   // -----------------------------------------------------------------------
 
   test("each priced catalog model has matching base rates in pricing.ts", () => {
@@ -301,6 +309,69 @@ describe("LLM catalog parity: daemon vs client", () => {
           outputRate,
           `${provider.id}/${model.id} output rate drift`,
         ).toBeCloseTo(model.pricing.outputPer1mTokens, 6);
+      }
+    }
+  });
+
+  test("each priced catalog model has matching cache-read rate in pricing.ts", () => {
+    const PROBE_TOKENS = 100_000;
+    const TOKENS_PER_MILLION = 1_000_000;
+
+    for (const provider of PROVIDER_CATALOG) {
+      for (const model of provider.models) {
+        const cacheReadCatalogRate = model.pricing?.cacheReadPer1mTokens;
+        if (cacheReadCatalogRate === undefined) continue;
+
+        const result = resolvePricingForUsage(provider.id, model.id, {
+          directInputTokens: 0,
+          outputTokens: 0,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: PROBE_TOKENS,
+          anthropicCacheCreation: null,
+        });
+        expect(
+          result.pricingStatus,
+          `${provider.id}/${model.id} unpriced in pricing.ts`,
+        ).toBe("priced");
+        const cacheReadResolvedRate =
+          (result.estimatedCostUsd ?? 0) * (TOKENS_PER_MILLION / PROBE_TOKENS);
+        expect(
+          cacheReadResolvedRate,
+          `${provider.id}/${model.id} cache-read rate drift`,
+        ).toBeCloseTo(cacheReadCatalogRate, 6);
+      }
+    }
+  });
+
+  test("each priced catalog tier resolves at its tier rate", () => {
+    const TOKENS_PER_MILLION = 1_000_000;
+
+    for (const provider of PROVIDER_CATALOG) {
+      for (const model of provider.models) {
+        const tiers = model.pricing?.tiers;
+        if (!tiers || tiers.length === 0) continue;
+
+        for (const tier of tiers) {
+          const probeTokens = tier.inputTokenThreshold + 1_000;
+          const result = resolvePricingForUsage(provider.id, model.id, {
+            directInputTokens: probeTokens,
+            outputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+            anthropicCacheCreation: null,
+          });
+          expect(
+            result.pricingStatus,
+            `${provider.id}/${model.id} unpriced at tier ${tier.inputTokenThreshold}`,
+          ).toBe("priced");
+          const resolvedRate =
+            (result.estimatedCostUsd ?? 0) *
+            (TOKENS_PER_MILLION / probeTokens);
+          expect(
+            resolvedRate,
+            `${provider.id}/${model.id} input rate drift at tier ${tier.inputTokenThreshold}`,
+          ).toBeCloseTo(tier.inputPer1mTokens, 6);
+        }
       }
     }
   });
