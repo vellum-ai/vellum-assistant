@@ -807,7 +807,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
   test("orphaned server_tool_use gets synthetic web_search_tool_result injected", async () => {
     // When stream is interrupted, server_tool_use may be stored without its
-    // paired web_search_tool_result. repairOrphanedServerToolUse should inject
+    // paired web_search_tool_result. repairOrphanedServerToolBlocks should inject
     // a synthetic error web_search_tool_result after the orphan so the model
     // knows the search failed (rather than silently returning zero results).
     const messages: Message[] = [
@@ -1133,7 +1133,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
   test("paired server_tool_use is not modified by repair", async () => {
     // When server_tool_use has its matching web_search_tool_result,
-    // repairOrphanedServerToolUse should not inject anything.
+    // repairOrphanedServerToolBlocks should not inject anything.
     const messages: Message[] = [
       userMsg("search"),
       {
@@ -1176,6 +1176,96 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     );
     expect(wsResults).toHaveLength(1);
     expect(wsResults[0].tool_use_id).toBe("srvtoolu_paired");
+  });
+
+  test("orphaned web_search_tool_result with no preceding server_tool_use gets downgraded to text", async () => {
+    // The inverse of the orphan server_tool_use case. A
+    // web_search_tool_result whose tool_use_id has no matching server_tool_use
+    // in the same assistant message would trip Anthropic's
+    // "messages.N.content.M: unexpected tool_use_id" error. Downgrading the
+    // orphan to a text block preserves the titles/URLs for the model and
+    // keeps the request valid.
+    const messages: Message[] = [
+      userMsg("Tell me more"),
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Let me check." },
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_orphaned",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://example.com",
+                title: "Example",
+                encrypted_content: "enc_abc",
+              },
+            ],
+          },
+        ],
+      },
+      userMsg("Thanks"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string; tool_use_id?: string }>;
+    }>;
+
+    // No web_search_tool_result block survives anywhere in the dispatched
+    // request — the orphan must be downgraded so Anthropic doesn't 400.
+    const allBlocks = sent.flatMap((m) => m.content);
+    expect(allBlocks.every((b) => b.type !== "web_search_tool_result")).toBe(
+      true,
+    );
+
+    // The downgrade text references the orphan id and the result's URL so
+    // the model retains context.
+    const assistantMsg = sent[1];
+    expect(assistantMsg.role).toBe("assistant");
+    const downgraded = assistantMsg.content.find(
+      (b) => b.type === "text" && b.text?.includes("srvtoolu_orphaned"),
+    );
+    expect(downgraded).toBeDefined();
+    expect(downgraded!.text).toContain("https://example.com");
+  });
+
+  test("orphaned web_search_tool_result with no content array still downgrades cleanly", async () => {
+    const messages: Message[] = [
+      userMsg("status?"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_empty",
+            content: {
+              type: "web_search_tool_result_error",
+              error_code: "unavailable",
+            },
+          },
+        ],
+      },
+      userMsg("ok"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    const allBlocks = sent.flatMap((m) => m.content);
+    expect(allBlocks.every((b) => b.type !== "web_search_tool_result")).toBe(
+      true,
+    );
+    const downgraded = sent[1].content.find(
+      (b) => b.type === "text" && b.text?.includes("srvtoolu_empty"),
+    );
+    expect(downgraded).toBeDefined();
+    expect(downgraded!.text).toContain("results unavailable");
   });
 
   test("assistant message with only unknown blocks gets placeholder text", async () => {

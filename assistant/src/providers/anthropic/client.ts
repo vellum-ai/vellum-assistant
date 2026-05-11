@@ -390,9 +390,11 @@ function isServerToolUseBlock(
 }
 
 /** Type-guard for web_search_tool_result blocks. */
-function isWebSearchToolResultBlock(
-  block: unknown,
-): block is { type: "web_search_tool_result"; tool_use_id: string } {
+function isWebSearchToolResultBlock(block: unknown): block is {
+  type: "web_search_tool_result";
+  tool_use_id: string;
+  content: unknown;
+} {
   return (
     typeof block === "object" &&
     block != null &&
@@ -401,52 +403,85 @@ function isWebSearchToolResultBlock(
 }
 
 /**
- * Repair orphaned server_tool_use blocks within assistant messages.
- * Server-side tools (e.g. web_search) are self-paired: the assistant message
- * should contain both server_tool_use and its matching web_search_tool_result.
- * When the stream is interrupted or the API returns a partial response, the
- * web_search_tool_result may be missing. This function injects a synthetic
- * error result for any orphaned server_tool_use block.
+ * Repair orphaned server-side tool blocks within assistant messages. Server-
+ * side tools (e.g. web_search) are self-paired: the assistant message should
+ * contain both server_tool_use and its matching web_search_tool_result. Either
+ * side can go missing — a partial stream may drop the result, or a downstream
+ * step (history reload, message split, compaction) may drop the use block.
+ * Both cases trigger an Anthropic 400 on the next request, so this function
+ * handles both directions:
+ *
+ *   - server_tool_use without paired result: inject a synthetic error result.
+ *   - web_search_tool_result without paired server_tool_use: downgrade to a
+ *     text block describing what was found so the model retains context.
  */
-function repairOrphanedServerToolUse(
+function repairOrphanedServerToolBlocks(
   messages: Anthropic.MessageParam[],
 ): Anthropic.MessageParam[] {
   return messages.map((msg) => {
     if (msg.role !== "assistant") return msg;
     const content = Array.isArray(msg.content) ? msg.content : [];
 
-    // Collect server_tool_use IDs and web_search_tool_result IDs in this message
     const serverToolUseIds = new Set<string>();
-    const pairedResultIds = new Set<string>();
+    const webSearchResultIds = new Set<string>();
     for (const block of content) {
       if (isServerToolUseBlock(block)) {
         serverToolUseIds.add(block.id);
       }
       if (isWebSearchToolResultBlock(block)) {
-        pairedResultIds.add(block.tool_use_id);
+        webSearchResultIds.add(block.tool_use_id);
       }
     }
 
-    // Find orphaned server_tool_use blocks (no matching web_search_tool_result)
-    const orphanedIds: string[] = [];
+    const orphanServerToolUseIds = new Set<string>();
     for (const id of serverToolUseIds) {
-      if (!pairedResultIds.has(id)) {
-        orphanedIds.push(id);
-      }
+      if (!webSearchResultIds.has(id)) orphanServerToolUseIds.add(id);
+    }
+    const orphanWebSearchResultIds = new Set<string>();
+    for (const id of webSearchResultIds) {
+      if (!serverToolUseIds.has(id)) orphanWebSearchResultIds.add(id);
     }
 
-    if (orphanedIds.length === 0) return msg;
+    if (
+      orphanServerToolUseIds.size === 0 &&
+      orphanWebSearchResultIds.size === 0
+    ) {
+      return msg;
+    }
 
-    log.warn(
-      { orphanedIds, blockCount: content.length },
-      "Injecting synthetic web_search_tool_result for orphaned server_tool_use blocks",
-    );
+    if (orphanServerToolUseIds.size > 0) {
+      log.warn(
+        {
+          orphanedIds: Array.from(orphanServerToolUseIds),
+          blockCount: content.length,
+        },
+        "Injecting synthetic web_search_tool_result for orphaned server_tool_use blocks",
+      );
+    }
+    if (orphanWebSearchResultIds.size > 0) {
+      log.warn(
+        {
+          orphanedIds: Array.from(orphanWebSearchResultIds),
+          blockCount: content.length,
+        },
+        "Downgrading orphaned web_search_tool_result blocks to text",
+      );
+    }
 
-    // Insert a synthetic error web_search_tool_result after each orphaned server_tool_use
     const repairedContent: Anthropic.ContentBlockParam[] = [];
     for (const block of content) {
+      if (
+        isWebSearchToolResultBlock(block) &&
+        orphanWebSearchResultIds.has(block.tool_use_id)
+      ) {
+        repairedContent.push({
+          type: "text",
+          text: formatOrphanedWebSearchResultAsText(block),
+        });
+        continue;
+      }
       repairedContent.push(block);
-      if (isServerToolUseBlock(block) && orphanedIds.includes(block.id)) {
+      if (isServerToolUseBlock(block) && orphanServerToolUseIds.has(block.id)) {
         repairedContent.push({
           type: "web_search_tool_result",
           tool_use_id: block.id,
@@ -460,6 +495,38 @@ function repairOrphanedServerToolUse(
 
     return { role: msg.role, content: repairedContent };
   });
+}
+
+function formatOrphanedWebSearchResultAsText(block: {
+  tool_use_id: string;
+  content: unknown;
+}): string {
+  const header = `[Orphaned web_search results (tool_use_id=${block.tool_use_id}):`;
+  if (!Array.isArray(block.content)) {
+    return `${header} (results unavailable)]`;
+  }
+  const entries: string[] = [];
+  for (const r of block.content) {
+    if (
+      typeof r !== "object" ||
+      r == null ||
+      (r as { type?: string }).type !== "web_search_result"
+    ) {
+      continue;
+    }
+    const title =
+      typeof (r as { title?: unknown }).title === "string"
+        ? (r as { title: string }).title
+        : "(untitled)";
+    const url =
+      typeof (r as { url?: unknown }).url === "string"
+        ? (r as { url: string }).url
+        : "";
+    const idx = entries.length + 1;
+    entries.push(url ? `${idx}. ${title}\n   ${url}` : `${idx}. ${title}`);
+  }
+  const body = entries.length > 0 ? entries.join("\n") : "(no results)";
+  return `${header}\n${body}]`;
 }
 
 /**
@@ -859,7 +926,9 @@ export class AnthropicProvider implements Provider {
       // assistant messages have original thinking with valid signatures
       // — the API accepts them. No provider-side stripping needed.
 
-      sentMessages = ensureToolPairing(repairOrphanedServerToolUse(formatted));
+      sentMessages = ensureToolPairing(
+        repairOrphanedServerToolBlocks(formatted),
+      );
       const {
         effort,
         speed,
