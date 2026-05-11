@@ -107,6 +107,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     return { id: "conv-1", ...opts };
   },
   countConversationsByScheduleJobId: mock(() => 0),
+  countMessagesAfter: mock(() => 0),
   deleteMessageById: mock(() => {}),
   clearAll: mock(() => ({ conversations: 0, messages: 0 })),
   deleteConversation: mock(() => ({ memoryIds: [] })),
@@ -126,6 +127,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => null,
   getMessageById: () => null,
   getMessages: () => [],
+  getMessagesAfter: () => [],
   getMessagesPaginated: () => ({ messages: [], hasMore: false }),
   getTurnTimeBounds: () => null,
   getConversation: () => null,
@@ -175,6 +177,7 @@ mock.module("../memory/jobs-store.js", () => ({
   SLOW_LLM_JOB_TYPES: [],
   upsertAutoAnalysisJob: mock(() => "job-auto-analysis"),
   upsertDebouncedJob: mock(() => "job-debounced"),
+  upsertMemoryRetrospectiveJob: mock(() => "job-memory-retrospective"),
 }));
 
 const mockMaybeRunDbMaintenance = mock(() => {});
