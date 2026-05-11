@@ -43,7 +43,6 @@ Examples:
         trust: ["list"],
         memory: ["status", "backfill", "cleanup", "query", "rebuild-index"],
         contacts: ["list", "invites", "get", "merge"],
-        autonomy: ["get", "set"],
       };
       const topLevel = [
         "conversations",
@@ -52,7 +51,6 @@ Examples:
         "trust",
         "memory",
         "contacts",
-        "autonomy",
         "audit",
         "completions",
         "help",

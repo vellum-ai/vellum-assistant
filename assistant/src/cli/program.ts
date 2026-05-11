@@ -10,7 +10,6 @@ import { APP_VERSION } from "../version.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
-import { registerAutonomyCommand } from "./commands/autonomy.js";
 import { registerAvatarCommand } from "./commands/avatar.js";
 import { registerBackupCommand } from "./commands/backup.js";
 import { registerBashCommand } from "./commands/bash.js";
@@ -79,7 +78,6 @@ Examples:
   registerAttachmentCommand(program);
   registerAuditCommand(program);
   registerAuthCommand(program);
-  registerAutonomyCommand(program);
   registerAvatarCommand(program);
   registerBackupCommand(program);
   registerBashCommand(program);
