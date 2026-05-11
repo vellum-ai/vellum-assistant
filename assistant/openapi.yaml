@@ -743,6 +743,72 @@ paths:
               required:
                 - preview
               additionalProperties: false
+  /v1/apps/{id}/publish:
+    post:
+      operationId: apps_by_id_publish_post
+      summary: Publish app to Vercel
+      description: Deploy the app's HTML to Vercel and store the deployment record.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  publicUrl:
+                    type: string
+                  deploymentId:
+                    type: string
+                  errorCode:
+                    type: string
+                  error:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/apps/{id}/publish-status:
+    get:
+      operationId: apps_by_id_publishstatus_get
+      summary: Get app publish status
+      description: Return the current Vercel deployment state for an app.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  published:
+                    type: boolean
+                  publicUrl:
+                    type: string
+                  deploymentId:
+                    type: string
+                  publishedAt:
+                    type: number
+                required:
+                  - published
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/apps/{id}/restore:
     post:
       operationId: apps_by_id_restore_post
@@ -796,6 +862,34 @@ paths:
                   - success
                   - shareToken
                   - shareUrl
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/apps/{id}/unpublish:
+    post:
+      operationId: apps_by_id_unpublish_post
+      summary: Unpublish app from Vercel
+      description: Mark the active Vercel deployment as inactive.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - success
                 additionalProperties: false
       parameters:
         - name: id
