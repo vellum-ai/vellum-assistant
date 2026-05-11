@@ -22,6 +22,24 @@ struct ProvidersSheet: View {
     @State private var conflictInfo: ConflictInfo?
     @State private var actionError: String?
 
+    /// Masked value of the currently-selected credential (e.g. "sk-ant-api...Ab1x").
+    @State private var maskedCredentialValue: String?
+
+    /// Whether the credential value is being loaded from the daemon.
+    @State private var isLoadingCredential = false
+
+    /// Available credentials for the current provider (for the Advanced dropdown).
+    @State private var availableCredentials: [(service: String, field: String)] = []
+
+    /// Whether the "create new credential" inline form is showing.
+    @State private var isCreatingNewCredential = false
+
+    /// Name for a new credential being created.
+    @State private var newCredentialName = ""
+
+    /// Whether we're saving the credential value.
+    @State private var isSavingKey = false
+
     // MARK: - Nested Types
 
     struct ConnectionDraft {
@@ -31,6 +49,9 @@ struct ProvidersSheet: View {
         var authType = "api_key"
         var credential = ""
         var status: ConnectionStatus = .active
+        // Inline credential editing
+        var apiKeyValue = ""
+        var isAdvancedExpanded = false
     }
 
     enum EditorState {
@@ -81,6 +102,12 @@ struct ProvidersSheet: View {
             if newValue == nil {
                 editorDraft = ConnectionDraft()
                 isKeyDirty = false
+                maskedCredentialValue = nil
+                isLoadingCredential = false
+                availableCredentials = []
+                isCreatingNewCredential = false
+                newCredentialName = ""
+                isSavingKey = false
             }
         }
         .animation(VAnimation.fast, value: editorState != nil)
@@ -262,7 +289,8 @@ struct ProvidersSheet: View {
                     }
                     editorAuthTypeField
                     if editorDraft.authType == "api_key" {
-                        editorCredentialField
+                        editorApiKeyField
+                        editorAdvancedSection
                     } else if editorDraft.authType == "platform" {
                         editorPlatformNote
                     } else if editorDraft.authType == "none" {
@@ -279,6 +307,13 @@ struct ProvidersSheet: View {
             }
             SettingsDivider()
             editorFooter
+        }
+        .onChange(of: editorDraft.provider) { _, newProvider in
+            if case .create = editorState, !newProvider.isEmpty {
+                editorDraft.credential = "credential/\(newProvider)/api_key"
+                maskedCredentialValue = nil
+                Task { await loadAvailableCredentials() }
+            }
         }
     }
 
@@ -393,18 +428,137 @@ struct ProvidersSheet: View {
         }
     }
 
-    private var editorCredentialField: some View {
+    private var editorApiKeyField: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Credential Reference")
+            Text("API Key")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
-            VTextField(
-                placeholder: "secret-name",
-                text: $editorDraft.credential
-            )
-            Text("The name of the secret in your credential store.")
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentTertiary)
+
+            if isLoadingCredential {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading...")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+                .frame(height: 32)
+            } else {
+                VTextField(
+                    placeholder: maskedCredentialValue ?? "Enter your API key",
+                    text: $editorDraft.apiKeyValue,
+                    isSecure: true
+                )
+            }
+
+            if maskedCredentialValue != nil && editorDraft.apiKeyValue.isEmpty {
+                Text("A key is configured. Enter a new value to replace it.")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        }
+    }
+
+    private var editorAdvancedSection: some View {
+        VDisclosureSection(
+            title: "Advanced",
+            subtitle: "Credential reference",
+            isExpanded: $editorDraft.isAdvancedExpanded
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Credential Reference")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+
+                if availableCredentials.isEmpty && !isCreatingNewCredential {
+                    Text("No credentials stored yet. Save an API key above to create one automatically.")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else if !availableCredentials.isEmpty {
+                    let options = credentialDropdownOptions
+                    VDropdown(
+                        placeholder: "Select a credential\u{2026}",
+                        selection: $editorDraft.credential,
+                        options: options,
+                        menuWidth: 360
+                    ) { newValue in
+                        Task { await loadMaskedValue(for: newValue) }
+                    }
+                }
+
+                if isCreatingNewCredential {
+                    newCredentialForm
+                }
+
+                // Sticky footer: Create new credential button
+                HStack {
+                    Spacer()
+                    VButton(
+                        label: isCreatingNewCredential ? "Cancel" : "+ New Credential",
+                        style: .ghost,
+                        size: .compact
+                    ) {
+                        if isCreatingNewCredential {
+                            isCreatingNewCredential = false
+                            newCredentialName = ""
+                        } else {
+                            isCreatingNewCredential = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var newCredentialForm: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("New Credential Name")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            HStack(spacing: VSpacing.sm) {
+                VTextField(
+                    placeholder: "e.g. team-key",
+                    text: $newCredentialName
+                )
+                VButton(label: "Use", style: .primary, size: .compact) {
+                    let trimmed = newCredentialName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    let ref = "credential/\(editorDraft.provider)/\(trimmed)"
+                    editorDraft.credential = ref
+                    isCreatingNewCredential = false
+                    newCredentialName = ""
+                    Task { await loadMaskedValue(for: ref) }
+                }
+                .disabled(newCredentialName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+
+    private var credentialDropdownOptions: [(label: String, value: String)] {
+        let providerCredentials = availableCredentials.filter { $0.service == editorDraft.provider }
+        return providerCredentials.map { cred in
+            let ref = "credential/\(cred.service)/\(cred.field)"
+            return (label: ref, value: ref)
+        }
+    }
+
+    private func loadMaskedValue(for credentialRef: String) async {
+        let parts = credentialRef.split(separator: "/")
+        guard parts.count >= 3, parts[0] == "credential" else {
+            maskedCredentialValue = nil
+            return
+        }
+        let service = String(parts[1])
+        let field = parts[2...].joined(separator: "/")
+
+        isLoadingCredential = true
+        maskedCredentialValue = await APIKeyManager.maskedCredential(service: service, field: field)
+        isLoadingCredential = false
+    }
+
+    private func loadAvailableCredentials() async {
+        if let creds = await APIKeyManager.listCredentials() {
+            availableCredentials = creds
         }
     }
 
@@ -491,10 +645,16 @@ struct ProvidersSheet: View {
     private func beginCreate() {
         actionError = nil
         isKeyDirty = false
+        let provider = store.providerCatalog.first?.id ?? ""
         editorDraft = ConnectionDraft(
-            provider: store.providerCatalog.first?.id ?? ""
+            provider: provider
         )
+        if !provider.isEmpty {
+            editorDraft.credential = "credential/\(provider)/api_key"
+        }
         editorState = .create
+        maskedCredentialValue = nil
+        Task { await loadAvailableCredentials() }
     }
 
     private func beginEdit(_ conn: ProviderConnection) {
@@ -509,6 +669,13 @@ struct ProvidersSheet: View {
             status: conn.status
         )
         editorState = .edit(name: conn.name)
+
+        if conn.auth.type == "api_key", let credential = conn.auth.credential, !credential.isEmpty {
+            Task {
+                await loadMaskedValue(for: credential)
+                await loadAvailableCredentials()
+            }
+        }
     }
 
     private func commitEditor() async {
@@ -520,11 +687,40 @@ struct ProvidersSheet: View {
             return
         }
 
+        var credentialRef = draft.credential.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if draft.authType == "api_key" {
+            if credentialRef.isEmpty {
+                credentialRef = "credential/\(draft.provider)/api_key"
+            }
+
+            let trimmedKey = draft.apiKeyValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedKey.isEmpty {
+                isSavingKey = true
+                let parts = credentialRef.split(separator: "/")
+                let result: APIKeyManager.SetKeyResult
+                if parts.count >= 3 && parts[0] == "credential" {
+                    let service = String(parts[1])
+                    let field = parts[2...].joined(separator: "/")
+                    result = await APIKeyManager.setCredential(trimmedKey, service: service, field: field)
+                } else {
+                    result = await APIKeyManager.setKey(trimmedKey, for: draft.provider)
+                }
+                isSavingKey = false
+
+                if !result.success {
+                    actionError = result.error ?? "Failed to save API key."
+                    return
+                }
+            } else if maskedCredentialValue == nil, case .create = editorState {
+                actionError = "Enter an API key or select an existing credential."
+                return
+            }
+        }
+
         let auth = ProviderConnectionAuth(
             type: draft.authType,
-            credential: draft.authType == "api_key"
-                ? draft.credential.trimmingCharacters(in: .whitespacesAndNewlines)
-                : nil
+            credential: draft.authType == "api_key" ? credentialRef : nil
         )
         let label: String? = draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft.label.trimmingCharacters(in: .whitespacesAndNewlines)
         let status = draft.status

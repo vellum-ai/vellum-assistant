@@ -295,6 +295,46 @@ enum APIKeyManager {
         return names
     }
 
+    /// List credential entries from the daemon's secret store.
+    /// Returns an array of (service, field) tuples for credential-type secrets,
+    /// or nil on transport failure.
+    static func listCredentials() async -> [(service: String, field: String)]? {
+        do {
+            let response = try await GatewayHTTPClient.get(path: "secrets", timeout: 5)
+            guard response.isSuccess else { return nil }
+            return parseListCredentialsResponse(response.data)
+        } catch {
+            apiKeyLog.error("listCredentials failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    static func parseListCredentialsResponse(_ data: Data) -> [(service: String, field: String)]? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let entries = (json["secrets"] as? [[String: Any]])
+            ?? (json["accounts"] as? [[String: Any]])
+            ?? []
+        var results: [(service: String, field: String)] = []
+        for entry in entries {
+            guard let type = entry["type"] as? String else { continue }
+            if type == "api_key", let name = entry["name"] as? String, !name.isEmpty {
+                results.append((service: name, field: "api_key"))
+            } else if type == "credential", let name = entry["name"] as? String {
+                let colonIdx = name.lastIndex(of: ":")
+                if let idx = colonIdx {
+                    let service = String(name[name.startIndex..<idx])
+                    let field = String(name[name.index(after: idx)...])
+                    if !service.isEmpty && !field.isEmpty {
+                        results.append((service: service, field: field))
+                    }
+                }
+            }
+        }
+        return results
+    }
+
     // MARK: - Credential access (service:field secrets)
 
     private static let credentialPrefix = "vellum_credential_"
