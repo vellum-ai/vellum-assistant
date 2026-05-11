@@ -1,12 +1,21 @@
 #!/usr/bin/env bun
 /**
- * Generate `meta/llm-provider-catalog.json` from the canonical
+ * Generate `llm-provider-catalog.json` from the canonical
  * `PROVIDER_CATALOG` in `assistant/src/providers/model-catalog.ts`.
  *
  * The JSON file is the client-facing catalog bundled into native clients
  * (macOS, web). Keeping it generated — rather than hand-mirrored — eliminates
  * the recurring "I edited model-catalog.ts and forgot the JSON" failure mode
  * that the parity test only catches after push.
+ *
+ * Two byte-identical copies are written:
+ *   - `meta/llm-provider-catalog.json` — primary checked-in artifact, read
+ *      by web codegen (§D) and any non-Swift consumer.
+ *   - `clients/shared/Resources/llm-provider-catalog.json` — SwiftPM resource
+ *      bundled into `VellumAssistantShared`. SwiftPM cannot reach files
+ *      outside a target's source directory, so this mirror is necessary;
+ *      both files are produced by the same generator and asserted equal by
+ *      the parity test, making drift impossible.
  *
  * The projection drops daemon-only fields (today: `apiKeyUrl`, which clients
  * read from `credentialsGuide.url` instead) and pins field order so the
@@ -19,7 +28,7 @@
  */
 
 import { readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 import {
   type CatalogModel,
@@ -28,7 +37,10 @@ import {
 } from "../src/providers/model-catalog.js";
 
 const ROOT = resolve(import.meta.dir, "../..");
-const OUTPUT_PATH = join(ROOT, "meta/llm-provider-catalog.json");
+const OUTPUT_PATHS = [
+  join(ROOT, "meta/llm-provider-catalog.json"),
+  join(ROOT, "clients/shared/Resources/llm-provider-catalog.json"),
+] as const;
 
 /**
  * Bumped when the *shape* of the client catalog JSON changes in a way native
@@ -109,32 +121,37 @@ async function main() {
   const output = JSON.stringify(generated, null, 2) + "\n";
 
   if (isCheck) {
-    let existing: string;
-    try {
-      existing = await readFile(OUTPUT_PATH, "utf-8");
-    } catch {
-      console.error(
-        "meta/llm-provider-catalog.json does not exist. Run: bun run sync:llm-catalog",
-      );
-      process.exit(1);
+    let anyStale = false;
+    for (const path of OUTPUT_PATHS) {
+      const rel = relative(ROOT, path);
+      let existing: string;
+      try {
+        existing = await readFile(path, "utf-8");
+      } catch {
+        console.error(`${rel} does not exist. Run: bun run sync:llm-catalog`);
+        anyStale = true;
+        continue;
+      }
+      if (existing !== output) {
+        console.error(`${rel} is stale. Run: bun run sync:llm-catalog`);
+        anyStale = true;
+        continue;
+      }
+      console.log(`${rel} is up to date.`);
     }
-    if (existing !== output) {
-      console.error(
-        "meta/llm-provider-catalog.json is stale. Run: bun run sync:llm-catalog",
-      );
-      process.exit(1);
-    }
-    console.log("meta/llm-provider-catalog.json is up to date.");
+    if (anyStale) process.exit(1);
     return;
   }
 
-  await writeFile(OUTPUT_PATH, output);
+  for (const path of OUTPUT_PATHS) {
+    await writeFile(path, output);
+    console.log(`Generated ${relative(ROOT, path)}`);
+  }
 
   const modelCount = generated.providers.reduce(
     (n, p) => n + (p.models as unknown[]).length,
     0,
   );
-  console.log(`Generated ${OUTPUT_PATH}`);
   console.log(
     `  ${generated.providers.length} providers, ${modelCount} models`,
   );
