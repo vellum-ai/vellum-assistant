@@ -26,8 +26,7 @@ import {
   getAvatarImagePath,
   getWorkspaceDir,
 } from "../../util/platform.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { publishAvatarChanged } from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   RouteError,
@@ -36,20 +35,6 @@ import {
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("avatar-routes");
-
-function publishAvatarUpdated(): void {
-  const avatarPath = getAvatarImagePath();
-  assistantEventHub
-    .publish(
-      buildAssistantEvent({
-        type: "avatar_updated",
-        avatarPath,
-      }),
-    )
-    .catch((err) => {
-      log.warn({ err }, "Failed to publish avatar_updated event");
-    });
-}
 
 function handleGetCharacterComponents() {
   return getCharacterComponents();
@@ -84,7 +69,7 @@ function handleRenderFromTraits({ body }: RouteHandlerArgs) {
   }
 
   updateIdentityAvatarSection(null, log);
-  publishAvatarUpdated();
+  publishAvatarChanged();
   return { ok: true };
 }
 
@@ -124,7 +109,7 @@ async function handleGenerateAvatar({ body }: RouteHandlerArgs) {
   }
 
   updateIdentityAvatarSection(null, log);
-  publishAvatarUpdated();
+  publishAvatarChanged();
   return { ok: true, message: result.content };
 }
 
@@ -140,7 +125,10 @@ function handleSetAvatar({ body }: RouteHandlerArgs) {
   // pass /etc/passwd or other host paths and exfiltrate via avatar_get.
   const workspaceDir = getWorkspaceDir();
   const normalized = resolve(imagePath);
-  if (normalized !== workspaceDir && !normalized.startsWith(workspaceDir + "/")) {
+  if (
+    normalized !== workspaceDir &&
+    !normalized.startsWith(workspaceDir + "/")
+  ) {
     throw new BadRequestError(
       "imagePath must resolve inside the workspace directory",
     );
@@ -154,7 +142,7 @@ function handleSetAvatar({ body }: RouteHandlerArgs) {
   copyFileSync(normalized, avatarPath);
 
   updateIdentityAvatarSection(null, log);
-  publishAvatarUpdated();
+  publishAvatarChanged();
   return { ok: true };
 }
 
@@ -184,16 +172,14 @@ function handleRemoveAvatar(_args: RouteHandlerArgs) {
     "Default character avatar (no custom image set)",
     log,
   );
-  publishAvatarUpdated();
+  publishAvatarChanged();
   return { ok: true, hadAvatar: true };
 }
 
 function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
-  const format = (
-    queryParams?.format ??
+  const format = (queryParams?.format ??
     (body as Record<string, unknown>)?.format ??
-    "path"
-  ) as string;
+    "path") as string;
 
   if (format !== "path" && format !== "base64") {
     throw new BadRequestError(
@@ -301,11 +287,11 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "avatar/notify-updated",
     method: "POST",
     handler: () => {
-      publishAvatarUpdated();
+      publishAvatarChanged();
       return { ok: true };
     },
     summary: "Notify avatar updated",
-    description: "Publish an avatar_updated SSE event to connected clients.",
+    description: "Publish avatar change notifications to connected clients.",
     tags: ["avatar"],
     responseBody: z.object({
       ok: z.boolean(),
@@ -350,8 +336,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "GET",
     handler: handleGetAvatar,
     summary: "Get current avatar",
-    description:
-      "Retrieve the current avatar as a file path or base64 string.",
+    description: "Retrieve the current avatar as a file path or base64 string.",
     tags: ["avatar"],
     queryParams: [
       {

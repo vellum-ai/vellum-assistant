@@ -14,13 +14,14 @@ import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
+import {
+  publishAvatarChanged,
+  publishIdentityChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getLogger } from "../util/logger.js";
-import {
-  getAvatarImagePath,
-  getWorkspacePromptPath,
-} from "../util/platform.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 import {
   AppSourceWatcher,
   setEnsureAppSourceWatcher,
@@ -164,14 +165,7 @@ export class DaemonServer {
         ? readFileSync(identityPath, "utf-8")
         : "";
       const fields = parseIdentityFields(content);
-      broadcastMessage({
-        type: "identity_changed",
-        name: fields.name,
-        role: fields.role,
-        personality: fields.personality,
-        emoji: fields.emoji,
-        home: fields.home,
-      });
+      publishIdentityChanged(fields);
 
       // Best-effort sync of the assistant name to the platform record.
       if (fields.name) {
@@ -207,10 +201,7 @@ export class DaemonServer {
   }
 
   private broadcastAvatarUpdated(): void {
-    broadcastMessage({
-      type: "avatar_updated",
-      avatarPath: getAvatarImagePath(),
-    });
+    publishAvatarChanged();
   }
 
   /**
