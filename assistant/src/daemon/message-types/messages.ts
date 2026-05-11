@@ -235,6 +235,27 @@ export interface SecretRequest {
   allowOneTimeSend?: boolean;
 }
 
+export interface QuestionOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface QuestionRequest {
+  type: "question_request";
+  requestId: string;
+  question: string;
+  description?: string;
+  /** LLM-supplied options, capped at 4. The client always renders a fixed
+   *  5th "Type something else" slot wired to a free-text response — so this
+   *  array never represents the full choice set the user sees. */
+  options: QuestionOption[];
+  /** Optional placeholder shown in the free-text input. */
+  freeTextPlaceholder?: string;
+  conversationId?: string;
+  toolUseId?: string;
+}
+
 export interface MessageComplete {
   type: "message_complete";
   conversationId?: string;
@@ -430,6 +451,7 @@ export type _MessagesServerMessages =
   | ToolResult
   | ConfirmationRequest
   | SecretRequest
+  | QuestionRequest
   | MessageComplete
   | ErrorMessage
   | MessageQueued
