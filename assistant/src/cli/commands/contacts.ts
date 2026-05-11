@@ -170,15 +170,9 @@ can be linked to external identifiers — phone numbers,
 Telegram IDs, email addresses — via channel memberships. The contact graph
 is the source of truth for identity resolution across all channels.
 
-Contact writes are guardian-only and happen through the assistant web UI
-(Contacts tab) or the invite flow — there is no CLI command for creating
-or updating contacts. This CLI exposes read, merge, and invite/channel
-management only.
-
 Examples:
   $ assistant contacts list
   $ assistant contacts get abc-123
-  $ assistant contacts merge keep-id merge-id
   $ assistant contacts invites list`,
       );
 
@@ -320,62 +314,6 @@ Examples:
             );
           }
         });
-
-      // -----------------------------------------------------------------------
-      // merge
-      // -----------------------------------------------------------------------
-
-      contacts
-        .command("merge <keepId> <mergeId>")
-        .description("Merge two contacts")
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  keepId    UUID of the surviving contact that will absorb the other.
-            Run 'assistant contacts list' to find IDs.
-  mergeId   UUID of the contact to be merged and deleted
-
-All channel memberships, conversation history, and metadata from mergeId
-are transferred to keepId. After the merge, mergeId is permanently deleted.
-This operation is irreversible.
-
-Examples:
-  $ assistant contacts merge 7a3b1c2d-4e5f-6789-abcd-ef0123456789 9f8e7d6c-5b4a-3210-fedc-ba9876543210
-  $ assistant contacts merge keep-id merge-id --json`,
-        )
-        .action(
-          async (
-            keepId: string,
-            mergeId: string,
-            _opts: unknown,
-            cmd: Command,
-          ) => {
-            const r = await cliIpcCall<{
-              ok: boolean;
-              contact: ContactWithChannels;
-            }>("merge_contacts", {
-              body: { keepId, mergeId },
-            });
-
-            if (!r.ok)
-              return exitFromIpcResult(
-                r as { ok: false; error?: string; statusCode?: number },
-                cmd,
-              );
-
-            const { contact } = r.result!;
-            if (shouldOutputJson(cmd)) {
-              writeOutput(cmd, { ok: true, contact });
-            } else {
-              process.stdout.write(
-                `Merged ${mergeId} into ${keepId}\n` +
-                  formatContactDetail(contact) +
-                  "\n",
-              );
-            }
-          },
-        );
 
       // -----------------------------------------------------------------------
       // prompt
