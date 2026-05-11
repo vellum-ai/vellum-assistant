@@ -9615,7 +9615,6 @@ paths:
                     type: string
               required:
                 - service
-                - clientId
                 - callbackTransport
               additionalProperties: false
   /v1/internal/oauth/connect/status/{state}:
@@ -11001,6 +11000,79 @@ paths:
           required: true
           schema:
             type: string
+  /v1/oauth/disconnect:
+    post:
+      operationId: oauth_disconnect_post
+      summary: Disconnect OAuth provider
+      description: Disconnect an OAuth provider and remove associated credentials (BYO or managed).
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+  /v1/oauth/managed-connect/poll:
+    get:
+      operationId: oauth_managedconnect_poll_get
+      summary: Poll managed OAuth connections
+      description: Fetch active platform connections for a provider (used to detect new connections after managed connect).
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Provider key
+  /v1/oauth/managed-connect/start:
+    post:
+      operationId: oauth_managedconnect_start_post
+      summary: Start managed OAuth connect
+      description: Start a managed (platform) OAuth connect flow and return the connect URL.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+  /v1/oauth/mode:
+    get:
+      operationId: oauth_mode_get
+      summary: Get OAuth mode
+      description: Get the current OAuth mode (managed or your-own) for a provider.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Provider key
+    post:
+      operationId: oauth_mode_post
+      summary: Set OAuth mode
+      description: Set the OAuth mode (managed or your-own) for a provider.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+  /v1/oauth/ping:
+    post:
+      operationId: oauth_ping_post
+      summary: Ping OAuth provider
+      description: Verify an OAuth token is valid by hitting the provider's configured health-check endpoint.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
   /v1/oauth/providers:
     get:
       operationId: oauth_providers_get
@@ -11073,6 +11145,16 @@ paths:
           required: true
           schema:
             type: string
+  /v1/oauth/request:
+    post:
+      operationId: oauth_request_post
+      summary: Make authenticated OAuth request
+      description: Make an authenticated HTTP request through an OAuth connection (supports curl-like interface).
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
   /v1/oauth/start:
     post:
       operationId: oauth_start_post
@@ -11099,6 +11181,33 @@ paths:
                 - service
                 - requestedScopes
               additionalProperties: false
+  /v1/oauth/status:
+    get:
+      operationId: oauth_status_get
+      summary: Get OAuth status
+      description: Show OAuth connection status for a specified provider (BYO or managed).
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Provider key
+  /v1/oauth/token:
+    post:
+      operationId: oauth_token_post
+      summary: Get OAuth token
+      description: Retrieve a valid OAuth access token for a BYO-mode provider.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
   /v1/pages/{appId}:
     get:
       operationId: pages_by_appId_get

@@ -2,19 +2,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import type { OAuthConnectionRequest } from "../../../oauth/connection.js";
-import {
-  resolveOAuthConnection,
-  type ResolveOAuthConnectionOptions,
-} from "../../../oauth/connection-resolver.js";
-import {
-  getActiveConnection,
-  getAppByProviderAndClientId,
-  getProvider,
-} from "../../../oauth/oauth-store.js";
-import { VellumPlatformClient } from "../../../platform/client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { isManagedMode } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,11 +49,12 @@ function tryJsonParse(raw: string): unknown {
  * - `@<path>` reads a file
  * - Otherwise treats as inline data
  *
- * All sources attempt JSON parse with fallback to raw string.
+ * File/stdin reading must happen on the CLI side (not the daemon)
+ * since stdin is attached to the CLI process and file paths are
+ * relative to the user's cwd.
  */
 function readBodyData(data: string): unknown {
   if (data === "@-") {
-    // Read stdin synchronously. Bun supports readFileSync("/dev/stdin").
     const raw = readFileSync("/dev/stdin", "utf-8");
     return tryJsonParse(raw);
   }
@@ -174,348 +164,95 @@ Examples:
         };
 
         try {
-          // -----------------------------------------------------------------
-          // Pre-flight check 1: Provider not found
-          // -----------------------------------------------------------------
-          const providerRow = getProvider(opts.provider);
-          if (!providerRow) {
-            writeError(
-              `Error: Unknown provider "${opts.provider}".\n\n` +
-                `Run 'assistant oauth providers list' to see available providers.\n` +
-                `If this is a custom provider, register it first with 'assistant oauth providers register --help'.`,
-            );
-            return;
-          }
-
-          // -----------------------------------------------------------------
-          // Pre-flight check 2: Determine managed vs BYO mode
-          // -----------------------------------------------------------------
-          const managed = isManagedMode(opts.provider);
-
-          // -----------------------------------------------------------------
-          // Pre-flight check 3: Client ID not found (BYO only)
-          // -----------------------------------------------------------------
-          if (opts.clientId) {
-            if (managed) {
-              writeInfo(
-                `Warning: --client-id is ignored for platform-managed providers. The platform manages OAuth apps for "${opts.provider}".`,
-              );
-            } else {
-              const app = getAppByProviderAndClientId(
-                opts.provider,
-                opts.clientId,
-              );
-              if (!app) {
-                writeError(
-                  `Error: No registered OAuth app found for "${opts.provider}" with client ID "${opts.clientId}".\n\n` +
-                    `Run 'assistant oauth apps list' to see registered apps for this provider.\n` +
-                    `To register a new app, run 'assistant oauth apps upsert --help'.`,
-                );
-                return;
-              }
-            }
-          }
-
-          // -----------------------------------------------------------------
-          // Pre-flight check 4: Account not found
-          // -----------------------------------------------------------------
-          if (opts.account) {
-            if (managed) {
-              // Query platform connections to validate account
-              const client = await VellumPlatformClient.create();
-              if (client && client.platformAssistantId) {
-                const params = new URLSearchParams();
-                params.set("provider", opts.provider);
-                params.set("status", "ACTIVE");
-                params.set("account_identifier", opts.account);
-
-                const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/connections/?${params.toString()}`;
-                const response = await client.fetch(path);
-
-                if (response.ok) {
-                  const body = (await response.json()) as unknown;
-                  const connections = (
-                    Array.isArray(body)
-                      ? body
-                      : ((body as Record<string, unknown>).results ?? [])
-                  ) as Array<{ id: string }>;
-
-                  if (connections.length === 0) {
-                    writeError(
-                      `Error: No active platform connection found for "${opts.provider}" with account "${opts.account}".\n\n` +
-                        `Run 'assistant oauth status ${opts.provider}' to see connected accounts for this provider.\n` +
-                        `To connect a new account, run 'assistant oauth connect --help'.`,
-                    );
-                    return;
-                  }
-                }
-              } else {
-                writeInfo(
-                  `Warning: Could not validate account "${opts.account}" — platform client not available. Proceeding without account validation.`,
-                );
-              }
-            } else {
-              const conn = getActiveConnection(opts.provider, {
-                clientId: opts.clientId,
-                account: opts.account,
-              });
-              if (!conn) {
-                writeError(
-                  `Error: No active OAuth connection found for "${opts.provider}" with account "${opts.account}"${opts.clientId ? ` and client ID "${opts.clientId}"` : ""}.\n\n` +
-                    `Run 'assistant oauth status ${opts.provider}' to see active connections.\n` +
-                    `To connect a new account, run 'assistant oauth connect --help'.`,
-                );
-                return;
-              }
-            }
-          }
-
-          // -----------------------------------------------------------------
-          // Parse URL
-          // -----------------------------------------------------------------
-          let baseUrl: string | undefined;
-          let requestPath: string;
-          const queryFromUrl: Record<string, string | string[]> = {};
-
-          if (url.startsWith("http://") || url.startsWith("https://")) {
-            const parsed = new URL(url);
-            baseUrl = `${parsed.protocol}//${parsed.host}`;
-            requestPath = parsed.pathname;
-            for (const [key, value] of parsed.searchParams.entries()) {
-              const existing = queryFromUrl[key];
-              if (existing !== undefined) {
-                queryFromUrl[key] = Array.isArray(existing)
-                  ? [...existing, value]
-                  : [existing, value];
-              } else {
-                queryFromUrl[key] = value;
-              }
-            }
-          } else {
-            // Relative URL — extract embedded query params if present
-            const qIdx = url.indexOf("?");
-            if (qIdx !== -1) {
-              requestPath = url.slice(0, qIdx);
-              const embeddedParams = new URLSearchParams(url.slice(qIdx + 1));
-              for (const [key, value] of embeddedParams.entries()) {
-                const existing = queryFromUrl[key];
-                if (existing !== undefined) {
-                  queryFromUrl[key] = Array.isArray(existing)
-                    ? [...existing, value]
-                    : [existing, value];
-                } else {
-                  queryFromUrl[key] = value;
-                }
-              }
-            } else {
-              requestPath = url;
-            }
-          }
-
-          // -----------------------------------------------------------------
-          // Parse headers
-          // -----------------------------------------------------------------
-          const headers: Record<string, string> = {};
+          // Parse headers for verbose output (before sending to daemon)
+          const parsedHeaders: Record<string, string> = {};
           for (const raw of opts.header) {
             const [key, value] = parseHeader(raw);
-            headers[key] = value;
+            parsedHeaders[key] = value;
           }
 
-          // -----------------------------------------------------------------
-          // Resolve method
-          // -----------------------------------------------------------------
-          let method: string;
-          if (opts.head) {
-            method = "HEAD";
-          } else if (opts.request) {
-            method = opts.request.toUpperCase();
-          } else if (opts.get) {
-            method = "GET";
-          } else if (opts.data !== undefined) {
-            method = "POST";
-          } else {
-            method = "GET";
-          }
-
-          // -----------------------------------------------------------------
-          // Handle body / query params
-          // -----------------------------------------------------------------
-          let body: unknown = undefined;
-          const query: Record<string, string | string[]> = { ...queryFromUrl };
-
-          if (opts.data !== undefined) {
-            const rawBody = readBodyData(opts.data);
-
-            if (opts.get) {
-              // With -G, body data becomes query params
-              if (typeof rawBody === "string") {
-                // Parse as URL-encoded query params
-                const bodyParams = new URLSearchParams(rawBody);
-                for (const [key, value] of bodyParams.entries()) {
-                  const existing = query[key];
-                  if (existing !== undefined) {
-                    query[key] = Array.isArray(existing)
-                      ? [...existing, value]
-                      : [existing, value];
-                  } else {
-                    query[key] = value;
-                  }
-                }
-              } else if (
-                rawBody !== null &&
-                typeof rawBody === "object" &&
-                !Array.isArray(rawBody)
-              ) {
-                for (const [key, value] of Object.entries(
-                  rawBody as Record<string, unknown>,
-                )) {
-                  const existing = query[key];
-                  const strValue = String(value);
-                  if (existing !== undefined) {
-                    query[key] = Array.isArray(existing)
-                      ? [...existing, strValue]
-                      : [existing, strValue];
-                  } else {
-                    query[key] = strValue;
-                  }
-                }
-              }
-            } else {
-              body = rawBody;
-            }
-          }
-
-          // -----------------------------------------------------------------
           // Verbose: show request details
-          // -----------------------------------------------------------------
           if (opts.verbose) {
-            writeInfo(`> ${method} ${requestPath}`);
-            for (const [key, value] of Object.entries(headers)) {
+            const method = opts.head
+              ? "HEAD"
+              : opts.request
+                ? opts.request.toUpperCase()
+                : opts.get
+                  ? "GET"
+                  : opts.data !== undefined
+                    ? "POST"
+                    : "GET";
+            writeInfo(`> ${method} ${url}`);
+            for (const [key, value] of Object.entries(parsedHeaders)) {
               writeInfo(`> ${key}: ${value}`);
-            }
-            if (baseUrl) {
-              writeInfo(`> Host: ${baseUrl}`);
             }
             writeInfo(`> Authorization: Bearer [REDACTED]`);
             writeInfo(`>`);
           }
 
-          // -----------------------------------------------------------------
-          // Resolve connection and make request
-          // -----------------------------------------------------------------
-          const resolveOptions: ResolveOAuthConnectionOptions = {};
-          if (opts.clientId && !managed) {
-            resolveOptions.clientId = opts.clientId;
-          }
-          if (opts.account) {
-            resolveOptions.account = opts.account;
+          // Read body data on the CLI side (file/stdin reading must happen here)
+          let parsedData: unknown;
+          if (opts.data !== undefined) {
+            parsedData = readBodyData(opts.data);
           }
 
-          let connection;
-          try {
-            connection = await resolveOAuthConnection(
-              opts.provider,
-              resolveOptions,
-            );
-          } catch (resolveErr) {
-            // Error case 5: Connection resolution failure — preserve the
-            // original error message so callers can see the actual cause
-            // (e.g. missing platform login, missing access token, provider
-            // misconfiguration) rather than a generic "no connection" hint.
-            const resolveMessage =
-              resolveErr instanceof Error
-                ? resolveErr.message
-                : String(resolveErr);
-
-            if (managed) {
-              writeError(
-                `Error: ${resolveMessage}\n\n` +
-                  `Run 'assistant oauth status ${opts.provider}' to check connection status.\n` +
-                  `To connect, run 'assistant oauth connect --help'.`,
-              );
-            } else {
-              writeError(
-                `Error: ${resolveMessage}\n\n` +
-                  `Run 'assistant oauth status ${opts.provider}' to see active connections.\n` +
-                  `To connect, run 'assistant oauth connect --help'.`,
-              );
-            }
-            return;
-          }
-
-          const req: OAuthConnectionRequest = {
-            method,
-            path: requestPath,
-            ...(Object.keys(query).length > 0 ? { query } : {}),
-            ...(Object.keys(headers).length > 0 ? { headers } : {}),
-            ...(body !== undefined ? { body } : {}),
-            ...(baseUrl ? { baseUrl } : {}),
+          // Build IPC request body
+          const body: Record<string, unknown> = {
+            provider: opts.provider,
+            url,
           };
+          if (opts.request) body.method = opts.request;
+          if (Object.keys(parsedHeaders).length > 0)
+            body.headers = parsedHeaders;
+          if (parsedData !== undefined) body.parsed_data = parsedData;
+          if (opts.get) body.force_get = true;
+          if (opts.head) body.head = true;
+          if (opts.account) body.account = opts.account;
+          if (opts.clientId) body.client_id = opts.clientId;
 
-          const response = await connection.request(req);
+          const r = await cliIpcCall<{
+            ok: boolean;
+            status: number;
+            headers: Record<string, string>;
+            body: unknown;
+            hint?: string;
+          }>("oauth_request", { body });
 
-          // -----------------------------------------------------------------
+          if (!r.ok) return exitFromIpcResult(r);
+
+          const result = r.result!;
+
           // Non-2xx exit code
-          // -----------------------------------------------------------------
-          if (response.status < 200 || response.status >= 300) {
+          if (result.status < 200 || result.status >= 300) {
             process.exitCode = 1;
           }
 
-          // -----------------------------------------------------------------
-          // Error case 6: Auth errors (401/403) — add diagnostic hint
-          // -----------------------------------------------------------------
-          let authHint: string | undefined;
-          if (response.status === 401 || response.status === 403) {
-            if (managed) {
-              authHint =
-                `Hint: Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth status ${opts.provider}' to check connection health.\n` +
-                `To reconnect, run 'assistant oauth connect --help'.`;
-            } else {
-              authHint =
-                `Hint: Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth status ${opts.provider}' to check connection status.\n` +
-                `To reconnect, run 'assistant oauth connect --help'.`;
-            }
-            writeInfo(authHint);
+          // Auth hint
+          if (result.hint) {
+            writeInfo(result.hint);
           }
 
-          // -----------------------------------------------------------------
-          // Output: --json mode
-          // -----------------------------------------------------------------
+          // JSON output mode
           if (jsonMode) {
-            const payload: Record<string, unknown> = {
-              ok: response.status >= 200 && response.status < 300,
-              status: response.status,
-              headers: response.headers,
-              body: response.body,
-            };
-            if (authHint) {
-              payload.hint = authHint;
-            }
-            writeOutput(cmd, payload);
+            writeOutput(cmd, result);
             return;
           }
 
-          // -----------------------------------------------------------------
-          // Output: verbose / include — response headers to stderr
-          // -----------------------------------------------------------------
+          // Verbose / include — response headers to stderr
           if (opts.verbose || opts.include) {
-            writeInfo(`< HTTP ${response.status}`);
-            for (const [key, value] of Object.entries(response.headers)) {
+            writeInfo(`< HTTP ${result.status}`);
+            for (const [key, value] of Object.entries(result.headers)) {
               writeInfo(`< ${key}: ${value}`);
             }
             writeInfo(`<`);
           }
 
-          // -----------------------------------------------------------------
-          // Output: body (skip for null bodies — HEAD requests, 204, etc.)
-          // -----------------------------------------------------------------
-          if (response.body != null) {
+          // Body output (skip for null bodies — HEAD requests, 204, etc.)
+          if (result.body != null) {
             const bodyStr =
-              typeof response.body === "string"
-                ? response.body
-                : JSON.stringify(response.body, null, 2);
+              typeof result.body === "string"
+                ? result.body
+                : JSON.stringify(result.body, null, 2);
 
             if (opts.output) {
               writeFileSync(opts.output, bodyStr, "utf-8");
@@ -523,37 +260,10 @@ Examples:
               process.stdout.write(bodyStr + "\n");
             }
           } else if (opts.output) {
-            // Truncate the output file so stale content from a previous run
-            // doesn't persist when the response has no body (HEAD, 204, etc.)
             writeFileSync(opts.output, "", "utf-8");
           }
         } catch (err) {
-          // Error case 7: Generic/unexpected errors
           const message = err instanceof Error ? err.message : String(err);
-
-          // BYO connections throw on persistent 401 (after refresh retry
-          // exhaustion) with a `status` property. Detect this and show the
-          // same auth hint that the response-level 401/403 check would give.
-          const errStatus =
-            err && typeof err === "object" && "status" in err
-              ? (err as { status: unknown }).status
-              : undefined;
-
-          if (errStatus === 401 || errStatus === 403) {
-            const managed = isManagedMode(opts.provider);
-            const authHint = managed
-              ? `Hint: Request returned HTTP ${errStatus}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth status ${opts.provider}' to check connection health.\n` +
-                `To reconnect, run 'assistant oauth connect --help'.`
-              : `Hint: Request returned HTTP ${errStatus}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth status ${opts.provider}' to check connection status.\n` +
-                `To reconnect, run 'assistant oauth connect --help'.`;
-
-            writeError(`Error: ${message}`, authHint);
-            writeInfo(authHint);
-            return;
-          }
-
           writeError(
             `Error: ${message}\n\n` +
               `For provider diagnostics, run 'assistant oauth providers get ${opts.provider}'.`,
