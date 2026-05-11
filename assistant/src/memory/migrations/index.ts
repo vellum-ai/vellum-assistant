@@ -206,6 +206,7 @@ export { migrateActivationStateFkCascade } from "./241-activation-state-fk-casca
 export { migrateMessageBookmarks } from "./242-message-bookmarks.js";
 export { migrateCreateProviderConnections } from "./243-provider-connections.js";
 export { migrateProviderConnectionStatusLabel } from "./244-provider-connection-status-label.js";
+export { migrateMemoryRetrospectiveState } from "./245-memory-retrospective-state.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

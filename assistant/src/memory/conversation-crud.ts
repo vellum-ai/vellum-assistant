@@ -1018,6 +1018,90 @@ export function selectSlackMetaCandidateMetadata(
 }
 
 /**
+ * Count messages in a conversation that were created strictly after the
+ * `afterMessageId` reference message. If `afterMessageId` is `null` or empty,
+ * counts all messages in the conversation. If the referenced message no
+ * longer exists (e.g. deleted by a separate flow), returns 0 — callers
+ * decide how to react to a vanished reference, and the conservative answer
+ * here is "no new work."
+ *
+ * Used by the memory-retrospective trigger check to decide whether to fire
+ * the message-count trigger without loading message bodies.
+ */
+export function countMessagesAfter(
+  conversationId: string,
+  afterMessageId: string | null,
+): number {
+  const db = getDb();
+  if (afterMessageId === null || afterMessageId === "") {
+    const row = db
+      .select({ c: count() })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .get();
+    return row?.c ?? 0;
+  }
+  const ref = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.id, afterMessageId))
+    .get();
+  if (!ref) return 0;
+  const row = db
+    .select({ c: count() })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        gt(messages.createdAt, ref.createdAt),
+      ),
+    )
+    .get();
+  return row?.c ?? 0;
+}
+
+/**
+ * Return messages in a conversation created strictly after the
+ * `afterMessageId` reference. If the reference is `null`/empty, returns all
+ * messages. If the reference doesn't exist, returns an empty array (mirrors
+ * `countMessagesAfter`'s conservative semantics). Used by the
+ * memory-retrospective job handler to load the message slice it processes.
+ */
+export function getMessagesAfter(
+  conversationId: string,
+  afterMessageId: string | null,
+): MessageRow[] {
+  const db = getDb();
+  if (afterMessageId === null || afterMessageId === "") {
+    return db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt))
+      .all()
+      .map(parseMessage);
+  }
+  const ref = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.id, afterMessageId))
+    .get();
+  if (!ref) return [];
+  return db
+    .select()
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        gt(messages.createdAt, ref.createdAt),
+      ),
+    )
+    .orderBy(asc(messages.createdAt))
+    .all()
+    .map(parseMessage);
+}
+
+/**
  * Efficient existence check — returns true if the conversation has at least
  * one message row. Uses `LIMIT 1` + `select({ 1 })` to avoid loading and
  * parsing any message content.

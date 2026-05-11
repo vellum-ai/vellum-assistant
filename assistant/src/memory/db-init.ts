@@ -115,6 +115,7 @@ import {
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
+  migrateMemoryRetrospectiveState,
   migrateMemoryV2ActivationLogs,
   migrateMessageBookmarks,
   migrateMessagesConversationCreatedAtIndex,
@@ -420,6 +421,7 @@ export function initializeDb(): void {
     migrateMessageBookmarks,
     migrateCreateProviderConnections,
     migrateProviderConnectionStatusLabel,
+    migrateMemoryRetrospectiveState,
   ];
 
   // Run each migration step, catching and logging individual failures so one

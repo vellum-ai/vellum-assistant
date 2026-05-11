@@ -73,6 +73,7 @@ import {
 } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
+import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import {
@@ -3376,6 +3377,10 @@ export async function applyCompactionResult(
     );
   }
   enqueueAutoAnalysisOnCompaction(
+    ctx.conversationId,
+    ctx.trustContext?.trustClass,
+  );
+  enqueueMemoryRetrospectiveOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,
   );

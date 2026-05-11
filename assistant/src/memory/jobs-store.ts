@@ -42,7 +42,8 @@ export type MemoryJobType =
   | "memory_v2_consolidate"
   | "memory_v2_migrate"
   | "memory_v2_reembed"
-  | "memory_v2_activation_recompute";
+  | "memory_v2_activation_recompute"
+  | "memory_retrospective";
 
 export const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",
@@ -66,6 +67,7 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "memory_v2_sweep",
   "memory_v2_consolidate",
   "memory_v2_migrate",
+  "memory_retrospective",
   "backfill",
   "graph_bootstrap",
 ];
@@ -250,6 +252,53 @@ export function upsertAutoAnalysisJob(
       )
       .run();
   }
+}
+
+/**
+ * Upsert a pending `memory_retrospective` job keyed by `conversationId`. All
+ * four retrospective triggers (interval, message_count, compaction,
+ * lifecycle) collapse into a single pending row per conversation — rapid
+ * triggers coalesce instead of double-firing. The `runAfter` parameter on a
+ * follow-up enqueue overwrites the existing row's `runAfter` so a sooner
+ * trigger can pull a later-scheduled job earlier; a later-scheduled trigger
+ * does NOT push a sooner-scheduled row further out (consumer takes the
+ * minimum). The trigger metadata is intentionally not retained — it is only
+ * useful for observability at enqueue time.
+ */
+export function upsertMemoryRetrospectiveJob(
+  payload: { conversationId: string },
+  runAfter: number = Date.now(),
+  dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
+    tx: infer T,
+  ) => unknown
+    ? T
+    : never,
+): void {
+  const db = dbOverride ?? getDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "memory_retrospective"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    // Take the minimum of the existing and incoming runAfter so the earliest
+    // trigger always wins. A later trigger never pushes work further out.
+    const nextRunAfter = Math.min(existing.runAfter, runAfter);
+    if (nextRunAfter !== existing.runAfter) {
+      db.update(memoryJobs)
+        .set({ runAfter: nextRunAfter, updatedAt: Date.now() })
+        .where(eq(memoryJobs.id, existing.id))
+        .run();
+    }
+    return;
+  }
+  enqueueMemoryJob("memory_retrospective", payload, runAfter, dbOverride);
 }
 
 /**

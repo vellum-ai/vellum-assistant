@@ -17,6 +17,7 @@ import {
   type MessageRow,
 } from "../memory/conversation-crud.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -429,6 +430,22 @@ export function disposeConversation(ctx: DisposeContext): void {
       // (it checks `isAutoAnalysisConversation()`), so it's safe to call
       // unconditionally here.
       enqueueAutoAnalysisIfEnabled({
+        conversationId: ctx.conversationId,
+        trigger: "lifecycle",
+      });
+    } catch {
+      // Best-effort — don't block conversation disposal
+    }
+
+    try {
+      // Memory-retrospective lifecycle safety-net. The periodic triggers
+      // (interval / message_count / pre-compaction) handle the common
+      // path; lifecycle catches the gap between the last interval fire
+      // and conversation eviction. The job's `no_new_messages` early
+      // return makes this a cheap no-op when the periodic path already
+      // covered things. `enqueueMemoryRetrospectiveIfEnabled` has its
+      // own internal recursion guard.
+      enqueueMemoryRetrospectiveIfEnabled({
         conversationId: ctx.conversationId,
         trigger: "lifecycle",
       });
