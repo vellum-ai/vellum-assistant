@@ -45,6 +45,7 @@ import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
 import { ROUTES as DOCUMENT_ROUTES } from "./documents-routes.js";
+import { ROUTES as EMAIL_ROUTES } from "./email-routes.js";
 import { ROUTES as EVENTS_ROUTES } from "./events-routes.js";
 import { ROUTES as FILING_ROUTES } from "./filing-routes.js";
 import { ROUTES as GATEWAY_LOG_ROUTES } from "./gateway-log-routes.js";
@@ -153,6 +154,7 @@ export const ROUTES: RouteDefinition[] = [
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
   ...DOCUMENT_ROUTES,
+  ...EMAIL_ROUTES,
   ...EVENTS_ROUTES,
   ...FILING_ROUTES,
   ...GATEWAY_LOG_ROUTES,

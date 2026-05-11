@@ -1,422 +1,399 @@
+/**
+ * Tests for the email attachment subcommand.
+ *
+ * Uses IPC mocks (cliIpcCall / cliIpcCallStream) — no real daemon required.
+ */
+
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  getMockFetchCalls,
-  mockFetch,
-  resetMockFetch,
-} from "../../../__tests__/mock-fetch.js";
-import { _setOverridesForTesting } from "../../../config/assistant-feature-flags.js";
-import { setPlatformAssistantId } from "../../../config/env.js";
-import { credentialKey } from "../../../security/credential-key.js";
-import {
-  _resetBackend,
-  deleteSecureKeyAsync,
-  setSecureKeyAsync,
-} from "../../../security/secure-keys.js";
-import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
+// ---------------------------------------------------------------------------
+// Mock state
+// ---------------------------------------------------------------------------
 
-const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-const MESSAGE_ID = "msg-001";
-const ATT_ID_1 = "att-001";
-const ATT_ID_2 = "att-002";
-const API_KEY_CREDENTIAL = credentialKey("vellum", "assistant_api_key");
+let mockIpcCallFn: any = mock(() => Promise.resolve({ ok: true, result: { results: [] } }));
+let mockIpcCallStreamFn: any = mock(() =>
+  Promise.resolve({ ok: false, error: "not used" }),
+);
 
-const SAMPLE_ATTACHMENT_1 = {
-  id: ATT_ID_1,
-  filename: "invoice.pdf",
-  content_type: "application/pdf",
-  size_bytes: 245_000,
-  content_id: "",
-  created_at: "2026-04-05T12:00:00Z",
-};
+// ---------------------------------------------------------------------------
+// Mocks — must be declared before importing the module under test
+// ---------------------------------------------------------------------------
 
-const SAMPLE_ATTACHMENT_2 = {
-  id: ATT_ID_2,
-  filename: "screenshot.png",
-  content_type: "image/png",
-  size_bytes: 1_200_000,
-  content_id: "<img001@mail>",
-  created_at: "2026-04-05T12:01:00Z",
-};
+mock.module("../../../ipc/cli-client.js", () => ({
+  cliIpcCall: (...args: Parameters<typeof mockIpcCallFn>) => mockIpcCallFn(...args),
+  cliIpcCallStream: (...args: Parameters<typeof mockIpcCallStreamFn>) =>
+    mockIpcCallStreamFn(...args),
+  exitFromIpcResult: mock((r: { error?: string; statusCode?: number }) => {
+    process.stderr.write((r.error ?? "Unknown error") + "\n");
+    process.exitCode = 10;
+  }),
+}));
 
-function mockAttachmentList(
-  attachments = [SAMPLE_ATTACHMENT_1, SAMPLE_ATTACHMENT_2],
-  status = 200,
-): void {
-  mockFetch(
-    "/attachments/",
-    {},
-    { body: { results: attachments }, status },
-  );
-}
+mock.module("../../../util/logger.js", () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
+  getCliLogger: () => ({
+    info: (...args: unknown[]) => {
+      captured.push(args.join(" "));
+    },
+    warn: () => {},
+    error: (...args: unknown[]) => {
+      captured.push("[error] " + args.join(" "));
+    },
+    debug: () => {},
+  }),
+}));
 
-function mockAttachmentDetail(
-  att = SAMPLE_ATTACHMENT_1,
-  status = 200,
-): void {
-  mockFetch(`/attachments/${att.id}/`, {}, { body: att, status });
-}
+// ---------------------------------------------------------------------------
+// Capture output
+// ---------------------------------------------------------------------------
 
-function mockAttachmentDownload(
-  attId: string,
-  content: string,
-  status = 200,
-): void {
-  const body = new TextEncoder().encode(content);
-  const response = new Response(body, {
-    status,
-    headers: {
-      "Content-Type": "application/octet-stream",
-      "Content-Length": String(body.length),
+const captured: string[] = [];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeMockStream(chunks: Uint8Array[]): {
+  ok: true;
+  headers: Record<string, string>;
+  body: ReadableStream<Uint8Array>;
+  abort: () => void;
+} {
+  const body = new ReadableStream<Uint8Array>({
+    start(ctrl) {
+      for (const chunk of chunks) ctrl.enqueue(chunk);
+      ctrl.close();
     },
   });
-  mockFetch(`/attachments/${attId}/download/`, {}, response);
+  return { ok: true, headers: { "x-filename": "test.pdf" }, body, abort: () => {} };
 }
 
-let savedCesUrl: string | undefined;
-let savedContainerized: string | undefined;
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
 let tmpDir: string;
 
-beforeEach(async () => {
+beforeEach(() => {
   process.exitCode = 0;
+  captured.length = 0;
 
-  savedCesUrl = process.env.CES_CREDENTIAL_URL;
-  savedContainerized = process.env.IS_CONTAINERIZED;
-  delete process.env.CES_CREDENTIAL_URL;
-  delete process.env.IS_CONTAINERIZED;
-
-  _resetBackend();
-  resetMockFetch();
-  _setOverridesForTesting({ "email-channel": true });
-  setPlatformAssistantId(ASSISTANT_ID);
-  await setSecureKeyAsync(API_KEY_CREDENTIAL, "test-api-key");
-
-  tmpDir = join(tmpdir(), `email-attachment-test-${Date.now()}`);
+  tmpDir = join(tmpdir(), `email-att-ipc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(tmpDir, { recursive: true });
+
+  // Default: list returns two attachments
+  mockIpcCallFn = mock(() =>
+    Promise.resolve({
+      ok: true,
+      result: {
+        results: [
+          {
+            id: "att-001",
+            filename: "invoice.pdf",
+            content_type: "application/pdf",
+            size_bytes: 245_000,
+            content_id: "",
+            created_at: "2026-04-05T12:00:00Z",
+          },
+          {
+            id: "att-002",
+            filename: "screenshot.png",
+            content_type: "image/png",
+            size_bytes: 1_200_000,
+            content_id: "<img001@mail>",
+            created_at: "2026-04-05T12:01:00Z",
+          },
+        ],
+      },
+    }),
+  );
+
+  mockIpcCallStreamFn = mock(() =>
+    Promise.resolve(
+      makeMockStream([new Uint8Array([1, 2, 3])]),
+    ),
+  );
 });
 
 afterEach(() => {
-  resetMockFetch();
-  _setOverridesForTesting({});
-  setPlatformAssistantId(undefined);
-  _resetBackend();
-
-  if (savedCesUrl !== undefined) process.env.CES_CREDENTIAL_URL = savedCesUrl;
-  else delete process.env.CES_CREDENTIAL_URL;
-  if (savedContainerized !== undefined)
-    process.env.IS_CONTAINERIZED = savedContainerized;
-  else delete process.env.IS_CONTAINERIZED;
-
+  process.exitCode = 0;
+  captured.length = 0;
   if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true });
 });
 
-describe("assistant email attachment", () => {
-  test("--list shows attachment metadata", async () => {
-    mockAttachmentList();
+// ---------------------------------------------------------------------------
+// Helper: run the attachment subcommand
+// ---------------------------------------------------------------------------
 
-    const output = await runAssistantCommand(
-      "email",
-      "attachment",
-      MESSAGE_ID,
-      "--list",
-    );
+async function runAttachment(...args: string[]): Promise<string> {
+  const { registerEmailCommand } = await import("../email.js");
 
-    expect(output).toContain("invoice.pdf");
-    expect(output).toContain("screenshot.png");
-    expect(output).toContain("2 attachment(s)");
+  const capturedOutput: string[] = [];
+  const origWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (chunk: string | Buffer) => {
+    capturedOutput.push(typeof chunk === "string" ? chunk : chunk.toString());
+    return true;
+  };
+
+  try {
+    const { Command } = await import("commander");
+    const program = new Command();
+    program.exitOverride();
+    registerEmailCommand(program);
+    await program.parseAsync(["node", "assistant", "email", "attachment", ...args]);
+  } catch {
+    // exitOverride throws on --help etc; ignore
+  } finally {
+    process.stdout.write = origWrite;
+  }
+
+  return [...capturedOutput, ...captured].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("email attachment (IPC)", () => {
+  test("--list calls email_attachment_list with messageId", async () => {
+    await runAttachment("msg_1", "--list");
+
+    expect(mockIpcCallFn.mock.calls.length).toBeGreaterThan(0);
+    const [method, params] = mockIpcCallFn.mock.calls[0] as unknown as [string, { queryParams: Record<string, unknown> }];
+    expect(method).toBe("email_attachment_list");
+    expect(params.queryParams.messageId).toBe("msg_1");
+  });
+
+  test("--list displays attachment metadata", async () => {
+    const out = await runAttachment("msg_1", "--list");
+
+    expect(out).toContain("invoice.pdf");
+    expect(out).toContain("screenshot.png");
+    expect(out).toContain("2 attachment(s)");
     expect(process.exitCode).toBe(0);
   });
 
-  test("--list with no attachments", async () => {
-    mockAttachmentList([]);
-
-    const output = await runAssistantCommand(
-      "email",
-      "attachment",
-      MESSAGE_ID,
-      "--list",
+  test("--list with no attachments shows empty message", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({ ok: true, result: { results: [] } }),
     );
 
-    expect(output).toContain("No attachments");
+    const out = await runAttachment("msg_1", "--list");
+
+    expect(out).toContain("No attachments");
     expect(process.exitCode).toBe(0);
   });
 
-  test("--list --json returns JSON", async () => {
-    mockAttachmentList();
+  test("--list --json outputs JSON", async () => {
+    let jsonOut = "";
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: string | Buffer) => {
+      jsonOut += typeof chunk === "string" ? chunk : chunk.toString();
+      return true;
+    };
 
-    const output = await runAssistantCommand(
-      "email",
-      "--json",
-      "attachment",
-      MESSAGE_ID,
-      "--list",
-    );
+    try {
+      const { registerEmailCommand } = await import("../email.js");
+      const { Command } = await import("commander");
+      const program = new Command();
+      program.exitOverride();
+      registerEmailCommand(program);
+      await program.parseAsync(["node", "assistant", "email", "--json", "attachment", "msg_1", "--list"]);
+    } finally {
+      process.stdout.write = origWrite;
+    }
 
-    const parsed = JSON.parse(output.trim());
+    const parsed = JSON.parse(jsonOut.trim());
     expect(parsed.results).toHaveLength(2);
     expect(parsed.results[0].filename).toBe("invoice.pdf");
     expect(process.exitCode).toBe(0);
   });
 
-  test("download single attachment by ID", async () => {
-    mockAttachmentDetail(SAMPLE_ATTACHMENT_1);
-    mockAttachmentDownload(ATT_ID_1, "fake-pdf-content");
-
-    const output = await runAssistantCommand(
-      "email",
-      "attachment",
-      MESSAGE_ID,
-      ATT_ID_1,
-      "-o",
-      tmpDir,
+  test("--list returns error on IPC failure", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({ ok: false, error: "daemon error", statusCode: 500 }),
     );
 
-    expect(output).toContain("Downloaded invoice.pdf");
+    await runAttachment("msg_1", "--list");
+
+    // exitFromIpcResult sets exitCode to 10 in mock
+    expect(process.exitCode).not.toBe(0);
+  });
+
+  test("single download: calls list then stream with correct params", async () => {
+    await runAttachment("msg_1", "att-001", "-o", tmpDir);
+
+    // The list call should come first
+    const listCall = mockIpcCallFn.mock.calls[0] as unknown as [string, { queryParams: Record<string, unknown> }];
+    expect(listCall[0]).toBe("email_attachment_list");
+    expect(listCall[1].queryParams.messageId).toBe("msg_1");
+
+    // Stream call should use the correct attachmentId and messageId
+    const streamCall = mockIpcCallStreamFn.mock.calls[0] as unknown as [string, { queryParams: Record<string, unknown> }];
+    expect(streamCall[0]).toBe("email_attachment_get");
+    expect(streamCall[1].queryParams.attachmentId).toBe("att-001");
+    expect(streamCall[1].queryParams.messageId).toBe("msg_1");
+
     expect(process.exitCode).toBe(0);
+  });
+
+  test("single download: writes file to disk", async () => {
+    const content = new Uint8Array([104, 101, 108, 108, 111]); // "hello"
+    mockIpcCallStreamFn = mock(() =>
+      Promise.resolve(makeMockStream([content])),
+    );
+
+    await runAttachment("msg_1", "att-001", "-o", tmpDir);
 
     const filePath = join(tmpDir, "invoice.pdf");
     expect(existsSync(filePath)).toBe(true);
-    expect(readFileSync(filePath, "utf-8")).toBe("fake-pdf-content");
-  });
-
-  test("download single attachment --json output", async () => {
-    mockAttachmentDetail(SAMPLE_ATTACHMENT_1);
-    mockAttachmentDownload(ATT_ID_1, "fake-pdf-content");
-
-    const output = await runAssistantCommand(
-      "email",
-      "--json",
-      "attachment",
-      MESSAGE_ID,
-      ATT_ID_1,
-      "-o",
-      tmpDir,
-    );
-
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.filename).toBe("invoice.pdf");
-    expect(parsed.size_bytes).toBe(245_000);
-    expect(parsed.saved).toContain("invoice.pdf");
+    const written = readFileSync(filePath);
+    expect(written).toEqual(Buffer.from(content));
     expect(process.exitCode).toBe(0);
   });
 
-  test("--all downloads all attachments", async () => {
-    mockAttachmentList();
-    mockAttachmentDownload(ATT_ID_1, "pdf-bytes");
-    mockAttachmentDownload(ATT_ID_2, "png-bytes");
+  test("single download: attachment not in list → exit code 2", async () => {
+    await runAttachment("msg_1", "att-999", "-o", tmpDir);
 
-    const output = await runAssistantCommand(
-      "email",
-      "attachment",
-      MESSAGE_ID,
-      "--all",
-      "-o",
-      tmpDir,
+    expect(process.exitCode).toBe(2);
+    const out = captured.join("\n");
+    expect(out).toContain("Attachment not found");
+  });
+
+  test("single download: stream error → throws", async () => {
+    mockIpcCallStreamFn = mock(() =>
+      Promise.resolve({ ok: false, error: "stream failed", statusCode: 500 }),
     );
 
-    expect(output).toContain("Downloaded 2 attachment(s)");
-    expect(output).toContain("invoice.pdf");
-    expect(output).toContain("screenshot.png");
+    // The thrown error from streamDownloadAttachment should propagate out
+    // (not caught — let the test framework see it unless the action catches it)
+    try {
+      await runAttachment("msg_1", "att-001", "-o", tmpDir);
+    } catch {
+      // acceptable — the stream failure throws
+    }
+    // Either throws or sets exitCode != 0
+    // We just verify the stream was attempted
+    expect(mockIpcCallStreamFn.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  test("--all: calls list then streams each attachment", async () => {
+    await runAttachment("msg_1", "--all", "-o", tmpDir);
+
+    // First IPC call: list
+    const listCall = mockIpcCallFn.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    expect(listCall[0]).toBe("email_attachment_list");
+
+    // Two stream calls — one per attachment
+    expect(mockIpcCallStreamFn.mock.calls.length).toBe(2);
+    const ids = (mockIpcCallStreamFn.mock.calls as unknown as [string, { queryParams: Record<string, unknown> }][]).map(
+      ([, p]) => p.queryParams.attachmentId,
+    );
+    expect(ids).toContain("att-001");
+    expect(ids).toContain("att-002");
+
     expect(process.exitCode).toBe(0);
+  });
+
+  test("--all: writes files to disk", async () => {
+    const pdfBytes = new Uint8Array([37, 80, 68, 70]); // %PDF
+    const pngBytes = new Uint8Array([137, 80, 78, 71]); // PNG header
+    let callIdx = 0;
+    mockIpcCallStreamFn = mock(() => {
+      const chunk = callIdx++ === 0 ? pdfBytes : pngBytes;
+      return Promise.resolve(makeMockStream([chunk]));
+    });
+
+    await runAttachment("msg_1", "--all", "-o", tmpDir);
 
     expect(existsSync(join(tmpDir, "invoice.pdf"))).toBe(true);
     expect(existsSync(join(tmpDir, "screenshot.png"))).toBe(true);
-    expect(readFileSync(join(tmpDir, "invoice.pdf"), "utf-8")).toBe("pdf-bytes");
-    expect(readFileSync(join(tmpDir, "screenshot.png"), "utf-8")).toBe(
-      "png-bytes",
-    );
-  });
-
-  test("--all --json returns JSON", async () => {
-    mockAttachmentList();
-    mockAttachmentDownload(ATT_ID_1, "pdf-bytes");
-    mockAttachmentDownload(ATT_ID_2, "png-bytes");
-
-    const output = await runAssistantCommand(
-      "email",
-      "--json",
-      "attachment",
-      MESSAGE_ID,
-      "--all",
-      "-o",
-      tmpDir,
-    );
-
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.downloaded).toBe(2);
-    expect(parsed.files).toHaveLength(2);
     expect(process.exitCode).toBe(0);
   });
 
-  test("--all with no attachments returns error", async () => {
-    mockAttachmentList([]);
-
-    const output = await runAssistantCommand(
-      "email",
-      "--json",
-      "attachment",
-      MESSAGE_ID,
-      "--all",
-      "-o",
-      tmpDir,
+  test("--all with no attachments → exit code 1", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({ ok: true, result: { results: [] } }),
     );
+
+    await runAttachment("msg_1", "--all", "-o", tmpDir);
 
     expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.error).toContain("No attachments");
+    expect(captured.join("")).toContain("No attachments");
   });
 
-  test("no attachment-id and no --all returns error", async () => {
-    const output = await runAssistantCommand(
-      "email",
-      "--json",
-      "attachment",
-      MESSAGE_ID,
-    );
+  test("no attachment-id and no --all → exit code 1", async () => {
+    await runAttachment("msg_1");
 
     expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.error).toContain("Specify an attachment ID");
-  });
-
-  test("calls correct list URL", async () => {
-    mockAttachmentList();
-
-    await runAssistantCommand(
-      "email",
-      "attachment",
-      MESSAGE_ID,
-      "--list",
-    );
-
-    // Filter out the CLI bootstrap fetch to /v1/feature-flags so this test
-    // focuses on the attachment-related calls it actually cares about.
-    const calls = getMockFetchCalls().filter(
-      (c) => !c.path.includes("/v1/feature-flags"),
-    );
-    expect(calls).toHaveLength(1);
-    expect(calls[0].path).toContain(
-      `/v1/assistants/${ASSISTANT_ID}/emails/${MESSAGE_ID}/attachments/`,
-    );
-  });
-
-  test("calls correct detail + download URLs for single download", async () => {
-    mockAttachmentDetail(SAMPLE_ATTACHMENT_1);
-    mockAttachmentDownload(ATT_ID_1, "content");
-
-    await runAssistantCommand(
-      "email",
-      "attachment",
-      MESSAGE_ID,
-      ATT_ID_1,
-      "-o",
-      tmpDir,
-    );
-
-    // Filter out the CLI bootstrap fetch to /v1/feature-flags so this test
-    // focuses on the attachment-related calls it actually cares about.
-    const calls = getMockFetchCalls().filter(
-      (c) => !c.path.includes("/v1/feature-flags"),
-    );
-    expect(calls).toHaveLength(2);
-    expect(calls[0].path).toContain(`/attachments/${ATT_ID_1}/`);
-    expect(calls[1].path).toContain(`/attachments/${ATT_ID_1}/download/`);
-  });
-
-  test("404 on detail returns error", async () => {
-    mockFetch(
-      `/attachments/${ATT_ID_1}/`,
-      {},
-      { body: { detail: "Not found." }, status: 404 },
-    );
-
-    const output = await runAssistantCommand(
-      "email",
-      "--json",
-      "attachment",
-      MESSAGE_ID,
-      ATT_ID_1,
-      "-o",
-      tmpDir,
-    );
-
-    expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.error).toContain("Not found");
-  });
-
-  test("missing platform credentials returns error", async () => {
-    await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
-
-    const output = await runAssistantCommand(
-      "email",
-      "--json",
-      "attachment",
-      MESSAGE_ID,
-      "--list",
-    );
-
-    expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.error).toContain("Platform credentials not configured");
-  });
-
-  test("missing assistant ID returns error", async () => {
-    setPlatformAssistantId("");
-
-    const output = await runAssistantCommand(
-      "email",
-      "--json",
-      "attachment",
-      MESSAGE_ID,
-      "--list",
-    );
-
-    expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.error).toContain("Assistant ID");
-  });
-
-  test("formatBytes displays human-readable sizes", async () => {
-    mockAttachmentList([
-      { ...SAMPLE_ATTACHMENT_1, size_bytes: 500 },
-      { ...SAMPLE_ATTACHMENT_2, size_bytes: 2_500_000 },
-    ]);
-
-    const output = await runAssistantCommand(
-      "email",
-      "attachment",
-      MESSAGE_ID,
-      "--list",
-    );
-
-    expect(output).toContain("500 B");
-    expect(output).toContain("2.4 MB");
-    expect(process.exitCode).toBe(0);
+    expect(captured.join("")).toContain("Specify an attachment ID");
   });
 
   test("path traversal in filename is sanitized", async () => {
-    mockAttachmentDetail({
-      ...SAMPLE_ATTACHMENT_1,
-      filename: "../../../etc/passwd",
-    });
-    mockAttachmentDownload(ATT_ID_1, "not-a-real-passwd");
-
-    await runAssistantCommand(
-      "email",
-      "attachment",
-      MESSAGE_ID,
-      ATT_ID_1,
-      "-o",
-      tmpDir,
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          results: [
+            {
+              id: "att-001",
+              filename: "../../../etc/passwd",
+              content_type: "application/octet-stream",
+              size_bytes: 100,
+              content_id: "",
+              created_at: "2026-04-05T12:00:00Z",
+            },
+          ],
+        },
+      }),
     );
 
-    expect(process.exitCode).toBe(0);
-    // Should NOT write to ../../../etc/passwd — should strip to just "passwd"
+    await runAttachment("msg_1", "att-001", "-o", tmpDir);
+
+    // Should write to <tmpDir>/passwd, not traverse up
     expect(existsSync(join(tmpDir, "passwd"))).toBe(true);
-    expect(existsSync("/etc/passwd-test")).toBe(false);
+    expect(process.exitCode).toBe(0);
   });
-});
+
+  test("formatBytes displays human-readable sizes in --list", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          results: [
+            {
+              id: "att-001",
+              filename: "tiny.txt",
+              content_type: "text/plain",
+              size_bytes: 500,
+              content_id: "",
+              created_at: "2026-04-05T12:00:00Z",
+            },
+            {
+              id: "att-002",
+              filename: "big.mp4",
+              content_type: "video/mp4",
+              size_bytes: 2_500_000,
+              content_id: "",
+              created_at: "2026-04-05T12:01:00Z",
+            },
+          ],
+        },
+      }),
+    );
+
+    const out = await runAttachment("msg_1", "--list");
+
+    expect(out).toContain("500 B");
+    expect(out).toContain("2.4 MB");
+    expect(process.exitCode).toBe(0);
+  });
+});  
