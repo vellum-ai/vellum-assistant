@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Section J — CLI inventory CI check.
+ * CLI inventory CI check.
  *
  * Walks `assistant/src/cli/commands/**\/*.ts` and extracts every
  * `registerCommand(<parent>, { name, transport })` call. Walks
@@ -12,9 +12,15 @@
  * The Subcommands / Operation IDs / Status columns are informational and
  * are not validated by this script — they are kept honest by review.
  *
+ * Convention: `registerCommand` options MUST be passed as an inline
+ * object literal with string-literal `name` and `transport`. The script
+ * errors loudly on hoisted/non-literal options so the inventory check
+ * cannot be silently bypassed by a refactor.
+ *
  * Exit codes:
  *   0 — all good
- *   1 — drift detected (missing/extra rows, wrong class, wrong name)
+ *   1 — drift detected (missing/extra rows, wrong class, wrong name,
+ *       unparseable registerCommand call)
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -48,6 +54,21 @@ interface InventoryRow {
   lineNumber: number;
 }
 
+/** A `registerCommand(...)` call we found but couldn't parse. */
+interface UnparseableCall {
+  /** Path relative to repo root. */
+  source: string;
+  /** 1-indexed line of the call site. */
+  line: number;
+  /** Human-readable reason for the failure. */
+  reason: string;
+}
+
+interface SourceParseResult {
+  entries: SourceEntry[];
+  unparseable: UnparseableCall[];
+}
+
 function isTransport(s: string): s is Transport {
   return s === "ipc" || s === "local" || s === "bootstrap";
 }
@@ -74,9 +95,9 @@ function walkCommandFiles(absDir: string): string[] {
 }
 
 /**
- * Extract zero-or-more `registerCommand(<parent>, { name, transport })` calls
- * from a single source file. Files like `oauth/index.ts` register one
- * command; subcommand files like `oauth/connect.ts` typically don't call
+ * Extract `registerCommand(<parent>, { name, transport })` calls from a
+ * single source file. Files like `oauth/index.ts` register one command;
+ * subcommand files like `oauth/connect.ts` typically don't call
  * `registerCommand` directly (they export a `registerXyz` helper that is
  * invoked from inside the parent's `build` callback).
  *
@@ -84,12 +105,20 @@ function walkCommandFiles(absDir: string): string[] {
  * template literals routinely contain `(`, `)`, and `'` characters that
  * fool a naive parser.
  *
- * Returns an array; callers should fail if .length > 1 since the
+ * Every `registerCommand` call site found is classified as either
+ * `entries` (parseable: inline object literal with string-literal `name`
+ * + valid `transport`) or `unparseable` (anything else). Unparseable
+ * calls are surfaced as drift errors so the inventory check cannot be
+ * silently bypassed by hoisting the options object out of the call.
+ *
+ * Callers should fail if entries.length > 1 in a single file since the
  * inventory format assumes one row per source file.
  */
-function parseSourceEntries(absFile: string): SourceEntry[] {
+function parseSourceEntries(absFile: string): SourceParseResult {
   const src = readFileSync(absFile, "utf8");
-  if (!src.includes("registerCommand(")) return [];
+  if (!src.includes("registerCommand(")) {
+    return { entries: [], unparseable: [] };
+  }
 
   const sf = ts.createSourceFile(
     absFile,
@@ -99,45 +128,107 @@ function parseSourceEntries(absFile: string): SourceEntry[] {
     ts.ScriptKind.TS,
   );
 
-  const out: SourceEntry[] = [];
+  const sourcePath = relative(REPO_ROOT, absFile);
+  const entries: SourceEntry[] = [];
+  const unparseable: UnparseableCall[] = [];
+
+  function lineOf(node: ts.Node): number {
+    return sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+  }
 
   function visit(node: ts.Node): void {
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
-      node.expression.text === "registerCommand" &&
-      node.arguments.length >= 2
+      node.expression.text === "registerCommand"
     ) {
-      const optionsArg = node.arguments[1];
-      if (ts.isObjectLiteralExpression(optionsArg)) {
-        let name: string | null = null;
-        let transport: string | null = null;
-        for (const prop of optionsArg.properties) {
-          if (!ts.isPropertyAssignment(prop)) continue;
-          if (!ts.isIdentifier(prop.name)) continue;
-          if (prop.name.text === "name") {
-            if (ts.isStringLiteralLike(prop.initializer)) {
-              name = prop.initializer.text;
-            }
-          } else if (prop.name.text === "transport") {
-            if (ts.isStringLiteralLike(prop.initializer)) {
-              transport = prop.initializer.text;
-            }
-          }
-        }
-        if (name && transport && isTransport(transport)) {
-          out.push({
-            source: relative(REPO_ROOT, absFile),
-            name,
-            transport,
-          });
-        }
-      }
+      classifyRegisterCommandCall(node, sourcePath, lineOf(node), entries, unparseable);
     }
     ts.forEachChild(node, visit);
   }
   visit(sf);
-  return out;
+  return { entries, unparseable };
+}
+
+function classifyRegisterCommandCall(
+  node: ts.CallExpression,
+  sourcePath: string,
+  line: number,
+  entries: SourceEntry[],
+  unparseable: UnparseableCall[],
+): void {
+  if (node.arguments.length < 2) {
+    unparseable.push({
+      source: sourcePath,
+      line,
+      reason: `expected at least 2 arguments, got ${node.arguments.length}.`,
+    });
+    return;
+  }
+  const optionsArg = node.arguments[1];
+  if (!ts.isObjectLiteralExpression(optionsArg)) {
+    unparseable.push({
+      source: sourcePath,
+      line,
+      reason:
+        `second argument must be an inline object literal ` +
+        `(got ${ts.SyntaxKind[optionsArg.kind]}). Inline ` +
+        `\`{ name, transport }\` at the call site, or extend this ` +
+        `script to resolve hoisted options.`,
+    });
+    return;
+  }
+
+  let name: string | null = null;
+  let transport: string | null = null;
+  let nameKind: ts.SyntaxKind | null = null;
+  let transportKind: ts.SyntaxKind | null = null;
+  for (const prop of optionsArg.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+    if (!ts.isIdentifier(prop.name)) continue;
+    if (prop.name.text === "name") {
+      nameKind = prop.initializer.kind;
+      if (ts.isStringLiteralLike(prop.initializer)) {
+        name = prop.initializer.text;
+      }
+    } else if (prop.name.text === "transport") {
+      transportKind = prop.initializer.kind;
+      if (ts.isStringLiteralLike(prop.initializer)) {
+        transport = prop.initializer.text;
+      }
+    }
+  }
+  if (name === null) {
+    unparseable.push({
+      source: sourcePath,
+      line,
+      reason:
+        nameKind === null
+          ? "missing `name` property on options literal."
+          : `\`name\` must be a string literal (got ${ts.SyntaxKind[nameKind]}).`,
+    });
+    return;
+  }
+  if (transport === null) {
+    unparseable.push({
+      source: sourcePath,
+      line,
+      reason:
+        transportKind === null
+          ? "missing `transport` property on options literal."
+          : `\`transport\` must be a string literal (got ${ts.SyntaxKind[transportKind]}).`,
+    });
+    return;
+  }
+  if (!isTransport(transport)) {
+    unparseable.push({
+      source: sourcePath,
+      line,
+      reason: `invalid transport \`${transport}\`. Expected one of: ipc, local, bootstrap.`,
+    });
+    return;
+  }
+  entries.push({ source: sourcePath, name, transport });
 }
 
 function parseInventory(absPath: string): InventoryRow[] {
@@ -203,8 +294,9 @@ function main(): number {
 
   const files = walkCommandFiles(cmdAbsDir).sort();
   const sourceEntries: SourceEntry[] = [];
+  const errors: string[] = [];
   for (const f of files) {
-    const entries = parseSourceEntries(f);
+    const { entries, unparseable } = parseSourceEntries(f);
     if (entries.length > 1) {
       // Multiple registerCommand calls in one file breaks the inventory's
       // one-row-per-file model. Flag it loudly.
@@ -215,11 +307,14 @@ function main(): number {
       process.exit(1);
     }
     if (entries.length === 1) sourceEntries.push(entries[0]);
+    for (const u of unparseable) {
+      errors.push(
+        `${u.source}:${u.line}: unparseable \`registerCommand\` call — ${u.reason}`,
+      );
+    }
   }
 
   const inventoryRows = parseInventory(invAbs);
-
-  const errors: string[] = [];
 
   const sourceBySrcPath = new Map<string, SourceEntry>(
     sourceEntries.map((e) => [e.source, e]),

@@ -18,7 +18,7 @@
     "sync:llm-catalog": "bun run scripts/sync-llm-catalog.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint",
+    "lint": "eslint && bun run lint:inventory",
     "lint:unused": "knip --include files,dependencies,unlisted",
     "lint:circular": "bun run scripts/check-circular-deps.ts",
     "lint:inventory": "bun run scripts/check-cli-inventory.ts",
