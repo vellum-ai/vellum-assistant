@@ -1000,6 +1000,86 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertNotNil(editor.body)
     }
 
+    // MARK: - Provider picker filter (iter3 QA issue #1, parity with web PR #6509)
+
+    /// Only providers with at least one ACTIVE connection are surfaced in
+    /// the picker. A provider whose only connection is disabled (openai
+    /// below) must not appear, because binding a profile to it would
+    /// route through a credential the daemon will skip on dispatch.
+    func testAvailableProviderIdsHidesProvidersWithoutActiveConnection() {
+        let connections: [ProviderConnection] = [
+            Self.makeConnection(name: "active-anthropic", provider: "anthropic", status: .active),
+            Self.makeConnection(name: "disabled-openai", provider: "openai", status: .disabled),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft")),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertEqual(editor.availableProviderIds, ["anthropic"])
+    }
+
+    /// Stale binding recovery: the editor is opened on a profile whose
+    /// `provider` value no longer has any active connection. The bound
+    /// provider must still appear in the picker so the user can see it
+    /// (and pick a different one) instead of finding an empty trigger.
+    func testAvailableProviderIdsKeepsCurrentBoundProvider() {
+        let connections: [ProviderConnection] = [
+            Self.makeConnection(name: "active-anthropic", provider: "anthropic", status: .active),
+            Self.makeConnection(name: "disabled-openai", provider: "openai", status: .disabled),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                model: "gpt-5"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        // Order follows store.dynamicProviderIds catalog order, which
+        // happens to put anthropic before openai in the test fixture.
+        XCTAssertEqual(editor.availableProviderIds, ["anthropic", "openai"])
+    }
+
+    /// Pre-load fallback: when no `connections` data has flowed in yet
+    /// (e.g. the InferenceProfilesSheet is still awaiting its first
+    /// listConnections response on open, or the daemon predates the
+    /// connections API), the picker shows the full catalog so the user
+    /// isn't faced with an empty trigger. Once connections load, the
+    /// active-only filter kicks in.
+    func testAvailableProviderIdsFallsBackToFullCatalogWhenConnectionsEmpty() {
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft")),
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertEqual(editor.availableProviderIds, store.dynamicProviderIds)
+        XCTAssertFalse(editor.availableProviderIds.isEmpty)
+    }
+
+    /// All-disabled connections + no bound provider → the filter yields
+    /// empty. The picker still renders (the empty-state hint below it
+    /// drives the user to Providers), but no provider rows appear.
+    func testAvailableProviderIdsIsEmptyWhenOnlyDisabledConnectionsAndNoBoundProvider() {
+        let connections = [
+            Self.makeConnection(name: "disabled-openai", provider: "openai", status: .disabled),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft")),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertTrue(editor.availableProviderIds.isEmpty)
+    }
+
     /// Test helper mirroring `ProvidersSheetTests.makeConnection` so the
     /// two surfaces use identical fixture shapes.
     private static func makeConnection(

@@ -317,8 +317,33 @@ struct InferenceProfileEditor: View {
             .joined(separator: "-")
     }
 
+    /// Provider IDs visible in the picker. Filtered to providers that
+    /// have at least one ACTIVE connection — picking a provider with
+    /// zero active connections binds the profile to a route the daemon
+    /// can't dispatch through, leaving the user stuck. The currently-
+    /// bound `provider` is always kept in the list so editing/viewing a
+    /// stale profile (whose connection was disabled after the binding
+    /// was saved) still renders a sensible trigger.
+    ///
+    /// Pre-load fallback: when `connections` is empty (the sheet is
+    /// still fetching, or an older daemon that doesn't surface the
+    /// connection list), return the full catalog so the user doesn't
+    /// see an empty picker on first open.
+    ///
+    /// Mirrors web's `visibleProviders` + `providerOptionsSource` in
+    /// `web/src/app/(app)/assistant/settings/ai/profile-editor-modal.tsx`
+    /// (PR #6509).
     var availableProviderIds: [String] {
-        store.dynamicProviderIds
+        guard !connections.isEmpty else { return store.dynamicProviderIds }
+
+        var activeProviderSet = Set<String>()
+        for connection in connections where connection.status == .active {
+            activeProviderSet.insert(connection.provider)
+        }
+        if let bound = profile.provider, !bound.isEmpty {
+            activeProviderSet.insert(bound)
+        }
+        return store.dynamicProviderIds.filter { activeProviderSet.contains($0) }
     }
 
     private var providerField: some View {
@@ -369,6 +394,11 @@ struct InferenceProfileEditor: View {
                     (label: store.dynamicProviderDisplayName(provider), value: provider)
                 }
             )
+            if availableProviderIds.isEmpty && !isReadOnly {
+                Text("No active provider connections. Open Providers to add or enable one.")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
         }
     }
 
