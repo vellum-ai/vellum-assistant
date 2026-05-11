@@ -1,7 +1,6 @@
 const BODY =
-  "\nCall `remember` this turn for anything concrete the user said — facts, preferences, plans, names, dates, decisions, corrections, felt moments. Default to remembering; skip only obvious noise. This should be your most frequently used tool." +
-  "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing." +
-  "\nRead any unread workspace files that look even partially relevant.";
+  "\n**CRITICAL:** Call `remember` this turn for anything concrete the user said — facts, preferences, plans, names, dates, decisions, corrections, felt moments. Default to remembering; skip only obvious noise. This should be your most frequently used tool." +
+  "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing.";
 
 /**
  * Render the PKB system_reminder text, optionally with a bulleted list of

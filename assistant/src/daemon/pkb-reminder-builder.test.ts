@@ -5,9 +5,8 @@ import { buildPkbReminder } from "./pkb-reminder-builder.js";
 // Byte-for-byte fixture of the base PKB reminder.
 const BASE_REMINDER =
   "<system_reminder>" +
-  "\nCall `remember` this turn for anything concrete the user said — facts, preferences, plans, names, dates, decisions, corrections, felt moments. Default to remembering; skip only obvious noise. This should be your most frequently used tool." +
+  "\n**CRITICAL:** Call `remember` this turn for anything concrete the user said — facts, preferences, plans, names, dates, decisions, corrections, felt moments. Default to remembering; skip only obvious noise. This should be your most frequently used tool." +
   "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing." +
-  "\nRead any unread workspace files that look even partially relevant." +
   "\n</system_reminder>";
 
 describe("buildPkbReminder", () => {
@@ -19,9 +18,8 @@ describe("buildPkbReminder", () => {
     const out = buildPkbReminder(["projects/alpha.md"]);
     const expected =
       "<system_reminder>" +
-      "\nCall `remember` this turn for anything concrete the user said — facts, preferences, plans, names, dates, decisions, corrections, felt moments. Default to remembering; skip only obvious noise. This should be your most frequently used tool." +
+      "\n**CRITICAL:** Call `remember` this turn for anything concrete the user said — facts, preferences, plans, names, dates, decisions, corrections, felt moments. Default to remembering; skip only obvious noise. This should be your most frequently used tool." +
       "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing." +
-      "\nRead any unread workspace files that look even partially relevant." +
       "\nBased on the current context, these files look especially relevant:" +
       "\n- projects/alpha.md" +
       "\n</system_reminder>";
@@ -40,9 +38,8 @@ describe("buildPkbReminder", () => {
     const out = buildPkbReminder(hints);
     const expected =
       "<system_reminder>" +
-      "\nCall `remember` this turn for anything concrete the user said — facts, preferences, plans, names, dates, decisions, corrections, felt moments. Default to remembering; skip only obvious noise. This should be your most frequently used tool." +
+      "\n**CRITICAL:** Call `remember` this turn for anything concrete the user said — facts, preferences, plans, names, dates, decisions, corrections, felt moments. Default to remembering; skip only obvious noise. This should be your most frequently used tool." +
       "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing." +
-      "\nRead any unread workspace files that look even partially relevant." +
       "\nBased on the current context, these files look especially relevant:" +
       "\n- a.md" +
       "\n- sub/b.md" +
