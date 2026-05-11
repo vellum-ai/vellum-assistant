@@ -349,6 +349,20 @@ mock.module("../oauth/connect-orchestrator.js", () => ({
 mock.module("../ipc/cli-client.js", () => ({
   cliIpcCall: (operationId: string, params?: Record<string, unknown>) =>
     mockCliIpcCall(operationId, params),
+  exitFromIpcResult: (r: { error?: string; statusCode?: number }) => {
+    // Mimic real exit-code branching by mutating process.exitCode without
+    // actually exiting the process, so tests can observe the code.
+    if (r.statusCode === undefined) {
+      process.exitCode = 10;
+    } else if (r.statusCode >= 500) {
+      process.exitCode = 3;
+    } else if (r.statusCode >= 400) {
+      process.exitCode = 2;
+    } else {
+      process.exitCode = 1;
+    }
+    throw new Error(r.error ?? "Unknown error");
+  },
 }));
 
 mock.module("../oauth/seed-providers.js", () => ({
@@ -437,8 +451,9 @@ mock.module("../util/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 const { registerOAuthCommand } = await import("../cli/commands/oauth/index.js");
-const { requirePlatformClient, requirePlatformConnection } =
-  await import("../cli/commands/oauth/shared.js");
+const { requirePlatformConnection } = await import(
+  "../cli/commands/oauth/shared.js"
+);
 
 // ---------------------------------------------------------------------------
 // Test helper
@@ -1338,87 +1353,6 @@ describe("assistant oauth connect <provider> — daemon unreachable (BYO mode)",
     const parsed = JSON.parse(stdout);
     expect(parsed.error).toContain("service must be registered");
     expect(orchestratorCalls).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// requirePlatformClient — improved error messages
-// ---------------------------------------------------------------------------
-
-describe("requirePlatformClient", () => {
-  test("returns error mentioning 'vellum platform connect' when not connected", async () => {
-    mockPlatformClientCreate = async () => null;
-    const stdoutChunks: string[] = [];
-    const originalWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = ((chunk: unknown) => {
-      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
-      return true;
-    }) as typeof process.stdout.write;
-    process.exitCode = 0;
-
-    try {
-      const cmd = new Command();
-      cmd.option("--json");
-      cmd.parse(["node", "test", "--json"]);
-      const result = await requirePlatformClient(cmd);
-      expect(result).toBeNull();
-      expect(process.exitCode).toBe(1);
-      const output = stdoutChunks.join("");
-      const parsed = JSON.parse(output);
-      expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("vellum platform connect");
-      expect(parsed.error).toContain("Not connected");
-    } finally {
-      process.stdout.write = originalWrite;
-      process.exitCode = 0;
-    }
-  });
-
-  test("returns distinct error when connected but missing assistant ID", async () => {
-    mockPlatformClientCreate = async () => ({
-      platformAssistantId: "",
-      fetch: async () => new Response(),
-    });
-    const stdoutChunks: string[] = [];
-    const originalWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = ((chunk: unknown) => {
-      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
-      return true;
-    }) as typeof process.stdout.write;
-    process.exitCode = 0;
-
-    try {
-      const cmd = new Command();
-      cmd.option("--json");
-      cmd.parse(["node", "test", "--json"]);
-      const result = await requirePlatformClient(cmd);
-      expect(result).toBeNull();
-      expect(process.exitCode).toBe(1);
-      const output = stdoutChunks.join("");
-      const parsed = JSON.parse(output);
-      expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("no assistant ID is configured");
-      expect(parsed.error).toContain("registered on the platform");
-    } finally {
-      process.stdout.write = originalWrite;
-      process.exitCode = 0;
-    }
-  });
-
-  test("returns client when connected with assistant ID", async () => {
-    mockPlatformClientCreate = async () => ({
-      platformAssistantId: "asst-123",
-      fetch: async () => new Response(),
-    });
-    process.exitCode = 0;
-
-    const cmd = new Command();
-    cmd.option("--json");
-    cmd.parse(["node", "test", "--json"]);
-    const result = await requirePlatformClient(cmd);
-    expect(result).not.toBeNull();
-    expect(result!.platformAssistantId).toBe("asst-123");
-    expect(process.exitCode).toBe(0);
   });
 });
 

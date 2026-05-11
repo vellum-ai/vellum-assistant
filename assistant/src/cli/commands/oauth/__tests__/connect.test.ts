@@ -155,6 +155,20 @@ mock.module("../../../../ipc/cli-client.js", () => ({
     params?: Record<string, unknown>,
     opts?: { timeoutMs?: number },
   ) => mockCliIpcCallFn(method, params, opts),
+  // Keep the real exitFromIpcResult export so downstream test files that
+  // import it after this mock registers don't fail with "Export not found".
+  // (bun's mock.module is global; partial mocks silently drop other exports.)
+  exitFromIpcResult: (r: {
+    ok: boolean;
+    error?: string;
+    statusCode?: number;
+  }) => {
+    process.stderr.write((r.error ?? "Unknown error") + "\n");
+    if (r.statusCode === undefined) process.exit(10);
+    if (r.statusCode >= 500) process.exit(3);
+    if (r.statusCode >= 400) process.exit(2);
+    process.exit(1);
+  },
 }));
 
 mock.module("../../../lib/daemon-credential-client.js", () => ({
