@@ -35,9 +35,9 @@ import { listCredentialProviderNames as listSttCredentialProviderNames } from ".
  * Derived from `PROVIDER_CATALOG` so that adding a new LLM provider to the
  * catalog automatically extends the API-key-addressable provider set.
  * `ollama` is intentionally included here even though it is `setupMode:
- * "keyless"` — preserving the prior hardcoded behaviour (the keyless mode
- * is enforced elsewhere; this list is purely about the set of bare-name
- * credential-store keys accepted by `assistant keys ...`).
+ * "keyless"` — the keyless mode is enforced elsewhere; this list is purely
+ * about the set of bare-name credential-store keys accepted by
+ * `assistant keys ...`.
  *
  * Search providers (`brave`, `perplexity`) have no catalog module yet and
  * remain statically declared below.
@@ -125,15 +125,15 @@ function catalogApiKeyNames(): string[] {
  * - CLI `keys` command (help text, list iteration)
  * - Provider availability checks
  *
- * Adding a new TTS provider to the catalog with a bare-name secret
- * requirement automatically includes it here. Adding a new STT
- * provider to the STT catalog automatically includes it here (shared
- * credential names like `openai` are deduplicated against the LLM
- * list). Shared credential names across STT and TTS (e.g. `deepgram`)
- * are deduplicated so the list contains no duplicates. Adding a new
- * LLM or search provider requires appending to
- * {@link LLM_AND_SEARCH_API_KEY_PROVIDERS} until those domains get
- * their own catalog modules.
+ * Adding a new LLM provider to `PROVIDER_CATALOG` (`model-catalog.ts`)
+ * automatically includes it here. Adding a new TTS provider to the TTS
+ * catalog with a bare-name secret requirement automatically includes it
+ * here. Adding a new STT provider to the STT catalog automatically
+ * includes it here. Shared credential names across domains (e.g.
+ * `openai` for both LLM and STT; `deepgram` for both STT and TTS) are
+ * deduplicated so the list contains no duplicates. Adding a new search
+ * provider still requires appending to `SEARCH_API_KEY_PROVIDERS` until
+ * search gets its own catalog module.
  */
 export const API_KEY_PROVIDERS: readonly string[] = (() => {
   const seen = new Set<string>();

@@ -65,10 +65,10 @@ export type ResolvedAuth =
 // extends `VALID_CONNECTION_PROVIDERS` and `ConnectionProviderSchema`.
 //
 // Trade-off: because `PROVIDER_CATALOG` is a runtime value, the
-// `ConnectionProvider` static type widens to `string` (rather than the
-// literal-string union of the hardcoded tuple it replaced). Callers that
-// need a narrowed value should parse through `ConnectionProviderSchema`,
-// which still rejects unknown providers at runtime.
+// `ConnectionProvider` static type is `string` rather than a narrow
+// literal-string union. Callers that need a narrowed value should parse
+// through `ConnectionProviderSchema`, which still rejects unknown
+// providers at runtime.
 
 export const VALID_CONNECTION_PROVIDERS: readonly string[] =
   PROVIDER_CATALOG.map((p) => p.id);
