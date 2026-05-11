@@ -27,6 +27,7 @@
  *      a conversation offline.
  */
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getDb } from "../memory/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import { getConnection } from "./inference/connections.js";
@@ -145,8 +146,8 @@ export async function tryResolveProviderForConnectionName(
 export async function resolveDefaultProvider(
   config: ProvidersConfig,
 ): Promise<Provider | null> {
-  const profile = config.llm.default;
-  const connectionName = profile.provider_connection;
+  const resolved = resolveCallSiteConfig("mainAgent", config.llm);
+  const connectionName = resolved.provider_connection;
   if (!connectionName) {
     throw new ConnectionResolutionError(
       "<llm.default>",
@@ -157,6 +158,6 @@ export async function resolveDefaultProvider(
   return tryResolveProviderForConnectionName(
     connectionName,
     config,
-    profile.provider,
+    resolved.provider,
   );
 }

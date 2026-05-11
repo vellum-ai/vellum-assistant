@@ -1,3 +1,4 @@
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { resolveConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Message } from "../providers/types.js";
@@ -45,7 +46,7 @@ const KEYLESS_PROVIDERS = new Set(["ollama"]);
 const deterministicProvider = new DefaultCommitMessageProvider();
 
 function getProviderCandidates(config: ReturnType<typeof getConfig>): string[] {
-  return [config.llm.default.provider];
+  return [resolveCallSiteConfig("commitMessage", config.llm).provider];
 }
 
 function buildDeterministicResult(
@@ -146,7 +147,7 @@ class ProviderCommitMessageGenerator {
         return buildDeterministicResult(context, "missing_provider_api_key");
       }
       log.debug(
-        { provider: config.llm.default.provider },
+        { provider: resolveCallSiteConfig("commitMessage", config.llm).provider },
         "Provider not initialized; falling back to deterministic",
       );
       return buildDeterministicResult(context, "provider_not_initialized");

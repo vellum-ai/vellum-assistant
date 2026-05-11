@@ -11,6 +11,7 @@
  * invisible in production.
  */
 
+import { resolveCallSiteConfig } from "../../../config/llm-resolver.js";
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
@@ -31,7 +32,7 @@ import { getConversationById } from "./helpers.js";
 export function buildCompactionStateResponse(conversation: Conversation) {
   const messages = conversation.getMessages();
   const estimatedInputTokens = estimatePromptTokens(messages);
-  const cfg = getConfig().llm.default.contextWindow;
+  const cfg = resolveCallSiteConfig("mainAgent", getConfig().llm).contextWindow;
   const maxInputTokens = cfg.maxInputTokens;
   const compactThresholdRatio = cfg.compactThreshold;
   const thresholdTokens = Math.floor(maxInputTokens * compactThresholdRatio);

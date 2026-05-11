@@ -29,6 +29,7 @@ import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
@@ -681,7 +682,9 @@ export async function runAgentLoopImpl(
     overrideProfile: turnOverrideProfile ?? undefined,
   });
   const turnContextWindowConfig = contextWindowConfigFromEffective(
-    config.llm.default.contextWindow,
+    resolveCallSiteConfig(turnCallSite, config.llm, {
+      overrideProfile: turnOverrideProfile ?? undefined,
+    }).contextWindow,
     effectiveContextWindow,
   );
   (

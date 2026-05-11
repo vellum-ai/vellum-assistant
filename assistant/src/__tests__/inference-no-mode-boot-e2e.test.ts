@@ -92,6 +92,7 @@ mock.module("@anthropic-ai/sdk", () => ({
 // ---------------------------------------------------------------------------
 
 import { AssistantConfigSchema } from "../config/schema.js";
+import { LLMSchema } from "../config/schemas/llm.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import {
   getProvider,
@@ -105,6 +106,8 @@ import { credentialKey } from "../security/credential-key.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
+const baseLlm = LLMSchema.parse({});
+
 function makeConfig(overrides?: Record<string, unknown>) {
   return {
     services: {
@@ -117,8 +120,10 @@ function makeConfig(overrides?: Record<string, unknown>) {
       "web-search": { mode: "your-own" as const, provider: "inference-provider-native" },
     },
     llm: {
+      ...baseLlm,
       default: {
-        provider: "anthropic",
+        ...baseLlm.default,
+        provider: "anthropic" as const,
         model: "claude-opus-4-7",
         provider_connection: "anthropic-personal",
       },

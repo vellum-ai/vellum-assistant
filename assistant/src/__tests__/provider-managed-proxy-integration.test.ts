@@ -67,7 +67,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { LLMSchema } from "../config/schemas/llm.js";
+import { type LLMConfigBase, LLMSchema } from "../config/schemas/llm.js";
 import type { ProvidersConfig } from "../providers/registry.js";
 import {
   getProvider,
@@ -77,6 +77,7 @@ import {
 } from "../providers/registry.js";
 
 function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
+  const baseLlm = LLMSchema.parse({});
   return {
     services: {
       inference: {},
@@ -87,7 +88,14 @@ function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
       },
       "web-search": { mode: "your-own", provider: "inference-provider-native" },
     },
-    llm: { default: { provider, model } },
+    llm: {
+      ...baseLlm,
+      default: {
+        ...baseLlm.default,
+        provider: provider as LLMConfigBase["provider"],
+        model,
+      },
+    },
   };
 }
 
