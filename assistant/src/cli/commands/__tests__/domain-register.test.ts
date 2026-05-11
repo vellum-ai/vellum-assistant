@@ -1,109 +1,164 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+/**
+ * Tests for the domain register CLI subcommand (thin IPC wrapper).
+ *
+ * Validates:
+ *   - register calls domain_register with subdomain param
+ *   - register without subdomain sends empty body
+ *   - --json outputs structured response
+ *   - error responses are surfaced correctly
+ */
 
-import {
-  getMockFetchCalls,
-  mockFetch,
-  resetMockFetch,
-} from "../../../__tests__/mock-fetch.js";
-import { _setOverridesForTesting } from "../../../config/assistant-feature-flags.js";
-import { setPlatformAssistantId } from "../../../config/env.js";
-import { credentialKey } from "../../../security/credential-key.js";
-import {
-  _resetBackend,
-  deleteSecureKeyAsync,
-  setSecureKeyAsync,
-} from "../../../security/secure-keys.js";
-import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-const API_KEY_CREDENTIAL = credentialKey("vellum", "assistant_api_key");
+import { Command } from "commander";
 
-beforeEach(async () => {
+// ---------------------------------------------------------------------------
+// Mock state
+// ---------------------------------------------------------------------------
+
+let mockIpcCallFn = mock(() =>
+  Promise.resolve({ ok: true, result: {} }),
+);
+
+// ---------------------------------------------------------------------------
+// Mocks — must be declared before importing the module under test
+// ---------------------------------------------------------------------------
+
+mock.module("../../../ipc/cli-client.js", () => ({
+  cliIpcCall: mockIpcCallFn,
+  exitFromIpcResult: mock((r: { error?: string }) => {
+    process.stderr.write((r.error ?? "Unknown error") + "\n");
+    process.exitCode = 10;
+  }),
+}));
+
+mock.module("../../../util/logger.js", () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
+  getCliLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  mockIpcCallFn = mock(() => Promise.resolve({ ok: true, result: {} }));
   process.exitCode = 0;
-  _resetBackend();
-  resetMockFetch();
-  _setOverridesForTesting({ "email-channel": true });
-  setPlatformAssistantId(ASSISTANT_ID);
-  await setSecureKeyAsync(API_KEY_CREDENTIAL, "test-api-key");
 });
 
 afterEach(() => {
-  resetMockFetch();
-  _setOverridesForTesting({});
-  setPlatformAssistantId(undefined);
-  _resetBackend();
+  process.exitCode = 0;
 });
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function runDomainCommand(...args: string[]) {
+  mock.module("../../../ipc/cli-client.js", () => ({
+    cliIpcCall: mockIpcCallFn,
+    exitFromIpcResult: mock((r: { error?: string }) => {
+      process.stderr.write((r.error ?? "Unknown error") + "\n");
+      process.exitCode = 10;
+    }),
+  }));
+
+  const { registerDomainCommand } = await import("../domain.js");
+
+  const stdoutChunks: string[] = [];
+  const origWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk: unknown) => {
+    stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+
+  try {
+    const program = new Command();
+    program.exitOverride();
+    program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
+    registerDomainCommand(program);
+    await program.parseAsync(["node", "assistant", ...args]);
+  } finally {
+    process.stdout.write = origWrite;
+  }
+
+  return stdoutChunks.join("");
+}
+
+// ---------------------------------------------------------------------------
+// register
+// ---------------------------------------------------------------------------
+
 describe("assistant domain register", () => {
-  test("successful registration with explicit subdomain", async () => {
-    mockFetch(
-      "/domains/",
-      { method: "POST" },
-      {
-        body: {
+  test("calls domain_register with subdomain param", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
           id: "550e8400-e29b-41d4-a716-446655440000",
           domain: "becky.vellum.me",
           status: "active",
           verified: true,
           created_at: "2026-04-15T19:00:00Z",
         },
-        status: 201,
-      },
+      }),
     );
 
-    await runAssistantCommand("domain", "register", "becky");
+    await runDomainCommand("domain", "register", "becky");
 
-    const calls = getMockFetchCalls();
-    expect(calls).toHaveLength(1);
-    expect(calls[0].path).toContain(`/v1/assistants/${ASSISTANT_ID}/domains/`);
-    expect(calls[0].init.method).toBe("POST");
-    expect(JSON.parse(calls[0].init.body as string)).toEqual({
-      subdomain: "becky",
+    expect(mockIpcCallFn).toHaveBeenCalledWith("domain_register", {
+      body: { subdomain: "becky" },
     });
     expect(process.exitCode).toBe(0);
   });
 
   test("registration without subdomain sends empty body", async () => {
-    mockFetch(
-      "/domains/",
-      { method: "POST" },
-      {
-        body: {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
           id: "550e8400-e29b-41d4-a716-446655440000",
           domain: "my-assistant.vellum.me",
           status: "active",
           verified: true,
           created_at: "2026-04-15T19:00:00Z",
         },
-        status: 201,
-      },
+      }),
     );
 
-    await runAssistantCommand("domain", "register");
+    await runDomainCommand("domain", "register");
 
-    const calls = getMockFetchCalls();
-    expect(calls).toHaveLength(1);
-    expect(JSON.parse(calls[0].init.body as string)).toEqual({});
+    expect(mockIpcCallFn).toHaveBeenCalledWith("domain_register", {
+      body: {},
+    });
     expect(process.exitCode).toBe(0);
   });
 
   test("--json outputs structured response", async () => {
-    mockFetch(
-      "/domains/",
-      { method: "POST" },
-      {
-        body: {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
           id: "550e8400-e29b-41d4-a716-446655440000",
           domain: "becky.vellum.me",
           status: "active",
           verified: true,
           created_at: "2026-04-15T19:00:00Z",
         },
-        status: 201,
-      },
+      }),
     );
 
-    const output = await runAssistantCommand(
+    const output = await runDomainCommand(
       "domain",
       "--json",
       "register",
@@ -116,119 +171,37 @@ describe("assistant domain register", () => {
     expect(process.exitCode).toBe(0);
   });
 
-  test("duplicate domain returns error", async () => {
-    mockFetch(
-      "/domains/",
-      { method: "POST" },
-      {
-        body: {
-          detail: "This assistant already has a registered domain.",
-        },
-        status: 400,
-      },
-    );
+  test("IPC error with --json outputs error envelope", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "This assistant already has a registered domain.",
+        statusCode: 400,
+      }),
+    ) as unknown as typeof mockIpcCallFn;
 
-    const output = await runAssistantCommand(
+    const output = await runDomainCommand(
       "domain",
       "--json",
       "register",
       "becky",
     );
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).not.toBe(0);
     const parsed = JSON.parse(output.trim());
     expect(parsed.error).toContain("already has a registered domain");
   });
 
-  test("subdomain validation error is surfaced", async () => {
-    mockFetch(
-      "/domains/",
-      { method: "POST" },
-      {
-        body: { subdomain: ["Enter a valid value."] },
-        status: 400,
-      },
-    );
+  test("IPC error without --json calls exitFromIpcResult", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "Platform credentials not configured",
+        statusCode: 401,
+      }),
+    ) as unknown as typeof mockIpcCallFn;
 
-    const output = await runAssistantCommand(
-      "domain",
-      "--json",
-      "register",
-      "invalid subdomain!",
-    );
-
-    expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.error).toContain("valid value");
-  });
-
-  test("missing platform credentials returns error", async () => {
-    await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
-
-    const output = await runAssistantCommand(
-      "domain",
-      "--json",
-      "register",
-      "velly",
-    );
-
-    expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.error).toContain("Platform credentials not configured");
-  });
-
-  test("missing assistant ID returns error", async () => {
-    setPlatformAssistantId("");
-
-    const output = await runAssistantCommand(
-      "domain",
-      "--json",
-      "register",
-      "becky",
-    );
-
-    expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.error).toContain("Assistant ID");
-  });
-
-  test("platform 5xx returns error", async () => {
-    mockFetch(
-      "/domains/",
-      { method: "POST" },
-      { body: { detail: "Internal server error" }, status: 500 },
-    );
-
-    const output = await runAssistantCommand(
-      "domain",
-      "--json",
-      "register",
-      "becky",
-    );
-
-    expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.error).toContain("Internal server error");
-  });
-
-  test("unverified domain shows warning", async () => {
-    mockFetch(
-      "/domains/",
-      { method: "POST" },
-      {
-        body: {
-          id: "550e8400-e29b-41d4-a716-446655440000",
-          domain: "becky.vellum.me",
-          status: "pending",
-          verified: false,
-          created_at: "2026-04-15T19:00:00Z",
-        },
-        status: 201,
-      },
-    );
-
-    // Just verify it doesn't crash — the warning goes to stderr/log
-    await runAssistantCommand("domain", "register", "becky");
-    expect(process.exitCode).toBe(0);
+    await runDomainCommand("domain", "register", "velly");
+    expect(process.exitCode).not.toBe(0);
   });
 });

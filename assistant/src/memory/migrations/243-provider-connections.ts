@@ -1,14 +1,13 @@
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
 /**
- * Creates the `provider_connections` table and seeds the four canonical
+ * Creates the `provider_connections` table and seeds the three canonical
  * connections that every installation ships with.
  *
  * Canonical connections:
  *   - anthropic-managed  → provider=anthropic, auth={type:platform}
  *   - openai-managed     → provider=openai,    auth={type:platform}
  *   - gemini-managed     → provider=gemini,    auth={type:platform}
- *   - ollama-local       → provider=ollama,    auth={type:none}
  *
  * Idempotent: checks sqlite_master for the table before running DDL;
  * canonical rows are inserted with INSERT OR IGNORE.
@@ -58,7 +57,6 @@ export function migrateCreateProviderConnections(database: DrizzleDb): void {
     { name: "anthropic-managed", provider: "anthropic", auth: JSON.stringify({ type: "platform" }) },
     { name: "openai-managed",    provider: "openai",    auth: JSON.stringify({ type: "platform" }) },
     { name: "gemini-managed",    provider: "gemini",    auth: JSON.stringify({ type: "platform" }) },
-    { name: "ollama-local",      provider: "ollama",    auth: JSON.stringify({ type: "none" }) },
   ];
 
   for (const { name, provider, auth } of canonicals) {

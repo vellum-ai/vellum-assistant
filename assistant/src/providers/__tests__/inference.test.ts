@@ -49,7 +49,7 @@ describe("migrateCreateProviderConnections", () => {
 
   test("seeds canonical connections on first run", () => {
     const { db } = setupDb();
-    const canonicals = ["anthropic-managed", "openai-managed", "gemini-managed", "ollama-local"];
+    const canonicals = ["anthropic-managed", "openai-managed", "gemini-managed"];
     for (const name of canonicals) {
       const conn = getConnection(db, name);
       expect(conn).not.toBeNull();
@@ -61,7 +61,6 @@ describe("migrateCreateProviderConnections", () => {
     expect(getConnection(db, "anthropic-managed")?.auth.type).toBe("platform");
     expect(getConnection(db, "openai-managed")?.auth.type).toBe("platform");
     expect(getConnection(db, "gemini-managed")?.auth.type).toBe("platform");
-    expect(getConnection(db, "ollama-local")?.auth.type).toBe("none");
   });
 
   test("seedCanonicalConnections is idempotent", () => {

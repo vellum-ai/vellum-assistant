@@ -1,46 +1,110 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+/**
+ * Tests for the domain status CLI subcommand (thin IPC wrapper).
+ *
+ * Validates:
+ *   - status calls domain_status
+ *   - --json outputs structured response
+ *   - no domain shows helpful message
+ *   - error responses are surfaced correctly
+ */
 
-import {
-  getMockFetchCalls,
-  mockFetch,
-  resetMockFetch,
-} from "../../../__tests__/mock-fetch.js";
-import { _setOverridesForTesting } from "../../../config/assistant-feature-flags.js";
-import { setPlatformAssistantId } from "../../../config/env.js";
-import { credentialKey } from "../../../security/credential-key.js";
-import {
-  _resetBackend,
-  deleteSecureKeyAsync,
-  setSecureKeyAsync,
-} from "../../../security/secure-keys.js";
-import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-const API_KEY_CREDENTIAL = credentialKey("vellum", "assistant_api_key");
+import { Command } from "commander";
 
-beforeEach(async () => {
+// ---------------------------------------------------------------------------
+// Mock state
+// ---------------------------------------------------------------------------
+
+let mockIpcCallFn = mock(() =>
+  Promise.resolve({ ok: true, result: {} }),
+);
+
+// ---------------------------------------------------------------------------
+// Mocks — must be declared before importing the module under test
+// ---------------------------------------------------------------------------
+
+mock.module("../../../ipc/cli-client.js", () => ({
+  cliIpcCall: mockIpcCallFn,
+  exitFromIpcResult: mock((r: { error?: string }) => {
+    process.stderr.write((r.error ?? "Unknown error") + "\n");
+    process.exitCode = 10;
+  }),
+}));
+
+mock.module("../../../util/logger.js", () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
+  getCliLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  mockIpcCallFn = mock(() => Promise.resolve({ ok: true, result: {} }));
   process.exitCode = 0;
-  _resetBackend();
-  resetMockFetch();
-  _setOverridesForTesting({ "email-channel": true });
-  setPlatformAssistantId(ASSISTANT_ID);
-  await setSecureKeyAsync(API_KEY_CREDENTIAL, "test-api-key");
 });
 
 afterEach(() => {
-  resetMockFetch();
-  _setOverridesForTesting({});
-  setPlatformAssistantId(undefined);
-  _resetBackend();
+  process.exitCode = 0;
 });
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function runDomainCommand(...args: string[]) {
+  mock.module("../../../ipc/cli-client.js", () => ({
+    cliIpcCall: mockIpcCallFn,
+    exitFromIpcResult: mock((r: { error?: string }) => {
+      process.stderr.write((r.error ?? "Unknown error") + "\n");
+      process.exitCode = 10;
+    }),
+  }));
+
+  const { registerDomainCommand } = await import("../domain.js");
+
+  const stdoutChunks: string[] = [];
+  const origWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk: unknown) => {
+    stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+
+  try {
+    const program = new Command();
+    program.exitOverride();
+    program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
+    registerDomainCommand(program);
+    await program.parseAsync(["node", "assistant", ...args]);
+  } finally {
+    process.stdout.write = origWrite;
+  }
+
+  return stdoutChunks.join("");
+}
+
+// ---------------------------------------------------------------------------
+// status
+// ---------------------------------------------------------------------------
+
 describe("assistant domain status", () => {
-  test("shows domain info when registered", async () => {
-    mockFetch(
-      "/domains/",
-      {},
-      {
-        body: {
+  test("calls domain_status", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
           results: [
             {
               id: "550e8400-e29b-41d4-a716-446655440000",
@@ -51,25 +115,20 @@ describe("assistant domain status", () => {
             },
           ],
         },
-        status: 200,
-      },
+      }),
     );
 
-    await runAssistantCommand("domain", "status");
+    await runDomainCommand("domain", "status");
 
-    const calls = getMockFetchCalls();
-    expect(calls).toHaveLength(1);
-    expect(calls[0].path).toContain(`/v1/assistants/${ASSISTANT_ID}/domains/`);
-    expect(calls[0].init.method).toBeUndefined();
+    expect(mockIpcCallFn).toHaveBeenCalledWith("domain_status");
     expect(process.exitCode).toBe(0);
   });
 
   test("--json outputs structured response", async () => {
-    mockFetch(
-      "/domains/",
-      {},
-      {
-        body: {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
           results: [
             {
               id: "550e8400-e29b-41d4-a716-446655440000",
@@ -80,11 +139,10 @@ describe("assistant domain status", () => {
             },
           ],
         },
-        status: 200,
-      },
+      }),
     );
 
-    const output = await runAssistantCommand("domain", "--json", "status");
+    const output = await runDomainCommand("domain", "--json", "status");
 
     const parsed = JSON.parse(output.trim());
     expect(parsed.results).toHaveLength(1);
@@ -93,40 +151,43 @@ describe("assistant domain status", () => {
   });
 
   test("no domain registered shows helpful message", async () => {
-    mockFetch(
-      "/domains/",
-      {},
-      {
-        body: { results: [] },
-        status: 200,
-      },
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: { results: [] },
+      }),
     );
 
-    await runAssistantCommand("domain", "status");
+    await runDomainCommand("domain", "status");
     expect(process.exitCode).toBe(0);
   });
 
-  test("missing platform credentials returns error", async () => {
-    await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
+  test("IPC error with --json outputs error envelope", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "Service unavailable",
+        statusCode: 503,
+      }),
+    ) as unknown as typeof mockIpcCallFn;
 
-    const output = await runAssistantCommand("domain", "--json", "status");
+    const output = await runDomainCommand("domain", "--json", "status");
 
-    expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(output.trim());
-    expect(parsed.error).toContain("Platform credentials not configured");
-  });
-
-  test("platform error is surfaced", async () => {
-    mockFetch(
-      "/domains/",
-      {},
-      { body: { detail: "Service unavailable" }, status: 503 },
-    );
-
-    const output = await runAssistantCommand("domain", "--json", "status");
-
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).not.toBe(0);
     const parsed = JSON.parse(output.trim());
     expect(parsed.error).toContain("Service unavailable");
+  });
+
+  test("IPC error without --json calls exitFromIpcResult", async () => {
+    mockIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: "Platform credentials not configured",
+        statusCode: 401,
+      }),
+    ) as unknown as typeof mockIpcCallFn;
+
+    await runDomainCommand("domain", "status");
+    expect(process.exitCode).not.toBe(0);
   });
 });
