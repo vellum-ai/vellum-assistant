@@ -10,7 +10,6 @@ import {
 import { emitContactChange } from "./contact-events.js";
 import type {
   AssistantContactMetadata,
-  AssistantSpecies,
   ChannelPolicy,
   ChannelStatus,
   Contact,
