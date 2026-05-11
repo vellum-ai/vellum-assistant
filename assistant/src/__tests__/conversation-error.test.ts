@@ -303,6 +303,32 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_API");
       expect(result.retryable).toBe(true);
     });
+
+    it("classifies ProviderError 400 with oversized image message as non-retryable PROVIDER_API", () => {
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.2.content.4.image.source.base64.data: At least one of the image dimensions exceed max allowed size: 8000 pixels"},"request_id":"req_123"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("attached images");
+      expect(result.userMessage).toContain("8,000 px");
+      expect(result.errorCategory).toBe("image_too_large");
+    });
+
+    it("classifies non-ProviderError oversized image messages with the same user guidance", () => {
+      const result = classifyConversationError(
+        new Error("image dimensions exceed maximum allowed size"),
+        baseCtx,
+      );
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("attached images");
+      expect(result.errorCategory).toBe("image_too_large");
+      expect(result.userMessage).toContain("Resize the image");
+    });
   });
 
   describe("ordering errors (tool_use/tool_result mismatches)", () => {

@@ -70,6 +70,13 @@ const CONTEXT_TOO_LARGE_PATTERNS = [
   /exceeded.*max_tokens/i,
 ];
 
+// Image attachment size/dimension failures from multimodal providers.
+const IMAGE_TOO_LARGE_PATTERNS = [
+  /image.*dimensions?.*exceed.*max(?:imum)?.*(?:allowed)?.*size/i,
+  /image.*too.*large/i,
+  /image.*exceeds?.*max(?:imum)?.*size/i,
+];
+
 // Generic timeout patterns — checked after NETWORK_PATTERNS and PROVIDER_API_PATTERNS
 // so that "connection timeout" → PROVIDER_NETWORK and "gateway timeout" → PROVIDER_API
 const TIMEOUT_PATTERNS = [
@@ -328,6 +335,9 @@ function classifyCore(
           errorCategory: "context_too_large",
         };
       }
+      if (isImageTooLarge(message)) {
+        return imageTooLargeClassification(message);
+      }
       if (isWebSearchOrderingError(message)) {
         return {
           code: "PROVIDER_WEB_SEARCH",
@@ -386,6 +396,11 @@ function classifyCore(
 /** Check whether an error message indicates a context-too-large failure. */
 export function isContextTooLarge(message: string): boolean {
   return CONTEXT_TOO_LARGE_PATTERNS.some((p) => p.test(message));
+}
+
+/** Check whether an error message indicates an oversized image attachment. */
+function isImageTooLarge(message: string): boolean {
+  return IMAGE_TOO_LARGE_PATTERNS.some((p) => p.test(message));
 }
 
 /** Check whether an error message indicates a web-search-specific ordering failure. */
@@ -456,6 +471,34 @@ function providerBillingClassification(): Omit<
   };
 }
 
+function imageTooLargeClassification(
+  message: string,
+): Omit<ClassifiedConversationError, "debugDetails"> {
+  const maxPixels = imageMaxPixels(message);
+  const resizeGuidance = maxPixels
+    ? `Resize it so the longest side is ${maxPixels} px or less, then try again.`
+    : "Resize the image and try again.";
+
+  return {
+    code: "PROVIDER_API",
+    userMessage:
+      "One of the attached images is too large for the AI provider to process. " +
+      resizeGuidance,
+    retryable: false,
+    errorCategory: "image_too_large",
+  };
+}
+
+function imageMaxPixels(message: string): string | undefined {
+  const match =
+    /max(?:imum)?(?: allowed)? size:\s*([0-9][0-9,]*)\s*pixels?/i.exec(message);
+  if (!match) return undefined;
+  const raw = match[1].replaceAll(",", "");
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return match[1];
+  return parsed.toLocaleString("en-US");
+}
+
 function classifyByMessage(
   error: unknown,
   message: string,
@@ -469,6 +512,10 @@ function classifyByMessage(
       retryable: false,
       errorCategory: "context_too_large",
     };
+  }
+
+  if (isImageTooLarge(message)) {
+    return imageTooLargeClassification(message);
   }
 
   // Check rate limit first (before network, since 429 could match both)
