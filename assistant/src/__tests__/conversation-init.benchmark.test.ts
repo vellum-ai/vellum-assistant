@@ -136,6 +136,7 @@ mock.module("../config/loader.js", () => ({
     "fireworks",
     "brave",
     "perplexity",
+    "tavily",
   ],
   getConfig: () => mockConfig,
   getConfigReadOnly: () => mockConfig,

@@ -7,7 +7,8 @@
  * 1. **LLM providers** -- derived from `PROVIDER_CATALOG`
  *    (`model-catalog.ts`). Adding a provider to the catalog automatically
  *    extends the API-key-addressable set.
- * 2. **Search providers** -- statically declared (`brave`, `perplexity`);
+ * 2. **Search providers** -- statically declared (`brave`, `perplexity`,
+ *    `tavily`);
  *    no catalog module exists for search providers yet.
  * 3. **STT providers** -- dynamically derived from the canonical STT
  *    provider catalog by reading credential-provider names.
@@ -39,8 +40,8 @@ import { listCredentialProviderNames as listSttCredentialProviderNames } from ".
  * about the set of bare-name credential-store keys accepted by
  * `assistant keys ...`.
  *
- * Search providers (`brave`, `perplexity`) have no catalog module yet and
- * remain statically declared below.
+ * Search providers (`brave`, `perplexity`, `tavily`) have no catalog module
+ * yet and remain statically declared below.
  */
 const LLM_API_KEY_PROVIDERS: readonly string[] = PROVIDER_CATALOG.map(
   (p) => p.id,
@@ -51,7 +52,7 @@ const LLM_API_KEY_PROVIDERS: readonly string[] = PROVIDER_CATALOG.map(
  * catalog is introduced, replace this array with a catalog-derived
  * computation analogous to the TTS logic below.
  */
-const SEARCH_API_KEY_PROVIDERS = ["brave", "perplexity"] as const;
+const SEARCH_API_KEY_PROVIDERS = ["brave", "perplexity", "tavily"] as const;
 
 const LLM_AND_SEARCH_API_KEY_PROVIDERS: readonly string[] = [
   ...LLM_API_KEY_PROVIDERS,

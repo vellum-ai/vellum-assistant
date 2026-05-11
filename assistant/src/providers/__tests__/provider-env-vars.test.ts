@@ -34,6 +34,7 @@ describe("getLlmProviderEnvVar", () => {
   test("returns undefined for search providers (out of scope)", () => {
     expect(getLlmProviderEnvVar("brave")).toBeUndefined();
     expect(getLlmProviderEnvVar("perplexity")).toBeUndefined();
+    expect(getLlmProviderEnvVar("tavily")).toBeUndefined();
   });
 
   test("returns undefined for unknown provider", () => {
@@ -48,6 +49,10 @@ describe("getSearchProviderEnvVar", () => {
 
   test("returns PERPLEXITY_API_KEY for perplexity", () => {
     expect(getSearchProviderEnvVar("perplexity")).toBe("PERPLEXITY_API_KEY");
+  });
+
+  test("returns TAVILY_API_KEY for tavily", () => {
+    expect(getSearchProviderEnvVar("tavily")).toBe("TAVILY_API_KEY");
   });
 
   test("returns undefined for LLM providers (out of scope)", () => {
@@ -69,6 +74,7 @@ describe("getAnyProviderEnvVar", () => {
   test("returns search env var for search providers", () => {
     expect(getAnyProviderEnvVar("brave")).toBe("BRAVE_API_KEY");
     expect(getAnyProviderEnvVar("perplexity")).toBe("PERPLEXITY_API_KEY");
+    expect(getAnyProviderEnvVar("tavily")).toBe("TAVILY_API_KEY");
   });
 
   test("returns undefined for ollama (keyless LLM provider)", () => {
