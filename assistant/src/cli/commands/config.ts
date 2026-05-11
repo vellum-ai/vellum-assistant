@@ -271,6 +271,7 @@ Examples:
     .action(async (_opts: unknown, cmd: Command) => {
       const result = await cliIpcCall<{
         exists: boolean;
+        parseError?: string;
         errors?: Array<{ index: number; pattern: string; message: string }>;
       }>("config_allowlist_validate");
       if (!result.ok) {
@@ -281,6 +282,15 @@ Examples:
       if (!payload || !payload.exists) {
         log.info("No secret-allowlist.json file found");
         return;
+      }
+      // The daemon surfaces a malformed-JSON failure as `parseError` so
+      // the CLI can print a single user-readable message and exit 1,
+      // matching the pre-IPC behavior.
+      if (payload.parseError) {
+        log.error(
+          `Failed to read secret-allowlist.json: ${payload.parseError}`,
+        );
+        process.exit(1);
       }
       const errors = payload.errors ?? [];
       if (errors.length === 0) {

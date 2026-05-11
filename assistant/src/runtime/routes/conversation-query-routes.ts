@@ -559,9 +559,19 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
       "Body must be a JSON object with `path` and `value`",
     );
   }
-  const { path, value } = body as { path?: unknown; value?: unknown };
+  const bodyRecord = body as Record<string, unknown>;
+  const { path, value } = bodyRecord as { path?: unknown; value?: unknown };
   if (typeof path !== "string" || path.length === 0) {
     throw new BadRequestError("`path` must be a non-empty string");
+  }
+  // `value` must be present (use explicit `null` to clear a key). Without
+  // this check, `undefined` flows into `setNestedValue` and gets dropped by
+  // `JSON.stringify` at save time, silently removing the key - which is
+  // distinct from the documented "set to null" semantics.
+  if (!("value" in bodyRecord)) {
+    throw new BadRequestError(
+      "`value` is required (use `null` to clear a key)",
+    );
   }
   // Build the equivalent patch shape so the managed-profile guard can
   // inspect the touched subtree.
@@ -585,9 +595,19 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
  * absent, or `{ exists: true, errors: [...] }` otherwise.
  */
 function handleValidateAllowlist() {
-  const errors = validateAllowlistFile();
-  if (errors == null) return { exists: false } as const;
-  return { exists: true, errors } as const;
+  try {
+    const errors = validateAllowlistFile();
+    if (errors == null) return { exists: false } as const;
+    return { exists: true, errors } as const;
+  } catch (err) {
+    // `validateAllowlistFile` does a raw `JSON.parse` on
+    // `secret-allowlist.json` and can throw on malformed JSON. Surface
+    // that as a structured `parseError` in the response payload instead
+    // of letting it propagate as a 500. Preserves the pre-IPC CLI
+    // behavior, which printed a user-readable failure and exited 1.
+    const message = err instanceof Error ? err.message : String(err);
+    return { exists: true, parseError: message, errors: [] } as const;
+  }
 }
 
 function handleReplaceInferenceProfile({
