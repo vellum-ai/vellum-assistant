@@ -156,15 +156,25 @@ registerFooCommand(program);
 
 ## IPC operation IDs and routes
 
-Every `ipc`-tagged subcommand action maps to exactly one operation in
-`assistant/src/runtime/routes/`. The convention is `<command>_<subcommand>`
-in snake_case:
+Every `ipc`-tagged subcommand action maps to exactly one operation
+served by the daemon's IPC server. Two route surfaces exist:
 
-| CLI invocation              | Operation ID         |
-| --------------------------- | -------------------- |
-| `assistant foo bar`         | `foo_bar`            |
-| `assistant oauth connect`   | `oauth_connect`      |
-| `assistant memory rebuild`  | `memory_rebuild`     |
+- **Shared routes (`assistant/src/runtime/routes/`).** Served over both
+  HTTP and IPC via the shared `ROUTES` array. Most domain routes live
+  here — dual exposure is by design so the gateway can call the daemon
+  over IPC instead of HTTP. See `assistant/AGENTS.md` for the routes /
+  dispatch architecture.
+- **IPC-only routes (`assistant/src/ipc/routes/`).** CLI/tool-specific
+  methods with no HTTP counterpart (e.g. `wake_conversation`,
+  `upsert_contact`). Use this surface only when the operation
+  shouldn't be exposed over HTTP — when in doubt, default to the
+  shared surface.
+
+Operation IDs are snake_case. The conventional shape is
+`<command>_<subcommand>` (`pending_list`, `oauth_connect`,
+`cache_get`), but verb-first names are also used where they read more
+naturally (`upsert_contact`, `wake_conversation`, `conversations_import`).
+Pick the form that makes the operation obvious from the ID alone.
 
 The route owns the request schema (zod), the business logic, and the
 response shape. The CLI just forwards arguments and renders the
