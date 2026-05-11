@@ -246,20 +246,29 @@ public enum LLMProviderRegistry {
 /// reading it more than once is unnecessary I/O. Swift guarantees
 /// thread-safe lazy initialization of static properties.
 ///
-/// `Bundle.module` is the SwiftPM-synthesized bundle for the
-/// `VellumAssistantShared` target — it resolves to the same resources
-/// directory in both the shipping app and the test target, so the
-/// catalog tests exercise the bundled JSON rather than a hardcoded
-/// mirror. A missing or malformed resource here means the JSON was
-/// dropped from `clients/Package.swift` or the generator (§G) failed
-/// to refresh it; both are build-time bugs and we trap loudly rather
-/// than silently degrade.
+/// Lookup uses `Bundle.vellumShared` rather than SwiftPM's synthesized
+/// `Bundle.module`: macOS codesigning requires resources inside
+/// `.app/Contents/Resources`, and `Bundle.module` resolves through
+/// `Bundle.main.bundleURL` (the `.app` root) which misses that path in
+/// shipping builds. The helper tries `.app/Contents/Resources/<bundle>`
+/// first, falls back to `swift run`-style adjacency, and handles the
+/// Xcode-framework + previews cases that already ship Lucide icons and
+/// integration logos. Tests link `VellumAssistantShared` directly so
+/// the helper still finds the bundle alongside the xctest binary —
+/// the catalog tests exercise the bundled JSON, not a hardcoded mirror.
+///
+/// A failed lookup here means the JSON was dropped from
+/// `clients/Package.swift`, the generator (§G) failed to refresh it,
+/// or the macOS build script stopped copying the SPM `.bundle` artifact
+/// into `Contents/Resources`. All build-time bugs — we trap loudly
+/// rather than silently degrade.
 private let _cachedLLMProviderCatalog: LLMProviderCatalog = {
-    guard let url = Bundle.module.url(forResource: "llm-provider-catalog", withExtension: "json") else {
+    guard let url = Bundle.vellumShared.url(forResource: "llm-provider-catalog", withExtension: "json") else {
         preconditionFailure(
-            "llm-provider-catalog.json missing from VellumAssistantShared bundle — "
-            + "check `.copy(\"Resources/llm-provider-catalog.json\")` in clients/Package.swift "
-            + "and that `bun run sync:llm-catalog` has been run."
+            "llm-provider-catalog.json missing from VellumAssistantShared resource bundle — "
+            + "check `.copy(\"Resources/llm-provider-catalog.json\")` in clients/Package.swift, "
+            + "that `bun run sync:llm-catalog` has been run, and that "
+            + "`clients/macos/build.sh` copies the SPM bundle into Contents/Resources."
         )
     }
     let data: Data
