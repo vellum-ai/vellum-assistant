@@ -557,10 +557,11 @@ struct ProvidersSheet: View {
                             placeholder: "Select a credential\u{2026}",
                             selection: $editorDraft.credential,
                             options: options,
-                            menuWidth: 360
-                        ) { newValue in
-                            Task { await loadMaskedValue(for: newValue) }
-                        }
+                            menuWidth: 360,
+                            onChange: { newValue in
+                                Task { await loadMaskedValue(for: newValue) }
+                            }
+                        )
                     }
 
                     if isCreatingNewCredential {
