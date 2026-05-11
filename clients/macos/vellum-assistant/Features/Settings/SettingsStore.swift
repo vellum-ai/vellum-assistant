@@ -76,7 +76,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Inference Provider Selection
 
-    @Published var selectedInferenceProvider: String = "anthropic"
+    @Published var selectedInferenceProvider: String = LLMProviderRegistry.defaultProvider.id
 
     /// Full provider catalog from daemon. Seeded with inline defaults for pre-fetch rendering.
     @Published var providerCatalog: [ProviderCatalogEntry] = []
