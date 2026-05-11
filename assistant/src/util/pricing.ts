@@ -31,19 +31,14 @@ const ANTHROPIC_PROMPT_CACHE_MULTIPLIERS = {
 const ANTHROPIC_FAST_MODE_MULTIPLIER = 6;
 
 /**
- * Pricing fallback for models that aren't represented in
- * `PROVIDER_CATALOG`. Two kinds of entries live here:
+ * Pricing fallback for vendor-versioned IDs that don't match a catalog row
+ * directly. Keys are bare-prefix slugs (`claude-opus-4`, `gpt-4o`) used to
+ * price IDs like `claude-opus-4-5-20250929` or `gpt-4o-mini-2024-07-18`
+ * before the catalog is updated for a new version.
  *
- *   1. Bare-prefix patterns (`claude-opus-4`, `gpt-4o`) used to price
- *      vendor-versioned IDs (`claude-opus-4-5-20250929`,
- *      `gpt-4o-mini-2024-07-18`) the catalog has not yet been updated for.
- *   2. Legacy provider/model rows we no longer advertise but still bill
- *      against (e.g. fireworks, non-Anthropic OpenRouter routes).
- *
- * Anything we ship in the catalog gets its pricing from the catalog row.
- * `findPricing` checks the catalog first; this fallback only fires when no
- * catalog row matches (including via longest-prefix match against
- * `CatalogModel.id`).
+ * `findPricing` checks the catalog first (including longest-prefix match
+ * against `CatalogModel.id`); this fallback only fires when nothing in the
+ * catalog matches.
  */
 const LEGACY_PRICING_FALLBACK: Record<string, Record<string, ModelPricing>> = {
   anthropic: {
@@ -64,34 +59,6 @@ const LEGACY_PRICING_FALLBACK: Record<string, Record<string, ModelPricing>> = {
   },
   gemini: {
     "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },
-  },
-  fireworks: {
-    "accounts/fireworks/models/kimi-k2p5": {
-      inputPer1M: 0.6,
-      outputPer1M: 2.5,
-    },
-  },
-  // Non-Anthropic OpenRouter models. Anthropic-on-OpenRouter routes through
-  // the `claude-...` branch in `resolvePricingForUsage`, which looks up the
-  // Anthropic catalog using the normalized bare slug (OpenRouter bills those
-  // calls at Anthropic's direct rates).
-  openrouter: {
-    "x-ai/grok-4.20-beta": { inputPer1M: 3, outputPer1M: 15 },
-    "x-ai/grok-4": { inputPer1M: 3, outputPer1M: 15 },
-    "deepseek/deepseek-r1-0528": { inputPer1M: 0.55, outputPer1M: 2.19 },
-    "deepseek/deepseek-chat-v3-0324": { inputPer1M: 0.27, outputPer1M: 1.1 },
-    "qwen/qwen3.5-plus-02-15": { inputPer1M: 0.8, outputPer1M: 2.4 },
-    "qwen/qwen3.5-397b-a17b": { inputPer1M: 0.9, outputPer1M: 2.7 },
-    "qwen/qwen3.5-flash-02-23": { inputPer1M: 0.2, outputPer1M: 0.6 },
-    "qwen/qwen3-coder-next": { inputPer1M: 0.5, outputPer1M: 1.5 },
-    "moonshotai/kimi-k2.6": { inputPer1M: 0.6, outputPer1M: 2.8 },
-    "moonshotai/kimi-k2.5": { inputPer1M: 0.6, outputPer1M: 2.5 },
-    "mistralai/mistral-medium-3": { inputPer1M: 0.4, outputPer1M: 2.0 },
-    "mistralai/mistral-small-2603": { inputPer1M: 0.2, outputPer1M: 0.6 },
-    "mistralai/devstral-2512": { inputPer1M: 0.1, outputPer1M: 0.3 },
-    "meta-llama/llama-4-maverick": { inputPer1M: 0.27, outputPer1M: 0.85 },
-    "meta-llama/llama-4-scout": { inputPer1M: 0.11, outputPer1M: 0.34 },
-    "amazon/nova-pro-v1": { inputPer1M: 0.8, outputPer1M: 3.2 },
   },
 };
 
