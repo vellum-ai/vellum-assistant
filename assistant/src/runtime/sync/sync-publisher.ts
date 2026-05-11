@@ -4,8 +4,7 @@ import {
   type SyncInvalidationTag,
 } from "../../daemon/message-types/sync.js";
 import { getLogger } from "../../util/logger.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 
 const log = getLogger("sync-publisher");
 
@@ -14,7 +13,7 @@ export async function publishSyncInvalidation(
 ): Promise<SyncChangedMessage> {
   const message = buildSyncChangedMessage(tags);
   try {
-    await assistantEventHub.publish(buildAssistantEvent(message));
+    broadcastMessage(message);
   } catch (err) {
     log.warn({ err, tags: message.tags }, "Failed to publish sync_changed");
   }
