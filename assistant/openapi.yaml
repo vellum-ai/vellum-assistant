@@ -1635,7 +1635,7 @@ paths:
     post:
       operationId: avatar_notifyupdated_post
       summary: Notify avatar updated
-      description: Publish an avatar_updated SSE event to connected clients.
+      description: Publish avatar change notifications to connected clients.
       tags:
         - avatar
       responses:
