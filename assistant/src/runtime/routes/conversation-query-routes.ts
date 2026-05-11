@@ -107,6 +107,7 @@ const RESERVED_PROFILE_NAMES = new Set([
 
 const INFERENCE_PROFILE_UI_KEYS = new Set([
   "provider",
+  "provider_connection",
   "model",
   "maxTokens",
   "effort",

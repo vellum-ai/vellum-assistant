@@ -353,24 +353,36 @@ struct InferenceProfileEditor: View {
     }
 
     /// Active connections that match the currently-selected provider. Used
-    /// by `connectionField` to populate its dropdown and to gate visibility:
-    /// when zero match the dropdown is hidden entirely (the daemon's legacy
-    /// fallback applies) rather than rendering a placeholder with no
-    /// actionable options.
+    /// by `connectionField` to populate its dropdown.
     var availableConnectionsForProvider: [ProviderConnection] {
         guard let provider = profile.provider, !provider.isEmpty else { return [] }
         return connections.filter { $0.provider == provider && $0.status == .active }
     }
 
-    /// Connection sub-dropdown. Renders only when a provider is selected
-    /// AND that provider has at least one active connection in
-    /// ``connections``. The first option preserves the pre-#5 default
-    /// ("the daemon picks the first active connection") so existing
-    /// profiles keep working without an explicit migration.
+    /// The currently-saved binding when it does NOT resolve to any active
+    /// connection for the selected provider. `nil` when the binding is
+    /// empty or when it does match. Used to gate the picker's "stale"
+    /// affordances (extra dropdown option + warning badge).
+    var staleProviderConnection: String? {
+        guard let bound = profile.providerConnection, !bound.isEmpty else { return nil }
+        return availableConnectionsForProvider.contains(where: { $0.name == bound })
+            ? nil
+            : bound
+    }
+
+    /// Connection sub-dropdown. Renders when a provider is selected AND
+    /// either at least one active connection matches OR the profile has a
+    /// non-empty saved binding (so a stale binding can be seen and cleared
+    /// rather than silently round-tripping on save). The first option
+    /// preserves the daemon's "first active" fallback so existing profiles
+    /// keep working without an explicit migration.
     @ViewBuilder
     private var connectionField: some View {
         let available = availableConnectionsForProvider
-        if !available.isEmpty, let provider = profile.provider {
+        let stale = staleProviderConnection
+        if let provider = profile.provider,
+           !provider.isEmpty,
+           (!available.isEmpty || stale != nil) {
             labeled(
                 "Connection",
                 accessory: {
@@ -378,9 +390,7 @@ struct InferenceProfileEditor: View {
                     // doesn't match any active connection for the provider.
                     // Most commonly this fires when a connection was
                     // disabled or deleted outside the editor.
-                    if let bound = profile.providerConnection,
-                       !bound.isEmpty,
-                       !available.contains(where: { $0.name == bound }) {
+                    if stale != nil {
                         VBadge(
                             label: "Not found",
                             tone: .warning,
@@ -389,6 +399,22 @@ struct InferenceProfileEditor: View {
                     }
                 }
             ) {
+                let baseOptions: [(label: String, value: String)] = [
+                    (
+                        label: "Any active \(store.dynamicProviderDisplayName(provider)) connection",
+                        value: ""
+                    )
+                ] + available.map { conn in
+                    (label: Self.connectionDisplayName(conn), value: conn.name)
+                }
+                // When the saved binding is stale, surface it as an explicit
+                // dropdown option so the trigger renders its name. Selecting
+                // "Any active …" clears the binding back to the daemon's
+                // first-active fallback.
+                let optionsWithStale: [(label: String, value: String)] =
+                    stale.map { name in
+                        baseOptions + [(label: "\(name) (not found)", value: name)]
+                    } ?? baseOptions
                 VDropdown(
                     placeholder: "Any active connection\u{2026}",
                     selection: Binding(
@@ -397,14 +423,7 @@ struct InferenceProfileEditor: View {
                             profile.providerConnection = newValue.isEmpty ? nil : newValue
                         }
                     ),
-                    options: [
-                        (
-                            label: "Any active \(store.dynamicProviderDisplayName(provider)) connection",
-                            value: ""
-                        )
-                    ] + available.map { conn in
-                        (label: Self.connectionDisplayName(conn), value: conn.name)
-                    }
+                    options: optionsWithStale
                 )
             }
         }

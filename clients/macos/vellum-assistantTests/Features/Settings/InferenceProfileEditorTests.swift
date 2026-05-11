@@ -856,6 +856,126 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertEqual(InferenceProfileEditor.connectionDisplayName(emptyLabel), "personal-openai")
     }
 
+    /// Stale binding detection: a saved `providerConnection` that points
+    /// at a name not present in the active-for-provider set surfaces as
+    /// `staleProviderConnection`. Gates the "Not found" badge + the extra
+    /// dropdown option that lets the user clear it.
+    func testStaleProviderConnectionReturnsNameWhenBindingMissing() {
+        let connections = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", status: .active),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: "ghost-openai"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertEqual(editor.staleProviderConnection, "ghost-openai")
+    }
+
+    /// A disabled-status connection with a matching name is NOT in the
+    /// active-for-provider set, so the binding is "stale" from the
+    /// editor's POV (the daemon would skip it on dispatch). User can clear
+    /// or pick a different one.
+    func testStaleProviderConnectionReturnsNameWhenBindingMatchesDisabled() {
+        let connections = [
+            Self.makeConnection(name: "legacy-openai", provider: "openai", status: .disabled),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: "legacy-openai"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertEqual(editor.staleProviderConnection, "legacy-openai")
+    }
+
+    /// Binding resolves cleanly to an active row → `nil`, picker renders
+    /// in its non-stale shape.
+    func testStaleProviderConnectionNilWhenBindingMatches() {
+        let connections = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", status: .active),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: "personal-openai"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNil(editor.staleProviderConnection)
+    }
+
+    /// Empty / nil binding → `nil`. Picker renders in its default shape
+    /// when there are active matches; hides entirely when there are none.
+    func testStaleProviderConnectionNilWhenBindingEmpty() {
+        let connections = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", status: .active),
+        ]
+        let unboundEditor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: nil
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNil(unboundEditor.staleProviderConnection)
+
+        let emptyBindingEditor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: ""
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNil(emptyBindingEditor.staleProviderConnection)
+    }
+
+    /// Body must still build when the saved binding is stale — the new
+    /// codepath constructs an extended options list with the "(not found)"
+    /// entry, and any type-inference regression there would break the
+    /// SwiftUI compile. Safety net for the picker's stale-state UI.
+    func testEditorBodyBuildsWithStaleBinding() {
+        let connections = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", status: .active),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: "ghost-openai",
+                model: "gpt-5"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNotNil(editor.body)
+    }
+
     /// The editor must still build when a `connections:` list is passed in
     /// alongside other knobs — body construction is the safety net for any
     /// SwiftUI type-inference regression we'd otherwise miss until a
