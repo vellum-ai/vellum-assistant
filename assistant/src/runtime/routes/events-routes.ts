@@ -18,6 +18,9 @@
  *   handles registration, touch (heartbeat), and unregistration (dispose).
  */
 
+import { type IntervalHistogram, monitorEventLoopDelay } from "node:perf_hooks";
+
+import * as Sentry from "@sentry/node";
 import { z } from "zod";
 
 import type { HostProxyCapability } from "../../channels/types.js";
@@ -45,6 +48,147 @@ const log = getLogger("events-routes");
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 7_000;
 
 /**
+ * Resolution of the event-loop delay histogram, per
+ * https://nodejs.org/api/perf_hooks.html#perf_hooksmonitoreventloopdelayoptions.
+ * A 20 ms resolution gives sub-tick visibility while keeping overhead near zero.
+ */
+const EVENT_LOOP_DELAY_RESOLUTION_MS = 20;
+
+/**
+ * How often we reset the cumulative event-loop delay histogram so subsequent
+ * percentile snapshots reflect recent behavior rather than the entire process
+ * lifetime. Matches the default window used by `@fastify/under-pressure` and
+ * `prom-client` for runtime-pressure metrics.
+ */
+const EVENT_LOOP_DELAY_RESET_INTERVAL_MS = 60_000;
+
+let eventLoopDelay: IntervalHistogram | null = null;
+let eventLoopResetTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Lazily start a cumulative event-loop delay histogram on the first SSE
+ * subscriber, and schedule a periodic reset so percentile readings stay
+ * meaningful across long-lived daemon processes.
+ *
+ * Guarded with try/catch because `node:perf_hooks.monitorEventLoopDelay`
+ * was a stub in some older Bun versions; if the runtime ever regresses,
+ * we still emit the shed log + Sentry capture without lag stats rather
+ * than crashing the SSE handler.
+ */
+function ensureEventLoopDelayMonitorStarted(): void {
+  if (eventLoopDelay !== null) return;
+  try {
+    const histogram = monitorEventLoopDelay({
+      resolution: EVENT_LOOP_DELAY_RESOLUTION_MS,
+    });
+    histogram.enable();
+    eventLoopDelay = histogram;
+    eventLoopResetTimer = setInterval(() => {
+      try {
+        histogram.reset();
+      } catch {
+        if (eventLoopResetTimer) {
+          clearInterval(eventLoopResetTimer);
+          eventLoopResetTimer = null;
+        }
+      }
+    }, EVENT_LOOP_DELAY_RESET_INTERVAL_MS);
+    eventLoopResetTimer.unref?.();
+  } catch (err) {
+    log.warn({ err }, "failed to start event-loop delay monitor");
+    eventLoopDelay = null;
+  }
+}
+
+interface EventLoopDelaySnapshot {
+  mean_ms: number | null;
+  p99_ms: number | null;
+  max_ms: number | null;
+}
+
+function nsToMs(ns: number): number | null {
+  if (!Number.isFinite(ns)) return null;
+  // Round to the nearest microsecond, then express in ms (3 decimal places).
+  return Math.round(ns / 1e3) / 1e3;
+}
+
+function sampleEventLoopDelay(): EventLoopDelaySnapshot {
+  const histogram = eventLoopDelay;
+  if (histogram === null) {
+    return { mean_ms: null, p99_ms: null, max_ms: null };
+  }
+  try {
+    return {
+      mean_ms: nsToMs(histogram.mean),
+      p99_ms: nsToMs(histogram.percentile(99)),
+      max_ms: nsToMs(histogram.max),
+    };
+  } catch {
+    return { mean_ms: null, p99_ms: null, max_ms: null };
+  }
+}
+
+export interface SseSubscriberInstrumentation {
+  subscribedAtMs: number;
+  eventsDelivered: number;
+  heartbeatsSent: number;
+  clientId: string | null;
+  interfaceId: string | null;
+  conversationKey: string | null;
+}
+
+export type SseShedReason = "callback_backpressure" | "heartbeat_backpressure";
+
+export type SseShedReporter = (
+  reason: SseShedReason,
+  inst: SseSubscriberInstrumentation,
+) => void;
+
+/**
+ * Report a backpressure-shed event from an SSE subscriber to logs and Sentry.
+ *
+ * SSE subscribers are shed when `controller.desiredSize <= 0`: the consumer
+ * has stopped reading and the stream's bounded queue is full. From the
+ * daemon's side this looks identical to a hung client — and the visible
+ * symptom on the client side is the 45 s idle-watchdog firing (Sentry
+ * issue `sse_watchdog_fired`). Surfacing the shed lets us time-correlate
+ * the two sides and attribute stalls to either backpressure or another
+ * cause (network drop, event-loop starvation, etc.).
+ *
+ * The Sentry call uses level="warning" intentionally: a shed is a
+ * saturation event, not an internal error.
+ */
+const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
+  const elDelay = sampleEventLoopDelay();
+  const context = {
+    reason,
+    subscription_age_ms: Date.now() - inst.subscribedAtMs,
+    events_delivered: inst.eventsDelivered,
+    heartbeats_sent: inst.heartbeatsSent,
+    client_id: inst.clientId,
+    interface_id: inst.interfaceId,
+    conversation_key: inst.conversationKey,
+    event_loop_delay_mean_ms: elDelay.mean_ms,
+    event_loop_delay_p99_ms: elDelay.p99_ms,
+    event_loop_delay_max_ms: elDelay.max_ms,
+  };
+  log.warn(context, "sse subscriber shed under backpressure");
+
+  try {
+    Sentry.withScope((scope) => {
+      scope.setLevel("warning");
+      scope.setTag("sse_shed_reason", reason);
+      if (inst.clientId) scope.setTag("client_id", inst.clientId);
+      if (inst.interfaceId) scope.setTag("interface_id", inst.interfaceId);
+      scope.setContext("sse_shed", context);
+      Sentry.captureMessage(`sse_subscriber_shed:${reason}`);
+    });
+  } catch {
+    // Never let a telemetry failure break the SSE path.
+  }
+};
+
+/**
  * Stream assistant events as Server-Sent Events.
  *
  * Query params:
@@ -63,12 +207,15 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 7_000;
  * Options (for testing):
  *   hub               -- override the event hub (defaults to process singleton).
  *   heartbeatIntervalMs -- how often to emit keep-alive comments (default 7 s).
+ *   shedReporter      -- override the callback invoked when a subscriber is shed
+ *                        under backpressure (defaults to log + Sentry capture).
  */
 export function handleSubscribeAssistantEvents(
   args: RouteHandlerArgs,
   options?: {
     hub?: AssistantEventHub;
     heartbeatIntervalMs?: number;
+    shedReporter?: SseShedReporter;
   },
 ): ReadableStream<Uint8Array> {
   const { queryParams, headers, abortSignal } = args;
@@ -108,6 +255,7 @@ export function handleSubscribeAssistantEvents(
   const hub = options?.hub ?? assistantEventHub;
   const heartbeatIntervalMs =
     options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+  const shedReporter = options?.shedReporter ?? defaultSseShedReporter;
 
   const ALL_CAPABILITIES: HostProxyCapability[] = [
     "host_bash",
@@ -134,6 +282,17 @@ export function handleSubscribeAssistantEvents(
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let sub!: AssistantEventSubscription;
 
+  const instrumentation: SseSubscriberInstrumentation = {
+    subscribedAtMs: Date.now(),
+    eventsDelivered: 0,
+    heartbeatsSent: 0,
+    clientId,
+    interfaceId,
+    conversationKey: conversationKey ?? null,
+  };
+
+  ensureEventLoopDelayMonitorStarted();
+
   function cleanup() {
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer);
@@ -151,11 +310,13 @@ export function handleSubscribeAssistantEvents(
     if (!controller) return;
     try {
       if (controller.desiredSize != null && controller.desiredSize <= 0) {
+        shedReporter("callback_backpressure", instrumentation);
         sub.dispose();
         cleanup();
         return;
       }
       controller.enqueue(encoder.encode(formatSseFrame(event)));
+      instrumentation.eventsDelivered += 1;
     } catch {
       sub.dispose();
       cleanup();
@@ -209,6 +370,7 @@ export function handleSubscribeAssistantEvents(
         heartbeatTimer = setInterval(() => {
           try {
             if (controller.desiredSize != null && controller.desiredSize <= 0) {
+              shedReporter("heartbeat_backpressure", instrumentation);
               sub.dispose();
               cleanup();
               return;
@@ -217,6 +379,7 @@ export function handleSubscribeAssistantEvents(
               hub.touchClient(clientId);
             }
             controller.enqueue(encoder.encode(formatSseHeartbeat()));
+            instrumentation.heartbeatsSent += 1;
           } catch {
             sub.dispose();
             cleanup();
