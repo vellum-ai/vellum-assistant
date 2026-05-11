@@ -507,6 +507,7 @@ export const ROUTES: RouteDefinition[] = [
           "Which registry to install from. When omitted, the install flow auto-detects based on slug format.",
         ),
       overwrite: z.boolean().optional().describe("Replace an existing install. Defaults to true for back-compat with the legacy in-process API."),
+      catalogOnly: z.boolean().optional().describe("When true, restrict to bundled and Vellum catalog skills only — do not fall through to community registries."),
     }),
     responseBody: z.object({
       ok: z.boolean(),
@@ -525,6 +526,7 @@ export const ROUTES: RouteDefinition[] = [
           slug,
           version: body.version as string | undefined,
           origin: body.origin as "clawhub" | "skillssh" | undefined,
+          catalogOnly: body.catalogOnly as boolean | undefined,
           overwrite: body.overwrite as boolean | undefined,
         },
       );

@@ -432,15 +432,10 @@ Examples:
           ) => {
             const json = opts.json ?? false;
 
-            // Call installSkill directly — the handler does its own catalog
-            // lookup and produces an error if the skill isn't found anywhere.
-            // We don't pre-flight via listSkills(include=catalog) because that
-            // route dedupes catalog entries when an installed community skill
-            // shadows the same id, which would falsely report "not found" and
-            // block legitimate catalog installs.
+            // Restrict to catalog-only; community installs use `skills add`.
             const installR = await cliIpcCall<{ ok: boolean; skillId?: string }>(
               "installSkill",
-              { body: { slug: skillId, overwrite: opts.overwrite ?? false } },
+              { body: { slug: skillId, overwrite: opts.overwrite ?? false, catalogOnly: true } },
             );
             if (!installR.ok) {
               if (json) {

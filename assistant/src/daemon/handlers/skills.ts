@@ -1076,6 +1076,7 @@ export async function installSkill(spec: {
   slug: string;
   version?: string;
   origin?: "clawhub" | "skillssh";
+  catalogOnly?: boolean;
   overwrite?: boolean;
   contactId?: string;
 }): Promise<
@@ -1154,12 +1155,18 @@ export async function installSkill(spec: {
           return { success: true, skillId: spec.slug };
         }
       } catch (err) {
-        // If catalog lookup/install fails, fall through to community registries
+        if (spec.catalogOnly) {
+          return { success: false, error: `Failed to install catalog skill "${spec.slug}"` };
+        }
         log.warn(
           { err, skillId: spec.slug },
           "Vellum catalog install failed, falling back to community registry",
         );
       }
+
+    if (spec.catalogOnly) {
+      return { success: false, error: `Skill "${spec.slug}" not found in the Vellum catalog` };
+    }
 
     // skills.sh install path: route here when origin is explicitly "skillssh"
     // or when the slug looks like a skills.sh multi-segment format (owner/repo/skill)
