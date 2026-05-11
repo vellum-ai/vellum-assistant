@@ -90,6 +90,7 @@ import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
+import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
@@ -107,6 +108,7 @@ import type { RouteDefinition } from "./types.js";
 import { ROUTES as UI_REQUEST_ROUTES } from "./ui-request-routes.js";
 import { ROUTES as UPGRADE_BROADCAST_ROUTES } from "./upgrade-broadcast-routes.js";
 import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
+import { ROUTES as USER_ROUTES_CLI } from "./user-routes-cli.js";
 import { ROUTES as USER_ROUTES } from "./user-routes.js";
 import { ROUTES as WAKE_CONVERSATION_ROUTES } from "./wake-conversation-routes.js";
 import { ROUTES as WATCHER_ROUTES } from "./watcher-routes.js";
@@ -222,6 +224,8 @@ export const ROUTES: RouteDefinition[] = [
   ...WORKSPACE_COMMIT_ROUTES,
   ...WAKE_CONVERSATION_ROUTES,
   ...WORKSPACE_ROUTES,
+  ...SEQUENCE_ROUTES,
+  ...USER_ROUTES_CLI,
 
   // User-defined routes under /x/* — MUST be last so built-in routes
   // always take priority over the catch-all pattern.

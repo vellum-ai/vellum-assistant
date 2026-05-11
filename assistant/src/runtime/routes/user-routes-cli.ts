@@ -1,0 +1,243 @@
+/**
+ * Transport-agnostic routes for inspecting user-defined route handlers.
+ *
+ * These complement the dispatch routes in user-routes.ts by exposing
+ * discovery and inspection endpoints for CLI consumption. The filesystem
+ * scanning logic that was previously in the CLI command is now here.
+ */
+
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+
+import { z } from "zod";
+
+import { getConfig } from "../../config/loader.js";
+import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
+import { getWorkspaceRoutesDir } from "../../util/platform.js";
+import { NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+// ── Constants ───────────────────────────────────────────────────────
+
+const HTTP_METHODS = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+] as const;
+
+type HttpMethod = (typeof HTTP_METHODS)[number];
+
+const HANDLER_EXTENSIONS = [".ts", ".js"] as const;
+
+type HandlerExtension = (typeof HANDLER_EXTENSIONS)[number];
+
+// ── Schemas ─────────────────────────────────────────────────────────
+
+const InspectParams = z
+  .object({
+    path: z.string().min(1),
+  })
+  .strict();
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+interface DiscoveredRoute {
+  routePath: string;
+  filePath: string;
+  methods: HttpMethod[];
+  description?: string;
+  fileSize: number;
+  modifiedAt: string;
+}
+
+async function inspectModule(
+  filePath: string,
+): Promise<{ methods: HttpMethod[]; description?: string }> {
+  const stat = statSync(filePath);
+  const mod = (await import(`${filePath}?t=${stat.mtimeMs}`)) as Record<
+    string,
+    unknown
+  >;
+
+  const methods: HttpMethod[] = [];
+  for (const method of HTTP_METHODS) {
+    if (typeof mod[method] === "function") {
+      methods.push(method);
+    }
+  }
+
+  const description =
+    typeof mod.description === "string" ? mod.description : undefined;
+
+  return { methods, description };
+}
+
+async function discoverRoutes(routesDir: string): Promise<DiscoveredRoute[]> {
+  if (!existsSync(routesDir)) {
+    return [];
+  }
+
+  const routes: DiscoveredRoute[] = [];
+
+  function scanDir(dir: string): void {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scanDir(fullPath);
+      } else if (entry.isFile()) {
+        const ext = HANDLER_EXTENSIONS.find((e) => entry.name.endsWith(e)) as
+          | HandlerExtension
+          | undefined;
+        if (!ext) continue;
+
+        const relativePath = relative(routesDir, fullPath);
+        const withoutExt = relativePath.slice(0, -ext.length);
+
+        let routePath = withoutExt.replace(/\\/g, "/");
+        if (routePath.endsWith("/index")) {
+          routePath = routePath.slice(0, -"/index".length);
+        } else if (routePath === "index") {
+          routePath = "";
+        }
+
+        routes.push({
+          routePath,
+          filePath: fullPath,
+          methods: [],
+          description: undefined,
+          fileSize: 0,
+          modifiedAt: "",
+        });
+      }
+    }
+  }
+
+  scanDir(routesDir);
+
+  for (const route of routes) {
+    try {
+      const stat = statSync(route.filePath);
+      route.fileSize = stat.size;
+      route.modifiedAt = stat.mtime.toISOString();
+
+      const { methods, description } = await inspectModule(route.filePath);
+      route.methods = methods;
+      route.description = description;
+    } catch {
+      // If a module fails to load, keep it with empty methods
+    }
+  }
+
+  return routes.sort((a, b) => a.routePath.localeCompare(b.routePath));
+}
+
+function tryGetPublicBaseUrl(): string | null {
+  try {
+    const config = getConfig();
+    return getPublicBaseUrl(config);
+  } catch {
+    return null;
+  }
+}
+
+function resolveHandlerFile(
+  routesDir: string,
+  routePath: string,
+): string | null {
+  const basePath = join(routesDir, routePath);
+
+  for (const ext of HANDLER_EXTENSIONS) {
+    const candidate = `${basePath}${ext}`;
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  for (const ext of HANDLER_EXTENSIONS) {
+    const candidate = join(basePath, `index${ext}`);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+// ── Handlers ────────────────────────────────────────────────────────
+
+async function handleUserRoutesList() {
+  const routesDir = getWorkspaceRoutesDir();
+  const discovered = await discoverRoutes(routesDir);
+  const publicBase = tryGetPublicBaseUrl();
+
+  const routes = discovered.map((r) => ({
+    routePath: `/x/${r.routePath}`,
+    methods: r.methods,
+    description: r.description ?? null,
+    filePath: relative(routesDir, r.filePath),
+    publicUrl: publicBase ? `${publicBase}/x/${r.routePath}` : null,
+  }));
+
+  return { ok: true, routes };
+}
+
+async function handleUserRoutesInspect({ body = {} }: RouteHandlerArgs) {
+  const { path: routePath } = InspectParams.parse(body);
+  const routesDir = getWorkspaceRoutesDir();
+  const filePath = resolveHandlerFile(routesDir, routePath);
+
+  if (!filePath) {
+    throw new NotFoundError(
+      `No handler file found for route path "${routePath}". Run 'assistant routes list' to see available routes.`,
+    );
+  }
+
+  const stat = statSync(filePath);
+  const { methods, description } = await inspectModule(filePath);
+  const publicBase = tryGetPublicBaseUrl();
+  const publicUrl = publicBase ? `${publicBase}/x/${routePath}` : null;
+
+  return {
+    ok: true,
+    route: {
+      routePath: `/x/${routePath}`,
+      methods,
+      description: description ?? null,
+      filePath,
+      publicUrl,
+      fileSize: stat.size,
+      modifiedAt: stat.mtime.toISOString(),
+    },
+  };
+}
+
+// ── Route definitions ───────────────────────────────────────────────
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "user_routes_list",
+    method: "GET",
+    endpoint: "user-routes/list",
+    handler: handleUserRoutesList,
+    summary: "List user-defined route handlers",
+    description:
+      "Scan workspace routes directory for handler files and return discovered routes with methods and public URLs.",
+    tags: ["user-routes"],
+  },
+  {
+    operationId: "user_routes_inspect",
+    method: "POST",
+    endpoint: "user-routes/inspect",
+    handler: handleUserRoutesInspect,
+    summary: "Inspect a user-defined route handler",
+    description:
+      "Load a specific handler file and return its exported methods, description, file path, public URL, and metadata.",
+    tags: ["user-routes"],
+    requestBody: InspectParams,
+  },
+];
