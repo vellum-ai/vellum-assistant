@@ -1,6 +1,6 @@
 ---
 name: deploy-fullstack-vercel
-description: Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data
+description: Build and deploy a full-stack app (React frontend + Python/FastAPI backend) or a Vellum app to Vercel as a serverless demo with seeded data
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🚀"
@@ -10,27 +10,160 @@ metadata:
 
 # Deploy Fullstack to Vercel
 
-Deploy a full-stack app with a React/Vite frontend and Python/FastAPI backend to Vercel as a serverless demo. No auth required - meant for demos, portfolio pieces, and quick showcases.
+Deploy a full-stack app with a React/Vite frontend and Python/FastAPI backend to Vercel as a serverless demo, OR deploy a Vellum-built app from the library. No auth required - meant for demos, portfolio pieces, and quick showcases.
 
 ## When to Use
 
 - User says "deploy this to Vercel", "host this", "publish this"
 - User has a project with a frontend + backend they want live
+- User wants to deploy a Vellum app that uses backend features (data store, custom routes)
 - User wants a quick demo deployment (no persistent database needed)
 
-## Prerequisites
+## Authentication
 
-- A project with a frontend (React/Vite) and backend (FastAPI/Python)
-- Vercel CLI installed (`npm install -g vercel`) and authenticated (`vercel login`)
+Before deploying, check for a Vercel API credential:
 
-## Workflow
+1. Run `credential_store list` and look for a `vercel/api_token` entry.
+2. If found with `injection_templates`, the credential can be used automatically via `network_mode: "proxied"` with `credential_ids`.
+3. If no credential exists, use `credential_store prompt` to ask the user for their Vercel API token. Direct them to https://vercel.com/account/tokens to create one.
+4. Fall back to the Vercel CLI only if no usable credential exists. Install with `bun install -g vercel` (not npm — npm is not available in the sandbox).
+
+## Deploying a Vellum App
+
+When the user asks to deploy a Vellum app from their library (from `/workspace/data/apps/<app-name>/`):
+
+### 1. Detect Vellum Bridge Usage
+
+Check the compiled app for Vellum bridge API usage:
+
+```bash
+grep -l "window\.vellum\.\|vellum\.fetch\|vellum\.data\|vellum\.sendAction" /workspace/data/apps/<app-name>/dist/*.js /workspace/data/apps/<app-name>/dist/*.html 2>/dev/null
+```
+
+If found, the app depends on the Vellum bridge and needs a shim to work standalone.
+
+### 2. Create Vellum Bridge Shim
+
+Create `vellum-shim.js` in the app's `dist/` directory. This shim provides standalone implementations of the Vellum bridge APIs using browser-native alternatives:
+
+```javascript
+// Vellum bridge shim for standalone deployment
+(function() {
+  if (window.vellum) return; // Bridge already present
+
+  const APP_KEY = 'vellum_app_data';
+
+  function loadStore() {
+    try { return JSON.parse(localStorage.getItem(APP_KEY) || '{}'); }
+    catch { return {}; }
+  }
+  function saveStore(store) {
+    localStorage.setItem(APP_KEY, JSON.stringify(store));
+  }
+
+  window.vellum = {
+    // Data store backed by localStorage
+    data: {
+      query: function(table) {
+        var store = loadStore();
+        return Object.values(store[table] || {});
+      },
+      create: function(table, record) {
+        var store = loadStore();
+        if (!store[table]) store[table] = {};
+        var id = record.id || crypto.randomUUID();
+        record.id = id;
+        store[table][id] = record;
+        saveStore(store);
+        return record;
+      },
+      update: function(table, id, data) {
+        var store = loadStore();
+        if (!store[table] || !store[table][id]) return null;
+        Object.assign(store[table][id], data);
+        saveStore(store);
+        return store[table][id];
+      },
+      delete: function(table, id) {
+        var store = loadStore();
+        if (store[table]) delete store[table][id];
+        saveStore(store);
+        return true;
+      }
+    },
+
+    // fetch → no-op that returns empty success (custom routes not available standalone)
+    fetch: function(path, options) {
+      console.warn('[vellum-shim] fetch not available in standalone mode:', path);
+      return Promise.resolve(new Response(JSON.stringify({ success: true, result: [] }), {
+        status: 200, headers: { 'Content-Type': 'application/json' }
+      }));
+    },
+
+    // Surface actions → no-op
+    sendAction: function(actionId, data) {
+      console.warn('[vellum-shim] sendAction not available in standalone mode:', actionId);
+    },
+
+    // Link opening
+    openLink: function(url) { window.open(url, '_blank'); },
+
+    // Toast notifications via basic CSS
+    widgets: {
+      toast: function(message, options) {
+        var el = document.createElement('div');
+        el.textContent = message;
+        Object.assign(el.style, {
+          position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+          background: '#333', color: '#fff', padding: '12px 24px', borderRadius: '8px',
+          zIndex: '99999', fontSize: '14px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          transition: 'opacity 0.3s', opacity: '1'
+        });
+        document.body.appendChild(el);
+        setTimeout(function() { el.style.opacity = '0'; setTimeout(function() { el.remove(); }, 300); }, 3000);
+      }
+    },
+
+    // Route (not available standalone)
+    route: null
+  };
+})();
+```
+
+### 3. Inject the Shim into index.html
+
+Add a `<script src="vellum-shim.js"></script>` tag in `dist/index.html` BEFORE any `<script type="module">` tags:
+
+```bash
+sed -i '' 's|<script type="module"|<script src="vellum-shim.js"></script>\n<script type="module"|' dist/index.html
+```
+
+### 4. Deploy the App
+
+```bash
+cd /workspace/data/apps/<app-name>/dist
+```
+
+Create a `vercel.json` in the dist directory:
+
+```json
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+```
+
+Then deploy using the Vercel API credential (preferred) or CLI.
+
+## Deploying a Custom Full-Stack Project
 
 ### 1. Build the Frontend
 
 ```bash
 cd <project>/frontend
-npm install
-npx vite build
+bun install
+bunx vite build
 ```
 
 This produces static files in `frontend/dist/`.
@@ -171,12 +304,14 @@ curl -s <deployed-url>/api/health
 | Module imports in routers | Use `sys.path.insert(0, os.path.dirname(__file__))` in index.py |
 | CORS | Set `allow_origins=["*"]` for demo deployments |
 | `--name` flag deprecated | Don't use `--name` with Vercel CLI, just deploy from the directory |
+| Vellum bridge APIs | Use the vellum-shim.js to provide localStorage-backed data + no-op stubs |
+| npm not available | Use `bun install -g vercel` to install Vercel CLI in sandbox |
 
 ## Vercel CLI Quick Reference
 
 ```bash
-npm install -g vercel    # Install
-vercel login             # Authenticate (opens browser)
-vercel --yes --prod      # Deploy to production (skip prompts)
-vercel logs --project <name>  # Check function logs
+bun install -g vercel        # Install
+vercel login                 # Authenticate (opens browser — last resort)
+vercel --yes --prod          # Deploy to production (skip prompts)
+vercel logs --project <name> # Check function logs
 ```
