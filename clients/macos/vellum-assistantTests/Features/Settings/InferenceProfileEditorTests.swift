@@ -1046,21 +1046,47 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertEqual(editor.availableProviderIds, ["anthropic", "openai"])
     }
 
-    /// Pre-load fallback: when no `connections` data has flowed in yet
-    /// (e.g. the InferenceProfilesSheet is still awaiting its first
-    /// listConnections response on open, or the daemon predates the
-    /// connections API), the picker shows the full catalog so the user
-    /// isn't faced with an empty trigger. Once connections load, the
-    /// active-only filter kicks in.
-    func testAvailableProviderIdsFallsBackToFullCatalogWhenConnectionsEmpty() {
+    /// Pre-load fallback: when `connections` is nil (the parent sheet's
+    /// `.task` hasn't completed its first `listProviderConnections`
+    /// fetch yet, or the daemon predates the connections API), the
+    /// picker shows the full catalog so the user isn't faced with an
+    /// empty trigger during the network round-trip. Once connections
+    /// load — even to `[]` — the active-only filter kicks in.
+    ///
+    /// This is the half of the "nil vs []" distinction. The other half
+    /// is `testAvailableProviderIdsIsEmptyWhenConnectionsLoadedButEmpty`
+    /// below.
+    func testAvailableProviderIdsFallsBackToFullCatalogWhenConnectionsAreNil() {
         let editor = InferenceProfileEditor(
             store: store,
             profile: .constant(InferenceProfile(name: "draft")),
             onSave: {},
             onCancel: {}
         )
+        // Default `connections` is nil — the pre-load state.
         XCTAssertEqual(editor.availableProviderIds, store.dynamicProviderIds)
         XCTAssertFalse(editor.availableProviderIds.isEmpty)
+    }
+
+    /// Loaded-but-empty: the daemon confirmed zero connections (fresh
+    /// workspace). This MUST NOT fall back to the full catalog — that
+    /// would let the user save a profile bound to a non-dispatchable
+    /// provider, which is the exact trap this PR is closing. The picker
+    /// renders empty; the empty-state hint elsewhere in the editor
+    /// steers the user to the Providers surface.
+    ///
+    /// Codex P1 (PR #30330): the original `guard !connections.isEmpty`
+    /// fallback conflated this case with pre-load and re-introduced the
+    /// QA trap for fresh workspaces. The fix is the nil/empty split.
+    func testAvailableProviderIdsIsEmptyWhenConnectionsLoadedButEmpty() {
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft")),
+            connections: [],
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertTrue(editor.availableProviderIds.isEmpty)
     }
 
     /// All-disabled connections + no bound provider → the filter yields

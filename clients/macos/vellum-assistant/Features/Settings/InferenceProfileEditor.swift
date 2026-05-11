@@ -30,11 +30,21 @@ struct InferenceProfileEditor: View {
     /// Provider connections available for the Connection sub-dropdown. The
     /// editor reads this list, filters by the currently-selected provider
     /// and `.status == .active`, and lets the user route the profile to a
-    /// specific row. Defaults to empty so test constructions and callers
+    /// specific row. Defaults to nil so test constructions and callers
     /// that don't care about connection routing still compile — daemons
     /// older than the `provider_connection`-aware profile schema continue
     /// to behave as "pick the first active connection for the provider."
-    var connections: [ProviderConnection] = []
+    ///
+    /// `nil` vs `[]` is meaningful:
+    /// - `nil` → the parent has not yet fetched `listProviderConnections`
+    ///   (pre-load window between `.task` firing and the daemon response).
+    ///   The provider picker falls back to the full catalog so the trigger
+    ///   isn't empty during that gap.
+    /// - `[]` → the daemon returned zero connections. A fresh workspace
+    ///   with nothing configured. The provider picker filters to empty,
+    ///   the empty-state hint fires, and the user is steered to Providers
+    ///   instead of being allowed to pick a non-dispatchable provider.
+    var connections: [ProviderConnection]? = nil
     let onSave: () -> Void
     var onSaveAs: (() -> Void)?
     let onCancel: () -> Void
@@ -325,16 +335,22 @@ struct InferenceProfileEditor: View {
     /// stale profile (whose connection was disabled after the binding
     /// was saved) still renders a sensible trigger.
     ///
-    /// Pre-load fallback: when `connections` is empty (the sheet is
-    /// still fetching, or an older daemon that doesn't surface the
-    /// connection list), return the full catalog so the user doesn't
-    /// see an empty picker on first open.
+    /// Pre-load fallback: when `connections` is `nil` (the sheet's
+    /// `.task` hasn't completed its first `listProviderConnections`
+    /// fetch yet, or an older daemon that doesn't surface the connection
+    /// list), return the full catalog so the user doesn't see an empty
+    /// picker on first open. An EMPTY-but-loaded `connections == []` is
+    /// distinct: the daemon confirmed zero connections, so the filter
+    /// runs and yields empty — the empty-state hint fires and steers
+    /// the user to Providers instead of letting them save a profile
+    /// bound to a non-dispatchable provider.
     ///
     /// Mirrors web's `visibleProviders` + `providerOptionsSource` in
     /// `web/src/app/(app)/assistant/settings/ai/profile-editor-modal.tsx`
-    /// (PR #6509).
+    /// (PR #6509). The web sibling has the same nil-vs-empty trap and
+    /// is being addressed in a follow-up.
     var availableProviderIds: [String] {
-        guard !connections.isEmpty else { return store.dynamicProviderIds }
+        guard let connections else { return store.dynamicProviderIds }
 
         var activeProviderSet = Set<String>()
         for connection in connections where connection.status == .active {
@@ -403,10 +419,12 @@ struct InferenceProfileEditor: View {
     }
 
     /// Active connections that match the currently-selected provider. Used
-    /// by `connectionField` to populate its dropdown.
+    /// by `connectionField` to populate its dropdown. During pre-load
+    /// (`connections == nil`) there's nothing to pick — the connection
+    /// sub-dropdown stays hidden until the fetch completes.
     var availableConnectionsForProvider: [ProviderConnection] {
         guard let provider = profile.provider, !provider.isEmpty else { return [] }
-        return connections.filter { $0.provider == provider && $0.status == .active }
+        return (connections ?? []).filter { $0.provider == provider && $0.status == .active }
     }
 
     /// The currently-saved binding when it does NOT resolve to any active

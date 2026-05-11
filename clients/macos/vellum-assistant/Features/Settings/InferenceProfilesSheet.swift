@@ -37,7 +37,13 @@ struct InferenceProfilesSheet: View {
     /// for the currently-selected provider. Refreshed on appear and after
     /// each editor commit so users who add a connection in another surface
     /// see it without a manual reload.
-    @State private var connections: [ProviderConnection] = []
+    ///
+    /// `nil` until the first `listProviderConnections` response lands —
+    /// the editor uses this to distinguish "still loading" from "loaded,
+    /// daemon returned zero connections." Without the distinction, a
+    /// fresh workspace would see the full provider catalog and could
+    /// bind a profile to a non-dispatchable provider.
+    @State private var connections: [ProviderConnection]? = nil
 
     @State private var editorState: EditorState?
 
