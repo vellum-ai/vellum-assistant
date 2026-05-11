@@ -25,16 +25,11 @@ let mockIpcCallFn = mock(() =>
 // ---------------------------------------------------------------------------
 
 mock.module("../../../ipc/cli-client.js", () => ({
-  cliIpcCall: (...args: unknown[]) => mockIpcCallFn(...args),
+  cliIpcCall: mockIpcCallFn,
   exitFromIpcResult: mock((r: { error?: string }) => {
     process.stderr.write((r.error ?? "Unknown error") + "\n");
     process.exitCode = 10;
   }),
-}));
-
-mock.module("../../../config/env.js", () => ({
-  getApexDomain: () => "vellum.me",
-  getAssistantDomain: () => "vellum.me",
 }));
 
 mock.module("../../../util/logger.js", () => ({
@@ -70,6 +65,14 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 async function runDomainCommand(...args: string[]) {
+  mock.module("../../../ipc/cli-client.js", () => ({
+    cliIpcCall: mockIpcCallFn,
+    exitFromIpcResult: mock((r: { error?: string }) => {
+      process.stderr.write((r.error ?? "Unknown error") + "\n");
+      process.exitCode = 10;
+    }),
+  }));
+
   const { registerDomainCommand } = await import("../domain.js");
 
   const stdoutChunks: string[] = [];
@@ -175,7 +178,7 @@ describe("assistant domain register", () => {
         error: "This assistant already has a registered domain.",
         statusCode: 400,
       }),
-    );
+    ) as typeof mockIpcCallFn;
 
     const output = await runDomainCommand(
       "domain",
@@ -196,7 +199,7 @@ describe("assistant domain register", () => {
         error: "Platform credentials not configured",
         statusCode: 401,
       }),
-    );
+    ) as typeof mockIpcCallFn;
 
     await runDomainCommand("domain", "register", "velly");
     expect(process.exitCode).not.toBe(0);
