@@ -169,7 +169,7 @@ describe("assistant domain status", () => {
         error: "Service unavailable",
         statusCode: 503,
       }),
-    ) as typeof mockIpcCallFn;
+    ) as unknown as typeof mockIpcCallFn;
 
     const output = await runDomainCommand("domain", "--json", "status");
 
@@ -185,7 +185,7 @@ describe("assistant domain status", () => {
         error: "Platform credentials not configured",
         statusCode: 401,
       }),
-    ) as typeof mockIpcCallFn;
+    ) as unknown as typeof mockIpcCallFn;
 
     await runDomainCommand("domain", "status");
     expect(process.exitCode).not.toBe(0);

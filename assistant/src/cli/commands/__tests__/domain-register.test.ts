@@ -178,7 +178,7 @@ describe("assistant domain register", () => {
         error: "This assistant already has a registered domain.",
         statusCode: 400,
       }),
-    ) as typeof mockIpcCallFn;
+    ) as unknown as typeof mockIpcCallFn;
 
     const output = await runDomainCommand(
       "domain",
@@ -199,7 +199,7 @@ describe("assistant domain register", () => {
         error: "Platform credentials not configured",
         statusCode: 401,
       }),
-    ) as typeof mockIpcCallFn;
+    ) as unknown as typeof mockIpcCallFn;
 
     await runDomainCommand("domain", "register", "velly");
     expect(process.exitCode).not.toBe(0);
