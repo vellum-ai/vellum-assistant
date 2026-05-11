@@ -1,3 +1,14 @@
+/**
+ * CLI plumbing tests for `assistant usage` (cli/commands/usage.ts).
+ *
+ * The `usage breakdown` subcommand is daemon-mediated via `cliIpcCall`; only
+ * argument validation runs in the CLI process. Table formatting and
+ * aggregation behavior are covered daemon-side in `usage-routes.test.ts`.
+ *
+ * Follow-up opportunity: mock `../ipc/cli-client.js` and assert CLI plumbing
+ * (table formatting, --json output shape) against canned IPC responses.
+ */
+
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
@@ -19,12 +30,7 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-const { initializeDb } = await import("../memory/db-init.js");
-const { getDb } = await import("../memory/db-connection.js");
-const { recordUsageEvent } = await import("../memory/llm-usage-store.js");
 const { registerUsageCommand } = await import("../cli/commands/usage.js");
-
-initializeDb();
 
 async function runCommand(args: string[]): Promise<{
   exitCode: number;
@@ -54,86 +60,9 @@ async function runCommand(args: string[]): Promise<{
   return { exitCode, output: logLines.join("\n") };
 }
 
-function insertUsage(
-  overrides: Partial<Parameters<typeof recordUsageEvent>[0]>,
-  estimatedCostUsd = 0.01,
-): void {
-  recordUsageEvent(
-    {
-      conversationId: null,
-      runId: null,
-      requestId: null,
-      actor: "main_agent",
-      provider: "anthropic",
-      model: "claude-sonnet-4-20250514",
-      inputTokens: 100,
-      outputTokens: 50,
-      cacheCreationInputTokens: 0,
-      cacheReadInputTokens: 0,
-      ...overrides,
-    },
-    { estimatedCostUsd, pricingStatus: "priced" },
-  );
-}
-
 describe("assistant usage CLI", () => {
   beforeEach(() => {
     logLines.length = 0;
-    getDb().run("DELETE FROM llm_usage_events");
-  });
-
-  // TODO(IPC test rewrite): this test depends on usage-cli's old
-  // direct-DB path; CLI now goes through cliIpcCall for breakdown.
-  // Re-enable when test mocks the IPC layer with breakdown response.
-  test.skip("breakdown JSON includes call-site display labels and groupKey", async () => {
-    insertUsage({ callSite: "mainAgent" });
-    insertUsage({ callSite: null, inputTokens: 200 }, 0.005);
-
-    const result = await runCommand([
-      "usage",
-      "breakdown",
-      "--range",
-      "all",
-      "--group-by",
-      "call_site",
-      "--json",
-    ]);
-
-    expect(result.exitCode).toBe(0);
-    const parsed = JSON.parse(result.output) as {
-      breakdown: Array<{ group: string; groupKey: string | null }>;
-    };
-    expect(parsed.breakdown.map((row) => row.group)).toEqual([
-      "Main Agent",
-      "Unknown Task",
-    ]);
-    expect(parsed.breakdown.map((row) => row.groupKey)).toEqual([
-      "mainAgent",
-      null,
-    ]);
-  });
-
-  // TODO(IPC test rewrite): usage breakdown CLI now goes through
-  // cliIpcCall to the daemon for data fetching. Without an IPC mock
-  // this test hits the real exitFromIpcResult and exits with code 10
-  // in CI (no daemon). Re-enable after the test mocks
-  // '../ipc/cli-client.js' or the test is rewritten to assert pure
-  // CLI plumbing (arg parsing, table formatting on canned data).
-  test.skip("breakdown table prints friendly profile fallback labels", async () => {
-    insertUsage({ inferenceProfile: null });
-
-    const result = await runCommand([
-      "usage",
-      "breakdown",
-      "--range",
-      "all",
-      "--group-by",
-      "inference_profile",
-    ]);
-
-    expect(result.exitCode).toBe(0);
-    expect(result.output).toContain("PROFILE");
-    expect(result.output).toContain("Default / Unset");
   });
 
   test("rejects invalid breakdown dimensions", async () => {
