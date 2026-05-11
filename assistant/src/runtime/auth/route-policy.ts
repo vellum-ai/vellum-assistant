@@ -329,6 +329,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/sign-bundle", scopes: ["settings.write"] },
   { endpoint: "apps/signing-identity", scopes: ["settings.read"] },
   { endpoint: "apps/dist", scopes: ["settings.read"] },
+  { endpoint: "apps/publish", scopes: ["settings.write"] },
+  { endpoint: "apps/unpublish", scopes: ["settings.write"] },
+  { endpoint: "apps/publish-status", scopes: ["settings.read"] },
   { endpoint: "pages", scopes: ["settings.read"] },
 
   // Usage / cost telemetry
@@ -571,10 +574,22 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Inference provider connections
   { endpoint: "inference/provider-connections:GET", scopes: ["settings.read"] },
-  { endpoint: "inference/provider-connections:POST", scopes: ["settings.write"] },
-  { endpoint: "inference/provider-connections/detail:GET", scopes: ["settings.read"] },
-  { endpoint: "inference/provider-connections/detail:PATCH", scopes: ["settings.write"] },
-  { endpoint: "inference/provider-connections/detail:DELETE", scopes: ["settings.write"] },
+  {
+    endpoint: "inference/provider-connections:POST",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "inference/provider-connections/detail:GET",
+    scopes: ["settings.read"],
+  },
+  {
+    endpoint: "inference/provider-connections/detail:PATCH",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "inference/provider-connections/detail:DELETE",
+    scopes: ["settings.write"],
+  },
 
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
