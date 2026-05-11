@@ -8,7 +8,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
@@ -272,6 +272,32 @@ export async function createGuardianBinding(
     throw err;
   }
 
+  // --- Orphaned channel cleanup (best-effort) ---
+  // During outbound Slack verification, the gateway seeds an unverified contact
+  // channel when the user replies to the verification DM (before verification
+  // completes). The seeding stores address in lowercase while the guardian
+  // binding preserves original casing, so the two records don't coalesce.
+  // Revoke any non-guardian channels for the same external user ID so the
+  // user's identity resolves cleanly to the guardian record.
+  try {
+    await assistantDbRun(
+      `UPDATE contact_channels
+       SET status = 'revoked',
+           revoked_reason = 'superseded_by_guardian_binding',
+           updated_at = ?
+       WHERE LOWER(external_user_id) = LOWER(?)
+         AND type = ?
+         AND id != ?
+         AND status NOT IN ('revoked', 'blocked')`,
+      [now, params.externalUserId, params.channel, channelId],
+    );
+  } catch (cleanupErr) {
+    log.warn(
+      { err: cleanupErr },
+      "Failed to revoke orphaned contact channels after guardian binding",
+    );
+  }
+
   // --- Gateway DB dual-write (best-effort, transactional) ---
   try {
     const gwDb = getGatewayDb();
@@ -320,6 +346,18 @@ export async function createGuardianBinding(
           },
         })
         .run();
+
+      // Mirror the orphaned channel cleanup in the gateway DB.
+      tx.run(sql`
+        UPDATE contact_channels
+        SET status = 'revoked',
+            revoked_reason = 'superseded_by_guardian_binding',
+            updated_at = ${now}
+        WHERE LOWER(external_user_id) = LOWER(${params.externalUserId})
+          AND type = ${params.channel}
+          AND id != ${channelId}
+          AND status NOT IN ('revoked', 'blocked')
+      `);
     });
   } catch (gwErr) {
     log.warn(
