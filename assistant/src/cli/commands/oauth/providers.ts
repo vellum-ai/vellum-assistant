@@ -272,7 +272,7 @@ Examples:
               queryParams.supports_managed_mode = "true";
             }
             const r = await cliIpcCall<{
-              providers: SerializedProvider[];
+              providers: Array<Record<string, unknown>>;
             }>("oauth_providers_get", {
               queryParams,
             });
@@ -282,7 +282,7 @@ Examples:
             // The route returns snake_case summaries; map to camelCase for
             // display consistency with the existing CLI contract.
             let rows: SerializedProvider[] = (r.result?.providers ?? []).map(
-              (p: Record<string, unknown>) => ({
+              (p) => ({
                 providerKey: p.provider_key as string,
                 displayName: p.display_name as string | null,
                 description: p.description as string | null,
