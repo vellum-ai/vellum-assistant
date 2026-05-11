@@ -48,7 +48,7 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getPageIndex } from "./page-index.js";
-import { renderRouterPrompt } from "./prompts/router.js";
+import { resolveRouterPrompt } from "./prompts/router.js";
 import type { EverInjectedEntry } from "./types.js";
 
 const log = getLogger("memory-v2-router");
@@ -179,11 +179,14 @@ export async function runRouter(
     return emptyResult("no_provider");
   }
 
-  const systemPrompt = renderRouterPrompt({
-    assistantName: getAssistantName(),
-    userName: resolveUserName(workspaceDir),
-    pageIndexBlock: pageIndex.rendered,
-  });
+  const systemPrompt = resolveRouterPrompt(
+    config.memory?.v2?.router?.router_prompt_path ?? null,
+    {
+      assistantName: getAssistantName(),
+      userName: resolveUserName(workspaceDir),
+      pageIndexBlock: pageIndex.rendered,
+    },
+  );
 
   // Already-injected slugs that map back to a current index ID. Slugs whose
   // page has been deleted since the prior turn drop out silently — the model

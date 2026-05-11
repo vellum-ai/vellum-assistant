@@ -35,6 +35,7 @@ describe("MemoryV2ConfigSchema", () => {
       router: {
         enabled: false,
         max_page_ids: 25,
+        router_prompt_path: null,
       },
     });
   });
@@ -183,6 +184,24 @@ describe("MemoryV2ConfigSchema", () => {
   test("rejects router.max_page_ids above 100", () => {
     expect(() =>
       MemoryV2ConfigSchema.parse({ router: { max_page_ids: 101 } }),
+    ).toThrow();
+  });
+
+  test("router_prompt_path defaults to null", () => {
+    const parsed = MemoryV2ConfigSchema.parse({});
+    expect(parsed.router.router_prompt_path).toBeNull();
+  });
+
+  test("accepts an explicit router_prompt_path override", () => {
+    const parsed = MemoryV2ConfigSchema.parse({
+      router: { router_prompt_path: "~/prompts/router.md" },
+    });
+    expect(parsed.router.router_prompt_path).toBe("~/prompts/router.md");
+  });
+
+  test("rejects non-string router_prompt_path", () => {
+    expect(() =>
+      MemoryV2ConfigSchema.parse({ router: { router_prompt_path: 42 } }),
     ).toThrow();
   });
 });
