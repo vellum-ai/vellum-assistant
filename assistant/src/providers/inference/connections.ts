@@ -195,7 +195,7 @@ export function deleteConnection(
 }
 
 // ---------------------------------------------------------------------------
-// Seed canonical connections (idempotent, used at boot time)
+// Seed canonical connections (upsert, used at boot time)
 // ---------------------------------------------------------------------------
 
 const CANONICAL_CONNECTIONS: Array<{ name: string; provider: string; auth: Auth }> = [
@@ -206,26 +206,29 @@ const CANONICAL_CONNECTIONS: Array<{ name: string; provider: string; auth: Auth 
 ];
 
 /**
- * Ensure the four canonical connections exist. Already-existing rows are left
- * untouched. Safe to call on every boot.
+ * Upsert the four canonical connections on every boot. Existing rows are
+ * updated to the latest provider/auth values so Vellum can push connection
+ * changes to customers in new releases.
  */
 export function seedCanonicalConnections(db: DrizzleDb): void {
   const now = Date.now();
   for (const { name, provider, auth } of CANONICAL_CONNECTIONS) {
-    const exists = db
-      .select({ name: providerConnections.name })
-      .from(providerConnections)
-      .where(eq(providerConnections.name, name))
-      .get();
-
-    if (!exists) {
-      db.insert(providerConnections).values({
+    db.insert(providerConnections)
+      .values({
         name,
         provider,
         auth: JSON.stringify(auth),
         createdAt: now,
         updatedAt: now,
-      }).run();
-    }
+      })
+      .onConflictDoUpdate({
+        target: providerConnections.name,
+        set: {
+          provider,
+          auth: JSON.stringify(auth),
+          updatedAt: now,
+        },
+      })
+      .run();
   }
 }

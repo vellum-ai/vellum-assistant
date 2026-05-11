@@ -4453,6 +4453,152 @@ paths:
           schema:
             type: number
           description: Cursor for pagination (timestamp)
+  /v1/conversations/cli/clear:
+    post:
+      operationId: conversations_cli_clear_post
+      summary: Clear all conversations (CLI)
+      description:
+        Tear down all active conversations and clear the database. The confirmation prompt is handled client-side
+        by the CLI.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleared:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - cleared
+                additionalProperties: false
+  /v1/conversations/cli/create:
+    post:
+      operationId: conversations_cli_create_post
+      summary: Create a conversation (CLI)
+      description: Create a new conversation with an optional title.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  title:
+                    type: string
+                required:
+                  - id
+                  - title
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+              additionalProperties: false
+  /v1/conversations/cli/export:
+    post:
+      operationId: conversations_cli_export_post
+      summary: Export a conversation (CLI)
+      description: Export a conversation as markdown or JSON. Returns the formatted output string.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  output:
+                    type: string
+                  conversationId:
+                    type: string
+                required:
+                  - output
+                  - conversationId
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                format:
+                  default: md
+                  type: string
+                  enum:
+                    - md
+                    - json
+              additionalProperties: false
+  /v1/conversations/cli/list:
+    post:
+      operationId: conversations_cli_list_post
+      summary: List conversations (CLI)
+      description: Simplified conversation list for CLI output — returns id, title, updatedAt.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        title:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        updatedAt:
+                          type: number
+                      required:
+                        - id
+                        - title
+                        - updatedAt
+                      additionalProperties: false
+                required:
+                  - conversations
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                includeArchived:
+                  type: boolean
+              additionalProperties: false
   /v1/conversations/fork:
     post:
       operationId: conversations_fork_post
@@ -5825,6 +5971,24 @@ paths:
           required: true
           schema:
             type: string
+  /v1/domain/register:
+    post:
+      operationId: domain_register_post
+      summary: Register a subdomain for this assistant
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
+  /v1/domain/status:
+    get:
+      operationId: domain_status_get
+      summary: Show domain registration and health
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
   /v1/email/attachment-get:
     get:
       operationId: email_attachmentget_get
@@ -8954,6 +9118,43 @@ paths:
           required: true
           schema:
             type: string
+  /v1/internal/mcp/add:
+    post:
+      operationId: internal_mcp_add_post
+      summary: Add an MCP server configuration
+      description: Writes a new MCP server entry to config.json and triggers a reload.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                transportType:
+                  type: string
+                url:
+                  type: string
+                command:
+                  type: string
+                args:
+                  type: array
+                  items:
+                    type: string
+                risk:
+                  type: string
+                disabled:
+                  type: boolean
+              required:
+                - name
+                - transportType
+              additionalProperties: false
   /v1/internal/mcp/auth/start:
     post:
       operationId: internal_mcp_auth_start_post
@@ -8994,6 +9195,16 @@ paths:
           required: true
           schema:
             type: string
+  /v1/internal/mcp/list:
+    get:
+      operationId: internal_mcp_list_get
+      summary: List MCP servers with health status
+      description: Returns configured MCP servers with live health-check results (connected, needs auth, error, disabled).
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
   /v1/internal/mcp/reload:
     post:
       operationId: internal_mcp_reload_post
@@ -9004,6 +9215,28 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/internal/mcp/remove:
+    post:
+      operationId: internal_mcp_remove_post
+      summary: Remove an MCP server configuration
+      description: Removes an MCP server from config.json, cleans up OAuth credentials, and triggers a reload.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required:
+                - name
+              additionalProperties: false
   /v1/internal/oauth/callback:
     post:
       operationId: internal_oauth_callback_post
@@ -10550,6 +10783,56 @@ paths:
           schema:
             type: string
           description: Conversation ID (optional)
+  /v1/platform/callback-routes:
+    get:
+      operationId: platform_callbackroutes_get
+      summary: List registered platform callback routes
+      description: Lists all callback routes registered with the platform for this assistant.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+  /v1/platform/callback-routes/register:
+    post:
+      operationId: platform_callbackroutes_register_post
+      summary: Register a platform callback route
+      description: Registers a callback route with the platform gateway for inbound provider webhooks.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+  /v1/platform/connect:
+    post:
+      operationId: platform_connect_post
+      summary: Connect to the Vellum Platform
+      description: Checks existing credentials and emits the show_platform_login signal for connected clients to show a login UI.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+  /v1/platform/disconnect:
+    post:
+      operationId: platform_disconnect_post
+      summary: Disconnect from the Vellum Platform
+      description: Deletes stored platform credentials and emits platform_disconnected signal to connected clients.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+  /v1/platform/status:
+    get:
+      operationId: platform_status_get
+      summary: Get platform deployment context and connection status
+      description: Aggregates platform context, credentials, assistant ID, webhook secret, and Velay tunnel status.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
   /v1/playground/seed-conversation:
     post:
       operationId: playground_seedconversation_post

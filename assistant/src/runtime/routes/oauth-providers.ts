@@ -1,17 +1,61 @@
 /**
- * Route handlers for listing and getting OAuth providers.
+ * Route handlers for OAuth provider CRUD.
  *
- * Provides read-only endpoints for querying the registered OAuth provider
- * catalog. All endpoints are bearer-token authenticated via the standard
- * runtime auth middleware.
+ * Provides endpoints for querying, registering, updating, and deleting OAuth
+ * provider configurations. All endpoints are bearer-token authenticated via
+ * the standard runtime auth middleware.
  */
 
 import { loadConfig } from "../../config/loader.js";
-import { getProvider, listProviders } from "../../oauth/oauth-store.js";
-import { serializeProviderSummary } from "../../oauth/provider-serializer.js";
+import {
+  deleteApp,
+  deleteConnection,
+  deleteProvider,
+  disconnectOAuthProvider,
+  getProvider,
+  listApps,
+  listConnections,
+  listProviders,
+  registerProvider,
+  updateProvider,
+} from "../../oauth/oauth-store.js";
+import {
+  serializeProvider,
+  serializeProviderSummary,
+} from "../../oauth/provider-serializer.js";
 import { isProviderVisible } from "../../oauth/provider-visibility.js";
-import { NotFoundError } from "./errors.js";
+import { SEEDED_PROVIDER_KEYS } from "../../oauth/seed-providers.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
+
+function resolveRedirectUri(loopbackPort: number | null): string | null {
+  if (!loopbackPort) {
+    return "http://localhost:<dynamic>/oauth/callback";
+  }
+  return `http://localhost:${loopbackPort}${LOOPBACK_CALLBACK_PATH}`;
+}
+
+function serializeProviderFull(row: ReturnType<typeof getProvider>) {
+  if (!row) return null;
+  return serializeProvider(row, {
+    redirectUri: resolveRedirectUri(row.loopbackPort),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
 
 function handleListProviders({ queryParams = {} }: RouteHandlerArgs) {
   const rows = listProviders();
@@ -46,7 +90,218 @@ function handleGetProvider({ pathParams = {} }: RouteHandlerArgs) {
     );
   }
 
-  return { provider: serializeProviderSummary(row) };
+  return { provider: serializeProviderFull(row) };
+}
+
+function handleRegisterProvider({ body = {} }: RouteHandlerArgs) {
+  const b = body as Record<string, unknown>;
+  const providerKey = b.provider_key as string | undefined;
+  const authUrl = b.auth_url as string | undefined;
+  const tokenUrl = b.token_url as string | undefined;
+
+  if (!providerKey || !authUrl || !tokenUrl) {
+    throw new BadRequestError(
+      "provider_key, auth_url, and token_url are required",
+    );
+  }
+
+  try {
+    const row = registerProvider({
+      provider: providerKey,
+      authorizeUrl: authUrl,
+      tokenExchangeUrl: tokenUrl,
+      refreshUrl: (b.refresh_url as string) ?? undefined,
+      baseUrl: (b.base_url as string) ?? undefined,
+      userinfoUrl: (b.userinfo_url as string) ?? undefined,
+      defaultScopes: (b.default_scopes as string[]) ?? [],
+      availableScopes: b.available_scopes as
+        | string
+        | Array<{ scope: string; description?: string }>
+        | undefined,
+      scopeSeparator: (b.scope_separator as string) ?? undefined,
+      tokenEndpointAuthMethod:
+        (b.token_endpoint_auth_method as string) ?? undefined,
+      tokenExchangeBodyFormat:
+        (b.token_exchange_body_format as string) ?? undefined,
+      pingUrl: (b.ping_url as string) ?? undefined,
+      pingMethod: (b.ping_method as string) ?? undefined,
+      pingHeaders: (b.ping_headers as Record<string, string>) ?? undefined,
+      pingBody: b.ping_body ?? undefined,
+      revokeUrl: (b.revoke_url as string) ?? undefined,
+      revokeBodyTemplate:
+        (b.revoke_body_template as Record<string, string>) ?? undefined,
+      displayLabel: (b.display_name as string) ?? undefined,
+      description: (b.description as string) ?? undefined,
+      dashboardUrl: (b.dashboard_url as string) ?? undefined,
+      logoUrl: (b.logo_url as string | null) ?? undefined,
+      clientIdPlaceholder: (b.client_id_placeholder as string) ?? undefined,
+      requiresClientSecret:
+        b.requires_client_secret !== undefined
+          ? (b.requires_client_secret as boolean)
+            ? 1
+            : 0
+          : undefined,
+      loopbackPort: (b.loopback_port as number) ?? undefined,
+      injectionTemplates:
+        (b.injection_templates as Array<{
+          hostPattern: string;
+          injectionType: string;
+          headerName: string;
+          valuePrefix: string;
+        }>) ?? undefined,
+      appType: (b.app_type as string) ?? undefined,
+      identityUrl: (b.identity_url as string) ?? undefined,
+      identityMethod: (b.identity_method as string) ?? undefined,
+      identityHeaders:
+        (b.identity_headers as Record<string, string>) ?? undefined,
+      identityBody: b.identity_body ?? undefined,
+      identityResponsePaths:
+        (b.identity_response_paths as string[]) ?? undefined,
+      identityFormat: (b.identity_format as string) ?? undefined,
+      identityOkField: (b.identity_ok_field as string) ?? undefined,
+      setupNotes: (b.setup_notes as string[]) ?? undefined,
+    });
+
+    return { provider: serializeProviderFull(row) };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("already exists")) {
+      throw new ConflictError(msg);
+    }
+    throw new InternalError(msg);
+  }
+}
+
+function handleUpdateProvider({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  const { providerKey } = pathParams;
+  const existing = getProvider(providerKey);
+  if (!existing) {
+    throw new NotFoundError(
+      `No OAuth provider registered for "${providerKey}"`,
+    );
+  }
+
+  if (!isProviderVisible(existing, loadConfig())) {
+    throw new NotFoundError(
+      `No OAuth provider registered for "${providerKey}"`,
+    );
+  }
+
+  if (SEEDED_PROVIDER_KEYS.has(providerKey)) {
+    throw new BadRequestError(
+      `Cannot update built-in provider "${providerKey}". Built-in providers are managed by the system.`,
+    );
+  }
+
+  const b = body as Record<string, unknown>;
+  const params: Record<string, unknown> = {};
+
+  if (b.auth_url !== undefined) params.authorizeUrl = b.auth_url;
+  if (b.token_url !== undefined) params.tokenExchangeUrl = b.token_url;
+  if (b.refresh_url !== undefined) params.refreshUrl = b.refresh_url;
+  if (b.base_url !== undefined) params.baseUrl = b.base_url;
+  if (b.userinfo_url !== undefined) params.userinfoUrl = b.userinfo_url;
+  if (b.default_scopes !== undefined) params.defaultScopes = b.default_scopes;
+  if (b.available_scopes !== undefined)
+    params.availableScopes = b.available_scopes;
+  if (b.scope_separator !== undefined) params.scopeSeparator = b.scope_separator;
+  if (b.token_endpoint_auth_method !== undefined)
+    params.tokenEndpointAuthMethod = b.token_endpoint_auth_method;
+  if (b.token_exchange_body_format !== undefined)
+    params.tokenExchangeBodyFormat = b.token_exchange_body_format;
+  if (b.ping_url !== undefined) params.pingUrl = b.ping_url;
+  if (b.ping_method !== undefined) params.pingMethod = b.ping_method;
+  if (b.ping_headers !== undefined) params.pingHeaders = b.ping_headers;
+  if (b.ping_body !== undefined) params.pingBody = b.ping_body;
+  if (b.revoke_url !== undefined) params.revokeUrl = b.revoke_url;
+  if (b.revoke_body_template !== undefined)
+    params.revokeBodyTemplate = b.revoke_body_template;
+  if (b.display_name !== undefined) params.displayLabel = b.display_name;
+  if (b.description !== undefined) params.description = b.description;
+  if (b.dashboard_url !== undefined) params.dashboardUrl = b.dashboard_url;
+  if (b.logo_url !== undefined) params.logoUrl = b.logo_url;
+  if (b.client_id_placeholder !== undefined)
+    params.clientIdPlaceholder = b.client_id_placeholder;
+  if (b.requires_client_secret !== undefined)
+    params.requiresClientSecret = b.requires_client_secret;
+  if (b.loopback_port !== undefined) params.loopbackPort = b.loopback_port;
+  if (b.injection_templates !== undefined)
+    params.injectionTemplates = b.injection_templates;
+  if (b.app_type !== undefined) params.appType = b.app_type;
+  if (b.identity_url !== undefined) params.identityUrl = b.identity_url;
+  if (b.identity_method !== undefined) params.identityMethod = b.identity_method;
+  if (b.identity_headers !== undefined)
+    params.identityHeaders = b.identity_headers;
+  if (b.identity_body !== undefined) params.identityBody = b.identity_body;
+  if (b.identity_response_paths !== undefined)
+    params.identityResponsePaths = b.identity_response_paths;
+  if (b.identity_format !== undefined) params.identityFormat = b.identity_format;
+  if (b.identity_ok_field !== undefined)
+    params.identityOkField = b.identity_ok_field;
+  if (b.setup_notes !== undefined) params.setupNotes = b.setup_notes;
+
+  if (Object.keys(params).length === 0) {
+    throw new BadRequestError("No fields to update");
+  }
+
+  const row = updateProvider(providerKey, params);
+  return { provider: serializeProviderFull(row) };
+}
+
+async function handleDeleteProvider({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  const { providerKey } = pathParams;
+  const existing = getProvider(providerKey);
+  if (!existing) {
+    throw new NotFoundError(
+      `No OAuth provider registered for "${providerKey}"`,
+    );
+  }
+
+  if (!isProviderVisible(existing, loadConfig())) {
+    throw new NotFoundError(
+      `No OAuth provider registered for "${providerKey}"`,
+    );
+  }
+
+  const force = (body as Record<string, unknown>).force === true;
+
+  const dependentApps = listApps().filter((a) => a.provider === providerKey);
+  const dependentConnections = listConnections(providerKey);
+  const appCount = dependentApps.length;
+  const connCount = dependentConnections.length;
+
+  if ((appCount > 0 || connCount > 0) && !force) {
+    throw new BadRequestError(
+      `Cannot delete provider "${providerKey}": ${appCount} app(s) and ${connCount} connection(s) depend on it. Set force=true to cascade-delete.`,
+    );
+  }
+
+  // Cascade-delete connections first, then apps, then the provider
+  for (const conn of dependentConnections) {
+    const result = await disconnectOAuthProvider(
+      providerKey,
+      undefined,
+      conn.id as string,
+    );
+    if (result === "error") {
+      deleteConnection(conn.id);
+    }
+  }
+  for (const app of dependentApps) {
+    await deleteApp(app.id);
+  }
+  deleteProvider(providerKey);
+
+  return {
+    ok: true,
+    deleted: { provider: 1, apps: appCount, connections: connCount },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -81,5 +336,40 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["oauth"],
     requirePolicyEnforcement: true,
     handler: handleGetProvider,
+  },
+  {
+    operationId: "oauth_providers_post",
+    endpoint: "oauth/providers",
+    method: "POST",
+    policyKey: "oauth/providers.register",
+    summary: "Register OAuth provider",
+    description: "Register a new OAuth provider configuration.",
+    tags: ["oauth"],
+    requirePolicyEnforcement: true,
+    responseStatus: "201",
+    handler: handleRegisterProvider,
+  },
+  {
+    operationId: "oauth_providers_by_providerKey_patch",
+    endpoint: "oauth/providers/:providerKey",
+    method: "PATCH",
+    policyKey: "oauth/providers.update",
+    summary: "Update OAuth provider",
+    description: "Update an existing custom OAuth provider configuration.",
+    tags: ["oauth"],
+    requirePolicyEnforcement: true,
+    handler: handleUpdateProvider,
+  },
+  {
+    operationId: "oauth_providers_by_providerKey_delete",
+    endpoint: "oauth/providers/:providerKey",
+    method: "DELETE",
+    policyKey: "oauth/providers.delete",
+    summary: "Delete OAuth provider",
+    description:
+      "Delete a custom OAuth provider and optionally cascade-delete its apps and connections.",
+    tags: ["oauth"],
+    requirePolicyEnforcement: true,
+    handler: handleDeleteProvider,
   },
 ];
