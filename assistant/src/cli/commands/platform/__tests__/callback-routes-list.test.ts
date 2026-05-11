@@ -1,110 +1,35 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { Command } from "commander";
 
 // ---------------------------------------------------------------------------
 // Mock state
 // ---------------------------------------------------------------------------
 
-let mockResolvePlatformCallbackRegistrationContext: () => Promise<
-  Record<string, unknown>
-> = async () => ({
-  isPlatform: false,
-  platformBaseUrl: "",
-  assistantId: "",
-  hasAssistantApiKey: false,
-  authHeader: null,
-  enabled: false,
-});
+let mockCalls: Array<[string, Record<string, unknown>]> = [];
+let mockResponse: unknown = { ok: true, result: { routes: [] } };
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-mock.module("../../../../inbound/platform-callback-registration.js", () => ({
-  resolvePlatformCallbackRegistrationContext: () =>
-    mockResolvePlatformCallbackRegistrationContext(),
-  registerCallbackRoute: async () => "",
-  resolveCallbackUrl: async () => "",
+mock.module("../../../../ipc/cli-client.js", () => ({
+  cliIpcCall: async (method: string, params: Record<string, unknown>) => {
+    mockCalls.push([method, params]);
+    return mockResponse;
+  },
+  exitFromIpcResult: (_r: unknown, _cmd: unknown) => {
+    throw new Error("exitFromIpcResult called");
+  },
 }));
 
-mock.module("../../../lib/daemon-credential-client.js", () => ({
-  deleteSecureKeyViaDaemon: async () => "not-found" as const,
-  setSecureKeyViaDaemon: async () => false,
-}));
+const { registerPlatformCommand } = await import("../index.js");
 
-const realLogger = await import("../../../../util/logger.js");
-mock.module("../../../../util/logger.js", () => ({
-  ...realLogger,
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-  getCliLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-  initLogger: () => {},
-  pruneOldLogFiles: () => 0,
-}));
-
-const realConfigLoader = await import("../../../../config/loader.js");
-mock.module("../../../../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () => ({
-    permissions: { mode: "workspace" },
-    skills: { load: { extraDirs: [] } },
-    sandbox: { enabled: true },
-  }),
-  loadConfig: () => ({}),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
-
-// ---------------------------------------------------------------------------
-// Import shared test utility (after mocks are registered)
-// ---------------------------------------------------------------------------
-
-const { runAssistantCommandFull } =
-  await import("../../../__tests__/run-assistant-command.js");
-
-// ---------------------------------------------------------------------------
-// Fetch mock
-// ---------------------------------------------------------------------------
-
-const originalFetch = globalThis.fetch;
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function connectedContext(
-  overrides: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
-    isPlatform: false,
-    platformBaseUrl: "https://dev-platform.vellum.ai",
-    assistantId: "019d6d4f-6dbd-779f-91d3-cb273b9429a5",
-    hasAssistantApiKey: true,
-    authHeader: "Api-Key vak_test123",
-    enabled: false,
-    ...overrides,
-  };
-}
-
-function mockFetchJson(body: unknown, status = 200): void {
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    })) as unknown as typeof globalThis.fetch;
+function buildProgram(): Command {
+  const program = new Command();
+  program.exitOverride();
+  registerPlatformCommand(program);
+  return program;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,27 +38,36 @@ function mockFetchJson(body: unknown, status = 200): void {
 
 describe("assistant platform callback-routes list", () => {
   beforeEach(() => {
-    mockResolvePlatformCallbackRegistrationContext = async () =>
-      connectedContext();
-    process.exitCode = 0;
-  });
-
-  afterEach(() => {
+    mockCalls = [];
+    mockResponse = { ok: true, result: { routes: [] } };
     process.exitCode = 0;
   });
 
   test("returns empty list when no routes registered", async () => {
-    mockFetchJson([]);
+    const program = buildProgram();
+    const stdoutChunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
 
-    const { stdout } = await runAssistantCommandFull(
-      "platform",
-      "callback-routes",
-      "list",
-      "--json",
-    );
+    try {
+      await program.parseAsync([
+        "node",
+        "assistant",
+        "platform",
+        "callback-routes",
+        "list",
+        "--json",
+      ]);
+    } finally {
+      process.stdout.write = origWrite;
+    }
 
-    expect(process.exitCode ?? 0).toBe(0);
-    const parsed = JSON.parse(stdout);
+    expect(mockCalls[0][0]).toBe("platform_callback_routes_list");
+
+    const parsed = JSON.parse(stdoutChunks.join(""));
     expect(parsed.ok).toBe(true);
     expect(parsed.routes).toEqual([]);
   });
@@ -152,22 +86,36 @@ describe("assistant platform callback-routes list", () => {
         id: "route-2",
         assistant_id: "019d6d4f-6dbd-779f-91d3-cb273b9429a5",
         type: "telegram",
-        callback_path: "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/telegram",
+        callback_path:
+          "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/telegram",
         callback_url:
           "https://dev-platform.vellum.ai/v1/gateway/callbacks/019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/telegram/",
       },
     ];
-    mockFetchJson(routes);
+    mockResponse = { ok: true, result: { routes } };
 
-    const { stdout } = await runAssistantCommandFull(
-      "platform",
-      "callback-routes",
-      "list",
-      "--json",
-    );
+    const program = buildProgram();
+    const stdoutChunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
 
-    expect(process.exitCode ?? 0).toBe(0);
-    const parsed = JSON.parse(stdout);
+    try {
+      await program.parseAsync([
+        "node",
+        "assistant",
+        "platform",
+        "callback-routes",
+        "list",
+        "--json",
+      ]);
+    } finally {
+      process.stdout.write = origWrite;
+    }
+
+    const parsed = JSON.parse(stdoutChunks.join(""));
     expect(parsed.ok).toBe(true);
     expect(parsed.routes).toHaveLength(2);
     expect(parsed.routes[0].type).toBe("email");
@@ -175,69 +123,71 @@ describe("assistant platform callback-routes list", () => {
   });
 
   test("fails when platform credentials are missing", async () => {
-    mockResolvePlatformCallbackRegistrationContext = async () => ({
-      isPlatform: false,
-      platformBaseUrl: "",
-      assistantId: "",
-      hasAssistantApiKey: false,
-      authHeader: null,
-      enabled: false,
-    });
+    mockResponse = {
+      ok: false,
+      error: "Platform credentials not available",
+      statusCode: 422,
+    };
 
-    const { stdout } = await runAssistantCommandFull(
-      "platform",
-      "callback-routes",
-      "list",
-      "--json",
-    );
-
-    expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("Platform credentials not available");
+    const program = buildProgram();
+    await expect(
+      program.parseAsync([
+        "node",
+        "assistant",
+        "platform",
+        "callback-routes",
+        "list",
+        "--json",
+      ]),
+    ).rejects.toThrow("exitFromIpcResult called");
   });
 
-  test("handles platform HTTP error", async () => {
-    mockFetchJson({ detail: "Unauthorized" }, 401);
-
-    const { stdout } = await runAssistantCommandFull(
-      "platform",
-      "callback-routes",
-      "list",
-      "--json",
-    );
-
-    expect(process.exitCode).toBe(1);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("HTTP 401");
-  });
-
-  test("works for self-hosted assistants with connected credentials", async () => {
-    mockResolvePlatformCallbackRegistrationContext = async () =>
-      connectedContext({ isPlatform: false, enabled: false });
-
-    mockFetchJson([
-      {
-        id: "route-1",
-        assistant_id: "019d6d4f-6dbd-779f-91d3-cb273b9429a5",
-        type: "email",
-        callback_path: "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/email",
-        callback_url:
-          "https://dev-platform.vellum.ai/v1/gateway/callbacks/019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/email/",
+  test("callback-routes register calls platform_callback_routes_register", async () => {
+    mockResponse = {
+      ok: true,
+      result: {
+        callbackUrl:
+          "https://dev-platform.vellum.ai/v1/gateway/callbacks/asst/webhooks/telegram/",
+        callbackPath: "webhooks/telegram",
+        type: "telegram",
       },
-    ]);
+    };
 
-    const { stdout } = await runAssistantCommandFull(
-      "platform",
-      "callback-routes",
-      "list",
-      "--json",
-    );
+    const program = buildProgram();
+    const stdoutChunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
 
-    expect(process.exitCode ?? 0).toBe(0);
-    const parsed = JSON.parse(stdout);
+    try {
+      await program.parseAsync([
+        "node",
+        "assistant",
+        "platform",
+        "callback-routes",
+        "register",
+        "--path",
+        "webhooks/telegram",
+        "--type",
+        "telegram",
+        "--json",
+      ]);
+    } finally {
+      process.stdout.write = origWrite;
+    }
+
+    expect(mockCalls[0][0]).toBe("platform_callback_routes_register");
+    expect(
+      (mockCalls[0][1].body as Record<string, unknown>).path,
+    ).toBe("webhooks/telegram");
+    expect(
+      (mockCalls[0][1].body as Record<string, unknown>).type,
+    ).toBe("telegram");
+
+    const parsed = JSON.parse(stdoutChunks.join(""));
     expect(parsed.ok).toBe(true);
-    expect(parsed.routes).toHaveLength(1);
+    expect(parsed.callbackPath).toBe("webhooks/telegram");
   });
 });
