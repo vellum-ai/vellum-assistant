@@ -1,19 +1,8 @@
 import type { Command } from "commander";
 
-import {
-  disconnectOAuthProvider,
-  getActiveConnection,
-  getConnection,
-  getProvider,
-  listActiveConnectionsByProvider,
-} from "../../../oauth/oauth-store.js";
+import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import {
-  fetchActiveConnections,
-  isManagedMode,
-  requirePlatformClient,
-} from "./shared.js";
 
 const log = getCliLogger("cli");
 
@@ -58,7 +47,6 @@ Examples:
       ) => {
         const jsonMode = shouldOutputJson(cmd);
 
-        // Helper: write an error and set exit code
         const writeError = (
           error: string,
           extra?: Record<string, unknown>,
@@ -68,213 +56,26 @@ Examples:
         };
 
         try {
-          // -------------------------------------------------------------------
-          // 1. Validate provider
-          // -------------------------------------------------------------------
-          const providerRow = getProvider(provider);
-          if (!providerRow) {
-            writeError(
-              `Unknown provider "${provider}".\n\n` +
-                `Run 'assistant oauth providers list' to see available providers.\n` +
-                `If this is a custom provider, register it first with 'assistant oauth providers register --help'.`,
+          const body: Record<string, unknown> = { provider };
+          if (opts.account) body.account = opts.account;
+          if (opts.connectionId) body.connection_id = opts.connectionId;
+
+          const r = await cliIpcCall<{
+            ok: boolean;
+            provider: string;
+            connectionId: string;
+            account?: string;
+          }>("oauth_disconnect", { body });
+
+          if (!r.ok) return exitFromIpcResult(r);
+
+          const result = r.result!;
+          writeOutput(cmd, result);
+
+          if (!jsonMode) {
+            log.info(
+              `Disconnected ${result.provider} connection ${result.connectionId}`,
             );
-            return;
-          }
-
-          // -------------------------------------------------------------------
-          // 2. Validate mutual exclusivity
-          // -------------------------------------------------------------------
-          if (opts.account && opts.connectionId) {
-            writeError(
-              `Cannot specify both --account and --connection-id. Use one or the other.\n\n` +
-                `Run 'assistant oauth status ${provider}' to see connected accounts and IDs.`,
-            );
-            return;
-          }
-
-          // -------------------------------------------------------------------
-          // 3. Detect mode
-          // -------------------------------------------------------------------
-          const managed = isManagedMode(provider);
-
-          if (managed) {
-            // -----------------------------------------------------------------
-            // Managed path
-            // -----------------------------------------------------------------
-            const client = await requirePlatformClient(cmd);
-            if (!client) return;
-
-            const entries = await fetchActiveConnections(client, provider, cmd);
-            if (!entries) return;
-
-            let connectionId: string | undefined;
-            let accountLabel: string | undefined;
-
-            if (opts.account) {
-              // Filter connections by account_label matching the account value
-              const matching = entries.filter(
-                (c) => c.account_label === opts.account,
-              );
-              if (matching.length === 0) {
-                writeError(
-                  `No active connection found for "${provider}" with account "${opts.account}".\n\n` +
-                    `Run 'assistant oauth status ${provider}' to see connected accounts.`,
-                );
-                return;
-              }
-              connectionId = matching[0].id;
-              accountLabel = matching[0].account_label;
-            } else if (opts.connectionId) {
-              // Verify the supplied ID belongs to this provider
-              const match = entries.find((c) => c.id === opts.connectionId);
-              if (!match) {
-                writeError(
-                  `Connection "${opts.connectionId}" is not an active ${provider} connection.\n\n` +
-                    `Run 'assistant oauth status ${provider}' to see active connections.`,
-                );
-                return;
-              }
-              connectionId = match.id;
-              accountLabel = match.account_label;
-            } else {
-              // Neither specified — auto-resolve
-              if (entries.length === 0) {
-                writeError(
-                  `No active connections found for "${provider}".\n\n` +
-                    `Run 'assistant oauth status ${provider}' to check connection status.`,
-                );
-                return;
-              }
-
-              if (entries.length > 1) {
-                const connectionList = entries.map((c) => ({
-                  id: c.id,
-                  account: c.account_label ?? null,
-                }));
-                writeError(
-                  `Multiple active connections for "${provider}". ` +
-                    `Specify which one to disconnect with --account or --connection-id.\n\n` +
-                    `Run 'assistant oauth status ${provider}' to see connected accounts and IDs.`,
-                  { connections: connectionList },
-                );
-                return;
-              }
-
-              connectionId = entries[0].id;
-              accountLabel = entries[0].account_label;
-            }
-
-            // Call platform /disconnect/ endpoint
-            const disconnectPath = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/connections/${encodeURIComponent(connectionId)}/disconnect/`;
-            const disconnectResponse = await client.fetch(disconnectPath, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-            });
-
-            if (!disconnectResponse.ok) {
-              const errorText = await disconnectResponse.text().catch(() => "");
-              writeError(
-                `Platform returned HTTP ${disconnectResponse.status}${errorText ? `: ${errorText}` : ""}`,
-              );
-              return;
-            }
-
-            const result: Record<string, unknown> = {
-              ok: true,
-              provider: provider,
-              connectionId,
-            };
-            if (accountLabel) result.account = accountLabel;
-            writeOutput(cmd, result);
-
-            if (!jsonMode) {
-              log.info(`Disconnected ${provider} connection ${connectionId}`);
-            }
-          } else {
-            // -----------------------------------------------------------------
-            // BYO path
-            // -----------------------------------------------------------------
-            let connectionId: string | undefined;
-            let accountLabel: string | undefined;
-
-            if (opts.account) {
-              const conn = getActiveConnection(provider, {
-                account: opts.account,
-              });
-              if (!conn) {
-                writeError(
-                  `No active connection found for "${provider}" with account "${opts.account}".\n\n` +
-                    `Run 'assistant oauth status ${provider}' to see connected accounts.`,
-                );
-                return;
-              }
-              connectionId = conn.id;
-              accountLabel = conn.accountInfo ?? undefined;
-            } else if (opts.connectionId) {
-              const conn = getConnection(opts.connectionId);
-              if (!conn || conn.provider !== provider) {
-                writeError(
-                  `Connection "${opts.connectionId}" is not an active ${provider} connection.\n\n` +
-                    `Run 'assistant oauth status ${provider}' to see active connections.`,
-                );
-                return;
-              }
-              connectionId = conn.id;
-              accountLabel = conn.accountInfo ?? undefined;
-            } else {
-              // Neither specified — auto-resolve
-              const active = listActiveConnectionsByProvider(provider);
-
-              if (active.length === 0) {
-                writeError(
-                  `No active connections found for "${provider}".\n\n` +
-                    `Run 'assistant oauth status ${provider}' to check connection status.`,
-                );
-                return;
-              }
-
-              if (active.length > 1) {
-                const connectionList = active.map((c) => ({
-                  id: c.id,
-                  account: c.accountInfo ?? null,
-                }));
-                writeError(
-                  `Multiple active connections for "${provider}". ` +
-                    `Specify which one to disconnect with --account or --connection-id.\n\n` +
-                    `Run 'assistant oauth status ${provider}' to see connected accounts and IDs.`,
-                  { connections: connectionList },
-                );
-                return;
-              }
-
-              connectionId = active[0].id;
-              accountLabel = active[0].accountInfo ?? undefined;
-            }
-
-            // Disconnect the OAuth connection (tokens + connection row)
-            const oauthResult = await disconnectOAuthProvider(
-              provider,
-              undefined,
-              connectionId,
-            );
-            if (oauthResult === "error") {
-              writeError(
-                `Failed to disconnect OAuth provider "${provider}" — please try again.`,
-              );
-              return;
-            }
-
-            const result: Record<string, unknown> = {
-              ok: true,
-              provider: provider,
-              connectionId,
-            };
-            if (accountLabel) result.account = accountLabel;
-            writeOutput(cmd, result);
-
-            if (!jsonMode) {
-              log.info(`Disconnected ${provider} connection ${connectionId}`);
-            }
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

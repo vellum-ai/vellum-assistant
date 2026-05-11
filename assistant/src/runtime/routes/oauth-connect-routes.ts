@@ -14,6 +14,12 @@ import {
   setOAuthConnectError,
   setOAuthConnectPending,
 } from "../../oauth/oauth-connect-state.js";
+import {
+  getAppByProviderAndClientId,
+  getAppClientSecret,
+  getMostRecentAppByProvider,
+  getProvider,
+} from "../../oauth/oauth-store.js";
 import { getLogger } from "../../util/logger.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
@@ -27,20 +33,69 @@ async function handleOAuthConnectStart({
 }): Promise<{ auth_url: string; state: string }> {
   const {
     service,
-    clientId,
-    clientSecret,
+    clientId: rawClientId,
+    clientSecret: rawClientSecret,
     callbackTransport,
     requestedScopes,
   } = (body ?? {}) as {
     service: string;
-    clientId: string;
+    clientId?: string;
     clientSecret?: string;
     callbackTransport?: string;
     requestedScopes?: string[];
   };
 
   if (!service) throw new BadRequestError("service is required");
-  if (!clientId) throw new BadRequestError("clientId is required");
+
+  // When clientId is not provided, resolve from the DB
+  let clientId = rawClientId;
+  let clientSecret = rawClientSecret;
+
+  if (!clientId) {
+    const providerRow = getProvider(service);
+    if (!providerRow) {
+      throw new NotFoundError(
+        `Unknown provider "${service}". Run 'assistant oauth providers list' to see available providers.`,
+      );
+    }
+
+    // Manual-token providers don't use OAuth2 browser flows
+    if (providerRow.authorizeUrl === "urn:manual-token") {
+      throw new BadRequestError(
+        `"${service}" uses manual token configuration, not an OAuth browser flow. ` +
+          `Set the token with: assistant credentials set <token_value> --service ${service} --field <field_name>`,
+      );
+    }
+
+    const dbApp = getMostRecentAppByProvider(service);
+    if (!dbApp) {
+      throw new BadRequestError(
+        `No client_id found for "${service}". Register one with 'assistant oauth apps upsert'.`,
+      );
+    }
+    clientId = dbApp.clientId;
+
+    if (clientSecret === undefined) {
+      const storedSecret = await getAppClientSecret(dbApp);
+      if (storedSecret) clientSecret = storedSecret;
+    }
+
+    // Check if client_secret is required but missing
+    if (clientSecret === undefined && providerRow.requiresClientSecret) {
+      throw new BadRequestError(
+        `client_secret is required for ${service} but not found. ` +
+          `Store it with 'assistant oauth apps upsert --client-secret'.`,
+      );
+    }
+  } else if (clientId) {
+    // clientId was explicitly provided — resolve its app
+    const dbApp = getAppByProviderAndClientId(service, clientId);
+    if (dbApp && clientSecret === undefined) {
+      const storedSecret = await getAppClientSecret(dbApp);
+      if (storedSecret) clientSecret = storedSecret;
+    }
+  }
+
   if (callbackTransport !== "loopback" && callbackTransport !== "gateway") {
     throw new BadRequestError(
       'callbackTransport must be "loopback" or "gateway"',
@@ -129,7 +184,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["internal"],
     requestBody: z.object({
       service: z.string(),
-      clientId: z.string(),
+      clientId: z.string().optional(),
       clientSecret: z.string().optional(),
       callbackTransport: z.enum(["loopback", "gateway"]),
       requestedScopes: z.array(z.string()).optional(),
