@@ -17,11 +17,11 @@ import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import {
-  type InteractiveUiAction,
-  type InteractiveUiResult,
-  RESERVED_ACTION_IDS,
+import type {
+  InteractiveUiAction,
+  InteractiveUiResult,
 } from "../../runtime/interactive-ui-types.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { resolveConversationId } from "../utils/conversation-id.js";
 
@@ -45,6 +45,20 @@ const CONV_ID_HELP =
   "No conversation ID available.\n" +
   "Provide --conversation-id explicitly (run 'assistant conversations list' to find it),\n" +
   "or run this command from a skill or bash tool context.";
+
+/**
+ * Action IDs reserved for internal use. Inlined from
+ * `interactive-ui-types.ts` to avoid a runtime import from daemon
+ * internals (the ESLint `cli/no-daemon-internals` rule forbids it for
+ * `ipc`-tagged commands).
+ */
+const RESERVED_ACTION_IDS = new Set([
+  "selection_changed",
+  "content_changed",
+  "state_update",
+  "cancel",
+  "dismiss",
+]);
 
 // ── Payload parsing ───────────────────────────────────────────────────
 
@@ -231,10 +245,11 @@ function parseStrictPositiveInt(value: string): number {
 // ── Registration ──────────────────────────────────────────────────────
 
 export function registerUiCommand(program: Command): void {
-  const ui = program
-    .command("ui")
-    .description("Present interactive UI surfaces to the user");
-
+  registerCommand(program, {
+    name: "ui",
+    transport: "ipc",
+    description: "Present interactive UI surfaces to the user",
+    build: (ui) => {
   ui.addHelpText(
     "after",
     `
@@ -643,4 +658,6 @@ Examples:
         }
       },
     );
+    },
+  });
 }
