@@ -324,19 +324,55 @@ keyUsage = critical, digitalSignature
 extendedKeyUsage = critical, codeSigning
 basicConstraints = critical, CA:false
 CERTEOF
-                if openssl req -x509 -newkey rsa:2048 \
+                # Run each step separately so we can surface the real error
+                # if one fails (instead of swallowing stderr from all three).
+                _cert_step=""
+                _cert_ok=true
+                if ! openssl req -x509 -newkey rsa:2048 \
                     -keyout "$_CERT_DIR/key.pem" -out "$_CERT_DIR/cert.pem" \
-                    -days 3650 -nodes -config "$_CERT_DIR/cert.conf" 2>/dev/null && \
-                   openssl pkcs12 -export -in "$_CERT_DIR/cert.pem" \
+                    -days 3650 -nodes -config "$_CERT_DIR/cert.conf" \
+                    2>"$_CERT_DIR/openssl-req.err"; then
+                    _cert_step="openssl req (cert generation)"
+                    _cert_ok=false
+                elif ! openssl pkcs12 -export -in "$_CERT_DIR/cert.pem" \
                     -inkey "$_CERT_DIR/key.pem" -out "$_CERT_DIR/cert.p12" \
-                    -passout pass: 2>/dev/null && \
-                   security import "$_CERT_DIR/cert.p12" \
+                    -passout pass: 2>"$_CERT_DIR/openssl-p12.err"; then
+                    _cert_step="openssl pkcs12 -export (p12 conversion)"
+                    _cert_ok=false
+                elif ! security import "$_CERT_DIR/cert.p12" \
                     -k ~/Library/Keychains/login.keychain-db \
-                    -T /usr/bin/codesign -P "" 2>/dev/null; then
+                    -T /usr/bin/codesign -P "" \
+                    2>"$_CERT_DIR/security-import.err"; then
+                    _cert_step="security import (keychain import)"
+                    _cert_ok=false
+                fi
+
+                if $_cert_ok; then
                     echo "Certificate '$_CERT_CN' created and imported into login keychain."
                     echo ""
                 else
                     echo "Warning: Failed to create self-signed certificate." >&2
+                    echo "  Failed at: $_cert_step" >&2
+                    case "$_cert_step" in
+                        openssl*req*)
+                            if [ -s "$_CERT_DIR/openssl-req.err" ]; then
+                                sed 's/^/    /' "$_CERT_DIR/openssl-req.err" >&2
+                            fi
+                            ;;
+                        openssl*pkcs12*)
+                            if [ -s "$_CERT_DIR/openssl-p12.err" ]; then
+                                sed 's/^/    /' "$_CERT_DIR/openssl-p12.err" >&2
+                            fi
+                            ;;
+                        security*import*)
+                            if [ -s "$_CERT_DIR/security-import.err" ]; then
+                                sed 's/^/    /' "$_CERT_DIR/security-import.err" >&2
+                            fi
+                            echo "" >&2
+                            echo "  Common cause: login keychain is locked. Try:" >&2
+                            echo "    security unlock-keychain ~/Library/Keychains/login.keychain-db" >&2
+                            ;;
+                    esac
                     echo "         You may need to create one manually or install an Apple Development cert." >&2
                     echo ""
                 fi
