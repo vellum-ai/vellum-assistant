@@ -12420,6 +12420,24 @@ paths:
           required: true
           schema:
             type: string
+  /v1/skills/{id}/local-inspect:
+    get:
+      operationId: skills_by_id_localinspect_get
+      summary: Local skill inspect
+      description:
+        Return full local detail for an installed or bundled skill, including featureFlag, toolManifest,
+        installMeta, configEntry, and directoryPath.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/skills/{id}/update:
     post:
       operationId: skills_by_id_update_post
@@ -12538,6 +12556,14 @@ paths:
                   enum:
                     - clawhub
                     - skillssh
+                overwrite:
+                  description: Replace an existing install. Defaults to true for back-compat with the legacy in-process API.
+                  type: boolean
+                catalogOnly:
+                  description:
+                    When true, restrict to bundled and Vellum catalog skills only — do not fall through to community
+                    registries.
+                  type: boolean
               required:
                 - slug
                 - url
@@ -12761,6 +12787,12 @@ paths:
           schema:
             type: string
           description: Search query (required)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Max community results to fetch (default 25)
   /v1/slack/channels:
     get:
       operationId: slack_channels_get
