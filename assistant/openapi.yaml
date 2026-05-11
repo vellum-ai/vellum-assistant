@@ -1317,6 +1317,77 @@ paths:
           required: true
           schema:
             type: string
+  /v1/audit:
+    get:
+      operationId: audit_get
+      summary: List recent tool invocations
+      description: Returns recent tool invocation records from the audit log, ordered by most recent first.
+      tags:
+        - audit
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invocations:
+                    type: array
+                    items: {}
+                    description: Tool invocation records
+                required:
+                  - invocations
+                additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of entries to return (default 20)
+  /v1/auth/info:
+    get:
+      operationId: auth_info_get
+      summary: Get authentication status
+      description: Returns platform identity and authentication status for this assistant.
+      tags:
+        - auth
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  platformUrl:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  assistantId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  organizationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  userId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  authenticated:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - platformUrl
+                  - assistantId
+                  - organizationId
+                  - userId
+                  - authenticated
+                additionalProperties: false
   /v1/avatar/character-components:
     get:
       operationId: avatar_charactercomponents_get
@@ -10875,6 +10946,45 @@ paths:
           required: true
           schema:
             type: string
+  /v1/oauth/apps/lookup:
+    get:
+      operationId: oauth_apps_lookup_get
+      summary: Get OAuth app
+      description: Look up a single OAuth app by ID, provider + client_id, or provider (most recent).
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: App UUID
+        - name: provider
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Provider key
+        - name: client_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: OAuth client ID (requires provider)
+  /v1/oauth/apps/upsert:
+    post:
+      operationId: oauth_apps_upsert_post
+      summary: Upsert OAuth app
+      description: Create or return an existing OAuth app registration. Updates client secret if provided.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
   /v1/oauth/connections/{id}:
     delete:
       operationId: oauth_connections_by_id_delete
@@ -10908,11 +11018,50 @@ paths:
           schema:
             type: string
           description: Filter by managed mode support (true/false)
+    post:
+      operationId: oauth_providers_post
+      summary: Register OAuth provider
+      description: Register a new OAuth provider configuration.
+      tags:
+        - oauth
+      responses:
+        "201":
+          description: Successful response
   /v1/oauth/providers/{providerKey}:
+    delete:
+      operationId: oauth_providers_by_providerKey_delete
+      summary: Delete OAuth provider
+      description: Delete a custom OAuth provider and optionally cascade-delete its apps and connections.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: providerKey
+          in: path
+          required: true
+          schema:
+            type: string
     get:
       operationId: oauth_providers_by_providerKey_get
       summary: Get OAuth provider
       description: Get a single OAuth provider by key.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: providerKey
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: oauth_providers_by_providerKey_patch
+      summary: Update OAuth provider
+      description: Update an existing custom OAuth provider configuration.
       tags:
         - oauth
       responses:
@@ -12176,6 +12325,172 @@ paths:
                 - type
                 - name
               additionalProperties: false
+  /v1/sequences/cancel-enrollment:
+    post:
+      operationId: sequences_cancelenrollment_post
+      summary: Cancel a specific enrollment
+      description: Cancel a specific enrollment, stopping all future step deliveries for that contact.
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enrollmentId:
+                  type: string
+                  minLength: 1
+              required:
+                - enrollmentId
+              additionalProperties: false
+  /v1/sequences/get:
+    post:
+      operationId: sequences_get_post
+      summary: Get sequence details
+      description: Get sequence details with enrollment stats, including step-by-step breakdown and enrollment status counts.
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  minLength: 1
+              required:
+                - id
+              additionalProperties: false
+  /v1/sequences/guardrails:
+    get:
+      operationId: sequences_guardrails_get
+      summary: Show guardrail configuration
+      description:
+        "Display the current guardrail configuration: daily send cap, hourly rate, step delay, max enrollments,
+        duplicate check, and cooldown period."
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: sequences_guardrails_post
+      summary: Update a guardrail setting
+      description:
+        "Update a single guardrail setting by key. Valid keys: dailySendCap, perSequenceHourlyRate,
+        minimumStepDelaySec, maxActiveEnrollments, duplicateEnrollmentCheck, cooldownPeriodMs, cooldown_days."
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                  minLength: 1
+                value:
+                  type: string
+                  minLength: 1
+              required:
+                - key
+                - value
+              additionalProperties: false
+  /v1/sequences/list:
+    post:
+      operationId: sequences_list_post
+      summary: List sequences
+      description: List all sequences, optionally filtered by status (active, paused, archived).
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - active
+                    - paused
+                    - archived
+              additionalProperties: false
+  /v1/sequences/pause:
+    post:
+      operationId: sequences_pause_post
+      summary: Pause a sequence
+      description: Pause a sequence, halting all scheduled step deliveries. No-op if already paused.
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  minLength: 1
+              required:
+                - id
+              additionalProperties: false
+  /v1/sequences/resume:
+    post:
+      operationId: sequences_resume_post
+      summary: Resume a paused sequence
+      description: Resume a paused sequence, re-enabling scheduled step deliveries. No-op if already active.
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  minLength: 1
+              required:
+                - id
+              additionalProperties: false
+  /v1/sequences/stats:
+    get:
+      operationId: sequences_stats_get
+      summary: Overall sequence stats
+      description: "Returns aggregate statistics: total/active sequence counts and total/active enrollment counts."
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
   /v1/settings/avatar/generate:
     post:
       operationId: settings_avatar_generate_post
@@ -14838,6 +15153,39 @@ paths:
           schema:
             type: integer
           description: End epoch millis (required)
+  /v1/user-routes/inspect:
+    post:
+      operationId: userroutes_inspect_post
+      summary: Inspect a user-defined route handler
+      description: Load a specific handler file and return its exported methods, description, file path, public URL, and metadata.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+              required:
+                - path
+              additionalProperties: false
+  /v1/user-routes/list:
+    get:
+      operationId: userroutes_list_get
+      summary: List user-defined route handlers
+      description: Scan workspace routes directory for handler files and return discovered routes with methods and public URLs.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
   /v1/watchers/create:
     post:
       operationId: watchers_create_post
