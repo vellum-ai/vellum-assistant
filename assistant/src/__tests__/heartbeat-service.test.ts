@@ -4,6 +4,14 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
+// Default the warm-pool gate to OPEN for existing tests — they predate
+// the gate and expect heartbeat/filing/etc. to run on every tick. Tests
+// that specifically exercise the gate path override this mock locally.
+mock.module("../runtime/pre-first-message-gate.js", () => ({
+  hasReceivedUserMessage: () => true,
+  _resetPreFirstMessageGateCacheForTests: () => {},
+}));
+
 // ── Heartbeat run store mock ───────────────────────────────────────
 const mockInsertPendingHeartbeatRun = mock(() => "mock-run-id");
 const mockStartHeartbeatRun = mock(() => true);
