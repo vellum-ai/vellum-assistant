@@ -173,7 +173,7 @@ private struct OpenSourceFeatureCard: View {
                 VButton(
                     label: "View source",
                     rightIcon: VIcon.arrowUpRight.rawValue,
-                    style: .ghost
+                    style: .outlined
                 ) {
                     openURL(AppURLs.repositoryURL)
                 }
