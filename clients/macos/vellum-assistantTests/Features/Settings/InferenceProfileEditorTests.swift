@@ -789,6 +789,159 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertEqual(cancelCalls, 0)
     }
 
+    // MARK: - View-mode change detection (managed-profile policy edit)
+
+    /// Sanity: `isStatusActive` collapses the three "active" shapes
+    /// (`nil`, empty string, literal `"active"`) into the same bucket
+    /// and treats only literal `"disabled"` as inactive. Round-trips
+    /// through the daemon can flip between any of the three active
+    /// shapes, so the editor must not treat that as a user-visible
+    /// change.
+    func testIsStatusActiveNormalizesActiveShapes() {
+        XCTAssertTrue(InferenceProfileEditor.isStatusActive(nil))
+        XCTAssertTrue(InferenceProfileEditor.isStatusActive(""))
+        XCTAssertTrue(InferenceProfileEditor.isStatusActive("active"))
+        XCTAssertFalse(InferenceProfileEditor.isStatusActive("disabled"))
+    }
+
+    /// Editing a managed profile's label from "Managed" to "Renamed"
+    /// must register as a view-mode change so Save is enabled.
+    func testViewModeHasChangesDetectsLabelEdit() {
+        XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Renamed",
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+    }
+
+    /// Toggling status from active to disabled must register as a
+    /// view-mode change. Uses `nil` as the initial active shape because
+    /// that's what the daemon-seeded managed profiles arrive as.
+    func testViewModeHasChangesDetectsStatusFlipFromActiveToDisabled() {
+        XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: "disabled",
+            initialStatus: nil
+        ))
+    }
+
+    /// And back: from disabled to active. The `initialStatus` here is
+    /// `"disabled"` because that's what the editor would have captured
+    /// from the seed profile.
+    func testViewModeHasChangesDetectsStatusFlipFromDisabledToActive() {
+        XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: "active",
+            initialStatus: "disabled"
+        ))
+    }
+
+    /// Identical snapshots — no change. Save must stay disabled.
+    func testViewModeHasChangesReturnsFalseWhenLabelAndStatusUntouched() {
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+    }
+
+    /// `nil` vs `"active"` vs `""` are all the same "active" bucket.
+    /// Toggling between them via daemon round-trips must NOT register
+    /// as a change — otherwise the Save button would flicker on after
+    /// a no-op refresh.
+    func testViewModeHasChangesIgnoresActiveShapeRoundTrip() {
+        // nil ↔ "active"
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: "active",
+            initialStatus: nil
+        ))
+        // nil ↔ ""
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: "",
+            initialStatus: nil
+        ))
+        // "active" ↔ ""
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: "active",
+            initialStatus: ""
+        ))
+    }
+
+    /// Trailing/leading whitespace on the label is trimmed before
+    /// comparison — a stray space from copy-paste or auto-fill must
+    /// not enable Save.
+    func testViewModeHasChangesTrimsLabelWhitespace() {
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "  Managed  ",
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed\n",
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+    }
+
+    /// Clearing the label (nil or empty) when the initial was set
+    /// counts as a real change — the daemon will store it as a cleared
+    /// override and the seed label will re-surface.
+    func testViewModeHasChangesDetectsLabelClearing() {
+        XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: nil,
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+        XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "",
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+    }
+
+    /// `nil` label and `""` label both normalize to empty — toggling
+    /// between them must NOT register as a change.
+    func testViewModeHasChangesTreatsNilAndEmptyLabelAsEqual() {
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "",
+            initialLabel: nil,
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+    }
+
+    /// Instance-level guard: in edit mode (not read-only),
+    /// `hasViewModeChanges` is always false — even if the profile
+    /// happens to differ from the (uncaptured) initial snapshot.
+    /// View-mode change tracking only applies to the managed-profile
+    /// read path.
+    func testHasViewModeChangesIsAlwaysFalseInEditMode() {
+        let (editor, _) = makeEditor(profile: InferenceProfile(
+            name: "draft",
+            label: "Anything",
+            status: "disabled"
+        ))
+        XCTAssertFalse(editor.isReadOnly)
+        XCTAssertFalse(
+            editor.hasViewModeChanges,
+            "Edit mode must never report view-mode changes — only the read-only managed-profile path tracks them"
+        )
+    }
+
     // MARK: - Connection sub-dropdown (audit finding #5)
 
     /// Two active openai connections + one disabled + one of a different

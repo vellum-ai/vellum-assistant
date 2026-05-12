@@ -3464,6 +3464,64 @@ public final class SettingsStore: ObservableObject {
         return success
     }
 
+    /// Persists the two policy-edit fields (`label`, `status`) for a
+    /// managed profile via the `PUT /v1/config/llm/profiles/<name>` route.
+    /// Used by view-mode Save on managed profiles: the daemon's route
+    /// detects `MANAGED_PROFILE_NAMES` and applies a partial overlay (label/
+    /// status only, every other seed field preserved) instead of the full
+    /// UI-replace cycle that `replaceProfile` triggers. Sending any other
+    /// field for a managed name causes the daemon to reject the request
+    /// with a 400 — see `handleReplaceInferenceProfile` in
+    /// `assistant/src/runtime/routes/conversation-query-routes.ts`.
+    ///
+    /// `label` and `status` use a nil-as-clear convention so the wire shape
+    /// matches the daemon's `patchManagedProfileFields` semantics:
+    /// - `nil` / whitespace-only `label` → request body has `label: null`,
+    ///   daemon deletes the `label` key on disk and the profile falls
+    ///   back to displaying its key (`name`).
+    /// - `nil` / empty `status` → request body has `status: null`, daemon
+    ///   deletes the `status` key on disk. The profile is then considered
+    ///   active by absence (mirrors `setProfileStatus`'s local convention).
+    /// - non-nil values are stored verbatim.
+    ///
+    /// On success the local `profiles` cache is patched in place so the UI
+    /// reflects the new values without waiting for the next daemon config
+    /// push. Only `label` and `status` are touched in the local entry —
+    /// every other field on the cached profile (provider, model, advanced
+    /// params) is preserved, mirroring the daemon-side partial overlay.
+    @discardableResult
+    func setManagedProfilePolicy(
+        name: String,
+        label: String?,
+        status: String?
+    ) async -> Bool {
+        let trimmedLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let labelCleared = (trimmedLabel ?? "").isEmpty
+        let statusCleared = (status ?? "").isEmpty
+        let fragment: [String: Any] = [
+            "label": labelCleared ? NSNull() : (trimmedLabel as Any),
+            "status": statusCleared ? NSNull() : (status as Any),
+        ]
+        let success = await settingsClient.replaceInferenceProfile(
+            name: name,
+            fragment: fragment
+        )
+        if success {
+            // Re-lookup post-await: a concurrent `loadInferenceProfiles`
+            // can replace `profiles` during the suspension, so a captured
+            // index would be stale.
+            if let index = profiles.firstIndex(where: { $0.name == name }) {
+                var updated = profiles[index]
+                updated.label = labelCleared ? nil : trimmedLabel
+                updated.status = statusCleared ? nil : status
+                profiles[index] = updated
+            }
+        } else {
+            log.error("Failed to setManagedProfilePolicy for llm.profiles.\(name, privacy: .public)")
+        }
+        return success
+    }
+
     /// Replaces the Settings-UI-managed leaves for a profile. Unlike
     /// `setProfile`, nil fields in `fragment` are treated as removals by
     /// the assistant route, so hidden or toggled-off editor controls do not

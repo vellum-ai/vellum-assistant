@@ -88,6 +88,71 @@ struct InferenceProfileEditor: View {
     /// false, the key auto-derives from the Display Name as kebab-case.
     @State private var isKeyDirty: Bool = false
 
+    /// Snapshot of `profile.label` captured when the editor appeared.
+    /// Used by `hasViewModeChanges` to decide whether the view-mode Save
+    /// button is enabled. View mode is reserved for managed profiles, so
+    /// this snapshot represents the daemon-seeded label (or the user's
+    /// most recent override of it).
+    @State private var initialLabel: String?
+
+    /// Snapshot of `profile.status` captured when the editor appeared.
+    /// Compared against the current status via `isStatusActive(_:)` so
+    /// the `nil`/`"active"` round-trip from the daemon doesn't read as
+    /// a spurious change. See `hasViewModeChanges`.
+    @State private var initialStatus: String?
+
+    /// True when the editor is in view mode (managed-profile read of an
+    /// existing profile) AND the user has touched either of the two
+    /// fields that view mode permits editing (`label`, `status`).
+    /// Drives the view-mode Save button's enabled state; without a
+    /// change, view mode stays close-only.
+    ///
+    /// `label` comparison trims surrounding whitespace so a stray space
+    /// doesn't read as a change. `status` comparison normalizes
+    /// `nil`/`""`/`"active"` to the same "active" bucket so the daemon's
+    /// stored shape (which may differ from the local-cache shape — see
+    /// `setProfileStatus`'s `wireStatus` vs `nextLocalStatus`) doesn't
+    /// trip a false-positive change.
+    var hasViewModeChanges: Bool {
+        guard isReadOnly else { return false }
+        return Self.viewModeHasChanges(
+            currentLabel: profile.label,
+            initialLabel: initialLabel,
+            currentStatus: profile.status,
+            initialStatus: initialStatus
+        )
+    }
+
+    /// Pure comparison driving `hasViewModeChanges`. Exposed so tests can
+    /// exercise the label/status normalization without rendering the
+    /// view (the instance variant depends on `@State` snapshots captured
+    /// in `.onAppear`, which doesn't fire under XCTest).
+    ///
+    /// `label` compares trimmed-whitespace, so a stray trailing space
+    /// doesn't read as a real change.
+    /// `status` normalizes through `isStatusActive` so the daemon's
+    /// nil-vs-"active" round-trip stays a no-op.
+    static func viewModeHasChanges(
+        currentLabel: String?,
+        initialLabel: String?,
+        currentStatus: String?,
+        initialStatus: String?
+    ) -> Bool {
+        let labelEqual = (currentLabel ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            == (initialLabel ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let statusEqual = isStatusActive(currentStatus) == isStatusActive(initialStatus)
+        return !labelEqual || !statusEqual
+    }
+
+    /// Normalizes the three "active" shapes (`nil`, empty string,
+    /// literal `"active"`) into a single boolean so the local-vs-wire
+    /// status comparison stays robust across daemon round-trips. Mirrors
+    /// `InferenceProfile.isDisabled` semantics: only literal `"disabled"`
+    /// reads as disabled.
+    static func isStatusActive(_ status: String?) -> Bool {
+        status != "disabled"
+    }
+
     // MARK: - Validation
 
     /// True when the user hasn't picked a provider yet. Provider is now
@@ -149,36 +214,59 @@ struct InferenceProfileEditor: View {
             SettingsDivider()
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    // Display Name stays editable in every mode — including
+                    // view mode for managed profiles, where the daemon
+                    // allows policy edits on `label` even though the seed
+                    // contract (provider, model, advanced params) is
+                    // locked. The Save button in the view-mode footer
+                    // gates the persist call on `hasViewModeChanges`.
                     labelField
-                    descriptionField
-                    keyField
-                    providerField
-                    connectionField
-                    modelField
-                    if visibility.maxTokens {
-                        maxTokensField
+
+                    // Seed-owned fields: locked in view mode (managed
+                    // profile read) so the user can't reshape the
+                    // daemon-seeded contract from inside view mode. The
+                    // duplicate path (Save As New) is the supported way
+                    // to fork these into a user-owned profile.
+                    Group {
+                        descriptionField
+                        keyField
+                        providerField
+                        connectionField
+                        modelField
+                        if visibility.maxTokens {
+                            maxTokensField
+                        }
+                        contextWindowField
                     }
-                    contextWindowField
-                    if visibility.effort {
-                        effortField
+                    .disabled(isReadOnly)
+                    Group {
+                        if visibility.effort {
+                            effortField
+                        }
+                        if visibility.speed {
+                            speedField
+                        }
+                        if visibility.verbosity {
+                            verbosityField
+                        }
+                        if visibility.temperature {
+                            temperatureField
+                        }
+                        if visibility.thinking {
+                            thinkingSection
+                        }
                     }
-                    if visibility.speed {
-                        speedField
-                    }
-                    if visibility.verbosity {
-                        verbosityField
-                    }
-                    if visibility.temperature {
-                        temperatureField
-                    }
-                    if visibility.thinking {
-                        thinkingSection
-                    }
+                    .disabled(isReadOnly)
+
+                    // Status (active/disabled) is user policy in every
+                    // mode for the same reason as `label`: managed
+                    // profiles can be temporarily disabled without
+                    // duplicating. Save in view mode persists the
+                    // toggle along with any label change.
                     statusToggle
                 }
                 .padding(VSpacing.lg)
             }
-            .disabled(isReadOnly)
             SettingsDivider()
             editorFooter
         }
@@ -190,6 +278,15 @@ struct InferenceProfileEditor: View {
             if !isCreating {
                 isKeyDirty = true
             }
+            // Capture the policy-field baseline so the view-mode Save
+            // button can light up only when the user actually changed
+            // something. We re-capture on every `.onAppear` (not just
+            // the first) because the editor view is unmounted when
+            // `editorState` transitions to nil (parent sheet conditional
+            // `if editorState != nil`), so switching between profiles
+            // re-fires this closure with the new draft.
+            initialLabel = profile.label
+            initialStatus = profile.status
         }
     }
 
@@ -228,6 +325,19 @@ struct InferenceProfileEditor: View {
                     VButton(label: "Save As New", style: .primary) {
                         onSaveAs()
                     }
+                }
+                // Save persists the two view-mode-editable fields
+                // (`label`, `status`). Gated on `hasViewModeChanges` so an
+                // untouched view session can't round-trip a no-op write,
+                // and so the button visually communicates "nothing to save
+                // yet" while the user is just browsing. The parent's
+                // `commitEditor` detects view mode and routes through
+                // `SettingsStore.setManagedProfilePolicy` rather than the
+                // full `replaceProfile` path — sending only `{label,
+                // status}` is required by the daemon's managed-profile
+                // guard on `PUT /v1/config/llm/profiles/<name>`.
+                VButton(label: "Save", style: .primary, isDisabled: !hasViewModeChanges) {
+                    onSave()
                 }
             } else {
                 VButton(label: "Cancel", style: .outlined) {

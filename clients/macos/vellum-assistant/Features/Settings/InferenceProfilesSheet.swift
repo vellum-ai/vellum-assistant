@@ -544,6 +544,33 @@ struct InferenceProfilesSheet: View {
     private func commitEditor() async {
         let draft = editorDraft
         let originalName = editorOriginalName
+
+        // View mode is reserved for managed profiles. The user can rename
+        // them (`label`) and disable them (`status`) without leaving view
+        // mode, but everything else (provider, model, advanced params,
+        // connection binding) belongs to the daemon seed and can't be
+        // reshaped from here — the Save As New path is the only way to
+        // fork those into a user-owned profile. Route the view-mode save
+        // through `setManagedProfilePolicy` so the wire payload is
+        // restricted to `{label, status}` (the daemon's
+        // `handleReplaceInferenceProfile` rejects any other field for
+        // managed names with a 400) and so we don't run `replaceProfile`'s
+        // full UI-replace cycle on a label-only fragment — that would
+        // wipe every seed field on the local profile copy.
+        if case .view(let viewName) = editorState {
+            let success = await store.setManagedProfilePolicy(
+                name: viewName,
+                label: draft.label,
+                status: draft.status
+            )
+            guard success else {
+                actionError = "Couldn't save profile. Please try again."
+                return
+            }
+            editorState = nil
+            return
+        }
+
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         // Refuse to commit empty or whitespace-only names — the daemon
         // would accept them but the row would render unusably.
@@ -560,7 +587,9 @@ struct InferenceProfilesSheet: View {
 
         // Defense-in-depth: the UI disables Edit for managed profiles, but
         // guard here in case the method is reached through an unexpected
-        // path. The daemon also rejects writes to managed profiles.
+        // path. The daemon also rejects writes to managed profiles. The
+        // view-mode policy-edit path above is the ONE managed-profile
+        // mutation we do allow — it lands before this guard.
         if let originalName,
            let existing = store.profiles.first(where: { $0.name == originalName }),
            existing.isManaged {
