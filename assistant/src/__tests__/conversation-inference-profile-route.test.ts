@@ -1,6 +1,11 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  conversationMetadataSyncTag,
+  SYNC_TAGS,
+} from "../daemon/message-types/sync.js";
 import { makeMockLogger } from "./helpers/mock-logger.js";
+import { waitFor } from "./helpers/wait-for.js";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
@@ -63,6 +68,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       type: string;
       conversationId?: string;
       profile?: string | null;
+      tags?: string[];
     }> = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
@@ -74,6 +80,10 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
             event.message.type === "conversation_inference_profile_updated"
               ? event.message.profile
               : undefined,
+          tags:
+            event.message.type === "sync_changed"
+              ? event.message.tags
+              : undefined,
         });
       },
     });
@@ -84,7 +94,9 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       headers: {},
     });
 
-    await Promise.resolve();
+    await waitFor(() => received.length === 2, {
+      message: "Timed out waiting for inference profile route event",
+    });
 
     expect(result).toMatchObject({
       conversationId: conversation.id,
@@ -98,6 +110,16 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
         type: "conversation_inference_profile_updated",
         conversationId: conversation.id,
         profile: "quality-optimized",
+        tags: undefined,
+      },
+      {
+        type: "sync_changed",
+        conversationId: undefined,
+        profile: undefined,
+        tags: [
+          SYNC_TAGS.conversationsList,
+          conversationMetadataSyncTag(conversation.id),
+        ],
       },
     ]);
 
@@ -125,14 +147,17 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       body: { profile: "balanced" },
       headers: {},
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(getConversation(conversation.id)?.inferenceProfile).toBe("balanced");
 
-    const received: Array<{ profile?: string | null }> = [];
+    const received: Array<{ profile?: string | null; tags?: string[] }> = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
         if (event.message.type === "conversation_inference_profile_updated") {
           received.push({ profile: event.message.profile });
+        } else if (event.message.type === "sync_changed") {
+          received.push({ tags: event.message.tags });
         }
       },
     });
@@ -143,14 +168,24 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       headers: {},
     });
 
-    await Promise.resolve();
+    await waitFor(() => received.length === 2, {
+      message: "Timed out waiting for inference profile route event",
+    });
 
     expect(result).toMatchObject({
       conversationId: conversation.id,
       profile: null,
     });
     expect(getConversation(conversation.id)?.inferenceProfile).toBeNull();
-    expect(received).toEqual([{ profile: null }]);
+    expect(received).toEqual([
+      { profile: null },
+      {
+        tags: [
+          SYNC_TAGS.conversationsList,
+          conversationMetadataSyncTag(conversation.id),
+        ],
+      },
+    ]);
 
     subscription.dispose();
   });
@@ -163,6 +198,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       body: { profile: "balanced" },
       headers: {},
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const updatedAtAfterSet = getConversation(conversation.id)?.updatedAt;
 
     const received: Array<{ profile?: string | null }> = [];

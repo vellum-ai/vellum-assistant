@@ -15,6 +15,7 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: { publish: async () => {} },
+  broadcastMessage: () => {},
 }));
 
 mock.module("../runtime/assistant-event.js", () => ({
@@ -43,9 +44,15 @@ import { ROUTES } from "../runtime/routes/inference-profile-session-routes.js";
 
 initializeDb();
 
-const openRoute = ROUTES.find((r) => r.operationId === "inference_profile_open")!;
-const closeRoute = ROUTES.find((r) => r.operationId === "inference_profile_close")!;
-const listRoute = ROUTES.find((r) => r.operationId === "inference_profile_list")!;
+const openRoute = ROUTES.find(
+  (r) => r.operationId === "inference_profile_open",
+)!;
+const closeRoute = ROUTES.find(
+  (r) => r.operationId === "inference_profile_close",
+)!;
+const listRoute = ROUTES.find(
+  (r) => r.operationId === "inference_profile_list",
+)!;
 
 function clearTables(): void {
   const db = getDb();
@@ -77,7 +84,9 @@ describe("inference_profile_open IPC op", () => {
       replaced: null,
     });
     expect((result as { sessionId: string }).sessionId).not.toBeNull();
-    expect((result as { expiresAt: number }).expiresAt).toBeGreaterThan(Date.now());
+    expect((result as { expiresAt: number }).expiresAt).toBeGreaterThan(
+      Date.now(),
+    );
   });
 
   test("opens a sticky session (no ttlSeconds) — sessionId=null, expiresAt=null", async () => {
@@ -145,7 +154,10 @@ describe("inference_profile_close IPC op", () => {
     const result = (await closeRoute.handler({
       body: { conversationId: conv.id },
       headers: {},
-    })) as { noop: boolean; closed: { profile: string; sessionId: string } | null };
+    })) as {
+      noop: boolean;
+      closed: { profile: string; sessionId: string } | null;
+    };
 
     expect(result.noop).toBe(false);
     expect(result.closed).not.toBeNull();

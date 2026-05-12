@@ -23,6 +23,7 @@ mock.module("../../assistant-event-hub.js", () => ({
     publish: async () => {},
     subscribe: () => () => {},
   },
+  broadcastMessage: () => {},
 }));
 
 import { getDb } from "../../../memory/db-connection.js";
@@ -114,7 +115,10 @@ function seedConversation(id: string): void {
 describe("PUT /v1/conversations/:id/inference-profile", () => {
   beforeEach(() => {
     clearConversations();
-    configLlmProfiles = { fast: { model: "model-a" }, slow: { model: "model-b" } };
+    configLlmProfiles = {
+      fast: { model: "model-a" },
+      slow: { model: "model-b" },
+    };
   });
 
   test("PUT with ttlSeconds=600 → response includes sessionId (UUID), expiresAt, ttlSeconds=600", async () => {

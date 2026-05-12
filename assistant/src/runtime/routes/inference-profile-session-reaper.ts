@@ -13,8 +13,7 @@
 
 import { clearExpiredInferenceProfiles } from "../../memory/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { publishConversationInferenceProfileChanged } from "../sync/resource-sync-events.js";
 
 const log = getLogger("inference-profile-session-reaper");
 
@@ -38,25 +37,12 @@ export function tickInferenceProfileReaper(): void {
   const now = Date.now();
   const cleared = clearExpiredInferenceProfiles(now);
   for (const { conversationId } of cleared) {
-    assistantEventHub
-      .publish(
-        buildAssistantEvent(
-          {
-            type: "conversation_inference_profile_updated",
-            conversationId,
-            profile: null,
-            sessionId: null,
-            expiresAt: null,
-          },
-          conversationId,
-        ),
-      )
-      .catch((err) => {
-        log.warn(
-          { err, conversationId },
-          "Failed to publish inference profile expiry event",
-        );
-      });
+    publishConversationInferenceProfileChanged({
+      conversationId,
+      profile: null,
+      sessionId: null,
+      expiresAt: null,
+    });
   }
   if (cleared.length > 0) {
     log.info(
