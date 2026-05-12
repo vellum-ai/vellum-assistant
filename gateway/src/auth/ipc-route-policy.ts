@@ -109,22 +109,42 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["config_set", ["settings.write"]],
 
   // Conversation CLI
-  ["conversation_create_cli", ["chat.write"]],
-  ["conversation_export_cli", ["chat.read"]],
-  ["conversation_list_cli", ["chat.read"]],
-  ["conversations_clear_cli", ["chat.write"]],
+  //
+  // The daemon HTTP policy elevates these from chat.* to settings.*
+  // (see `assistant/src/runtime/auth/route-policy.ts` —
+  // `conversations/cli/clear` is locked to `settings.write` "mirroring the
+  // `conversations/clear-all` and `conversations/wipe` gates" because
+  // clear-cli wipes every conversation + message + vector collection).
+  // The IPC entries mirror that elevation — anything weaker on IPC would
+  // mean a future scope profile granting `chat.write` without
+  // `settings.write` lets the destructive clear-cli bypass the daemon's
+  // explicit elevation.
+  ["conversation_create_cli", ["settings.write"]],
+  ["conversation_export_cli", ["settings.read"]],
+  ["conversation_list_cli", ["settings.read"]],
+  ["conversations_clear_cli", ["settings.write"]],
 
   // Credentials
   //
-  // ATL-510 separately tracks the credentials_reveal plaintext-leak
-  // concern (the handler returns the plaintext value, not just metadata).
-  // The IPC scope here mirrors the read/write split of every other
-  // credential operation; the plaintext-leak fix is a route-level change
-  // tracked under ATL-510, not a policy-table change.
+  // Every credential route declares `policyKey: "secrets"` and uses POST
+  // (except `credentials_status` which is GET). The daemon HTTP router
+  // resolves them as:
+  //   - POST → "secrets:POST" not registered → falls back to "secrets"
+  //     → settings.write
+  //   - GET  → "secrets:GET" → settings.read
+  // So inspect/list/reveal/set/delete all require settings.write on the
+  // HTTP path. Mapping the read-shaped ones (list/inspect/reveal) to
+  // settings.read on IPC would make IPC strictly more permissive than
+  // HTTP — exactly the drift class the gateway IPC policy table exists
+  // to prevent.
+  //
+  // ATL-510 separately tracks the `credentials_reveal` plaintext-leak
+  // (the handler returns the plaintext value); that's a route-level fix,
+  // not a policy-table change.
   ["credentials_delete", ["settings.write"]],
-  ["credentials_inspect", ["settings.read"]],
-  ["credentials_list", ["settings.read"]],
-  ["credentials_reveal", ["settings.read"]],
+  ["credentials_inspect", ["settings.write"]],
+  ["credentials_list", ["settings.write"]],
+  ["credentials_reveal", ["settings.write"]],
   ["credentials_set", ["settings.write"]],
   ["credentials_status", ["settings.read"]],
 
@@ -145,7 +165,14 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["messages_tts", ["chat.read"]],
   ["stt_providers", ["settings.read"]],
   ["stt_transcribe", ["chat.write"]],
-  ["stt_transcribe_file", ["chat.write"]],
+  // `stt_transcribe_file` reads/transcodes an arbitrary host filesystem
+  // path. The daemon HTTP policy locks it to ["local"] because, in the
+  // daemon's words, "non-local callers cannot be allowed to drive it"
+  // (`assistant/src/runtime/auth/route-policy.ts` — `stt/transcribe-file`
+  // policy block). The IPC entry mirrors that boundary — otherwise an
+  // actor JWT with chat.write can drive arbitrary host-path reads
+  // through the gateway IPC proxy.
+  ["stt_transcribe_file", ["chat.write"], ["local"]],
   ["tts_synthesize", ["chat.read"]],
   ["tts_synthesize_cli", ["chat.read"]],
 

@@ -76,6 +76,9 @@ describe("ipc-route-policy: ATL-315 Batch 18 — new operationIds", () => {
   // These tests pin the scope mapping so a future refactor can't silently
   // weaken it.
 
+  // Scope assertions — every Batch 18 entry must match the daemon HTTP
+  // scope its `policyKey`/method resolves to. Asserted explicitly here
+  // so a future refactor can't silently widen IPC vs. HTTP.
   test.each([
     // Reads — settings.read
     ["backup_destinations_list", "settings.read"],
@@ -84,9 +87,6 @@ describe("ipc-route-policy: ATL-315 Batch 18 — new operationIds", () => {
     ["backups_verify", "settings.read"],
     ["config_allowlist_validate", "settings.read"],
     ["config_schema_get", "settings.read"],
-    ["credentials_inspect", "settings.read"],
-    ["credentials_list", "settings.read"],
-    ["credentials_reveal", "settings.read"],
     ["credentials_status", "settings.read"],
     ["domain_status", "settings.read"],
     ["email_attachment_get", "settings.read"],
@@ -126,18 +126,35 @@ describe("ipc-route-policy: ATL-315 Batch 18 — new operationIds", () => {
     ["sequence_pause", "settings.write"],
     ["sequence_resume", "settings.write"],
 
-    // Conversation CLI — chat.read / chat.write
-    ["conversation_export_cli", "chat.read"],
-    ["conversation_list_cli", "chat.read"],
-    ["conversation_create_cli", "chat.write"],
-    ["conversations_clear_cli", "chat.write"],
+    // Conversation CLI — daemon elevates from chat.* to settings.*
+    // because `conversations/cli/clear` wipes every conversation +
+    // message + vector collection. IPC mirrors that elevation.
+    ["conversation_export_cli", "settings.read"],
+    ["conversation_list_cli", "settings.read"],
+    ["conversation_create_cli", "settings.write"],
+    ["conversations_clear_cli", "settings.write"],
 
-    // STT / TTS — mirror daemon HTTP scopes
+    // Credentials — every credential route uses policyKey: "secrets",
+    // which resolves to settings.write on POST and settings.read on GET.
+    ["credentials_inspect", "settings.write"],
+    ["credentials_list", "settings.write"],
+    ["credentials_reveal", "settings.write"],
+
+    // STT / TTS CLI — mirror daemon HTTP scopes
     ["stt_transcribe_file", "chat.write"],
     ["tts_synthesize_cli", "chat.read"],
   ] as const)("%s requires %s", (operationId, expectedScope) => {
     const policy = getIpcRoutePolicy(operationId);
     expect(policy).toBeDefined();
     expect(policy!.requiredScopes).toEqual([expectedScope]);
+  });
+
+  // Principal restriction — `stt_transcribe_file` reads arbitrary host
+  // filesystem paths. The daemon HTTP policy locks it to ["local"] for
+  // that reason; the IPC entry must mirror that boundary.
+  test("stt_transcribe_file is restricted to local principal", () => {
+    const policy = getIpcRoutePolicy("stt_transcribe_file");
+    expect(policy).toBeDefined();
+    expect(policy!.allowedPrincipalTypes).toEqual(["local"]);
   });
 });
