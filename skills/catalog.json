@@ -94,7 +94,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:22:28-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "document-writer",
@@ -314,7 +314,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:22:28-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "macos-automation",
@@ -453,7 +453,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:24:05-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "outlook",
@@ -515,7 +515,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:22:28-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "restaurant-reservation",
@@ -571,7 +571,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:22:28-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "slack",
@@ -627,7 +627,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:22:28-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "tasks",
