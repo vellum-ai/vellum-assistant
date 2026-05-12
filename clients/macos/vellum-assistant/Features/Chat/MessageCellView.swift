@@ -143,11 +143,15 @@ struct MessageCellView: View, Equatable {
                 processingStatusText: processingStatusText,
                 isStreamingContinuation: isStreamingContinuation,
                 activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: hideInlineAvatar,
+                hideInlineAvatar: hideInlineAvatar || hasSubagents,
                 searchQuery: searchQuery
             )
             .equatable()
         }
+    }
+
+    private var hasSubagents: Bool {
+        subagentsByParent[message.id]?.isEmpty == false
     }
 
     @ViewBuilder
@@ -161,6 +165,27 @@ struct MessageCellView: View, Equatable {
             Spacer(minLength: 0)
         }
         .id("thinking-indicator")
+    }
+
+    @ViewBuilder
+    private var subagentInlineAvatar: some View {
+        let appearance = AvatarAppearanceManager.shared
+        let avatarSize = ConversationAvatarFollower.avatarSize
+        HStack {
+            if appearance.customAvatarImage != nil {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+            } else if let bodyShape = appearance.characterBodyShape,
+                      let eyeStyle = appearance.characterEyeStyle,
+                      let color = appearance.characterColor {
+                AnimatedAvatarView(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color,
+                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
+                                   isStreaming: message.isStreaming)
+                    .frame(width: avatarSize, height: avatarSize)
+            } else {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+            }
+            Spacer()
+        }
     }
 
     var body: some View {
@@ -239,7 +264,7 @@ struct MessageCellView: View, Equatable {
                 processingStatusText: processingStatusText,
                 isStreamingContinuation: isStreamingContinuation,
                 activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: hideInlineAvatar,
+                hideInlineAvatar: hideInlineAvatar || hasSubagents,
                 searchQuery: searchQuery
             )
             .equatable()
@@ -262,6 +287,10 @@ struct MessageCellView: View, Equatable {
                 Spacer(minLength: 0)
             }
             .id("subagent-group-\(message.id)")
+
+            if isLatestAssistantMessage && !hideInlineAvatar {
+                subagentInlineAvatar
+            }
         }
 
         if showAnchoredThinkingIndicator {
