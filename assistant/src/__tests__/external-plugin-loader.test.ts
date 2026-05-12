@@ -115,7 +115,11 @@ describe("loadExternalPlugin — plugin-api peerDependency", () => {
     expect(registeredNames()).toContain("compat-ok");
   });
 
-  test("rejects plugin whose peerDependency range excludes assistant version", async () => {
+  test("loads plugin whose peerDependency range excludes assistant version (logs error)", async () => {
+    // The host-compat gate is soft while the installation flow is in
+    // flux — an unsatisfied range produces a `log.error` but the
+    // plugin still loads. Once installation settles, this case should
+    // harden back into a hard reject.
     const dir = freshPluginDir("compat-bad");
     writePackageJson(dir, {
       name: "compat-bad",
@@ -126,12 +130,11 @@ describe("loadExternalPlugin — plugin-api peerDependency", () => {
 
     await loadExternalPlugin(dir);
 
-    // Per-plugin isolation: the loader caught the throw, logged, and the
-    // registry stays clean.
-    expect(registeredNames()).not.toContain("compat-bad");
+    expect(registeredNames()).toContain("compat-bad");
   });
 
-  test("rejects plugin whose peerDependency range is unparseable", async () => {
+  test("loads plugin whose peerDependency range is unparseable (logs error)", async () => {
+    // Same soft-gate rationale as the excluded-range case above.
     const dir = freshPluginDir("compat-bogus");
     writePackageJson(dir, {
       name: "compat-bogus",
@@ -141,7 +144,7 @@ describe("loadExternalPlugin — plugin-api peerDependency", () => {
 
     await loadExternalPlugin(dir);
 
-    expect(registeredNames()).not.toContain("compat-bogus");
+    expect(registeredNames()).toContain("compat-bogus");
   });
 
   test("loads with warning when no peerDependency on plugin-api is declared", async () => {

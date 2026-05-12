@@ -218,29 +218,38 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
 
   // Host-compat negotiation: plugins declare their plugin-api version
-  // range via standard `peerDependencies["@vellumai/plugin-api"]`. If
-  // set and the range does not parse, or the running assistant version
-  // does not satisfy it, the plugin is rejected with an attributed
-  // error — the per-plugin isolation wrapper logs and moves on.
+  // range via standard `peerDependencies["@vellumai/plugin-api"]`. We
+  // inspect the range and report unparseable / unsatisfied cases via
+  // `log.error` but still load the plugin — the plugin-installation
+  // flow is in flux and a strict gate here would block experimentation
+  // for the customers driving the install UX. Once the install path
+  // settles, the two `log.error` branches below should harden into
+  // throws so a stale plugin can't silently run against a mismatched
+  // host.
   //
   // If the peerDep is absent, the plugin loads without a host-compat
-  // claim; we log a warning so the omission is visible at boot. This
-  // keeps experimental/in-tree plugins (no peerDeps yet) loadable while
-  // the convention bakes, but flags them for follow-up.
+  // claim; we log a warning so the omission is visible at boot.
   const range = pkg.peerDependencies?.[PLUGIN_API_PEER_DEP];
   if (range !== undefined) {
     if (!semver.validRange(range)) {
-      throw new Error(
-        `external plugin ${name}: peerDependencies["${PLUGIN_API_PEER_DEP}"] is not a valid semver range (got "${range}")`,
+      log.error(
+        { pluginDir, plugin: name, peerDep: PLUGIN_API_PEER_DEP, range },
+        `external plugin ${name}: peerDependencies["${PLUGIN_API_PEER_DEP}"] is not a valid semver range — loading anyway`,
       );
-    }
-    if (
+    } else if (
       !semver.satisfies(assistantPkg.version, range, {
         includePrerelease: true,
       })
     ) {
-      throw new Error(
-        `external plugin ${name}: peerDependencies["${PLUGIN_API_PEER_DEP}"] requires "${range}" but assistant is ${assistantPkg.version}`,
+      log.error(
+        {
+          pluginDir,
+          plugin: name,
+          peerDep: PLUGIN_API_PEER_DEP,
+          range,
+          assistantVersion: assistantPkg.version,
+        },
+        `external plugin ${name}: peerDependencies["${PLUGIN_API_PEER_DEP}"] requires "${range}" but assistant is ${assistantPkg.version} — loading anyway`,
       );
     }
   } else {

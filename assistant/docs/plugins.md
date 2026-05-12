@@ -125,17 +125,19 @@ Plugins declare which assistant versions they support via standard
 
 At load time, the external-plugin loader resolves the assistant's running
 version and runs `semver.satisfies(assistantVersion, range)` against the
-declared range. The contract:
+declared range. The contract is currently soft while the plugin-installation
+flow is in flux:
 
 - **Range satisfied** — plugin loads.
-- **Range not satisfied** — loader throws; the per-plugin isolation
-  wrapper catches and logs, the rest of the registry is unaffected.
-- **Range unparseable** — loader throws (same isolation behavior).
+- **Range not satisfied** — loader logs an error (`log.error`) and loads
+  the plugin anyway.
+- **Range unparseable** — loader logs an error and loads the plugin anyway.
 - **`@vellumai/plugin-api` peerDep absent** — loader logs a warning and
-  loads the plugin anyway. The plugin-api surface is still experimental;
-  this lenient mode keeps in-tree examples and early adopters running
-  while the contract stabilizes. Once the API is stable this will tighten
-  to a hard error.
+  loads the plugin without a host-compat claim.
+
+Once the install flow settles, the two error-logging branches above will
+harden into hard rejections (with per-plugin isolation catching the
+throw so one bad plugin can't brick the rest of the registry).
 
 In-tree default plugins do not declare a peerDep — they ship with the
 assistant binary and are version-locked by construction.
@@ -694,18 +696,21 @@ loop externally.
 
 ## Troubleshooting
 
-### `external plugin X: peerDependencies["@vellumai/plugin-api"] requires "<range>" but assistant is <version>`
+### `external plugin X: peerDependencies["@vellumai/plugin-api"] requires "<range>" but assistant is <version> — loading anyway`
 
-Your plugin's declared `peerDependencies["@vellumai/plugin-api"]` range
-does not include the running assistant's version. Either widen the range
-in your `package.json` (typically by bumping the major in `^X.Y.Z`) or
-upgrade the assistant.
+Logged at `error` level. Your plugin's declared
+`peerDependencies["@vellumai/plugin-api"]` range does not include the
+running assistant's version. The plugin still loads while the install
+flow is being shaped, but a future release will turn this into a hard
+rejection. Either widen the range in your `package.json` (typically by
+bumping the major in `^X.Y.Z`) or upgrade the assistant.
 
-### `external plugin X: peerDependencies["@vellumai/plugin-api"] is not a valid semver range`
+### `external plugin X: peerDependencies["@vellumai/plugin-api"] is not a valid semver range — loading anyway`
 
-The value declared under `peerDependencies["@vellumai/plugin-api"]` is
-not parseable as a semver range. Use a standard range expression such as
-`^0.8.0`, `>=0.8.0 <0.10`, or an exact version.
+Logged at `error` level, same lenient policy as above. The value declared
+under `peerDependencies["@vellumai/plugin-api"]` is not parseable as a
+semver range. Use a standard range expression such as `^0.8.0`,
+`>=0.8.0 <0.10`, or an exact version.
 
 ### `external plugin X missing plugin-api peerDependency — loading without host-compat claim`
 
