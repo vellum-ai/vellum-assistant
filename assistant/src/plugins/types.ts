@@ -93,49 +93,14 @@ export interface PluginManifest {
   config?: unknown;
 }
 
-// ─── Init context ────────────────────────────────────────────────────────────
-
-/**
- * Context passed to `Plugin.init()` during bootstrap. Carries resolved
- * config/credentials, a pino-compatible logger scoped to the plugin, a
- * per-plugin writable data directory, and the assistant's version metadata.
- */
-export interface PluginInitContext {
-  /** Parsed config for this plugin (may be `unknown` until the manifest validates). */
-  config: unknown;
-  /** Resolved credential values keyed by the entries of `manifest.requiresCredential`. */
-  credentials: Record<string, string>;
-  /**
-   * Pino-compatible child logger bound to `{ plugin: <name> }`. Untyped here
-   * to avoid pulling pino into the types module.
-   */
-  logger: unknown;
-  /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */
-  pluginStorageDir: string;
-  /** Assistant semver for compatibility checks inside the plugin. */
-  assistantVersion: string;
-  /** Capability → version-list map (`ASSISTANT_API_VERSIONS`) for defensive runtime checks. */
-  apiVersions: Record<string, string[]>;
-}
-
-// ─── Shutdown context ────────────────────────────────────────────────────────
-
-/**
- * Context passed to the `shutdown` hook during daemon teardown. Kept
- * intentionally narrower than {@link PluginInitContext} — most teardown
- * paths only need to know which assistant version they're shutting
- * down against (e.g. for version-conditional cleanup of state files
- * written by a previous boot).
- *
- * Additional fields may be added as concrete plugin needs surface; the
- * `assistantVersion` field mirrors the init context's so plugins that
- * stash a version stamp at init can compare against the same name on
- * tear-down without keeping their own copy.
- */
-export interface PluginShutdownContext {
-  /** Assistant semver for compatibility checks inside the plugin. */
-  assistantVersion: string;
-}
+// ─── Init / Shutdown context ─────────────────────────────────────────────────
+// Public types — defined in `assistant/src/plugin-api/types.ts` and re-exported
+// here so existing internal call sites keep working. Plugin authors will
+// import these from `@vellumai/plugin-api` once that package is published.
+export type {
+  PluginInitContext,
+  PluginShutdownContext,
+} from "../plugin-api/types.js";
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
