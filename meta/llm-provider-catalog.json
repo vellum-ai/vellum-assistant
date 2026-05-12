@@ -633,6 +633,54 @@
           }
         },
         {
+          "id": "deepseek/deepseek-v4-pro",
+          "displayName": "DeepSeek V4 Pro",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 384000,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.435,
+            "outputPer1mTokens": 0.87
+          }
+        },
+        {
+          "id": "deepseek/deepseek-v4-flash",
+          "displayName": "DeepSeek V4 Flash",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 384000,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.14,
+            "outputPer1mTokens": 0.28
+          }
+        },
+        {
+          "id": "deepseek/deepseek-v3.2-speciale",
+          "displayName": "DeepSeek V3.2 Speciale",
+          "contextWindowTokens": 163840,
+          "maxOutputTokens": 163840,
+          "defaultContextWindowTokens": 163840,
+          "longContextMode": "unsupported",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": false,
+          "pricing": {
+            "inputPer1mTokens": 0.287,
+            "outputPer1mTokens": 0.431
+          }
+        },
+        {
           "id": "qwen/qwen3.5-plus-02-15",
           "displayName": "Qwen 3.5 Plus",
           "contextWindowTokens": 131072,
