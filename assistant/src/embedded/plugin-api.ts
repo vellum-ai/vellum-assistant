@@ -10,11 +10,14 @@
  * plugin.
  *
  * Build prerequisite: `bun run build:plugin-api` produces
- * `src/plugin-api/dist/index.js`. The committed dist file is the
+ * `src/plugin-api/bundle/index.js`. The committed bundle file is the
  * canonical artifact; the same file is what gets published to npm in
  * a future PR.
+ *
+ * The directory is named `bundle/` (not `dist/`) to dodge the root
+ * `.gitignore`'s `dist` pattern — see `scripts/build-plugin-api.ts`.
  */
 
-import pluginApiPath from "../plugin-api/dist/index.js" with { type: "file" };
+import pluginApiPath from "../plugin-api/bundle/index.js" with { type: "file" };
 
 export { pluginApiPath };
