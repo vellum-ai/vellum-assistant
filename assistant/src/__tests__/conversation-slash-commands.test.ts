@@ -1,5 +1,4 @@
 import { writeFileSync } from "node:fs";
-
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
