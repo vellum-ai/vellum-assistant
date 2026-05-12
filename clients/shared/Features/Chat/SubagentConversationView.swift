@@ -199,8 +199,7 @@ public struct SubagentGroupRow: View {
             VIconView(.chevronRight, size: 9)
                 .foregroundStyle(isHovered ? VColor.primaryBase : VColor.contentTertiary)
         }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
+        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm + VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs + VSpacing.xs))
         .background(isHovered ? VColor.surfaceActive : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture { onTap?() }
