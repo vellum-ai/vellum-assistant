@@ -96,14 +96,15 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
-  test("rejects edits to quality-optimized with descriptive message", () => {
+  test("rejects edits to quality-optimized that touch non-label/status fields", () => {
     expect(() =>
       replaceRoute.handler({
         pathParams: { name: "quality-optimized" },
         body: { provider: "openai", model: "gpt-4o" },
       }),
     ).toThrow(
-      'Cannot edit managed profile "quality-optimized". Duplicate it to create a custom profile.',
+      'Cannot edit managed profile "quality-optimized" fields [provider, model]. ' +
+        "Only label and status may be edited; duplicate to a custom profile to change other fields.",
     );
   });
 

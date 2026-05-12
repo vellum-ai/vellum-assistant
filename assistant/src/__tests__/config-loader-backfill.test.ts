@@ -655,6 +655,100 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.activeProfile).toBe("balanced");
   });
 
+  test("off-platform reseed preserves user-edited label on managed profiles (Codex P1 on PR #30362)", () => {
+    // Simulate a user who renamed the managed "balanced" profile via
+    // PUT /v1/config/llm/profiles/balanced { label: "My Default" }.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+            label: "My Default",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // Model still gets the new template value (provider-controlled).
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    // But the user's label override is preserved across the reseed.
+    expect(raw.llm.profiles.balanced.label).toBe("My Default");
+  });
+
+  test("off-platform reseed preserves user-toggled status on managed profiles", () => {
+    // Simulate a user who disabled the managed "balanced" profile via
+    // PUT /v1/config/llm/profiles/balanced { status: "disabled" }.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+            status: "disabled",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.status).toBe("disabled");
+    // Model still refreshes — only label/status are user-owned.
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+  });
+
+  test("off-platform reseed preserves an explicit null label (user cleared it)", () => {
+    // Setting label to null is the "clear" intent — must survive too,
+    // otherwise the next boot would re-stamp the template's default
+    // label and ignore the user's clear action.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model",
+            provider_connection: "anthropic-managed",
+            label: null,
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.label).toBeNull();
+  });
+
+  test("off-platform reseed leaves fresh managed profiles untouched when no user overrides exist", () => {
+    // First boot, no prior config — template defaults must materialize
+    // exactly. Guards against accidentally clobbering template values
+    // with `undefined` from a `"label" in previous` check when previous
+    // is an empty shell.
+    writeConfig({});
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.label).toBe("Balanced");
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    // Status is unset by default — must not appear as `undefined`.
+    expect("status" in raw.llm.profiles.balanced).toBe(false);
+  });
+
   test("platform-provided profile fragments are not polluted by managed seeds", () => {
     process.env.IS_PLATFORM = "true";
 

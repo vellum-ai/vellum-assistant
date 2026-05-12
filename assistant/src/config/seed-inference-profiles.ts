@@ -162,14 +162,31 @@ export function seedInferenceProfiles(
   // 1. Managed profiles. Off-platform: overwrite on every boot so Vellum can
   //    push model/config updates in new releases. On-platform: insert only if
   //    absent — the platform controls profiles through overlays.
+  //
+  //    Two user-editable fields survive the overwrite: `label` (display
+  //    rename) and `status` (active/disabled toggle). The PUT route
+  //    `/v1/config/llm/profiles/:name` lets users patch these on managed
+  //    profiles without duplicating; we have to honor those edits across
+  //    reseeds or they'd silently revert on every boot. Codex P1 finding
+  //    on PR #30362.
   for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
     if (preservedProfileNames.has(name)) continue;
     if (isPlatform && readObject(profiles[name]) !== null) continue;
-    profiles[name] = materializeProfile(
+
+    const previous = readObject(profiles[name]);
+    const next = materializeProfile(
       template,
       MANAGED_PROFILE_PROVIDER,
       MANAGED_CONNECTION_NAME,
-    );
+    ) as Record<string, unknown>;
+    if (previous) {
+      // Preserve user overrides on these whitelisted fields. We carry
+      // them across by key-presence rather than truthiness so an
+      // explicit `null` (user cleared the label) survives too.
+      if ("label" in previous) next.label = previous.label;
+      if ("status" in previous) next.status = previous.status;
+    }
+    profiles[name] = next;
   }
 
   // 2. User profiles — only at hatch time for off-platform installations.
