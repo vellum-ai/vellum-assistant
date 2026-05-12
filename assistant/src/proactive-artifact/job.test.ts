@@ -51,9 +51,15 @@ mock.module("../providers/provider-send-message.js", () => ({
 
 // rawAll mock
 let rawAllRows: Array<{ role: string; content: string }> = [];
+let rawAllLastSql = "";
+let rawAllLastArgs: unknown[] = [];
 
 mock.module("../memory/raw-query.js", () => ({
-  rawAll: () => rawAllRows,
+  rawAll: (sql: string, ...args: unknown[]) => {
+    rawAllLastSql = sql;
+    rawAllLastArgs = args;
+    return rawAllRows;
+  },
   rawRun: () => 0,
 }));
 
@@ -279,6 +285,8 @@ function resetState() {
   copyResponse = "";
   providerSendCalls = [];
   rawAllRows = [];
+  rawAllLastSql = "";
+  rawAllLastArgs = [];
   bootstrapCalls = [];
   processMessageCalls = [];
   processMessageShouldThrow = false;
@@ -645,7 +653,7 @@ describe("runProactiveArtifactJob", () => {
   });
 
   describe("Transcript collection", () => {
-    test("dual-condition transcript query uses userMessageCutoff and assistantMessageId", async () => {
+    test("transcript query is scoped to the triggering conversation", async () => {
       rawAllRows = defaultTranscript;
       decisionResponse = decisionNo;
 
@@ -656,8 +664,8 @@ describe("runProactiveArtifactJob", () => {
         broadcastMessage: mockBroadcast,
       });
 
-      // The rawAll mock captures all calls; verify the decision was called
-      // (proving transcript was collected and passed to decision)
+      expect(rawAllLastSql).toContain("AND m.conversation_id = ?");
+      expect(rawAllLastArgs).toEqual(["conv-1", 5000, "asst-msg-99"]);
       expect(
         providerSendCalls.some(
           (c) => c.callSite === "proactiveArtifactDecision",
