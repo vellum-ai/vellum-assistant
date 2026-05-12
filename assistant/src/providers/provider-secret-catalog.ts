@@ -7,9 +7,9 @@
  * 1. **LLM providers** -- derived from `PROVIDER_CATALOG`
  *    (`model-catalog.ts`). Adding a provider to the catalog automatically
  *    extends the API-key-addressable set.
- * 2. **Search providers** -- statically declared (`brave`, `perplexity`,
- *    `tavily`);
- *    no catalog module exists for search providers yet.
+ * 2. **Search providers** -- derived from `SEARCH_PROVIDER_CATALOG`
+ *    (`search-provider-catalog.ts`). Adding a BYOK search provider to
+ *    the catalog automatically extends the API-key-addressable set.
  * 3. **STT providers** -- dynamically derived from the canonical STT
  *    provider catalog by reading credential-provider names.
  * 4. **TTS catalog providers** -- dynamically derived from the canonical
@@ -23,6 +23,7 @@
 
 import { listCatalogProviders } from "../tts/provider-catalog.js";
 import { PROVIDER_CATALOG } from "./model-catalog.js";
+import { BYOK_SEARCH_PROVIDERS } from "./search-provider-catalog.js";
 import { listCredentialProviderNames as listSttCredentialProviderNames } from "./speech-to-text/provider-catalog.js";
 
 // ---------------------------------------------------------------------------
@@ -48,11 +49,13 @@ const LLM_API_KEY_PROVIDERS: readonly string[] = PROVIDER_CATALOG.map(
 );
 
 /**
- * Search API providers without a catalog module. When a search-provider
- * catalog is introduced, replace this array with a catalog-derived
- * computation analogous to the TTS logic below.
+ * Search API providers, derived from `SEARCH_PROVIDER_CATALOG`. Managed
+ * search providers (e.g. `inference-provider-native`) are filtered out;
+ * only BYOK entries with a `secretKey` end up here.
  */
-const SEARCH_API_KEY_PROVIDERS = ["brave", "perplexity", "tavily"] as const;
+const SEARCH_API_KEY_PROVIDERS: readonly string[] = BYOK_SEARCH_PROVIDERS.map(
+  (p) => p.secretKey!,
+);
 
 const LLM_AND_SEARCH_API_KEY_PROVIDERS: readonly string[] = [
   ...LLM_API_KEY_PROVIDERS,
@@ -127,14 +130,14 @@ function catalogApiKeyNames(): string[] {
  * - Provider availability checks
  *
  * Adding a new LLM provider to `PROVIDER_CATALOG` (`model-catalog.ts`)
- * automatically includes it here. Adding a new TTS provider to the TTS
- * catalog with a bare-name secret requirement automatically includes it
- * here. Adding a new STT provider to the STT catalog automatically
- * includes it here. Shared credential names across domains (e.g.
- * `openai` for both LLM and STT; `deepgram` for both STT and TTS) are
- * deduplicated so the list contains no duplicates. Adding a new search
- * provider still requires appending to `SEARCH_API_KEY_PROVIDERS` until
- * search gets its own catalog module.
+ * automatically includes it here. Adding a new BYOK search provider to
+ * `SEARCH_PROVIDER_CATALOG` (`search-provider-catalog.ts`) automatically
+ * includes it here. Adding a new TTS provider to the TTS catalog with a
+ * bare-name secret requirement automatically includes it here. Adding a
+ * new STT provider to the STT catalog automatically includes it here.
+ * Shared credential names across domains (e.g. `openai` for both LLM
+ * and STT; `deepgram` for both STT and TTS) are deduplicated so the
+ * list contains no duplicates.
  */
 export const API_KEY_PROVIDERS: readonly string[] = (() => {
   const seen = new Set<string>();

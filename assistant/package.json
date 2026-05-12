@@ -16,6 +16,7 @@
     "db:push": "drizzle-kit push",
     "generate:openapi": "bun run scripts/generate-openapi.ts",
     "sync:llm-catalog": "bun run scripts/sync-llm-catalog.ts",
+    "sync:web-search-catalog": "bun run scripts/sync-web-search-catalog.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint",
