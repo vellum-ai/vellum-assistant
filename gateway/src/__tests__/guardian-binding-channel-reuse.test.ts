@@ -128,6 +128,19 @@ function seedSlackContactChannel(address: string): void {
     .run(address);
 }
 
+function seedRevokedGuardianSlackChannel(): void {
+  db()
+    .prepare(
+      `INSERT INTO contact_channels
+         (id, contact_id, type, address, external_user_id, external_chat_id,
+          is_primary, status, policy, created_at, updated_at)
+       VALUES
+         ('guardian-channel', 'guardian-contact', 'slack', 'U123EXAMPLE',
+          'U123EXAMPLE', 'D123EXAMPLE', 1, 'revoked', 'deny', 1, 1)`,
+    )
+    .run();
+}
+
 describe("createGuardianBinding", () => {
   test("claims a preseeded Slack channel for the guardian instead of inserting a duplicate", async () => {
     seedGuardianContact();
@@ -207,6 +220,55 @@ describe("createGuardianBinding", () => {
         address: "U123EXAMPLE",
         external_user_id: "U123EXAMPLE",
         status: "active",
+      },
+    ]);
+  });
+
+  test("prefers the cased guardian channel over a lowercase seed duplicate", async () => {
+    seedGuardianContact();
+    seedRevokedGuardianSlackChannel();
+    seedSlackContactChannel("u123example");
+
+    const result = await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    expect(result.contactId).toBe("guardian-contact");
+    expect(result.channelId).toBe("guardian-channel");
+
+    const rows = db()
+      .query<
+        {
+          id: string;
+          contact_id: string;
+          address: string;
+          status: string;
+        },
+        []
+      >(
+        `SELECT id, contact_id, address, status
+         FROM contact_channels
+         WHERE type = 'slack'
+         ORDER BY id`,
+      )
+      .all();
+    expect(rows).toEqual([
+      {
+        id: "guardian-channel",
+        contact_id: "guardian-contact",
+        address: "U123EXAMPLE",
+        status: "active",
+      },
+      {
+        id: "seed-channel",
+        contact_id: "seed-contact",
+        address: "u123example",
+        status: "unverified",
       },
     ]);
   });

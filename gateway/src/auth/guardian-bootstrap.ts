@@ -205,6 +205,7 @@ export async function createGuardianBinding(
       `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
       [params.guardianPrincipalId],
     );
+    const existingGuardianContactId = existingContacts[0]?.id;
 
     const claimableChannels = await assistantDbQuery<ExistingChannelRow>(
       `SELECT cc.id, cc.contact_id AS contactId
@@ -213,6 +214,8 @@ export async function createGuardianBinding(
          AND cc.status != 'blocked'
          AND (cc.address = ? OR cc.external_user_id = ?)
        ORDER BY
+         CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
+         CASE WHEN cc.contact_id = ? THEN 0 ELSE 1 END,
          CASE WHEN cc.external_user_id = ? THEN 0 ELSE 1 END,
          CASE cc.status
            WHEN 'active' THEN 0
@@ -225,6 +228,8 @@ export async function createGuardianBinding(
         params.channel,
         params.externalUserId,
         params.externalUserId,
+        params.externalUserId,
+        existingGuardianContactId ?? "",
         params.externalUserId,
       ],
     );
