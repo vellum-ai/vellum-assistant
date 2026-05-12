@@ -6,7 +6,7 @@ import { registerSlackCommand } from "./slack/index.js";
 export function registerUseCommand(program: Command): void {
   registerCommand(program, {
     name: "use",
-    transport: "local",
+    transport: "ipc",
     description: "Use third-party integrations (Slack, Linear, etc.)",
     build: (use) => {
       use.addHelpText(
