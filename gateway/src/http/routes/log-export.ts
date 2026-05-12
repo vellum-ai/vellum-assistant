@@ -30,7 +30,11 @@ import { fetchCesLogExport } from "@vellumai/ces-client/http-log-export";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
-import { getLogger, LOG_FILE_PATTERN } from "../../logger.js";
+import {
+  getLogger,
+  LOG_FILE_JSON_PATTERN,
+  LOG_FILE_PATTERN,
+} from "../../logger.js";
 
 const log = getLogger("log-export");
 
@@ -257,7 +261,10 @@ async function collectGatewayLogs(
   let totalBytes = 0;
 
   for (const name of entries) {
-    const match = LOG_FILE_PATTERN.exec(name);
+    // Include both the pretty .log and the JSONL sidecar so support bundles
+    // give humans something readable and tooling something parseable.
+    const match =
+      LOG_FILE_PATTERN.exec(name) ?? LOG_FILE_JSON_PATTERN.exec(name);
     if (!match) continue;
 
     const fileDateStr = match[1];

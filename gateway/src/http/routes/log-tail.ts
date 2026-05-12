@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { GatewayConfig } from "../../config.js";
-import { getLogger } from "../../logger.js";
+import { getLogger, LOG_FILE_JSON_PATTERN } from "../../logger.js";
 
 const log = getLogger("log-tail");
 
@@ -18,7 +18,10 @@ const LEVEL_MAP: Record<LevelName, number> = {
   fatal: 60,
 };
 
-const LOG_FILE_PATTERN = /^gateway-\d{4}-\d{2}-\d{2}\.log$/;
+// Server-side level/module filtering walks the JSONL sidecar produced by the
+// logger. The default human-readable .log file is pino-pretty multi-line and
+// not safely parseable line-by-line.
+const LOG_FILE_PATTERN = LOG_FILE_JSON_PATTERN;
 
 export function createLogTailHandler(
   config: GatewayConfig,
