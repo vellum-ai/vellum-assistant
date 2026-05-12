@@ -120,7 +120,7 @@ private struct FeatureCardHeader: View {
                     .fill(iconBg)
                     .frame(width: 40, height: 40)
                 icon.image(size: 20)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(VColor.auxWhite)
             }
             Spacer()
             Text(label)
@@ -287,7 +287,7 @@ private struct ResourceCard: View {
                             .fill(iconBg)
                             .frame(width: 40, height: 40)
                         icon.image(size: 20)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(VColor.auxWhite)
                     }
                     Spacer()
                     VIcon.externalLink.image(size: 14)
@@ -314,7 +314,7 @@ private struct ResourceCard: View {
         }
         .buttonStyle(.plain)
         .vCard()
-        .shadow(color: isHovered ? .black.opacity(0.08) : .clear, radius: 8, y: 2)
+        .shadow(color: isHovered ? VColor.contentEmphasized.opacity(0.08) : .clear, radius: 8, y: 2)
         .onHover { hovering in
             isHovered = hovering
         }
