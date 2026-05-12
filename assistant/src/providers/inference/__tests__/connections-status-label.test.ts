@@ -8,6 +8,7 @@ import { migrateProviderConnectionStatusLabel } from "../../../memory/migrations
 import * as schema from "../../../memory/schema.js";
 import {
   createConnection,
+  disableManagedConnectionsForByokHatch,
   getConnection,
   listConnections,
   seedCanonicalConnections,
@@ -178,5 +179,72 @@ describe("seedCanonicalConnections labels", () => {
 
     const conn = getConnection(db, "openai-managed");
     expect(conn?.label).toBe("OpenAI");
+  });
+});
+
+describe("disableManagedConnectionsForByokHatch", () => {
+  test("flips all three canonical managed connections to status='disabled'", () => {
+    const db = bootDb();
+    seedCanonicalConnections(db);
+
+    // Sanity: seeded rows default to active.
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
+    expect(getConnection(db, "openai-managed")?.status).toBe("active");
+    expect(getConnection(db, "gemini-managed")?.status).toBe("active");
+
+    disableManagedConnectionsForByokHatch(db);
+
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
+  });
+
+  test("subsequent seedCanonicalConnections call does NOT re-flip a user-re-enabled connection", () => {
+    // Models the post-hatch lifecycle: at hatch we disable; the user
+    // later flips one back to active (e.g. after Vellum login). Every
+    // subsequent daemon boot runs seedCanonicalConnections — and that
+    // boot must NOT revert the user's choice. The hatch-disable helper
+    // is only ever called from the seedInferenceProfiles hatch branch,
+    // so it does not run on a non-hatch boot; this test confirms the
+    // ambient seed pass leaves status alone.
+    const db = bootDb();
+    seedCanonicalConnections(db);
+    disableManagedConnectionsForByokHatch(db);
+
+    // User re-enables anthropic post-hatch.
+    updateConnection(db, "anthropic-managed", {
+      auth: { type: "platform" },
+      status: "active",
+    });
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
+
+    // Simulate a normal restart: seedCanonicalConnections runs every boot,
+    // disableManagedConnectionsForByokHatch does NOT.
+    seedCanonicalConnections(db);
+
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
+    // The two the user didn't touch stay disabled.
+    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
+  });
+
+  test("idempotent re-hatch leaves all three at disabled", () => {
+    // Workspace reset / re-hatch scenario: helper runs again and any
+    // user re-enable from before the reset is intentionally undone —
+    // re-hatch means re-onboard.
+    const db = bootDb();
+    seedCanonicalConnections(db);
+    disableManagedConnectionsForByokHatch(db);
+
+    updateConnection(db, "anthropic-managed", {
+      auth: { type: "platform" },
+      status: "active",
+    });
+
+    disableManagedConnectionsForByokHatch(db);
+
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
   });
 });

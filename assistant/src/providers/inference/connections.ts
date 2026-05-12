@@ -287,6 +287,14 @@ export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
  * customization is preserved; the separate backfill step below assigns the
  * default only when the existing row has `label IS NULL`, covering installs
  * that pre-date the label seed.
+ *
+ * Status handling: the upsert never touches `status` so user customization
+ * is preserved across reboots. New rows default to `status: "active"` via the
+ * column default. Off-platform installs flip the three canonical rows to
+ * `status: "disabled"` ONCE at hatch time via
+ * `disableManagedConnectionsForByokHatch` (called from `seedInferenceProfiles`
+ * when `isHatch && !isPlatform`); subsequent boots leave whatever the user
+ * has chosen alone, so a post-hatch re-enable persists.
  */
 export function seedCanonicalConnections(db: DrizzleDb): void {
   const now = Date.now();
@@ -316,6 +324,33 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
     db.update(providerConnections)
       .set({ label, updatedAt: now })
       .where(and(eq(providerConnections.name, name), isNull(providerConnections.label)))
+      .run();
+  }
+}
+
+/**
+ * Flip the three canonical managed connections to `status: "disabled"` at
+ * hatch time on BYOK (off-platform) installs.
+ *
+ * Why hatch-time only: managed connections need platform auth that a fresh
+ * BYOK user doesn't have yet, so surfacing them as enabled in the picker
+ * would let users pick an unusable option on day one. But this is a
+ * first-time-only default — the moment the user explicitly flips one
+ * back to active (e.g. after logging into Vellum), we never want a daemon
+ * restart to revert that. `seedCanonicalConnections` leaves `status` alone
+ * on the UPDATE path, and this helper is invoked ONLY from
+ * `seedInferenceProfiles`'s `isHatch && !isPlatform` branch. Subsequent
+ * non-hatch boots never call it.
+ *
+ * Idempotent: a second hatch (workspace reset) re-disables the rows, which
+ * is the right call — re-hatch means re-onboard.
+ */
+export function disableManagedConnectionsForByokHatch(db: DrizzleDb): void {
+  const now = Date.now();
+  for (const name of MANAGED_CONNECTION_NAMES) {
+    db.update(providerConnections)
+      .set({ status: "disabled", updatedAt: now })
+      .where(eq(providerConnections.name, name))
       .run();
   }
 }

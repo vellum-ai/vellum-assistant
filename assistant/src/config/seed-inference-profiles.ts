@@ -1,8 +1,10 @@
 import type { DrizzleDb } from "../memory/db-connection.js";
 import {
   createConnection,
+  disableManagedConnectionsForByokHatch,
   getConnection,
 } from "../providers/inference/connections.js";
+import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
 import type { ModelIntent } from "../providers/types.js";
 import { credentialKey } from "../security/credential-key.js";
@@ -159,6 +161,16 @@ export function seedInferenceProfiles(
   const isPlatform =
     process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
 
+  // BYOK mode = off-platform installs. The user is bringing their own provider
+  // API key; managed profile labels get a " (Managed)" suffix to disambiguate
+  // from the personal "custom-*" profiles that share base labels. Managed
+  // profile + connection status is initially "disabled" so the picker doesn't
+  // offer an unusable platform-auth option on day one — but ONLY at hatch
+  // time, and ONLY when the entry isn't already in the user's config (i.e.
+  // first materialization). Post-hatch user toggles survive every subsequent
+  // boot.
+  const isByokMode = !isPlatform;
+
   // 1. Managed profiles. Off-platform: overwrite on every boot so Vellum can
   //    push model/config updates in new releases. On-platform: insert only if
   //    absent — the platform controls profiles through overlays.
@@ -167,31 +179,67 @@ export function seedInferenceProfiles(
   //    rename) and `status` (active/disabled toggle). The PUT route
   //    `/v1/config/llm/profiles/:name` lets users patch these on managed
   //    profiles without duplicating; we have to honor those edits across
-  //    reseeds or they'd silently revert on every boot. Codex P1 finding
-  //    on PR #30362.
+  //    reseeds or they'd silently revert on every boot. Carry by
+  //    key-presence rather than truthiness so an explicit `null` (user
+  //    cleared the label) survives too. Codex P1 finding on PR #30362.
+  //
+  //    BYOK seed defaults (off-platform only):
+  //      • label: " (Managed)" suffix disambiguates managed profile labels
+  //        from personal "custom-*" profiles that share base labels.
+  //        Upgrade migration: existing installs that already have the bare
+  //        template label ("Balanced" / "Quality" / "Speed") on disk get
+  //        rewritten to the suffixed form. Any other previous label value
+  //        (user-set custom string, explicit null, already-suffixed) is
+  //        preserved as-is.
+  //      • status: "disabled" on fresh materialization at hatch only —
+  //        gated on (isHatch && !previous) so post-hatch boots and existing
+  //        installs are never auto-disabled. A user re-enable persists
+  //        across boots via the key-presence preservation below.
   for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
     if (preservedProfileNames.has(name)) continue;
     if (isPlatform && readObject(profiles[name]) !== null) continue;
 
     const previous = readObject(profiles[name]);
+    const effectiveTemplate: ManagedProfileTemplate = isByokMode
+      ? { ...template, label: `${template.label} (Managed)` }
+      : template;
     const next = materializeProfile(
-      template,
+      effectiveTemplate,
       MANAGED_PROFILE_PROVIDER,
       MANAGED_CONNECTION_NAME,
     ) as Record<string, unknown>;
+    if (isByokMode && options.isHatch && !previous) {
+      next.status = "disabled";
+    }
     if (previous) {
-      // Preserve user overrides on these whitelisted fields. We carry
-      // them across by key-presence rather than truthiness so an
-      // explicit `null` (user cleared the label) survives too.
-      if ("label" in previous) next.label = previous.label;
+      // Preserve user overrides on these whitelisted fields. The label path
+      // also runs the BYOK upgrade migration described above: if the on-disk
+      // label exactly equals the bare template default and we're in BYOK
+      // mode, rewrite to the suffixed effective label so existing installs
+      // get the disambiguation, not just fresh hatches.
+      if ("label" in previous) {
+        next.label =
+          isByokMode && previous.label === template.label
+            ? effectiveTemplate.label
+            : previous.label;
+      }
       if ("status" in previous) next.status = previous.status;
     }
-    profiles[name] = next;
+    profiles[name] = next as ProfileEntry;
   }
 
   // 2. User profiles — only at hatch time for off-platform installations.
   let userConnectionName: string | undefined;
   if (options.isHatch && !isPlatform) {
+    // BYOK hatch: disable the three canonical managed connections so the
+    // picker doesn't surface unusable platform-auth options on day one.
+    // Runs only here, only at hatch — `seedCanonicalConnections` leaves
+    // `status` alone on subsequent boots so a post-hatch user re-enable
+    // persists.
+    if (options.db) {
+      disableManagedConnectionsForByokHatch(options.db);
+    }
+
     const hatchProvider = readString(readObject(llm.default)?.provider);
     if (hatchProvider && hatchProvider !== "ollama") {
       userConnectionName = `${hatchProvider}-personal`;
@@ -203,6 +251,7 @@ export function seedInferenceProfiles(
             name: userConnectionName,
             provider: hatchProvider,
             auth: { type: "api_key", credential: credName },
+            label: personalConnectionLabel(hatchProvider),
           });
           if (!result.ok) {
             log.warn(
@@ -303,4 +352,17 @@ function readObject(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Format the human-readable label seeded onto a personal provider connection
+ * at hatch time, e.g. `"Anthropic (Personal)"`. The display name is sourced
+ * from `PROVIDER_CATALOG` so it tracks the canonical provider directory; an
+ * unrecognised provider id falls back to the raw id with the suffix.
+ */
+function personalConnectionLabel(providerId: string): string {
+  const displayName =
+    PROVIDER_CATALOG.find((p) => p.id === providerId)?.displayName ??
+    providerId;
+  return `${displayName} (Personal)`;
 }

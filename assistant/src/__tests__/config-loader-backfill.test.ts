@@ -733,17 +733,19 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.label).toBeNull();
   });
 
-  test("off-platform reseed leaves fresh managed profiles untouched when no user overrides exist", () => {
+  test("off-platform reseed materializes template defaults with the BYOK label suffix when no user overrides exist", () => {
     // First boot, no prior config — template defaults must materialize
-    // exactly. Guards against accidentally clobbering template values
-    // with `undefined` from a `"label" in previous` check when previous
-    // is an empty shell.
+    // exactly. Off-platform installs get the " (Managed)" suffix so the
+    // managed profile is distinguishable from the personal "custom-*"
+    // sibling that shares the base label. Guards against accidentally
+    // clobbering template values with `undefined` from a `"label" in
+    // previous` check when previous is an empty shell.
     writeConfig({});
 
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.label).toBe("Balanced");
+    expect(raw.llm.profiles.balanced.label).toBe("Balanced (Managed)");
     expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
     // Status is unset by default — must not appear as `undefined`.
     expect("status" in raw.llm.profiles.balanced).toBe(false);
@@ -892,5 +894,308 @@ describe("loadConfig startup behavior", () => {
       n.startsWith("config.json.corrupt-"),
     );
     expect(quarantined.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: BYOK-mode seed behavior (issues #2/#3/#4 of the May 12 provider UX
+// queue). Off-platform managed profiles share base labels with the personal
+// "custom-*" profiles (Balanced / Quality / Speed), so the seed function
+// suffixes managed labels with " (Managed)" to disambiguate. Status is
+// initialized to "disabled" ONLY at hatch on first materialization — a fresh
+// BYOK user has no platform auth, so we don't want managed entries surfacing
+// as enabled in the picker on day one. Post-hatch user toggles persist
+// through every subsequent boot — the "never auto-disable BYOK connections"
+// rule applies to RESTART, not to hatch. On-platform behavior is unchanged.
+// ---------------------------------------------------------------------------
+
+describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
+  beforeEach(() => {
+    ensureTestDir();
+    const resetPaths = [
+      CONFIG_PATH,
+      join(WORKSPACE_DIR, "default-config.json"),
+      join(WORKSPACE_DIR, "hatch-overlay.json"),
+      join(WORKSPACE_DIR, "keys.enc"),
+      join(WORKSPACE_DIR, "data"),
+      join(WORKSPACE_DIR, "data", "memory"),
+    ];
+    for (const path of resetPaths) {
+      if (existsSync(path)) {
+        rmSync(path, { recursive: true, force: true });
+      }
+    }
+    ensureTestDir();
+    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    _setStorePath(null);
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  test("off-platform hatch suffixes managed profile labels with ' (Managed)'", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic", model: "claude-opus-4-7" },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    // Managed profile labels carry the suffix so they're visibly distinct
+    // from the personal "custom-*" profiles (which retain bare labels).
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+    expect(config.llm.profiles["quality-optimized"]?.label).toBe(
+      "Quality (Managed)",
+    );
+    expect(config.llm.profiles["cost-optimized"]?.label).toBe(
+      "Speed (Managed)",
+    );
+
+    // Personal profiles keep their bare labels — they're the daily driver.
+    expect(config.llm.profiles["custom-balanced"]?.label).toBe("Balanced");
+  });
+
+  test("off-platform hatch initializes managed profile status to 'disabled'", () => {
+    // On a fresh BYOK hatch the user has no platform auth, so managed
+    // profiles must not surface as enabled in the picker on day one. We
+    // flip the three canonical managed profiles to status="disabled"
+    // ONCE at hatch time. (The complementary "user re-enable persists
+    // across restarts" guarantee is covered by the test further down.)
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        { llm: { default: { provider: "anthropic" } } },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.profiles.balanced?.status).toBe("disabled");
+    expect(config.llm.profiles["quality-optimized"]?.status).toBe("disabled");
+    expect(config.llm.profiles["cost-optimized"]?.status).toBe("disabled");
+  });
+
+  test("non-hatch off-platform boot does NOT auto-disable freshly-materialized managed profiles", () => {
+    // Existing installs that upgrade to a version where the managed
+    // profile didn't previously exist (e.g. a new template added later)
+    // must not be auto-disabled on a normal boot. The hatch-time disable
+    // is gated on `isHatch && !previous`; without an overlay there's no
+    // hatch signal, so the seeder leaves status unset (schema default
+    // = "active"). This is the "we never want to auto-disable BYOK
+    // connections on restart" guarantee.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        // Note: no `profiles` key — the managed profiles will be freshly
+        // materialized by seedInferenceProfiles. !previous is true for all
+        // three, but isHatch is false, so disable does NOT fire.
+      },
+    });
+
+    // No overlay → not a hatch.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect("status" in raw.llm.profiles.balanced).toBe(false);
+    expect("status" in raw.llm.profiles["quality-optimized"]).toBe(false);
+    expect("status" in raw.llm.profiles["cost-optimized"]).toBe(false);
+  });
+
+  test("on-platform hatch leaves managed labels untouched", () => {
+    process.env.IS_PLATFORM = "true";
+
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        { llm: { default: { provider: "anthropic" } } },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    // No "(Managed)" suffix on platform — the personal profiles don't exist
+    // here so there's nothing to disambiguate from.
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced");
+    expect(config.llm.profiles["quality-optimized"]?.label).toBe("Quality");
+    expect(config.llm.profiles["cost-optimized"]?.label).toBe("Speed");
+  });
+
+  test("upgrade boot rewrites legacy bare labels to suffixed form on off-platform", () => {
+    // Existing off-platform install (pre-suffix-PR) has `label: "Balanced"`
+    // on disk. The "label" in previous preservation would normally keep
+    // the bare label and the picker would stay ambiguous forever — so the
+    // seeder runs a one-shot upgrade migration when previous.label exactly
+    // equals the bare template default. User-customized labels and
+    // explicit nulls are NOT rewritten.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+            label: "Balanced",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: "Quality",
+          },
+          "cost-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: "Speed",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    // No overlay → not a hatch. Still upgrades labels.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+    expect(config.llm.profiles["quality-optimized"]?.label).toBe(
+      "Quality (Managed)",
+    );
+    expect(config.llm.profiles["cost-optimized"]?.label).toBe(
+      "Speed (Managed)",
+    );
+  });
+
+  test("upgrade boot preserves user-customized labels and explicit null on off-platform", () => {
+    // A user-set string that differs from the bare default must survive;
+    // an explicit null (user cleared the label) must also survive. Only
+    // exact matches against the bare template label trigger the upgrade.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+            label: "My Balanced",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: null,
+          },
+          // Already-suffixed labels are also preserved (idempotency).
+          "cost-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: "Speed (Managed)",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.label).toBe("My Balanced");
+    expect(raw.llm.profiles["quality-optimized"].label).toBeNull();
+    expect(raw.llm.profiles["cost-optimized"].label).toBe("Speed (Managed)");
+  });
+
+  test("upgrade boot does NOT rewrite bare labels on platform", () => {
+    // The migration is gated on isByokMode, so an on-platform install with
+    // a bare "Balanced" label preserves it (no suffix on platform).
+    process.env.IS_PLATFORM = "true";
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+            label: "Balanced",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced");
+  });
+
+  test("subsequent off-platform boot preserves user-set status on managed profiles", () => {
+    // Simulate a user who hatched yesterday, then re-enabled the managed
+    // Balanced profile (they have platform auth via a separate route).
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+            label: "Balanced (Managed)",
+            status: "active",
+          },
+          "custom-balanced": {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-personal",
+            model: "claude-sonnet-4-6",
+            label: "Balanced",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    // No overlay → this is a normal boot, not a hatch.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    // User's "active" decision survives the boot upsert.
+    expect(config.llm.profiles.balanced?.status).toBe("active");
+    // Label is still suffixed (Vellum can push label updates).
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
   });
 });
