@@ -31,8 +31,8 @@ For publishing Vellum apps from the library, use the built-in `publish_page` too
 
 For custom projects that need Vercel deployment (not Vellum app publishing):
 
-1. Use the Vercel CLI with user-mediated authentication: `vercel login` (opens browser for the user to authenticate interactively).
-2. Install the CLI with `bun install -g vercel` (not npm — npm is not available in the sandbox).
+1. Install the Vercel CLI with `bun install -g vercel` (not npm — npm is not available in the sandbox).
+2. Use `vercel login` to authenticate interactively (opens browser for the user).
 3. If the user does not want to use CLI auth, stop and ask them for an approved deployment path. Do not extract, inject, or shell with the stored API token.
 
 ## Deploying a Vellum App
