@@ -173,14 +173,6 @@ struct SecretPromptView: View {
     @State private var saved = false
     @State private var isSending = false
 
-    private var trimmedSecretValue: String {
-        secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var canSave: Bool {
-        !saved && !isSending && !trimmedSecretValue.isEmpty
-    }
-
     private var hasContext: Bool {
         purpose != nil
             || !(allowedTools ?? []).isEmpty
@@ -265,7 +257,7 @@ struct SecretPromptView: View {
                         VButton(label: isSending ? "Saving..." : "Save", style: .primary, accessibilityID: "secure-credential-save") {
                             submitSave()
                         }
-                        .disabled(!canSave)
+                        .disabled(isSending || secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityLabel("Save")
                     }
 
@@ -274,9 +266,18 @@ struct SecretPromptView: View {
                             VIconView(.triangleAlert, size: 10)
                                 .foregroundStyle(VColor.systemNegativeHover)
                             VButton(label: isSending ? "Sending..." : "Send Once (not saved)", style: .outlined) {
-                                submitSendOnce()
+                                let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !trimmed.isEmpty else { return }
+                                isSending = true
+                                Task {
+                                    let success = await onSendOnce(trimmed)
+                                    isSending = false
+                                    if success {
+                                        withAnimation(VAnimation.standard) { saved = true }
+                                    }
+                                }
                             }
-                            .disabled(!canSave)
+                            .disabled(isSending || secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
                 }
@@ -291,43 +292,14 @@ struct SecretPromptView: View {
         .frame(maxHeight: 600)
         .vPanelBackground()
         .clipShape(RoundedRectangle(cornerRadius: VRadius.window))
-        .background {
-            Button("") { submitSave() }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canSave)
-                .opacity(0)
-                .frame(width: 0, height: 0)
-                .accessibilityHidden(true)
-            Button("") {
-                Task { await onCancel() }
-            }
-                .keyboardShortcut(.cancelAction)
-                .disabled(isSending)
-                .opacity(0)
-                .frame(width: 0, height: 0)
-                .accessibilityHidden(true)
-        }
     }
 
     private func submitSave() {
-        guard canSave else { return }
-        let value = trimmedSecretValue
+        let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isSending else { return }
         isSending = true
         Task {
-            let success = await onSave(value)
-            isSending = false
-            if success {
-                withAnimation(VAnimation.standard) { saved = true }
-            }
-        }
-    }
-
-    private func submitSendOnce() {
-        guard canSave else { return }
-        let value = trimmedSecretValue
-        isSending = true
-        Task {
-            let success = await onSendOnce(value)
+            let success = await onSave(trimmed)
             isSending = false
             if success {
                 withAnimation(VAnimation.standard) { saved = true }
