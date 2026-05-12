@@ -374,7 +374,16 @@ struct ProvidersSheet: View {
         }
         .onChange(of: editorDraft.provider) { _, newProvider in
             if case .create = editorState, !newProvider.isEmpty {
-                editorDraft.credential = "credential/\(newProvider)/api_key"
+                if newProvider == "ollama" {
+                    editorDraft.authType = "none"
+                    editorDraft.credential = ""
+                } else {
+                    if editorDraft.authType == "none" ||
+                        (editorDraft.authType == "platform" && !store.isManagedCapable(newProvider)) {
+                        editorDraft.authType = "api_key"
+                    }
+                    editorDraft.credential = "credential/\(newProvider)/api_key"
+                }
                 maskedCredentialValue = nil
                 Task { await loadAvailableCredentials() }
             }
@@ -481,6 +490,20 @@ struct ProvidersSheet: View {
         }
     }
 
+    private var authTypeOptions: [(label: String, value: String)] {
+        let provider = editorDraft.provider
+        if provider == "ollama" {
+            return [(label: "None (no credentials)", value: "none")]
+        }
+        var options: [(label: String, value: String)] = [
+            (label: "API Key", value: "api_key"),
+        ]
+        if store.isManagedCapable(provider) {
+            options.append((label: "Platform (managed by Vellum)", value: "platform"))
+        }
+        return options
+    }
+
     private var editorAuthTypeField: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Auth Type")
@@ -489,11 +512,7 @@ struct ProvidersSheet: View {
             VDropdown(
                 placeholder: "Select auth type\u{2026}",
                 selection: $editorDraft.authType,
-                options: [
-                    (label: "API Key", value: "api_key"),
-                    (label: "Platform (managed by Vellum)", value: "platform"),
-                    (label: "None (no credentials)", value: "none"),
-                ]
+                options: authTypeOptions
             )
         }
     }
@@ -764,7 +783,11 @@ struct ProvidersSheet: View {
             provider: provider
         )
         if !provider.isEmpty {
-            editorDraft.credential = "credential/\(provider)/api_key"
+            if provider == "ollama" {
+                editorDraft.authType = "none"
+            } else {
+                editorDraft.credential = "credential/\(provider)/api_key"
+            }
         }
         editorState = .create
         maskedCredentialValue = nil
@@ -849,13 +872,13 @@ struct ProvidersSheet: View {
             existingNames: Set(connections.map { $0.name })
         )
         isKeyDirty = true
-        // Default to api_key auth — the whole reason to clone a managed
-        // connection is to use your own key, so `platform` isn't the
-        // right default for the fork. Seed the credential reference to
-        // the provider's default slot so an immediate save (with no
-        // Advanced expansion) lands the key under `credential/<provider>/api_key`.
-        editorDraft.authType = "api_key"
-        editorDraft.credential = "credential/\(provider)/api_key"
+        if provider == "ollama" {
+            editorDraft.authType = "none"
+            editorDraft.credential = ""
+        } else {
+            editorDraft.authType = "api_key"
+            editorDraft.credential = "credential/\(provider)/api_key"
+        }
         editorDraft.apiKeyValue = ""
         // New connection starts active by convention; user can toggle off
         // before saving if they want it disabled.
