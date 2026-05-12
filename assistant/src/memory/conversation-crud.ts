@@ -49,6 +49,8 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { getDb, getSqliteFrom } from "./db-connection.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
+import { MEMORY_RETROSPECTIVE_SOURCE } from "./memory-retrospective-constants.js";
+import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
   channelInboundEvents,
@@ -442,28 +444,51 @@ export function findAnalysisConversationFor(
  * `<already_remembered>` block — bounded source-of-truth for "what the
  * prior pass already saved" that scales as the source conversation grows.
  *
- * Returns `null` when no prior retrospective exists yet (first run).
+ * Walks up `forkParentConversationId` when no retrospective exists at the
+ * current level. This lets a forked conversation inherit dedup context from
+ * its source's most recent retro on the fork's *first* retrospective —
+ * otherwise the fork would re-save every fact the source already retro'd.
+ * Once the fork accumulates its own retros, those are found at the first
+ * iteration and we never walk up.
+ *
+ * Returns `null` when no prior retrospective exists anywhere in the fork
+ * chain (true first-run case).
  *
  * Hits `idx_conversations_fork_parent_conversation_id` for the
  * `forkParentConversationId` lookup.
  */
+const MAX_FORK_CHAIN_DEPTH = 16;
+
 export function findMostRecentRetrospectiveFor(
   parentConversationId: string,
 ): { id: string } | null {
   const db = getDb();
-  const row = db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(
-      and(
-        eq(conversations.source, "memory-retrospective"),
-        eq(conversations.forkParentConversationId, parentConversationId),
-      ),
-    )
-    .orderBy(desc(conversations.createdAt))
-    .limit(1)
-    .get();
-  return row ? { id: row.id } : null;
+  let currentId: string | null = parentConversationId;
+  for (let depth = 0; depth < MAX_FORK_CHAIN_DEPTH && currentId; depth++) {
+    const row = db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.source, MEMORY_RETROSPECTIVE_SOURCE),
+          eq(conversations.forkParentConversationId, currentId),
+        ),
+      )
+      .orderBy(desc(conversations.createdAt))
+      .limit(1)
+      .get();
+    if (row) return { id: row.id };
+
+    const parent = db
+      .select({
+        forkParentConversationId: conversations.forkParentConversationId,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, currentId))
+      .get();
+    currentId = parent?.forkParentConversationId ?? null;
+  }
+  return null;
 }
 
 /**
@@ -705,6 +730,13 @@ export function forkConversation(params: {
     // in-context tracker the parent had at fork time.
     forkActivationState(db, sourceConversation.id, fc.id);
     forkGraphMemoryState(sourceConversation.id, fc.id);
+    forkRetrospectiveState({
+      database: db,
+      sourceConversationId: sourceConversation.id,
+      forkedConversationId: fc.id,
+      forkedMessageIds,
+      lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
+    });
 
     return fc;
   });

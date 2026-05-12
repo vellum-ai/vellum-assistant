@@ -45,6 +45,11 @@ import {
 } from "../memory/graph/graph-memory-state-store.js";
 import { getRequestLogsByMessageId } from "../memory/llm-request-log-store.js";
 import {
+  bumpRetrospectiveLastRunAt,
+  getRetrospectiveState,
+  upsertRetrospectiveState,
+} from "../memory/memory-retrospective-state.js";
+import {
   activationState,
   channelInboundEvents,
   conversationAssistantAttentionState,
@@ -53,6 +58,7 @@ import {
   externalConversationBindings,
   llmRequestLogs,
   memoryJobs,
+  memoryRetrospectiveState,
   toolInvocations,
 } from "../memory/schema.js";
 import { hydrate as hydrateActivationState } from "../memory/v2/activation-store.js";
@@ -66,6 +72,7 @@ function resetTables(): void {
   db.delete(conversationAssistantAttentionState).run();
   db.delete(activationState).run();
   db.delete(conversationGraphMemoryState).run();
+  db.delete(memoryRetrospectiveState).run();
   db.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   db.delete(memoryJobs).run();
@@ -601,5 +608,136 @@ describe("forkConversation", () => {
     const db = getDb();
     expect(await hydrateActivationState(db, fork.id)).toBeNull();
     expect(loadGraphMemoryState(fork.id)).toBeNull();
+  });
+});
+
+describe("forkConversation + memory_retrospective_state", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test("does not seed state when the source has none", async () => {
+    const source = createConversation("Untouched thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+
+    const fork = forkConversation({ conversationId: source.id });
+
+    expect(getRetrospectiveState(fork.id)).toBeNull();
+  });
+
+  test("maps the source pointer when it falls within the copied range", async () => {
+    const source = createConversation("In-range thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+    const processedMessage = await addMessage(
+      source.id,
+      "assistant",
+      "Message 2",
+      undefined,
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "user", "Message 3", undefined, {
+      skipIndexing: true,
+    });
+
+    upsertRetrospectiveState({
+      conversationId: source.id,
+      lastProcessedMessageId: processedMessage.id,
+      lastRunAt: 1_700_000_000_000,
+    });
+
+    const fork = forkConversation({ conversationId: source.id });
+    const forkState = getRetrospectiveState(fork.id);
+    const forkMessages = getMessages(fork.id);
+    const mappedProcessedId = forkMessages.find((m) => {
+      const md = parseMetadata(m.metadata) as {
+        forkSourceMessageId?: string;
+      } | null;
+      return md?.forkSourceMessageId === processedMessage.id;
+    })?.id;
+
+    expect(mappedProcessedId).toBeDefined();
+    expect(forkState).not.toBeNull();
+    expect(forkState?.lastProcessedMessageId).toBe(mappedProcessedId);
+    expect(forkState?.lastRunAt).toBe(1_700_000_000_000);
+  });
+
+  test("clamps to the last copied message when the source pointer is past the fork boundary", async () => {
+    const source = createConversation("Past-boundary thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+    const branchPoint = await addMessage(
+      source.id,
+      "assistant",
+      "Message 2",
+      undefined,
+      { skipIndexing: true },
+    );
+    const pastBoundaryMessage = await addMessage(
+      source.id,
+      "user",
+      "Message 3",
+      undefined,
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "assistant", "Message 4", undefined, {
+      skipIndexing: true,
+    });
+
+    upsertRetrospectiveState({
+      conversationId: source.id,
+      lastProcessedMessageId: pastBoundaryMessage.id,
+      lastRunAt: 1_700_000_000_000,
+    });
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: branchPoint.id,
+    });
+    const forkState = getRetrospectiveState(fork.id);
+    const forkMessages = getMessages(fork.id);
+    const lastForkedMessageId = forkMessages.at(-1)?.id;
+
+    expect(forkMessages).toHaveLength(2);
+    expect(forkState?.lastProcessedMessageId).toBe(lastForkedMessageId);
+    expect(forkState?.lastRunAt).toBe(1_700_000_000_000);
+  });
+
+  test("preserves the empty-string sentinel from a failure-only source", async () => {
+    const source = createConversation("Failure-only thread");
+    await addMessage(source.id, "user", "Message 1", undefined, {
+      skipIndexing: true,
+    });
+    bumpRetrospectiveLastRunAt(source.id, 1_700_000_000_000);
+
+    const fork = forkConversation({ conversationId: source.id });
+    const forkState = getRetrospectiveState(fork.id);
+
+    expect(forkState?.lastProcessedMessageId).toBe("");
+    expect(forkState?.lastRunAt).toBe(1_700_000_000_000);
+  });
+
+  test("copies lastRunAt so the cooldown gate inherits from the source", async () => {
+    const source = createConversation("Cooldown thread");
+    const message = await addMessage(
+      source.id,
+      "user",
+      "Message 1",
+      undefined,
+      { skipIndexing: true },
+    );
+    upsertRetrospectiveState({
+      conversationId: source.id,
+      lastProcessedMessageId: message.id,
+      lastRunAt: 1_700_000_000_000,
+    });
+
+    const fork = forkConversation({ conversationId: source.id });
+
+    expect(getRetrospectiveState(fork.id)?.lastRunAt).toBe(1_700_000_000_000);
   });
 });
