@@ -35,6 +35,7 @@ export function routeDefinitionsToHTTPRoutes(
   return routes.map((r) => ({
     endpoint: r.endpoint,
     method: r.method,
+    operationId: r.operationId,
     policyKey:
       r.policyKey ?? r.endpoint.replace(/\/:[^/]+/g, "").replace(/^:/, ""),
     pathParams: r.pathParams,
@@ -47,6 +48,7 @@ export function routeDefinitionsToHTTPRoutes(
     responseStatus:
       typeof r.responseStatus === "string" ? r.responseStatus : undefined,
     additionalResponses: r.additionalResponses,
+    logging: r.logging,
     handler: async ({ req, url, params, authContext }) => {
       try {
         if (r.requireGuardian) {

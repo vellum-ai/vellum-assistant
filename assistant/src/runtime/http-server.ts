@@ -539,7 +539,9 @@ export class RuntimeHttpServer {
     server: ReturnType<typeof Bun.serve>,
   ): Promise<Response> {
     server.timeout(req, 1800);
-    // Skip request logging for health-check probes to reduce log noise.
+    // Skip request logging entirely for the bare-bones liveness/readiness
+    // probes Bun's load balancer hits — these don't go through the
+    // declarative router and would just clutter logs unconditionally.
     const url = new URL(req.url);
     if (
       (url.pathname === "/healthz" || url.pathname === "/readyz") &&
@@ -547,7 +549,22 @@ export class RuntimeHttpServer {
     ) {
       return this.routeRequest(req, server);
     }
-    return withRequestLogging(req, () => this.routeRequest(req, server));
+    // Ask the router for any per-route logging policy *before* dispatching,
+    // so the middleware can decide whether to suppress the success log
+    // line for noisy probes (e.g. macOS app polling /v1/health every few
+    // seconds). Only `/v1/*` paths are registered with the declarative
+    // router; for everything else `meta` stays undefined and the middleware
+    // falls back to its default log-every-request behavior.
+    let meta;
+    if (url.pathname.startsWith("/v1/")) {
+      const endpoint = url.pathname.slice("/v1/".length).replace(/\/$/, "");
+      meta = this.router.findLoggingMetadata(req.method, endpoint) ?? undefined;
+    }
+    return withRequestLogging(
+      req,
+      () => this.routeRequest(req, server),
+      meta,
+    );
   }
 
   private async routeRequest(
