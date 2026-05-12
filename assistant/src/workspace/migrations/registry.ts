@@ -77,6 +77,7 @@ import { dropServicesInferenceModeMigration } from "./076-drop-services-inferenc
 import { seedMemoryRouterCallsiteMigration } from "./077-seed-memory-router-callsite.js";
 import { releaseNotesTavilyWebSearchMigration } from "./078-release-notes-tavily-web-search.js";
 import { homeFeedNotificationOnlyMigration } from "./079-home-feed-notification-only.js";
+import { restrictVercelApiTokenMetadataMigration } from "./080-restrict-vercel-api-token-metadata.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -165,4 +166,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedMemoryRouterCallsiteMigration,
   releaseNotesTavilyWebSearchMigration,
   homeFeedNotificationOnlyMigration,
+  restrictVercelApiTokenMetadataMigration,
 ];
