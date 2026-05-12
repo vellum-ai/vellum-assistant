@@ -173,7 +173,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       body: { label: null },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as Record<string, any>)?.llm?.profiles
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
       ?.balanced as Record<string, unknown>;
     // Label key removed; seed fields preserved.
     expect("label" in profile).toBe(false);
@@ -201,9 +201,8 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       body: { status: null },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as Record<string, any>)?.llm?.profiles?.[
-      "quality-optimized"
-    ] as Record<string, unknown>;
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm
+      ?.profiles?.["quality-optimized"] as Record<string, unknown>;
     expect("status" in profile).toBe(false);
     expect(profile.provider).toBe("anthropic");
     expect(profile.model).toBe("claude-opus");
@@ -229,9 +228,8 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       body: { label: null, status: null },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as Record<string, any>)?.llm?.profiles?.[
-      "cost-optimized"
-    ] as Record<string, unknown>;
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm
+      ?.profiles?.["cost-optimized"] as Record<string, unknown>;
     expect("label" in profile).toBe(false);
     expect(profile.status).toBeUndefined();
     expect(profile.provider).toBe("anthropic");
@@ -257,7 +255,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
       body: { label: null, status: "disabled" },
     });
     expect(result).toEqual({ ok: true });
-    const profile = (savedRaw as Record<string, any>)?.llm?.profiles
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
       ?.balanced as Record<string, unknown>;
     expect("label" in profile).toBe(false);
     expect(profile.status).toBe("disabled");
