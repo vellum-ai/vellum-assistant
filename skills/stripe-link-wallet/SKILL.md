@@ -50,7 +50,7 @@ Whenever **any** flow (MCP tool, API call, web request, or otherwise) produces a
 command -v link-cli >/dev/null && link-cli auth status --format json
 ```
 
-- Command missing — fall to **Setup: install**.
+- Command missing — fall to **Setup: use `bunx`**.
 - Exit 0 but `"authenticated": false` — fall to **Setup: login**.
 - Authenticated — proceed to the requested flow.
 - `"update"` key present in auth status — mention the update to the user but don't block on it.
@@ -61,11 +61,13 @@ command -v link-cli >/dev/null && link-cli auth status --format json
 
 ### If `link-cli` is missing
 
-Install it, then re-run Step 0:
+Invoke the CLI on demand with `bunx`:
 
 ```bash
-npm install -g @stripe/link-cli
+bunx @stripe/link-cli <subcommand>
 ```
+
+In every example below, substitute `bunx @stripe/link-cli` wherever you see `link-cli`.
 
 ### If installed but not authenticated
 
@@ -260,15 +262,15 @@ link-cli spend-request cancel <id> --format json
 
 ## Error handling
 
-| Error / condition                       | Action                                                                 |
-| --------------------------------------- | ---------------------------------------------------------------------- |
-| `link-cli` not found                    | Install it with `npm install -g @stripe/link-cli`, then re-run Step 0. |
-| Not authenticated                       | Run `auth login --client-name "<your assistant name>"` (see Setup)     |
-| `POLLING_TIMEOUT` on retrieve           | Report to user; offer cancel or fresh spend request                    |
-| SPT payment fails (402 again after pay) | SPT is consumed — create a new spend request                           |
-| `amount` > 50000                        | Tell user the cap is \$500 per transaction                             |
-| `context` < 100 chars                   | Expand it before retrying                                              |
-| Card file already exists                | Use `--force` to overwrite, or pick a different path                   |
+| Error / condition                       | Action                                                                                              |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `link-cli` not found                    | Invoke it with `bunx @stripe/link-cli` and substitute that prefix wherever examples use `link-cli`. |
+| Not authenticated                       | Run `auth login --client-name "<your assistant name>"` (see Setup)                                  |
+| `POLLING_TIMEOUT` on retrieve           | Report to user; offer cancel or fresh spend request                                                 |
+| SPT payment fails (402 again after pay) | SPT is consumed — create a new spend request                                                        |
+| `amount` > 50000                        | Tell user the cap is \$500 per transaction                                                          |
+| `context` < 100 chars                   | Expand it before retrying                                                                           |
+| Card file already exists                | Use `--force` to overwrite, or pick a different path                                                |
 
 ---
 
