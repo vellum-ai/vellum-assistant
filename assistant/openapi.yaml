@@ -15476,6 +15476,24 @@ paths:
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  type: string
+                ts:
+                  type: string
+                emoji:
+                  type: string
+              required:
+                - channel
+                - ts
+                - emoji
+              additionalProperties: false
   /v1/use/slack/read:
     post:
       operationId: use_slack_read_post
@@ -15488,6 +15506,24 @@ paths:
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  type: string
+                limit:
+                  type: number
+                since:
+                  type: string
+                thread:
+                  type: string
+              required:
+                - channel
+              additionalProperties: false
   /v1/use/slack/send:
     post:
       operationId: use_slack_send_post
@@ -15500,6 +15536,24 @@ paths:
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  type: string
+                user:
+                  type: string
+                text:
+                  type: string
+                thread:
+                  type: string
+              required:
+                - text
+              additionalProperties: false
   /v1/use/slack/users/{query}:
     get:
       operationId: use_slack_users_by_query_get

@@ -6,6 +6,8 @@
  * operations without embedding API logic.
  */
 
+import { z } from "zod";
+
 import {
   addReaction,
   conversationHistory,
@@ -297,6 +299,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return the cached channel list. Auto-refreshes from the Slack API if the cache is empty.",
     tags: ["integrations"],
+    requirePolicyEnforcement: true,
     handler: () => handleListChannels(),
   },
   {
@@ -307,6 +310,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Fetch all channels from the Slack API, rebuild the local cache, and return it.",
     tags: ["integrations"],
+    requirePolicyEnforcement: true,
     handler: () => handleRefreshChannels(),
   },
   {
@@ -317,6 +321,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Resolve a channel name (or raw Slack ID) to a structured channel object via the local cache.",
     tags: ["integrations"],
+    requirePolicyEnforcement: true,
     handler: handleGetChannel,
   },
   {
@@ -327,6 +332,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Resolve a display name or email address to a Slack user via the local cache.",
     tags: ["integrations"],
+    requirePolicyEnforcement: true,
     handler: handleGetUser,
   },
   {
@@ -337,6 +343,13 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Send a message to a Slack channel or user DM. Exactly one of channel or user must be set. Supports threading via the thread parameter.",
     tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      channel: z.string().optional(),
+      user: z.string().optional(),
+      text: z.string(),
+      thread: z.string().optional(),
+    }),
     handler: handleSend,
   },
   {
@@ -347,6 +360,13 @@ export const ROUTES: RouteDefinition[] = [
     description:
       'Read messages from a Slack channel or thread. Supports limit, since (Slack timestamp or relative offset like "2h", "30m", "1d"), and thread replies.',
     tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      channel: z.string(),
+      limit: z.number().optional(),
+      since: z.string().optional(),
+      thread: z.string().optional(),
+    }),
     handler: handleRead,
   },
   {
@@ -357,6 +377,12 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Add an emoji reaction to a message. Strips surrounding colons from the emoji name if present.",
     tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      channel: z.string(),
+      ts: z.string(),
+      emoji: z.string(),
+    }),
     handler: handleReact,
   },
 ];
