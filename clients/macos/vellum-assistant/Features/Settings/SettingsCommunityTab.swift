@@ -173,7 +173,7 @@ private struct OpenSourceFeatureCard: View {
                 VButton(
                     label: "View source",
                     rightIcon: VIcon.arrowUpRight.rawValue,
-                    style: .outlined
+                    style: .ghost
                 ) {
                     openURL(AppURLs.repositoryURL)
                 }
@@ -308,6 +308,11 @@ private struct ResourceCard: View {
         .shadow(color: isHovered ? VColor.contentEmphasized.opacity(0.08) : .clear, radius: 8, y: 2)
         .onHover { hovering in
             isHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
         }
     }
 }
