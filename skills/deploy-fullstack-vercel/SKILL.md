@@ -21,12 +21,19 @@ Deploy a full-stack app with a React/Vite frontend and Python/FastAPI backend to
 
 ## Authentication
 
-Before deploying, check for a Vercel API credential:
+### Vellum App Publishing
 
-1. Run `credential_store list` and look for a `vercel/api_token` entry.
-2. If found with `injection_templates`, the credential can be used automatically via `network_mode: "proxied"` with `credential_ids`.
-3. If no credential exists, use `credential_store prompt` to ask the user for their Vercel API token. Direct them to https://vercel.com/account/tokens to create one.
-4. Fall back to the Vercel CLI only if no usable credential exists. Install with `bun install -g vercel` (not npm — npm is not available in the sandbox).
+For publishing Vellum apps from the library, use the built-in `publish_page` tool. This is the preferred path — it uses the stored Vercel API token (`vercel/api_token`) via the brokered publish flow without exposing the token to shell commands.
+
+**The stored Vercel API token is reserved for brokered `publish_page` and `unpublish_page` actions only.** Do not pass it to `bash`, `curl`, Vercel CLI commands, or proxy credential injection. Do not use `network_mode: "proxied"` with `credential_ids` for Vercel deployments.
+
+### Custom Full-Stack Deployments
+
+For custom projects that need Vercel deployment (not Vellum app publishing):
+
+1. Use the Vercel CLI with user-mediated authentication: `vercel login` (opens browser for the user to authenticate interactively).
+2. Install the CLI with `bun install -g vercel` (not npm — npm is not available in the sandbox).
+3. If the user does not want to use CLI auth, stop and ask them for an approved deployment path. Do not extract, inject, or shell with the stored API token.
 
 ## Deploying a Vellum App
 
@@ -91,7 +98,7 @@ Create a `vercel.json` in the dist directory:
 }
 ```
 
-Then deploy using the Vercel API credential (preferred) or CLI.
+Then deploy using the `publish_page` tool (preferred). For Vellum apps, use the built-in app publish flow rather than raw Vercel API calls from shell.
 
 ## Deploying a Custom Full-Stack Project
 
@@ -250,7 +257,7 @@ curl -s <deployed-url>/api/health
 
 ```bash
 bun install -g vercel        # Install
-vercel login                 # Authenticate (opens browser — last resort)
+vercel login                 # Authenticate (opens browser for user-mediated auth)
 vercel --yes --prod          # Deploy to production (skip prompts)
 vercel logs --project <name> # Check function logs
 ```
