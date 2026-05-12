@@ -104,7 +104,7 @@ export interface PluginManifest {
 
 | Field                | Required | Purpose                                                                                                                                                                                                                                                                                                        |
 | -------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`               | yes      | Unique plugin identifier. Duplicate names fail registration. Used as the directory under `<workspaceDir>/plugins-data/<name>/` and the attribution tag in logs.                                                                                                                                                     |
+| `name`               | yes      | Unique plugin identifier. Duplicate names fail registration. Used as the directory under `<workspaceDir>/plugins-data/<name>/` and the attribution tag in logs.                                                                                                                                                |
 | `version`            | yes      | Plugin's own semver. Informational — the registry does not compare it.                                                                                                                                                                                                                                         |
 | `provides`           | no       | Reserved for future cross-plugin composition and not currently consumed by the assistant. Plugin authors may set this field, but no runtime code reads it yet — it is declared here so future cross-plugin work can land without a manifest version bump. Do not rely on it for any runtime behavior today.    |
 | `requires`           | yes      | Must include `pluginRuntime: "v1"` at minimum. The registry checks every entry against `ASSISTANT_API_VERSIONS` and refuses to register plugins that ask for a capability or version the assistant does not expose.                                                                                            |
@@ -179,11 +179,28 @@ Feature Flags" section for the full procedure.
 
 ## Registration
 
-A plugin's `register.ts` calls `registerPlugin()` at module load time:
+A plugin's `register.ts` calls `registerPlugin()` at module load time. The
+function is exposed via the `globalThis.__vellumPluginRuntime` bridge so the
+plugin file does not need to import from the daemon's source tree:
 
 ```typescript
-import { registerPlugin } from "<path-to-assistant>/src/plugins/registry.js";
 import type { Plugin } from "<path-to-assistant>/src/plugins/types.js";
+
+interface VellumPluginRuntime {
+  readonly version: 1;
+  readonly registerPlugin: (plugin: Plugin) => void;
+  readonly assistantEventHub: import("<path-to-assistant>/src/runtime/assistant-event-hub.js").AssistantEventHub;
+  readonly getSecureKeyAsync: (account: string) => Promise<string | undefined>;
+}
+
+const runtime = (globalThis as { __vellumPluginRuntime?: VellumPluginRuntime })
+  .__vellumPluginRuntime;
+if (!runtime || runtime.version !== 1) {
+  throw new Error(
+    "vellum plugin runtime not available — install a recent assistant build",
+  );
+}
+const { registerPlugin } = runtime;
 
 const myPlugin: Plugin = {
   manifest: {
@@ -199,6 +216,20 @@ const myPlugin: Plugin = {
 registerPlugin(myPlugin);
 ```
 
+**Why the bridge?** When the daemon is a `bun --compile` binary, its modules
+are bundled into the executable. Plugins that import the daemon's modules by
+absolute path (`/abs/path/to/assistant/src/plugins/registry.js`) reload fresh
+disk copies into a separate module graph, and any `registerPlugin()` call in
+the plugin lands in a registry the daemon never reads. The
+`globalThis.__vellumPluginRuntime` handle is the same instance the daemon's
+bundled code holds onto, so plugin registrations always reach the right
+place — whether the daemon was built with `bun --compile` or is running from
+source.
+
+Type-only imports (`import type { Plugin } from "..."`) remain free to use
+absolute paths to the assistant source — the TypeScript compiler erases them
+and they have no module-identity effect at runtime.
+
 **Rules:**
 
 - Exactly one `registerPlugin()` call per plugin. The registry rejects
@@ -210,6 +241,8 @@ registerPlugin(myPlugin);
   this plugin" — use `requiresFlag` or a guard inside `init()` instead.
 - The file runs before any lifecycle hooks. Keep it fast — heavy work
   belongs in `init()`.
+- The bridge is installed by the daemon before `loadUserPlugins()` runs, so
+  the global is always present when a plugin's module body executes.
 
 ## Middleware patterns
 

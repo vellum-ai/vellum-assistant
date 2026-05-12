@@ -30,49 +30,49 @@ For the full plugin authoring guide, see
 
 ## Install locally
 
-The assistant scans `~/.vellum/plugins/*` for subdirectories containing a
+The assistant scans `<workspaceDir>/plugins/*` (e.g.
+`~/.vellum/workspace/plugins/`) for subdirectories containing a
 `register.{ts,js}` file and dynamic-imports each one during assistant
 startup. Dropping (or symlinking) this directory in place is enough to
 enable it.
 
-### Option 1 — symlink from the repo (recommended)
+The plugin reads `registerPlugin` from `globalThis.__vellumPluginRuntime`,
+which the daemon attaches before scanning plugins. This works against both
+the `bun --compile`-bundled daemon binary AND a daemon running from
+source — no special install procedure required either way.
+
+### Option 1 — symlink from the repo (simplest in-repo dev)
 
 From the repo root:
 
 ```bash
-mkdir -p ~/.vellum/plugins
-ln -s "$(pwd)/assistant/examples/plugins/echo" ~/.vellum/plugins/echo
+mkdir -p ~/.vellum/workspace/plugins
+ln -s "$(pwd)/assistant/examples/plugins/echo" ~/.vellum/workspace/plugins/echo
 ```
 
 Symlinks let you edit the plugin in-place and restart the assistant to
-pick up changes. **This is the only zero-edit install path** — the
-`register.ts` in this directory uses relative imports
-(`../../../src/plugins/registry.js`) that resolve into the in-repo
-assistant sources, so the file must stay reachable at that relative
-location.
+pick up changes.
 
-### Option 2 — standalone copy (requires edits)
+### Option 2 — standalone copy
 
-If you want a fully isolated install that does not depend on a local
-vellum-assistant checkout, a plain `cp -R` of this directory into
-`~/.vellum/plugins/echo/` will **not** work as-is: the relative imports
-in `register.ts` resolve to `~/.vellum/src/plugins/...`, which does not
-exist. The assistant does not currently publish the plugin API as an npm
-package, so to copy-and-adapt this template into a standalone plugin you
-must rewrite the imports in `register.ts` to point at an absolute path
-inside a vellum-assistant checkout, for example:
+A plain `cp -R` of this directory into `~/.vellum/workspace/plugins/echo/`
+works for the runtime imports (which go through the global bridge), but
+the `import type` lines at the top of `register.ts` still resolve into
+the in-repo assistant source tree. If your standalone copy lives outside
+a vellum-assistant checkout, rewrite those `import type` paths to point
+at an absolute path inside any checkout — they're erased at compile time
+and have no module-identity effect at runtime:
 
 ```ts
 // before (repo-local):
-import { registerPlugin } from "../../../src/plugins/registry.js";
+import type { VellumPluginRuntime } from "../../../src/plugins/external-api.js";
+import type { Plugin } from "../../../src/plugins/types.js";
 // after (standalone, edit to your checkout path):
-import { registerPlugin } from "/path/to/vellum-assistant/assistant/src/plugins/registry.js";
+import type { VellumPluginRuntime } from "/path/to/vellum-assistant/assistant/src/plugins/external-api.js";
+import type { Plugin } from "/path/to/vellum-assistant/assistant/src/plugins/types.js";
 ```
 
-Apply the same rewrite to the `import type` line that pulls from
-`../../../src/plugins/types.js`. Until a published package exists, the
-symlink recipe above is simpler and more portable for day-to-day
-development.
+No runtime-import rewriting is needed — the bridge already handles that.
 
 ### Restart the assistant
 
@@ -113,7 +113,7 @@ original error still propagates.
 Remove the symlink (or the copied directory) and restart the assistant:
 
 ```bash
-rm ~/.vellum/plugins/echo
+rm ~/.vellum/workspace/plugins/echo
 vellum restart
 ```
 
