@@ -17,8 +17,6 @@ struct SettingsCommunityTab: View {
 
 /// Card listing additional community links (community hub, Twitter/X, YouTube).
 private struct CommunityResourcesCard: View {
-    @Environment(\.openURL) private var openURL
-
     private static let resources: [(icon: VIcon, title: String, subtitle: String, url: URL)] = [
         (.globe, "Community Hub", "Browse guides, tips, and success stories", AppURLs.communityHubURL),
         (.externalLink, "Twitter / X", "Follow for news and updates", AppURLs.twitterURL),
