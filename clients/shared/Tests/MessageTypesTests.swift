@@ -84,6 +84,81 @@ final class MessageTypesTests: XCTestCase {
         XCTAssertEqual(error.errorCategory, "provider_billing")
     }
 
+    func testDecodesSyncChangedWithKnownAndFutureTags() throws {
+        let json = Data(
+            """
+            {
+              "type": "sync_changed",
+              "tags": [
+                "assistant:self:avatar",
+                "conversation:conversation-123:metadata",
+                "future:resource"
+              ]
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .syncChanged(let event) = message else {
+            XCTFail("Expected .syncChanged, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(event.tags, [
+            "assistant:self:avatar",
+            "conversation:conversation-123:metadata",
+            "future:resource",
+        ])
+    }
+
+    func testDecodesSyncChangedWithMissingTagsAsEmpty() throws {
+        let json = Data(
+            """
+            {
+              "type": "sync_changed"
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .syncChanged(let event) = message else {
+            XCTFail("Expected .syncChanged, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(event.tags, [])
+    }
+
+    func testDecodesSyncChangedByIgnoringMalformedTags() throws {
+        let json = Data(
+            """
+            {
+              "type": "sync_changed",
+              "tags": [
+                "assistant:self:identity",
+                42,
+                { "unexpected": true },
+                "conversations:list"
+              ]
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .syncChanged(let event) = message else {
+            XCTFail("Expected .syncChanged, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(event.tags, [
+            "assistant:self:identity",
+            "conversations:list",
+        ])
+    }
+
     // MARK: - host_browser_request
 
     func testDecodes_hostBrowserRequest_withAllFields() throws {
