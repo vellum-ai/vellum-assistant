@@ -173,7 +173,6 @@ struct MessageListContentView: View, Equatable {
             HStack(spacing: 0) {
                 SubagentGroupContainer(
                     subagents: state.orphanSubagents,
-                    store: subagentDetailStore,
                     onAbort: { id in onAbortSubagent?(id) },
                     onTap: { id in onSubagentTap?(id) }
                 )

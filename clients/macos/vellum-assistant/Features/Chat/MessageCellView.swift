@@ -256,7 +256,6 @@ struct MessageCellView: View, Equatable {
             HStack(spacing: 0) {
                 SubagentGroupContainer(
                     subagents: subagents,
-                    store: subagentDetailStore,
                     onAbort: { id in onAbortSubagent?(id) },
                     onTap: { id in onSubagentTap?(id) }
                 )
