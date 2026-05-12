@@ -297,11 +297,13 @@ struct ProvidersSheet: View {
                 tone: .neutral,
                 emphasis: .subtle
             )
-            VBadge(
-                label: authTypeLabel(conn.auth.type),
-                tone: authTypeTone(conn.auth.type),
-                emphasis: .subtle
-            )
+            if !(conn.isManaged && conn.auth.type == "platform") {
+                VBadge(
+                    label: authTypeLabel(conn.auth.type),
+                    tone: authTypeTone(conn.auth.type),
+                    emphasis: .subtle
+                )
+            }
         }
     }
 
