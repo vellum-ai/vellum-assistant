@@ -1078,18 +1078,29 @@ export interface PluginSkillRegistration {
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 /**
+ * Lifecycle hooks contributed by a plugin. Both methods are optional; a
+ * plugin may omit either one. Hooks run sequentially during daemon
+ * startup (`init`) and shutdown (`shutdown`, in reverse-registration
+ * order). See `assistant/src/daemon/external-plugins-bootstrap.ts` for
+ * the full lifecycle.
+ */
+export interface PluginHooks {
+  /** Async initializer. Runs once during bootstrap, before traffic. */
+  init?(ctx: PluginInitContext): Promise<void>;
+  /** Shutdown hook. Runs during daemon shutdown in reverse-registration order. */
+  shutdown?(): Promise<void>;
+}
+
+/**
  * A registered plugin. Every field besides `manifest` is optional — a plugin
  * may contribute any combination of middleware, injectors, and model-visible
- * capabilities. Lifecycle hooks (`init`, `onShutdown`) run sequentially
- * during daemon startup/shutdown.
+ * capabilities. Lifecycle hooks live under `hooks`.
  */
 export interface Plugin {
   /** Static manifest validated by the registry. */
   manifest: PluginManifest;
-  /** Optional async initializer. Runs once during bootstrap, before traffic. */
-  init?(ctx: PluginInitContext): Promise<void>;
-  /** Optional shutdown hook. Runs during daemon shutdown in reverse-registration order. */
-  onShutdown?(): Promise<void>;
+  /** Lifecycle hooks (init, shutdown). See {@link PluginHooks}. */
+  hooks?: PluginHooks;
   /** Tool registrations visible to the model. */
   tools?: PluginToolRegistration[];
   /** HTTP route registrations served by the assistant. */

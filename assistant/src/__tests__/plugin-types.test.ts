@@ -228,17 +228,19 @@ describe("plugin core types", () => {
 
     const plugin = {
       manifest,
-      async init(ctx: PluginInitContext) {
-        // Touch every field so refactors that rename any of them break here.
-        void ctx.config;
-        void ctx.credentials;
-        void ctx.logger;
-        void ctx.pluginStorageDir;
-        void ctx.assistantVersion;
-        void ctx.apiVersions;
-      },
-      async onShutdown() {
-        // no-op
+      hooks: {
+        async init(ctx: PluginInitContext) {
+          // Touch every field so refactors that rename any of them break here.
+          void ctx.config;
+          void ctx.credentials;
+          void ctx.logger;
+          void ctx.pluginStorageDir;
+          void ctx.assistantVersion;
+          void ctx.apiVersions;
+        },
+        async shutdown() {
+          // no-op
+        },
       },
       tools: [sampleTool],
       routes: [

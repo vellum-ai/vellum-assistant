@@ -70,15 +70,43 @@ const fakeCtx: DaemonContext = {
   assistantVersion: "9.9.9-test",
 };
 
+/**
+ * Test helper. Accepts the new `hooks` bag and ALSO legacy top-level
+ * `init` / `onShutdown` for ergonomics — the helper merges them into a
+ * single `hooks` field that matches the runtime Plugin shape. This keeps
+ * the test call sites compact without leaking the old contract.
+ */
 function buildPlugin(
   name: string,
-  extras: Partial<Omit<Plugin, "manifest">> = {},
+  extras: Partial<Omit<Plugin, "manifest" | "hooks">> & {
+    hooks?: Plugin["hooks"];
+    init?: (ctx: PluginInitContext) => Promise<void>;
+    onShutdown?: () => Promise<void>;
+  } = {},
   options: {
     requires?: Record<string, string>;
     requiresCredential?: string[];
     requiresFlag?: string[];
   } = {},
 ): Plugin {
+  const {
+    init: legacyInit,
+    onShutdown: legacyOnShutdown,
+    hooks: explicitHooks,
+    ...rest
+  } = extras;
+  const mergedHooks: Plugin["hooks"] | undefined =
+    legacyInit !== undefined ||
+    legacyOnShutdown !== undefined ||
+    explicitHooks !== undefined
+      ? {
+          ...(explicitHooks ?? {}),
+          ...(legacyInit !== undefined ? { init: legacyInit } : {}),
+          ...(legacyOnShutdown !== undefined
+            ? { shutdown: legacyOnShutdown }
+            : {}),
+        }
+      : undefined;
   return {
     manifest: {
       name,
@@ -89,7 +117,8 @@ function buildPlugin(
         : {}),
       ...(options.requiresFlag ? { requiresFlag: options.requiresFlag } : {}),
     },
-    ...extras,
+    ...rest,
+    ...(mergedHooks ? { hooks: mergedHooks } : {}),
   };
 }
 

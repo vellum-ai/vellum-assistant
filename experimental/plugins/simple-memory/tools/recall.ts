@@ -1,5 +1,7 @@
 /**
  * `simple_memory_recall` — return every simple-memory entry for the current conversation.
+ *
+ * Convention: default export is the tool object the harness registers.
  */
 
 import { entriesFor } from "../src/state.js";
@@ -13,7 +15,7 @@ interface ToolExecutionResult {
   isError: boolean;
 }
 
-export const recallTool = {
+export default {
   name: "simple_memory_recall",
   description:
     "Return every simple-memory entry written for the current conversation. Use when you need to recall what was remembered earlier in this conversation.",

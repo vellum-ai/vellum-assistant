@@ -1,28 +1,39 @@
 /**
- * User plugin loader — discovers plugins under `<workspaceDir>/plugins/*` and
- * invokes each plugin's registration side effect via a dynamic import.
+ * User plugin loader — discovers plugins under `<workspaceDir>/plugins/*` via
+ * one of two paths, gated by the contents of each candidate directory.
  *
- * A user plugin is a directory under `getWorkspaceDir()/plugins/` that contains a
- * `register.ts` (or `register.js` after compilation). The file is expected to
- * call {@link registerPlugin} at import time so the plugin ends up in the
- * registry before {@link bootstrapPlugins} runs during daemon startup.
+ * **External plugin framework path** (`package.json` present **and** no
+ * `register.{ts,js}`): the harness delegates to {@link loadExternalPlugin},
+ * which builds a `Plugin` from the directory's interface dirs (`hooks/`,
+ * `tools/`) and registers it directly. This path is opt-in by the plugin
+ * author and currently experimental — see
+ * `assistant/src/plugins/external-plugin-loader.ts` for the full
+ * convention.
+ *
+ * **Legacy path** (`register.{ts,js}` present): the file is dynamic-imported
+ * and expected to call {@link registerPlugin} at import time as a side
+ * effect, populating the registry before {@link bootstrapPlugins} runs.
+ *
+ * The legacy path takes precedence when a directory contains both
+ * `package.json` and `register.{ts,js}` — a migration-friendly default
+ * that keeps existing plugins (including the in-repo `examples/plugins/echo`
+ * reference) working unchanged while we iterate the external-plugin
+ * convention. A directory matching neither path is skipped silently.
  *
  * The loader deliberately:
  *
  * - Uses `getWorkspaceDir()` so each instance loads its own plugin set
  *   when `VELLUM_WORKSPACE_DIR` is set.
- * - Prefers `register.js` over `register.ts` when both exist (compiled plugins
- *   always win; this matches how `bun`/Node consumers resolve modules at
- *   runtime in the compiled binary).
- * - Treats any error from the dynamic import as a per-plugin isolation
- *   boundary: the offending directory is logged with `"Failed to load user
- *   plugin <dir>: <err>"` and the loader moves on to the next candidate.
- *   One bad user plugin must not crash the daemon.
- * - Bounds each dynamic import with a timeout
- *   ({@link USER_PLUGIN_IMPORT_TIMEOUT_MS}) so a plugin whose top-level
- *   `await` hangs or whose module evaluation never resolves cannot stall
- *   daemon startup. Timed-out plugins are logged and skipped just like
- *   thrown-error plugins.
+ * - Prefers `.js` over `.ts` per surface file (compiled-binary semantics).
+ *   The external loader applies the same rule per surface file; the
+ *   legacy path picks between `register.js` and `register.ts`.
+ * - Treats any error from a plugin load as a per-plugin isolation
+ *   boundary. {@link loadExternalPlugin} owns its own try/catch/timeout;
+ *   the legacy path is wrapped here. One bad user plugin must not crash
+ *   the daemon.
+ * - Bounds each plugin load with {@link USER_PLUGIN_IMPORT_TIMEOUT_MS}
+ *   so a plugin whose top-level `await` hangs or whose module evaluation
+ *   never resolves cannot stall daemon startup.
  *
  * Call order relative to the rest of the plugin system:
  *
@@ -39,6 +50,7 @@ import { pathToFileURL } from "node:url";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { loadExternalPlugin } from "./external-plugin-loader.js";
 import { closeRegistration } from "./registry.js";
 
 const log = getLogger("user-plugin-loader");
@@ -55,9 +67,10 @@ const log = getLogger("user-plugin-loader");
 const USER_PLUGIN_IMPORT_TIMEOUT_MS = 10_000;
 
 /**
- * Scan `getWorkspaceDir()/plugins/` for subdirectories containing a
- * `register.{ts,js}` file, and dynamic-import each one so the module's
- * side-effecting {@link registerPlugin} calls populate the registry.
+ * Scan `getWorkspaceDir()/plugins/` for subdirectories, then dispatch each
+ * one to the external loader (if `package.json` is present and there is no
+ * `register.{ts,js}`) or the legacy side-effect importer (if
+ * `register.{ts,js}` is present).
  *
  * Invariants:
  *
@@ -68,24 +81,24 @@ const USER_PLUGIN_IMPORT_TIMEOUT_MS = 10_000;
  * - Does not return plugin instances. The registry is the single source of
  *   truth for who got registered, and the caller inspects it directly.
  *
- * Must be called after first-party plugin side-effect imports have run and
- * before {@link bootstrapPlugins} — see the module docstring for the ordering
- * contract.
+ * Caller responsibilities:
+ *
+ * - Must be invoked exactly once during daemon startup, before
+ *   `bootstrapPlugins()` walks the registry.
+ * - Holds no locks during the import — bun's dynamic `import()` resolution
+ *   is concurrency-safe.
  */
 export async function loadUserPlugins(
   options: { importTimeoutMs?: number } = {},
 ): Promise<void> {
-  const importTimeoutMs =
-    options.importTimeoutMs ?? USER_PLUGIN_IMPORT_TIMEOUT_MS;
+  const importTimeoutMs = options.importTimeoutMs ?? USER_PLUGIN_IMPORT_TIMEOUT_MS;
+
   const pluginsDir = join(getWorkspaceDir(), "plugins");
+
   if (!existsSync(pluginsDir)) {
-    log.debug(
-      { pluginsDir },
-      "loadUserPlugins: no plugins directory — skipping",
-    );
-    // Close the registration window even on the fast path so a late arrival
-    // from an unrelated source (e.g. a mis-ordered static import) still can't
-    // slip in after bootstrap walks the registry.
+    // The clean-install case. Closing the registration window keeps the
+    // post-loader invariant uniform: `bootstrapPlugins()` may rely on the
+    // registry being final by the time `loadUserPlugins()` resolves.
     closeRegistration();
     return;
   }
@@ -118,10 +131,12 @@ export async function loadUserPlugins(
     }
     if (!stats.isDirectory()) continue;
 
-    // Prefer the compiled `register.js` over the TypeScript source. In the
-    // bun-compiled daemon binary only the compiled file can be imported;
-    // in development both may exist, in which case resolving the compiled
-    // artifact matches how the runtime would behave in production.
+    // Path selection: the legacy side-effect path takes precedence when
+    // both a `register.{ts,js}` and a `package.json` are present.
+    // Migration-friendly: any plugin in the wild today that happens to
+    // ship a `package.json` keeps loading via its existing register entry.
+    // The external-plugin path only fires when the directory is
+    // unambiguously the new convention.
     const jsPath = join(pluginDir, "register.js");
     const tsPath = join(pluginDir, "register.ts");
     let registerPath: string | undefined;
@@ -130,16 +145,24 @@ export async function loadUserPlugins(
     } else if (existsSync(tsPath)) {
       registerPath = tsPath;
     }
-    if (!registerPath) {
+
+    if (registerPath === undefined) {
+      // External plugin framework path. `loadExternalPlugin` owns its own
+      // try/catch + timeout, so a `continue` is the entire branch here.
+      if (existsSync(join(pluginDir, "package.json"))) {
+        await loadExternalPlugin(pluginDir, { importTimeoutMs });
+        continue;
+      }
       log.debug(
         { pluginDir },
-        "loadUserPlugins: no register.{ts,js} — skipping",
+        "loadUserPlugins: no register.{ts,js} or package.json — skipping",
       );
       continue;
     }
 
-    // `import()` with a `file://` URL works identically under Node and bun
-    // and sidesteps platform-specific absolute-path quirks on Windows.
+    // Legacy side-effect import path. `import()` with a `file://` URL
+    // works identically under Node and bun and sidesteps platform-specific
+    // absolute-path quirks on Windows.
     const moduleUrl = pathToFileURL(registerPath).href;
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
