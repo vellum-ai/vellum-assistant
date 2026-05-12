@@ -99,11 +99,17 @@ describe("loadExternalPlugin — manifest", () => {
   });
 
   test("reads vellum.requires from package.json when present", async () => {
+    // Future direction (out of scope this PR): `requires` may carry
+    // `assistantVersion` alongside `pluginRuntime`. For today the registry
+    // validates against `ASSISTANT_API_VERSIONS` and only `pluginRuntime`
+    // is a known capability — so the loader's pass-through behavior is
+    // exercised with the keys the registry already accepts. The loader is
+    // opaque to the shape; additional keys propagate identically.
     const dir = freshPluginDir("custom-requires");
     writePackageJson(dir, {
       name: "custom-requires",
       version: "0.1.0",
-      vellum: { requires: { pluginRuntime: "v1", assistantVersion: "^1.0.0" } },
+      vellum: { requires: { pluginRuntime: "v1" } },
     });
 
     await loadExternalPlugin(dir);
@@ -111,10 +117,24 @@ describe("loadExternalPlugin — manifest", () => {
     const registered = getRegisteredPlugins().find(
       (p) => p.manifest.name === "custom-requires",
     );
-    expect(registered?.manifest.requires).toEqual({
-      pluginRuntime: "v1",
-      assistantVersion: "^1.0.0",
+    expect(registered?.manifest.requires).toEqual({ pluginRuntime: "v1" });
+  });
+
+  test("vellum.requires overrides the default — empty requires fails registration", async () => {
+    // Belt-and-suspenders proof that the loader reads `vellum.requires`
+    // rather than always defaulting: an empty `vellum.requires` propagates
+    // through, the registry rejects the plugin (missing pluginRuntime),
+    // and the registry stays empty.
+    const dir = freshPluginDir("empty-requires");
+    writePackageJson(dir, {
+      name: "empty-requires",
+      version: "0.1.0",
+      vellum: { requires: {} },
     });
+
+    await loadExternalPlugin(dir);
+
+    expect(registeredNames()).not.toContain("empty-requires");
   });
 
   test("does not synthesize a provides field", async () => {
