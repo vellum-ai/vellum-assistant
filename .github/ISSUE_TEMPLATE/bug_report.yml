@@ -7,7 +7,17 @@ body:
       value: |
         Thanks for taking the time to report a bug! Please fill out the details below so we can investigate.
 
-        > **Tip:** You can also submit feedback directly from the app via **Help → Share feedback**.
+        ### Send us your logs
+
+        Click **Share feedback** in the app (bottom of the window, or **Help → Share feedback**). This sends your recent logs to the team and is by far the most useful thing you can do to help us reproduce the issue.
+
+  - type: checkboxes
+    id: shared-feedback
+    attributes:
+      label: Did you share feedback from the app?
+      description: Clicking **Share feedback** sends us the logs we need to diagnose what went wrong. Skip only if the app won't open at all.
+      options:
+        - label: Yes, I clicked **Share feedback** in the app before opening this issue.
 
   - type: textarea
     id: what-happened
