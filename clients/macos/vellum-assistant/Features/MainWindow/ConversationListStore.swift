@@ -240,6 +240,9 @@ final class ConversationListStore {
     /// True when at least one conversation exists.
     private(set) var hasAnyConversations: Bool = false
 
+    /// True when at least two conversations exist (Discord nudge threshold).
+    private(set) var hasMultipleConversations: Bool = false
+
     /// True when at least one non-archived conversation exists (sidebar loading gate).
     private(set) var hasAnyVisibleConversations: Bool = false
 
@@ -290,6 +293,7 @@ final class ConversationListStore {
             setIfChanged(\.visibleConversations, to: [])
             setIfChanged(\.unseenVisibleConversationCount, to: 0)
             setIfChanged(\.hasAnyConversations, to: false)
+            setIfChanged(\.hasMultipleConversations, to: false)
             setIfChanged(\.hasAnyVisibleConversations, to: false)
             setIfChanged(\.unseenScheduledCount, to: 0)
             setIfChanged(\.conversationsByLocalId, to: [:])
@@ -314,6 +318,7 @@ final class ConversationListStore {
         setIfChanged(\.unseenVisibleConversationCount, to: nextUnseenCount)
 
         setIfChanged(\.hasAnyConversations, to: true)
+        setIfChanged(\.hasMultipleConversations, to: conversations.count >= 2)
         setIfChanged(\.hasAnyVisibleConversations, to: !nextVisible.isEmpty)
 
         let nextScheduledUnseen = nextVisible.count {

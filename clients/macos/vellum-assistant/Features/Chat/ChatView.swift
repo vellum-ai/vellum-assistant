@@ -124,7 +124,7 @@ struct ChatView: View {
         !discordJoined
             && !discordBannerDismissed
             && githubStarred
-            && (conversationManager?.conversations.count ?? 0) >= 2
+            && (conversationManager?.listStore.hasMultipleConversations ?? false)
     }
 
     // MARK: - In-Chat Search (Cmd+F)
