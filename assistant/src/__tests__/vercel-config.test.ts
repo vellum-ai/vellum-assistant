@@ -92,12 +92,11 @@ describe("Vercel config handler", () => {
       expect(tools).not.toContain("deploy");
     });
 
-    test("metadata has no injection templates", async () => {
+    test("metadata explicitly clears injection templates", async () => {
       await setVercelConfig("vl_test_token_123");
 
       expect(lastUpsertCall).not.toBeNull();
-      // injectionTemplates should not be present in the policy at all
-      expect(lastUpsertCall!.policy).not.toHaveProperty("injectionTemplates");
+      expect(lastUpsertCall!.policy?.injectionTemplates).toBeNull();
     });
 
     test("publish_page and unpublish_page remain in allowedTools", async () => {
