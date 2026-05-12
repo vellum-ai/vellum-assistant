@@ -896,8 +896,15 @@ final class InferenceProfileEditorTests: XCTestCase {
     }
 
     /// Clearing the label (nil or empty) when the initial was set
-    /// counts as a real change — the daemon will store it as a cleared
-    /// override and the seed label will re-surface.
+    /// counts as a real change in local state. NOTE: the wire-side
+    /// implementation (`setManagedProfilePolicy`) currently OMITS the
+    /// label key when nil/whitespace rather than sending `null`, because
+    /// the daemon's `ProfileEntry.label` Zod schema is `.optional()` not
+    /// `.nullable()` and would 400 a null payload. A label clear from
+    /// view mode therefore results in a status-only daemon write and the
+    /// existing label persists on disk. Lifting that limitation requires
+    /// a daemon-side `.nullable()` follow-up; this function still
+    /// honestly reports the local-state delta for change detection.
     func testViewModeHasChangesDetectsLabelClearing() {
         XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
             currentLabel: nil,
@@ -932,8 +939,8 @@ final class InferenceProfileEditorTests: XCTestCase {
     func testHasViewModeChangesIsAlwaysFalseInEditMode() {
         let (editor, _) = makeEditor(profile: InferenceProfile(
             name: "draft",
-            label: "Anything",
-            status: "disabled"
+            status: "disabled",
+            label: "Anything"
         ))
         XCTAssertFalse(editor.isReadOnly)
         XCTAssertFalse(
