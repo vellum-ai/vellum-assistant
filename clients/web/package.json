@@ -1,0 +1,30 @@
+{
+  "name": "@vellumai/web",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Web interface for the Vellum client (served by `vellum client --interface web`).",
+  "exports": {
+    ".": "./src/server.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "dev": "bun src/server.ts",
+    "lint": "eslint",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.11",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "eslint": "10.2.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.58.1"
+  }
+}

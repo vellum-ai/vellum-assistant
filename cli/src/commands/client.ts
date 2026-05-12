@@ -14,6 +14,7 @@ import { loadGuardianToken } from "../lib/guardian-token";
 import { getLocalLanIPv4 } from "../lib/local";
 import {
   CLI_INTERFACE_ID,
+  WEB_INTERFACE_ID,
   getClientRegistrationHeaders,
 } from "../lib/client-identity";
 import {
@@ -22,7 +23,7 @@ import {
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
 
-const SUPPORTED_INTERFACES = ["cli"] as const;
+const SUPPORTED_INTERFACES = ["cli", "web"] as const;
 type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
 
 const ANSI = {
@@ -133,12 +134,6 @@ function parseArgs(): ParsedArgs {
       assistantId = flagArgs[++i];
     } else if ((flag === "--interface" || flag === "-i") && flagArgs[i + 1]) {
       const value = flagArgs[++i];
-      if (value === "web") {
-        console.error(
-          `--interface web is not yet supported. Coming soon.`,
-        );
-        process.exit(1);
-      }
       if (!(SUPPORTED_INTERFACES as readonly string[]).includes(value)) {
         console.error(
           `Unknown interface '${value}'. Supported: ${SUPPORTED_INTERFACES.join(", ")}.`,
@@ -213,7 +208,7 @@ ${ANSI.bold}ARGUMENTS:${ANSI.reset}
 ${ANSI.bold}OPTIONS:${ANSI.reset}
     -u, --url <url>            Runtime URL
     -a, --assistant-id <id>    Assistant ID
-    -i, --interface <id>       Interface identifier (default: cli)
+    -i, --interface <id>       Interface identifier: cli (default) or web
     -h, --help                 Show this help message
 
 ${ANSI.bold}DEFAULTS:${ANSI.reset}
@@ -240,6 +235,25 @@ export async function client(): Promise<void> {
     project,
     zone,
   } = parseArgs();
+
+  if (interfaceId === WEB_INTERFACE_ID) {
+    const { startWebServer } = await import("@vellumai/web");
+    const server = await startWebServer({ port: 3000 });
+    const url = `http://localhost:${server.port}`;
+    console.log(`${ANSI.bold}Vellum web client${ANSI.reset} running at ${url}`);
+    console.log(`${ANSI.dim}Press Ctrl+C to stop.${ANSI.reset}`);
+
+    const shutdown = (): void => {
+      console.log(`\n${ANSI.dim}Disconnecting…${ANSI.reset}`);
+      void server.stop().then(() => process.exit(0));
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+
+    // Keep alive until a shutdown signal arrives.
+    await new Promise<void>(() => {});
+    return;
+  }
 
   tuiLog.init();
   tuiLog.info("session start", {
