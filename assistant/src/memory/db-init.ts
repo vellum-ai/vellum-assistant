@@ -47,6 +47,7 @@ import {
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateBackfillInlineAttachmentsToDisk,
+  migrateBackfillProviderConnectionLabel,
   migrateBackfillUsageCacheAccounting,
   migrateCallSessionInviteMetadata,
   migrateCallSessionMode,
@@ -422,6 +423,7 @@ export function initializeDb(): void {
     migrateCreateProviderConnections,
     migrateProviderConnectionStatusLabel,
     migrateMemoryRetrospectiveState,
+    migrateBackfillProviderConnectionLabel,
   ];
 
   // Run each migration step, catching and logging individual failures so one

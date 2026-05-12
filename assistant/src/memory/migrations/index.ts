@@ -207,6 +207,7 @@ export { migrateMessageBookmarks } from "./242-message-bookmarks.js";
 export { migrateCreateProviderConnections } from "./243-provider-connections.js";
 export { migrateProviderConnectionStatusLabel } from "./244-provider-connection-status-label.js";
 export { migrateMemoryRetrospectiveState } from "./245-memory-retrospective-state.js";
+export { migrateBackfillProviderConnectionLabel } from "./246-backfill-provider-connection-label.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
