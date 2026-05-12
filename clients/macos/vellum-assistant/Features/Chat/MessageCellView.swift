@@ -252,17 +252,17 @@ struct MessageCellView: View, Equatable {
             .id(message.id)
         }
 
-        ForEach(subagentsByParent[message.id] ?? []) { subagent in
+        if let subagents = subagentsByParent[message.id], !subagents.isEmpty {
             HStack(spacing: 0) {
-                SubagentEventsReader(
+                SubagentGroupContainer(
+                    subagents: subagents,
                     store: subagentDetailStore,
-                    subagent: subagent,
-                    onAbort: { onAbortSubagent?(subagent.id) },
-                    onTap: { onSubagentTap?(subagent.id) }
+                    onAbort: { id in onAbortSubagent?(id) },
+                    onTap: { id in onSubagentTap?(id) }
                 )
                 Spacer(minLength: 0)
             }
-            .id("subagent-\(subagent.id)")
+            .id("subagent-group-\(message.id)")
         }
 
         if showAnchoredThinkingIndicator {

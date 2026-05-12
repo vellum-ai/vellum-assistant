@@ -168,20 +168,22 @@ struct MessageListContentView: View, Equatable {
     }
 
     @ViewBuilder
-    fileprivate func orphanSubagentRow(_ subagent: SubagentInfo, isFlipped: Bool = true) -> some View {
-        HStack(spacing: 0) {
-            SubagentEventsReader(
-                store: subagentDetailStore,
-                subagent: subagent,
-                onAbort: { onAbortSubagent?(subagent.id) },
-                onTap: { onSubagentTap?(subagent.id) }
-            )
-            Spacer(minLength: 0)
-        }
-        .id("subagent-\(subagent.id)")
-        .transition(.opacity)
-        .if(isFlipped) { view in
-            view.flipped()
+    fileprivate func orphanSubagentGroup(isFlipped: Bool = true) -> some View {
+        if !state.orphanSubagents.isEmpty {
+            HStack(spacing: 0) {
+                SubagentGroupContainer(
+                    subagents: state.orphanSubagents,
+                    store: subagentDetailStore,
+                    onAbort: { id in onAbortSubagent?(id) },
+                    onTap: { id in onSubagentTap?(id) }
+                )
+                Spacer(minLength: 0)
+            }
+            .id("orphan-subagent-group")
+            .transition(.opacity)
+            .if(isFlipped) { view in
+                view.flipped()
+            }
         }
     }
 
@@ -381,9 +383,7 @@ struct MessageListContentView: View, Equatable {
                 latestEdgeSentinel()
                 latestEdgeActivityRow()
 
-                ForEach(state.orphanSubagents) { subagent in
-                    orphanSubagentRow(subagent)
-                }
+                orphanSubagentGroup()
 
                 // ── Messages ──
                 ForEach(displayedItems.reversed()) { item in
@@ -550,9 +550,7 @@ private struct PinnedLatestTurnSection: View {
                 )
             }
 
-            ForEach(contentView.state.orphanSubagents) { subagent in
-                contentView.orphanSubagentRow(subagent, isFlipped: false)
-            }
+            contentView.orphanSubagentGroup(isFlipped: false)
 
             contentView.latestEdgeActivityRow(isFlipped: false)
         }
