@@ -14,7 +14,6 @@
     "daemon:restart:http": "RUNTIME_HTTP_PORT=7821 bun run src/index.ts daemon restart",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "build:plugin-api": "bun run scripts/build-plugin-api.ts",
     "generate:openapi": "bun run scripts/generate-openapi.ts",
     "sync:llm-catalog": "bun run scripts/sync-llm-catalog.ts",
     "sync:web-search-catalog": "bun run scripts/sync-web-search-catalog.ts",
@@ -30,7 +29,7 @@
     "test:stable": "EXCLUDE_EXPERIMENTAL=true bash scripts/test.sh",
     "test:bench": "find src -type f -name '*.benchmark.test.ts' -print0 | xargs -0 -P 1 -I {} bun test {}",
     "test:filesystem-tools": "bash scripts/test-filesystem-tools.sh",
-    "postinstall": "(cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)) && bun run build:plugin-api",
+    "postinstall": "cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)",
     "prepack": "node ../scripts/prepack-bundled-deps.mjs"
   },
   "dependencies": {
