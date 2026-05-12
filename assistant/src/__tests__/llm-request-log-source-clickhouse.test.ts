@@ -21,15 +21,6 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-// Stub conversation-crud's SQLite-backed helpers so unit tests can run
-// without bootstrapping a real database. Tests that exercise turn / fork
-// resolution explicitly stub these per-test where needed.
-mock.module("../memory/conversation-crud.js", () => ({
-  getAssistantMessageIdsInTurn: () => [] as string[],
-  getMessageById: () => null,
-  messageMetadataSchema: { safeParse: () => ({ success: false }) },
-}));
-
 import { ClickHouseLlmRequestLogSource } from "../memory/llm-request-log-source-clickhouse.js";
 
 const DEFAULT_CONFIG = {
@@ -66,11 +57,15 @@ function makeSource(opts: {
   body?: string;
   status?: number;
   recorder?: FakeFetchCall[];
+  resolveTurnMessageIds?: (messageId: string) => string[];
+  resolveMessage?: (messageId: string) => { metadata: string | null } | null;
 }) {
   return new ClickHouseLlmRequestLogSource(DEFAULT_CONFIG, {
     resolveUrl: async () => "https://ch.example.test:8443",
     resolvePassword: async () => "hunter2",
     resolveAssistantId: async () => "asst-fixture-001",
+    resolveTurnMessageIds: opts.resolveTurnMessageIds ?? (() => []),
+    resolveMessage: opts.resolveMessage ?? (() => null),
     fetchImpl: fakeFetchReturning(
       opts.body ?? "",
       opts.status ?? 200,

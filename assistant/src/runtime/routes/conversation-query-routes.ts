@@ -706,7 +706,8 @@ async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   if (!messageId) {
     throw new BadRequestError("message id is required");
   }
-  const logs = await getLlmRequestLogSource().getRequestLogsByMessageId(messageId);
+  const source = await getLlmRequestLogSource();
+  const logs = await source.getRequestLogsByMessageId(messageId);
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
   const memoryRecallLog = getMemoryRecallLogByMessageIds(turnMessageIds);
   const memoryV2Activation =
@@ -770,7 +771,8 @@ async function handleGetLlmRequestLogPayload({
   if (!logId) {
     throw new BadRequestError("log id is required");
   }
-  const log = await getLlmRequestLogSource().getRequestLogById(logId);
+  const source = await getLlmRequestLogSource();
+  const log = await source.getRequestLogById(logId);
   if (!log) {
     throw new NotFoundError("log not found");
   }

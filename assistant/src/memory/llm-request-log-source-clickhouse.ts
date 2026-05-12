@@ -62,6 +62,11 @@ interface ClickHouseRow {
 /** Injectable fetch override for tests. Defaults to globalThis.fetch. */
 export type ClickHouseFetch = typeof fetch;
 
+/** Minimal subset of the SQLite message row the fork-source fallback needs. */
+export interface ClickHouseMessageRow {
+  metadata: string | null;
+}
+
 export interface ClickHouseLlmRequestLogSourceDeps {
   /** Override the credential read for `clickhouse:url`. */
   resolveUrl?: () => Promise<string | null>;
@@ -69,6 +74,10 @@ export interface ClickHouseLlmRequestLogSourceDeps {
   resolvePassword?: () => Promise<string | null>;
   /** Override the credential read for `vellum:platform_assistant_id`. */
   resolveAssistantId?: () => Promise<string | null>;
+  /** Override the turn-id resolver (default: `getAssistantMessageIdsInTurn`). */
+  resolveTurnMessageIds?: (messageId: string) => string[];
+  /** Override the message lookup (default: `getMessageById`). */
+  resolveMessage?: (messageId: string) => ClickHouseMessageRow | null;
   /** Override fetch for testing. */
   fetchImpl?: ClickHouseFetch;
 }
@@ -81,6 +90,10 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
   private readonly resolveUrl: () => Promise<string | null>;
   private readonly resolvePassword: () => Promise<string | null>;
   private readonly resolveAssistantId: () => Promise<string | null>;
+  private readonly resolveTurnMessageIds: (messageId: string) => string[];
+  private readonly resolveMessage: (
+    messageId: string,
+  ) => ClickHouseMessageRow | null;
   private readonly fetchImpl: ClickHouseFetch;
 
   constructor(
@@ -95,6 +108,9 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     this.resolveAssistantId =
       deps.resolveAssistantId ??
       (() => readCredentialOrNull("vellum", "platform_assistant_id"));
+    this.resolveTurnMessageIds =
+      deps.resolveTurnMessageIds ?? getAssistantMessageIdsInTurn;
+    this.resolveMessage = deps.resolveMessage ?? getMessageById;
     this.fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
@@ -119,7 +135,7 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
   }
 
   async getRequestLogsByMessageId(messageId: string): Promise<LogRow[]> {
-    const turnIds = getAssistantMessageIdsInTurn(messageId);
+    const turnIds = this.resolveTurnMessageIds(messageId);
     let rows = await this.selectByMessageIds(turnIds);
 
     if (rows.length === 0) {
@@ -127,7 +143,7 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       // logs match the queried message's turn, see if it was forked from
       // another and resolve that source's turn. The fork relationship lives
       // in local SQLite (message.metadata.forkSourceMessageId), not CH.
-      const message = getMessageById(messageId);
+      const message = this.resolveMessage(messageId);
       if (message?.metadata) {
         try {
           const parsed = messageMetadataSchema.safeParse(
@@ -139,7 +155,7 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
               ? parsed.data.forkSourceMessageId
               : null;
           if (sourceMessageId && sourceMessageId !== messageId) {
-            const sourceTurnIds = getAssistantMessageIdsInTurn(sourceMessageId);
+            const sourceTurnIds = this.resolveTurnMessageIds(sourceMessageId);
             rows = await this.selectByMessageIds(sourceTurnIds);
           }
         } catch {

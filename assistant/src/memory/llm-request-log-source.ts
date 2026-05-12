@@ -18,7 +18,6 @@
  */
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
-import { ClickHouseLlmRequestLogSource } from "./llm-request-log-source-clickhouse.js";
 import { LocalLlmRequestLogSource } from "./llm-request-log-source-local.js";
 import type { LogRow } from "./llm-request-log-store.js";
 
@@ -46,17 +45,24 @@ let cachedKind: "local" | "clickhouse" | null = null;
  *
  * The result is cached for the lifetime of the process. Callers should
  * never hang on to the instance across config reloads — always re-resolve
- * through this function. Callers MUST `await` both methods even though the
- * local implementation is synchronous, because the active source may swap
- * to one with real I/O at any time.
+ * through this function. The factory is async because the ClickHouse
+ * implementation is loaded via dynamic `import()` on first use; that keeps
+ * the static module graph for the default local path (and for everything
+ * that transitively imports this module, including `config-watcher`) free
+ * of the ClickHouse HTTP client and its dependencies. Callers MUST `await`
+ * the source methods because the active source may swap to one with real
+ * I/O at any time.
  */
-export function getLlmRequestLogSource(): LlmRequestLogSource {
+export async function getLlmRequestLogSource(): Promise<LlmRequestLogSource> {
   if (cached) return cached;
 
   const config = getConfig();
   const kind = config.llmRequestLogs?.readSource ?? "local";
 
   if (kind === "clickhouse") {
+    const { ClickHouseLlmRequestLogSource } = await import(
+      "./llm-request-log-source-clickhouse.js"
+    );
     cached = new ClickHouseLlmRequestLogSource(config.llmRequestLogs.clickhouse);
     cachedKind = "clickhouse";
     log.info(
