@@ -480,9 +480,18 @@ struct ProvidersSheet: View {
 
     private var editorProviderField: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Provider")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
+            HStack(spacing: VSpacing.xs) {
+                Text("Provider")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                // Warning badge — only renders in create mode while the
+                // dropdown is still empty. Edit mode pins the value to the
+                // connection's saved provider (the dropdown is disabled in
+                // that path), so `isProviderMissing` can never trip there.
+                if isProviderMissing {
+                    VBadge(label: "Pick a provider", tone: .warning, emphasis: .subtle)
+                }
+            }
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
                 selection: $editorDraft.provider,
@@ -730,7 +739,7 @@ struct ProvidersSheet: View {
                     saveAsNewFromManagedEdit()
                 }
             }
-            VButton(label: editorPrimaryLabel, style: .primary) {
+            VButton(label: editorPrimaryLabel, style: .primary, isDisabled: !canSave) {
                 Task { await commitEditor() }
             }
         }
@@ -747,6 +756,29 @@ struct ProvidersSheet: View {
         case .create: return "Create"
         case .edit, .managedEdit, .none: return "Save"
         }
+    }
+
+    // MARK: - Editor Validation
+
+    /// True when the user hasn't picked a provider yet. Provider is required
+    /// for a new connection — the dropdown starts empty in `beginCreate` so
+    /// the user has to make an explicit choice rather than silently
+    /// inheriting the first catalog entry (Anthropic), which previously led
+    /// to OpenRouter / Fireworks keys being saved against the wrong provider
+    /// when users pasted-and-saved without scanning the dropdown. Mirrors
+    /// `InferenceProfileEditor.isProviderMissing` (PR #30313).
+    private var isProviderMissing: Bool {
+        editorDraft.provider.isEmpty
+    }
+
+    /// Combined gate for the primary footer button. Today provider is the
+    /// only piece we lift out of `commitEditor` so the user gets immediate
+    /// feedback (greyed-out Save + warning badge) instead of an error after
+    /// a click; name/credential validation still runs server-side in
+    /// `commitEditor` because those errors need context the dropdown can't
+    /// convey (e.g. duplicate-name conflicts only the daemon knows about).
+    private var canSave: Bool {
+        !isProviderMissing
     }
 
     // MARK: - Conflict Sheet
@@ -792,17 +824,15 @@ struct ProvidersSheet: View {
     private func beginCreate() {
         actionError = nil
         isKeyDirty = false
-        let provider = store.providerCatalog.first?.id ?? ""
-        editorDraft = ConnectionDraft(
-            provider: provider
-        )
-        if !provider.isEmpty {
-            if provider == "ollama" {
-                editorDraft.authType = "none"
-            } else {
-                editorDraft.credential = "credential/\(provider)/api_key"
-            }
-        }
+        // Provider intentionally left empty — the old pre-fill to
+        // `providerCatalog.first?.id` quietly defaulted to Anthropic and led
+        // users (e.g. Marina QA on 0.8.1) to paste an OpenRouter key and
+        // hit Save without noticing the dropdown was still on Anthropic,
+        // persisting the row as `provider=anthropic` with the OpenRouter key
+        // in the credential slot. Forcing an explicit selection eliminates
+        // that whole class of mismatched-provider bug. Mirrors the
+        // `isProviderMissing` guard in InferenceProfileEditor (PR #30313).
+        editorDraft = ConnectionDraft()
         editorState = .create
         maskedCredentialValue = nil
         Task { await loadAvailableCredentials() }
@@ -978,6 +1008,17 @@ struct ProvidersSheet: View {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
             actionError = "Name is required."
+            return
+        }
+        // Belt-and-suspenders for the Save button's `isDisabled: !canSave`
+        // gate: if a future caller exposes a path that bypasses the disabled
+        // button (programmatic Enter-key submit, future keyboard shortcuts,
+        // accidentally re-enabled state), surface the same error inline
+        // instead of POSTing a row with `provider=""` to the daemon. The
+        // daemon's zod schema would reject it, but the user-facing message
+        // belongs here.
+        guard !draft.provider.isEmpty else {
+            actionError = "Select a provider."
             return
         }
 
