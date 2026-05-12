@@ -15,22 +15,27 @@ const ALLOWED_PREFIXES = {
     // imports independently, so this can't be used to smuggle daemon
     // internals through a sibling re-export.
     "./",
-    // IPC client at depth-1 and depth-2.
+    // IPC client at depth-1, depth-2, and depth-3.
     "../../ipc/cli-client",
     "../../../ipc/cli-client",
+    "../../../../ipc/cli-client",
     // Status command's daemon-down fallback needs socket path + platform.
     "../../ipc/socket-path",
     "../../util/platform",
-    // Logger / output at depth-1 and depth-2.
+    // Logger / output at depth-1, depth-2, and depth-3.
     "../logger",
     "../output",
     "../../logger",
     "../../output",
-    // Shared CLI lib / utils at depth-1 and depth-2.
+    "../../../logger",
+    "../../../output",
+    // Shared CLI lib / utils at depth-1, depth-2, and depth-3.
     "../lib/",
     "../../lib/",
+    "../../../lib/",
     "../utils/",
     "../../utils/",
+    "../../../utils/",
     // Environment access for commands that need to read VELLUM_* env vars
     // before issuing IPC calls (e.g. email, domain).
     "../../config/env",

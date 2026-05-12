@@ -224,6 +224,17 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "ui",
   "ui request",
   "ui confirm",
+  "use",
+  "use slack",
+  "use slack send",
+  "use slack read",
+  "use slack react",
+  "use slack channels",
+  "use slack channels list",
+  "use slack channels refresh",
+  "use slack channels get",
+  "use slack users",
+  "use slack users get",
   "usage",
   "usage totals",
   "usage daily",
@@ -407,7 +418,8 @@ const riskOverrides: AssistantRiskOverride[] = [
   {
     path: "inference providers connections create",
     risk: "medium",
-    reason: "Inserts a provider_connection row referenced by inference profiles",
+    reason:
+      "Inserts a provider_connection row referenced by inference profiles",
   },
   {
     path: "inference providers connections update",
@@ -417,7 +429,8 @@ const riskOverrides: AssistantRiskOverride[] = [
   {
     path: "inference providers connections delete",
     risk: "medium",
-    reason: "Deletes a provider_connection row; refuses unless --force when profiles still reference it",
+    reason:
+      "Deletes a provider_connection row; refuses unless --force when profiles still reference it",
   },
   { path: "llm send", risk: "medium" },
   {
@@ -500,6 +513,22 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "task queue remove", risk: "medium" },
   { path: "task queue run", risk: "medium" },
   { path: "tts synthesize", risk: "medium" },
+  {
+    path: "use slack send",
+    risk: "medium",
+    reason: "Sends a message to a Slack channel or DM",
+  },
+  {
+    path: "use slack react",
+    risk: "medium",
+    reason: "Adds an emoji reaction to a Slack message",
+  },
+  {
+    path: "use slack channels refresh",
+    risk: "low",
+    reason:
+      "Rebuilds local channel cache from Slack API — read-only external call",
+  },
   { path: "watchers create", risk: "medium" },
   { path: "watchers update", risk: "medium" },
   { path: "watchers delete", risk: "medium" },
