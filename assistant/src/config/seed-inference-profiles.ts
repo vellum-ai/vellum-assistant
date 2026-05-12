@@ -173,7 +173,14 @@ export function seedInferenceProfiles(
 
   // 1. Managed profiles. Off-platform: overwrite on every boot so Vellum can
   //    push model/config updates in new releases. On-platform: insert only if
-  //    absent — the platform controls profiles through overlays.
+  //    absent — the platform controls profiles through overlays, and the
+  //    overlay fragment is authoritative even when it omits fields the local
+  //    template carries (e.g. an overlay supplying only provider/model/label
+  //    must not get its maxTokens/thinking polluted from the template). The
+  //    legacy migration-052 backfill that seeds label-less Anthropic
+  //    defaults is healed by workspace migration 082
+  //    (`backfill-managed-profile-labels`) rather than the seeder, so
+  //    this skip path stays simple.
   //
   //    Two user-editable fields survive the overwrite: `label` (display
   //    rename) and `status` (active/disabled toggle). The PUT route
