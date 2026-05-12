@@ -309,9 +309,9 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
         apiVersions: ASSISTANT_API_VERSIONS,
       };
 
-      if (plugin.init) {
+      if (plugin.hooks?.init) {
         try {
-          await plugin.init(initContext);
+          await plugin.hooks.init(initContext);
         } catch (err) {
           throw new PluginExecutionError(
             `plugin ${name} init() failed: ${
@@ -504,17 +504,17 @@ async function teardownPlugin(
     );
   }
 
-  if (plugin.onShutdown) {
+  if (plugin.hooks?.shutdown) {
     try {
-      await plugin.onShutdown();
+      await plugin.hooks.shutdown();
     } catch (err) {
-      // Swallow — we want every plugin's onShutdown to get a chance to run
+      // Swallow — we want every plugin's shutdown to get a chance to run
       // even when an earlier one throws. The outer runShutdownHooks already
       // logs at hook level, but the plugin-name attribution here is what
       // operators read first.
       log.warn(
         { err, plugin: name, reason },
-        "plugin onShutdown failed (continuing with remaining plugins)",
+        "plugin shutdown hook failed (continuing with remaining plugins)",
       );
     }
   }
