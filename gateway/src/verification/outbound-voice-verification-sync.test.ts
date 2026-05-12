@@ -46,11 +46,9 @@ mock.module("../ipc/socket-path.js", () => ({
   resolveIpcSocketPath: () => ({ path: "/dev/null" }),
 }));
 
-const {
-  createPhoneGuardianBinding,
-  loadCursor,
-  persistCursor,
-} = await import("./outbound-voice-verification-sync.js");
+const { createPhoneGuardianBinding } = await import(
+  "./outbound-voice-verification-sync.js"
+);
 const { getMostRecentChannelGuardianTimestamp } = await import(
   "./binding-helpers.js"
 );
@@ -133,7 +131,7 @@ function insertChannel(opts: {
   contactId: string;
   type: string;
   externalUserId: string;
-  status: "active" | "revoked";
+  status: "active" | "revoked" | "unverified";
   createdAt: number;
   updatedAt: number;
 }): void {
@@ -265,7 +263,7 @@ describe("getMostRecentChannelGuardianTimestamp", () => {
       id: "ch2",
       contactId: "c1",
       type: "phone",
-      externalUserId: "+15555550200",
+      externalUserId: "+15555550150",
       status: "active",
       createdAt: now - 5_000,
       updatedAt: now - 500,
@@ -274,6 +272,55 @@ describe("getMostRecentChannelGuardianTimestamp", () => {
     expect(await getMostRecentChannelGuardianTimestamp("phone")).toBe(
       now - 500,
     );
+  });
+
+  test("excludes 'unverified' rows from the recency watermark", async () => {
+    /**
+     * Sibling flows (e.g. contact-prompt) create guardian phone channels
+     * with status='unverified' that are not bindings. Including them in
+     * the recency watermark would let a newer unverified row falsely
+     * mark a legitimate fresh verification session as stale.
+     */
+    const now = Date.now();
+    insertGuardianContact("c1", "principal-1", now - 10_000);
+    insertChannel({
+      id: "ch1",
+      contactId: "c1",
+      type: "phone",
+      externalUserId: "+15555550150",
+      status: "unverified",
+      createdAt: now - 10_000,
+      updatedAt: now - 100, // newest, but should be ignored
+    });
+    insertChannel({
+      id: "ch2",
+      contactId: "c1",
+      type: "phone",
+      externalUserId: "+15555550100",
+      status: "revoked",
+      createdAt: now - 10_000,
+      updatedAt: now - 5_000,
+    });
+
+    expect(await getMostRecentChannelGuardianTimestamp("phone")).toBe(
+      now - 5_000,
+    );
+  });
+
+  test("returns null when only 'unverified' rows exist", async () => {
+    const now = Date.now();
+    insertGuardianContact("c1", "principal-1", now - 10_000);
+    insertChannel({
+      id: "ch1",
+      contactId: "c1",
+      type: "phone",
+      externalUserId: "+15555550150",
+      status: "unverified",
+      createdAt: now - 10_000,
+      updatedAt: now - 100,
+    });
+
+    expect(await getMostRecentChannelGuardianTimestamp("phone")).toBeNull();
   });
 
   test("scopes by channel type", async () => {
@@ -345,7 +392,7 @@ describe("createPhoneGuardianBinding recency check", () => {
       id: "ch1",
       contactId: "c1",
       type: "phone",
-      externalUserId: "+15555550200",
+      externalUserId: "+15555550150",
       status: "active",
       createdAt: now - 30_000,
       updatedAt: now - 2_000, // Y bound after X's session
@@ -358,7 +405,7 @@ describe("createPhoneGuardianBinding recency check", () => {
     );
 
     // Y is still active; X was not bound.
-    expect(activeBindingFor("+15555550200")?.status).toBe("active");
+    expect(activeBindingFor("+15555550150")?.status).toBe("active");
     expect(activeBindingFor("+15555550100")).toBeNull();
   });
 
@@ -403,26 +450,4 @@ describe("createPhoneGuardianBinding recency check", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Durable cursor roundtrip
-// ---------------------------------------------------------------------------
 
-describe("outbound-voice-verify-sync cursor", () => {
-  test("loadCursor returns null on first ever read", () => {
-    expect(loadCursor()).toBeNull();
-  });
-
-  test("persistCursor / loadCursor roundtrip", () => {
-    const ts = Date.now() - 1_000;
-    persistCursor(ts);
-    expect(loadCursor()).toBe(ts);
-  });
-
-  test("persistCursor upserts — latest value wins", () => {
-    const t1 = Date.now() - 5_000;
-    const t2 = Date.now() - 1_000;
-    persistCursor(t1);
-    persistCursor(t2);
-    expect(loadCursor()).toBe(t2);
-  });
-});

@@ -51,6 +51,11 @@ export async function getExistingGuardianBinding(
  * revoked (or displace one bound by a sibling code path). A consumed
  * session whose own `updated_at` is older than the most recent binding
  * event for the same channel is, by definition, obsolete.
+ *
+ * Filters to `active` and `revoked` rows specifically. Sibling flows
+ * (e.g. `contact-prompt`) can create `unverified` guardian phone rows
+ * that are not bindings — including them would let a newer unverified
+ * row falsely mark a legitimate fresh verification session as stale.
  */
 export async function getMostRecentChannelGuardianTimestamp(
   channel: string,
@@ -59,7 +64,9 @@ export async function getMostRecentChannelGuardianTimestamp(
     `SELECT MAX(COALESCE(cc.updated_at, cc.created_at)) AS maxUpdatedAt
      FROM contacts c
      JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian' AND cc.type = ?`,
+     WHERE c.role = 'guardian'
+       AND cc.type = ?
+       AND cc.status IN ('active', 'revoked')`,
     [channel],
   );
   return rows[0]?.maxUpdatedAt ?? null;
