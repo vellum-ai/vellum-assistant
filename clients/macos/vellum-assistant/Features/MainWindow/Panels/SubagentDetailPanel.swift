@@ -20,19 +20,24 @@ struct SubagentDetailPanel: View {
     private var events: [SubagentEventItem] { state?.events ?? [] }
     private var isRunning: Bool { subagentInfo?.status == .running || subagentInfo?.status == .pending }
 
-    /// Available width measured from the panel's proposed layout width (not
-    /// from rendered content). Used to gate content rendering until the
-    /// layout has a valid width, and forwarded to
+    /// Usable content width inside VSidePanel's scroll area (panel width
+    /// minus `contentPadding`). Measured by a zero-height probe inside the
+    /// scroll content closure and forwarded to
     /// `MarkdownSegmentView.maxContentWidth` so markdown wraps to the panel
     /// instead of the default `chatBubbleMaxWidth` (760pt).
     @State private var panelContentWidth: CGFloat = 0
 
     var body: some View {
         VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.titleSmall, onClose: onClose, pinnedContent: {
-            // Measure the panel's proposed width with a zero-height
-            // invisible view before rendering any content. This prevents
-            // the first-frame overflow where content renders at an
-            // unconstrained width before the panel's layout settles.
+            pinnedBody
+
+            Divider().background(VColor.borderBase)
+        }) {
+            // Measure the usable content width after VSidePanel applies
+            // contentPadding + containerRelativeFrame. This probe lives
+            // inside the scroll content closure so panelContentWidth
+            // reflects the actual available width for child views, not
+            // the raw panel width.
             Color.clear
                 .frame(height: 0)
                 .onGeometryChange(for: CGFloat.self) { proxy in
@@ -41,22 +46,14 @@ struct SubagentDetailPanel: View {
                     panelContentWidth = newWidth
                 }
 
-            if panelContentWidth > 0 {
-                pinnedBody
-
-                Divider().background(VColor.borderBase)
-            }
-        }) {
-            if panelContentWidth > 0 {
-                if events.isEmpty {
-                    VEmptyState(
-                        title: "No events yet",
-                        subtitle: "Events will appear as the subagent runs",
-                        icon: "waveform.path"
-                    )
-                } else {
-                    eventList
-                }
+            if events.isEmpty {
+                VEmptyState(
+                    title: "No events yet",
+                    subtitle: "Events will appear as the subagent runs",
+                    icon: "waveform.path"
+                )
+            } else if panelContentWidth > 0 {
+                eventList
             }
         }
         .onAppear {
