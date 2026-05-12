@@ -20,7 +20,7 @@
  *
  *   1. Add a new executor in `tools/network/web-search.ts`.
  *   2. Register an adapter in the `WEB_SEARCH_ADAPTERS` table.
- *   3. Add an entry to this catalog.
+ *   3. Add the id to `SEARCH_PROVIDER_IDS` and a catalog entry below.
  *   4. Run `bun run sync:web-search-catalog` to regenerate
  *      `meta/web-search-provider-catalog.json`.
  *
@@ -30,11 +30,26 @@
  * trivial.
  */
 
+/**
+ * All provider ids accepted by the web-search config schema, as a const
+ * tuple so that `z.enum(SEARCH_PROVIDER_IDS)` preserves literal types in
+ * `z.infer<>`.  Follows the same pattern as `VALID_INFERENCE_PROVIDERS`
+ * and `VALID_IMAGE_GEN_PROVIDERS` in `config/schemas/services.ts`.
+ */
+export const SEARCH_PROVIDER_IDS = [
+  "inference-provider-native",
+  "perplexity",
+  "brave",
+  "tavily",
+] as const;
+
+export type SearchProviderId = (typeof SEARCH_PROVIDER_IDS)[number];
+
 export type SearchProviderKind = "managed" | "byok";
 
 export interface SearchProviderCatalogEntry {
   /** Stable provider identifier. Matches config + secret-catalog values. */
-  readonly id: string;
+  readonly id: SearchProviderId;
   /** Short display name used by picker UIs. */
   readonly displayName: string;
   /**
@@ -97,11 +112,6 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     privacyPolicyUrl: "https://tavily.com/privacy",
   },
 ];
-
-/** Provider ids accepted by the web-search config schema. */
-export const SEARCH_PROVIDER_IDS: readonly string[] = SEARCH_PROVIDER_CATALOG.map(
-  (p) => p.id,
-);
 
 /** Catalog entries that store an API key under their bare provider name. */
 export const BYOK_SEARCH_PROVIDERS: readonly SearchProviderCatalogEntry[] =
