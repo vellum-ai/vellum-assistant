@@ -236,10 +236,6 @@ describe("toolResultTruncate pipeline", () => {
         manifest: {
           name: "short-circuit",
           version: "1.0.0",
-          requires: {
-            pluginRuntime: "v1",
-            toolResultTruncateApi: "v1",
-          },
         },
         middleware: { toolResultTruncate: shortCircuit },
       });
@@ -274,10 +270,6 @@ describe("toolResultTruncate pipeline", () => {
         manifest: {
           name: "prefixer",
           version: "1.0.0",
-          requires: {
-            pluginRuntime: "v1",
-            toolResultTruncateApi: "v1",
-          },
         },
         middleware: { toolResultTruncate: prefixer },
       });
@@ -323,10 +315,6 @@ describe("toolResultTruncate pipeline", () => {
         manifest: {
           name: "late-user-plugin",
           version: "0.0.1",
-          requires: {
-            pluginRuntime: "v1",
-            toolResultTruncateApi: "v1",
-          },
         },
         middleware: { toolResultTruncate: userMiddleware },
       });

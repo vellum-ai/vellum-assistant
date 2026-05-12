@@ -64,11 +64,6 @@ export const defaultTitleGeneratePlugin: Plugin = {
   manifest: {
     name: "default-title-generate",
     version: "1.0.0",
-    provides: { titleGenerate: "v1" },
-    requires: {
-      pluginRuntime: "v1",
-      titleGenerateApi: "v1",
-    },
   },
 };
 

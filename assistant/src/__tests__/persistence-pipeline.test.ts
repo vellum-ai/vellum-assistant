@@ -267,7 +267,6 @@ describe("persistence pipeline", () => {
       manifest: {
         name: "mock-persistence",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: { persistence: redirect },
     };
@@ -352,7 +351,6 @@ describe("persistence pipeline", () => {
       manifest: {
         name: "late-user-plugin",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: { persistence: userMiddleware },
     });

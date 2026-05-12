@@ -60,22 +60,13 @@ import { AssistantError, ErrorCode } from "../util/errors.js";
 export interface PluginManifest {
   /** Unique plugin identifier (kebab-case). Duplicate names fail registration. */
   name: string;
-  /** Plugin version (semver). Informational — the registry compares
-   *  capability versions via `requires`, not this field. */
-  version: string;
   /**
-   * Capabilities this plugin exposes to other plugins.
-   *
-   * **Reserved for future cross-plugin composition — not currently consumed
-   * by any runtime code.** The field is declared so future cross-plugin work
-   * can land without a manifest version bump, but today nothing reads it and
-   * plugins must not depend on it for capability discovery. See
-   * `assistant/docs/plugins.md` (Cross-plugin communication) for the
-   * rationale.
+   * Plugin version (semver). Informational. Host-compat negotiation lives
+   * in the plugin's `package.json` `peerDependencies["@vellumai/plugin-api"]`
+   * range — checked by the external-plugin loader against the assistant's
+   * own version at load time.
    */
-  provides?: Record<string, string>;
-  /** Capabilities this plugin needs from the assistant runtime. */
-  requires: Record<string, string>;
+  version: string;
   /** Credential keys the plugin needs resolved before `init()` runs. */
   requiresCredential?: string[];
   /**

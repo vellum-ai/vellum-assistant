@@ -55,11 +55,6 @@ export const defaultCircuitBreakerPlugin: Plugin = {
   manifest: {
     name: "default-circuit-breaker",
     version: "1.0.0",
-    provides: { circuitBreakerApi: "v1" },
-    requires: {
-      pluginRuntime: "v1",
-      circuitBreakerApi: "v1",
-    },
   },
 
   middleware: {
