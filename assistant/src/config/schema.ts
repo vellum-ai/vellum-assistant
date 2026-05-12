@@ -82,9 +82,11 @@ export const AssistantConfigSchema = z
     // ensures the loader's leaf-deletion recovery path can repair a partially
     // invalid `llm` block without falling back to `cloneDefaultConfig()`.
     llm: LLMSchema.default(LLMSchema.parse({})),
-    llmRequestLogs: LlmRequestLogsConfigSchema.default(
-      LlmRequestLogsConfigSchema.parse({}),
-    ),
+    // Discriminated union default: explicitly pick the `local` branch
+    // because the union has no inherent default (no shared discriminator
+    // value). The clickhouse branch's inner fields still default through
+    // its own schema when readSource is flipped.
+    llmRequestLogs: LlmRequestLogsConfigSchema.default({ readSource: "local" }),
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),

@@ -18,7 +18,6 @@ import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
 import { resetCleanupScheduleThrottle } from "../memory/cleanup-schedule-state.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
-import { invalidateLlmRequestLogSourceCache } from "../memory/llm-request-log-source.js";
 import { initializeProviders } from "../providers/registry.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
@@ -141,7 +140,6 @@ export class ConfigWatcher {
       return false;
     }
     clearEmbeddingBackendCache();
-    invalidateLlmRequestLogSourceCache();
     // If cleanup retention settings changed, reset the cleanup scheduler
     // throttle so the next worker tick re-enqueues jobs with the new values
     // instead of waiting out the remaining enqueueIntervalMs (default 6h).
