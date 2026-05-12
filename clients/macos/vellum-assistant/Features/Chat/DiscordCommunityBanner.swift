@@ -1,10 +1,9 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Inline banner promoting the Vellum Discord community, rendered above the
-/// composer in ChatView. Follows the same visual pattern as
-/// `RecoveryModeBanner` and `MissingApiKeyBanner`: anchored at the bottom
-/// of the message list with a rounded-top card.
+/// Compact inline banner promoting the Vellum Discord community, rendered
+/// above the composer in ChatView. Single-row layout: icon + text on the
+/// left, "Join Discord" button + dismiss on the right.
 ///
 /// Shown when:
 /// - User has not joined Discord (`app.discordNudge.joined` is false)
@@ -16,46 +15,44 @@ struct DiscordCommunityBanner: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            HStack(alignment: .top, spacing: VSpacing.sm) {
-                discordIcon
-                    .padding(.top, 1)
-                    .accessibilityHidden(true)
+        HStack(spacing: VSpacing.sm) {
+            discordIcon
+                .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Join our community!")
-                        .font(VFont.bodySmallEmphasised)
-                        .foregroundStyle(VColor.contentEmphasized)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Join our community!")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentEmphasized)
 
-                    Text("Talk to the team — share feedback, request features, get answers faster.")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
-                .layoutPriority(1)
-
-                Spacer(minLength: 0)
-
-                Button {
-                    onDismiss()
-                } label: {
-                    VIconView(.x, size: 14)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Dismiss Discord banner")
+                Text("Talk to the team — share feedback, request features, get answers faster")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .lineLimit(1)
             }
+            .layoutPriority(1)
 
-            HStack(spacing: VSpacing.sm) {
-                VButton(
-                    label: "Join Discord",
-                    style: .primary
-                ) {
-                    onJoin()
-                }
-                .accessibilityLabel("Join Discord community")
+            Spacer(minLength: 0)
+
+            VButton(
+                label: "Join Discord",
+                style: .primary,
+                size: .compact
+            ) {
+                onJoin()
             }
+            .accessibilityLabel("Join Discord community")
+
+            Button {
+                onDismiss()
+            } label: {
+                VIconView(.x, size: 14)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss Discord banner")
         }
-        .padding(VSpacing.lg)
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
         .background(VColor.surfaceActive)
         .clipShape(
             UnevenRoundedRectangle(
