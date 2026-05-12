@@ -47,10 +47,14 @@ Whenever **any** flow (MCP tool, API call, web request, or otherwise) produces a
 ## Step 0: Check installation and auth
 
 ```bash
-command -v link-cli >/dev/null && link-cli auth status --format json
+if command -v link-cli >/dev/null; then
+  link-cli auth status --format json
+else
+  bunx @stripe/link-cli auth status --format json
+fi
 ```
 
-- Command missing — fall to **Setup: use `bunx`**.
+- `link-cli` missing — use `bunx @stripe/link-cli` for Step 0 and every command below.
 - Exit 0 but `"authenticated": false` — fall to **Setup: login**.
 - Authenticated — proceed to the requested flow.
 - `"update"` key present in auth status — mention the update to the user but don't block on it.
