@@ -1,9 +1,13 @@
 /**
  * init hook — hydrates the in-process store from `<pluginStorageDir>/entries.jsonl`.
  *
- * The harness supplies `pluginStorageDir` and a `logger`. We stash the
- * logger in module state so the no-arg `onShutdown` hook can still log
- * with full attribution.
+ * The harness supplies `pluginStorageDir` and a `logger` via
+ * `PluginInitContext` from `@vellumai/plugin-api`. The logger is typed
+ * as `unknown` in the public surface today (the public PluginLogger
+ * type hasn't been finalised), so we narrow it to a local pino-shaped
+ * interface for use inside the plugin. We stash the narrowed logger in
+ * module state so the no-arg `onShutdown` hook can still log with full
+ * attribution.
  *
  * Convention: default export is the function the harness invokes.
  */
@@ -11,18 +15,20 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import type { PluginInitContext } from "@vellumai/plugin-api";
+
 import {
   type MemoryEntry,
   type PluginLogger,
   setState,
 } from "../src/state.js";
 
-interface InitContext {
-  pluginStorageDir: string;
-  logger: PluginLogger;
-}
-
-export default async function init(ctx: InitContext): Promise<void> {
+export default async function init(ctx: PluginInitContext): Promise<void> {
+  // The public PluginInitContext types `logger` as `unknown` to avoid
+  // committing to a pino-flavoured interface in the public package. The
+  // assistant runtime always supplies a pino child here, so the local
+  // narrowing is safe.
+  const logger = ctx.logger as PluginLogger;
   const storePath = path.join(ctx.pluginStorageDir, "entries.jsonl");
   await fs.mkdir(ctx.pluginStorageDir, { recursive: true });
 
@@ -34,7 +40,7 @@ export default async function init(ctx: InitContext): Promise<void> {
       try {
         entries.push(JSON.parse(line) as MemoryEntry);
       } catch (err) {
-        ctx.logger.error(
+        logger.error(
           { plugin: "simple-memory", line, err: String(err) },
           "skipping malformed entries.jsonl line",
         );
@@ -47,8 +53,8 @@ export default async function init(ctx: InitContext): Promise<void> {
     // First boot — no file yet. Leave entries empty.
   }
 
-  setState({ storePath, entries, logger: ctx.logger });
-  ctx.logger.info(
+  setState({ storePath, entries, logger });
+  logger.info(
     { plugin: "simple-memory", storePath, hydratedEntries: entries.length },
     "simple-memory initialized",
   );
