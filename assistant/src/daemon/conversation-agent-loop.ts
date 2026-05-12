@@ -1440,9 +1440,13 @@ export async function runAgentLoopImpl(
     // are never stripped on normal turns — this preserves the cached prefix.
     // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
     // so plugins can override either source without touching the agent loop.
-    const currentNowContent = personalMemoryAllowed
-      ? memoryResult.nowContent
-      : null;
+    // NOW.md injection can be disabled via `memory.retrieval.scratchpadInjection.enabled`.
+    const scratchpadInjectionEnabled =
+      getConfig().memory.retrieval.scratchpadInjection.enabled;
+    const currentNowContent =
+      personalMemoryAllowed && scratchpadInjectionEnabled
+        ? memoryResult.nowContent
+        : null;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
