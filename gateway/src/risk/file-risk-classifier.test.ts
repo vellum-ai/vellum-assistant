@@ -19,6 +19,7 @@ const MOCK_DEPRECATED_DIR = join(
   "deprecated",
 );
 const MOCK_HOOKS_DIR = join(homedir(), ".vellum", "workspace", "hooks");
+const MOCK_PLUGINS_DIR = join(homedir(), ".vellum", "workspace", "plugins");
 
 /** Skill source paths managed per-test via the context's skillSourceDirs. */
 let testSkillSourceDirs: string[] = [];
@@ -28,6 +29,7 @@ function makeContext(): FileClassificationContext {
     protectedDir: MOCK_PROTECTED_DIR,
     deprecatedDir: MOCK_DEPRECATED_DIR,
     hooksDir: MOCK_HOOKS_DIR,
+    pluginsDir: MOCK_PLUGINS_DIR,
     skillSourceDirs: testSkillSourceDirs,
   };
 }
@@ -207,6 +209,56 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to hooks directory");
     });
 
+    // ATL-534: plugins directory escalation. The external plugin loader
+    // auto-imports register.{ts,js} on daemon startup, so a routine
+    // file_write here could plant persistent code execution.
+    test("plugins directory itself is high (ATL-534)", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: MOCK_PLUGINS_DIR,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    test("register.ts inside plugins directory is high (ATL-534)", async () => {
+      testSkillSourceDirs = [];
+      const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: registerFile,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    test("package.json inside plugins directory is high (ATL-534)", async () => {
+      testSkillSourceDirs = [];
+      const pkgFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "package.json");
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: pkgFile,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    test("path containing 'plugins' substring outside plugins dir is low (ATL-534)", async () => {
+      // Guard against substring matching: a path like /workspace/plugins-data/
+      // must NOT escalate, only paths under the exact plugins dir do.
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: join(homedir(), ".vellum", "workspace", "plugins-data", "x"),
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("low");
+    });
+
     test("non-skill, non-hooks path is low", async () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
@@ -253,6 +305,18 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to hooks directory");
+    });
+
+    test("plugins directory path is high (ATL-534)", async () => {
+      testSkillSourceDirs = [];
+      const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
+      const result = await classifyInput({
+        toolName: "file_edit",
+        filePath: registerFile,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
     });
   });
 
@@ -351,6 +415,27 @@ describe("FileRiskClassifier", () => {
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to hooks directory");
     });
+
+    test("plugins directory is high (ATL-534)", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: MOCK_PLUGINS_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    test("register.ts inside plugins directory is high (ATL-534)", async () => {
+      testSkillSourceDirs = [];
+      const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: registerFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
+    });
   });
 
   // -- host_file_edit ---------------------------------------------------------
@@ -388,6 +473,17 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to hooks directory");
+    });
+
+    test("plugins directory path is high (ATL-534)", async () => {
+      testSkillSourceDirs = [];
+      const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
+      const result = await classifyInput({
+        toolName: "host_file_edit",
+        filePath: registerFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
     });
   });
 
@@ -446,6 +542,27 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Transfers to hooks directory");
+    });
+
+    test("plugins directory is high (ATL-534)", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: MOCK_PLUGINS_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to plugins directory");
+    });
+
+    test("register.ts inside plugins directory is high (ATL-534)", async () => {
+      testSkillSourceDirs = [];
+      const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: registerFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to plugins directory");
     });
   });
 

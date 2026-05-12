@@ -8,12 +8,20 @@
  * Risk escalation paths:
  * - file_read: Low by default, High if targeting the actor token signing key.
  * - file_write / file_edit: Low by default, High if targeting skill source
- *   code or the workspace hooks directory.
+ *   code, the workspace hooks directory, or the user plugins directory.
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
- *   skill source code or the workspace hooks directory.
+ *   skill source code, the workspace hooks directory, or the user plugins
+ *   directory.
  * - host_file_transfer: Medium by default, High if the host-side path
- *   targets skill source code or the workspace hooks directory.
+ *   targets skill source code, the workspace hooks directory, or the user
+ *   plugins directory.
+ *
+ * The user plugins escalation guards `<workspaceDir>/plugins/`, which the
+ * external plugin loader scans at daemon startup. Without escalation a
+ * routine `file_write` could plant `plugins/<name>/register.ts` (plus a
+ * `package.json`) and obtain persistent code execution on next restart —
+ * see ATL-534.
  *
  * Gateway adaptation: accepts a FileClassificationContext parameter instead
  * of importing assistant platform utilities directly. The assistant is
@@ -51,6 +59,13 @@ export interface FileClassificationContext {
   deprecatedDir: string;
   /** Absolute path to the workspace hooks directory. */
   hooksDir: string;
+  /**
+   * Absolute path to the user plugins directory (`<workspaceDir>/plugins/`).
+   * Writes here are escalated to High because the external plugin loader
+   * auto-imports any `register.{ts,js}` it finds on daemon startup — see
+   * ATL-534.
+   */
+  pluginsDir: string;
   /**
    * Absolute paths of all skill source root directories (managed, bundled,
    * and any extra dirs from config). The classifier checks whether a file
@@ -119,6 +134,25 @@ function isHooksPath(
   return (
     resolvedPath === hooksDirNoTrailingSlash ||
     resolvedPath.startsWith(normalizedHooksDir)
+  );
+}
+
+/**
+ * Check whether a resolved absolute path falls inside the user plugins
+ * directory (or IS the plugins directory itself). Mirrors {@link isHooksPath}
+ * because the user plugins loader has the same threat model: any file under
+ * `<pluginsDir>/<name>/` may be dynamic-imported at next daemon startup, so a
+ * write here must be treated as code-injection risk. See ATL-534.
+ */
+function isPluginsPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedPluginsDir = normalizeDirPath(context.pluginsDir);
+  const pluginsDirNoTrailingSlash = normalizedPluginsDir.slice(0, -1);
+  return (
+    resolvedPath === pluginsDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedPluginsDir)
   );
 }
 
@@ -281,6 +315,16 @@ export class FileRiskClassifier implements RiskClassifier<
             };
             break;
           }
+          if (isPluginsPath(resolvedPath, context)) {
+            assessment = {
+              riskLevel: "high",
+              reason: "Writes to plugins directory",
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
         }
         assessment = {
           riskLevel: "low",
@@ -330,6 +374,16 @@ export class FileRiskClassifier implements RiskClassifier<
             assessment = {
               riskLevel: "high",
               reason: `${actionVerb} to hooks directory`,
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
+          if (isPluginsPath(resolvedPath, context)) {
+            assessment = {
+              riskLevel: "high",
+              reason: `${actionVerb} to plugins directory`,
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,

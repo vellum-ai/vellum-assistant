@@ -24,6 +24,7 @@ const dummyFileContext: FileClassificationContext = {
   protectedDir: "/tmp/test-protected",
   deprecatedDir: "/tmp/test-deprecated",
   hooksDir: "/tmp/test-hooks",
+  pluginsDir: "/tmp/test-plugins",
   skillSourceDirs: [],
 };
 
