@@ -18,6 +18,7 @@ import {
 } from "../prompts/persona-resolver.js";
 import { isTemplateContent } from "../prompts/system-prompt.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
+import { hasReceivedUserMessage } from "../runtime/pre-first-message-gate.js";
 import { computeNextRunAt } from "../schedule/recurrence-engine.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
@@ -433,6 +434,28 @@ export class HeartbeatService {
 
     if (!force && !config.enabled) {
       if (runId) skipHeartbeatRun(runId, "disabled");
+      return false;
+    }
+
+    // Warm-pool guard: skip heartbeats until the user has actually
+    // interacted with the assistant. Heartbeats run the LLM against the
+    // guardian persona, which doesn't exist in a fresh warm-pool image —
+    // and even when the prompt works, surfacing "I checked in with myself"
+    // chatter to a brand-new user before they've said hello is the wrong
+    // first impression. The early-heartbeat counter (which special-cases
+    // the first few runs) is preserved because we never reach
+    // `completeHeartbeatRun` for skipped beats.
+    //
+    // `force=true` still runs (manual `runOnce` from an API/CLI is an
+    // explicit operator action — assume they know what they're doing).
+    if (!force && !hasReceivedUserMessage()) {
+      log.info(
+        "Heartbeat skipped — daemon has not received a first user message yet",
+      );
+      if (runId) skipHeartbeatRun(runId, "pre_first_user_message");
+      if (!this.cronMode) {
+        this.scheduleNextRun(config.intervalMs);
+      }
       return false;
     }
 
