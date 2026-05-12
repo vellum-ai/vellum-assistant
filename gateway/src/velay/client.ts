@@ -8,6 +8,10 @@ import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { mutateConfigFile } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
+import {
+  VELAY_ALLOWED_PATHS_HEADER,
+  VELAY_ALLOWED_PATHS_HEADER_VALUE,
+} from "./allowed-paths.js";
 import { bridgeVelayHttpRequest } from "./http-bridge.js";
 import { closeWebSocket } from "./bridge-utils.js";
 import {
@@ -220,7 +224,13 @@ export class VelayTunnelClient {
     try {
       const ws = new this.webSocketConstructor(registerUrl, {
         protocols: [VELAY_TUNNEL_SUBPROTOCOL],
-        headers: { Authorization: `Api-Key ${apiKey}` },
+        headers: {
+          Authorization: `Api-Key ${apiKey}`,
+          // Declares the path allowlist Velay enforces for inbound proxied
+          // traffic on this tunnel. See ./allowed-paths.ts for the route
+          // inventory and the platform-side enforcement (ATL-402).
+          [VELAY_ALLOWED_PATHS_HEADER]: VELAY_ALLOWED_PATHS_HEADER_VALUE,
+        },
       });
       ws.binaryType = "arraybuffer";
       this.ws = ws;
