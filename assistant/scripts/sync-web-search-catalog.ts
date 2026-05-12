@@ -1,17 +1,24 @@
 #!/usr/bin/env bun
 /**
- * Generate `meta/web-search-provider-catalog.json` from the canonical
- * `SEARCH_PROVIDER_CATALOG` in
+ * Generate the client-facing web-search-provider catalog JSON from the
+ * canonical `SEARCH_PROVIDER_CATALOG` in
  * `assistant/src/providers/search-provider-catalog.ts`.
  *
- * Companion to `sync-llm-catalog.ts`. The meta JSON is the cross-package
- * artifact consumed by:
+ * Two byte-identical copies are written:
+ *   - `meta/web-search-provider-catalog.json` — primary checked-in artifact,
+ *      consumed by:
+ *        - `cli/src/__tests__/search-provider-env-var-parity.test.ts`
+ *          (drift guard for the CLI's hardcoded env-var mirror).
+ *        - Downstream `vellum-assistant-platform/web/src/lib/generated/
+ *          web-search-provider-catalog.json` (manually sync'd today; the
+ *          scheduled sync workflow is a planned follow-up).
+ *   - `clients/shared/Resources/web-search-provider-catalog.json` — SwiftPM
+ *      resource bundled into `VellumAssistantShared`. SwiftPM cannot reach
+ *      files outside a target's source directory, so this mirror is
+ *      necessary; both files are produced by the same generator and
+ *      asserted equal by the parity test, making drift impossible.
  *
- *   - `cli/src/__tests__/search-provider-env-var-parity.test.ts`
- *     (drift guard for the CLI's hardcoded env-var mirror).
- *   - Downstream `vellum-assistant-platform/web/src/lib/generated/
- *     web-search-provider-catalog.json` (manually sync'd today; scheduled
- *     sync workflow is a planned follow-up).
+ * Companion to `sync-llm-catalog.ts`; same dual-write pattern.
  *
  * Usage:
  *   cd assistant && bun run scripts/sync-web-search-catalog.ts
@@ -20,7 +27,7 @@
  */
 
 import { readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 import {
   SEARCH_PROVIDER_CATALOG,
@@ -28,7 +35,10 @@ import {
 } from "../src/providers/search-provider-catalog.js";
 
 const ROOT = resolve(import.meta.dir, "../..");
-const OUTPUT_PATH = join(ROOT, "meta/web-search-provider-catalog.json");
+const OUTPUT_PATHS = [
+  join(ROOT, "meta/web-search-provider-catalog.json"),
+  join(ROOT, "clients/shared/Resources/web-search-provider-catalog.json"),
+] as const;
 
 /**
  * Bumped when the *shape* of the client catalog JSON changes in a way
@@ -84,24 +94,36 @@ async function main(): Promise<void> {
   const next = generate();
 
   if (checkMode) {
-    let current = "";
-    try {
-      current = await readFile(OUTPUT_PATH, "utf8");
-    } catch {
-      // File doesn't exist yet — treat as stale.
+    let anyStale = false;
+    for (const path of OUTPUT_PATHS) {
+      const rel = relative(ROOT, path);
+      let existing = "";
+      try {
+        existing = await readFile(path, "utf-8");
+      } catch {
+        console.error(
+          `${rel} does not exist. Run: bun run sync:web-search-catalog`,
+        );
+        anyStale = true;
+        continue;
+      }
+      if (existing !== next) {
+        console.error(
+          `${rel} is stale. Run: bun run sync:web-search-catalog`,
+        );
+        anyStale = true;
+        continue;
+      }
+      console.log(`${rel} is up to date.`);
     }
-    if (current !== next) {
-      console.error(
-        `\n${OUTPUT_PATH} is out of sync with SEARCH_PROVIDER_CATALOG.\n` +
-          `Run: cd assistant && bun run sync:web-search-catalog\n`,
-      );
-      process.exit(1);
-    }
+    if (anyStale) process.exit(1);
     return;
   }
 
-  await writeFile(OUTPUT_PATH, next, "utf8");
-  console.log(`Wrote ${OUTPUT_PATH}`);
+  for (const path of OUTPUT_PATHS) {
+    await writeFile(path, next, "utf-8");
+    console.log(`Wrote ${relative(ROOT, path)}`);
+  }
 }
 
 await main();
