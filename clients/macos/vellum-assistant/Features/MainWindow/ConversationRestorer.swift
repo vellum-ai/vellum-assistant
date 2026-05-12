@@ -29,6 +29,10 @@ protocol ConversationRestorerDelegate: AnyObject {
     func isConversationArchived(_ conversationId: String) -> Bool
     func restoreLastActiveConversation()
     func appendConversations(from response: ConversationListResponseMessage)
+    /// Queue a latest-history reconciliation for an already-loaded conversation.
+    /// Used when a conversation-list refresh shows that another client advanced
+    /// the conversation while this client may have missed the live SSE event.
+    func reconcileLoadedConversationHistory(localId: UUID, daemonConversationId: String)
     /// Returns an existing ChatViewModel matching the given conversation ID, if any.
     func existingChatViewModel(forConversationId conversationId: String) -> ChatViewModel?
     /// Merge daemon attention metadata into an existing conversation, allowing the
@@ -88,6 +92,11 @@ final class ConversationRestorer {
     /// NotificationCenter observer token for `NSApplication.didBecomeActiveNotification`.
     /// Kept for the lifetime of the restorer to catch every activation.
     private var appDidBecomeActiveObserver: NSObjectProtocol?
+    /// Last `lastMessageAt` observed in a list response for loaded conversations.
+    /// This prevents app activation/list invalidation refreshes from repeatedly
+    /// fetching the same latest history page when the server-side latest message
+    /// has not changed.
+    private var observedListLastMessageAtByConversationId: [String: Int] = [:]
 
     weak var delegate: ConversationRestorerDelegate?
 
@@ -421,6 +430,11 @@ final class ConversationRestorer {
                 // arrived).
                 delegate.applyAssistantAttention(from: session, into: &existing)
                 snapshot[existingIdx] = existing
+                requestLoadedHistoryReconciliationIfNeeded(
+                    localId: existing.id,
+                    daemonConversationId: session.id,
+                    serverLastMessageAtMillis: session.lastMessageAt
+                )
                 continue
             }
 
@@ -568,6 +582,22 @@ final class ConversationRestorer {
         guard let delegate else { return }
         guard let index = delegate.conversations.firstIndex(where: { $0.conversationId == response.conversationId }) else { return }
         delegate.conversations[index].title = response.title
+    }
+
+    private func requestLoadedHistoryReconciliationIfNeeded(
+        localId: UUID,
+        daemonConversationId: String,
+        serverLastMessageAtMillis: Int?
+    ) {
+        guard let serverLastMessageAtMillis else { return }
+        guard observedListLastMessageAtByConversationId[daemonConversationId] != serverLastMessageAtMillis else {
+            return
+        }
+        observedListLastMessageAtByConversationId[daemonConversationId] = serverLastMessageAtMillis
+        delegate?.reconcileLoadedConversationHistory(
+            localId: localId,
+            daemonConversationId: daemonConversationId
+        )
     }
 
     // MARK: - Invalidation Debounce
