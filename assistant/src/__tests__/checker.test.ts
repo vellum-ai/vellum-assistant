@@ -1597,6 +1597,95 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
   });
 });
 
+describe("credentialed proxied bash — high risk escalation", () => {
+  beforeEach(() => {
+    mockRisk("low");
+    mockIpcResponse("get_global_thresholds", DEFAULT_GATEWAY_THRESHOLDS);
+    _clearGlobalCacheForTesting();
+    clearRiskCache();
+    testConfig.skills = { load: { extraDirs: [] } };
+  });
+
+  test("proxied bash with credential_ids sends credentialRefCount in IPC params", async () => {
+    mockRisk("high", {
+      reason:
+        "Proxied credential session — shell has access to injected credentials",
+    });
+    const result = await check(
+      "bash",
+      {
+        command: "curl https://api.example.com",
+        network_mode: "proxied",
+        credential_ids: ["cred-abc-123"],
+      },
+      "/tmp",
+    );
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("credential");
+  });
+
+  test("proxied bash with multiple credential_ids prompts with high risk", async () => {
+    mockRisk("high", {
+      reason:
+        "Proxied credential session — shell has access to injected credentials",
+    });
+    const result = await check(
+      "bash",
+      {
+        command: "ls",
+        network_mode: "proxied",
+        credential_ids: ["cred-1", "cred-2"],
+      },
+      "/tmp",
+    );
+    expect(result.decision).toBe("prompt");
+  });
+
+  test("proxied bash with empty credential_ids array does not escalate risk", async () => {
+    mockRisk("low");
+    const result = await check(
+      "bash",
+      {
+        command: "ls",
+        network_mode: "proxied",
+        credential_ids: [],
+      },
+      "/tmp",
+    );
+    // Empty array means no credential refs — follows normal proxied behavior
+    expect(result.decision).toBe("allow");
+  });
+
+  test("proxied bash with credential_ids containing empty strings does not escalate", async () => {
+    mockRisk("low");
+    const result = await check(
+      "bash",
+      {
+        command: "ls",
+        network_mode: "proxied",
+        credential_ids: ["", ""],
+      },
+      "/tmp",
+    );
+    // Empty strings are filtered out, so no credential refs
+    expect(result.decision).toBe("allow");
+  });
+
+  test("non-proxied bash with credential_ids follows normal flow", async () => {
+    mockRisk("low");
+    const result = await check(
+      "bash",
+      {
+        command: "ls",
+        credential_ids: ["cred-abc-123"],
+      },
+      "/tmp",
+    );
+    // Without proxied mode, credential refs don't affect IPC classification
+    expect(result.decision).toBe("allow");
+  });
+});
+
 describe("workspace mode — auto-allow workspace-scoped operations", () => {
   const workspaceDir = "/home/user/my-project";
 

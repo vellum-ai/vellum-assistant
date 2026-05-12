@@ -148,6 +148,15 @@ public struct LLMProviderEntry: Decodable {
     /// Guide for obtaining API credentials from this provider. `nil` for
     /// keyless providers.
     public let credentialsGuide: LLMCredentialsGuide?
+    /// Whether this provider supports the `platform` auth type — i.e.
+    /// Vellum-managed keys routed through the platform proxy. Derived
+    /// upstream from `MANAGED_PROVIDER_META` in
+    /// `assistant/src/providers/managed-proxy/constants.ts`. When `false`
+    /// (or absent in older catalog versions, in which case it defaults to
+    /// `false`), the auth-type dropdown hides the "Platform (managed by
+    /// Vellum)" option for this provider — selecting it would have no
+    /// effect since there's no managed proxy route for the provider.
+    public let supportsManagedAuth: Bool?
     /// The default model ID (must be present in `models`).
     public let defaultModel: String
     /// All models offered by this provider.
@@ -162,6 +171,7 @@ public struct LLMProviderEntry: Decodable {
         envVar: String?,
         apiKeyPlaceholder: String?,
         credentialsGuide: LLMCredentialsGuide?,
+        supportsManagedAuth: Bool? = nil,
         defaultModel: String,
         models: [LLMModelEntry]
     ) {
@@ -173,6 +183,7 @@ public struct LLMProviderEntry: Decodable {
         self.envVar = envVar
         self.apiKeyPlaceholder = apiKeyPlaceholder
         self.credentialsGuide = credentialsGuide
+        self.supportsManagedAuth = supportsManagedAuth
         self.defaultModel = defaultModel
         self.models = models
     }

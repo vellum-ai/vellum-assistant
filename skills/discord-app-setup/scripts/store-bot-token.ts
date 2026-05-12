@@ -25,6 +25,8 @@ async function storeVellum(): Promise<void> {
     "Paste the bot token from the Bot tab of your Discord application. Discord shows it only once.",
     "--allowed-domains",
     "discord.com",
+    "--allowed-tools",
+    "bash",
     "--injection-templates",
     JSON.stringify([
       {

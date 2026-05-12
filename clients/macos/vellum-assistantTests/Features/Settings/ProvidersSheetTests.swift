@@ -78,7 +78,7 @@ final class ProvidersSheetTests: XCTestCase {
 
     func testCreateCallsClientWithExpectedArguments() async {
         let created = makeConnection(name: "new-conn", provider: "openai", authType: "api_key")
-        mockClient.createResponse = created
+        mockClient.createResponse = .created(created)
 
         _ = await mockClient.createProviderConnection(
             name: "new-conn",
@@ -244,7 +244,7 @@ final class ProvidersSheetTests: XCTestCase {
             authType: "api_key",
             label: "Anthropic"
         )
-        mockClient.createResponse = forked
+        mockClient.createResponse = .created(forked)
 
         _ = await mockClient.createProviderConnection(
             name: "anthropic-personal",

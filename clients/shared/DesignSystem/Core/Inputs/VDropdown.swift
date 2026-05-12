@@ -44,7 +44,7 @@ public struct VDropdown<T: Hashable>: View {
     @Binding public var selection: T
     public var emptyValue: T?
     public var maxWidth: CGFloat = .infinity
-    public var menuWidth: CGFloat = 180
+    public var menuWidth: CGFloat?
     public var menuMaxHeight: CGFloat?
     public var icon: VIcon?
     public var optionIcon: ((T) -> VIcon?)?
@@ -60,7 +60,7 @@ public struct VDropdown<T: Hashable>: View {
         selection: Binding<T>,
         emptyValue: T? = nil,
         maxWidth: CGFloat = .infinity,
-        menuWidth: CGFloat = 180,
+        menuWidth: CGFloat? = nil,
         menuMaxHeight: CGFloat? = nil,
         icon: VIcon? = nil,
         optionIcon: ((T) -> VIcon?)? = nil,
@@ -87,7 +87,7 @@ public struct VDropdown<T: Hashable>: View {
         options: [(label: String, value: T)],
         emptyValue: T? = nil,
         maxWidth: CGFloat = .infinity,
-        menuWidth: CGFloat = 180,
+        menuWidth: CGFloat? = nil,
         menuMaxHeight: CGFloat? = nil,
         icon: VIcon? = nil,
         optionIcon: ((T) -> VIcon?)? = nil,
@@ -196,8 +196,9 @@ public struct VDropdown<T: Hashable>: View {
         // window behind it (e.g. the Share Feedback modal over the main app
         // window) — attaching to the wrong parent shoves the modal behind via
         // `addChildWindow`.
+        let effectiveMenuWidth = menuWidth ?? triggerFrame.width
         activePanel = VMenuPanel.show(at: screenPoint, sourceWindow: window, sourceAppearance: appearance, excludeRect: triggerScreenRect) {
-            VMenu(width: menuWidth, maxHeight: menuMaxHeight) {
+            VMenu(width: effectiveMenuWidth, maxHeight: menuMaxHeight) {
                 ForEach(optionList) { option in
                     VMenuItem(
                         icon: option.icon?.rawValue ?? optionIcon?(option.value)?.rawValue,

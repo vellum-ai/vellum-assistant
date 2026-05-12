@@ -27,6 +27,7 @@ import type { TitleOrigin } from "../memory/conversation-title-service.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
+import { hasReceivedUserMessage } from "./pre-first-message-gate.js";
 
 const log = getLogger("background-job-runner");
 
@@ -93,6 +94,16 @@ export interface RunBackgroundJobOptions {
    */
   onConversationCreated?: (conversationId: string) => void;
   /**
+   * Opt out of the "skip until first user message" gate. Defaults to
+   * `false` (gate active). Set to `true` ONLY for jobs that genuinely need
+   * to run pre-onboarding — there are currently none, but the escape hatch
+   * exists so the gate can be tightened without trapping a future caller.
+   *
+   * The gate prevents warm-pool images from generating ghost failure rows
+   * before the user ever sees the assistant. See `pre-first-message-gate.ts`.
+   */
+  allowPreFirstUserMessage?: boolean;
+  /**
    * Optional prompt-injection mitigation. When set, the runner adds three
    * messages to the conversation BEFORE invoking `processMessage`:
    *
@@ -117,6 +128,15 @@ export interface RunBackgroundJobResult {
   ok: boolean;
   error?: Error;
   errorKind?: BackgroundJobErrorKind;
+  /**
+   * Set when the runner declined to execute. Callers can distinguish a
+   * skipped job from a successful one even though both report `ok: true`.
+   *
+   * - `"pre_first_user_message"`: gate tripped — daemon has not yet seen
+   *   any user-authored message in a standard conversation. No conversation
+   *   was bootstrapped; `conversationId` is the empty string.
+   */
+  skipReason?: "pre_first_user_message";
 }
 
 function classifyError(err: unknown): BackgroundJobErrorKind {
@@ -147,6 +167,28 @@ function classifyError(err: unknown): BackgroundJobErrorKind {
 export async function runBackgroundJob(
   opts: RunBackgroundJobOptions,
 ): Promise<RunBackgroundJobResult> {
+  // Gate: refuse to bootstrap a conversation until the user has interacted
+  // at least once. Warm-pool images would otherwise produce "Background job
+  // failed" rows visible in the sidebar the moment a real user hatches the
+  // assistant — see `pre-first-message-gate.ts` for the rationale.
+  //
+  // Service-level callers (heartbeat, update-bulletin) are expected to gate
+  // earlier and never reach this point; reaching the gate here means a
+  // caller either forgot to gate or deliberately opted in via
+  // `allowPreFirstUserMessage`. We log at `info` (not `warn`) because the
+  // expected steady state is "no calls reach here once onboarding is done."
+  if (!opts.allowPreFirstUserMessage && !hasReceivedUserMessage()) {
+    log.info(
+      { jobName: opts.jobName, source: opts.source },
+      "Background job skipped — daemon has not received a first user message yet",
+    );
+    return {
+      ok: true,
+      conversationId: "",
+      skipReason: "pre_first_user_message",
+    };
+  }
+
   let conversation: ReturnType<typeof bootstrapConversation> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

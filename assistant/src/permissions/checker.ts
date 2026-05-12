@@ -289,6 +289,17 @@ function buildClassifyRiskParams(
 ): ClassifyRiskParams {
   // ── Bash/host_bash ──
   if (toolName === "bash" || toolName === "host_bash") {
+    // Count credential references attached to this invocation.
+    let credentialRefCount: number | undefined;
+    if (Array.isArray(input.credential_ids)) {
+      const validIds = (input.credential_ids as unknown[]).filter(
+        (id) => typeof id === "string" && id.length > 0,
+      );
+      if (validIds.length > 0) {
+        credentialRefCount = validIds.length;
+      }
+    }
+
     return {
       tool: toolName,
       command: getStringField(input, "command"),
@@ -297,6 +308,7 @@ function buildClassifyRiskParams(
       isContainerized: getIsContainerized(),
       networkMode:
         typeof input.network_mode === "string" ? input.network_mode : undefined,
+      credentialRefCount,
     };
   }
 

@@ -1187,17 +1187,23 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Provider Capability Helpers
 
-    /// Provider IDs that support managed proxy routing (i.e., can be used in managed mode).
-    /// Mirrors the `MANAGED_PROVIDER_META` table in the backend.
-    private static let managedCapableProviderIds: Set<String> = ["anthropic", "openai", "gemini"]
-
     /// Provider IDs that support native web search (inference-provider-native).
     /// Anthropic and OpenAI pass `useNativeWebSearch` to their providers; others do not.
     private static let nativeWebSearchCapableProviderIds: Set<String> = ["anthropic", "openai"]
 
     /// Returns the catalog entries for providers that support managed proxy routing.
+    /// Source of truth: the `supportsManagedAuth` field on `LLMProviderRegistry`
+    /// entries, which is derived upstream from `MANAGED_PROVIDER_META` at catalog
+    /// build time. Reading from the registry (not `providerCatalog`) keeps the
+    /// answer stable across daemon `model_info` refreshes — the wire-protocol
+    /// `ProviderCatalogEntry` doesn't carry capability flags.
     var managedCapableProviders: [ProviderCatalogEntry] {
-        providerCatalog.filter { Self.managedCapableProviderIds.contains($0.id) }
+        let managedIds = Set(
+            LLMProviderRegistry.providers
+                .filter { $0.supportsManagedAuth == true }
+                .map(\.id)
+        )
+        return providerCatalog.filter { managedIds.contains($0.id) }
     }
 
     /// Returns the catalog entries for providers that support native web search.
@@ -1206,8 +1212,9 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Whether a given provider supports managed proxy routing.
+    /// See `managedCapableProviders` for the source-of-truth rationale.
     func isManagedCapable(_ provider: String) -> Bool {
-        Self.managedCapableProviderIds.contains(provider)
+        LLMProviderRegistry.provider(id: provider)?.supportsManagedAuth == true
     }
 
     /// Whether the current inference selection supports native web search.

@@ -136,6 +136,20 @@ mock.module("../tools/credentials/resolve.js", () => ({
   resolveCredentialRef: (ref: string) => ({ credentialId: ref }),
 }));
 
+mock.module("../tools/credentials/metadata-store.js", () => ({
+  getCredentialMetadataById: (id: string) => ({
+    service: "test",
+    field: id,
+    allowedTools: ["bash"],
+    allowedDomains: [],
+  }),
+}));
+
+mock.module("../tools/credentials/tool-policy.js", () => ({
+  isToolAllowed: (toolName: string, allowedTools: string[]) =>
+    Array.isArray(allowedTools) && allowedTools.includes(toolName),
+}));
+
 mock.module("../tools/network/script-proxy/logging.js", () => ({
   buildCredentialRefTrace: (
     rawRefs: string[],

@@ -349,6 +349,82 @@ describe("skill classification", () => {
   });
 });
 
+// ── Credentialed proxied bash ───────────────────────────────────────────────
+
+describe("credentialed proxied bash", () => {
+  test("credentialed proxied bash returns high risk even for simple curl", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "curl https://api.example.com",
+      networkMode: "proxied",
+      credentialRefCount: 1,
+    });
+    expect(result.risk).toBe("high");
+    expect(result.reason).toContain("credential");
+  });
+
+  test("credentialed proxied bash returns high risk for low-risk command", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "ls",
+      networkMode: "proxied",
+      credentialRefCount: 2,
+    });
+    expect(result.risk).toBe("high");
+    expect(result.reason).toContain("credential");
+  });
+
+  test("proxied bash without credential refs keeps existing medium cap for high-risk command", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "rm -rf /",
+      networkMode: "proxied",
+    });
+    // rm -rf / is high risk but gets capped to medium for non-credentialed proxied bash
+    expect(result.risk).toBe("medium");
+  });
+
+  test("proxied bash without credential refs keeps low risk for low-risk command", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "ls",
+      networkMode: "proxied",
+    });
+    expect(result.risk).toBe("low");
+  });
+
+  test("credentialRefCount=0 does not escalate risk", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "ls",
+      networkMode: "proxied",
+      credentialRefCount: 0,
+    });
+    expect(result.risk).toBe("low");
+  });
+
+  test("non-proxied bash with credential refs follows normal risk flow", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "ls",
+      credentialRefCount: 1,
+    });
+    // Without proxied mode, credential refs don't affect classification
+    expect(result.risk).toBe("low");
+  });
+
+  test("host_bash with proxied + credential refs is not affected (host_bash skips proxied cap)", async () => {
+    const result = await classify({
+      tool: "host_bash",
+      command: "rm -rf /",
+      networkMode: "proxied",
+      credentialRefCount: 1,
+    });
+    // host_bash is never affected by proxied risk logic
+    expect(result.risk).toBe("high");
+  });
+});
+
 // ── Unknown tool fallback ───────────────────────────────────────────────────
 
 describe("unknown tool fallback", () => {
