@@ -201,8 +201,8 @@ struct InferenceProfileEditor: View {
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
             if isReadOnly {
-                VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
-                    .help("Profiles managed by Vellum cannot be edited, but can be copied")
+                VBadge(label: "Platform", tone: .positive, emphasis: .subtle)
+                    .help("Profiles managed by Platform cannot be edited, but can be copied")
             }
             Spacer(minLength: 0)
             VButton(

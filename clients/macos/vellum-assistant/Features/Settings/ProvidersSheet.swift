@@ -289,8 +289,8 @@ struct ProvidersSheet: View {
                     .foregroundStyle(VColor.contentSecondary)
             }
             if conn.isManaged {
-                VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
-                    .help("Managed by Vellum — auth is locked, but you can rename or disable this connection.")
+                VBadge(label: "Platform", tone: .positive, emphasis: .subtle)
+                    .help("Managed by Platform — auth is locked, but you can rename or disable this connection.")
             }
             VBadge(
                 label: store.dynamicProviderDisplayName(conn.provider),
