@@ -54,8 +54,6 @@ export const defaultHistoryRepairPlugin: Plugin = {
   manifest: {
     name: "default-history-repair",
     version: "1.0.0",
-    provides: { historyRepair: "v1" },
-    requires: { pluginRuntime: "v1", historyRepairApi: "v1" },
   },
   middleware: {
     historyRepair: passthrough,

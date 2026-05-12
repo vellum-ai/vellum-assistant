@@ -81,7 +81,6 @@ registerPlugin({
   manifest: {
     name: "my-plugin",
     version: "0.0.1",
-    requires: { pluginRuntime: "v1" },
   },
 });
 `,
@@ -111,7 +110,6 @@ registerPlugin({
   manifest: {
     name: "good-plugin",
     version: "0.0.1",
-    requires: { pluginRuntime: "v1" },
   },
 });
 `,
@@ -151,7 +149,6 @@ registerPlugin({
   manifest: {
     name: "hanging-plugin",
     version: "0.0.1",
-    requires: { pluginRuntime: "v1" },
   },
 });
 `,
@@ -163,7 +160,6 @@ registerPlugin({
   manifest: {
     name: "healthy-plugin",
     version: "0.0.1",
-    requires: { pluginRuntime: "v1" },
   },
 });
 `,
@@ -198,7 +194,6 @@ registerPlugin({
   manifest: {
     name: "slow-late-plugin",
     version: "0.0.1",
-    requires: { pluginRuntime: "v1" },
   },
 });
 `,
@@ -305,7 +300,6 @@ registerPlugin({
   manifest: {
     name: "healthy-legacy",
     version: "0.0.1",
-    requires: { pluginRuntime: "v1" },
   },
 });
 `,
@@ -330,7 +324,6 @@ registerPlugin({
   manifest: {
     name: "old-style",
     version: "0.0.1",
-    requires: { pluginRuntime: "v1" },
   },
 });
 `,

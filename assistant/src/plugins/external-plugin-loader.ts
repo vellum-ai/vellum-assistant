@@ -11,8 +11,11 @@
  *
  *     <pluginDir>/
  *       package.json              ← manifest.name comes from `name`
- *                                   (npm scope stripped); manifest.requires
- *                                   comes from `vellum.requires` if present
+ *                                   (npm scope stripped);
+ *                                   peerDependencies["@vellumai/plugin-api"]
+ *                                   semver range is checked against the
+ *                                   running assistant version and rejects
+ *                                   the plugin if unsatisfied
  *       hooks/
  *         <name>.ts               ← default export → plugin.hooks[<name>]
  *                                   (today the runtime invokes "init" at
@@ -40,8 +43,10 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import semver from "semver";
 import { z } from "zod";
 
+import assistantPkg from "../../package.json" with { type: "json" };
 import { getLogger } from "../util/logger.js";
 import { registerPlugin } from "./registry.js";
 import type {
@@ -52,6 +57,8 @@ import type {
   PluginToolRegistration,
 } from "./types.js";
 
+const PLUGIN_API_PEER_DEP = "@vellumai/plugin-api";
+
 const log = getLogger("external-plugin-loader");
 
 /** Default upper bound on how long a single plugin load may take. */
@@ -61,9 +68,11 @@ const DEFAULT_IMPORT_TIMEOUT_MS = 10_000;
  * Zod schema for the subset of `package.json` the external loader reads.
  *
  * - `name` is the only required field; everything else is best-effort.
- * - `vellum.requires` is forwarded to {@link PluginManifest.requires}
- *   verbatim (no merge with defaults) — empty objects propagate so the
- *   registry can reject under-specified plugins.
+ * - `peerDependencies["@vellumai/plugin-api"]` is the canonical host-compat
+ *   declaration. If present, the loader checks `semver.satisfies(host, range)`
+ *   against the running assistant version and rejects the plugin on
+ *   mismatch. If absent, the plugin loads without a host-compat claim
+ *   (with a warning).
  * - Unknown fields pass through (`passthrough`) so the loader does not
  *   destructively reshape the file when the rest of the npm ecosystem
  *   writes to it.
@@ -72,12 +81,7 @@ const PluginPackageJsonSchema = z
   .object({
     name: z.string().min(1, "package.json `name` must be a non-empty string"),
     version: z.string().optional(),
-    vellum: z
-      .object({
-        requires: z.record(z.string(), z.string()).optional(),
-      })
-      .passthrough()
-      .optional(),
+    peerDependencies: z.record(z.string(), z.string()).optional(),
   })
   .passthrough();
 
@@ -213,12 +217,40 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   const name = stripScope(pkg.name);
   const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
 
-  // Default `requires` keeps the existing v1 negotiation working for
-  // plugins that have not yet opted into `vellum.requires`. Plugins that
-  // set `vellum.requires` get exactly what they declared — no merge.
-  const requires = pkg.vellum?.requires ?? { pluginRuntime: "v1" };
+  // Host-compat negotiation: plugins declare their plugin-api version
+  // range via standard `peerDependencies["@vellumai/plugin-api"]`. If
+  // set and the range does not parse, or the running assistant version
+  // does not satisfy it, the plugin is rejected with an attributed
+  // error — the per-plugin isolation wrapper logs and moves on.
+  //
+  // If the peerDep is absent, the plugin loads without a host-compat
+  // claim; we log a warning so the omission is visible at boot. This
+  // keeps experimental/in-tree plugins (no peerDeps yet) loadable while
+  // the convention bakes, but flags them for follow-up.
+  const range = pkg.peerDependencies?.[PLUGIN_API_PEER_DEP];
+  if (range !== undefined) {
+    if (!semver.validRange(range)) {
+      throw new Error(
+        `external plugin ${name}: peerDependencies["${PLUGIN_API_PEER_DEP}"] is not a valid semver range (got "${range}")`,
+      );
+    }
+    if (
+      !semver.satisfies(assistantPkg.version, range, {
+        includePrerelease: true,
+      })
+    ) {
+      throw new Error(
+        `external plugin ${name}: peerDependencies["${PLUGIN_API_PEER_DEP}"] requires "${range}" but assistant is ${assistantPkg.version}`,
+      );
+    }
+  } else {
+    log.warn(
+      { pluginDir, plugin: name, peerDep: PLUGIN_API_PEER_DEP },
+      "external plugin missing plugin-api peerDependency — loading without host-compat claim",
+    );
+  }
 
-  const manifest: PluginManifest = { name, version, requires };
+  const manifest: PluginManifest = { name, version };
   const plugin: Plugin = { manifest };
 
   const hooks = await loadHooks(pluginDir, name);

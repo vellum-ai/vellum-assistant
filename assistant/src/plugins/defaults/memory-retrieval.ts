@@ -190,7 +190,6 @@ export const defaultMemoryRetrievalPlugin: Plugin = {
   manifest: {
     name: "default-memory-retrieval",
     version: "0.0.1",
-    requires: { pluginRuntime: "v1", memoryApi: "v1" },
   },
   middleware: {
     memoryRetrieval: defaultMemoryRetrievalMiddleware,

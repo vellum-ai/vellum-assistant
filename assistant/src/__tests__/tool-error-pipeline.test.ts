@@ -150,7 +150,6 @@ describe("toolError pipeline", () => {
         manifest: {
           name: "custom-tool-error",
           version: "0.0.1",
-          requires: { pluginRuntime: "v1", toolErrorApi: "v1" },
         },
         middleware: { toolError: customMiddleware },
       };
@@ -176,7 +175,6 @@ describe("toolError pipeline", () => {
         manifest: {
           name: "no-nudge",
           version: "0.0.1",
-          requires: { pluginRuntime: "v1", toolErrorApi: "v1" },
         },
         middleware: { toolError: suppressingMiddleware },
       };
@@ -227,7 +225,6 @@ describe("toolError pipeline", () => {
         manifest: {
           name: "late-user-plugin",
           version: "0.0.1",
-          requires: { pluginRuntime: "v1", toolErrorApi: "v1" },
         },
         middleware: { toolError: userMiddleware },
       });

@@ -1,12 +1,13 @@
 /**
- * Plugin registry with manifest validation and capability-based API versioning.
+ * Plugin registry with manifest validation.
  *
- * Plugins declare the assistant capabilities they need via
- * `manifest.requires` (a `{ capability: version }` map). The registry checks
- * each entry against {@link ASSISTANT_API_VERSIONS} — the canonical table of
- * capability → supported-version-list pairs the assistant exposes — and
- * refuses to register plugins that ask for a version the assistant does not
- * support.
+ * Host-compat negotiation lives in the plugin's `package.json`
+ * `peerDependencies["@vellumai/plugin-api"]` semver range — the
+ * external-plugin loader checks it against the assistant version at
+ * load time. This module owns the rest of the manifest validation
+ * contract: name/version presence, duplicate-name detection, and the
+ * closed-registration latch that protects `bootstrapPlugins()` from
+ * late-arriving registrations.
  *
  * Registration is order-preserving: {@link getRegisteredPlugins},
  * {@link getMiddlewaresFor}, and (secondarily) {@link getInjectors} all reflect
@@ -27,47 +28,6 @@ import {
   type Plugin,
   PluginExecutionError,
 } from "./types.js";
-
-/**
- * Capability table declaring which plugin-facing API versions the assistant
- * runtime exposes. Each capability maps to the list of supported semver-lite
- * tags (currently a single `"v1"` per capability).
- *
- * New capabilities must be added here AND in their corresponding pipeline /
- * runtime module so plugins can negotiate against them. Removing a version
- * tag is a breaking change — all consumers in the plugin ecosystem relying on
- * it will fail to register until they update their `requires` map.
- *
- * The `pluginRuntime` capability is the base runtime API every plugin must
- * negotiate for; the remaining entries mirror {@link PipelineName} and the
- * top-level context APIs plugins most commonly consume.
- */
-export const ASSISTANT_API_VERSIONS: Record<string, string[]> = {
-  // Runtime APIs every plugin interacts with at some level. `memoryApi` is the
-  // broader memory-subsystem capability (distinct from the `memoryRetrieval`
-  // pipeline, which gets its own `memoryRetrievalApi` entry below).
-  pluginRuntime: ["v1"],
-  memoryApi: ["v1"],
-  compactionApi: ["v1"],
-  persistenceApi: ["v1"],
-
-  // Per-pipeline APIs. One entry for every slot in {@link PipelineName} that
-  // isn't already covered by the runtime-APIs block above (`compaction` and
-  // `persistence` live there because plugins commonly interact with them
-  // outside a pipeline middleware context).
-  turnApi: ["v1"],
-  llmCallApi: ["v1"],
-  toolExecuteApi: ["v1"],
-  memoryRetrievalApi: ["v1"],
-  historyRepairApi: ["v1"],
-  tokenEstimateApi: ["v1"],
-  overflowReduceApi: ["v1"],
-  titleGenerateApi: ["v1"],
-  toolResultTruncateApi: ["v1"],
-  emptyResponseApi: ["v1"],
-  toolErrorApi: ["v1"],
-  circuitBreakerApi: ["v1"],
-};
 
 // ─── Internal state ──────────────────────────────────────────────────────────
 
@@ -96,11 +56,13 @@ let registrationClosed = false;
 /**
  * Validate and register a plugin. Throws {@link PluginExecutionError} if:
  *
- * - `manifest`, `manifest.name`, `manifest.version`, or `manifest.requires`
- *   are missing.
+ * - `manifest`, `manifest.name`, or `manifest.version` are missing.
  * - a plugin with the same name is already registered.
- * - any entry in `manifest.requires` names an unknown capability or a version
- *   the assistant does not expose.
+ * - registration has been closed by {@link closeRegistration}.
+ *
+ * Host-compat is checked upstream by the external-plugin loader against
+ * the plugin's `peerDependencies["@vellumai/plugin-api"]` semver range —
+ * the registry does not re-validate it here.
  *
  * On success the plugin is appended to the registry in the order this
  * function is called. This function does NOT invoke `plugin.init()` — that
@@ -144,13 +106,6 @@ export function registerPlugin(plugin: Plugin): void {
       name,
     );
   }
-  if (!manifest.requires || typeof manifest.requires !== "object") {
-    throw new PluginExecutionError(
-      `plugin ${name} manifest.requires is required`,
-      name,
-    );
-  }
-
   // Duplicate-name check — plugins must be uniquely addressable in logs,
   // storage paths, and error messages. Runs BEFORE the closed-registration
   // check so `registerDefaultPlugins()` (which replays every default even
@@ -172,27 +127,6 @@ export function registerPlugin(plugin: Plugin): void {
       `plugin ${name} cannot register: plugin registration is closed (late arrival after loadUserPlugins() returned)`,
       name,
     );
-  }
-
-  // Capability negotiation. Every plugin must negotiate against
-  // `pluginRuntime`; we enforce that by requiring an entry to exist rather
-  // than special-casing it here, so the per-entry mismatch error is uniform.
-  if (!("pluginRuntime" in manifest.requires)) {
-    throw new PluginExecutionError(
-      `plugin ${name} must declare requires.pluginRuntime (e.g. "v1")`,
-      name,
-    );
-  }
-
-  for (const [api, requiredVersion] of Object.entries(manifest.requires)) {
-    const supported = ASSISTANT_API_VERSIONS[api];
-    if (!supported || !supported.includes(requiredVersion)) {
-      const exposed = supported ? supported.join(", ") : "(none)";
-      throw new PluginExecutionError(
-        `plugin ${name} requires ${api}@${requiredVersion}, assistant exposes ${exposed}`,
-        name,
-      );
-    }
   }
 
   registeredPlugins.set(name, plugin);

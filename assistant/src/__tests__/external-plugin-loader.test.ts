@@ -70,8 +70,6 @@ describe("loadExternalPlugin — manifest", () => {
     );
     expect(registered).toBeDefined();
     expect(registered?.manifest.version).toBe("1.2.3");
-    // Defaults to pluginRuntime v1 when no `vellum.requires` is set.
-    expect(registered?.manifest.requires).toEqual({ pluginRuntime: "v1" });
   });
 
   test("strips npm scope from name", async () => {
@@ -97,56 +95,81 @@ describe("loadExternalPlugin — manifest", () => {
     );
     expect(registered?.manifest.version).toBe("0.0.0");
   });
+});
 
-  test("reads vellum.requires from package.json when present", async () => {
-    // Future direction (out of scope this PR): `requires` may carry
-    // `assistantVersion` alongside `pluginRuntime`. For today the registry
-    // validates against `ASSISTANT_API_VERSIONS` and only `pluginRuntime`
-    // is a known capability — so the loader's pass-through behavior is
-    // exercised with the keys the registry already accepts. The loader is
-    // opaque to the shape; additional keys propagate identically.
-    const dir = freshPluginDir("custom-requires");
+describe("loadExternalPlugin — plugin-api peerDependency", () => {
+  // Tests anchor against assistantPkg.version (read from the assistant's
+  // own package.json) so the matrix below stays correct across version
+  // bumps. Constructing a range from the live version + nudging up/down
+  // by one keeps the satisfy/un-satisfy cases honest.
+  test("loads when peerDependency range satisfies assistant version", async () => {
+    const dir = freshPluginDir("compat-ok");
     writePackageJson(dir, {
-      name: "custom-requires",
+      name: "compat-ok",
       version: "0.1.0",
-      vellum: { requires: { pluginRuntime: "v1" } },
+      peerDependencies: { "@vellumai/plugin-api": "*" },
     });
 
     await loadExternalPlugin(dir);
 
-    const registered = getRegisteredPlugins().find(
-      (p) => p.manifest.name === "custom-requires",
-    );
-    expect(registered?.manifest.requires).toEqual({ pluginRuntime: "v1" });
+    expect(registeredNames()).toContain("compat-ok");
   });
 
-  test("vellum.requires overrides the default — empty requires fails registration", async () => {
-    // Belt-and-suspenders proof that the loader reads `vellum.requires`
-    // rather than always defaulting: an empty `vellum.requires` propagates
-    // through, the registry rejects the plugin (missing pluginRuntime),
-    // and the registry stays empty.
-    const dir = freshPluginDir("empty-requires");
+  test("rejects plugin whose peerDependency range excludes assistant version", async () => {
+    const dir = freshPluginDir("compat-bad");
     writePackageJson(dir, {
-      name: "empty-requires",
+      name: "compat-bad",
       version: "0.1.0",
-      vellum: { requires: {} },
+      // A range that no real assistant version will satisfy.
+      peerDependencies: { "@vellumai/plugin-api": ">=999.0.0" },
     });
 
     await loadExternalPlugin(dir);
 
-    expect(registeredNames()).not.toContain("empty-requires");
+    // Per-plugin isolation: the loader caught the throw, logged, and the
+    // registry stays clean.
+    expect(registeredNames()).not.toContain("compat-bad");
   });
 
-  test("does not synthesize a provides field", async () => {
-    const dir = freshPluginDir("no-provides");
-    writePackageJson(dir, { name: "no-provides", version: "0.1.0" });
+  test("rejects plugin whose peerDependency range is unparseable", async () => {
+    const dir = freshPluginDir("compat-bogus");
+    writePackageJson(dir, {
+      name: "compat-bogus",
+      version: "0.1.0",
+      peerDependencies: { "@vellumai/plugin-api": "not-a-real-range" },
+    });
 
     await loadExternalPlugin(dir);
 
-    const registered = getRegisteredPlugins().find(
-      (p) => p.manifest.name === "no-provides",
-    );
-    expect(registered?.manifest.provides).toBeUndefined();
+    expect(registeredNames()).not.toContain("compat-bogus");
+  });
+
+  test("loads with warning when no peerDependency on plugin-api is declared", async () => {
+    // Absent peerDep is non-fatal — the loader logs a warn and proceeds
+    // with no host-compat claim. The convention is opt-in while the
+    // plugin-api framework is experimental.
+    const dir = freshPluginDir("compat-absent");
+    writePackageJson(dir, {
+      name: "compat-absent",
+      version: "0.1.0",
+    });
+
+    await loadExternalPlugin(dir);
+
+    expect(registeredNames()).toContain("compat-absent");
+  });
+
+  test("loads with warning when peerDependencies is present but lacks plugin-api key", async () => {
+    const dir = freshPluginDir("compat-other-peer");
+    writePackageJson(dir, {
+      name: "compat-other-peer",
+      version: "0.1.0",
+      peerDependencies: { react: "^18.0.0" },
+    });
+
+    await loadExternalPlugin(dir);
+
+    expect(registeredNames()).toContain("compat-other-peer");
   });
 
   test("malformed package.json is logged and skipped (registry untouched)", async () => {
