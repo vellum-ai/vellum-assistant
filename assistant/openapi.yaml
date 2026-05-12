@@ -15430,6 +15430,58 @@ paths:
           schema:
             type: integer
           description: End epoch millis (required)
+  /v1/use/slack/channels:
+    get:
+      operationId: use_slack_channels_get
+      summary: List cached Slack channels
+      description: Return the cached channel list. Auto-refreshes from the Slack API if the cache is empty.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+  /v1/use/slack/channels/{name}:
+    get:
+      operationId: use_slack_channels_by_name_get
+      summary: Resolve a Slack channel by name
+      description: Resolve a channel name (or raw Slack ID) to a structured channel object via the local cache.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/use/slack/channels/refresh:
+    post:
+      operationId: use_slack_channels_refresh_post
+      summary: Refresh Slack channel cache
+      description: Fetch all channels from the Slack API, rebuild the local cache, and return it.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+  /v1/use/slack/users/{query}:
+    get:
+      operationId: use_slack_users_by_query_get
+      summary: Resolve a Slack user by name or email
+      description: Resolve a display name or email address to a Slack user via the local cache.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: query
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/user-routes/inspect:
     post:
       operationId: userroutes_inspect_post
