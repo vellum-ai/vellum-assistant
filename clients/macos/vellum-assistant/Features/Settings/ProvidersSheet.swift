@@ -860,7 +860,13 @@ struct ProvidersSheet: View {
         editorDraft.status = .active
         // Reset masked credential — there's no key for the new connection
         // yet, so the API Key field shows its placeholder instead of the
-        // managed source's masked value.
+        // managed source's masked value. Cancel any in-flight masked-
+        // value lookup first; otherwise it can resolve *after* this
+        // reset and silently repopulate `maskedCredentialValue`, which
+        // would let `commitEditor()` mistake the new draft for one with
+        // an existing credential. Codex P2 + Devin finding on #30350.
+        loadMaskedTask?.cancel()
+        loadMaskedTask = nil
         maskedCredentialValue = nil
         isLoadingCredential = false
         // Pre-load available credentials so the Advanced section's
