@@ -9,6 +9,7 @@ enum SettingsTab: String {
     case sounds = "Sounds"
     case permissionsAndPrivacy = "Permissions & Privacy"
     case billing = "Billing"
+    case community = "Community"
     case archivedConversations = "Archive"
     case bookmarks = "Bookmarks"
     case schedules = "Schedules"
@@ -25,6 +26,7 @@ enum SettingsTab: String {
         case .sounds: return .volume2
         case .permissionsAndPrivacy: return .shieldCheck
         case .billing: return .creditCard
+        case .community: return .users
         case .archivedConversations: return .archive
         case .bookmarks: return .bookmark
         case .schedules: return .calendar
@@ -48,6 +50,7 @@ enum SettingsTab: String {
         tabs.append(.voice)
         if soundsEnabled { tabs.append(.sounds) }
         tabs.append(.billing)
+        tabs.append(.community)
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
         if bookmarksEnabled { tabs.append(.bookmarks) }
@@ -468,6 +471,8 @@ struct SettingsPanel: View {
                 authManager: authManager,
                 assistantFeatureFlagStore: assistantFeatureFlagStore
             )
+        case .community:
+            SettingsCommunityTab()
         case .archivedConversations:
             SettingsArchivedConversationsTab(conversationManager: conversationManager)
         case .bookmarks:
