@@ -12,12 +12,12 @@ import {
 // ---------------------------------------------------------------------------
 import type { ProviderConnection } from "./inference/auth.js";
 import { resolveAuth } from "./inference/resolve-auth.js";
+import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
+import { getProviderDefaultModel } from "./model-intents.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "./platform-proxy/context.js";
-import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
-import { getProviderDefaultModel } from "./model-intents.js";
 import { RetryProvider } from "./retry.js";
 import type { Provider } from "./types.js";
 import { UsageTrackingProvider } from "./usage-tracking.js";

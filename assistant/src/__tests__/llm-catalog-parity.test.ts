@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
 
 /**
