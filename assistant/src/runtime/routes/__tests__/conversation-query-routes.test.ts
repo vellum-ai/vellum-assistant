@@ -32,13 +32,12 @@ mock.module("../../../config/loader.js", () => ({
   ) => {
     Object.assign(target, overrides);
   },
-  // `commitConfigWrite` (used by `handleReplaceInferenceProfile` after the
-  // saveRawConfig→commitConfigWrite consolidation — Devin analysis on
-  // #30362 line 670) pulls in `getConfig` for the provider reinit's config
-  // arg and `invalidateConfigCache` so the next caller sees the fresh
-  // write. Stub both: getConfig returns whatever was last saved (or the
-  // fixture if nothing has been saved yet) and the cache-invalidation
-  // function is a counter so we can assert it fired.
+  // `commitConfigWrite` (used by `handleReplaceInferenceProfile`) pulls
+  // in `getConfig` for the provider reinit's config arg and
+  // `invalidateConfigCache` so the next caller sees the fresh write.
+  // Stub both: getConfig returns whatever was last saved (or the fixture
+  // if nothing has been saved yet) and the cache-invalidation function
+  // is a counter so we can assert it fired.
   getConfig: () => structuredClone(savedRawConfig ?? rawConfigFixture),
   invalidateConfigCache: () => {
     invalidateConfigCacheCalls += 1;
@@ -558,11 +557,11 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     });
   });
 
-  describe("commitConfigWrite side effects (Devin #30362 follow-up)", () => {
+  describe("commitConfigWrite side effects", () => {
     test("status flip on managed profile triggers provider reinit + cache invalidation", async () => {
-      // Seed a managed profile that the user will disable. Pre-Devin-fix
-      // the route bypassed commitConfigWrite, so the daemon's in-process
-      // provider registry kept the disabled profile active until restart.
+      // Seed a managed profile that the user will disable. commitConfigWrite
+      // must reinit the provider registry so the status change is reflected
+      // in the running daemon immediately, not at the next watcher tick.
       (rawConfigFixture.llm as { profiles: Record<string, unknown> }).profiles[
         "balanced"
       ] = {

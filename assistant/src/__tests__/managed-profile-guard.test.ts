@@ -96,34 +96,34 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
-  test("rejects edits to quality-optimized that touch non-label/status fields", () => {
-    expect(() =>
+  test("rejects edits to quality-optimized that touch non-label/status fields", async () => {
+    await expect(
       replaceRoute.handler({
         pathParams: { name: "quality-optimized" },
         body: { provider: "openai", model: "gpt-4o" },
       }),
-    ).toThrow(
+    ).rejects.toThrow(
       'Cannot edit managed profile "quality-optimized" fields [provider, model]. ' +
         "Only label and status may be edited; duplicate to a custom profile to change other fields.",
     );
   });
 
-  test("rejects edits to balanced", () => {
-    expect(() =>
+  test("rejects edits to balanced", async () => {
+    await expect(
       replaceRoute.handler({
         pathParams: { name: "balanced" },
         body: { provider: "openai", model: "gpt-4o" },
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("rejects edits to cost-optimized", () => {
-    expect(() =>
+  test("rejects edits to cost-optimized", async () => {
+    await expect(
       replaceRoute.handler({
         pathParams: { name: "cost-optimized" },
         body: { provider: "openai", model: "gpt-4o" },
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
   });
 
   test("allows edits to custom-balanced (user-owned)", async () => {
@@ -147,11 +147,11 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Null-as-clear sentinel: `patchManagedProfileFields` has handled `null`
-  // for label and status since #30362, but the Zod `ProfileEntry` schema
-  // had them as `.optional()` (not `.nullable()`), which rejected null
-  // payloads at parse time before the route handler ever saw them.
-  // These tests lock the round-trip now that the schema accepts null.
+  // Null-as-clear sentinel: clients send `{ label: null }` or
+  // `{ status: null }` to clear a managed profile's overrides back to the
+  // seed defaults. The Zod `ProfileEntry` schema accepts null for both
+  // fields, and the managed-profile guard / `patchManagedProfileFields`
+  // propagate the clear through to disk. These tests lock the round-trip.
   // -------------------------------------------------------------------------
 
   test("PUT { label: null } on managed profile clears the label on disk", async () => {
@@ -261,17 +261,17 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(profile.status).toBe("disabled");
   });
 
-  test("PUT { label: '' } on managed profile still rejected by `.min(1)`", () => {
+  test("PUT { label: '' } on managed profile still rejected by `.min(1)`", async () => {
     // `.nullable()` only widens the type to accept null — empty strings
     // still fail the min-length check, which is correct: an empty string
     // would persist as a literal "" override, not the clear-to-seed
     // intent. Clients must send `null` to clear.
-    expect(() =>
+    await expect(
       replaceRoute.handler({
         pathParams: { name: "balanced" },
         body: { label: "" },
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
   });
 });
 

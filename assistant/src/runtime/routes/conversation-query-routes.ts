@@ -635,15 +635,15 @@ async function handleReplaceInferenceProfile({
       parsed.data as Record<string, unknown>,
     );
   }
-  // Use `commitConfigWrite` (not bare `saveRawConfig`) so profile edits
-  // immediately flow through the post-write side effects shared with
-  // `handlePatchConfig` / `handleSetConfig`: file-watcher suppression so
-  // the in-process reload doesn't race the explicit reinit below, embedding
-  // backend cache clear, in-process `getConfig` cache invalidation, and
-  // provider registry reinitialization. Without it, `status: "disabled"`
-  // on a managed profile (and any `provider` / `model` / `provider_connection`
-  // change on a custom profile) sat dormant until the next daemon restart
-  // or watcher tick — Devin analysis on #30362, line 670.
+  // Route through `commitConfigWrite` so profile edits flow through the
+  // post-write side effects shared with `handlePatchConfig` /
+  // `handleSetConfig`: file-watcher suppression so the in-process reload
+  // doesn't race the explicit reinit, embedding backend cache clear,
+  // in-process `getConfig` cache invalidation, and provider registry
+  // reinitialization. `status: "disabled"` on a managed profile (and any
+  // `provider` / `model` / `provider_connection` change on a custom
+  // profile) must take effect immediately rather than waiting for the
+  // next watcher tick.
   await commitConfigWrite(raw, "replace inference profile");
   return { ok: true };
 }
