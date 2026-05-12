@@ -60,7 +60,7 @@ describe("search-provider-catalog", () => {
   });
 
   test("SEARCH_PROVIDER_IDS contains every catalog id in declaration order", () => {
-    expect([...SEARCH_PROVIDER_IDS]).toEqual(
+    expect(SEARCH_PROVIDER_IDS).toEqual(
       SEARCH_PROVIDER_CATALOG.map((p) => p.id),
     );
   });

@@ -19,9 +19,9 @@ export const VALID_INFERENCE_PROVIDERS = [
 const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
 
 /**
- * Derived from the const tuple in `search-provider-catalog.ts`. Adding a
- * new web-search provider to the tuple automatically extends the
- * config-schema enum — no edit here required.
+ * Derived from `SEARCH_PROVIDER_CATALOG`. Adding a new web-search provider
+ * to the catalog automatically extends the config-schema enum — no edit
+ * here required.
  */
 const VALID_WEB_SEARCH_PROVIDERS = SEARCH_PROVIDER_IDS;
 
