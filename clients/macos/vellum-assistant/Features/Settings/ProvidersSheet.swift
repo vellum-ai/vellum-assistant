@@ -684,11 +684,34 @@ struct ProvidersSheet: View {
                 editorState = nil
                 actionError = nil
             }
-            VButton(label: "Save", style: .primary) {
+            // Save as New: only offered for managed connections. Clones the
+            // row's provider + label into a fresh create-mode session where
+            // the user supplies their own credential. Hidden for plain
+            // edit/create because the "rename/clone unmanaged row" workflow
+            // is just delete + create, and create mode already lets the
+            // user pick provider + label from scratch. Mirrors web PR #6525.
+            if isAuthLocked {
+                VButton(label: "Save as New", style: .outlined) {
+                    saveAsNewFromManagedEdit()
+                }
+            }
+            VButton(label: editorPrimaryLabel, style: .primary) {
                 Task { await commitEditor() }
             }
         }
         .padding(VSpacing.lg)
+    }
+
+    /// Primary footer button label. Returns "Create" in create mode (genuine
+    /// new connection OR post-Save-as-New transition out of managed-edit);
+    /// "Save" everywhere else. Mirrors the web editor's
+    /// `mode === "create" ? "Create" : "Save"` so the verb matches what the
+    /// next click actually does.
+    private var editorPrimaryLabel: String {
+        switch editorState {
+        case .create: return "Create"
+        case .edit, .managedEdit, .none: return "Save"
+        }
     }
 
     // MARK: - Conflict Sheet
@@ -791,6 +814,79 @@ struct ProvidersSheet: View {
                 await loadAvailableCredentials()
             }
         }
+    }
+
+    /// Fork the currently-loaded managed connection into a fresh `create`
+    /// session. The user keeps the provider + label as a starting point
+    /// (so they don't have to re-enter the easy bits) but gets a blank
+    /// Key field for a unique name, fresh credential inputs, and an
+    /// unlocked Auth Type defaulted to `api_key` — the whole reason to
+    /// clone a managed row is to use your own credentials.
+    ///
+    /// Flipping `editorState` from `.managedEdit` to `.create` unlocks
+    /// every behavior gate keyed off the state: `isAuthLocked` falls
+    /// false (Auth Type, API Key, Advanced section all become editable),
+    /// the Key field unlocks, and `commitEditor` routes through
+    /// `createProviderConnection` (POST) instead of `updateProviderConnection`
+    /// (PATCH) — so the daemon assigns a fresh user-owned row rather than
+    /// rewriting the managed source. `ManageProvidersModal`'s equivalent
+    /// in web PR #6525 makes the same one-line transition.
+    private func saveAsNewFromManagedEdit() {
+        actionError = nil
+        // Auto-pick a unique key for the new connection. Default to
+        // `${provider}-personal` (the convention the daemon uses for
+        // user-owned forks of managed rows), incrementing
+        // `${provider}-personal-2`, `${provider}-personal-3`, … on
+        // collision. Saves the user the keystrokes of picking a name —
+        // they can still edit Key before Create. Set `isKeyDirty` so the
+        // label-driven auto-derive doesn't clobber this pick when the
+        // user tweaks Display Name afterwards.
+        let provider = editorDraft.provider
+        editorDraft.name = ProvidersSheet.saveAsNewName(
+            provider: provider,
+            existingNames: Set(connections.map { $0.name })
+        )
+        isKeyDirty = true
+        // Default to api_key auth — the whole reason to clone a managed
+        // connection is to use your own key, so `platform` isn't the
+        // right default for the fork. Seed the credential reference to
+        // the provider's default slot so an immediate save (with no
+        // Advanced expansion) lands the key under `credential/<provider>/api_key`.
+        editorDraft.authType = "api_key"
+        editorDraft.credential = "credential/\(provider)/api_key"
+        editorDraft.apiKeyValue = ""
+        // New connection starts active by convention; user can toggle off
+        // before saving if they want it disabled.
+        editorDraft.status = .active
+        // Reset masked credential — there's no key for the new connection
+        // yet, so the API Key field shows its placeholder instead of the
+        // managed source's masked value.
+        maskedCredentialValue = nil
+        isLoadingCredential = false
+        // Pre-load available credentials so the Advanced section's
+        // dropdown is populated when the user expands it. Mirrors
+        // `beginCreate`.
+        Task { await loadAvailableCredentials() }
+        // Flip the state last so SwiftUI's diffing sees the unlocked
+        // editor against the seeded draft, not the transient managed
+        // values.
+        editorState = .create
+    }
+
+    /// Generates a unique connection name for "Save as New" off a managed
+    /// row. Starts at `${provider}-personal` and increments
+    /// `${provider}-personal-2`, `${provider}-personal-3`, … until one is
+    /// not in `existingNames`. Pure helper so the test suite can drive it
+    /// without standing up a full sheet. Mirrors the daemon's seed naming
+    /// convention for user-owned forks of canonical managed connections.
+    static func saveAsNewName(provider: String, existingNames: Set<String>) -> String {
+        let base = "\(provider)-personal"
+        if !existingNames.contains(base) { return base }
+        var index = 2
+        while existingNames.contains("\(base)-\(index)") {
+            index += 1
+        }
+        return "\(base)-\(index)"
     }
 
     /// Inline status toggle from the list row. Optimistically updates the
