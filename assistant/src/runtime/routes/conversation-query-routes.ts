@@ -61,10 +61,7 @@ import {
   getMessageById,
 } from "../../memory/conversation-crud.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
-import {
-  getRequestLogById,
-  getRequestLogsByMessageId,
-} from "../../memory/llm-request-log-store.js";
+import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
@@ -709,7 +706,7 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   if (!messageId) {
     throw new BadRequestError("message id is required");
   }
-  const logs = getRequestLogsByMessageId(messageId);
+  const logs = await getLlmRequestLogSource().getRequestLogsByMessageId(messageId);
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
   const memoryRecallLog = getMemoryRecallLogByMessageIds(turnMessageIds);
   const memoryV2Activation =
@@ -771,7 +768,7 @@ function handleGetLlmRequestLogPayload({ pathParams = {} }: RouteHandlerArgs) {
   if (!logId) {
     throw new BadRequestError("log id is required");
   }
-  const log = getRequestLogById(logId);
+  const log = await getLlmRequestLogSource().getRequestLogById(logId);
   if (!log) {
     throw new NotFoundError("log not found");
   }

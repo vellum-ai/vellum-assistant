@@ -10,7 +10,7 @@ import {
 import { getDb } from "./db-connection.js";
 import { llmRequestLogs, messages } from "./schema.js";
 
-type LogRow = {
+export type LogRow = {
   id: string;
   conversationId: string;
   messageId: string | null;
