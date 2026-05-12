@@ -624,29 +624,94 @@ function handleReplaceInferenceProfile({
       `Profile name "${name}" is reserved and cannot be used.`,
     );
   }
-  if (MANAGED_PROFILE_NAMES.has(name)) {
-    throw new BadRequestError(
-      `Cannot edit managed profile "${name}". Duplicate it to create a custom profile.`,
-    );
-  }
   const parsed = ProfileEntry.safeParse(body);
   if (!parsed.success) {
     const detail = parsed.error.issues.map((issue) => issue.message).join("; ");
     throw new BadRequestError(`Invalid profile fragment: ${detail}`);
   }
+  const isManaged = MANAGED_PROFILE_NAMES.has(name);
+  if (isManaged) {
+    // Managed profiles are daemon-seeded — provider, model, advanced params,
+    // and the connection binding all belong to the seed contract and can't
+    // be reshaped by the user. The two fields that ARE user policy (display
+    // label and enabled status) are allowed through so users can rename a
+    // managed profile or temporarily disable it without duplicating it.
+    const requestedKeys = Object.keys(parsed.data);
+    const disallowed = requestedKeys.filter(
+      (k) => k !== "label" && k !== "status",
+    );
+    if (disallowed.length > 0) {
+      throw new BadRequestError(
+        `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ` +
+          `Only label and status may be edited; duplicate to a custom profile to change other fields.`,
+      );
+    }
+  }
   try {
     const raw = loadRawConfig();
-    replaceInferenceProfileConfig(
-      raw,
-      name,
-      parsed.data as Record<string, unknown>,
-    );
+    if (isManaged) {
+      // Partial overlay: keep every existing key intact, only update label
+      // and/or status from the fragment. Using `replaceInferenceProfileConfig`
+      // here would wipe the UI-owned seed fields (provider, model, advanced
+      // params) because that function assumes the body carries the full UI
+      // surface.
+      patchManagedProfileFields(
+        raw,
+        name,
+        parsed.data as Record<string, unknown>,
+      );
+    } else {
+      replaceInferenceProfileConfig(
+        raw,
+        name,
+        parsed.data as Record<string, unknown>,
+      );
+    }
     saveRawConfig(raw);
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to replace inference profile: ${message}`);
   }
+}
+
+/**
+ * Apply a `{label?, status?}` patch to a managed profile entry, preserving
+ * every other field already on disk (provider, model, advanced params, etc).
+ * Caller is responsible for having already restricted the fragment to the
+ * managed-allowed keys.
+ */
+function patchManagedProfileFields(
+  raw: Record<string, unknown>,
+  name: string,
+  fragment: Record<string, unknown>,
+): void {
+  const existingLlm = asMutablePlainObject(raw.llm);
+  const llm = existingLlm ?? {};
+  if (!existingLlm) raw.llm = llm;
+
+  const existingProfiles = asMutablePlainObject(llm.profiles);
+  const profiles = existingProfiles ?? {};
+  if (!existingProfiles) llm.profiles = profiles;
+
+  const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
+  const nextProfile: Record<string, unknown> = { ...existingProfile };
+  // Send `null` to clear; omit to leave untouched.
+  if ("label" in fragment) {
+    if (fragment.label === null) {
+      delete nextProfile.label;
+    } else {
+      nextProfile.label = fragment.label;
+    }
+  }
+  if ("status" in fragment) {
+    if (fragment.status === null) {
+      delete nextProfile.status;
+    } else {
+      nextProfile.status = fragment.status;
+    }
+  }
+  profiles[name] = nextProfile;
 }
 
 function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {
