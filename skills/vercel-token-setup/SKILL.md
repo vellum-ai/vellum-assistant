@@ -83,7 +83,7 @@ credential_store store:
   field: "api_token"
   value: "<the token the user provided>"
   allowedTools: ["publish_page", "unpublish_page"]
-  allowedDomains: ["api.vercel.com"]
+  allowedDomains: []
 ```
 
 ### Channel Step 4: Done!
@@ -225,7 +225,7 @@ credential_store store:
   field: "api_token"
   value: "<the token the user provided>"
   allowedTools: ["publish_page", "unpublish_page"]
-  allowedDomains: ["api.vercel.com"]
+  allowedDomains: []
 ```
 
 **Verify:** `credential_store list` shows `api_token` for `vercel`.
