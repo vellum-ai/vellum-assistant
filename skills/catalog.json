@@ -81,7 +81,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-11T16:15:50-04:00"
+      "updatedAt": "2026-05-12T11:43:38-04:00"
     },
     {
       "id": "discord-app-setup",
@@ -94,7 +94,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-09T20:06:44-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "document-writer",
@@ -314,7 +314,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-24T15:56:45-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "macos-automation",
@@ -453,7 +453,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-03T13:09:26-05:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "outlook",
@@ -515,7 +515,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-30T11:22:01-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "restaurant-reservation",
@@ -571,7 +571,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-30T20:13:09-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "slack",
@@ -627,7 +627,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T04:55:50-04:00"
+      "updatedAt": "2026-05-12T12:30:42-04:00"
     },
     {
       "id": "stripe-link-wallet",
@@ -637,7 +637,7 @@
         "emoji": "💳"
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T09:13:37-07:00"
+      "updatedAt": "2026-05-12T11:01:33-07:00"
     },
     {
       "id": "tasks",
@@ -931,7 +931,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T15:26:17-04:00"
+      "updatedAt": "2026-05-12T11:43:38-04:00"
     },
     {
       "id": "voice-setup",

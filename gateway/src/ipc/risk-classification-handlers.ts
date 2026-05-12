@@ -74,6 +74,8 @@ const ClassifyRiskSchema = z.object({
     .optional(),
   /** Tool registry default risk level for unknown tools. */
   registryDefaultRisk: z.string().optional(),
+  /** Number of credential references attached to this tool invocation. */
+  credentialRefCount: z.number().int().nonnegative().optional(),
 });
 
 type ClassifyRiskParams = z.infer<typeof ClassifyRiskSchema>;
@@ -359,17 +361,26 @@ export async function handleClassifyRisk(
         });
       }
 
-      // Proxied bash risk cap: when running through the credential proxy,
-      // cap High → Medium so proxied commands don't trigger unnecessary prompts.
+      // Proxied bash risk classification:
+      // - When credentials are attached (credentialRefCount > 0), escalate to
+      //   high risk regardless of the underlying assessment. Credentialed
+      //   proxied shell sessions carry elevated risk and must not be
+      //   downgraded by the general proxied-bash cap.
+      // - For non-credentialed proxied bash, cap High → Medium so proxied
+      //   commands don't trigger unnecessary prompts.
       // Only applies to sandboxed "bash" — host_bash runs on the host machine
       // and should not have its risk capped.
       let finalRisk = assessment.riskLevel;
-      if (
-        tool === "bash" &&
-        params.networkMode === "proxied" &&
-        finalRisk === "high"
-      ) {
-        finalRisk = "medium";
+      let finalReason = assessment.reason;
+      const credentialRefCount = params.credentialRefCount ?? 0;
+      if (tool === "bash" && params.networkMode === "proxied") {
+        if (credentialRefCount > 0) {
+          finalRisk = "high";
+          finalReason =
+            "Proxied credential session — shell has access to injected credentials";
+        } else if (finalRisk === "high") {
+          finalRisk = "medium";
+        }
       }
 
       // Collect resolved paths for directory-scoped rule enforcement.
@@ -381,7 +392,7 @@ export async function handleClassifyRisk(
 
       return {
         risk: finalRisk,
-        reason: assessment.reason,
+        reason: finalReason,
         scopeOptions: assessment.scopeOptions,
         allowlistOptions: assessment.allowlistOptions,
         actionKeys,
