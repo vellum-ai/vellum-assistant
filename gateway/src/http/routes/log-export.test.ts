@@ -63,6 +63,7 @@ mock.module("../../logger.js", () => {
     getLogger: () => noopLogger,
     initLogger: noop,
     LOG_FILE_PATTERN: /^gateway-(\d{4}-\d{2}-\d{2})\.log$/,
+    LOG_FILE_JSON_PATTERN: /^gateway-(\d{4}-\d{2}-\d{2})\.jsonl$/,
   };
 });
 
