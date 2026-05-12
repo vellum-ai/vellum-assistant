@@ -23,3 +23,13 @@ export function publishIdentityChanged(fields: IdentityFields): void {
   });
   void publishSyncInvalidation([SYNC_TAGS.assistantIdentity]);
 }
+
+export function publishConfigChanged(): void {
+  broadcastMessage({ type: "config_changed" });
+  void publishSyncInvalidation([SYNC_TAGS.assistantConfig]);
+}
+
+export function publishSoundsConfigUpdated(): void {
+  broadcastMessage({ type: "sounds_config_updated" });
+  void publishSyncInvalidation([SYNC_TAGS.assistantSounds]);
+}

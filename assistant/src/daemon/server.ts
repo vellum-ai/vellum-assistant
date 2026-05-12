@@ -16,7 +16,9 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import {
   publishAvatarChanged,
+  publishConfigChanged,
   publishIdentityChanged,
+  publishSoundsConfigUpdated,
 } from "../runtime/sync/resource-sync-events.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -193,11 +195,11 @@ export class DaemonServer {
   }
 
   private broadcastConfigChanged(): void {
-    broadcastMessage({ type: "config_changed" });
+    publishConfigChanged();
   }
 
   private broadcastSoundsConfigUpdated(): void {
-    broadcastMessage({ type: "sounds_config_updated" });
+    publishSoundsConfigUpdated();
   }
 
   private broadcastAvatarUpdated(): void {
