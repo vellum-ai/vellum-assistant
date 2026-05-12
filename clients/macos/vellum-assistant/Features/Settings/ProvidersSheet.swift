@@ -412,7 +412,8 @@ struct ProvidersSheet: View {
             }
             Spacer(minLength: 0)
             VButton(
-                label: "Cancel",
+                label: "Close",
+                iconOnly: VIcon.x.rawValue,
                 style: .ghost,
                 tintColor: VColor.contentTertiary
             ) {
