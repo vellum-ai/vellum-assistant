@@ -49,6 +49,7 @@ struct DiscordCommunityBanner: View {
                     .foregroundStyle(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .accessibilityLabel("Dismiss Discord banner")
         }
         .padding(.horizontal, VSpacing.lg)
