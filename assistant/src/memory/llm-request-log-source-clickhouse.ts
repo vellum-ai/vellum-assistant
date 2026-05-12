@@ -15,10 +15,10 @@
  * than the local source. Acceptable for the "internal use while we
  * finetune prompts" use case; revisit when mirror updates are added.
  */
+import type { LlmRequestLogsClickHouseConfig } from "../config/schemas/llm-request-logs.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import type { LlmRequestLogsClickHouseConfig } from "../config/schemas/llm-request-logs.js";
 import {
   getAssistantMessageIdsInTurn,
   getMessageById,
@@ -28,6 +28,20 @@ import type { LlmRequestLogSource } from "./llm-request-log-source.js";
 import type { LogRow } from "./llm-request-log-store.js";
 
 const log = getLogger("clickhouse-llm-request-log-source");
+
+/**
+ * Read a credential and normalize `undefined` → `null`. The credential
+ * resolver factories on this class are typed `() => Promise<string | null>`;
+ * `getSecureKeyAsync` returns `Promise<string | undefined>`. Keep the
+ * coercion in one place so TypeScript stays happy without per-call casts.
+ */
+async function readCredentialOrNull(
+  service: string,
+  field: string,
+): Promise<string | null> {
+  const value = await getSecureKeyAsync(credentialKey(service, field));
+  return value ?? null;
+}
 
 /**
  * Wire-format row returned by ClickHouse for our query columns. Note
@@ -74,14 +88,13 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     deps: ClickHouseLlmRequestLogSourceDeps = {},
   ) {
     this.resolveUrl =
-      deps.resolveUrl ??
-      (() => getSecureKeyAsync(credentialKey("clickhouse", "url")));
+      deps.resolveUrl ?? (() => readCredentialOrNull("clickhouse", "url"));
     this.resolvePassword =
       deps.resolvePassword ??
-      (() => getSecureKeyAsync(credentialKey("clickhouse", "password")));
+      (() => readCredentialOrNull("clickhouse", "password"));
     this.resolveAssistantId =
       deps.resolveAssistantId ??
-      (() => getSecureKeyAsync(credentialKey("vellum", "platform_assistant_id")));
+      (() => readCredentialOrNull("vellum", "platform_assistant_id"));
     this.fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 

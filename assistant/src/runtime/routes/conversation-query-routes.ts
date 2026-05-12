@@ -701,7 +701,7 @@ function resolveConversationKind(
   return "user";
 }
 
-function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
+async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   const messageId = pathParams.id;
   if (!messageId) {
     throw new BadRequestError("message id is required");
@@ -763,7 +763,9 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
-function handleGetLlmRequestLogPayload({ pathParams = {} }: RouteHandlerArgs) {
+async function handleGetLlmRequestLogPayload({
+  pathParams = {},
+}: RouteHandlerArgs) {
   const logId = pathParams.id;
   if (!logId) {
     throw new BadRequestError("log id is required");

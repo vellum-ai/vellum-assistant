@@ -36,12 +36,12 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => currentConfig,
 }));
 
-import { ClickHouseLlmRequestLogSource } from "../memory/llm-request-log-source-clickhouse.js";
-import { LocalLlmRequestLogSource } from "../memory/llm-request-log-source-local.js";
 import {
   getLlmRequestLogSource,
   invalidateLlmRequestLogSourceCache,
 } from "../memory/llm-request-log-source.js";
+import { ClickHouseLlmRequestLogSource } from "../memory/llm-request-log-source-clickhouse.js";
+import { LocalLlmRequestLogSource } from "../memory/llm-request-log-source-local.js";
 
 describe("getLlmRequestLogSource factory", () => {
   beforeEach(() => {
