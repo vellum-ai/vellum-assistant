@@ -510,7 +510,7 @@ struct ComposerView: View, Equatable {
                         label: "Send message",
                         iconOnly: VIcon.arrowUp.rawValue,
                         style: .primary,
-                        isDisabled: !canSend && !isAssistantBusy,
+                        isDisabled: !canSend && (!isAssistantBusy || hasPendingConfirmation),
                         iconSize: composerActionButtonSize
                     ) {
                         composerFocus = true
