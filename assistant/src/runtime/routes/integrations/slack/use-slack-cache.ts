@@ -147,8 +147,11 @@ export async function resolveChannelId(
   token: string,
   nameOrId: string,
 ): Promise<string> {
-  // Direct ID pass-through
-  if (/^C[A-Z0-9]+$/.test(nameOrId)) {
+  // Strip leading '#' so users can pass '#general' etc.
+  nameOrId = nameOrId.replace(/^#/, "");
+
+  // Direct ID pass-through (C = channel, D = DM, G = group)
+  if (/^[CDG][A-Z0-9]+$/.test(nameOrId)) {
     return nameOrId;
   }
 
