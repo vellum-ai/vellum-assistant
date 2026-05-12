@@ -139,26 +139,30 @@ RUN groupadd --system --gid 1001 assistant && \
     echo "assistant ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Set up assistant home directory for local state (device.json, etc.) and a
-# persistent /data root for runtime-installed system packages.
-RUN mkdir -p /home/assistant/.vellum /data && \
+# persistent /data/system root for runtime-installed system packages.
+RUN mkdir -p /home/assistant/.vellum /data/system && \
     chown -R assistant:assistant /home/assistant/.vellum /data && \
     chmod a+rwx /data
 
 # Configure package managers to use assistant home
 ENV BUN_INSTALL="/home/assistant/.bun"
+ENV PATH="/home/assistant/.bun/bin:${PATH}"
 ENV PYTHONUSERBASE="/home/assistant/.python"
-ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/assistant/.bun/bin:${BUN_INSTALL}/bin:${PYTHONUSERBASE}/bin:/data/bin:/data/usr/local/sbin:/data/usr/local/bin:/data/usr/sbin:/data/usr/bin:/data/sbin"
+ENV PATH="${BUN_INSTALL}/bin:${PATH}"
+ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
+ENV PATH="${PATH}:/data/system/bin:/data/system/usr/local/sbin:/data/system/usr/local/bin:/data/system/usr/sbin:/data/system/usr/bin:/data/system/sbin"
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV LD_LIBRARY_PATH="/data/usr/local/lib:/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:/data/usr/lib/aarch64-linux-gnu"
+ENV LD_LIBRARY_PATH="/data/system/usr/local/lib:/data/system/usr/lib:/data/system/usr/lib/x86_64-linux-gnu:/data/system/usr/lib/aarch64-linux-gnu"
 
 RUN printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
     'export DEBIAN_FRONTEND=noninteractive' \
+    'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
     '/app/assistant/docker-init-apt-root.sh' \
-    'if [ -x /data/bin/sh ] && [ -x /data/usr/bin/apt-get ] && [ -f /data/.rootfs-initialized ] && ! grep -qs " /data .*noexec" /proc/mounts; then' \
-    '  exec chroot /data /usr/bin/apt-get "$@"' \
+    'if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/apt-get" ] && [ -f "${DATA_ROOT}/.rootfs-initialized" ] && ! grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then' \
+    '  exec chroot "${DATA_ROOT}" /usr/bin/apt-get "$@"' \
     'fi' \
     'exec /usr/bin/apt-get "$@"' \
     > /usr/local/bin/apt-get && \
@@ -167,9 +171,10 @@ RUN printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
     'export DEBIAN_FRONTEND=noninteractive' \
+    'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
     '/app/assistant/docker-init-apt-root.sh' \
-    'if [ -x /data/bin/sh ] && [ -x /data/usr/bin/apt ] && [ -f /data/.rootfs-initialized ] && ! grep -qs " /data .*noexec" /proc/mounts; then' \
-    '  exec chroot /data /usr/bin/apt "$@"' \
+    'if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/apt" ] && [ -f "${DATA_ROOT}/.rootfs-initialized" ] && ! grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then' \
+    '  exec chroot "${DATA_ROOT}" /usr/bin/apt "$@"' \
     'fi' \
     'exec /usr/bin/apt "$@"' \
     > /usr/local/bin/apt && \
@@ -177,9 +182,10 @@ RUN printf '%s\n' \
     printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
+    'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
     '/app/assistant/docker-init-apt-root.sh' \
-    'if [ -x /data/bin/sh ] && [ -x /data/usr/bin/dpkg ] && [ -f /data/.rootfs-initialized ] && ! grep -qs " /data .*noexec" /proc/mounts; then' \
-    '  exec chroot /data /usr/bin/dpkg "$@"' \
+    'if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/dpkg" ] && [ -f "${DATA_ROOT}/.rootfs-initialized" ] && ! grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then' \
+    '  exec chroot "${DATA_ROOT}" /usr/bin/dpkg "$@"' \
     'fi' \
     'exec /usr/bin/dpkg "$@"' \
     > /usr/local/bin/dpkg && \
