@@ -126,8 +126,6 @@ type ModelCommandParse =
 function parseModelCommand(trimmed: string): ModelCommandParse | null {
   if (trimmed === "/model") return { kind: "list" };
   if (!trimmed.startsWith("/model ")) return null;
-  // Treat `/models` (which is a separate command) as not-a-/model invocation.
-  if (trimmed === "/models" || trimmed.startsWith("/models")) return null;
   const rest = trimmed.slice("/model ".length).trim();
   if (rest.length === 0) return { kind: "list" };
   return { kind: "switch", profileName: rest };
