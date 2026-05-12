@@ -43,6 +43,10 @@ jobs:
         with:
           chrome-version: stable
 
+      - name: Install chrome-extension dependencies
+        working-directory: clients/chrome-extension
+        run: bun install --frozen-lockfile
+
       - name: Resolve version
         id: resolve-version
         working-directory: clients/chrome-extension
