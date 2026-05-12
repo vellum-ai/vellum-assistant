@@ -766,7 +766,7 @@ struct ProvidersSheet: View {
     /// inheriting the first catalog entry (Anthropic), which previously led
     /// to OpenRouter / Fireworks keys being saved against the wrong provider
     /// when users pasted-and-saved without scanning the dropdown. Mirrors
-    /// `InferenceProfileEditor.isProviderMissing` (PR #30313).
+    /// `InferenceProfileEditor.isProviderMissing`.
     private var isProviderMissing: Bool {
         editorDraft.provider.isEmpty
     }
@@ -831,7 +831,7 @@ struct ProvidersSheet: View {
         // persisting the row as `provider=anthropic` with the OpenRouter key
         // in the credential slot. Forcing an explicit selection eliminates
         // that whole class of mismatched-provider bug. Mirrors the
-        // `isProviderMissing` guard in InferenceProfileEditor (PR #30313).
+        // `isProviderMissing` guard in InferenceProfileEditor.
         editorDraft = ConnectionDraft()
         editorState = .create
         maskedCredentialValue = nil
