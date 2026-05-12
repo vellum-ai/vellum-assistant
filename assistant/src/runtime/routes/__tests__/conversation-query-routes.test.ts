@@ -14,6 +14,12 @@ import {
 
 let rawConfigFixture: Record<string, unknown> = {};
 let savedRawConfig: Record<string, unknown> | null = null;
+// Counters / spies so tests can assert that `commitConfigWrite` ran its
+// post-write side effects. Each `replaceProfileRoute.handler` call that
+// hits `commitConfigWrite` should bump these once.
+let invalidateConfigCacheCalls = 0;
+let initializeProvidersCalls = 0;
+let clearEmbeddingBackendCacheCalls = 0;
 
 mock.module("../../../config/loader.js", () => ({
   loadRawConfig: () => structuredClone(rawConfigFixture),
@@ -25,6 +31,29 @@ mock.module("../../../config/loader.js", () => ({
     overrides: Record<string, unknown>,
   ) => {
     Object.assign(target, overrides);
+  },
+  // `commitConfigWrite` (used by `handleReplaceInferenceProfile` after the
+  // saveRawConfig→commitConfigWrite consolidation — Devin analysis on
+  // #30362 line 670) pulls in `getConfig` for the provider reinit's config
+  // arg and `invalidateConfigCache` so the next caller sees the fresh
+  // write. Stub both: getConfig returns whatever was last saved (or the
+  // fixture if nothing has been saved yet) and the cache-invalidation
+  // function is a counter so we can assert it fired.
+  getConfig: () => structuredClone(savedRawConfig ?? rawConfigFixture),
+  invalidateConfigCache: () => {
+    invalidateConfigCacheCalls += 1;
+  },
+}));
+
+mock.module("../../../providers/registry.js", () => ({
+  initializeProviders: async () => {
+    initializeProvidersCalls += 1;
+  },
+}));
+
+mock.module("../../../memory/embedding-backend.js", () => ({
+  clearEmbeddingBackendCache: () => {
+    clearEmbeddingBackendCacheCalls += 1;
   },
 }));
 
@@ -288,6 +317,9 @@ describe("GET /v1/messages/:id/llm-context — conversationTotalEstimatedCostUsd
 describe("PUT /v1/config/llm/profiles/:name", () => {
   beforeEach(() => {
     savedRawConfig = null;
+    invalidateConfigCacheCalls = 0;
+    initializeProvidersCalls = 0;
+    clearEmbeddingBackendCacheCalls = 0;
     rawConfigFixture = {
       llm: {
         profiles: {
@@ -313,8 +345,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     };
   });
 
-  test("owns contextWindow maxInputTokens while preserving non-UI profile leaves", () => {
-    const result = replaceProfileRoute.handler({
+  test("owns contextWindow maxInputTokens while preserving non-UI profile leaves", async () => {
+    const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
         provider: "openai",
@@ -343,8 +375,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
   });
 
-  test("writes only the replacement contextWindow maxInputTokens override", () => {
-    const result = replaceProfileRoute.handler({
+  test("writes only the replacement contextWindow maxInputTokens override", async () => {
+    const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
         provider: "openai",
@@ -375,8 +407,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
   });
 
-  test("writes provider_connection when present in body", () => {
-    const result = replaceProfileRoute.handler({
+  test("writes provider_connection when present in body", async () => {
+    const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
         provider: "openai",
@@ -396,7 +428,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     expect(savedProfile.provider_connection).toBe("personal-openai");
   });
 
-  test("clears provider_connection when omitted from body (UI-owned key)", () => {
+  test("clears provider_connection when omitted from body (UI-owned key)", async () => {
     // Seed an existing binding so the test starts from a non-empty state.
     (
       rawConfigFixture.llm as {
@@ -404,7 +436,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom.provider_connection = "stale-openai";
 
-    const result = replaceProfileRoute.handler({
+    const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
         provider: "openai",
@@ -439,8 +471,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       };
     });
 
-    test("allows label edit on managed profile, preserving seed fields", () => {
-      const result = replaceProfileRoute.handler({
+    test("allows label edit on managed profile, preserving seed fields", async () => {
+      const result = await replaceProfileRoute.handler({
         pathParams: { name: "balanced" },
         body: { label: "My Balanced" },
       });
@@ -459,8 +491,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(savedProfile.source).toBe("managed");
     });
 
-    test("allows status edit on managed profile", () => {
-      const result = replaceProfileRoute.handler({
+    test("allows status edit on managed profile", async () => {
+      const result = await replaceProfileRoute.handler({
         pathParams: { name: "balanced" },
         body: { status: "disabled" },
       });
@@ -476,8 +508,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(savedProfile.provider).toBe("anthropic");
     });
 
-    test("allows label+status edit together", () => {
-      const result = replaceProfileRoute.handler({
+    test("allows label+status edit together", async () => {
+      const result = await replaceProfileRoute.handler({
         pathParams: { name: "balanced" },
         body: { label: "Renamed", status: "disabled" },
       });
@@ -493,25 +525,81 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(savedProfile.status).toBe("disabled");
     });
 
-    test("rejects provider edit on managed profile with disallowed-keys error", () => {
-      expect(() =>
+    test("rejects provider edit on managed profile with disallowed-keys error", async () => {
+      // The handler is `async`, so synchronous BadRequest throws still
+      // surface as a rejected promise; assert via `.rejects.toThrow`.
+      await expect(
         replaceProfileRoute.handler({
           pathParams: { name: "balanced" },
           body: { provider: "openai", model: "gpt-5" },
         }),
-      ).toThrow(/Cannot edit managed profile "balanced" fields \[provider, model\]/);
+      ).rejects.toThrow(
+        /Cannot edit managed profile "balanced" fields \[provider, model\]/,
+      );
     });
 
-    test("rejects mixed allowed+disallowed fields", () => {
+    test("rejects mixed allowed+disallowed fields", async () => {
       // label is allowed but maxTokens is not — must reject without partially
       // applying label, so saver should never be invoked.
-      expect(() =>
+      await expect(
         replaceProfileRoute.handler({
           pathParams: { name: "balanced" },
           body: { label: "Try", maxTokens: 999 },
         }),
-      ).toThrow(/Cannot edit managed profile "balanced" fields \[maxTokens\]/);
+      ).rejects.toThrow(
+        /Cannot edit managed profile "balanced" fields \[maxTokens\]/,
+      );
       expect(savedRawConfig).toBeNull();
+      // Reject path skips commitConfigWrite entirely — no provider reinit
+      // or cache invalidation should fire on a guard rejection.
+      expect(initializeProvidersCalls).toBe(0);
+      expect(invalidateConfigCacheCalls).toBe(0);
+      expect(clearEmbeddingBackendCacheCalls).toBe(0);
+    });
+  });
+
+  describe("commitConfigWrite side effects (Devin #30362 follow-up)", () => {
+    test("status flip on managed profile triggers provider reinit + cache invalidation", async () => {
+      // Seed a managed profile that the user will disable. Pre-Devin-fix
+      // the route bypassed commitConfigWrite, so the daemon's in-process
+      // provider registry kept the disabled profile active until restart.
+      (rawConfigFixture.llm as { profiles: Record<string, unknown> }).profiles[
+        "balanced"
+      ] = {
+        source: "managed",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        label: "Balanced",
+        status: "active",
+      };
+
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { status: "disabled" },
+      });
+
+      expect(result).toEqual({ ok: true });
+      expect(initializeProvidersCalls).toBe(1);
+      expect(invalidateConfigCacheCalls).toBe(1);
+      expect(clearEmbeddingBackendCacheCalls).toBe(1);
+    });
+
+    test("custom profile provider swap triggers provider reinit + cache invalidation", async () => {
+      // Custom profile path: provider/model swap on a user-owned profile.
+      // Same side-effect contract — registry must reinit so the new
+      // provider is wired into the running daemon without restart.
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "custom" },
+        body: {
+          provider: "openai",
+          model: "gpt-5.5",
+        },
+      });
+
+      expect(result).toEqual({ ok: true });
+      expect(initializeProvidersCalls).toBe(1);
+      expect(invalidateConfigCacheCalls).toBe(1);
+      expect(clearEmbeddingBackendCacheCalls).toBe(1);
     });
   });
 });

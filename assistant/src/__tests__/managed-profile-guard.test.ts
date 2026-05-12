@@ -126,9 +126,9 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     ).toThrow(BadRequestError);
   });
 
-  test("allows edits to custom-balanced (user-owned)", () => {
+  test("allows edits to custom-balanced (user-owned)", async () => {
     savedRaw = null;
-    const result = replaceRoute.handler({
+    const result = await replaceRoute.handler({
       pathParams: { name: "custom-balanced" },
       body: { provider: "openai", model: "gpt-4o" },
     });
@@ -136,9 +136,9 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(savedRaw).not.toBeNull();
   });
 
-  test("allows edits to a user-defined profile", () => {
+  test("allows edits to a user-defined profile", async () => {
     savedRaw = null;
-    const result = replaceRoute.handler({
+    const result = await replaceRoute.handler({
       pathParams: { name: "my-custom" },
       body: { provider: "openai", model: "gpt-4o" },
     });
@@ -154,7 +154,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
   // These tests lock the round-trip now that the schema accepts null.
   // -------------------------------------------------------------------------
 
-  test("PUT { label: null } on managed profile clears the label on disk", () => {
+  test("PUT { label: null } on managed profile clears the label on disk", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
@@ -168,7 +168,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
         },
       },
     };
-    const result = replaceRoute.handler({
+    const result = await replaceRoute.handler({
       pathParams: { name: "balanced" },
       body: { label: null },
     });
@@ -182,7 +182,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(profile.source).toBe("managed");
   });
 
-  test("PUT { status: null } on managed profile clears status (back to active-by-absence)", () => {
+  test("PUT { status: null } on managed profile clears status (back to active-by-absence)", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
@@ -196,7 +196,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
         },
       },
     };
-    const result = replaceRoute.handler({
+    const result = await replaceRoute.handler({
       pathParams: { name: "quality-optimized" },
       body: { status: null },
     });
@@ -208,7 +208,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(profile.model).toBe("claude-opus");
   });
 
-  test("PUT { label: null, status: null } clears both in a single request", () => {
+  test("PUT { label: null, status: null } clears both in a single request", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
@@ -223,7 +223,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
         },
       },
     };
-    const result = replaceRoute.handler({
+    const result = await replaceRoute.handler({
       pathParams: { name: "cost-optimized" },
       body: { label: null, status: null },
     });
@@ -236,7 +236,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(profile.model).toBe("claude-haiku");
   });
 
-  test("PUT { label: null, status: 'disabled' } mixes clear + set in one call", () => {
+  test("PUT { label: null, status: 'disabled' } mixes clear + set in one call", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
@@ -250,7 +250,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
         },
       },
     };
-    const result = replaceRoute.handler({
+    const result = await replaceRoute.handler({
       pathParams: { name: "balanced" },
       body: { label: null, status: "disabled" },
     });
