@@ -209,8 +209,10 @@ describe("loadExternalPlugin — hooks", () => {
     writeSurfaceFile(
       dir,
       "hooks/shutdown.ts",
-      `export default async function shutdown(): Promise<void> {
+      `export default async function shutdown(ctx: { assistantVersion: string }): Promise<void> {
   (globalThis as Record<string, unknown>).__externalShutdownCalled = true;
+  (globalThis as Record<string, unknown>).__externalShutdownVersion =
+    ctx.assistantVersion;
 }
 `,
     );
@@ -221,11 +223,51 @@ describe("loadExternalPlugin — hooks", () => {
       (p) => p.manifest.name === "with-shutdown",
     );
     expect(typeof registered?.hooks?.shutdown).toBe("function");
-    await registered?.hooks?.shutdown?.(undefined);
+    await registered?.hooks?.shutdown?.({ assistantVersion: "9.9.9-test" });
     expect(
       (globalThis as Record<string, unknown>).__externalShutdownCalled,
     ).toBe(true);
+    expect(
+      (globalThis as Record<string, unknown>).__externalShutdownVersion,
+    ).toBe("9.9.9-test");
     delete (globalThis as Record<string, unknown>).__externalShutdownCalled;
+    delete (globalThis as Record<string, unknown>).__externalShutdownVersion;
+  });
+
+  test("ignores hooks/*.d.ts declaration files alongside hooks/*.js", async () => {
+    // Compiled plugins ship `init.js` + `init.d.ts` side-by-side. The walker
+    // must filter the declaration files out — they have no default-exported
+    // runtime function, and crashing `importDefault` would skip the plugin
+    // wholesale. Regression guard for the .d.ts ingest bug fixed in this PR.
+    const dir = freshPluginDir("with-dts");
+    writePackageJson(dir, { name: "with-dts", version: "0.1.0" });
+    writeSurfaceFile(
+      dir,
+      "hooks/init.js",
+      `export default async function init(_ctx) {
+  (globalThis).__externalDtsInitCalled = true;
+}
+`,
+    );
+    writeSurfaceFile(
+      dir,
+      "hooks/init.d.ts",
+      `export default function init(ctx: unknown): Promise<void>;\n`,
+    );
+
+    await loadExternalPlugin(dir);
+
+    const registered = getRegisteredPlugins().find(
+      (p) => p.manifest.name === "with-dts",
+    );
+    expect(registered).toBeDefined();
+    expect(Object.keys(registered?.hooks ?? {})).toEqual(["init"]);
+    expect(typeof registered?.hooks?.init).toBe("function");
+    await registered?.hooks?.init?.({} as never);
+    expect((globalThis as Record<string, unknown>).__externalDtsInitCalled).toBe(
+      true,
+    );
+    delete (globalThis as Record<string, unknown>).__externalDtsInitCalled;
   });
 
   test("plugin.hooks is undefined when neither hook file is present", async () => {

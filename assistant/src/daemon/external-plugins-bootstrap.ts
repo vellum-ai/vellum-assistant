@@ -69,6 +69,7 @@ import {
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
+  type PluginShutdownContext,
   type PluginSkillRegistration,
 } from "../plugins/types.js";
 import {
@@ -218,8 +219,16 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // server), the latter drops the plugin's entry from the Map (so
   // `getMiddlewaresFor` / `getInjectors` don't re-enter an uninitialized
   // plugin on the next pipeline invocation).
+  // Shutdown context is identical for every plugin in this boot — construct
+  // once and reuse across the bootstrap-failure rollback and the normal
+  // shutdown hook below. Only `assistantVersion` is exposed today; future
+  // additions live on {@link PluginShutdownContext}.
+  const shutdownContext: PluginShutdownContext = {
+    assistantVersion: ctx.assistantVersion,
+  };
+
   async function rollbackPlugin(active: ActivePlugin): Promise<void> {
-    await teardownPlugin(active, "bootstrap-failed");
+    await teardownPlugin(active, "bootstrap-failed", shutdownContext);
     unregisterPlugin(active.plugin.manifest.name);
   }
 
@@ -445,7 +454,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   const shutdownSnapshot: ActivePlugin[] = [...activePlugins];
   registerShutdownHook("plugins", async (reason) => {
     for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
-      await teardownPlugin(shutdownSnapshot[i]!, reason);
+      await teardownPlugin(shutdownSnapshot[i]!, reason, shutdownContext);
     }
   });
 }
@@ -473,6 +482,7 @@ interface ActivePlugin {
 async function teardownPlugin(
   active: ActivePlugin,
   reason: string,
+  shutdownContext: PluginShutdownContext,
 ): Promise<void> {
   const { plugin, routeHandles } = active;
   const name = plugin.manifest.name;
@@ -506,9 +516,7 @@ async function teardownPlugin(
 
   if (plugin.hooks?.shutdown) {
     try {
-      // Shutdown hooks today take no meaningful context — pass `undefined`
-      // so the uniform `PluginHookFn` signature is satisfied.
-      await plugin.hooks.shutdown(undefined);
+      await plugin.hooks.shutdown(shutdownContext);
     } catch (err) {
       // Swallow — we want every plugin's shutdown to get a chance to run
       // even when an earlier one throws. The outer runShutdownHooks already

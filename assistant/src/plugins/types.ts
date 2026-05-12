@@ -118,6 +118,25 @@ export interface PluginInitContext {
   apiVersions: Record<string, string[]>;
 }
 
+// ─── Shutdown context ────────────────────────────────────────────────────────
+
+/**
+ * Context passed to the `shutdown` hook during daemon teardown. Kept
+ * intentionally narrower than {@link PluginInitContext} — most teardown
+ * paths only need to know which assistant version they're shutting
+ * down against (e.g. for version-conditional cleanup of state files
+ * written by a previous boot).
+ *
+ * Additional fields may be added as concrete plugin needs surface; the
+ * `assistantVersion` field mirrors the init context's so plugins that
+ * stash a version stamp at init can compare against the same name on
+ * tear-down without keeping their own copy.
+ */
+export interface PluginShutdownContext {
+  /** Assistant semver for compatibility checks inside the plugin. */
+  assistantVersion: string;
+}
+
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
 /**
@@ -1086,7 +1105,7 @@ export interface PluginSkillRegistration {
  *
  * Each known hook key has a documented context shape:
  *   - `init` — {@link PluginInitContext}
- *   - `shutdown` — none (the runtime invokes it with `undefined`)
+ *   - `shutdown` — {@link PluginShutdownContext}
  *
  * Unknown keys are populated by the loader for forward compatibility
  * but are not invoked by today's runtime.

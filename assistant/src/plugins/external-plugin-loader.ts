@@ -138,6 +138,11 @@ function listSurfaceDir(dir: string): SurfaceFile[] {
   const entries = readdirSync(dir);
   const byBase = new Map<string, string>();
   for (const entry of entries) {
+    // `.d.ts` declaration files are TypeScript type-only artifacts shipped
+    // alongside compiled `.js`. They have no default-exported runtime
+    // function and would crash `importDefault`, so the walker filters
+    // them out before the `.js`/`.ts` extension check.
+    if (entry.endsWith(".d.ts")) continue;
     const base =
       entry.endsWith(".js") || entry.endsWith(".ts")
         ? entry.slice(0, -3)
