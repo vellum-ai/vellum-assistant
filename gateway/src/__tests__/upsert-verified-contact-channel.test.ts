@@ -21,6 +21,7 @@ type ExistingRow = {
 };
 
 let queryRows: ExistingRow[] = [];
+const queryCalls: { sql: string; params: unknown[] }[] = [];
 const runCalls: { sql: string; params: unknown[] }[] = [];
 const TEST_SOCKET_PATH = join(
   tmpdir(),
@@ -28,7 +29,10 @@ const TEST_SOCKET_PATH = join(
 );
 
 mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: async (_sql: string, _params: unknown[]) => queryRows,
+  assistantDbQuery: async (sql: string, params: unknown[]) => {
+    queryCalls.push({ sql, params });
+    return queryRows;
+  },
   assistantDbRun: async (sql: string, params: unknown[]) => {
     runCalls.push({ sql, params });
   },
@@ -66,6 +70,7 @@ const { upsertContactChannel, upsertVerifiedContactChannel } =
 
 beforeEach(() => {
   queryRows = [];
+  queryCalls.length = 0;
   runCalls.length = 0;
   writeFileSync(TEST_SOCKET_PATH, "");
 });
@@ -199,5 +204,13 @@ describe("upsertContactChannel — channel address casing", () => {
     expect(channelInsert).toBeTruthy();
     expect(channelInsert!.params[3]).toBe("U123EXAMPLE");
     expect(channelInsert!.params[4]).toBe("U123EXAMPLE");
+
+    expect(queryCalls[0]!.sql).toContain("CASE WHEN cc.address = ?");
+    expect(queryCalls[0]!.params).toEqual([
+      "slack",
+      "U123EXAMPLE",
+      "U123EXAMPLE",
+      "U123EXAMPLE",
+    ]);
   });
 });
