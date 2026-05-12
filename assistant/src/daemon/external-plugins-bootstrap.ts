@@ -506,7 +506,9 @@ async function teardownPlugin(
 
   if (plugin.hooks?.shutdown) {
     try {
-      await plugin.hooks.shutdown();
+      // Shutdown hooks today take no meaningful context — pass `undefined`
+      // so the uniform `PluginHookFn` signature is satisfied.
+      await plugin.hooks.shutdown(undefined);
     } catch (err) {
       // Swallow — we want every plugin's shutdown to get a chance to run
       // even when an earlier one throws. The outer runShutdownHooks already

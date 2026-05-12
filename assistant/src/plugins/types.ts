@@ -1078,18 +1078,39 @@ export interface PluginSkillRegistration {
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 /**
- * Lifecycle hooks contributed by a plugin. Both methods are optional; a
- * plugin may omit either one. Hooks run sequentially during daemon
- * startup (`init`) and shutdown (`shutdown`, in reverse-registration
- * order). See `assistant/src/daemon/external-plugins-bootstrap.ts` for
- * the full lifecycle.
+ * A plugin lifecycle hook. Receives a per-lifecycle context shape and
+ * may return either a transformed context or `void`. Today's runtime
+ * consumes only the resolved-or-rejected nature of the promise; the
+ * `TCtx` return is reserved for future hooks that fan a transformed
+ * context out to downstream plugins.
+ *
+ * Each known hook key has a documented context shape:
+ *   - `init` — {@link PluginInitContext}
+ *   - `shutdown` — none (the runtime invokes it with `undefined`)
+ *
+ * Unknown keys are populated by the loader for forward compatibility
+ * but are not invoked by today's runtime.
  */
-export interface PluginHooks {
-  /** Async initializer. Runs once during bootstrap, before traffic. */
-  init?(ctx: PluginInitContext): Promise<void>;
-  /** Shutdown hook. Runs during daemon shutdown in reverse-registration order. */
-  shutdown?(): Promise<void>;
-}
+export type PluginHookFn<TCtx = unknown> = (
+  ctx: TCtx,
+) => Promise<TCtx | void>;
+
+/**
+ * Map of lifecycle hooks contributed by a plugin. Keys match file
+ * basenames under `<plugin>/hooks/` — the external loader populates one
+ * entry per `hooks/<name>.{ts,js}` it finds. The runtime invokes
+ * known keys (`init`, `shutdown`) at the matching lifecycle event;
+ * unknown keys are forward-compat scaffolding.
+ *
+ * See `assistant/src/daemon/external-plugins-bootstrap.ts` for the
+ * full lifecycle, and {@link PluginHookFn} for the per-entry signature.
+ */
+// The map stores hooks for arbitrary keys with arbitrary context shapes.
+// `any` (rather than `unknown`) is required so concrete plugin signatures
+// like `(ctx: PluginInitContext) => Promise<void>` and `() => Promise<void>`
+// both assign in/out of slot entries under strict-function-types contravariance.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type PluginHooks = Record<string, PluginHookFn<any>>;
 
 /**
  * A registered plugin. Every field besides `manifest` is optional — a plugin

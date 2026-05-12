@@ -14,8 +14,11 @@
  *                                   (npm scope stripped); manifest.requires
  *                                   comes from `vellum.requires` if present
  *       hooks/
- *         init.ts                 ← default export → plugin.hooks.init
- *         shutdown.ts             ← default export → plugin.hooks.shutdown
+ *         <name>.ts               ← default export → plugin.hooks[<name>]
+ *                                   (today the runtime invokes "init" at
+ *                                    bootstrap and "shutdown" at teardown;
+ *                                    other filenames sit in the map for
+ *                                    forward compatibility)
  *       tools/
  *         *.ts                    ← each file's default export → plugin.tools[]
  *       src/                      ← internal helpers, ignored by the loader
@@ -37,12 +40,14 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { z } from "zod";
+
 import { getLogger } from "../util/logger.js";
 import { registerPlugin } from "./registry.js";
 import type {
   Plugin,
+  PluginHookFn,
   PluginHooks,
-  PluginInitContext,
   PluginManifest,
   PluginToolRegistration,
 } from "./types.js";
@@ -52,15 +57,31 @@ const log = getLogger("external-plugin-loader");
 /** Default upper bound on how long a single plugin load may take. */
 const DEFAULT_IMPORT_TIMEOUT_MS = 10_000;
 
-interface PackageJson {
-  readonly name?: unknown;
-  readonly version?: unknown;
-  readonly vellum?: unknown;
-}
+/**
+ * Zod schema for the subset of `package.json` the external loader reads.
+ *
+ * - `name` is the only required field; everything else is best-effort.
+ * - `vellum.requires` is forwarded to {@link PluginManifest.requires}
+ *   verbatim (no merge with defaults) — empty objects propagate so the
+ *   registry can reject under-specified plugins.
+ * - Unknown fields pass through (`passthrough`) so the loader does not
+ *   destructively reshape the file when the rest of the npm ecosystem
+ *   writes to it.
+ */
+const PluginPackageJsonSchema = z
+  .object({
+    name: z.string().min(1, "package.json `name` must be a non-empty string"),
+    version: z.string().optional(),
+    vellum: z
+      .object({
+        requires: z.record(z.string(), z.string()).optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
 
-interface VellumBlock {
-  readonly requires?: unknown;
-}
+type PluginPackageJson = z.infer<typeof PluginPackageJsonSchema>;
 
 export interface LoadExternalPluginOptions {
   /**
@@ -82,21 +103,6 @@ function stripScope(name: string): string {
 }
 
 /**
- * Resolve a surface file relative to the plugin root, preferring `.js`
- * over `.ts`. Returns `undefined` when neither variant exists.
- */
-function findSurfaceFile(
-  pluginDir: string,
-  relPathWithoutExt: string,
-): string | undefined {
-  for (const ext of [".js", ".ts"]) {
-    const candidate = join(pluginDir, `${relPathWithoutExt}${ext}`);
-    if (existsSync(candidate)) return candidate;
-  }
-  return undefined;
-}
-
-/**
  * Dynamic-import `absolutePath` and return its default export. Throws when
  * the module has no default export — callers attribute the error.
  */
@@ -111,15 +117,25 @@ async function importDefault<T>(absolutePath: string): Promise<T> {
   return mod.default;
 }
 
+interface SurfaceFile {
+  /** Basename without `.js`/`.ts` extension. */
+  readonly name: string;
+  /** Absolute path on disk. */
+  readonly path: string;
+}
+
 /**
- * List `.js`/`.ts` files under `toolsDir`, deduplicating `.js` over `.ts`
- * when both are present for the same basename. Returns absolute paths in
- * sorted order so plugin authors get a deterministic per-plugin tool
+ * List every `.js`/`.ts` file directly under `dir`, deduplicating `.js`
+ * over `.ts` when both are present for the same basename. Returns entries
+ * sorted by basename so plugin authors get a deterministic per-plugin
  * registration sequence; cross-plugin order remains the registry's job.
+ *
+ * Used to walk both `hooks/` and `tools/` — neither surface needs
+ * subdirectory recursion today, so this stays flat on purpose.
  */
-function listToolFiles(toolsDir: string): string[] {
-  if (!existsSync(toolsDir) || !statSync(toolsDir).isDirectory()) return [];
-  const entries = readdirSync(toolsDir);
+function listSurfaceDir(dir: string): SurfaceFile[] {
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
+  const entries = readdirSync(dir);
   const byBase = new Map<string, string>();
   for (const entry of entries) {
     const base =
@@ -135,24 +151,35 @@ function listToolFiles(toolsDir: string): string[] {
       byBase.set(base, entry);
     }
   }
-  return [...byBase.values()].sort().map((entry) => join(toolsDir, entry));
+  return [...byBase.keys()]
+    .sort()
+    .map((name) => ({ name, path: join(dir, byBase.get(name)!) }));
 }
 
 /**
- * Read `pkg.vellum.requires` if it exists and is an object. The loader
- * does not validate the shape of the returned record in this PR — that
- * lands with the `assistantVersion`-vs-`pluginRuntime` migration in a
- * follow-up.
+ * Walk every file under `<pluginDir>/hooks/` and import each as a
+ * lifecycle hook keyed by filename basename. The runtime today invokes
+ * `init` at bootstrap and `shutdown` at teardown; other filenames are
+ * loaded into the map for forward compatibility with future lifecycle
+ * events but stay inert.
  */
-function readVellumRequires(
-  pkg: PackageJson,
-): Record<string, string> | undefined {
-  if (pkg.vellum === null || typeof pkg.vellum !== "object") return undefined;
-  const block = pkg.vellum as VellumBlock;
-  if (block.requires === null || typeof block.requires !== "object") {
-    return undefined;
+async function loadHooks(
+  pluginDir: string,
+  pluginName: string,
+): Promise<PluginHooks | undefined> {
+  const files = listSurfaceDir(join(pluginDir, "hooks"));
+  if (files.length === 0) return undefined;
+  const hooks: PluginHooks = {};
+  for (const { name, path } of files) {
+    const fn = await importDefault<PluginHookFn>(path);
+    if (typeof fn !== "function") {
+      throw new Error(
+        `external plugin ${pluginName}: hooks/${name} default export must be a function (got ${typeof fn})`,
+      );
+    }
+    hooks[name] = fn;
   }
-  return block.requires as Record<string, string>;
+  return hooks;
 }
 
 /**
@@ -162,63 +189,38 @@ function readVellumRequires(
  */
 async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   const pkgPath = join(pluginDir, "package.json");
-  let pkg: PackageJson;
+  let rawPkg: unknown;
   try {
-    pkg = JSON.parse(await readFile(pkgPath, "utf8")) as PackageJson;
+    rawPkg = JSON.parse(await readFile(pkgPath, "utf8"));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
       `package.json at ${pluginDir} could not be read or parsed: ${reason}`,
     );
   }
-  if (typeof pkg.name !== "string" || pkg.name.length === 0) {
+  const parsed = PluginPackageJsonSchema.safeParse(rawPkg);
+  if (!parsed.success) {
     throw new Error(
-      `package.json at ${pluginDir} is missing a non-empty "name"`,
+      `package.json at ${pluginDir} failed schema validation: ${parsed.error.message}`,
     );
   }
+  const pkg: PluginPackageJson = parsed.data;
   const name = stripScope(pkg.name);
-  const version =
-    typeof pkg.version === "string" && pkg.version.length > 0
-      ? pkg.version
-      : "0.0.0";
+  const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
 
   // Default `requires` keeps the existing v1 negotiation working for
   // plugins that have not yet opted into `vellum.requires`. Plugins that
   // set `vellum.requires` get exactly what they declared — no merge.
-  const requires = readVellumRequires(pkg) ?? { pluginRuntime: "v1" };
+  const requires = pkg.vellum?.requires ?? { pluginRuntime: "v1" };
 
   const manifest: PluginManifest = { name, version, requires };
   const plugin: Plugin = { manifest };
 
-  const hooks: PluginHooks = {};
-  const initPath = findSurfaceFile(pluginDir, "hooks/init");
-  if (initPath !== undefined) {
-    const fn = await importDefault<
-      (ctx: PluginInitContext) => Promise<void>
-    >(initPath);
-    if (typeof fn !== "function") {
-      throw new Error(
-        `external plugin ${name}: hooks/init default export must be a function (got ${typeof fn})`,
-      );
-    }
-    hooks.init = fn;
-  }
-  const shutdownPath = findSurfaceFile(pluginDir, "hooks/shutdown");
-  if (shutdownPath !== undefined) {
-    const fn = await importDefault<() => Promise<void>>(shutdownPath);
-    if (typeof fn !== "function") {
-      throw new Error(
-        `external plugin ${name}: hooks/shutdown default export must be a function (got ${typeof fn})`,
-      );
-    }
-    hooks.shutdown = fn;
-  }
-  if (hooks.init !== undefined || hooks.shutdown !== undefined) {
-    plugin.hooks = hooks;
-  }
+  const hooks = await loadHooks(pluginDir, name);
+  if (hooks !== undefined) plugin.hooks = hooks;
 
   const tools: PluginToolRegistration[] = [];
-  for (const toolPath of listToolFiles(join(pluginDir, "tools"))) {
+  for (const { path: toolPath } of listSurfaceDir(join(pluginDir, "tools"))) {
     const tool = await importDefault<PluginToolRegistration>(toolPath);
     if (
       tool === null ||

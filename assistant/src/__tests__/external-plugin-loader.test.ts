@@ -221,7 +221,7 @@ describe("loadExternalPlugin — hooks", () => {
       (p) => p.manifest.name === "with-shutdown",
     );
     expect(typeof registered?.hooks?.shutdown).toBe("function");
-    await registered?.hooks?.shutdown?.();
+    await registered?.hooks?.shutdown?.(undefined);
     expect(
       (globalThis as Record<string, unknown>).__externalShutdownCalled,
     ).toBe(true);
