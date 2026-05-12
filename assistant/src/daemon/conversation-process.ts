@@ -31,6 +31,7 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { persistQueuedMessageBody } from "./conversation-messaging.js";
 import type {
@@ -570,6 +571,7 @@ async function drainSingleMessage(
         type: "message_complete",
         conversationId: conversation.conversationId,
       });
+      publishConversationMessagesChanged(conversation.conversationId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -602,6 +604,7 @@ async function drainSingleMessage(
 
   // /compact — force context compaction, persist exchange, continue draining.
   if (slashResult.kind === "compact") {
+    let persistedCompactMessage = false;
     try {
       const drainProvenance = provenanceFromTrustContext(
         conversation.trustContext,
@@ -630,6 +633,7 @@ async function drainSingleMessage(
         JSON.stringify(cleanUserMsg.content),
         drainChannelMeta,
       );
+      persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
 
       conversation.emitActivityState(
@@ -666,7 +670,11 @@ async function drainSingleMessage(
         type: "message_complete",
         conversationId: conversation.conversationId,
       });
+      publishConversationMessagesChanged(conversation.conversationId);
     } catch (err) {
+      if (persistedCompactMessage) {
+        publishConversationMessagesChanged(conversation.conversationId);
+      }
       const message = err instanceof Error ? err.message : String(err);
       log.error(
         {
@@ -762,6 +770,7 @@ async function drainSingleMessage(
     requestId: next.requestId,
     clientMessageId: next.clientMessageId,
   });
+  publishConversationMessagesChanged(conversation.conversationId);
 
   // Set the active surface for the dequeued message so runAgentLoop can inject context
   conversation.currentActiveSurfaceId = next.activeSurfaceId;
@@ -1087,6 +1096,7 @@ async function drainBatch(
       requestId: qm.requestId,
       clientMessageId: qm.clientMessageId,
     });
+    publishConversationMessagesChanged(conversation.conversationId);
 
     // Persist succeeded. Update last-successful markers so a later tail
     // failure won't overwrite them.
@@ -1446,6 +1456,7 @@ export async function processMessage(
       type: "message_complete",
       conversationId: conversation.conversationId,
     });
+    publishConversationMessagesChanged(conversation.conversationId);
     return persisted.id;
   }
 
@@ -1517,6 +1528,7 @@ export async function processMessage(
         type: "message_complete",
         conversationId: conversation.conversationId,
       });
+      publishConversationMessagesChanged(conversation.conversationId);
       return persisted.id;
     } finally {
       conversation.processing = false;
@@ -1557,6 +1569,7 @@ export async function processMessage(
       undefined,
       displayContent,
     );
+    publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     onEvent({

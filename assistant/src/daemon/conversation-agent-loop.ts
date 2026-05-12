@@ -124,6 +124,7 @@ import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
@@ -1113,6 +1114,7 @@ export async function runAgentLoopImpl(
     }
 
     const state = createEventHandlerState();
+    let persistedErrorAssistantMessage = false;
 
     // Register confirmation outcome tracker so the agent loop can link
     // confirmation decisions to tool_use_ids for persistence.
@@ -2825,6 +2827,7 @@ export async function runAgentLoopImpl(
         buildPluginTurnContext(ctx, reqId),
         DEFAULT_TIMEOUTS.persistence,
       );
+      persistedErrorAssistantMessage = true;
       newMessages.push(errorAssistantMessage);
       // Do NOT send assistant_text_delta here — handleProviderError already
       // emitted a conversation_error event for this same error text, and the
@@ -2900,6 +2903,15 @@ export async function runAgentLoopImpl(
         convForDisk.createdAt,
       );
     };
+    const publishLoopMessagesChanged = (): void => {
+      if (
+        state.lastAssistantMessageId ||
+        state.persistedToolUseIds.size > 0 ||
+        persistedErrorAssistantMessage
+      ) {
+        publishConversationMessagesChanged(ctx.conversationId);
+      }
+    };
 
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
@@ -2919,6 +2931,7 @@ export async function runAgentLoopImpl(
         type: "generation_cancelled",
         conversationId: ctx.conversationId,
       });
+      publishLoopMessagesChanged();
     } else {
       // Resolve attachments (only when not cancelled — this is expensive async I/O)
       const attachmentResult = await resolveAssistantAttachments(
@@ -2959,6 +2972,7 @@ export async function runAgentLoopImpl(
           type: "generation_cancelled",
           conversationId: ctx.conversationId,
         });
+        publishLoopMessagesChanged();
       } else if (yieldedForHandoff) {
         ctx.traceEmitter.emit(
           "generation_handoff",
@@ -2987,6 +3001,7 @@ export async function runAgentLoopImpl(
             ? { displayMessageId: clientDisplayMessageId }
             : {}),
         });
+        publishLoopMessagesChanged();
       } else {
         ctx.emitActivityState("idle", "message_complete", "global", reqId);
         ctx.traceEmitter.emit(
@@ -3013,6 +3028,7 @@ export async function runAgentLoopImpl(
             ? { displayMessageId: clientDisplayMessageId }
             : {}),
         });
+        publishLoopMessagesChanged();
 
         // Proactive artifact: fire once when the processed turn was the 4th user message.
         // Only trigger for real user-authored turns (not subagent/system messages).

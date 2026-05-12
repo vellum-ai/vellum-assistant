@@ -8,7 +8,10 @@
 
 import { createAssistantMessage } from "../agent/message-types.js";
 import { findConversation } from "../daemon/conversation-store.js";
-import { SYNC_TAGS } from "../daemon/message-types/sync.js";
+import {
+  conversationMessagesSyncTag,
+  SYNC_TAGS,
+} from "../daemon/message-types/sync.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import type { BroadcastFn } from "../notifications/adapters/macos.js";
 import { getLogger } from "../util/logger.js";
@@ -74,6 +77,9 @@ export async function injectAuxAssistantMessage(params: {
   });
   params.broadcastMessage({
     type: "sync_changed",
-    tags: [SYNC_TAGS.conversationsList],
+    tags: [
+      SYNC_TAGS.conversationsList,
+      conversationMessagesSyncTag(params.conversationId),
+    ],
   });
 }
