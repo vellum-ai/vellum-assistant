@@ -584,15 +584,17 @@ struct HatchingStepView: View {
     private static let dockerReadySentinel = "Docker containers are up and running"
 
     /// Build the --config key=value pairs for the onboarding selections.
-    /// Build config overrides to pass as --config flags during hatch.
     ///
-    /// Most config default values are determined by the daemon process and may
-    /// depend on whether the assistant is hatched on the Vellum Platform or not.
+    /// Delegates to `onboardingHatchConfigOverlay` — a pure top-level helper
+    /// that encodes the two distinct shapes (managed inference vs. BYOK)
+    /// based on whether the user signed in and skipped the provider API key
+    /// entry step.
     private func buildOnboardingConfigValues() -> [String: String] {
-        let provider = state.selectedProvider.isEmpty
-            ? LLMProviderRegistry.defaultProvider.id
-            : state.selectedProvider
-        return ["llm.default.provider": provider]
+        return onboardingHatchConfigOverlay(
+            skippedAPIKeyEntry: state.skippedAPIKeyEntry,
+            selectedProvider: state.selectedProvider,
+            defaultProvider: LLMProviderRegistry.defaultProvider.id
+        )
     }
 
     private func startRemoteHatch() {
