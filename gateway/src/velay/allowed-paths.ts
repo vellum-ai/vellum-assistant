@@ -41,7 +41,7 @@ export const VELAY_ALLOWED_PATHS: readonly string[] = Object.freeze([
  * path allowlist to Velay. The value is `JSON.stringify(VELAY_ALLOWED_PATHS)`.
  * Mirrors `RegistrationAllowedPathsHeader` on the platform side.
  */
-export const VELAY_ALLOWED_PATHS_HEADER = "X-Velay-Allowed-Paths";
+export const VELAY_ALLOWED_PATHS_HEADER = "X-Vellum-Velay-Allowed-Paths";
 
 /**
  * Encoded header value to attach to the registration WS upgrade. Cached at

@@ -294,7 +294,7 @@ describe("VelayTunnelClient", () => {
       protocols: [VELAY_TUNNEL_SUBPROTOCOL],
       headers: {
         Authorization: "Api-Key api-key-123",
-        "X-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
+        "X-Vellum-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
       },
     });
 
