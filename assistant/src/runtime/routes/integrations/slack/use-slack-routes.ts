@@ -245,6 +245,9 @@ async function handleRead({ body }: RouteHandlerArgs) {
     }));
   }
 
+  // Reverse so messages read chronologically (oldest first)
+  messages.reverse();
+
   return { channel: channelId, messages };
 }
 
