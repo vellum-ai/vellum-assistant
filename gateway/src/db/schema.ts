@@ -60,6 +60,28 @@ export const slackLastSeenTs = sqliteTable("slack_last_seen_ts", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/**
+ * Durable cursor for the outbound voice verification sync poller.
+ *
+ * The poller queries the assistant's channel_verification_sessions table for
+ * recently consumed outbound guardian phone sessions and creates the
+ * corresponding guardian binding. Without a durable cursor, restart falls
+ * back to `now - 24h`, which can replay a consumed session that has since
+ * been superseded (revoked binding, or a newer binding established via the
+ * inbound path). A persistent watermark scopes restart catch-up to the
+ * actual gap; the recency check inside the poller is the security backstop.
+ *
+ * A single row keyed by `'global'` is used.
+ */
+export const outboundVoiceVerifySyncCursor = sqliteTable(
+  "outbound_voice_verify_sync_cursor",
+  {
+    key: text("key").primaryKey(),
+    lastProcessedAt: integer("last_processed_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+);
+
 // ---------------------------------------------------------------------------
 // Data migrations
 // ---------------------------------------------------------------------------
