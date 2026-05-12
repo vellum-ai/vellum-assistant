@@ -60,6 +60,7 @@ export async function setVercelConfig(
 
   upsertCredentialMetadata("vercel", "api_token", {
     allowedTools: ["deploy", "publish_page", "bash"],
+    allowedDomains: [],
     injectionTemplates: [
       {
         hostPattern: "api.vercel.com",
