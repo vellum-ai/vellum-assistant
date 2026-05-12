@@ -101,6 +101,7 @@ Run with `python3 /path/to/script.py` on the user's machine (`host_bash`). The u
 ### 3. Store Tokens
 
 After the OAuth flow, read tokens from `/tmp/oura_tokens.json` and store them:
+
 - `access_token` — store in credential vault with injection template for `api.ouraring.com` Authorization header (Bearer prefix) and `allowed_tools: ["bash"]`
 - `refresh_token` — store in credential vault for token refresh
 - Tokens expire in ~30 days. Set a reminder to refresh before expiry.
@@ -108,6 +109,7 @@ After the OAuth flow, read tokens from `/tmp/oura_tokens.json` and store them:
 ### 4. Verify Connection
 
 Test with the personal info endpoint:
+
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" "https://api.ouraring.com/v2/usercollection/personal_info"
 ```
@@ -116,21 +118,22 @@ curl -s -H "Authorization: Bearer $TOKEN" "https://api.ouraring.com/v2/usercolle
 
 All endpoints use `GET https://api.ouraring.com/v2/usercollection/{type}` with query params `start_date` and `end_date` (YYYY-MM-DD format).
 
-| Endpoint | Data | Notes |
-|----------|------|-------|
-| `/v2/usercollection/daily_sleep` | Sleep score, duration, efficiency, stages | Best checked after user's typical wake time |
-| `/v2/usercollection/sleep` | Detailed sleep periods with HR, HRV, movement | Raw sleep period data |
-| `/v2/usercollection/daily_readiness` | Readiness score, HRV balance, recovery | Good morning check-in metric |
-| `/v2/usercollection/daily_activity` | Steps, calories, movement, inactivity | Activity summary |
-| `/v2/usercollection/heartrate` | Continuous HR (use `start_datetime`/`end_datetime` in ISO format) | Can be large — limit date range |
-| `/v2/usercollection/daily_spo2` | Blood oxygen levels | Nightly average |
-| `/v2/usercollection/daily_stress` | Stress score and recovery | Daytime stress tracking |
-| `/v2/usercollection/workout` | Detected workouts with HR, calories | Auto-detected or manual |
-| `/v2/usercollection/personal_info` | Age, weight, height, email | Good connection test |
+| Endpoint                             | Data                                                              | Notes                                       |
+| ------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------- |
+| `/v2/usercollection/daily_sleep`     | Sleep score, duration, efficiency, stages                         | Best checked after user's typical wake time |
+| `/v2/usercollection/sleep`           | Detailed sleep periods with HR, HRV, movement                     | Raw sleep period data                       |
+| `/v2/usercollection/daily_readiness` | Readiness score, HRV balance, recovery                            | Good morning check-in metric                |
+| `/v2/usercollection/daily_activity`  | Steps, calories, movement, inactivity                             | Activity summary                            |
+| `/v2/usercollection/heartrate`       | Continuous HR (use `start_datetime`/`end_datetime` in ISO format) | Can be large — limit date range             |
+| `/v2/usercollection/daily_spo2`      | Blood oxygen levels                                               | Nightly average                             |
+| `/v2/usercollection/daily_stress`    | Stress score and recovery                                         | Daytime stress tracking                     |
+| `/v2/usercollection/workout`         | Detected workouts with HR, calories                               | Auto-detected or manual                     |
+| `/v2/usercollection/personal_info`   | Age, weight, height, email                                        | Good connection test                        |
 
 ## Token Refresh
 
 Tokens expire after 30 days. Refresh with:
+
 ```bash
 curl -s -X POST "https://api.ouraring.com/oauth/token" \
   -d "grant_type=refresh_token&refresh_token=$REFRESH_TOKEN&client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET"
