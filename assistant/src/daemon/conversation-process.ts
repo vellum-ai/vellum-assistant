@@ -1463,6 +1463,7 @@ export async function processMessage(
   // /compact — force context compaction, persist exchange, return message ID.
   if (slashResult.kind === "compact") {
     conversation.processing = true;
+    let persistedCompactMessage = false;
     try {
       const pmTurnCtx = conversation.getTurnChannelContext();
       const pmInterfaceCtx = conversation.getTurnInterfaceContext();
@@ -1492,6 +1493,7 @@ export async function processMessage(
         JSON.stringify(cleanUserMsg.content),
         pmChannelMeta,
       );
+      persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
 
       conversation.emitActivityState(
@@ -1530,6 +1532,11 @@ export async function processMessage(
       });
       publishConversationMessagesChanged(conversation.conversationId);
       return persisted.id;
+    } catch (err) {
+      if (persistedCompactMessage) {
+        publishConversationMessagesChanged(conversation.conversationId);
+      }
+      throw err;
     } finally {
       conversation.processing = false;
       await drainQueue(conversation);

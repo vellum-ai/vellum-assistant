@@ -1869,6 +1869,7 @@ export async function handleSendMessage(
     // forceCompact() makes an LLM call that can exceed the client's
     // HTTP timeout on large contexts, causing a false "Failed to send".
     (async () => {
+      let assistantMessagePersisted = false;
       try {
         broadcastMessage({
           type: "user_message_echo",
@@ -1877,6 +1878,7 @@ export async function handleSendMessage(
           messageId: persisted.id,
           clientMessageId,
         });
+        publishConversationMessagesChanged(conversationId);
         conversation.emitActivityState(
           "thinking",
           "context_compacting",
@@ -1894,6 +1896,7 @@ export async function handleSendMessage(
           JSON.stringify(assistantMsg.content),
           channelMeta,
         );
+        assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);
 
         broadcastMessage({
@@ -1904,7 +1907,9 @@ export async function handleSendMessage(
         broadcastMessage({ type: "message_complete", conversationId });
         publishConversationMessagesChanged(conversationId);
       } catch (err) {
-        publishConversationMessagesChanged(conversationId);
+        if (assistantMessagePersisted) {
+          publishConversationMessagesChanged(conversationId);
+        }
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({
           type: "conversation_error",

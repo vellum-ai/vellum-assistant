@@ -772,6 +772,18 @@ export async function runAgentLoopImpl(
 
   ctx.profiler.startRequest();
   let turnStarted = false;
+  const state = createEventHandlerState();
+  let persistedErrorAssistantMessage = false;
+
+  const publishLoopMessagesChanged = (): void => {
+    if (
+      state.lastAssistantMessageId ||
+      state.persistedToolUseIds.size > 0 ||
+      persistedErrorAssistantMessage
+    ) {
+      publishConversationMessagesChanged(ctx.conversationId);
+    }
+  };
 
   // Populate Sentry scope with conversation-specific tags so any exception
   // captured during this turn (e.g. inside agent/loop.ts) can be
@@ -1112,9 +1124,6 @@ export async function runAgentLoopImpl(
         compactedThisTurn = true;
       }
     }
-
-    const state = createEventHandlerState();
-    let persistedErrorAssistantMessage = false;
 
     // Register confirmation outcome tracker so the agent loop can link
     // confirmation decisions to tool_use_ids for persistence.
@@ -2903,16 +2912,6 @@ export async function runAgentLoopImpl(
         convForDisk.createdAt,
       );
     };
-    const publishLoopMessagesChanged = (): void => {
-      if (
-        state.lastAssistantMessageId ||
-        state.persistedToolUseIds.size > 0 ||
-        persistedErrorAssistantMessage
-      ) {
-        publishConversationMessagesChanged(ctx.conversationId);
-      }
-    };
-
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
     // so the client can re-enable the UI without delay.
@@ -3114,6 +3113,7 @@ export async function runAgentLoopImpl(
         type: "generation_cancelled",
         conversationId: ctx.conversationId,
       });
+      publishLoopMessagesChanged();
     } else {
       ctx.emitActivityState("idle", "error_terminal", "global", reqId);
       const message = err instanceof Error ? err.message : String(err);
@@ -3138,6 +3138,7 @@ export async function runAgentLoopImpl(
         errorCategory: classified.errorCategory,
       });
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
+      publishLoopMessagesChanged();
     }
   } finally {
     if (turnStarted) {
