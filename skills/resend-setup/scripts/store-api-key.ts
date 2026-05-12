@@ -23,6 +23,8 @@ async function storeVellum(): Promise<void> {
     "Your Resend API key for sending emails",
     "--allowed-domains",
     "api.resend.com",
+    "--allowed-tools",
+    "bash",
     "--injection-templates",
     JSON.stringify([
       {
