@@ -249,18 +249,22 @@ describe("connectCdpWsTransport", () => {
   });
 
   test("fans out events (frames with no id) to listeners", async () => {
+    // The server pushes the unsolicited event in direct response to
+    // a client trigger, sending the event frame BEFORE the response
+    // ack. WebSocket message ordering then guarantees the event
+    // arrives at the client (and is fanned out) before the trigger
+    // resolves — no setTimeout race between the server's open
+    // callback and the test attaching its listener.
     const server = startFakeWsServer({
-      onOpen(ws) {
-        // Push an unsolicited event shortly after open.
-        setTimeout(() => {
-          ws.send(
-            JSON.stringify({
-              method: "Target.targetCreated",
-              params: { targetId: "abc" },
-              sessionId: "S1",
-            }),
-          );
-        }, 5);
+      onMessage(ws, frame) {
+        ws.send(
+          JSON.stringify({
+            method: "Target.targetCreated",
+            params: { targetId: "abc" },
+            sessionId: "S1",
+          }),
+        );
+        ws.send(JSON.stringify({ id: frame.id, result: {} }));
       },
     });
     try {
@@ -273,8 +277,7 @@ describe("connectCdpWsTransport", () => {
         transport.addEventListener((ev) => {
           received.push(ev);
         });
-        // Wait for the event to arrive.
-        await new Promise((r) => setTimeout(r, 50));
+        await transport.send("Test.trigger");
         expect(received).toEqual([
           {
             method: "Target.targetCreated",

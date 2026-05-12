@@ -501,7 +501,7 @@ export function catalogSkillToSlim(cs: CatalogSkill): SlimSkillResponse {
     id: cs.id,
     name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
     description: cs.description,
-    emoji: cs.emoji,
+    emoji: cs.emoji ?? cs.metadata?.emoji,
     kind: "catalog",
     origin: "vellum",
     status: "available",

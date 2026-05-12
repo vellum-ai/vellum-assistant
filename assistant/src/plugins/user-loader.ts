@@ -49,7 +49,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 import { loadExternalPlugin } from "./external-plugin-loader.js";
 import { closeRegistration } from "./registry.js";
 
@@ -93,7 +93,7 @@ export async function loadUserPlugins(
 ): Promise<void> {
   const importTimeoutMs = options.importTimeoutMs ?? USER_PLUGIN_IMPORT_TIMEOUT_MS;
 
-  const pluginsDir = join(getWorkspaceDir(), "plugins");
+  const pluginsDir = getWorkspacePluginsDir();
 
   if (!existsSync(pluginsDir)) {
     // The clean-install case. Closing the registration window keeps the

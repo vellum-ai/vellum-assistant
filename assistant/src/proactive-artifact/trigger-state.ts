@@ -16,6 +16,10 @@ function guardPath(): string {
 
 /**
  * Count user messages in standard conversations with created_at <= beforeOrAt.
+ * This is intentionally cross-conversation: a user who starts a new thread
+ * early should still enter the proactive artifact trigger window. The job
+ * separately scopes raw transcript context to the triggering conversation.
+ *
  * LIMIT caps scan cost since we only care about thresholds up to TRIGGER_MAX.
  */
 export function getUserMessageCountUpTo(beforeOrAt: number): number {

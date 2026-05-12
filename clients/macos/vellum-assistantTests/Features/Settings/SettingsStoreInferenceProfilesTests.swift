@@ -722,18 +722,10 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(stored?.source, "managed")
     }
 
-    /// `nil` / whitespace-only `label` → the key is OMITTED from the wire
-    /// payload. The daemon `ProfileEntry` schema declares
-    /// `label: z.string().min(1).optional()` (NOT `.nullable()`), so a
-    /// `null` value would fail `safeParse` and 400 the whole request
-    /// (Codex P1). Omitting is the only safe encoding; the daemon's
-    /// partial overlay leaves the existing on-disk label untouched.
-    ///
-    /// `nil` `status` → the wire sends the literal `"active"` enum value.
-    /// The schema's `ProfileStatusSchema = z.enum(["active", "disabled"])`
-    /// also rejects null, and omitting would let a "disabled" status on
-    /// disk linger when the user is trying to flip it back to active.
-    func testSetManagedProfilePolicyOmitsLabelAndNormalizesStatusToActiveForNilInputs() async {
+    /// `nil` / whitespace-only `label` → `NSNull()` on the wire so the
+    /// daemon deletes the label key (clear-to-seed). `nil` `status` →
+    /// normalized to the literal `"active"` enum value.
+    func testSetManagedProfilePolicySendsNullLabelAndNormalizesStatusToActiveForNilInputs() async {
         store.loadInferenceProfiles(config: [
             "llm": [
                 "profiles": [
@@ -756,26 +748,15 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertTrue(success)
 
         let call = mockSettingsClient.replaceInferenceProfileCalls[0]
-        // Invariant: never send null for either field. Zod would reject it.
-        XCTAssertFalse(
+        XCTAssertTrue(
             call.fragment["label"] is NSNull,
-            "label must never serialize as NSNull (Zod schema is .optional() not .nullable())"
+            "nil label must serialize as NSNull so the daemon clears it"
         )
-        XCTAssertFalse(
-            call.fragment["status"] is NSNull,
-            "status must never serialize as NSNull (Zod schema is .optional() not .nullable())"
-        )
-        // label omitted entirely (nil input), status normalized to "active".
-        XCTAssertNil(call.fragment["label"], "label key must be absent when input is nil")
         XCTAssertEqual(call.fragment["status"] as? String, "active")
-        XCTAssertEqual(call.fragment.count, 1, "Fragment should contain only the status key when label is nil")
+        XCTAssertEqual(call.fragment.count, 2, "Fragment should contain both label (NSNull) and status keys")
 
-        // Local cache: label NOT touched (still "Balanced" because we
-        // didn't send a label update). Status flips to nil locally to
-        // mirror the codebase's nil-as-active convention; functionally
-        // equivalent to the "active" the daemon now has on disk.
         let stored = store.profiles.first(where: { $0.name == "balanced" })
-        XCTAssertEqual(stored?.label, "Balanced", "Label must NOT be cleared locally when omitted on the wire")
+        XCTAssertNil(stored?.label, "Label must be cleared locally when NSNull sent on the wire")
         XCTAssertNil(stored?.status, "Status normalized to nil (== active) locally")
         // Seed fields preserved.
         XCTAssertEqual(stored?.provider, "anthropic")
@@ -805,10 +786,10 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         )
     }
 
-    /// Codex P1 invariant test: the wire payload must never contain
-    /// `NSNull()` for either policy field. Tested across the cartesian
-    /// product of (nil, "", whitespace, real value) for both inputs.
-    func testSetManagedProfilePolicyNeverSendsNullForLabelOrStatus() async {
+    /// Wire-format invariants across (nil, "", whitespace, real value)
+    /// for both inputs: label is NSNull when empty/nil, String when
+    /// non-empty; status is always a valid enum String.
+    func testSetManagedProfilePolicyWireFormatInvariants() async {
         store.loadInferenceProfiles(config: [
             "llm": ["profiles": ["balanced": ["source": "managed"]]]
         ])
@@ -826,15 +807,22 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         }
 
         for (idx, call) in mockSettingsClient.replaceInferenceProfileCalls.enumerated() {
-            XCTAssertFalse(
-                call.fragment["label"] is NSNull,
-                "Call #\(idx): label is NSNull — daemon Zod schema rejects null"
-            )
+            let labelIsEmpty = idx / statusInputs.count < 3 // nil, "", "   "
+            if labelIsEmpty {
+                XCTAssertTrue(
+                    call.fragment["label"] is NSNull,
+                    "Call #\(idx): empty/nil label must be NSNull"
+                )
+            } else {
+                XCTAssertTrue(
+                    call.fragment["label"] is String,
+                    "Call #\(idx): non-empty label must be a String"
+                )
+            }
             XCTAssertFalse(
                 call.fragment["status"] is NSNull,
-                "Call #\(idx): status is NSNull — daemon Zod schema rejects null"
+                "Call #\(idx): status must never be NSNull"
             )
-            // status is ALWAYS present (always normalized to a valid enum)
             XCTAssertTrue(
                 call.fragment["status"] is String,
                 "Call #\(idx): status key must always be present as a String"
@@ -843,9 +831,9 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
     }
 
     /// Label whitespace is trimmed before comparison and storage. A
-    /// whitespace-only input is treated as "no label change" — the key
-    /// is OMITTED rather than serialized as `NSNull` (Codex P1).
-    func testSetManagedProfilePolicyTrimsLabelWhitespaceAndOmitsWhitespaceOnly() async {
+    /// whitespace-only input sends `NSNull()` to clear the label on the
+    /// daemon and locally.
+    func testSetManagedProfilePolicyTrimsLabelWhitespaceAndClearsWhitespaceOnly() async {
         store.loadInferenceProfiles(config: [
             "llm": [
                 "profiles": [
@@ -873,20 +861,13 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
             label: "   ",
             status: nil
         )
-        XCTAssertNil(
-            mockSettingsClient.replaceInferenceProfileCalls[1].fragment["label"],
-            "Whitespace-only label should be omitted from the wire payload (not NSNull)"
-        )
-        XCTAssertFalse(
+        XCTAssertTrue(
             mockSettingsClient.replaceInferenceProfileCalls[1].fragment["label"] is NSNull,
-            "Whitespace-only label must NOT serialize as NSNull"
+            "Whitespace-only label must serialize as NSNull to clear on the daemon"
         )
-        // Local cache: label NOT cleared, since we don't have a daemon-side
-        // null-clear path. The previous "Quality" override persists.
-        XCTAssertEqual(
+        XCTAssertNil(
             store.profiles.first(where: { $0.name == "balanced" })?.label,
-            "Quality",
-            "Whitespace-only label input must leave the local label untouched (matches daemon partial-overlay)"
+            "Whitespace-only label input must clear the local label"
         )
     }
 

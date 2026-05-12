@@ -101,7 +101,6 @@ import {
   getWorkspacePromptPath,
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
-import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
@@ -114,6 +113,7 @@ import type {
 } from "../http-types.js";
 import { resolveLocalTrustContext } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
+import { publishConversationListAndMetadataChanged } from "../sync/resource-sync-events.js";
 import {
   resolveTrustContext,
   withSourceChannel,
@@ -1293,16 +1293,10 @@ export async function handleSendMessage(
   // that other clients don't yet know about.
   if (mapping.conversationType === "standard") {
     if (!hasMessages(mapping.conversationId)) {
-      smDeps.assistantEventHub
-        .publish(
-          buildAssistantEvent({
-            type: "conversation_list_invalidated",
-            reason: "created",
-          }),
-        )
-        .catch((err) => {
-          log.warn({ err }, "Failed to publish conversation_list_invalidated");
-        });
+      publishConversationListAndMetadataChanged(
+        "created",
+        mapping.conversationId,
+      );
     }
   }
 

@@ -104,7 +104,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[1].text, "/status")
     }
 
-    func testModelsRefreshesMetadataButUnsupportedFormsDoNot() async {
+    func testModelAndModelsRefreshMetadataButUnsupportedFormsDoNot() async {
         settingsClient.modelInfoResponse = ModelInfoMessage(
             type: "model_info",
             model: "test-model",
@@ -131,7 +131,14 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
 
         await Task.yield()
         await Task.yield()
-        XCTAssertEqual(settingsClient.fetchModelInfoCallCount, 1)
+        XCTAssertEqual(settingsClient.fetchModelInfoCallCount, 2)
+
+        viewModel.inputText = "/model alpha"
+        viewModel.sendMessage()
+
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(settingsClient.fetchModelInfoCallCount, 3)
     }
 
     func testUnsupportedSlashFormsUseWorkspaceRefinementWhenSurfaceIsActive() {
@@ -187,12 +194,31 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 0)
     }
 
-    func testDeprecatedDaemonManagedSlashCommandsBypassWorkspaceRefinement() {
+    func testModelSlashCommandBypassesWorkspaceRefinement() {
+        viewModel.activeSurfaceId = "surface-1"
+        viewModel.isChatDockedToSide = false
+
+        let modelCommands = [
+            "/model",
+            "/model alpha",
+        ]
+
+        for command in modelCommands {
+            viewModel.isWorkspaceRefinementInFlight = false
+            viewModel.inputText = command
+            viewModel.sendMessage()
+
+            XCTAssertFalse(viewModel.isWorkspaceRefinementInFlight)
+        }
+
+        XCTAssertEqual(viewModel.messages.map(\.text), modelCommands)
+    }
+
+    func testDeprecatedProviderShortcutsBypassWorkspaceRefinement() {
         viewModel.activeSurfaceId = "surface-1"
         viewModel.isChatDockedToSide = false
 
         let deprecatedCommands = [
-            "/model",
             "/opus write a summary",
             "/OPUS write a summary",
         ]

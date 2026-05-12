@@ -28,12 +28,11 @@ import { getBindingsForConversations } from "../../memory/external-conversation-
 import { listGroups } from "../../memory/group-crud.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import {
   buildConversationDetailResponse,
   serializeConversationSummary,
 } from "../services/conversation-serializer.js";
+import { publishConversationListAndMetadataChanged } from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   InternalError,
@@ -52,22 +51,6 @@ function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
   if (!id) throw new NotFoundError(`Unknown conversation: ${rawId}`);
   return id;
-}
-
-function publishListInvalidated(): void {
-  assistantEventHub
-    .publish(
-      buildAssistantEvent({
-        type: "conversation_list_invalidated",
-        reason: "seen_changed",
-      }),
-    )
-    .catch((err) => {
-      log.warn(
-        { err },
-        "Failed to publish conversation_list_invalidated (seen_changed)",
-      );
-    });
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +142,7 @@ function handleRecordSeen({ body = {} }: RouteHandlerArgs) {
     });
 
     if (wasUnseen) {
-      publishListInvalidated();
+      publishConversationListAndMetadataChanged("seen_changed", conversationId);
     }
 
     return { ok: true };
@@ -179,7 +162,7 @@ function handleMarkUnread({ body = {} }: RouteHandlerArgs) {
   try {
     const changed = markConversationUnread(conversationId);
     if (changed) {
-      publishListInvalidated();
+      publishConversationListAndMetadataChanged("seen_changed", conversationId);
     }
     return { ok: true };
   } catch (err) {

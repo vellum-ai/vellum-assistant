@@ -56,6 +56,7 @@ const ClassifyRiskSchema = z.object({
       protectedDir: z.string(),
       deprecatedDir: z.string(),
       hooksDir: z.string(),
+      pluginsDir: z.string().optional(),
       actorTokenSigningKeyPath: z.string(),
       skillSourceDirs: z.array(z.string()),
     })
@@ -412,7 +413,8 @@ export async function handleClassifyRisk(
     case "file_edit":
     case "host_file_read":
     case "host_file_write":
-    case "host_file_edit": {
+    case "host_file_edit":
+    case "host_file_transfer": {
       const filePath = params.path ?? "";
       const workingDir = params.workingDir ?? process.cwd();
 
@@ -426,6 +428,7 @@ export async function handleClassifyRisk(
         protectedDir: fileCtx?.protectedDir ?? SENTINEL,
         deprecatedDir: fileCtx?.deprecatedDir ?? SENTINEL,
         hooksDir: fileCtx?.hooksDir ?? SENTINEL,
+        pluginsDir: fileCtx?.pluginsDir ?? SENTINEL,
         skillSourceDirs: fileCtx?.skillSourceDirs ?? [],
       };
 

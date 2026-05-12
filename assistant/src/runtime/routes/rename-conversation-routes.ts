@@ -13,9 +13,7 @@ import {
   getConversation,
   updateConversationTitle,
 } from "../../memory/conversation-crud.js";
-import { getLogger } from "../../util/logger.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { publishConversationTitleChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -23,8 +21,6 @@ const RenameConversationBody = z.object({
   conversationId: z.string().min(1),
   title: z.string().min(1),
 });
-
-const log = getLogger("rename-conversation-routes");
 
 export const ROUTES: RouteDefinition[] = [
   {
@@ -50,34 +46,7 @@ export const ROUTES: RouteDefinition[] = [
 
       updateConversationTitle(conversationId, title, 0);
 
-      assistantEventHub
-        .publish(
-          buildAssistantEvent(
-            {
-              type: "conversation_title_updated",
-              conversationId,
-              title,
-            },
-            conversationId,
-          ),
-        )
-        .catch((err) => {
-          log.warn({ err }, "Failed to publish conversation_title_updated");
-        });
-
-      assistantEventHub
-        .publish(
-          buildAssistantEvent({
-            type: "conversation_list_invalidated",
-            reason: "renamed",
-          }),
-        )
-        .catch((err) => {
-          log.warn(
-            { err },
-            "Failed to publish conversation_list_invalidated for rename",
-          );
-        });
+      publishConversationTitleChanged(conversationId, title);
 
       return { ok: true };
     },

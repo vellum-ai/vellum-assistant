@@ -52,6 +52,7 @@ export interface FileContext {
   protectedDir: string;
   deprecatedDir: string;
   hooksDir: string;
+  pluginsDir: string;
   actorTokenSigningKeyPath: string;
   skillSourceDirs: string[];
 }

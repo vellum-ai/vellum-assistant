@@ -19,8 +19,10 @@ mock.module("../util/logger.js", () => ({
 // Stub the event hub so tests don't need a running event bus.
 // Exposed as a `mock(...)` so individual tests can assert publish calls.
 const publishMock = mock(async () => {});
+const broadcastMessageMock = mock(() => {});
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: { publish: publishMock },
+  broadcastMessage: broadcastMessageMock,
 }));
 
 // Stub buildAssistantEvent to be an identity pass-through for the event object
@@ -51,7 +53,10 @@ mock.module("../config/loader.js", () => ({
 // Real DB — same pattern as conversation-crud-inference-profile.test.ts
 // ---------------------------------------------------------------------------
 
-import { createConversation, getConversation } from "../memory/conversation-crud.js";
+import {
+  createConversation,
+  getConversation,
+} from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 
@@ -83,6 +88,7 @@ describe("setInferenceProfileSession", () => {
     mockProfiles = { balanced: {}, "cost-optimized": {} };
     mockMaxTtl = undefined; // reset to default 43200
     publishMock.mockClear();
+    broadcastMessageMock.mockClear();
   });
 
   test("open with ttlSeconds=600 — returns UUID sessionId and expiresAt ≈ now + 600_000", async () => {
@@ -139,7 +145,9 @@ describe("setInferenceProfileSession", () => {
     expect(result.ttlSeconds).toBe(43200);
     expect(result.expiresAt).not.toBeNull();
     expect(result.expiresAt!).toBeGreaterThanOrEqual(before + 43200 * 1000);
-    expect(result.expiresAt!).toBeLessThanOrEqual(Date.now() + 43200 * 1000 + 1000);
+    expect(result.expiresAt!).toBeLessThanOrEqual(
+      Date.now() + 43200 * 1000 + 1000,
+    );
   });
 
   test("open over active session — replaced carries prior session info", async () => {
@@ -208,6 +216,7 @@ describe("setInferenceProfileSession", () => {
     const updatedAtBefore = before?.updatedAt;
 
     publishMock.mockClear();
+    broadcastMessageMock.mockClear();
     const result = await setInferenceProfileSession({
       conversationId: conv.id,
       profile: null,
@@ -221,7 +230,7 @@ describe("setInferenceProfileSession", () => {
 
     // No event was published — this is the load-bearing assertion for the
     // idempotency guard (Codex P2 on PR #29913).
-    expect(publishMock).not.toHaveBeenCalled();
+    expect(broadcastMessageMock).not.toHaveBeenCalled();
 
     // No DB write occurred — `updatedAt` is unchanged.
     const after = getConversation(conv.id);
@@ -240,6 +249,7 @@ describe("setInferenceProfileSession", () => {
     });
 
     publishMock.mockClear();
+    broadcastMessageMock.mockClear();
     const result = await setInferenceProfileSession({
       conversationId: conv.id,
       profile: null,
@@ -250,8 +260,8 @@ describe("setInferenceProfileSession", () => {
     // though the sticky profile was cleared.
     expect(result.replaced).toBeNull();
 
-    // The clear DID happen — DB row reflects it and an event was published.
-    expect(publishMock).toHaveBeenCalledTimes(1);
+    // The clear DID happen — DB row reflects it and legacy+sync events were published.
+    expect(broadcastMessageMock).toHaveBeenCalledTimes(2);
     const row = getConversation(conv.id);
     expect(row?.inferenceProfile).toBeNull();
   });
@@ -265,7 +275,9 @@ describe("setInferenceProfileSession", () => {
         profile: "nonexistent-profile",
         ttlSeconds: 300,
       }),
-    ).rejects.toThrow('Profile "nonexistent-profile" is not defined in llm.profiles');
+    ).rejects.toThrow(
+      'Profile "nonexistent-profile" is not defined in llm.profiles',
+    );
   });
 
   test("open with ttlSeconds=null — expiresAt=null, sessionId=null, profile kept", async () => {

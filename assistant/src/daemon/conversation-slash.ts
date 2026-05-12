@@ -1,7 +1,12 @@
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
-import { getConfig } from "../config/loader.js";
+import {
+  getConfig,
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+} from "../config/loader.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
@@ -108,6 +113,120 @@ const DEPRECATED_MODEL_SHORTCUTS = new Set([
   "grok-multi",
 ]);
 
+// ── /model command (inference profile switcher) ──────────────────────
+
+type ModelCommandParse =
+  | { kind: "list" }
+  | { kind: "switch"; profileName: string };
+
+/**
+ * Parse `/model` and `/model <name>` forms. Returns `null` for any input
+ * that isn't a `/model` invocation (so the caller can fall through).
+ */
+function parseModelCommand(trimmed: string): ModelCommandParse | null {
+  if (trimmed === "/model") return { kind: "list" };
+  if (!trimmed.startsWith("/model ")) return null;
+  const rest = trimmed.slice("/model ".length).trim();
+  if (rest.length === 0) return { kind: "list" };
+  return { kind: "switch", profileName: rest };
+}
+
+function orderedProfileNames(
+  profiles: Record<string, { label?: string; description?: string; status?: "active" | "disabled" }>,
+  profileOrder: readonly string[] | undefined,
+): string[] {
+  const order = profileOrder ?? [];
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const name of order) {
+    if (profiles[name] != null && !seen.has(name)) {
+      ordered.push(name);
+      seen.add(name);
+    }
+  }
+  const tail = Object.keys(profiles)
+    .filter((n) => !seen.has(n))
+    .sort();
+  return [...ordered, ...tail];
+}
+
+async function resolveModelCommand(
+  parse: ModelCommandParse,
+): Promise<SlashResolution> {
+  const config = getConfig();
+  const profiles = (config.llm.profiles ?? {}) as Record<
+    string,
+    { label?: string; description?: string; status?: "active" | "disabled" }
+  >;
+  const profileNames = orderedProfileNames(profiles, config.llm.profileOrder);
+  const activeProfile = config.llm.activeProfile;
+
+  if (parse.kind === "list") {
+    if (profileNames.length === 0) {
+      return {
+        kind: "unknown",
+        message:
+          "No inference profiles are defined. Use **Settings → Models & Services** to create one.",
+      };
+    }
+    const lines = ["Inference profiles:\n"];
+    for (const name of profileNames) {
+      const profile = profiles[name];
+      const label = profile.label ?? name;
+      const isCurrent = name === activeProfile;
+      const isDisabled = profile.status === "disabled";
+      const marker = isCurrent ? " **[current]**" : "";
+      const disabled = isDisabled ? " *(disabled)*" : "";
+      const description = profile.description ? ` — ${profile.description}` : "";
+      lines.push(`  - \`${name}\` (${label})${marker}${disabled}${description}`);
+    }
+    lines.push("\nSwitch with `/model <name>`.");
+    return { kind: "unknown", message: lines.join("\n") };
+  }
+
+  const target = parse.profileName;
+  if (!(target in profiles)) {
+    const available = profileNames.map((n) => `\`${n}\``).join(", ");
+    const hint = available.length > 0 ? ` Available: ${available}.` : "";
+    return {
+      kind: "unknown",
+      message: `Profile \`${target}\` not found.${hint}`,
+    };
+  }
+  if (profiles[target].status === "disabled") {
+    return {
+      kind: "unknown",
+      message: `Profile \`${target}\` is disabled. Enable it in **Settings → Models & Services** first.`,
+    };
+  }
+  if (target === activeProfile) {
+    const label = profiles[target].label ?? target;
+    return {
+      kind: "unknown",
+      message: `Already using profile \`${target}\` (${label}).`,
+    };
+  }
+
+  // Write `llm.activeProfile` directly to the raw config file. We invalidate
+  // the in-process cache so the very next `getConfig()` reflects the switch;
+  // the file watcher will also pick this up but its debounce can lag a tick.
+  const raw = loadRawConfig();
+  const llm: Record<string, unknown> =
+    raw.llm != null && typeof raw.llm === "object" && !Array.isArray(raw.llm)
+      ? (raw.llm as Record<string, unknown>)
+      : {};
+  llm.activeProfile = target;
+  raw.llm = llm;
+  saveRawConfig(raw);
+  invalidateConfigCache();
+
+  const label = profiles[target].label ?? target;
+  return {
+    kind: "unknown",
+    message: `Switched to profile \`${target}\` (${label}).`,
+  };
+}
+
 // ── /models command ──────────────────────────────────────────────────
 
 async function resolveModelList(): Promise<SlashResolution> {
@@ -184,6 +303,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
   if (context) {
     fallbackLines.push("/context — Show conversation context usage");
   }
+  fallbackLines.push("/model — List or switch inference profile");
   fallbackLines.push("/models — List all available models");
   if (context) {
     fallbackLines.push("/status — Show conversation status and context usage");
@@ -196,6 +316,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
       "/context — Show conversation context usage",
+      "/model — List or switch inference profile",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -208,6 +329,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
       "/context — Show conversation context usage",
+      "/model — List or switch inference profile",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -219,6 +341,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
     "/commands — List all available commands",
     "/compact — Force context compaction immediately",
     "/context — Show conversation context usage",
+    "/model — List or switch inference profile",
     "/models — List all available models",
     "/status — Show conversation status and context usage",
     "/btw — Ask a side question while the assistant is working",
@@ -238,10 +361,7 @@ export function classifySlash(
   content: string,
 ): "passthrough" | "compact" | "unknown" {
   const trimmed = content.trim();
-  if (
-    trimmed === "/model" ||
-    (trimmed.startsWith("/model ") && trimmed !== "/models")
-  ) {
+  if (parseModelCommand(trimmed) != null) {
     return "unknown";
   }
   const shortcutMatch = trimmed.match(/^\/([a-z0-9-]+)(\s|$)/i);
@@ -269,17 +389,11 @@ export async function resolveSlash(
   content: string,
   context?: SlashContext,
 ): Promise<SlashResolution> {
-  // Handle deprecated model-switching commands — direct users to Settings
+  // Handle `/model` — list profiles (no arg) or switch active profile.
   const trimmed = content.trim();
-  if (
-    trimmed === "/model" ||
-    (trimmed.startsWith("/model ") && trimmed !== "/models")
-  ) {
-    return {
-      kind: "unknown",
-      message:
-        "The `/model` command has been removed. Use **Settings → Models & Services** to change your model and provider.",
-    };
+  const modelParse = parseModelCommand(trimmed);
+  if (modelParse != null) {
+    return await resolveModelCommand(modelParse);
   }
 
   // Reject deprecated provider shortcut commands (/opus, /sonnet, /haiku, etc.)

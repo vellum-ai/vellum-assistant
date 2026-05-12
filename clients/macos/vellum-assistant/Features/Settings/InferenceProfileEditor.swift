@@ -473,18 +473,7 @@ struct InferenceProfileEditor: View {
     }
 
     private var providerField: some View {
-        labeled(
-            "Provider",
-            accessory: {
-                if isProviderMissing {
-                    VBadge(
-                        label: "Pick a provider",
-                        tone: .warning,
-                        emphasis: .subtle
-                    )
-                }
-            }
-        ) {
+        labeled("Provider") {
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
                 selection: Binding(
