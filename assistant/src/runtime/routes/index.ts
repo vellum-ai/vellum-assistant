@@ -73,6 +73,7 @@ import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-prov
 import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
 import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
+import { ROUTES as SLACK_USE_ROUTES } from "./integrations/slack/use-slack-routes.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
 import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
 import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
@@ -219,6 +220,7 @@ export const ROUTES: RouteDefinition[] = [
   ...SKILL_ROUTES,
   ...SLACK_CHANNEL_ROUTES,
   ...SLACK_SHARE_ROUTES,
+  ...SLACK_USE_ROUTES,
   ...STT_ROUTES,
   ...SUGGEST_TRUST_RULE_ROUTES,
   ...SUBAGENT_ROUTES,
