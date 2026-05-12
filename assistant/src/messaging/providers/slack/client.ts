@@ -20,8 +20,10 @@ import type {
   SlackConversationsListResponse,
   SlackConversationsOpenResponse,
   SlackPostMessageResponse,
+  SlackReactionsAddResponse,
   SlackSearchMessagesResponse,
   SlackUserInfoResponse,
+  SlackUsersListResponse,
 } from "./types.js";
 
 const SLACK_API_BASE = "https://slack.com/api";
@@ -431,4 +433,29 @@ export async function searchMessages(
       page: String(page),
     },
   );
+}
+
+export async function addReaction(
+  connectionOrToken: OAuthConnection | string,
+  channel: string,
+  timestamp: string,
+  name: string,
+): Promise<SlackReactionsAddResponse> {
+  return request<SlackReactionsAddResponse>(
+    connectionOrToken,
+    "reactions.add",
+    undefined,
+    { channel, timestamp, name },
+  );
+}
+
+export async function listUsers(
+  connectionOrToken: OAuthConnection | string,
+  limit = 200,
+  cursor?: string,
+): Promise<SlackUsersListResponse> {
+  return request<SlackUsersListResponse>(connectionOrToken, "users.list", {
+    limit: String(limit),
+    cursor,
+  });
 }
