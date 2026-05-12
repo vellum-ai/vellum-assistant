@@ -15466,6 +15466,40 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/use/slack/react:
+    post:
+      operationId: use_slack_react_post
+      summary: Add a reaction to a Slack message
+      description: Add an emoji reaction to a message. Strips surrounding colons from the emoji name if present.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+  /v1/use/slack/read:
+    post:
+      operationId: use_slack_read_post
+      summary: Read Slack messages
+      description:
+        Read messages from a Slack channel or thread. Supports limit, since (Slack timestamp or relative offset
+        like "2h", "30m", "1d"), and thread replies.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+  /v1/use/slack/send:
+    post:
+      operationId: use_slack_send_post
+      summary: Send a Slack message
+      description:
+        Send a message to a Slack channel or user DM. Exactly one of channel or user must be set. Supports
+        threading via the thread parameter.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
   /v1/use/slack/users/{query}:
     get:
       operationId: use_slack_users_by_query_get
