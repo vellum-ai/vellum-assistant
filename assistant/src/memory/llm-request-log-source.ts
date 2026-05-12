@@ -18,7 +18,6 @@
  */
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
-import { LocalLlmRequestLogSource } from "./llm-request-log-source-local.js";
 import type { LogRow } from "./llm-request-log-store.js";
 
 const log = getLogger("llm-request-log-source");
@@ -45,11 +44,13 @@ let cachedKind: "local" | "clickhouse" | null = null;
  *
  * The result is cached for the lifetime of the process. Callers should
  * never hang on to the instance across config reloads — always re-resolve
- * through this function. The factory is async because the ClickHouse
- * implementation is loaded via dynamic `import()` on first use; that keeps
- * the static module graph for the default local path (and for everything
- * that transitively imports this module, including `config-watcher`) free
- * of the ClickHouse HTTP client and its dependencies. Callers MUST `await`
+ * through this function. The factory is async because BOTH implementations
+ * are loaded via dynamic `import()` on first use. This is deliberate: it
+ * keeps the static module graph for `llm-request-log-source.ts` (and for
+ * everything that transitively imports it, including `config-watcher`)
+ * free of `llm-request-log-store → conversation-crud → indexer → embedding-backend`,
+ * which would otherwise force test files that stub `embedding-backend.js`
+ * to also stub every export `indexer.ts` reaches for. Callers MUST `await`
  * the source methods because the active source may swap to one with real
  * I/O at any time.
  */
@@ -70,6 +71,9 @@ export async function getLlmRequestLogSource(): Promise<LlmRequestLogSource> {
       "Using ClickHouse for LLM request log reads",
     );
   } else {
+    const { LocalLlmRequestLogSource } = await import(
+      "./llm-request-log-source-local.js"
+    );
     cached = new LocalLlmRequestLogSource();
     cachedKind = "local";
   }
