@@ -15,7 +15,7 @@ import { resolveAuth } from "./inference/resolve-auth.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
-} from "./managed-proxy/context.js";
+} from "./platform-proxy/context.js";
 import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import { RetryProvider } from "./retry.js";

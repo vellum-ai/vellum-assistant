@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
+import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
 
@@ -84,7 +84,7 @@ interface ClientCatalogEntry {
   envVar?: string;
   apiKeyPlaceholder?: string;
   credentialsGuide?: ClientCatalogCredentialsGuide;
-  supportsManagedAuth?: boolean;
+  supportsPlatformAuth?: boolean;
   defaultModel: string;
   models: ClientCatalogModel[];
 }
@@ -136,8 +136,8 @@ describe("LLM catalog parity: daemon vs client", () => {
       expect(clientEntry.setupHint).toBe(daemonEntry.setupHint);
       expect(clientEntry.envVar).toBe(daemonEntry.envVar);
       expect(clientEntry.apiKeyPlaceholder).toBe(daemonEntry.apiKeyPlaceholder);
-      expect(clientEntry.supportsManagedAuth).toBe(
-        daemonEntry.supportsManagedAuth,
+      expect(clientEntry.supportsPlatformAuth).toBe(
+        daemonEntry.supportsPlatformAuth,
       );
       expect(clientEntry.credentialsGuide).toEqual(
         daemonEntry.credentialsGuide,
@@ -146,16 +146,16 @@ describe("LLM catalog parity: daemon vs client", () => {
     }
   });
 
-  test("supportsManagedAuth mirrors MANAGED_PROVIDER_META", () => {
-    // The catalog field is derived from MANAGED_PROVIDER_META at build
+  test("supportsPlatformAuth mirrors PLATFORM_PROVIDER_META", () => {
+    // The catalog field is derived from PLATFORM_PROVIDER_META at build
     // time. This test guards against future hand-edits to model-catalog.ts
-    // that would let the two drift. Adding a provider to MANAGED_PROVIDER_META
+    // that would let the two drift. Adding a provider to PLATFORM_PROVIDER_META
     // must auto-propagate; flipping `managed: true` to `false` (or vice
     // versa) must propagate too.
     for (const entry of PROVIDER_CATALOG) {
       const expectedSupportsManagedAuth =
-        MANAGED_PROVIDER_META[entry.id]?.managed === true;
-      expect(entry.supportsManagedAuth).toBe(expectedSupportsManagedAuth);
+        PLATFORM_PROVIDER_META[entry.id]?.managed === true;
+      expect(entry.supportsPlatformAuth).toBe(expectedSupportsManagedAuth);
     }
   });
 

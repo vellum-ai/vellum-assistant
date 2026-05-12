@@ -1197,15 +1197,15 @@ public final class SettingsStore: ObservableObject {
     private static let nativeWebSearchCapableProviderIds: Set<String> = ["anthropic", "openai"]
 
     /// Returns the catalog entries for providers that support managed proxy routing.
-    /// Source of truth: the `supportsManagedAuth` field on `LLMProviderRegistry`
-    /// entries, which is derived upstream from `MANAGED_PROVIDER_META` at catalog
+    /// Source of truth: the `supportsPlatformAuth` field on `LLMProviderRegistry`
+    /// entries, which is derived upstream from `PLATFORM_PROVIDER_META` at catalog
     /// build time. Reading from the registry (not `providerCatalog`) keeps the
     /// answer stable across daemon `model_info` refreshes — the wire-protocol
     /// `ProviderCatalogEntry` doesn't carry capability flags.
-    var managedCapableProviders: [ProviderCatalogEntry] {
+    var platformCapableProviders: [ProviderCatalogEntry] {
         let managedIds = Set(
             LLMProviderRegistry.providers
-                .filter { $0.supportsManagedAuth == true }
+                .filter { $0.supportsPlatformAuth == true }
                 .map(\.id)
         )
         return providerCatalog.filter { managedIds.contains($0.id) }
@@ -1217,9 +1217,9 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Whether a given provider supports managed proxy routing.
-    /// See `managedCapableProviders` for the source-of-truth rationale.
-    func isManagedCapable(_ provider: String) -> Bool {
-        LLMProviderRegistry.provider(id: provider)?.supportsManagedAuth == true
+    /// See `platformCapableProviders` for the source-of-truth rationale.
+    func isPlatformCapable(_ provider: String) -> Bool {
+        LLMProviderRegistry.provider(id: provider)?.supportsPlatformAuth == true
     }
 
     /// Whether the current inference selection supports native web search.

@@ -8,8 +8,8 @@
  * credentials are unavailable.
  */
 
-import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
+import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import type { ImageGenCredentials, ImageGenProvider } from "./types.js";
 
@@ -33,7 +33,7 @@ export async function resolveImageGenCredentials(opts: {
     // Resolve platform URL + assistant API key from a single snapshot so
     // baseUrl and assistantApiKey can't diverge if the credential is cleared
     // between lookups.
-    const meta = MANAGED_PROVIDER_META[provider];
+    const meta = PLATFORM_PROVIDER_META[provider];
     const ctx = await resolveManagedProxyContext();
     if (
       !meta?.managed ||

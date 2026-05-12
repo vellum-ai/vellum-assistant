@@ -25,7 +25,7 @@ export interface ManagedProviderMeta {
  * managed credentials are present; that policy lives in the registry/context
  * fallback allowlists.
  */
-export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
+export const PLATFORM_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   openai: {
     name: "openai",
     managed: true,
