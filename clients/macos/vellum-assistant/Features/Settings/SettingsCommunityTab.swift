@@ -34,9 +34,10 @@ private struct CommunityHeroBanner: View {
                 .foregroundStyle(VColor.contentTertiary)
                 .frame(maxWidth: 480, alignment: .leading)
         }
-        .padding(VSpacing.xl)
+        .padding(.vertical, VSpacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard()
+        .background(VColor.surfaceLift)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
     }
 }
 
@@ -173,7 +174,7 @@ private struct OpenSourceFeatureCard: View {
                 VButton(
                     label: "View source",
                     rightIcon: VIcon.arrowUpRight.rawValue,
-                    style: .outlined
+                    style: .ghost
                 ) {
                     openURL(AppURLs.repositoryURL)
                 }
@@ -240,15 +241,13 @@ private struct MoreFromVellumSection: View {
                     icon: .globe,
                     iconBg: Color(red: 34 / 255, green: 197 / 255, blue: 94 / 255),
                     title: "Community Hub",
-                    handle: "vellum.ai/community",
                     description: "Showcases, guides, and projects shared by the community.",
                     url: AppURLs.communityHubURL
                 )
                 ResourceCard(
-                    icon: .externalLink,
+                    icon: .xBrand,
                     iconBg: Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255),
                     title: "Follow on X",
-                    handle: "@vellum_ai",
                     description: "Product updates, releases, and behind-the-scenes.",
                     url: AppURLs.twitterURL
                 )
@@ -256,7 +255,6 @@ private struct MoreFromVellumSection: View {
                     icon: .circlePlay,
                     iconBg: Color(red: 239 / 255, green: 68 / 255, blue: 68 / 255),
                     title: "YouTube channel",
-                    handle: "@Vellum_AI",
                     description: "Walkthroughs, tutorials, and product deep-dives.",
                     url: AppURLs.youtubeURL
                 )
@@ -269,7 +267,6 @@ private struct ResourceCard: View {
     let icon: VIcon
     let iconBg: Color
     let title: String
-    let handle: String
     let description: String
     let url: URL
 
@@ -294,15 +291,10 @@ private struct ResourceCard: View {
                         .foregroundStyle(VColor.contentTertiary)
                 }
 
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
-                        Text(title)
-                            .font(VFont.titleSmall)
-                            .foregroundStyle(VColor.contentEmphasized)
-                        Text(handle)
-                            .font(VFont.bodyMediumLighter)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text(title)
+                        .font(VFont.titleSmall)
+                        .foregroundStyle(VColor.contentEmphasized)
                     Text(description)
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentTertiary)
