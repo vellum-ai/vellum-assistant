@@ -23,34 +23,40 @@ import { describe, expect, test } from "bun:test";
 import { pluginApiPath } from "../embedded/plugin-api.js";
 import { ensurePluginApiShim } from "../plugins/ensure-plugin-api-shim.js";
 
+const SHIM_REL_PATH = "node_modules/@vellumai/plugin-api";
+
 describe("ensurePluginApiShim", () => {
   test("creates a resolvable @vellumai/plugin-api package under workspaceDir", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "plugin-api-shim-"));
-    const { shimDir, indexJs } = await ensurePluginApiShim({ workspaceDir });
+    await ensurePluginApiShim({ workspaceDir });
 
-    expect(shimDir).toBe(
-      join(workspaceDir, "node_modules", "@vellumai/plugin-api"),
-    );
+    const shimDir = join(workspaceDir, SHIM_REL_PATH);
+    const indexJs = await readFile(join(shimDir, "index.js"), "utf8");
     expect(indexJs).toBe(`export * from ${JSON.stringify(pluginApiPath)};\n`);
 
-    const writtenIndex = await readFile(join(shimDir, "index.js"), "utf8");
-    expect(writtenIndex).toBe(indexJs);
-
-    const writtenPkg = JSON.parse(
+    const pkg = JSON.parse(
       await readFile(join(shimDir, "package.json"), "utf8"),
     );
-    expect(writtenPkg.name).toBe("@vellumai/plugin-api");
-    expect(writtenPkg.type).toBe("module");
-    expect(writtenPkg.main).toBe("./index.js");
-    expect(typeof writtenPkg.version).toBe("string");
+    expect(pkg.name).toBe("@vellumai/plugin-api");
+    expect(pkg.type).toBe("module");
+    expect(pkg.main).toBe("./index.js");
+    expect(typeof pkg.version).toBe("string");
   });
 
   test("is idempotent — re-running yields the same shim contents", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "plugin-api-shim-"));
-    const first = await ensurePluginApiShim({ workspaceDir });
-    const second = await ensurePluginApiShim({ workspaceDir });
-    expect(second.shimDir).toBe(first.shimDir);
-    expect(second.indexJs).toBe(first.indexJs);
+    await ensurePluginApiShim({ workspaceDir });
+    const first = await readFile(
+      join(workspaceDir, SHIM_REL_PATH, "index.js"),
+      "utf8",
+    );
+
+    await ensurePluginApiShim({ workspaceDir });
+    const second = await readFile(
+      join(workspaceDir, SHIM_REL_PATH, "index.js"),
+      "utf8",
+    );
+    expect(second).toBe(first);
   });
 
   test("a fake user plugin can resolve @vellumai/plugin-api via Node-style walk-up", async () => {

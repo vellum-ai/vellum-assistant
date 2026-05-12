@@ -13,14 +13,15 @@
  * the assistant's compiled binary be the single source of truth for
  * the public API.
  *
- * Idempotent: safe to call on every daemon boot. The shim's contents
- * are deterministic given the embedded artifact's path; on a fresh
+ * Idempotent: safe to call repeatedly. The shim's contents are
+ * deterministic given the embedded artifact's path; on a fresh
  * assistant binary, the path changes (`/$bunfs/root/index-<hash>.js`)
  * and the shim is overwritten to point at the new location.
  *
- * Ordering: MUST run before `loadUserPlugins()`. The shim file must
- * exist on disk before the first plugin's `import "@vellumai/plugin-api"`
- * is parsed by Bun.
+ * Called from {@link loadUserPlugins} at the top of its body so the
+ * ordering constraint (shim exists before any plugin's
+ * `import "@vellumai/plugin-api"` is parsed) is enforced by code,
+ * not by a docstring in `lifecycle.ts`.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -35,17 +36,10 @@ const log = getLogger("plugin-api-shim");
 
 const PACKAGE_NAME = "@vellumai/plugin-api";
 
-export interface PluginApiShim {
-  /** Absolute path to the materialized shim package directory. */
-  shimDir: string;
-  /** The re-export source written to `<shimDir>/index.js`. */
-  indexJs: string;
-}
-
 export async function ensurePluginApiShim(opts?: {
   /** Override the workspace root. Defaults to `getWorkspaceDir()`. */
   workspaceDir?: string;
-}): Promise<PluginApiShim> {
+}): Promise<void> {
   const workspaceDir = opts?.workspaceDir ?? getWorkspaceDir();
   const shimDir = join(workspaceDir, "node_modules", PACKAGE_NAME);
 
@@ -70,6 +64,4 @@ export async function ensurePluginApiShim(opts?: {
     { shimDir, pluginApiPath, version: assistantPkg.version },
     "plugin-api shim materialized",
   );
-
-  return { shimDir, indexJs };
 }

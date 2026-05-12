@@ -54,7 +54,6 @@ import {
 } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
-import { ensurePluginApiShim } from "../plugins/ensure-plugin-api-shim.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -648,15 +647,6 @@ export async function runDaemon(): Promise<void> {
         }
       });
     }
-
-    // Materialize the `@vellumai/plugin-api` shim at
-    // `<workspaceDir>/node_modules/` so user plugins can resolve the
-    // public specifier via Node-style walk-up. Must run before
-    // loadUserPlugins() — the shim file has to exist on disk before
-    // the first plugin's `import "@vellumai/plugin-api"` is parsed.
-    // Idempotent + cheap (~150 bytes written); safe to re-run on every
-    // boot.
-    await ensurePluginApiShim();
 
     // Populate the registry with user plugins from `<workspaceDir>/plugins/*`
     // AFTER first-party plugins have already registered via their static
