@@ -501,6 +501,19 @@ struct ProvidersSheet: View {
         if store.isManagedCapable(provider) {
             options.append((label: "Platform (managed by Vellum)", value: "platform"))
         }
+        // Preserve the current auth type in edit mode so existing connections
+        // display their saved value even if the type is no longer offered for
+        // new connections (e.g. a non-ollama connection with "none" auth).
+        let current = editorDraft.authType
+        if !current.isEmpty && !options.contains(where: { $0.value == current }) {
+            let label: String = switch current {
+            case "none": "None (no credentials)"
+            case "platform": "Platform (managed by Vellum)"
+            case "api_key": "API Key"
+            default: current
+            }
+            options.append((label: label, value: current))
+        }
         return options
     }
 
