@@ -22,6 +22,7 @@ import {
   readPlatformToken,
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
+import { startWebServer } from "@vellumai/web";
 
 const SUPPORTED_INTERFACES = ["cli", "web"] as const;
 type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
@@ -237,7 +238,6 @@ export async function client(): Promise<void> {
   } = parseArgs();
 
   if (interfaceId === WEB_INTERFACE_ID) {
-    const { startWebServer } = await import("@vellumai/web");
     const server = await startWebServer({ port: 3000 });
     const url = `http://localhost:${server.port}`;
     console.log(`${ANSI.bold}Vellum web client${ANSI.reset} running at ${url}`);
