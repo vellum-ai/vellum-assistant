@@ -73,6 +73,9 @@ RUN apt-get update && apt-get install -y \
     bubblewrap \
     ca-certificates \
     curl \
+    debootstrap \
+    debian-archive-keyring \
+    debconf \
     ffmpeg \
     fonts-freefont-ttf \
     g++ \
@@ -117,6 +120,7 @@ RUN apt-get update && apt-get install -y \
     unzip \
     uuid-runtime \
     vim \
+    wget \
     xclip \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
@@ -134,18 +138,52 @@ RUN groupadd --system --gid 1001 assistant && \
     useradd --system --uid 1001 --gid assistant --create-home --shell /bin/bash assistant && \
     echo "assistant ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Set up assistant home directory for local state (device.json, etc.)
-RUN mkdir -p /home/assistant/.vellum && \
-    chown -R assistant:assistant /home/assistant/.vellum
-
-# Update PATH for assistant user
-ENV PATH="/home/assistant/.bun/bin:${PATH}"
+# Set up assistant home directory for local state (device.json, etc.) and a
+# persistent /data root for runtime-installed system packages.
+RUN mkdir -p /home/assistant/.vellum /data && \
+    chown -R assistant:assistant /home/assistant/.vellum /data && \
+    chmod a+rwx /data
 
 # Configure package managers to use assistant home
 ENV BUN_INSTALL="/home/assistant/.bun"
-ENV PATH="${BUN_INSTALL}/bin:${PATH}"
 ENV PYTHONUSERBASE="/home/assistant/.python"
-ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
+ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/assistant/.bun/bin:${BUN_INSTALL}/bin:${PYTHONUSERBASE}/bin:/data/bin:/data/usr/local/sbin:/data/usr/local/bin:/data/usr/sbin:/data/usr/bin:/data/sbin"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LD_LIBRARY_PATH="/data/usr/local/lib:/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:/data/usr/lib/aarch64-linux-gnu"
+
+RUN printf '%s\n' \
+    '#!/usr/bin/env sh' \
+    'set -eu' \
+    'export DEBIAN_FRONTEND=noninteractive' \
+    '/app/assistant/docker-init-apt-root.sh' \
+    'if [ -x /data/bin/sh ] && [ -x /data/usr/bin/apt-get ] && [ -f /data/.rootfs-initialized ] && ! grep -qs " /data .*noexec" /proc/mounts; then' \
+    '  exec chroot /data /usr/bin/apt-get "$@"' \
+    'fi' \
+    'exec /usr/bin/apt-get "$@"' \
+    > /usr/local/bin/apt-get && \
+    chmod +x /usr/local/bin/apt-get && \
+    printf '%s\n' \
+    '#!/usr/bin/env sh' \
+    'set -eu' \
+    'export DEBIAN_FRONTEND=noninteractive' \
+    '/app/assistant/docker-init-apt-root.sh' \
+    'if [ -x /data/bin/sh ] && [ -x /data/usr/bin/apt ] && [ -f /data/.rootfs-initialized ] && ! grep -qs " /data .*noexec" /proc/mounts; then' \
+    '  exec chroot /data /usr/bin/apt "$@"' \
+    'fi' \
+    'exec /usr/bin/apt "$@"' \
+    > /usr/local/bin/apt && \
+    chmod +x /usr/local/bin/apt && \
+    printf '%s\n' \
+    '#!/usr/bin/env sh' \
+    'set -eu' \
+    '/app/assistant/docker-init-apt-root.sh' \
+    'if [ -x /data/bin/sh ] && [ -x /data/usr/bin/dpkg ] && [ -f /data/.rootfs-initialized ] && ! grep -qs " /data .*noexec" /proc/mounts; then' \
+    '  exec chroot /data /usr/bin/dpkg "$@"' \
+    'fi' \
+    'exec /usr/bin/dpkg "$@"' \
+    > /usr/local/bin/dpkg && \
+    chmod +x /usr/local/bin/dpkg
 
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
@@ -161,7 +199,7 @@ ENV IS_CONTAINERIZED=true
 # and the generated meet-join manifest from the builder stage.
 COPY --from=builder /app /app
 
-RUN chmod +x /app/assistant/docker-entrypoint.sh
+RUN chmod +x /app/assistant/docker-entrypoint.sh /app/assistant/docker-init-apt-root.sh
 
 # Run the daemon + http server
 CMD ["/app/assistant/docker-entrypoint.sh"]

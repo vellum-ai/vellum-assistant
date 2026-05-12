@@ -5,6 +5,11 @@ set -eu
 # processes (the `assistant` user, bun's tmpdir, scratch writes) can use it.
 chmod 1777 /tmp 2>/dev/null || true
 
+if [ -x /app/assistant/docker-init-apt-root.sh ] && \
+  { [ "${BASE_DATA_DIR:-}" = "/data" ] || [ "${HOME:-}" = "/data" ] || [ -n "${VELLUM_APT_DATA_ROOT:-}" ]; }; then
+  /app/assistant/docker-init-apt-root.sh
+fi
+
 if [ "$(id -u)" = "0" ] && [ "${VELLUM_WORKSPACE_DIR:-}" = "/workspace" ] && [ -d /workspace ]; then
   git config --global --add safe.directory /workspace >/dev/null 2>&1 || true
   git config --global --add safe.directory '/workspace/*' >/dev/null 2>&1 || true
