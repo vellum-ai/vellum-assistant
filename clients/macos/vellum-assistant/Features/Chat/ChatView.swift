@@ -114,6 +114,19 @@ struct ChatView: View {
     @State private var dragEndLocalMonitor: Any?
     @State private var dragEndGlobalMonitor: Any?
 
+    // MARK: - Discord Community Nudge
+    @Environment(\.openURL) private var openURL
+    @AppStorage(DiscordNudge.joinedKey) private var discordJoined: Bool = false
+    @AppStorage(DiscordNudge.bannerDismissedKey) private var discordBannerDismissed: Bool = false
+    @AppStorage(GitHubNudge.starredKey) private var githubStarred: Bool = false
+
+    private var shouldShowDiscordBanner: Bool {
+        !discordJoined
+            && !discordBannerDismissed
+            && githubStarred
+            && (conversationManager?.conversations.count ?? 0) >= 2
+    }
+
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
     @State private var searchQuery = ""
@@ -437,6 +450,22 @@ struct ChatView: View {
                         onResumeAssistant: { onResumeAssistant?() },
                         onOpenSSHSettings: { onOpenSSHSettings?() },
                         isExiting: isRecoveryModeExiting
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if shouldShowDiscordBanner {
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    DiscordCommunityBanner(
+                        onJoin: {
+                            discordJoined = true
+                            openURL(AppURLs.discordInviteURL)
+                        },
+                        onDismiss: {
+                            discordBannerDismissed = true
+                        }
                     )
                 }
                 .padding(.bottom, -VSpacing.sm)

@@ -103,6 +103,7 @@ struct SettingsGeneralTab: View {
             }
             SettingsAppearanceTab(store: store)
             OpenSourceSettingsCard()
+            DiscordCommunitySettingsCard()
             if !lockfileAssistants.isEmpty {
                 retireAssistantSection
             }

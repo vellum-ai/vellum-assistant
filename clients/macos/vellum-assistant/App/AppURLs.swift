@@ -112,6 +112,11 @@ public enum AppURLs {
     /// literal is a known-valid absolute URL.
     public static let repositoryURL = URL(string: "https://github.com/vellum-ai/vellum-assistant")!
 
+    /// Discord community invite — linked from the Settings "Discord" card and
+    /// the in-chat Discord community banner. Force-unwrap is safe: the literal
+    /// is a known-valid absolute URL.
+    public static let discordInviteURL = URL(string: "https://discord.gg/ZABd9V2zM8")!
+
     // MARK: - Helpers
 
     /// Build a docs URL by appending a path to the (possibly env-overridden) base.
