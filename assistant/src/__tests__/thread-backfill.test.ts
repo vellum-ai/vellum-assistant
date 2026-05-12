@@ -224,11 +224,26 @@ function makeBackfillMessage(
 
 interface PersistedRow {
   role: string;
+  /**
+   * Inner content with any `<external_content …>` wrapper stripped. Most
+   * assertions want to match against the raw text the backfill source
+   * produced; the wrapping is verified separately via {@link rawContent}.
+   */
   content: string;
+  /** Raw persisted content, including any wrapping the daemon applied. */
+  rawContent: string;
   channelTs: string | undefined;
   threadTs: string | undefined;
   displayName: string | undefined;
   slackFiles: Array<{ name: string; mimetype?: string }> | undefined;
+}
+
+const EXTERNAL_CONTENT_WRAPPER =
+  /^<external_content[^>]*>\n([\s\S]*?)\n<\/external_content>$/;
+
+function unwrapExternalContent(content: string): string {
+  const match = content.match(EXTERNAL_CONTENT_WRAPPER);
+  return match ? match[1] : content;
 }
 
 function readPersistedSlackRows(conversationId: string): PersistedRow[] {
@@ -237,7 +252,8 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
   for (const row of rows) {
     const blank: PersistedRow = {
       role: row.role,
-      content: row.content,
+      content: unwrapExternalContent(row.content),
+      rawContent: row.content,
       channelTs: undefined,
       threadTs: undefined,
       displayName: undefined,
@@ -271,7 +287,8 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
     const slackMeta = readSlackMetadata(slackMetaRaw);
     out.push({
       role: row.role,
-      content: row.content,
+      content: unwrapExternalContent(row.content),
+      rawContent: row.content,
       channelTs: slackMeta?.channelTs,
       threadTs: slackMeta?.threadTs,
       displayName: slackMeta?.displayName,
@@ -826,6 +843,92 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       "[attached file: project-plan.pdf, application/pdf]",
     );
     expect(rendered).not.toContain("F-DRAFT");
+  });
+
+  test("backfilled non-bot text is persisted wrapped in an external_content envelope", async () => {
+    const conv = createTestConversation();
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "i can't find the credential field",
+        threadId: undefined,
+        sender: { id: "U_ANITA", name: "Anita" },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+    });
+
+    const [persisted] = readPersistedSlackRows(conv.id).filter(
+      (p) => p.channelTs === "1234.0",
+    );
+    expect(persisted).toBeDefined();
+    expect(persisted.role).toBe("user");
+    expect(persisted.rawContent).toContain(
+      '<external_content source="webhook" origin="Anita">',
+    );
+    expect(persisted.rawContent).toContain("i can't find the credential field");
+    expect(persisted.rawContent).toContain("</external_content>");
+    // Inner text round-trips unchanged through the wrapper.
+    expect(persisted.content).toBe("i can't find the credential field");
+  });
+
+  test("backfilled bot-authored text is persisted unwrapped (assistant role)", async () => {
+    const conv = createTestConversation();
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "earlier assistant reply",
+        threadId: undefined,
+        sender: { id: "U_BOT", name: "Douglas" },
+        metadata: { isBot: true },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+    });
+
+    const [persisted] = readPersistedSlackRows(conv.id).filter(
+      (p) => p.channelTs === "1234.0",
+    );
+    expect(persisted).toBeDefined();
+    expect(persisted.role).toBe("assistant");
+    expect(persisted.rawContent).toBe("earlier assistant reply");
+    expect(persisted.rawContent).not.toContain("<external_content");
+  });
+
+  test("backfilled non-bot message with empty text is persisted unwrapped", async () => {
+    const conv = createTestConversation();
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "",
+        threadId: undefined,
+        sender: { id: "U_QUIET", name: "Quiet User" },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+    });
+
+    const [persisted] = readPersistedSlackRows(conv.id).filter(
+      (p) => p.channelTs === "1234.0",
+    );
+    expect(persisted).toBeDefined();
+    expect(persisted.rawContent).toBe("");
+    expect(persisted.rawContent).not.toContain("<external_content");
   });
 
   test("latest stored thread message at or after inbound ts skips backfill using parsed Slack timestamps", async () => {

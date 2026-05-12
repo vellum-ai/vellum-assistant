@@ -20,7 +20,12 @@ import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-polic
 import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import { getAttachmentsByIds } from "../../memory/attachments-store.js";
+import {
+  attachInlineAttachmentToMessage,
+  AttachmentUploadError,
+  getAttachmentsByIds,
+  validateAttachmentUpload,
+} from "../../memory/attachments-store.js";
 import {
   recordConversationSeenSignal,
   type SignalType,
@@ -45,11 +50,13 @@ import {
 import { markProcessed } from "../../memory/delivery-status.js";
 import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
+import { withSlackBotToken } from "../../messaging/providers/slack/adapter.js";
 import {
   backfillDm,
   backfillThreadWindowPage,
   type SlackBackfillWindowPage,
 } from "../../messaging/providers/slack/backfill.js";
+import { downloadSlackFile } from "../../messaging/providers/slack/download.js";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
@@ -1445,9 +1452,19 @@ async function persistBackfilledSlackMessage(params: {
   conversationId: string;
   channelId: string;
   message: ProviderMessage;
+  account?: string;
 }): Promise<void> {
   const { message } = params;
-  const slackFiles = readSlackFilesFromProviderMetadata(message.metadata);
+  const slackFilesWithUrls = readSlackFilesWithUrlsFromProviderMetadata(
+    message.metadata,
+  );
+  // Persisted shape strips the transient URL fields; only `{ id, name,
+  // mimetype }` is allowed by `slackFileMetadataSchema`.
+  const slackFiles: SlackFileMetadata[] = slackFilesWithUrls.map((f) => ({
+    ...(f.id ? { id: f.id } : {}),
+    name: f.name,
+    ...(f.mimetype ? { mimetype: f.mimetype } : {}),
+  }));
   const slackMeta: SlackMessageMetadata = {
     source: "slack",
     channelId: params.channelId,
@@ -1457,18 +1474,118 @@ async function persistBackfilledSlackMessage(params: {
     ...(message.sender?.name ? { displayName: message.sender.name } : {}),
     ...(slackFiles.length > 0 ? { slackFiles } : {}),
   };
-  const role = message.metadata?.isBot === true ? "assistant" : "user";
-  await addMessage(params.conversationId, role, message.text ?? "", {
-    slackMeta: writeSlackMetadata(slackMeta),
+
+  const isBot = message.metadata?.isBot === true;
+  const role = isBot ? "assistant" : "user";
+
+  // Non-bot backfilled messages enter the model context wrapped in
+  // `<external_content>` boundaries — same contract as the live inbound
+  // path (`inbound-message-handler.ts:~1105`). Bot/assistant turns are
+  // left unwrapped so they read as normal assistant history.
+  const rawText = message.text ?? "";
+  const textForPersist =
+    !isBot && rawText.length > 0
+      ? wrapUntrustedContent(rawText, {
+          source: "webhook",
+          ...(message.sender?.name
+            ? { sourceDetail: message.sender.name }
+            : {}),
+        })
+      : rawText;
+
+  const persisted = await addMessage(
+    params.conversationId,
+    role,
+    textForPersist,
+    {
+      slackMeta: writeSlackMetadata(slackMeta),
+    },
+  );
+
+  // Hydrate image attachments inline so the model receives them as
+  // `type: "image"` content blocks instead of only seeing the text marker
+  // `[attached file: <name>, <mimetype>]` produced by the transcript
+  // renderer. Non-image files keep the marker; Aaron explicitly scoped
+  // this fix to images.
+  const imageFiles = slackFilesWithUrls.filter(
+    (f) =>
+      (f.urlPrivateDownload || f.urlPrivate) &&
+      typeof f.mimetype === "string" &&
+      f.mimetype.startsWith("image/"),
+  );
+  if (imageFiles.length === 0) return;
+
+  const hydrated = await withSlackBotToken(params.account, async (token) => {
+    for (let i = 0; i < imageFiles.length; i++) {
+      const file = imageFiles[i];
+      try {
+        const downloaded = await downloadSlackFile(file, token);
+        if (!downloaded) continue;
+        const validation = validateAttachmentUpload(
+          downloaded.filename,
+          downloaded.mimeType,
+        );
+        if (!validation.ok) {
+          log.warn(
+            {
+              filename: downloaded.filename,
+              mimeType: downloaded.mimeType,
+              error: validation.error,
+              channelTs: message.id,
+            },
+            "Skipping backfilled Slack image: validation failed",
+          );
+          continue;
+        }
+        attachInlineAttachmentToMessage(
+          persisted.id,
+          i,
+          downloaded.filename,
+          downloaded.mimeType,
+          downloaded.data,
+        );
+      } catch (err) {
+        if (err instanceof AttachmentUploadError) {
+          log.warn(
+            { filename: file.name, error: err.message, channelTs: message.id },
+            "Skipping backfilled Slack image: upload error",
+          );
+          continue;
+        }
+        log.warn(
+          { err, fileId: file.id, name: file.name, channelTs: message.id },
+          "Failed to hydrate backfilled Slack image; proceeding without it",
+        );
+      }
+    }
+    return true;
   });
+  if (hydrated === null) {
+    log.debug(
+      { conversationId: params.conversationId, channelTs: message.id },
+      "No Slack token available for backfill image hydration; skipping",
+    );
+  }
 }
 
-function readSlackFilesFromProviderMetadata(
+/**
+ * Transient view of `slackFiles` that preserves the download URLs added by
+ * `mapSlackFiles` on the in-flight `ProviderMessage`. These URLs never reach
+ * persisted storage — see `slackFileMetadataSchema`. The backfill image
+ * hydration path is the only consumer; readers of the persisted DB row use
+ * `readSlackFilesFromProviderMetadata` which strips them.
+ */
+interface SlackFileWithUrls extends SlackFileMetadata {
+  urlPrivateDownload?: string;
+  urlPrivate?: string;
+}
+
+function readSlackFilesWithUrlsFromProviderMetadata(
   metadata: Record<string, unknown> | undefined,
-): SlackFileMetadata[] {
+): SlackFileWithUrls[] {
   const raw = metadata?.slackFiles;
   if (!Array.isArray(raw)) return [];
-  const files: SlackFileMetadata[] = [];
+  const files: SlackFileWithUrls[] = [];
   for (const item of raw) {
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
       continue;
@@ -1483,6 +1600,13 @@ function readSlackFilesFromProviderMetadata(
       name,
       ...(typeof record.mimetype === "string" && record.mimetype.length > 0
         ? { mimetype: record.mimetype }
+        : {}),
+      ...(typeof record.urlPrivateDownload === "string" &&
+      record.urlPrivateDownload.length > 0
+        ? { urlPrivateDownload: record.urlPrivateDownload }
+        : {}),
+      ...(typeof record.urlPrivate === "string" && record.urlPrivate.length > 0
+        ? { urlPrivate: record.urlPrivate }
         : {}),
     });
   }
@@ -1573,6 +1697,7 @@ async function runBackfillSlackDmIfCold(params: {
           conversationId: params.conversationId,
           channelId: params.channelId,
           message,
+          ...(params.account ? { account: params.account } : {}),
         });
         seen.add(message.id);
         written++;
@@ -2132,6 +2257,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
           conversationId,
           channelId,
           message,
+          ...(account ? { account } : {}),
         });
         threadState.storedChannelTs.add(message.id);
         persisted++;
