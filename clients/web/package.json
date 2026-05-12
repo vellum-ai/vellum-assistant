@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.0.1",
+  "version": "0.8.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "dev": "bun src/server.ts",
+    "local": "bun src/server.ts",
     "lint": "eslint",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"

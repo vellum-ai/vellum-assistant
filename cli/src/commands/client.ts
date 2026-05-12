@@ -1,4 +1,6 @@
-import { hostname } from "os";
+import { existsSync } from "node:fs";
+import { hostname } from "node:os";
+import path from "node:path";
 
 import {
   findAssistantByName,
@@ -22,7 +24,6 @@ import {
   readPlatformToken,
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
-import { startWebServer } from "@vellumai/web";
 
 const SUPPORTED_INTERFACES = ["cli", "web"] as const;
 type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
@@ -224,6 +225,66 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
 `);
 }
 
+/**
+ * Walk up from this file's location to find a sibling `clients/web` package.
+ *
+ * Returns the absolute path to its directory, or null when not found —
+ * e.g. when the CLI is installed via npm/bunx, where the `clients/web`
+ * source isn't shipped alongside `@vellumai/cli`. For now we treat the
+ * `--interface web` path as source-checkout-only.
+ */
+function findClientsWebDir(): string | null {
+  let dir = import.meta.dir;
+  for (let depth = 0; depth < 8; depth++) {
+    const candidate = path.join(dir, "clients", "web", "package.json");
+    if (existsSync(candidate)) {
+      return path.dirname(candidate);
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+/**
+ * Spawn the `clients/web` package's `local` script and proxy its lifecycle.
+ *
+ * The web client is deliberately not declared as a dependency of `@vellumai/cli`:
+ * the CLI is published, the web package is not. Locating it on disk and
+ * shelling out keeps the two packages independent.
+ */
+async function runWebInterface(): Promise<void> {
+  const webDir = findClientsWebDir();
+  if (!webDir) {
+    console.error(
+      `${ANSI.bold}--interface web${ANSI.reset}: unable to locate ` +
+        `clients/web. This interface currently requires running ` +
+        `vellum from a source checkout of vellum-assistant.`,
+    );
+    process.exit(1);
+  }
+
+  const child = Bun.spawn({
+    cmd: ["bun", "run", "local"],
+    cwd: webDir,
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+
+  const forward = (signal: "SIGINT" | "SIGTERM"): void => {
+    try {
+      child.kill(signal);
+    } catch {
+      // Child already exited; nothing to forward.
+    }
+  };
+  process.on("SIGINT", () => forward("SIGINT"));
+  process.on("SIGTERM", () => forward("SIGTERM"));
+
+  const exitCode = await child.exited;
+  process.exit(typeof exitCode === "number" ? exitCode : 0);
+}
+
 export async function client(): Promise<void> {
   const {
     runtimeUrl,
@@ -238,20 +299,7 @@ export async function client(): Promise<void> {
   } = parseArgs();
 
   if (interfaceId === WEB_INTERFACE_ID) {
-    const server = await startWebServer({ port: 3000 });
-    const url = `http://localhost:${server.port}`;
-    console.log(`${ANSI.bold}Vellum web client${ANSI.reset} running at ${url}`);
-    console.log(`${ANSI.dim}Press Ctrl+C to stop.${ANSI.reset}`);
-
-    const shutdown = (): void => {
-      console.log(`\n${ANSI.dim}Disconnecting…${ANSI.reset}`);
-      void server.stop().then(() => process.exit(0));
-    };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
-
-    // Keep alive until a shutdown signal arrives.
-    await new Promise<void>(() => {});
+    await runWebInterface();
     return;
   }
 
