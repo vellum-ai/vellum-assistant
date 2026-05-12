@@ -72,7 +72,6 @@ export const LLMCallSiteEnum = z.enum([
   "meetConsentMonitor",
   "meetChatOpportunity",
   "inference",
-  "feedEventCopy",
   "trustRuleSuggestion",
   "proactiveArtifactDecision",
   "proactiveArtifactBuild",

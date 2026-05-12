@@ -1009,6 +1009,7 @@ function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 }
 
 /**
+/**
  * Persist the pre-chat onboarding payload to disk.
  *
  * Runs only on the very first message of a fresh conversation. Four

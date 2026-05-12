@@ -9,16 +9,15 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
-import { processMessage } from "../daemon/process-message.js";
-import { emitFeedEvent } from "../home/emit-feed-event.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation, getMessages } from "../memory/conversation-crud.js";
 import { GENERATING_TITLE } from "../memory/conversation-title-service.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
   resolveGuardianPersona,
 } from "../prompts/persona-resolver.js";
 import { isTemplateContent } from "../prompts/system-prompt.js";
+import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { computeNextRunAt } from "../schedule/recurrence-engine.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
@@ -244,17 +243,29 @@ export class HeartbeatService {
         if (!isDiskPressureBackgroundLocked("heartbeat-startup")) {
           const total = this._startupMissedCount + this._startupCrashedCount;
           const today = new Date().toISOString().split("T")[0];
-          void emitFeedEvent({
-            source: "assistant",
-            title: "Heartbeat Runs Missed",
-            summary: `${total} heartbeat run${
-              total > 1 ? "s were" : " was"
-            } missed while the assistant was offline.`,
-            dedupKey: `heartbeat:missed:${today}`,
-            priority: 55,
-            urgency: "high",
+          void emitNotificationSignal({
+            sourceChannel: "scheduler",
+            sourceContextId: "heartbeat",
+            sourceEventName: "activity.failed",
+            dedupeKey: `activity-failed:heartbeat-missed:${today}`,
+            contextPayload: {
+              jobName: "heartbeat",
+              errorMessage: `${total} heartbeat run${
+                total > 1 ? "s were" : " was"
+              } missed while the assistant was offline.`,
+              errorKind: "exception",
+            },
+            attentionHints: {
+              requiresAction: false,
+              urgency: "medium",
+              isAsyncBackground: true,
+              visibleInSourceNow: false,
+            },
           }).catch((err) => {
-            log.warn({ err }, "Failed to emit missed heartbeat feed event");
+            log.warn(
+              { err },
+              "Failed to emit missed-heartbeat activity.failed notification",
+            );
           });
         }
       }
@@ -473,58 +484,23 @@ export class HeartbeatService {
       return false;
     }
 
+    // The runner enforces its own timeout internally, so we don't need an
+    // outer Promise.race here. The activeRun guard prevents a wedged run
+    // from spawning concurrent heartbeat work; the runner's timeout is
+    // what actually unblocks the in-flight run.
     if (!runId) {
       runId = insertPendingHeartbeatRun(scheduledFor);
     }
     const run = this.executeRun(runId, scheduledFor);
     this.activeRun = run;
-    // Clear activeRun once executeRun finishes. On timeout, runOnce releases
-    // activeRun separately (see catch block below) so future runs aren't
-    // permanently blocked. The .finally() handler still serves as the
-    // normal-completion cleanup path and uses an identity guard to avoid
-    // clearing a different run's activeRun.
-    run
-      .finally(() => {
-        if (this.activeRun === run) {
-          this.activeRun = null;
-        }
-      })
-      .catch(() => {}); // Suppress unhandled rejection if executeRun rejects
-
-    let timerId: ReturnType<typeof setTimeout> | undefined;
     try {
-      const timeout = new Promise<never>((_, reject) => {
-        timerId = setTimeout(
-          () => reject(new Error("Heartbeat execution timed out")),
-          HEARTBEAT_TIMEOUT_MS,
-        );
-      });
-      timeout.catch(() => {}); // Prevent unhandled rejection if run resolves first
-      await Promise.race([run, timeout]);
+      await run;
     } catch (err) {
-      log.warn({ err }, "Heartbeat run timed out");
-      // Release activeRun so the overlap guard doesn't permanently block
-      // future heartbeat runs when executeRun hangs past the timeout.
-      this.activeRun = null;
-      const transitioned = runId
-        ? completeHeartbeatRun(runId, {
-            status: "timeout",
-            error: "Heartbeat execution exceeded the 30-minute timeout",
-          })
-        : false;
-      if (transitioned) {
-        const today = new Date().toISOString().split("T")[0];
-        void emitFeedEvent({
-          source: "assistant",
-          title: "Heartbeat Timed Out",
-          summary: "Heartbeat execution exceeded the 30-minute timeout.",
-          dedupKey: `heartbeat:timeout:${today}`,
-          priority: 55,
-          urgency: "high",
-        }).catch(() => {});
-      }
+      log.warn({ err }, "Heartbeat run threw");
     } finally {
-      clearTimeout(timerId);
+      if (this.activeRun === run) {
+        this.activeRun = null;
+      }
       this._lastRunAt = Date.now();
       if (!this.cronMode) {
         this.scheduleNextRun(getConfig().heartbeat.intervalMs);
@@ -732,48 +708,69 @@ export class HeartbeatService {
     // names so the prompt can instruct the LLM to skip those providers.
     const unhealthyProviders = await this.runCredentialHealthCheck();
 
+    const checklist = this.readChecklist();
+    const completedRunCount = countCompletedHeartbeatRuns();
+    const { prompt, includedReengagement } = this.buildPrompt(
+      checklist,
+      unhealthyProviders,
+      completedRunCount,
+    );
+
+    // Centralized boundary wrapper: handles bootstrap, processMessage,
+    // timeout, and emits `activity.failed` on any failure path. Never
+    // re-throws — failures come back as a structured result.
+    //
+    // The runner fires `onConversationCreated` synchronously after
+    // bootstrap so the macOS sidebar gets the new conversation
+    // immediately rather than waiting up to HEARTBEAT_TIMEOUT_MS for
+    // the LLM turn to finish. We forward to `deps.onConversationCreated`
+    // for every run; "silent OK" is enforced by NOT emitting any
+    // notification signal further down, not by hiding the conversation.
     let conversationId: string | undefined;
-    try {
-      const checklist = this.readChecklist();
-      const completedRunCount = countCompletedHeartbeatRuns();
-      const { prompt, includedReengagement } = this.buildPrompt(
-        checklist,
-        unhealthyProviders,
-        completedRunCount,
-      );
+    const result = await runBackgroundJob({
+      jobName: "heartbeat",
+      source: "heartbeat",
+      prompt,
+      systemHint: "Heartbeat",
+      trustContext: {
+        sourceChannel: "vellum",
+        trustClass: "guardian",
+      },
+      callSite: "heartbeatAgent",
+      timeoutMs: HEARTBEAT_TIMEOUT_MS,
+      origin: "heartbeat",
+      onConversationCreated: (newConversationId) => {
+        conversationId = newConversationId;
+        this.deps.onConversationCreated?.({
+          conversationId: newConversationId,
+          title: "Heartbeat",
+        });
+      },
+    });
 
-      const conversation = bootstrapConversation({
-        conversationType: "background",
-        source: "heartbeat",
-        groupId: "system:background",
-        origin: "heartbeat",
-        systemHint: "Heartbeat",
-      });
-      conversationId = conversation.id;
-
-      await processMessage(conversation.id, prompt, undefined, {
-        trustContext: {
-          sourceChannel: "vellum",
-          trustClass: "guardian",
-        },
-        callSite: "heartbeatAgent",
-      });
-
+    if (result.ok) {
       if (includedReengagement) {
         recordReengagementTimestamp();
       }
+      log.info(
+        { conversationId: result.conversationId },
+        "Heartbeat completed",
+      );
 
-      log.info({ conversationId: conversation.id }, "Heartbeat completed");
-
+      // Mark the run record as ok and surface any disposition-driven
+      // alert the assistant decided to raise. The runner owns failure
+      // emission via `activity.failed`; success-side surfacing (alerts,
+      // late warnings) lives here so it can read the actual conversation
+      // contents.
       const transitioned = completeHeartbeatRun(runId, {
         status: "ok",
-        conversationId,
+        conversationId: result.conversationId,
       });
 
       if (transitioned) {
         let title = "Heartbeat";
         try {
-          const row = getConversation(conversation.id);
+          const row = getConversation(result.conversationId);
           if (row?.title && row.title !== GENERATING_TITLE) {
             title = row.title;
           }
@@ -782,72 +779,73 @@ export class HeartbeatService {
         }
 
         const assistantMessage = this.getLatestAssistantMessage(
-          conversation.id,
+          result.conversationId,
         );
         const disposition = parseHeartbeatDisposition(
           assistantMessage?.text ?? null,
         );
         if (disposition === "alert") {
-          this.deps.onConversationCreated?.({
-            conversationId: conversation.id,
-            title,
-          });
+          // Conversation was already surfaced via the runner's bootstrap
+          // callback above; alert just needs to emit the notification.
           void this.emitHeartbeatAlertNotification({
             runId,
-            conversationId: conversation.id,
+            conversationId: result.conversationId,
             messageId: assistantMessage?.id,
             conversationTitle: title,
             summary: buildHeartbeatAlertSummary(assistantMessage?.text ?? null),
           }).catch((err) => {
             log.warn(
-              { err, conversationId: conversation.id },
+              { err, conversationId: result.conversationId },
               "Failed to emit heartbeat alert notification",
             );
           });
         }
 
-        const today = new Date().toISOString().split("T")[0];
         if (latenessMs > LATE_THRESHOLD_MS) {
           const lateMinutes = Math.round(latenessMs / 60_000);
-          void emitFeedEvent({
-            source: "assistant",
-            title: "Heartbeat Ran Late",
-            summary: `Heartbeat ran ${lateMinutes} minutes late (scheduled for ${new Date(scheduledFor).toLocaleTimeString()}).`,
-            dedupKey: `heartbeat:late:${today}`,
-            priority: 45,
-            urgency: "medium",
-          }).catch(() => {});
+          log.warn(
+            {
+              latenessMs,
+              lateMinutes,
+              scheduledFor,
+              runId,
+            },
+            "Heartbeat ran late",
+          );
         }
       }
-    } catch (err) {
-      log.error({ err }, "Heartbeat failed");
+      return;
+    }
 
-      const transitioned = completeHeartbeatRun(runId, {
-        status: "error",
-        conversationId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+    log.error(
+      { err: result.error, errorKind: result.errorKind },
+      "Heartbeat failed",
+    );
 
-      if (transitioned) {
-        try {
-          this.deps.alerter({
-            type: "heartbeat_alert",
-            title: "Heartbeat Failed",
-            body: err instanceof Error ? err.message : String(err),
-          });
-        } catch (alertErr) {
-          log.error({ alertErr }, "Failed to broadcast heartbeat alert");
-        }
+    // The runner has already emitted `activity.failed` for the failure;
+    // we still record the run-level error and broadcast the in-app
+    // heartbeat alert so the existing surfacing keeps working.
+    // Map the runner's error classification onto the run-store's status
+    // enum so the run history preserves the timeout / error distinction.
+    const runStatus = result.errorKind === "timeout" ? "timeout" : "error";
+    const transitioned = completeHeartbeatRun(runId, {
+      status: runStatus,
+      conversationId: conversationId ?? result.conversationId,
+      error: result.error?.message ?? "Unknown error",
+    });
 
-        const today = new Date().toISOString().split("T")[0];
-        void emitFeedEvent({
-          source: "assistant",
+    // Only fire the in-app alerter when our completion is the one that
+    // actually wrote — otherwise a parallel finalizer (e.g. a startup
+    // recovery sweep) already alerted for this run.
+    if (transitioned) {
+      try {
+        this.deps.alerter({
+          type: "heartbeat_alert",
           title: "Heartbeat Failed",
-          summary: `Heartbeat check failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`,
-          dedupKey: `heartbeat:fail:${today}`,
-          priority: 55,
-          urgency: "high",
-        }).catch(() => {});
+          body: result.error?.message ?? "Unknown error",
+        });
+      } catch (alertErr) {
+        log.error({ alertErr }, "Failed to broadcast heartbeat alert");
       }
     }
   }

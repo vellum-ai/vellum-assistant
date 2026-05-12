@@ -14,8 +14,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HomeF
 /// - Subscribes to the shared `ServerMessage` stream and re-fetches when the
 ///   daemon broadcasts `homeFeedUpdated`.
 /// - Re-fetches when the app returns to the foreground, passing the measured
-///   time-away so the daemon can apply `minTimeAway` gates and compose the
-///   context banner.
+///   time-away so the daemon can compose the context banner.
 /// - Applies optimistic status updates locally, rolling back on server error.
 ///
 /// The store deliberately leaves `items` / `contextBanner` untouched on
@@ -49,6 +48,16 @@ public final class HomeFeedStore {
     @ObservationIgnored var sseTask: Task<Void, Never>?
     @ObservationIgnored private var lifecycleObservers: [NSObjectProtocol] = []
 
+    /// Optional callback fired by ``HomeFeedStore+SSE`` after a
+    /// `homeFeedUpdated` SSE event lands. Wired in production to
+    /// ``HomeStore.flagUnseenChanges()`` when the Home tab is not the
+    /// active panel, so the toolbar's unread dot lights up on
+    /// off-surface activity. Optional so existing call sites that
+    /// don't care about cross-store wiring (the test fixtures, plus
+    /// any future surface that just wants the feed) can keep using
+    /// the original two-argument initializer.
+    @ObservationIgnored let onSSEUpdate: (@MainActor () -> Void)?
+
     /// Moment the user last stepped away from the app (from
     /// `willResignActive`). Consumed by the next `load()` as
     /// `timeAwaySeconds = now - lastAwayAt` and then cleared — the
@@ -65,9 +74,14 @@ public final class HomeFeedStore {
 
     // MARK: - Lifecycle
 
-    public init(client: HomeFeedClient, messageStream: AsyncStream<ServerMessage>) {
+    public init(
+        client: HomeFeedClient,
+        messageStream: AsyncStream<ServerMessage>,
+        onSSEUpdate: (@MainActor () -> Void)? = nil
+    ) {
         self.client = client
         self.messageStream = messageStream
+        self.onSSEUpdate = onSSEUpdate
         startListening()
         observeLifecycle()
     }
@@ -246,16 +260,13 @@ public final class HomeFeedStore {
             priority: item.priority,
             title: item.title,
             summary: item.summary,
-            source: item.source,
             timestamp: item.timestamp,
             status: status,
             expiresAt: item.expiresAt,
-            minTimeAway: item.minTimeAway,
             actions: item.actions,
             urgency: item.urgency,
             conversationId: item.conversationId,
             detailPanel: item.detailPanel,
-            author: item.author,
             createdAt: item.createdAt
         )
     }

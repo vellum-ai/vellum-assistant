@@ -3,13 +3,13 @@ import XCTest
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
-/// Unit tests for ``HomePageView/groupedFeed(for:)``.
+/// Unit tests for ``HomePageView/groupedFeed``.
 ///
-/// The grouping pipeline (sort → filter → bucket → group) is wired through
-/// `HomePageView` but its behaviour is pure — no view lifecycle is
-/// required. These tests instantiate the view with in-memory stores and
-/// call the helper directly, so they stay hermetic and don't depend on the
-/// SwiftUI rendering path.
+/// The grouping pipeline (sort → filter-dismissed → bucket → group) is
+/// wired through `HomePageView` but its behaviour is pure — no view
+/// lifecycle is required. These tests instantiate the view with in-memory
+/// stores and read the helper directly, so they stay hermetic and don't
+/// depend on the SwiftUI rendering path.
 @MainActor
 final class HomePageViewGroupingTests: XCTestCase {
 
@@ -17,7 +17,7 @@ final class HomePageViewGroupingTests: XCTestCase {
 
     private func makeItem(
         id: String,
-        type: FeedItemType = .digest,
+        type: FeedItemType = .notification,
         priority: Int,
         createdAt: Date = Date(timeIntervalSince1970: 1_760_000_000)
     ) -> FeedItem {
@@ -27,14 +27,11 @@ final class HomePageViewGroupingTests: XCTestCase {
             priority: priority,
             title: "t-\(id)",
             summary: "s-\(id)",
-            source: nil,
             timestamp: createdAt,
             status: .new,
             expiresAt: nil,
-            minTimeAway: nil,
             actions: nil,
             urgency: nil,
-            author: .assistant,
             createdAt: createdAt
         )
     }
@@ -51,8 +48,7 @@ final class HomePageViewGroupingTests: XCTestCase {
                 timeAwayLabel: "",
                 newCount: 0
             ),
-            suggestedPrompts: [],
-            lowPriorityCollapsed: LowPriorityCollapsed(count: 0, itemIds: [])
+            suggestedPrompts: []
         )
         let client = MockHomeFeedClient(response: response)
         let (stream, _) = AsyncStream<ServerMessage>.makeStream()
@@ -75,7 +71,7 @@ final class HomePageViewGroupingTests: XCTestCase {
     /// Constructs a fully-specialized `HomePageView` wired to the supplied
     /// feed store. All callbacks are no-ops and `detailPanel` resolves to
     /// `EmptyView` — the tests never exercise the view body, just the
-    /// pure `groupedFeed(for:)` helper.
+    /// pure `groupedFeed` helper.
     private func makeView(feedStore: HomeFeedStore) -> HomePageView<EmptyView> {
         HomePageView<EmptyView>(
             store: makeHomeStore(),
@@ -92,23 +88,27 @@ final class HomePageViewGroupingTests: XCTestCase {
 
     // MARK: - Tests
 
-    func test_groupedFeed_collapsesLowPriorityDigests() async {
-        // Five contiguous low-priority digests should collapse into a
-        // single `.group` row with ≥ 3 children. The two normal items
-        // (nudge/action) render as `.single` rows, regardless of bucket.
+    func test_groupedFeed_collapsesLowPriorityRun() async {
+        // Five contiguous low-priority items should collapse into a
+        // single `.group` row with ≥ 3 children. The two high-priority
+        // items render as `.single` rows, regardless of bucket.
+        //
+        // Pre-v2 the eligibility check also required `type == .digest`;
+        // the schema collapsed types to a single `.notification` case so
+        // low-priority is now the sole grouping signal.
         let items: [FeedItem] = [
-            makeItem(id: "nudge",  type: .nudge,  priority: 90),
-            makeItem(id: "action", type: .action, priority: 80),
-            makeItem(id: "d1",     type: .digest, priority: 20),
-            makeItem(id: "d2",     type: .digest, priority: 15),
-            makeItem(id: "d3",     type: .digest, priority: 10),
-            makeItem(id: "d4",     type: .digest, priority: 7),
-            makeItem(id: "d5",     type: .digest, priority: 5),
+            makeItem(id: "high1", priority: 90),
+            makeItem(id: "high2", priority: 80),
+            makeItem(id: "low1",  priority: 20),
+            makeItem(id: "low2",  priority: 15),
+            makeItem(id: "low3",  priority: 10),
+            makeItem(id: "low4",  priority: 7),
+            makeItem(id: "low5",  priority: 5),
         ]
         let feedStore = await makeFeedStore(items: items)
         let view = makeView(feedStore: feedStore)
 
-        let buckets = view.groupedFeed(for: nil)
+        let buckets = view.groupedFeed
         let allRows = buckets.flatMap { $0.rows }
 
         let groupRows = allRows.compactMap { row -> [FeedItem]? in
@@ -116,45 +116,10 @@ final class HomePageViewGroupingTests: XCTestCase {
             return nil
         }
 
-        XCTAssertFalse(groupRows.isEmpty, "Expected at least one .group row for the low-priority digest run")
+        XCTAssertFalse(groupRows.isEmpty, "Expected at least one .group row for the low-priority run")
         XCTAssertTrue(
             groupRows.contains(where: { $0.count >= 3 }),
-            "Expected a .group row with ≥ 3 children (digest run had 5 items)"
+            "Expected a .group row with ≥ 3 children (low-priority run had 5 items)"
         )
-    }
-
-    func test_groupedFeed_respectsTypeFilter() async {
-        // Same fixture as the collapse test. With `filter = .digest` the
-        // digest run is retained and still collapses into a group. With
-        // `filter = .nudge` only the single nudge row survives — no
-        // digest run means no `.group` emission.
-        let items: [FeedItem] = [
-            makeItem(id: "nudge",  type: .nudge,  priority: 90),
-            makeItem(id: "action", type: .action, priority: 80),
-            makeItem(id: "d1",     type: .digest, priority: 20),
-            makeItem(id: "d2",     type: .digest, priority: 15),
-            makeItem(id: "d3",     type: .digest, priority: 10),
-            makeItem(id: "d4",     type: .digest, priority: 7),
-            makeItem(id: "d5",     type: .digest, priority: 5),
-        ]
-        let feedStore = await makeFeedStore(items: items)
-        let view = makeView(feedStore: feedStore)
-
-        let digestOnly = view.groupedFeed(for: .digest).flatMap { $0.rows }
-        XCTAssertTrue(
-            digestOnly.contains(where: {
-                if case .group = $0 { return true } else { return false }
-            }),
-            "Filtering to .digest should still produce a grouped row"
-        )
-
-        let nudgeOnly = view.groupedFeed(for: .nudge).flatMap { $0.rows }
-        XCTAssertFalse(
-            nudgeOnly.contains(where: {
-                if case .group = $0 { return true } else { return false }
-            }),
-            "Filtering to .nudge should emit no grouped rows (digests are filtered out before grouping)"
-        )
-        XCTAssertEqual(nudgeOnly.count, 1, "Only the single nudge should survive the filter")
     }
 }

@@ -26,11 +26,9 @@ import {
   type FeedItem,
   feedItemSchema,
   type FeedItemStatus,
-  lowPriorityCollapsedSchema,
   suggestedPromptSchema,
 } from "../../home/feed-types.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
-import { runRollupProducer } from "../../home/rollup-producer.js";
 import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
 import {
   addMessage,
@@ -41,26 +39,6 @@ import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("home-feed-routes");
-
-/**
- * Debounce window for the on-visit rollup refresh. A GET on the feed
- * route fires the rollup producer fire-and-forget at most once per
- * window — repeat GETs within this interval (e.g. from a client that
- * polls aggressively, or from multiple panels opening in rapid
- * succession) skip the trigger and just return the cached feed.
- */
-const ON_VISIT_REFRESH_DEBOUNCE_MS = 10 * 60 * 1000;
-
-let lastOnVisitRefreshAt = 0;
-
-/**
- * Reset the on-visit debounce gate. Test-only — production callers
- * should never touch this. Exported with an underscore-prefixed name
- * so lint rules can flag misuse.
- */
-export function __resetOnVisitRefreshStateForTests(): void {
-  lastOnVisitRefreshAt = 0;
-}
 
 // ---------------------------------------------------------------------------
 // Response / request schemas
@@ -77,7 +55,6 @@ const getHomeFeedResponseSchema = z.object({
   updatedAt: z.string(),
   contextBanner: contextBannerSchema,
   suggestedPrompts: z.array(suggestedPromptSchema),
-  lowPriorityCollapsed: lowPriorityCollapsedSchema,
 });
 
 const patchFeedItemRequestSchema = z.object({
@@ -139,26 +116,17 @@ export async function handleGetHomeFeed({
   const timeAwaySeconds = parsed;
 
   const feed = readHomeFeed();
-  const filtered = feed.items.filter((item) => {
-    if (item.minTimeAway === undefined) return true;
-    return item.minTimeAway <= timeAwaySeconds;
-  });
-
-  const LOW_PRIORITY_THRESHOLD = 30;
-  const lowPriorityItems = filtered.filter(
-    (item) => item.priority < LOW_PRIORITY_THRESHOLD,
-  );
+  // v2 schema dropped per-item `minTimeAway` gating; surface every item
+  // and let the client decide what to render based on its own
+  // session state. `timeAwaySeconds` survives only to feed the
+  // context-banner relative-time label.
+  const filtered = feed.items;
 
   const now = new Date();
   const contextBanner = {
     greeting: computeGreeting(now),
     timeAwayLabel: formatRelativeTime(timeAwaySeconds),
     newCount: filtered.filter((i) => i.status === "new").length,
-  };
-
-  const lowPriorityCollapsed = {
-    count: lowPriorityItems.length,
-    itemIds: lowPriorityItems.map((item) => item.id),
   };
 
   const suggestedPrompts = await getSuggestedPrompts();
@@ -168,58 +136,18 @@ export async function handleGetHomeFeed({
       timeAwayBucket: timeAwayBucket(timeAwaySeconds),
       totalItems: feed.items.length,
       filteredItems: filtered.length,
-      lowPriorityCount: lowPriorityItems.length,
       newCount: contextBanner.newCount,
       suggestedPromptsCount: suggestedPrompts.length,
     },
     "GET /v1/home/feed",
   );
 
-  maybeTriggerOnVisitRollupRefresh(now);
-
   return {
     items: filtered,
     updatedAt: feed.updatedAt,
     contextBanner,
     suggestedPrompts,
-    lowPriorityCollapsed,
   };
-}
-
-function maybeTriggerOnVisitRollupRefresh(now: Date): void {
-  const nowMs = now.getTime();
-  if (nowMs - lastOnVisitRefreshAt < ON_VISIT_REFRESH_DEBOUNCE_MS) return;
-  const previousRefreshAt = lastOnVisitRefreshAt;
-  lastOnVisitRefreshAt = nowMs;
-  void runRollupProducer(now)
-    .then((result) => {
-      const skippedBeforeLLM =
-        result.skippedReason === "no_provider" ||
-        result.skippedReason === "no_actions" ||
-        result.skippedReason === "in_flight";
-      if (skippedBeforeLLM) {
-        if (lastOnVisitRefreshAt === nowMs) {
-          lastOnVisitRefreshAt = previousRefreshAt;
-        }
-        log.debug(
-          { skippedReason: result.skippedReason },
-          "On-visit rollup refresh skipped; debounce gate rolled back",
-        );
-      } else if (result.skippedReason !== null) {
-        log.debug(
-          { skippedReason: result.skippedReason },
-          "On-visit rollup refresh skipped",
-        );
-      } else {
-        log.info(
-          { wroteCount: result.wroteCount },
-          "On-visit rollup refresh completed",
-        );
-      }
-    })
-    .catch((err) => {
-      log.warn({ err }, "On-visit rollup refresh failed");
-    });
 }
 
 export async function handlePatchFeedItem({
@@ -309,7 +237,7 @@ export const ROUTES: RouteDefinition[] = [
         type: "integer",
         required: true,
         description:
-          "Seconds since the user was last active in the client. Used to filter items with a `minTimeAway` gate and to compute the context-banner relative-time label.",
+          "Seconds since the user was last active in the client. Used to compute the context-banner relative-time label.",
       },
     ],
     responseBody: getHomeFeedResponseSchema,

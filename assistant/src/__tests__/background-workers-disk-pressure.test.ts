@@ -191,7 +191,6 @@ mock.module("../memory/cleanup-schedule-state.js", () => ({
   markScheduledCleanupEnqueued: mock(() => {}),
 }));
 
-const { startFeedScheduler } = await import("../home/feed-scheduler.js");
 const { runMemoryJobsOnce } = await import("../memory/jobs-worker.js");
 const { FilingService } = await import("../filing/filing-service.js");
 const { WorkspaceHeartbeatService } =
@@ -204,27 +203,6 @@ describe("background workers disk pressure gate", () => {
     mockFailStalledJobs.mockClear();
     mockClaimMemoryJobs.mockClear();
     mockMaybeRunDbMaintenance.mockClear();
-  });
-
-  test("home feed scheduler skips producers while locked", async () => {
-    const gmailDigestRunner = mock(async () => null);
-    const rollupRunner = mock(async () => ({
-      wroteCount: 1,
-      skippedReason: "empty_items" as const,
-    }));
-    const handle = startFeedScheduler({
-      runOnStart: false,
-      gmailCountSource: async () => 0,
-      gmailDigestRunner,
-      rollupRunner,
-    });
-
-    const summary = await handle.runOnce(new Date("2026-05-05T12:00:00.000Z"));
-    handle.stop();
-
-    expect(summary).toEqual({ gmailDigestRan: false, rollupRan: false });
-    expect(gmailDigestRunner).not.toHaveBeenCalled();
-    expect(rollupRunner).not.toHaveBeenCalled();
   });
 
   test("memory jobs worker skips before claiming or maintenance writes", async () => {

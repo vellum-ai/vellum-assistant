@@ -63,6 +63,10 @@ mock.module("../memory/conversation-crud.js", () => ({
     createdConversations.push(opts);
     return { id: "conv-1", ...opts };
   },
+  // runBackgroundJob (loaded transitively via heartbeat-service) imports
+  // addMessage. Disk-pressure short-circuits before addMessage ever runs,
+  // but the mock module must still expose every name the real module does.
+  addMessage: () => Promise.resolve({ id: "mock-msg-id" }),
 }));
 
 const mockProcessMessage = mock(() => Promise.resolve({ messageId: "msg-1" }));
@@ -70,9 +74,11 @@ mock.module("../daemon/process-message.js", () => ({
   processMessage: mockProcessMessage,
 }));
 
-const mockEmitFeedEvent = mock(() => Promise.resolve());
-mock.module("../home/emit-feed-event.js", () => ({
-  emitFeedEvent: mockEmitFeedEvent,
+const emittedNotificationSignals: Array<{ sourceEventName?: string }> = [];
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async (opts: { sourceEventName?: string }) => {
+    emittedNotificationSignals.push({ sourceEventName: opts.sourceEventName });
+  },
 }));
 
 mock.module("../prompts/persona-resolver.js", () => ({
@@ -131,10 +137,10 @@ describe("HeartbeatService disk pressure gate", () => {
     mockMarkStaleRunningAsError.mockClear();
     mockMarkStaleRunningAsError.mockImplementation(() => 0);
     mockProcessMessage.mockClear();
-    mockEmitFeedEvent.mockClear();
+    emittedNotificationSignals.length = 0;
   });
 
-  test("skips without creating heartbeat rows, conversations, or feed events", async () => {
+  test("skips without creating heartbeat rows, conversations, or notifications", async () => {
     const service = new HeartbeatService({
       alerter: () => {},
     });
@@ -148,7 +154,7 @@ describe("HeartbeatService disk pressure gate", () => {
     expect(mockSkipHeartbeatRun).not.toHaveBeenCalled();
     expect(createdConversations).toHaveLength(0);
     expect(mockProcessMessage).not.toHaveBeenCalled();
-    expect(mockEmitFeedEvent).not.toHaveBeenCalled();
+    expect(emittedNotificationSignals).toHaveLength(0);
   });
 
   test("allows forced user-initiated heartbeat runs while locked", async () => {
@@ -168,7 +174,7 @@ describe("HeartbeatService disk pressure gate", () => {
     expect(mockProcessMessage).toHaveBeenCalledTimes(1);
   });
 
-  test("start recovery skips missed-run feed events while locked", async () => {
+  test("start recovery skips missed-run notifications while locked", async () => {
     mockMarkStaleRunsAsMissed.mockImplementationOnce(() => 1);
     const service = new HeartbeatService({
       alerter: () => {},
@@ -178,6 +184,6 @@ describe("HeartbeatService disk pressure gate", () => {
     await service.stop();
 
     expect(mockMarkStaleRunsAsMissed).toHaveBeenCalledTimes(1);
-    expect(mockEmitFeedEvent).not.toHaveBeenCalled();
+    expect(emittedNotificationSignals).toHaveLength(0);
   });
 });

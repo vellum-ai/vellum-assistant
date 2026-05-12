@@ -16,10 +16,6 @@ mock.module("../runtime/agent-wake.js", () => ({
   ),
 }));
 
-mock.module("../home/emit-feed-event.js", () => ({
-  emitFeedEvent: mock(() => Promise.resolve()),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({}),
   loadConfig: () => ({}),

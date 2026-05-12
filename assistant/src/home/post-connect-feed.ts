@@ -37,16 +37,14 @@ export async function emitPostConnectNudge(service: string): Promise<void> {
 
   const item: FeedItem = {
     id: `connect-nudge:${service}`,
-    type: "nudge",
+    type: "notification",
     priority: 70,
     title: "Gmail connected — want ongoing help?",
     summary:
       "I can triage your inbox, summarize new emails, or draft replies to important threads.",
-    source: "gmail",
     timestamp: now.toISOString(),
     status: "new",
     expiresAt,
-    author: "platform",
     createdAt: now.toISOString(),
     actions: [
       {

@@ -219,12 +219,6 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Handles conversational approval flows.",
     domain: "ui",
   },
-  feedEventCopy: {
-    id: "feedEventCopy",
-    displayName: "Feed Event Copy",
-    description: "Generates copy for home feed event cards.",
-    domain: "ui",
-  },
   trustRuleSuggestion: {
     id: "trustRuleSuggestion",
     displayName: "Trust Rule Suggestion",

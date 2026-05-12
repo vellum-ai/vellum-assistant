@@ -5,13 +5,11 @@ import VellumAssistantShared
 /// panel can read item fields directly — no secondary lookup in `feedStore`
 /// required.
 ///
-/// `resolve(for:)` centralizes the dispatch rules that were previously
-/// scattered across `HomePageView.openItem(_:)` and
-/// `PanelCoordinator.homePanelView(…)`, so every call site agrees on which
-/// items produce panels and which fall through to the conversation flow.
+/// `resolve(for:)` mirrors the cases of the wire-contract
+/// ``FeedItemDetailPanelKind`` 1:1 plus a `.generic` fallback for items
+/// that don't carry an explicit panel descriptor — every tap opens some
+/// kind of detail view.
 enum HomeDetailPanelKind: Equatable {
-    case scheduled(FeedItem)
-    case nudge(FeedItem)
     case emailDraft(FeedItem)
     case documentPreview(FeedItem)
     case permissionChat(FeedItem)
@@ -21,8 +19,8 @@ enum HomeDetailPanelKind: Equatable {
     case generic(FeedItem)
 
     /// Resolves from the wire-contract `detailPanel` field when present,
-    /// otherwise falls back to type+source heuristics, and finally to a
-    /// generic panel so every feed item opens a detail view on tap.
+    /// otherwise falls back to a generic panel so every feed item opens a
+    /// detail view on tap.
     static func resolve(for item: FeedItem) -> HomeDetailPanelKind {
         if let panel = item.detailPanel {
             switch panel.kind {
@@ -35,13 +33,6 @@ enum HomeDetailPanelKind: Equatable {
             }
         }
 
-        switch item.type {
-        case .thread where item.source == .calendar:
-            return .scheduled(item)
-        case .nudge:
-            return .nudge(item)
-        default:
-            return .generic(item)
-        }
+        return .generic(item)
     }
 }
