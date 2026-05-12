@@ -465,129 +465,52 @@ struct ComposerView: View, Equatable {
 
             Spacer()
 
-            // Right side: attach, stop/voice/mic, send
-            if isAssistantBusy && !hasPendingConfirmation {
-                VButton(
-                    label: "Stop generation",
-                    iconOnly: VIcon.square.rawValue,
-                    style: .primary,
-                    iconSize: composerActionButtonSize,
-                    action: onStop
-                )
-            } else if inputText.isEmpty && !hasPendingConfirmation {
-                if !isAssistantBusy {
-                    VButton(
-                        label: "Attach file",
-                        iconOnly: VIcon.paperclip.rawValue,
-                        style: .ghost,
-                        iconSize: composerActionButtonSize,
-                        action: { onAttach() }
-                    )
-                    .vTooltip("Attach file")
-                }
+            // Right side: attach, voice/mic, stop-or-send
 
-                if onVoiceModeToggle != nil {
-                    VButton(
-                        label: "Voice mode",
-                        iconOnly: VIcon.audioWaveform.rawValue,
-                        style: .ghost,
-                        iconSize: composerActionButtonSize,
-                        action: { onVoiceModeToggle?() }
-                    )
-                    .vTooltip("Live voice conversation")
-                }
+            VButton(
+                label: "Attach file",
+                iconOnly: VIcon.paperclip.rawValue,
+                style: .ghost,
+                iconSize: composerActionButtonSize,
+                action: { onAttach() }
+            )
+            .vTooltip("Attach file")
 
+            if inputText.isEmpty && onVoiceModeToggle != nil {
                 VButton(
-                    label: isRecording ? "Stop recording" : "Dictate",
-                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
+                    label: "Voice mode",
+                    iconOnly: VIcon.audioWaveform.rawValue,
                     style: .ghost,
                     iconSize: composerActionButtonSize,
-                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                    action: { onVoiceModeToggle?() }
                 )
-                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
+                .vTooltip("Live voice conversation")
+            }
 
-                if !isRecording {
+            VButton(
+                label: isRecording ? "Stop recording" : "Dictate",
+                iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
+                style: .ghost,
+                iconSize: composerActionButtonSize,
+                action: { (onDictateToggle ?? onMicrophoneToggle)() }
+            )
+            .vTooltip(isRecording ? "Stop recording" : micTooltipText)
+
+            if !isRecording {
+                if isAssistantBusy && !canSend && !hasPendingConfirmation {
+                    VButton(
+                        label: "Stop generation",
+                        iconOnly: VIcon.square.rawValue,
+                        style: .primary,
+                        iconSize: composerActionButtonSize,
+                        action: onStop
+                    )
+                } else {
                     VButton(
                         label: "Send message",
                         iconOnly: VIcon.arrowUp.rawValue,
                         style: .primary,
-                        isDisabled: !canSend,
-                        iconSize: composerActionButtonSize
-                    ) {
-                        composerFocus = true
-                        performSendAction()
-                    }
-                    .vTooltip("Type a message to send")
-                }
-            } else if !hasPendingConfirmation {
-                VButton(
-                    label: "Attach file",
-                    iconOnly: VIcon.paperclip.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { onAttach() }
-                )
-                .vTooltip("Attach file")
-
-                VButton(
-                    label: isRecording ? "Stop recording" : "Dictate",
-                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
-                )
-                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
-
-                if !isRecording {
-                    VButton(
-                        label: "Send message",
-                        iconOnly: VIcon.arrowUp.rawValue,
-                        style: .primary,
-                        isDisabled: !canSend,
-                        iconSize: composerActionButtonSize
-                    ) {
-                        composerFocus = true
-                        performSendAction()
-                    }
-                    .vTooltip(canSend ? "Send" : "Type a message to send")
-                }
-            } else {
-                // Pending confirmation
-                VButton(
-                    label: "Attach file",
-                    iconOnly: VIcon.paperclip.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { onAttach() }
-                )
-                .vTooltip("Attach file")
-
-                if onVoiceModeToggle != nil {
-                    VButton(
-                        label: "Voice mode",
-                        iconOnly: VIcon.audioWaveform.rawValue,
-                        style: .ghost,
-                        iconSize: composerActionButtonSize,
-                        action: { onVoiceModeToggle?() }
-                    )
-                    .vTooltip("Live voice conversation")
-                }
-
-                VButton(
-                    label: isRecording ? "Stop recording" : "Dictate",
-                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
-                )
-                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
-
-                if !isRecording {
-                    VButton(
-                        label: "Send message",
-                        iconOnly: VIcon.arrowUp.rawValue,
-                        style: .primary,
-                        isDisabled: !canSend,
+                        isDisabled: !canSend && !isAssistantBusy,
                         iconSize: composerActionButtonSize
                     ) {
                         composerFocus = true
