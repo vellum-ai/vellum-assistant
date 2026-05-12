@@ -32,6 +32,7 @@ import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
 import { IngressConfigSchema } from "./schemas/ingress.js";
 import { JournalConfigSchema } from "./schemas/journal.js";
 import { LLMSchema } from "./schemas/llm.js";
+import { LlmRequestLogsConfigSchema } from "./schemas/llm-request-logs.js";
 import {
   AuditLogConfigSchema,
   LogFileConfigSchema,
@@ -81,6 +82,9 @@ export const AssistantConfigSchema = z
     // ensures the loader's leaf-deletion recovery path can repair a partially
     // invalid `llm` block without falling back to `cloneDefaultConfig()`.
     llm: LLMSchema.default(LLMSchema.parse({})),
+    llmRequestLogs: LlmRequestLogsConfigSchema.default(
+      LlmRequestLogsConfigSchema.parse({}),
+    ),
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),
