@@ -143,15 +143,26 @@ mock.module("../../credential-health/credential-health-service.js", () => ({
 // Stub the heartbeat-run-store so the tests don't need a populated SQLite
 // schema. Each function is a no-op that returns sensible defaults.
 let heartbeatRunIdCounter = 0;
+const skipHeartbeatRunCalls: Array<{ runId: string; reason: string }> = [];
 mock.module("../heartbeat-run-store.js", () => ({
   insertPendingHeartbeatRun: () => `heartbeat-run-${++heartbeatRunIdCounter}`,
   startHeartbeatRun: () => true,
   completeHeartbeatRun: () => true,
-  skipHeartbeatRun: () => {},
+  skipHeartbeatRun: (runId: string, reason: string) => {
+    skipHeartbeatRunCalls.push({ runId, reason });
+  },
   supersedePendingRun: () => {},
   markStaleRunsAsMissed: () => 0,
   markStaleRunningAsError: () => 0,
   countCompletedHeartbeatRuns: () => 10,
+}));
+
+// Stub the pre-first-message gate so tests can flip it on/off without
+// needing to seed the SQLite messages table. Defaults to OPEN so existing
+// tests (which assume the user has interacted) keep passing.
+let preFirstMessageGateOpen = true;
+mock.module("../../runtime/pre-first-message-gate.js", () => ({
+  hasReceivedUserMessage: () => preFirstMessageGateOpen,
 }));
 
 
@@ -165,6 +176,8 @@ beforeEach(() => {
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   publishSpy.mockClear();
   runBackgroundJobCalls.length = 0;
+  skipHeartbeatRunCalls.length = 0;
+  preFirstMessageGateOpen = true;
   runBackgroundJobImpl = async () => ({
     conversationId: STUB_CONVERSATION_ID,
     ok: true,
@@ -297,5 +310,50 @@ describe("HeartbeatService", () => {
     await service.runOnce({ force: true });
 
     expect(alerts).toHaveLength(0);
+  });
+
+  test("scheduled run skips with reason 'pre_first_user_message' when the user has not yet interacted", async () => {
+    preFirstMessageGateOpen = false;
+    const service = new HeartbeatService({
+      alerter: () => {},
+    });
+    // start() seeds `_pendingRunId` via `scheduleNextRun` so the skip is
+    // recorded with the pending run id. Without start() the test still
+    // passes the no-LLM-call assertion but the skip record would be a
+    // silent miss (the same `if (runId)` guard the existing "disabled"
+    // branch uses).
+    service.start();
+    skipHeartbeatRunCalls.length = 0;
+
+    try {
+      // A non-forced runOnce simulates the interval timer firing.
+      const result = await service.runOnce({ force: false });
+
+      expect(result).toBe(false);
+      expect(runBackgroundJobCalls).toHaveLength(0);
+      expect(
+        skipHeartbeatRunCalls.some(
+          (c) => c.reason === "pre_first_user_message",
+        ),
+      ).toBe(true);
+    } finally {
+      await service.stop();
+    }
+  });
+
+  test("forced run bypasses the pre-first-message gate (manual operator action)", async () => {
+    preFirstMessageGateOpen = false;
+    const service = new HeartbeatService({
+      alerter: () => {},
+    });
+
+    await service.runOnce({ force: true });
+
+    expect(runBackgroundJobCalls).toHaveLength(1);
+    expect(
+      skipHeartbeatRunCalls.some(
+        (c) => c.reason === "pre_first_user_message",
+      ),
+    ).toBe(false);
   });
 });

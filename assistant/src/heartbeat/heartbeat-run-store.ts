@@ -22,7 +22,8 @@ export type HeartbeatRunStatus =
 export type HeartbeatSkipReason =
   | "disabled"
   | "outside_active_hours"
-  | "overlap";
+  | "overlap"
+  | "pre_first_user_message";
 
 export interface HeartbeatRunRecord {
   id: string;
