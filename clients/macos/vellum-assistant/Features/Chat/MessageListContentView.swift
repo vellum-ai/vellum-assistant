@@ -167,25 +167,6 @@ struct MessageListContentView: View, Equatable {
         }
     }
 
-    @ViewBuilder
-    fileprivate func orphanSubagentGroup(isFlipped: Bool = true) -> some View {
-        if !state.orphanSubagents.isEmpty {
-            HStack(spacing: 0) {
-                SubagentGroupContainer(
-                    subagents: state.orphanSubagents,
-                    onAbort: { id in onAbortSubagent?(id) },
-                    onTap: { id in onSubagentTap?(id) }
-                )
-                Spacer(minLength: 0)
-            }
-            .id("orphan-subagent-group")
-            .transition(.opacity)
-            .if(isFlipped) { view in
-                view.flipped()
-            }
-        }
-    }
-
     // MARK: - Transcript row rendering
 
     /// Renders a single transcript row (either a real message cell or the
@@ -357,7 +338,6 @@ struct MessageListContentView: View, Equatable {
 
             if let anchorMessage = pinnedTurnPartition.anchorMessage,
                let anchorRow = rowsByMessageId[anchorMessage.id] {
-                orphanSubagentGroup()
 
                 PinnedLatestTurnSection(
                     contentView: self,
@@ -383,8 +363,6 @@ struct MessageListContentView: View, Equatable {
                 // at the visual bottom. Place current-activity indicators here.
                 latestEdgeSentinel()
                 latestEdgeActivityRow()
-
-                orphanSubagentGroup()
 
                 // ── Messages ──
                 ForEach(displayedItems.reversed()) { item in

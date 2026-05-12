@@ -20,105 +20,42 @@ struct SubagentDetailPanel: View {
     private var events: [SubagentEventItem] { state?.events ?? [] }
     private var isRunning: Bool { subagentInfo?.status == .running || subagentInfo?.status == .pending }
 
-    /// Available width for event content, measured from the panel's proposed
-    /// layout width (not from rendered content). Forwarded to
+    /// Available width measured from the panel's proposed layout width (not
+    /// from rendered content). Used to gate content rendering until the
+    /// layout has a valid width, and forwarded to
     /// `MarkdownSegmentView.maxContentWidth` so markdown wraps to the panel
     /// instead of the default `chatBubbleMaxWidth` (760pt).
     @State private var panelContentWidth: CGFloat = 0
 
     var body: some View {
         VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.titleSmall, onClose: onClose, pinnedContent: {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                // Status + abort row
-                HStack {
-                    statusBadge
-                    Spacer()
-                    if isRunning {
-                        Button(action: { onAbort?() }) {
-                            HStack(spacing: VSpacing.xxs) {
-                                VIconView(.square, size: 8)
-                                Text("Abort")
-                                    .font(VFont.labelDefault)
-                            }
-                            .foregroundStyle(VColor.systemNegativeStrong)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xxs)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.pill)
-                                    .fill(VColor.systemNegativeStrong.opacity(0.12))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Abort subagent")
-                    }
+            // Measure the panel's proposed width with a zero-height
+            // invisible view before rendering any content. This prevents
+            // the first-frame overflow where content renders at an
+            // unconstrained width before the panel's layout settles.
+            Color.clear
+                .frame(height: 0)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { newWidth in
+                    panelContentWidth = newWidth
                 }
 
-                // Objective
-                if let objective, !objective.isEmpty {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("OBJECTIVE")
-                            .font(VFont.labelSmall)
-                            .foregroundStyle(VColor.contentTertiary)
-                        Text(objective)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                    }
-                }
+            if panelContentWidth > 0 {
+                pinnedBody
 
-                // Usage metrics row
-                if let usage {
-                    usageMetrics(usage)
-                }
-
-                // Error banner
-                if let error = subagentInfo?.error, !error.isEmpty {
-                    HStack(alignment: .top, spacing: VSpacing.xs) {
-                        VIconView(.triangleAlert, size: 11)
-                            .foregroundStyle(VColor.systemNegativeStrong)
-                        Text(error)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.systemNegativeStrong)
-                    }
-                    .padding(VSpacing.sm)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(VColor.systemNegativeStrong.opacity(0.08))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .strokeBorder(VColor.systemNegativeStrong.opacity(0.2), lineWidth: 1)
-                            )
-                    )
-                }
+                Divider().background(VColor.borderBase)
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
-
-            Divider().background(VColor.borderBase)
         }) {
-            if events.isEmpty {
-                VEmptyState(
-                    title: "No events yet",
-                    subtitle: "Events will appear as the subagent runs",
-                    icon: "waveform.path"
-                )
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Captures the *proposed* (container) width independently
-                    // of event content. Color.clear fills exactly the proposed
-                    // width — it cannot overflow — so this avoids a feedback
-                    // loop where overflowing content inflates the measurement.
-                    Color.clear
-                        .frame(height: 0)
-                        .onGeometryChange(for: CGFloat.self) { proxy in
-                            proxy.size.width
-                        } action: { newWidth in
-                            panelContentWidth = newWidth
-                        }
-
-                    if panelContentWidth > 0 {
-                        eventList
-                    }
+            if panelContentWidth > 0 {
+                if events.isEmpty {
+                    VEmptyState(
+                        title: "No events yet",
+                        subtitle: "Events will appear as the subagent runs",
+                        icon: "waveform.path"
+                    )
+                } else {
+                    eventList
                 }
             }
         }
@@ -128,6 +65,77 @@ struct SubagentDetailPanel: View {
                 onRequestDetail?()
             }
         }
+    }
+
+    // MARK: - Pinned Content
+
+    @ViewBuilder
+    private var pinnedBody: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Status + abort row
+            HStack {
+                statusBadge
+                Spacer()
+                if isRunning {
+                    Button(action: { onAbort?() }) {
+                        HStack(spacing: VSpacing.xxs) {
+                            VIconView(.square, size: 8)
+                            Text("Abort")
+                                .font(VFont.labelDefault)
+                        }
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xxs)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.pill)
+                                .fill(VColor.systemNegativeStrong.opacity(0.12))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Abort subagent")
+                }
+            }
+
+            // Objective
+            if let objective, !objective.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("OBJECTIVE")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text(objective)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+            }
+
+            // Usage metrics row
+            if let usage {
+                usageMetrics(usage)
+            }
+
+            // Error banner
+            if let error = subagentInfo?.error, !error.isEmpty {
+                HStack(alignment: .top, spacing: VSpacing.xs) {
+                    VIconView(.triangleAlert, size: 11)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                    Text(error)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                }
+                .padding(VSpacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.systemNegativeStrong.opacity(0.08))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .strokeBorder(VColor.systemNegativeStrong.opacity(0.2), lineWidth: 1)
+                        )
+                )
+            }
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.lg)
     }
 
     // MARK: - Event List
