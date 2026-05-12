@@ -393,6 +393,43 @@ describe("handleUpsertContact (gateway-native)", () => {
     expect(params.displayName).toBe("Alice");
   });
 
+  test("strips role and principalId from request body (privilege escalation guard)", async () => {
+    // Regression: a malicious caller MUST NOT be able to rebind the guardian
+    // by sending `role: "guardian"` + their own principalId via POST
+    // /v1/contacts. The route handler must never pass those fields through
+    // to the service layer; ContactStore's params surface must not include
+    // them.
+    contactStoreUpsertMock = mock(async () => ({
+      contact: { ...DEFAULT_MOCK_CONTACT, id: "ct_target", role: "guardian" },
+      created: false,
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "ct_target",
+          displayName: "Pwn3d",
+          role: "guardian",
+          principalId: "attacker-principal-id",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(contactStoreUpsertMock).toHaveBeenCalledTimes(1);
+    const [params] = contactStoreUpsertMock.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(params.role).toBeUndefined();
+    expect(params.principalId).toBeUndefined();
+    // The other fields still flow through.
+    expect(params.id).toBe("ct_target");
+    expect(params.displayName).toBe("Pwn3d");
+  });
+
   test("returns 400 when body is invalid JSON", async () => {
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleUpsertContact(
