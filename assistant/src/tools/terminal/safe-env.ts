@@ -5,6 +5,8 @@
  *
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
+import { readFileSync } from "node:fs";
+
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
 
@@ -78,12 +80,27 @@ export const ALWAYS_INJECTED_ENV_VARS = [
   "VELLUM_WORKSPACE_DIR",
 ] as const;
 
+function isKataRuntime(): boolean {
+  if (process.env.VELLUM_SANDBOX_RUNTIME === "kata") {
+    return true;
+  }
+  if (process.env.IS_PLATFORM !== "1") {
+    return false;
+  }
+  try {
+    return readFileSync("/proc/mounts", "utf8")
+      .split("\n")
+      .some((line) => line.split(" ")[1] === "/var/lib/docker");
+  } catch {
+    return false;
+  }
+}
+
 export function buildSanitizedEnv(): Record<string, string> {
   const env: Record<string, string> = {};
-  const safeEnvVars =
-    process.env.VELLUM_SANDBOX_RUNTIME === "kata"
-      ? [...SAFE_ENV_VARS, ...KATA_SAFE_ENV_VARS]
-      : SAFE_ENV_VARS;
+  const safeEnvVars = isKataRuntime()
+    ? [...SAFE_ENV_VARS, ...KATA_SAFE_ENV_VARS]
+    : SAFE_ENV_VARS;
 
   for (const key of safeEnvVars) {
     if (process.env[key] != null) {

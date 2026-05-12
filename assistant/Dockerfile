@@ -154,7 +154,7 @@ ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
 RUN printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
-    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    'if ! /app/assistant/docker-is-kata-runtime.sh; then' \
     '  exec /usr/bin/apt-get "$@"' \
     'fi' \
     'export DEBIAN_FRONTEND=noninteractive' \
@@ -169,7 +169,7 @@ RUN printf '%s\n' \
     printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
-    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    'if ! /app/assistant/docker-is-kata-runtime.sh; then' \
     '  exec /usr/bin/apt "$@"' \
     'fi' \
     'export DEBIAN_FRONTEND=noninteractive' \
@@ -184,7 +184,7 @@ RUN printf '%s\n' \
     printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
-    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    'if ! /app/assistant/docker-is-kata-runtime.sh; then' \
     '  exec /usr/bin/dpkg "$@"' \
     'fi' \
     'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
@@ -210,7 +210,7 @@ ENV IS_CONTAINERIZED=true
 # and the generated meet-join manifest from the builder stage.
 COPY --from=builder /app /app
 
-RUN chmod +x /app/assistant/docker-entrypoint.sh /app/assistant/docker-init-apt-root.sh
+RUN chmod +x /app/assistant/docker-entrypoint.sh /app/assistant/docker-init-apt-root.sh /app/assistant/docker-is-kata-runtime.sh
 
 # Run the daemon + http server
 CMD ["/app/assistant/docker-entrypoint.sh"]

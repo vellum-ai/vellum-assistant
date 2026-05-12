@@ -5,7 +5,7 @@ DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
 SENTINEL="${DATA_ROOT}/.rootfs-initialized"
 HOST_PATH="/usr/sbin:/usr/bin:/sbin:/bin"
 
-if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then
+if ! /app/assistant/docker-is-kata-runtime.sh; then
   exit 0
 fi
 
