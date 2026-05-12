@@ -92,4 +92,6 @@ export interface ClassifyRiskParams {
   skillMetadata?: SkillMetadata;
   /** Tool registry default risk level for unknown tools. */
   registryDefaultRisk?: string;
+  /** Number of credential references attached to this tool invocation. */
+  credentialRefCount?: number;
 }
