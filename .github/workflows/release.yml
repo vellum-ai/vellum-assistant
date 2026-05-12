@@ -246,6 +246,10 @@ jobs:
         with:
           chrome-version: stable
 
+      - name: Install chrome-extension dependencies
+        working-directory: clients/chrome-extension
+        run: bun install --frozen-lockfile
+
       - name: Write CRX signing key
         env:
           CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
