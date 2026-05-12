@@ -5,6 +5,10 @@ DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
 SENTINEL="${DATA_ROOT}/.rootfs-initialized"
 HOST_PATH="/usr/sbin:/usr/bin:/sbin:/bin"
 
+if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then
+  exit 0
+fi
+
 # Bootstrap the alternate root with the host toolchain so the wrapper
 # binaries in /usr/local/bin do not recurse back into this script.
 export PATH="${HOST_PATH}"

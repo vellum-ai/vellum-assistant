@@ -46,6 +46,7 @@ export const SAFE_ENV_VARS = [
   "IS_CONTAINERIZED",
   "IS_PLATFORM",
   "VELLUM_CLOUD",
+  "VELLUM_SANDBOX_RUNTIME",
   "CES_SERVICE_TOKEN",
   "VELLUM_PROFILER_RUN_ID",
   "VELLUM_PROFILER_MODE",
@@ -57,6 +58,13 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MINIKUBE_STORAGE_SIZE",
   "VELLUM_BACKUP_DIR",
   "VELLUM_BACKUP_KEY_PATH",
+] as const;
+
+export const KATA_SAFE_ENV_VARS = [
+  "LD_LIBRARY_PATH",
+  "VELLUM_APT_DATA_ROOT",
+  "VELLUM_APT_DATA_SUITE",
+  "VELLUM_APT_DATA_MIRROR",
 ] as const;
 
 /**
@@ -72,7 +80,12 @@ export const ALWAYS_INJECTED_ENV_VARS = [
 
 export function buildSanitizedEnv(): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const key of SAFE_ENV_VARS) {
+  const safeEnvVars =
+    process.env.VELLUM_SANDBOX_RUNTIME === "kata"
+      ? [...SAFE_ENV_VARS, ...KATA_SAFE_ENV_VARS]
+      : SAFE_ENV_VARS;
+
+  for (const key of safeEnvVars) {
     if (process.env[key] != null) {
       env[key] = process.env[key]!;
     }

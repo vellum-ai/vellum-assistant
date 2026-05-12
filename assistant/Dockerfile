@@ -138,26 +138,25 @@ RUN groupadd --system --gid 1001 assistant && \
     useradd --system --uid 1001 --gid assistant --create-home --shell /bin/bash assistant && \
     echo "assistant ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Set up assistant home directory for local state (device.json, etc.) and a
-# persistent /data/system root for runtime-installed system packages.
-RUN mkdir -p /home/assistant/.vellum /data/system && \
-    chown -R assistant:assistant /home/assistant/.vellum /data && \
-    chmod a+rwx /data
+# Set up assistant home directory for local state (device.json, etc.)
+RUN mkdir -p /home/assistant/.vellum && \
+    chown -R assistant:assistant /home/assistant/.vellum
+
+# Update PATH for assistant user
+ENV PATH="/home/assistant/.bun/bin:${PATH}"
 
 # Configure package managers to use assistant home
 ENV BUN_INSTALL="/home/assistant/.bun"
-ENV PATH="/home/assistant/.bun/bin:${PATH}"
-ENV PYTHONUSERBASE="/home/assistant/.python"
 ENV PATH="${BUN_INSTALL}/bin:${PATH}"
+ENV PYTHONUSERBASE="/home/assistant/.python"
 ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
-ENV PATH="${PATH}:/data/system/bin:/data/system/usr/local/sbin:/data/system/usr/local/bin:/data/system/usr/sbin:/data/system/usr/bin:/data/system/sbin"
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV LD_LIBRARY_PATH="/data/system/usr/local/lib:/data/system/usr/lib:/data/system/usr/lib/x86_64-linux-gnu:/data/system/usr/lib/aarch64-linux-gnu"
 
 RUN printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
+    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    '  exec /usr/bin/apt-get "$@"' \
+    'fi' \
     'export DEBIAN_FRONTEND=noninteractive' \
     'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
     '/app/assistant/docker-init-apt-root.sh' \
@@ -170,6 +169,9 @@ RUN printf '%s\n' \
     printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
+    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    '  exec /usr/bin/apt "$@"' \
+    'fi' \
     'export DEBIAN_FRONTEND=noninteractive' \
     'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
     '/app/assistant/docker-init-apt-root.sh' \
@@ -182,6 +184,9 @@ RUN printf '%s\n' \
     printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
+    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    '  exec /usr/bin/dpkg "$@"' \
+    'fi' \
     'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
     '/app/assistant/docker-init-apt-root.sh' \
     'if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/dpkg" ] && [ -f "${DATA_ROOT}/.rootfs-initialized" ] && ! grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then' \
