@@ -47,6 +47,7 @@ import { registerTrustCommand } from "./commands/trust.js";
 import { registerTtsCommand } from "./commands/tts.js";
 import { registerUiCommand } from "./commands/ui.js";
 import { registerUsageCommand } from "./commands/usage.js";
+import { registerUseCommand } from "./commands/use/index.js";
 import { registerWatchersCommand } from "./commands/watchers.js";
 import { registerWebhooksCommand } from "./commands/webhooks.js";
 import { log } from "./logger.js";
@@ -117,6 +118,7 @@ Examples:
   registerTtsCommand(program);
   registerUiCommand(program);
   registerUsageCommand(program);
+  registerUseCommand(program);
   registerWatchersCommand(program);
   registerWebhooksCommand(program);
 
