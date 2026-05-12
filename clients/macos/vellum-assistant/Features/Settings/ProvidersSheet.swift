@@ -987,18 +987,35 @@ struct ProvidersSheet: View {
 
         switch editorState {
         case .create:
-            guard let created = await client.createProviderConnection(
+            let result = await client.createProviderConnection(
                 name: name,
                 provider: draft.provider,
                 auth: auth,
                 label: label,
                 status: status
-            ) else {
+            )
+            switch result {
+            case .created(let created):
+                connections.append(created)
+                editorState = nil
+            case .duplicate:
+                // 409 — surface the actual reason instead of the generic
+                // fallback so users immediately see that the key (the
+                // editor's "Key" field, which becomes the connection's
+                // unique name) collides with an existing connection.
+                actionError = "A connection named \"\(name)\" already exists."
+                return
+            case .invalid(let message):
+                // 400 — daemon often includes a useful structured reason
+                // (e.g. `Invalid provider "x". Valid: ...`). Surface it
+                // verbatim when present; fall back to a generic invalid
+                // message otherwise.
+                actionError = message ?? "Invalid configuration. Check the provider and auth settings."
+                return
+            case .error:
                 actionError = "Couldn't create connection. Please try again."
                 return
             }
-            connections.append(created)
-            editorState = nil
 
         case .edit(let originalName), .managedEdit(let originalName):
             // Managed-edit and user-edit share the same PATCH path. The auth
