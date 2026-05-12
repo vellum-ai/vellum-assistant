@@ -1296,6 +1296,57 @@ async function main() {
       auth: "edge",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
+
+    // ── Trust rules v3 — assistant-scoped variants ──
+    // Mirror the flat /v1/trust-rules routes for clients that use
+    // GatewayHTTPClient's auto-prefix (Swift TrustRuleClient and
+    // vellum-assistant-platform's web/src/lib/trust-rules/api.ts), which build
+    // URLs like /v1/assistants/<id>/trust-rules/. Without these, the request
+    // falls through to the runtime-proxy catch-all and the daemon serves 404
+    // on mutations (the daemon HTTP handlers were stripped by #28784).
+    //
+    // Trust rules are gateway-global, so the assistant id is matched and
+    // discarded. Same precedent as the assistant-scoped /v1/assistants/.../
+    // contacts DELETE route above.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
+      method: "GET",
+      auth: "edge",
+      handler: (req) => handleTrustRulesList(req),
+    },
+    {
+      // Must appear before the create entry and before the /:id catch-all
+      // so the literal /suggest segment is matched first.
+      path: /^\/v1\/assistants\/[^/]+\/trust-rules\/suggest\/?$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleTrustRulesSuggest(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleTrustRulesCreate(req),
+    },
+    {
+      // Reset must be registered before the /:id catch-all regex.
+      path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/reset\/?$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) => handleTrustRulesReset(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/?$/,
+      method: "PATCH",
+      auth: "edge",
+      handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) => handleTrustRulesDelete(req, params[0]),
+    },
   ];
 
   // Runtime proxy catch-all — must be last so specific routes are checked first.
