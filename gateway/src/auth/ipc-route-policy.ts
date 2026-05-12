@@ -77,6 +77,19 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["upgrade_broadcast", ["internal.write"], ["svc_gateway"]],
   ["workspace_commit", ["internal.write"], ["svc_gateway"]],
 
+  // Backups (incremental + destinations)
+  ["backup_destinations_add", ["settings.write"]],
+  ["backup_destinations_list", ["settings.read"]],
+  ["backup_destinations_remove", ["settings.write"]],
+  ["backup_destinations_set_encrypt", ["settings.write"]],
+  ["backup_disable", ["settings.write"]],
+  ["backup_enable", ["settings.write"]],
+  ["backup_status", ["settings.read"]],
+  ["backups_create", ["settings.write"]],
+  ["backups_list", ["settings.read"]],
+  ["backups_restore", ["settings.write"]],
+  ["backups_verify", ["settings.read"]],
+
   // Calls
   ["calls_answer", ["calls.write"]],
   ["calls_cancel", ["calls.write"]],
@@ -88,9 +101,41 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["channels_readiness_get", ["settings.read"]],
   ["channels_readiness_refresh_post", ["settings.write"]],
 
-  // Config / platform
+  // Config
+  ["config_allowlist_validate", ["settings.read"]],
   ["config_platform_get", ["settings.read"]],
   ["config_platform_put", ["settings.write"]],
+  ["config_schema_get", ["settings.read"]],
+  ["config_set", ["settings.write"]],
+
+  // Conversation CLI
+  ["conversation_create_cli", ["chat.write"]],
+  ["conversation_export_cli", ["chat.read"]],
+  ["conversation_list_cli", ["chat.read"]],
+  ["conversations_clear_cli", ["chat.write"]],
+
+  // Credentials
+  //
+  // ATL-510 separately tracks the credentials_reveal plaintext-leak
+  // concern (the handler returns the plaintext value, not just metadata).
+  // The IPC scope here mirrors the read/write split of every other
+  // credential operation; the plaintext-leak fix is a route-level change
+  // tracked under ATL-510, not a policy-table change.
+  ["credentials_delete", ["settings.write"]],
+  ["credentials_inspect", ["settings.read"]],
+  ["credentials_list", ["settings.read"]],
+  ["credentials_reveal", ["settings.read"]],
+  ["credentials_set", ["settings.write"]],
+  ["credentials_status", ["settings.read"]],
+
+  // Debug
+  //
+  // VELLUM_DEBUG=1 gates the handler at the daemon side — when debug
+  // mode is off (the default), the handler returns an error before
+  // executing any command. The IPC scope here is the defense-in-depth
+  // layer: it requires settings.write on the edge JWT in addition to
+  // the daemon-side VELLUM_DEBUG gate.
+  ["debug_bash", ["settings.write"]],
 
   // Diagnostics
   ["diagnostics_envvars_get", ["settings.read"]],
@@ -100,7 +145,43 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["messages_tts", ["chat.read"]],
   ["stt_providers", ["settings.read"]],
   ["stt_transcribe", ["chat.write"]],
+  ["stt_transcribe_file", ["chat.write"]],
   ["tts_synthesize", ["chat.read"]],
+  ["tts_synthesize_cli", ["chat.read"]],
+
+  // Domain
+  ["domain_register", ["settings.write"]],
+  ["domain_status", ["settings.read"]],
+
+  // Email
+  ["email_attachment_get", ["settings.read"]],
+  ["email_attachment_list", ["settings.read"]],
+  ["email_download", ["settings.read"]],
+  ["email_list", ["settings.read"]],
+  ["email_register", ["settings.write"]],
+  ["email_send", ["settings.write"]],
+  ["email_status", ["settings.read"]],
+  ["email_unregister", ["settings.write"]],
+
+  // Platform
+  ["platform_callback_routes_list", ["settings.read"]],
+  ["platform_callback_routes_register", ["settings.write"]],
+  ["platform_connect", ["settings.write"]],
+  ["platform_disconnect", ["settings.write"]],
+  ["platform_status", ["settings.read"]],
+
+  // Schedules
+  ["createSchedule", ["settings.write"]],
+
+  // Sequences
+  ["sequence_cancel_enrollment", ["settings.write"]],
+  ["sequence_get", ["settings.read"]],
+  ["sequence_guardrails_set", ["settings.write"]],
+  ["sequence_guardrails_show", ["settings.read"]],
+  ["sequence_list", ["settings.read"]],
+  ["sequence_pause", ["settings.write"]],
+  ["sequence_resume", ["settings.write"]],
+  ["sequence_stats", ["settings.read"]],
 
   // Documents
   ["getDocument", ["settings.read"]],

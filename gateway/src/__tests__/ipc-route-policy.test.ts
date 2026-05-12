@@ -65,3 +65,79 @@ describe("ipc-route-policy: inference provider connections", () => {
     expect(policy!.requiredScopes).toEqual(["settings.write"]);
   });
 });
+
+describe("ipc-route-policy: ATL-315 Batch 18 — new operationIds", () => {
+  // Batch 18 added IPC policy entries for operationIds shipped after the
+  // initial ATL-315 cutover. Without these entries, an authenticated edge
+  // JWT with only `chat.read` could reach sensitive routes (config writes,
+  // platform connect, schedule creation, credential mutations, sequence
+  // mutations, debug bash, etc.) by setting `X-Vellum-Proxy-Server: ipc`.
+  //
+  // These tests pin the scope mapping so a future refactor can't silently
+  // weaken it.
+
+  test.each([
+    // Reads — settings.read
+    ["backup_destinations_list", "settings.read"],
+    ["backup_status", "settings.read"],
+    ["backups_list", "settings.read"],
+    ["backups_verify", "settings.read"],
+    ["config_allowlist_validate", "settings.read"],
+    ["config_schema_get", "settings.read"],
+    ["credentials_inspect", "settings.read"],
+    ["credentials_list", "settings.read"],
+    ["credentials_reveal", "settings.read"],
+    ["credentials_status", "settings.read"],
+    ["domain_status", "settings.read"],
+    ["email_attachment_get", "settings.read"],
+    ["email_attachment_list", "settings.read"],
+    ["email_download", "settings.read"],
+    ["email_list", "settings.read"],
+    ["email_status", "settings.read"],
+    ["platform_callback_routes_list", "settings.read"],
+    ["platform_status", "settings.read"],
+    ["sequence_get", "settings.read"],
+    ["sequence_guardrails_show", "settings.read"],
+    ["sequence_list", "settings.read"],
+    ["sequence_stats", "settings.read"],
+
+    // Writes — settings.write
+    ["backup_destinations_add", "settings.write"],
+    ["backup_destinations_remove", "settings.write"],
+    ["backup_destinations_set_encrypt", "settings.write"],
+    ["backup_disable", "settings.write"],
+    ["backup_enable", "settings.write"],
+    ["backups_create", "settings.write"],
+    ["backups_restore", "settings.write"],
+    ["config_set", "settings.write"],
+    ["createSchedule", "settings.write"],
+    ["credentials_delete", "settings.write"],
+    ["credentials_set", "settings.write"],
+    ["debug_bash", "settings.write"],
+    ["domain_register", "settings.write"],
+    ["email_register", "settings.write"],
+    ["email_send", "settings.write"],
+    ["email_unregister", "settings.write"],
+    ["platform_callback_routes_register", "settings.write"],
+    ["platform_connect", "settings.write"],
+    ["platform_disconnect", "settings.write"],
+    ["sequence_cancel_enrollment", "settings.write"],
+    ["sequence_guardrails_set", "settings.write"],
+    ["sequence_pause", "settings.write"],
+    ["sequence_resume", "settings.write"],
+
+    // Conversation CLI — chat.read / chat.write
+    ["conversation_export_cli", "chat.read"],
+    ["conversation_list_cli", "chat.read"],
+    ["conversation_create_cli", "chat.write"],
+    ["conversations_clear_cli", "chat.write"],
+
+    // STT / TTS — mirror daemon HTTP scopes
+    ["stt_transcribe_file", "chat.write"],
+    ["tts_synthesize_cli", "chat.read"],
+  ] as const)("%s requires %s", (operationId, expectedScope) => {
+    const policy = getIpcRoutePolicy(operationId);
+    expect(policy).toBeDefined();
+    expect(policy!.requiredScopes).toEqual([expectedScope]);
+  });
+});
