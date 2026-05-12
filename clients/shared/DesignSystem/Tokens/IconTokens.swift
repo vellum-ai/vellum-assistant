@@ -243,6 +243,7 @@ public enum VIcon: String, CaseIterable, Sendable {
     case gitBranch = "lucide-git-branch"
     case gitPullRequest = "lucide-git-pull-request"
     case github = "lucide-github"
+    case discord = "simpleicons-discord"
     case compass = "lucide-compass"
     case house = "lucide-house"
     case zoomIn = "lucide-zoom-in"
@@ -258,9 +259,16 @@ public enum VIcon: String, CaseIterable, Sendable {
 
     // MARK: - Image Resolution
 
-    /// URL of the PDF file inside the resource bundle's `LucideIcons` directory.
+    /// URL of the PDF file inside the resource bundle. Lucide icons live in
+    /// `LucideIcons/`; brand icons prefixed with `simpleicons-` resolve from
+    /// `IntegrationLogos/` using the provider key (e.g. `simpleicons-discord`
+    /// → `IntegrationLogos/discord.pdf`).
     private var pdfURL: URL? {
-        Bundle.vellumShared.url(forResource: rawValue, withExtension: "pdf", subdirectory: "LucideIcons")
+        if rawValue.hasPrefix("simpleicons-") {
+            let providerKey = String(rawValue.dropFirst("simpleicons-".count))
+            return Bundle.vellumShared.url(forResource: providerKey, withExtension: "pdf", subdirectory: "IntegrationLogos")
+        }
+        return Bundle.vellumShared.url(forResource: rawValue, withExtension: "pdf", subdirectory: "LucideIcons")
     }
 
     /// SwiftUI `Image` resolved from the vendored PDF.

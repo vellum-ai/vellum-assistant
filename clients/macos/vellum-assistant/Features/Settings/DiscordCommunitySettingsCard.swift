@@ -36,7 +36,7 @@ struct DiscordCommunitySettingsCard: View {
                 }
                 VButton(
                     label: "Join Discord",
-                    leftIcon: VIcon.messagesSquare.rawValue,
+                    leftIcon: VIcon.discord.rawValue,
                     style: .primary
                 ) {
                     joined = true
