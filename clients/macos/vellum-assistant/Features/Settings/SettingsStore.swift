@@ -3513,6 +3513,8 @@ public final class SettingsStore: ObservableObject {
         var fragment: [String: Any] = ["status": normalizedStatus]
         if hasLabel {
             fragment["label"] = trimmedLabel
+        } else {
+            fragment["label"] = NSNull()
         }
         let success = await settingsClient.replaceInferenceProfile(
             name: name,
@@ -3525,8 +3527,9 @@ public final class SettingsStore: ObservableObject {
             if let index = profiles.firstIndex(where: { $0.name == name }) {
                 var updated = profiles[index]
                 if hasLabel {
-                    // Daemon stored the new label; mirror it locally.
                     updated.label = trimmedLabel
+                } else {
+                    updated.label = nil
                 }
                 // Local cache stores `nil` for active to match the rest
                 // of the codebase's nil-as-active convention. The wire
