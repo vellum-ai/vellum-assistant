@@ -209,10 +209,10 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to hooks directory");
     });
 
-    // ATL-534: plugins directory escalation. The external plugin loader
-    // auto-imports register.{ts,js} on daemon startup, so a routine
-    // file_write here could plant persistent code execution.
-    test("plugins directory itself is high (ATL-534)", async () => {
+    // Plugins directory escalation. The external plugin loader auto-imports
+    // register.{ts,js} on daemon startup, so a routine file_write here could
+    // plant persistent code execution.
+    test("plugins directory itself is high", async () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
@@ -223,7 +223,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to plugins directory");
     });
 
-    test("register.ts inside plugins directory is high (ATL-534)", async () => {
+    test("register.ts inside plugins directory is high", async () => {
       testSkillSourceDirs = [];
       const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
       const result = await classifyInput({
@@ -235,7 +235,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to plugins directory");
     });
 
-    test("package.json inside plugins directory is high (ATL-534)", async () => {
+    test("package.json inside plugins directory is high", async () => {
       testSkillSourceDirs = [];
       const pkgFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "package.json");
       const result = await classifyInput({
@@ -247,7 +247,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to plugins directory");
     });
 
-    test("path containing 'plugins' substring outside plugins dir is low (ATL-534)", async () => {
+    test("path containing 'plugins' substring outside plugins dir is low", async () => {
       // Guard against substring matching: a path like /workspace/plugins-data/
       // must NOT escalate, only paths under the exact plugins dir do.
       testSkillSourceDirs = [];
@@ -307,7 +307,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to hooks directory");
     });
 
-    test("plugins directory path is high (ATL-534)", async () => {
+    test("plugins directory path is high", async () => {
       testSkillSourceDirs = [];
       const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
       const result = await classifyInput({
@@ -416,7 +416,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to hooks directory");
     });
 
-    test("plugins directory is high (ATL-534)", async () => {
+    test("plugins directory is high", async () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "host_file_write",
@@ -426,7 +426,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to plugins directory");
     });
 
-    test("register.ts inside plugins directory is high (ATL-534)", async () => {
+    test("register.ts inside plugins directory is high", async () => {
       testSkillSourceDirs = [];
       const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
       const result = await classifyInput({
@@ -475,7 +475,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to hooks directory");
     });
 
-    test("plugins directory path is high (ATL-534)", async () => {
+    test("plugins directory path is high", async () => {
       testSkillSourceDirs = [];
       const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
       const result = await classifyInput({
@@ -544,7 +544,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Transfers to hooks directory");
     });
 
-    test("plugins directory is high (ATL-534)", async () => {
+    test("plugins directory is high", async () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "host_file_transfer",
@@ -554,7 +554,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Transfers to plugins directory");
     });
 
-    test("register.ts inside plugins directory is high (ATL-534)", async () => {
+    test("register.ts inside plugins directory is high", async () => {
       testSkillSourceDirs = [];
       const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
       const result = await classifyInput({

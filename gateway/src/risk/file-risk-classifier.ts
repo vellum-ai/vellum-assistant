@@ -17,12 +17,6 @@
  *   targets skill source code, the workspace hooks directory, or the user
  *   plugins directory.
  *
- * The user plugins escalation guards `<workspaceDir>/plugins/`, which the
- * external plugin loader scans at daemon startup. Without escalation a
- * routine `file_write` could plant `plugins/<name>/register.ts` (plus a
- * `package.json`) and obtain persistent code execution on next restart —
- * see ATL-534.
- *
  * Gateway adaptation: accepts a FileClassificationContext parameter instead
  * of importing assistant platform utilities directly. The assistant is
  * responsible for constructing the context from its config/platform modules
@@ -59,12 +53,7 @@ export interface FileClassificationContext {
   deprecatedDir: string;
   /** Absolute path to the workspace hooks directory. */
   hooksDir: string;
-  /**
-   * Absolute path to the user plugins directory (`<workspaceDir>/plugins/`).
-   * Writes here are escalated to High because the external plugin loader
-   * auto-imports any `register.{ts,js}` it finds on daemon startup — see
-   * ATL-534.
-   */
+  /** Absolute path to the user plugins directory. */
   pluginsDir: string;
   /**
    * Absolute paths of all skill source root directories (managed, bundled,
@@ -142,7 +131,7 @@ function isHooksPath(
  * directory (or IS the plugins directory itself). Mirrors {@link isHooksPath}
  * because the user plugins loader has the same threat model: any file under
  * `<pluginsDir>/<name>/` may be dynamic-imported at next daemon startup, so a
- * write here must be treated as code-injection risk. See ATL-534.
+ * write here must be treated as code-injection risk.
  */
 function isPluginsPath(
   resolvedPath: string,

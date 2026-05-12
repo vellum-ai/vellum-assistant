@@ -272,7 +272,7 @@ export function getWorkspaceHooksDir(): string {
  * Returns `<workspaceDir>/plugins` — the directory scanned by the user plugin
  * loader at daemon startup. Writes here are security-sensitive: any
  * `register.{ts,js}` will be dynamic-imported on next restart, so the file
- * risk classifier escalates writes under this path to High. See ATL-534.
+ * risk classifier escalates writes under this path to High.
  */
 export function getWorkspacePluginsDir(): string {
   return join(getWorkspaceDir(), "plugins");

@@ -52,11 +52,6 @@ export interface FileContext {
   protectedDir: string;
   deprecatedDir: string;
   hooksDir: string;
-  /**
-   * Absolute path to `<workspaceDir>/plugins/`. Writes here are escalated to
-   * High because the external plugin loader auto-imports `register.{ts,js}`
-   * at daemon startup. See ATL-534.
-   */
   pluginsDir: string;
   actorTokenSigningKeyPath: string;
   skillSourceDirs: string[];
