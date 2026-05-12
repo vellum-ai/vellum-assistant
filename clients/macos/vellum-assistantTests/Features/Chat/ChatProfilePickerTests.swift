@@ -12,7 +12,7 @@ final class ChatProfilePickerTests: XCTestCase {
         let profiles = [InferenceProfile(name: "balanced")]
         XCTAssertEqual(
             ChatProfilePicker.label(current: nil, profiles: profiles, activeProfile: "balanced"),
-            "Default (balanced)"
+            "Default (Balanced)"
         )
     }
 
@@ -23,7 +23,7 @@ final class ChatProfilePickerTests: XCTestCase {
         ]
         XCTAssertEqual(
             ChatProfilePicker.label(current: "quality-optimized", profiles: profiles, activeProfile: "balanced"),
-            "quality-optimized"
+            "Quality Optimized"
         )
     }
 
@@ -31,7 +31,7 @@ final class ChatProfilePickerTests: XCTestCase {
         let profiles = [InferenceProfile(name: "cost-optimized")]
         XCTAssertEqual(
             ChatProfilePicker.label(current: nil, profiles: profiles, activeProfile: "cost-optimized"),
-            "Default (cost-optimized)"
+            "Default (Cost Optimized)"
         )
     }
 

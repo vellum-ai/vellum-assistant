@@ -222,9 +222,29 @@ final class InferenceProfileTests: XCTestCase {
         XCTAssertFalse(profile.isManaged)
     }
 
-    func testDisplayNameFallsBackToNameWhenLabelIsNil() {
+    func testDisplayNameFallsBackToTitleCasedNameWhenLabelIsNil() {
         let profile = InferenceProfile(name: "my-profile")
-        XCTAssertEqual(profile.displayName, "my-profile")
+        XCTAssertEqual(profile.displayName, "My Profile")
+    }
+
+    func testDisplayNameFallsBackToTitleCasedNameWhenLabelIsEmptyString() {
+        let profile = InferenceProfile(name: "quality-optimized", label: "")
+        XCTAssertEqual(profile.displayName, "Quality Optimized")
+    }
+
+    func testDisplayNameFallsBackToTitleCasedNameWhenLabelIsWhitespace() {
+        let profile = InferenceProfile(name: "custom-balanced", label: "   ")
+        XCTAssertEqual(profile.displayName, "Custom Balanced")
+    }
+
+    func testTitleCasedHandlesCommonIdentifierShapes() {
+        XCTAssertEqual(InferenceProfile.titleCased("balanced"), "Balanced")
+        XCTAssertEqual(InferenceProfile.titleCased("quality-optimized"), "Quality Optimized")
+        XCTAssertEqual(InferenceProfile.titleCased("custom_balanced"), "Custom Balanced")
+        XCTAssertEqual(InferenceProfile.titleCased("custom-quality-optimized"), "Custom Quality Optimized")
+        XCTAssertEqual(InferenceProfile.titleCased("  spaced  name  "), "Spaced Name")
+        XCTAssertEqual(InferenceProfile.titleCased("---"), "---")
+        XCTAssertEqual(InferenceProfile.titleCased(""), "")
     }
 
     func testSubtitleIsNilWhenDescriptionIsNil() {

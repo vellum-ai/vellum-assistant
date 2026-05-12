@@ -95,8 +95,41 @@ public struct InferenceProfile: Hashable, Identifiable {
     public var isDisabled: Bool { status == "disabled" }
 
     /// Label for pickers and list rows. Prefers the explicit `label`
-    /// (e.g. "Quality") and falls back to `name`.
-    public var displayName: String { label ?? name }
+    /// (e.g. "Quality") and falls back to a title-cased rendering of
+    /// `name` when `label` is missing or blank.
+    ///
+    /// Treating empty / whitespace-only `label` as missing — not just `nil`
+    /// — keeps the fallback robust against any code path that might set
+    /// `label = ""` without going through the JSON decoder's normalization.
+    /// The title-case step makes the fallback presentable since `name` is a
+    /// stable identifier and is typically kebab- or snake-cased
+    /// (e.g. `"quality-optimized"` → `"Quality Optimized"`).
+    public var displayName: String {
+        if let label, !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return label
+        }
+        return Self.titleCased(name)
+    }
+
+    /// Renders a profile identifier as a human-readable label by splitting
+    /// on common separators (`-`, `_`, whitespace) and capitalising the
+    /// first character of each part. Returns the input unchanged when no
+    /// non-separator parts remain (e.g. an empty string or `"---"`).
+    ///
+    /// Examples:
+    /// - `"balanced"` → `"Balanced"`
+    /// - `"quality-optimized"` → `"Quality Optimized"`
+    /// - `"custom_balanced"` → `"Custom Balanced"`
+    static func titleCased(_ identifier: String) -> String {
+        let separators = CharacterSet(charactersIn: "-_").union(.whitespacesAndNewlines)
+        let parts = identifier
+            .components(separatedBy: separators)
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return identifier }
+        return parts
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
 
     /// Optional secondary text for list row subtitles.
     public var subtitle: String? { profileDescription }
