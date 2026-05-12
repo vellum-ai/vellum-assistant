@@ -340,4 +340,46 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         )
         XCTAssertEqual(sentinelSel.map(\.name), ["balanced"])
     }
+
+    // MARK: - Toggle-on profile seeding
+
+    /// When the user toggles a call-site override ON, the row must seed the
+    /// draft from the same filtered list the picker shows — not from
+    /// `profiles.first` which can be disabled. Codex P1 / Devin finding on
+    /// PR #30349.
+    func testToggleOnSkipsDisabledProfileWhenActivesExist() {
+        // Disabled profile sorts first; an active profile follows.
+        let profiles = [
+            InferenceProfile(name: "legacy", status: "disabled"),
+            InferenceProfile(name: "balanced"),
+        ]
+
+        let candidates = CallSiteOverrideRow.visibleProfilesForPicker(profiles)
+        XCTAssertEqual(
+            candidates.first?.name,
+            "balanced",
+            "toggle-on must skip disabled profiles even when they sort first"
+        )
+    }
+
+    /// When every profile is disabled the picker yields nothing, so the
+    /// toggle-on path falls back to `profiles.first` rather than silently
+    /// dropping into a custom fragment the user never asked for.
+    func testToggleOnFallsBackToFirstWhenAllProfilesDisabled() {
+        let allDisabled = [
+            InferenceProfile(name: "legacy", status: "disabled"),
+            InferenceProfile(name: "old", status: "disabled"),
+        ]
+
+        let candidates = CallSiteOverrideRow.visibleProfilesForPicker(allDisabled)
+        XCTAssertTrue(
+            candidates.isEmpty,
+            "all-disabled pool must yield empty picker candidates"
+        )
+        XCTAssertEqual(
+            allDisabled.first?.name,
+            "legacy",
+            "fallback path requires profiles.first to be non-nil"
+        )
+    }
 }

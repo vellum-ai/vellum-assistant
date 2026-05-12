@@ -137,8 +137,24 @@ struct CallSiteOverrideRow: View {
                     set: { newValue in
                         if newValue {
                             if !draft.hasOverride {
-                                if let firstProfile = profiles.first {
-                                    draft.profile = firstProfile.name
+                                // Seed from the same filtered list the
+                                // picker uses (active profiles only) so
+                                // toggle-on can't silently select a
+                                // disabled profile when one happens to
+                                // sort first in `profileOrder`. Codex P1
+                                // + Devin findings on PR #30349.
+                                let candidates = Self.visibleProfilesForPicker(
+                                    profiles
+                                )
+                                if let firstActive = candidates.first {
+                                    draft.profile = firstActive.name
+                                } else if let firstAny = profiles.first {
+                                    // Edge case: every profile is disabled.
+                                    // Better to seed with *something* the
+                                    // user can immediately swap than to
+                                    // silently fall through to a custom
+                                    // fragment they didn't ask for.
+                                    draft.profile = firstAny.name
                                 } else {
                                     seedCustomFragment()
                                 }
