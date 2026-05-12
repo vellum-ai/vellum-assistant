@@ -6,6 +6,7 @@ import { statSync } from "node:fs";
 
 import { z } from "zod";
 
+import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
 import { countConversations } from "../../memory/conversation-queries.js";
 import { getMemoryJobCounts } from "../../memory/jobs-store.js";
@@ -65,10 +66,9 @@ function getDebugInfo() {
       startedAt: new Date(startedAt).toISOString(),
     },
     provider: {
-      configuredProvider: config.llm.default.provider,
+      configuredProvider: resolveCallSiteConfig("mainAgent", config.llm).provider,
       registeredProviders,
       routingSources,
-      inferenceMode: config.services.inference.mode,
     },
     memory: {
       conversationCount,

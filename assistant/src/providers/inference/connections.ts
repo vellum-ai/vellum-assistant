@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../memory/db-connection.js";
 import { providerConnections } from "../../memory/schema/inference.js";
@@ -8,6 +8,8 @@ import {
   AuthSchema,
   type ConnectionProvider,
   ConnectionProviderSchema,
+  type ConnectionStatus,
+  ConnectionStatusSchema,
   type ProviderConnection,
   VALID_CONNECTION_PROVIDERS,
 } from "./auth.js";
@@ -29,7 +31,16 @@ export function listConnections(
     if (!auth.success) return [];
     const provider = ConnectionProviderSchema.safeParse(row.provider);
     if (!provider.success) return [];
-    return [{ ...row, auth: auth.data, provider: provider.data }];
+    const statusResult = ConnectionStatusSchema.safeParse(row.status);
+    const status: ConnectionStatus = statusResult.success ? statusResult.data : "active";
+    return [{
+      ...row,
+      auth: auth.data,
+      provider: provider.data,
+      status,
+      label: row.label ?? null,
+      isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
+    }];
   });
 }
 
@@ -48,7 +59,16 @@ export function getConnection(
   if (!auth.success) return null;
   const provider = ConnectionProviderSchema.safeParse(row.provider);
   if (!provider.success) return null;
-  return { ...row, auth: auth.data, provider: provider.data };
+  const statusResult = ConnectionStatusSchema.safeParse(row.status);
+  const status: ConnectionStatus = statusResult.success ? statusResult.data : "active";
+  return {
+    ...row,
+    auth: auth.data,
+    provider: provider.data,
+    status,
+    label: row.label ?? null,
+    isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -59,10 +79,14 @@ export type CreateConnectionInput = {
   name: string;
   provider: string;
   auth: Auth;
+  status?: ConnectionStatus;
+  label?: string | null;
 };
 
 export type UpdateConnectionInput = {
   auth: Auth;
+  status?: ConnectionStatus;
+  label?: string | null;
 };
 
 export type ConnectionCreateError =
@@ -102,11 +126,16 @@ export function createConnection(
     return { ok: false, error: { code: "already_exists" } };
   }
 
+  const status = input.status ?? "active";
+  const label = input.label ?? null;
+
   const now = Date.now();
   db.insert(providerConnections).values({
     name: input.name,
     provider,
     auth: JSON.stringify(authResult.data),
+    status,
+    label,
     createdAt: now,
     updatedAt: now,
   }).run();
@@ -121,8 +150,11 @@ export function createConnection(
       name: input.name,
       provider,
       auth: authResult.data,
+      status,
+      label,
       createdAt: now,
       updatedAt: now,
+      isManaged: MANAGED_CONNECTION_NAMES.has(input.name),
     },
   };
 }
@@ -143,8 +175,17 @@ export function updateConnection(
   }
 
   const now = Date.now();
+  const setClause: {
+    auth: string;
+    updatedAt: number;
+    status?: string;
+    label?: string | null;
+  } = { auth: JSON.stringify(authResult.data), updatedAt: now };
+  if (input.status !== undefined) setClause.status = input.status;
+  if (input.label !== undefined) setClause.label = input.label;
+
   db.update(providerConnections)
-    .set({ auth: JSON.stringify(authResult.data), updatedAt: now })
+    .set(setClause)
     .where(eq(providerConnections.name, name))
     .run();
 
@@ -153,7 +194,13 @@ export function updateConnection(
 
   return {
     ok: true,
-    connection: { ...existing, auth: authResult.data, updatedAt: now },
+    connection: {
+      ...existing,
+      auth: authResult.data,
+      status: input.status !== undefined ? input.status : existing.status,
+      label: input.label !== undefined ? input.label : existing.label,
+      updatedAt: now,
+    },
   };
 }
 
@@ -195,37 +242,80 @@ export function deleteConnection(
 }
 
 // ---------------------------------------------------------------------------
-// Seed canonical connections (idempotent, used at boot time)
+// Seed canonical connections (upsert, used at boot time)
 // ---------------------------------------------------------------------------
 
-const CANONICAL_CONNECTIONS: Array<{ name: string; provider: string; auth: Auth }> = [
-  { name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" } },
-  { name: "openai-managed",    provider: "openai",    auth: { type: "platform" } },
-  { name: "gemini-managed",    provider: "gemini",    auth: { type: "platform" } },
-  { name: "ollama-local",      provider: "ollama",    auth: { type: "none" } },
+const CANONICAL_CONNECTIONS: Array<{
+  name: string;
+  provider: string;
+  auth: Auth;
+  label: string;
+}> = [
+  { name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" }, label: "Anthropic" },
+  { name: "openai-managed",    provider: "openai",    auth: { type: "platform" }, label: "OpenAI" },
+  { name: "gemini-managed",    provider: "gemini",    auth: { type: "platform" }, label: "Google Gemini" },
 ];
 
 /**
- * Ensure the four canonical connections exist. Already-existing rows are left
- * untouched. Safe to call on every boot.
+ * Names of the canonical Vellum-managed connections. These are seeded on every
+ * daemon boot via `seedCanonicalConnections` and represent the platform-managed
+ * inference route. They are write-protected at the route layer:
+ *   - DELETE is blocked outright (would resurrect on next boot anyway, but
+ *     blocking prevents a confusing delete → re-appear loop).
+ *   - PATCH that changes `auth` is blocked (auth is locked to `{type:"platform"}`
+ *     so any other value would be reverted on the next boot upsert).
+ *   - PATCH that changes `label` and/or `status` is allowed — users may legitimately
+ *     disable or relabel the managed connection. `status` is never touched by the
+ *     boot upsert. `label` is seeded on initial INSERT and backfilled when null
+ *     on subsequent boots so pre-seed installs pick up the default; a non-null
+ *     user-customized label is preserved (see `seedCanonicalConnections`).
+ *
+ * Mirrors `MANAGED_PROFILE_NAMES` (config/seed-inference-profiles.ts).
+ */
+export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
+  CANONICAL_CONNECTIONS.map((c) => c.name),
+);
+
+/**
+ * Upsert the three canonical connections on every boot. Existing rows are
+ * updated to the latest provider/auth values so Vellum can push connection
+ * changes to customers in new releases.
+ *
+ * Label handling: the default label is seeded on initial INSERT so new
+ * installs render a human-friendly name in the connections list. The boot
+ * upsert deliberately leaves `label` alone on existing rows so user
+ * customization is preserved; the separate backfill step below assigns the
+ * default only when the existing row has `label IS NULL`, covering installs
+ * that pre-date the label seed.
  */
 export function seedCanonicalConnections(db: DrizzleDb): void {
   const now = Date.now();
-  for (const { name, provider, auth } of CANONICAL_CONNECTIONS) {
-    const exists = db
-      .select({ name: providerConnections.name })
-      .from(providerConnections)
-      .where(eq(providerConnections.name, name))
-      .get();
-
-    if (!exists) {
-      db.insert(providerConnections).values({
+  for (const { name, provider, auth, label } of CANONICAL_CONNECTIONS) {
+    db.insert(providerConnections)
+      .values({
         name,
         provider,
         auth: JSON.stringify(auth),
+        label,
         createdAt: now,
         updatedAt: now,
-      }).run();
-    }
+      })
+      .onConflictDoUpdate({
+        target: providerConnections.name,
+        set: {
+          provider,
+          auth: JSON.stringify(auth),
+          updatedAt: now,
+        },
+      })
+      .run();
+
+    // Backfill the default label on rows that pre-date label seeding so
+    // existing installs pick up the friendly name. Does not overwrite a
+    // user-set label.
+    db.update(providerConnections)
+      .set({ label, updatedAt: now })
+      .where(and(eq(providerConnections.name, name), isNull(providerConnections.label)))
+      .run();
   }
 }

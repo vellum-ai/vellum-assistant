@@ -27,6 +27,24 @@ struct InferenceProfileEditor: View {
     @Binding var profile: InferenceProfile
     var isReadOnly: Bool = false
     var isCreating: Bool = false
+    /// Provider connections available for the Connection sub-dropdown. The
+    /// editor reads this list, filters by the currently-selected provider
+    /// and `.status == .active`, and lets the user route the profile to a
+    /// specific row. Defaults to nil so test constructions and callers
+    /// that don't care about connection routing still compile — daemons
+    /// older than the `provider_connection`-aware profile schema continue
+    /// to behave as "pick the first active connection for the provider."
+    ///
+    /// `nil` vs `[]` is meaningful:
+    /// - `nil` → the parent has not yet fetched `listProviderConnections`
+    ///   (pre-load window between `.task` firing and the daemon response).
+    ///   The provider picker falls back to the full catalog so the trigger
+    ///   isn't empty during that gap.
+    /// - `[]` → the daemon returned zero connections. A fresh workspace
+    ///   with nothing configured. The provider picker filters to empty,
+    ///   the empty-state hint fires, and the user is steered to Providers
+    ///   instead of being allowed to pick a non-dispatchable provider.
+    var connections: [ProviderConnection]? = nil
     let onSave: () -> Void
     var onSaveAs: (() -> Void)?
     let onCancel: () -> Void
@@ -72,6 +90,15 @@ struct InferenceProfileEditor: View {
 
     // MARK: - Validation
 
+    /// True when the user hasn't picked a provider yet. Provider is now
+    /// required (the old "None (inherit defaults)" affordance was removed
+    /// because the inherit-defaults pathway encouraged accidental fallbacks
+    /// to the global default model — defeating the point of named profiles).
+    var isProviderMissing: Bool {
+        let provider = profile.provider ?? ""
+        return provider.isEmpty
+    }
+
     /// True when the user has picked a provider but no model — the most
     /// common partial-edit state. Disables Save and shows the badge.
     var isModelMissing: Bool {
@@ -93,10 +120,10 @@ struct InferenceProfileEditor: View {
         return !catalog.contains(model)
     }
 
-    /// Combined gate for the Save button: any model-validation problem
-    /// blocks Save.
+    /// Combined gate for the Save button: provider must be picked AND
+    /// model must be valid.
     var canSave: Bool {
-        !isModelMissing && !isModelInvalid
+        !isProviderMissing && !isModelMissing && !isModelInvalid
     }
 
     var parameterVisibility: InferenceProfileParameterVisibility {
@@ -126,6 +153,7 @@ struct InferenceProfileEditor: View {
                     descriptionField
                     keyField
                     providerField
+                    connectionField
                     modelField
                     if visibility.maxTokens {
                         maxTokensField
@@ -146,6 +174,7 @@ struct InferenceProfileEditor: View {
                     if visibility.thinking {
                         thinkingSection
                     }
+                    statusToggle
                 }
                 .padding(VSpacing.lg)
             }
@@ -298,15 +327,54 @@ struct InferenceProfileEditor: View {
             .joined(separator: "-")
     }
 
+    /// Provider IDs visible in the picker. Filtered to providers that
+    /// have at least one ACTIVE connection — picking a provider with
+    /// zero active connections binds the profile to a route the daemon
+    /// can't dispatch through, leaving the user stuck. The currently-
+    /// bound `provider` is always kept in the list so editing/viewing a
+    /// stale profile (whose connection was disabled after the binding
+    /// was saved) still renders a sensible trigger.
+    ///
+    /// Pre-load fallback: when `connections` is `nil` (the sheet's
+    /// `.task` hasn't completed its first `listProviderConnections`
+    /// fetch yet, or an older daemon that doesn't surface the connection
+    /// list), return the full catalog so the user doesn't see an empty
+    /// picker on first open. An EMPTY-but-loaded `connections == []` is
+    /// distinct: the daemon confirmed zero connections, so the filter
+    /// runs and yields empty — the empty-state hint fires and steers
+    /// the user to Providers instead of letting them save a profile
+    /// bound to a non-dispatchable provider.
+    ///
+    /// Mirrors web's `visibleProviders` + `providerOptionsSource` in
+    /// `web/src/app/(app)/assistant/settings/ai/profile-editor-modal.tsx`
+    /// (PR #6509). The web sibling has the same nil-vs-empty trap and
+    /// is being addressed in a follow-up.
     var availableProviderIds: [String] {
-        if store.inferenceMode == "managed" {
-            return store.managedCapableProviders.map(\.id)
+        guard let connections else { return store.dynamicProviderIds }
+
+        var activeProviderSet = Set<String>()
+        for connection in connections where connection.status == .active {
+            activeProviderSet.insert(connection.provider)
         }
-        return store.dynamicProviderIds
+        if let bound = profile.provider, !bound.isEmpty {
+            activeProviderSet.insert(bound)
+        }
+        return store.dynamicProviderIds.filter { activeProviderSet.contains($0) }
     }
 
     private var providerField: some View {
-        labeled("Provider") {
+        labeled(
+            "Provider",
+            accessory: {
+                if isProviderMissing {
+                    VBadge(
+                        label: "Pick a provider",
+                        tone: .warning,
+                        emphasis: .subtle
+                    )
+                }
+            }
+        ) {
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
                 selection: Binding(
@@ -328,6 +396,12 @@ struct InferenceProfileEditor: View {
                         } else {
                             profile.model = nil
                         }
+                        // Reset connection binding too: a stale name almost
+                        // certainly points at a different provider's row, and
+                        // the daemon would reject it at resolve time. Falling
+                        // back to "Any active <provider> connection" matches
+                        // the dispatcher's legacy behavior.
+                        profile.providerConnection = nil
                         Self.clampMaxOutputTokensForSelectedModel(&profile)
                         Self.clampContextWindowForSelectedModel(&profile)
                     }
@@ -336,7 +410,100 @@ struct InferenceProfileEditor: View {
                     (label: store.dynamicProviderDisplayName(provider), value: provider)
                 }
             )
+            if availableProviderIds.isEmpty && !isReadOnly {
+                Text("No active provider connections. Open Providers to add or enable one.")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
         }
+    }
+
+    /// Active connections that match the currently-selected provider. Used
+    /// by `connectionField` to populate its dropdown. During pre-load
+    /// (`connections == nil`) there's nothing to pick — the connection
+    /// sub-dropdown stays hidden until the fetch completes.
+    var availableConnectionsForProvider: [ProviderConnection] {
+        guard let provider = profile.provider, !provider.isEmpty else { return [] }
+        return (connections ?? []).filter { $0.provider == provider && $0.status == .active }
+    }
+
+    /// The currently-saved binding when it does NOT resolve to any active
+    /// connection for the selected provider. `nil` when the binding is
+    /// empty or when it does match. Used to gate the picker's "stale"
+    /// affordances (extra dropdown option + warning badge).
+    var staleProviderConnection: String? {
+        guard let bound = profile.providerConnection, !bound.isEmpty else { return nil }
+        return availableConnectionsForProvider.contains(where: { $0.name == bound })
+            ? nil
+            : bound
+    }
+
+    /// Connection sub-dropdown. Renders when a provider is selected AND
+    /// either at least one active connection matches OR the profile has a
+    /// non-empty saved binding (so a stale binding can be seen and cleared
+    /// rather than silently round-tripping on save). The first option
+    /// preserves the daemon's "first active" fallback so existing profiles
+    /// keep working without an explicit migration.
+    @ViewBuilder
+    private var connectionField: some View {
+        let available = availableConnectionsForProvider
+        let stale = staleProviderConnection
+        if let provider = profile.provider,
+           !provider.isEmpty,
+           (!available.isEmpty || stale != nil) {
+            labeled(
+                "Connection",
+                accessory: {
+                    // Surface the "stale binding" state: the saved name
+                    // doesn't match any active connection for the provider.
+                    // Most commonly this fires when a connection was
+                    // disabled or deleted outside the editor.
+                    if stale != nil {
+                        VBadge(
+                            label: "Not found",
+                            tone: .warning,
+                            emphasis: .subtle
+                        )
+                    }
+                }
+            ) {
+                let baseOptions: [(label: String, value: String)] = [
+                    (
+                        label: "Any active \(store.dynamicProviderDisplayName(provider)) connection",
+                        value: ""
+                    )
+                ] + available.map { conn in
+                    (label: Self.connectionDisplayName(conn), value: conn.name)
+                }
+                // When the saved binding is stale, surface it as an explicit
+                // dropdown option so the trigger renders its name. Selecting
+                // "Any active …" clears the binding back to the daemon's
+                // first-active fallback.
+                let optionsWithStale: [(label: String, value: String)] =
+                    stale.map { name in
+                        baseOptions + [(label: "\(name) (not found)", value: name)]
+                    } ?? baseOptions
+                VDropdown(
+                    placeholder: "Any active connection\u{2026}",
+                    selection: Binding(
+                        get: { profile.providerConnection ?? "" },
+                        set: { newValue in
+                            profile.providerConnection = newValue.isEmpty ? nil : newValue
+                        }
+                    ),
+                    options: optionsWithStale
+                )
+            }
+        }
+    }
+
+    /// Prefer the human-readable label when present; fall back to the
+    /// connection's stored `name` (which is the on-disk identifier). Mirrors
+    /// the convention used by `ProvidersSheet` row rendering so the two
+    /// surfaces stay visually consistent.
+    static func connectionDisplayName(_ conn: ProviderConnection) -> String {
+        if let label = conn.label, !label.isEmpty { return label }
+        return conn.name
     }
 
     private var modelField: some View {
@@ -581,6 +748,18 @@ struct InferenceProfileEditor: View {
             // the daemon would ignore the leaf either way but the disabled
             // affordance keeps the UI honest.
             .disabled(!(profile.thinkingEnabled ?? false))
+        }
+    }
+
+    private var statusToggle: some View {
+        labeled("Status") {
+            VToggle(
+                isOn: Binding(
+                    get: { profile.status != "disabled" },
+                    set: { profile.status = $0 ? nil : "disabled" }
+                ),
+                label: "Active"
+            )
         }
     }
 

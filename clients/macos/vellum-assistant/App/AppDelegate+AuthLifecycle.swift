@@ -877,12 +877,6 @@ extension AppDelegate {
         localBootstrapDidComplete = false
         ensureLocalAssistantApiKey()
 
-        // Sync locally-stored API keys to the new assistant. The assistant may
-        // have started without ANTHROPIC_API_KEY in its environment (e.g.
-        // when the app was launched via Finder/open). Push keys from
-        // UserDefaults so the assistant can initialize its LLM providers.
-        syncApiKeysToAssistant(assistant)
-
         // Clear the UserDefaults feature-flag cache before reloading so
         // that stale cached values from the previous assistant do not
         // override the new assistant's remote/persisted flags.
@@ -907,45 +901,6 @@ extension AppDelegate {
         }
 
         showMainWindow()
-    }
-
-    /// Push all locally-stored API keys to the assistant via the gateway.
-    /// Launches a fire-and-forget Task; use ``syncApiKeysViaGateway()``
-    /// when the caller needs to await completion.
-    private func syncApiKeysToAssistant(_ assistant: LockfileAssistant) {
-        Task {
-            await syncApiKeysViaGateway()
-        }
-    }
-
-    /// Push all locally-stored API keys to the assistant via GatewayHTTPClient.
-    /// Awaitable so callers (e.g. the first-launch bootstrap) can ensure
-    /// LLM provider keys are registered before sending the first message.
-    func syncApiKeysViaGateway() async {
-        guard let assistantId = LockfileAssistant.loadActiveAssistantId(),
-              !assistantId.isEmpty else {
-            log.warning("syncApiKeysViaGateway: no connected assistant, skipping key sync")
-            return
-        }
-
-        // For local assistants the actor token may still be bootstrapping
-        // (e.g. after performSwitchAssistant deletes the old token). Wait
-        // for it before calling GatewayHTTPClient which reads it synchronously.
-        let isManaged = LockfileAssistant.loadByName(assistantId)?.isManaged ?? false
-        if !isManaged {
-            guard let _ = await ActorTokenManager.waitForToken(timeout: 30) else {
-                log.warning("syncApiKeysViaGateway: no actor token after 30s, skipping key sync")
-                return
-            }
-        }
-
-        for name in APIKeyManager.allSyncableProviders {
-            guard let key = APIKeyManager.getKey(for: name), !key.isEmpty else { continue }
-            let body: [String: Any] = ["type": "api_key", "name": name, "value": key]
-            _ = try? await GatewayHTTPClient.post(path: "secrets", json: body, timeout: 5)
-        }
-
-        log.info("syncApiKeysViaGateway: pushed API keys for \(assistantId, privacy: .public)")
     }
 
     @objc func performRetire() {

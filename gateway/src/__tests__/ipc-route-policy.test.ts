@@ -41,3 +41,27 @@ describe("ipc-route-policy: gateway-only daemon routes", () => {
     expect(policy!.allowedPrincipalTypes).toEqual(["svc_gateway"]);
   });
 });
+
+describe("ipc-route-policy: inference provider connections", () => {
+  // The connection CRUD routes are reachable through the gateway IPC proxy,
+  // so their settings.read/settings.write scopes must be enforced there as
+  // well as on the daemon HTTP path.
+  test.each([
+    "inference_provider_connections_get",
+    "inference_provider_connections_list",
+  ])("%s requires settings.read", (operationId) => {
+    const policy = getIpcRoutePolicy(operationId);
+    expect(policy).toBeDefined();
+    expect(policy!.requiredScopes).toEqual(["settings.read"]);
+  });
+
+  test.each([
+    "inference_provider_connections_create",
+    "inference_provider_connections_delete",
+    "inference_provider_connections_update",
+  ])("%s requires settings.write", (operationId) => {
+    const policy = getIpcRoutePolicy(operationId);
+    expect(policy).toBeDefined();
+    expect(policy!.requiredScopes).toEqual(["settings.write"]);
+  });
+});

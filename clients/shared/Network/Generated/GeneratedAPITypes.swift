@@ -5955,6 +5955,123 @@ public struct WorkspaceFilesListResponseFile: Codable, Sendable {
     }
 }
 
+// MARK: - Inference provider connection types (Phase 1.2, PR-B)
+
+/// Auth configuration for a provider connection.
+/// `type` is one of: `api_key`, `platform`, `none`, `oauth_subscription`, `service_account`.
+/// `credential` is required for `api_key`, `oauth_subscription`, and `service_account` types.
+public struct ProviderConnectionAuth: Codable, Sendable {
+    public let type: String
+    public let credential: String?
+
+    public init(type: String, credential: String? = nil) {
+        self.type = type
+        self.credential = credential
+    }
+}
+
+/// Status of a provider connection. `active` (default) means the connection
+/// is offered in picker UIs. `disabled` hides it from pickers but keeps it
+/// visible in the settings sheet so the user can re-enable it.
+public enum ConnectionStatus: String, Codable, Sendable {
+    case active
+    case disabled
+}
+
+/// A named provider connection stored in the assistant database.
+public struct ProviderConnection: Codable, Sendable {
+    public let name: String
+    /// One of: `anthropic`, `openai`, `gemini`, `ollama`, `fireworks`, `openrouter`.
+    public let provider: String
+    public let auth: ProviderConnectionAuth
+    public let status: ConnectionStatus
+    public let label: String?
+    public let createdAt: Int
+    public let updatedAt: Int
+    /// True for Vellum-managed canonical connections (`anthropic-managed`,
+    /// `openai-managed`, `gemini-managed`). The daemon derives this at
+    /// serialize time from its `MANAGED_CONNECTION_NAMES` set; clients use
+    /// it to render the read-only badge + view-only editor and to disable
+    /// the delete affordance without mirroring the canonical name list.
+    public let isManaged: Bool
+
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, status: ConnectionStatus = .active, label: String? = nil, createdAt: Int, updatedAt: Int, isManaged: Bool = false) {
+        self.name = name
+        self.provider = provider
+        self.auth = auth
+        self.status = status
+        self.label = label
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.isManaged = isManaged
+    }
+
+    /// Decodes responses from daemons that predate the `status` or `isManaged`
+    /// fields. `status` defaults to `.active`; `isManaged` defaults to `false`.
+    /// Mixed-version setups (the app explicitly supports them via
+    /// version-mismatch handling) would otherwise throw `keyNotFound` and
+    /// silently strand the Providers UI.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.provider = try container.decode(String.self, forKey: .provider)
+        self.auth = try container.decode(ProviderConnectionAuth.self, forKey: .auth)
+        self.status = try container.decodeIfPresent(ConnectionStatus.self, forKey: .status) ?? .active
+        self.label = try container.decodeIfPresent(String.self, forKey: .label)
+        self.createdAt = try container.decode(Int.self, forKey: .createdAt)
+        self.updatedAt = try container.decode(Int.self, forKey: .updatedAt)
+        self.isManaged = try container.decodeIfPresent(Bool.self, forKey: .isManaged) ?? false
+    }
+}
+
+/// Response body for `GET /v1/inference/provider-connections`.
+public struct ListProviderConnectionsResponse: Codable, Sendable {
+    public let connections: [ProviderConnection]
+
+    public init(connections: [ProviderConnection]) {
+        self.connections = connections
+    }
+}
+
+/// Request body for `POST /v1/inference/provider-connections`.
+public struct CreateProviderConnectionRequest: Codable, Sendable {
+    public let name: String
+    public let provider: String
+    public let auth: ProviderConnectionAuth
+    public let label: String?
+    public let status: ConnectionStatus?
+
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, label: String? = nil, status: ConnectionStatus? = nil) {
+        self.name = name
+        self.provider = provider
+        self.auth = auth
+        self.label = label
+        self.status = status
+    }
+}
+
+/// Request body for `PATCH /v1/inference/provider-connections/:name`.
+public struct UpdateProviderConnectionRequest: Codable, Sendable {
+    public let auth: ProviderConnectionAuth
+    public let status: ConnectionStatus?
+    public let label: String?
+
+    public init(auth: ProviderConnectionAuth, status: ConnectionStatus? = nil, label: String? = nil) {
+        self.auth = auth
+        self.status = status
+        self.label = label
+    }
+}
+
+/// Response body for `DELETE /v1/inference/provider-connections/:name`.
+public struct DeleteProviderConnectionResponse: Codable, Sendable {
+    public let ok: Bool
+
+    public init(ok: Bool) {
+        self.ok = ok
+    }
+}
+
 /// Server → Client prompt requesting the user to enter a contact channel address.
 /// Emitted by the contacts/prompt IPC route when the assistant needs a new contact.
 public struct ContactRequest: Codable, Sendable {

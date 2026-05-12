@@ -117,9 +117,8 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         mockClient.patchConfigResponse = true
         let testStore = SettingsStore(settingsClient: mockClient)
 
-        // Simulate selecting OpenAI in managed mode
+        // Simulate selecting OpenAI as the inference provider
         testStore.selectedInferenceProvider = "openai"
-        testStore.inferenceMode = "managed"
 
         // Persist the provider selection
         _ = testStore.setLLMDefaultProvider("openai")
@@ -150,7 +149,6 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         let testStore = SettingsStore(settingsClient: mockClient)
 
         testStore.selectedInferenceProvider = "gemini"
-        testStore.inferenceMode = "managed"
         _ = testStore.setLLMDefaultProvider("gemini")
 
         let predicate = NSPredicate { _, _ in
@@ -198,9 +196,8 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         mockClient.patchConfigResponse = true
         let testStore = SettingsStore(settingsClient: mockClient)
 
-        // Configure managed OpenAI inference + provider-native web search
+        // Configure OpenAI inference + provider-native web search
         testStore.selectedInferenceProvider = "openai"
-        testStore.inferenceMode = "managed"
         testStore.webSearchProvider = "inference-provider-native"
 
         // Persist the web search provider
@@ -228,7 +225,7 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
     func testNonNativeWebSearchCapableProviderFallsBackToPerplexity() {
         // When the inference provider doesn't support native web search,
         // isNativeWebSearchCapable should return false, indicating the UI
-        // should enforce fallback to perplexity or brave.
+        // should enforce fallback to a key-based provider such as Perplexity, Brave, or Tavily.
         XCTAssertFalse(store.isNativeWebSearchCapable("gemini", model: "gemini-2.5-pro"))
         XCTAssertFalse(store.isNativeWebSearchCapable("ollama", model: "llama3"))
         XCTAssertFalse(store.isNativeWebSearchCapable("fireworks", model: "accounts/fireworks/models/kimi-k2"))

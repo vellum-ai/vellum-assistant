@@ -1,34 +1,88 @@
+// Import prefixes allowed for each transport class. Entries cover both
+// depth-1 (e.g. `commands/foo.ts`) and depth-2 (e.g. `commands/oauth/bar.ts`)
+// relative paths so nested command directories don't false-positive.
+//
+// Adding a new entry: prefer the narrowest match that captures the legitimate
+// case. Daemon-internal modules (`runtime/`, `services/`, `agents/`, `llm/`,
+// `skills/`, etc.) MUST remain off the allowlist for `ipc`-tagged commands.
 const ALLOWED_PREFIXES = {
   ipc: [
     "node:",
     "bun:",
     "commander",
+    // Sibling subcommand composition (e.g. oauth/index.ts -> ./connect.js).
+    // The imported file is itself a command and the rule will check its
+    // imports independently, so this can't be used to smuggle daemon
+    // internals through a sibling re-export.
+    "./",
+    // IPC client at depth-1 and depth-2.
     "../../ipc/cli-client",
+    "../../../ipc/cli-client",
+    // Status command's daemon-down fallback needs socket path + platform.
+    "../../ipc/socket-path",
+    "../../util/platform",
+    // Logger / output at depth-1 and depth-2.
     "../logger",
     "../output",
+    "../../logger",
+    "../../output",
+    // Shared CLI lib / utils at depth-1 and depth-2.
     "../lib/",
+    "../../lib/",
+    "../utils/",
+    "../../utils/",
+    // Environment access for commands that need to read VELLUM_* env vars
+    // before issuing IPC calls (e.g. email, domain).
+    "../../config/env",
+    // Browser command's operation metadata (drives subcommand generation).
+    "../../browser/operations",
   ],
   local: [
     "node:",
     "bun:",
     "commander",
+    "zod",
+    // Sibling helpers + cross-namespace helper for config.ts managed-mode
+    // check (see commands/oauth/shared.ts docstring).
+    "./",
+    // Config schema/loader at depth-1 and depth-2.
     "../../config/loader",
     "../../config/schema",
+    "../../config/env",
     "../../util/platform",
     "../logger",
     "../output",
+    "../../logger",
+    "../../output",
     "../lib/",
+    "../../lib/",
+    "../utils/",
+    "../../utils/",
+    // Secure key storage (keys.ts) needs direct security module access —
+    // by design, the secure-key helpers run in-process (not over IPC).
+    "../../security/",
+    // CES bridge (credential-execution.ts) speaks to the CES sidecar via
+    // service-contracts RPC; daemon is not involved.
+    "../../credential-execution/",
+    "@vellumai/service-contracts",
   ],
   bootstrap: [
     "node:",
     "bun:",
     "commander",
+    "./",
     "../../config/loader",
     "../../config/schema",
+    "../../config/env",
     "../../util/platform",
     "../logger",
     "../output",
+    "../../logger",
+    "../../output",
     "../lib/",
+    "../../lib/",
+    "../utils/",
+    "../../utils/",
   ],
 };
 

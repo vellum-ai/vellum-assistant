@@ -43,14 +43,148 @@ from `../lib/register-command.ts`. The three transport classes are:
 | `bootstrap` | Runs before the daemon is up (e.g. `assistant config init`). | Pre-daemon setup |
 
 The ESLint rule `cli/no-daemon-internals` enforces import allowlists per class.
-See `COMMAND_INVENTORY.md` for the full command inventory.
+
+## Anatomy of an `ipc` command
+
+The thin-wrapper pattern. Every `ipc`-tagged subcommand action does three
+things: parse argv → call one IPC method → format output. The business
+logic lives in the daemon route, not the CLI.
+
+### Required shape
+
+```ts
+// assistant/src/cli/commands/foo.ts
+import type { Command } from "commander";
+
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
+import { writeOutput } from "../output.js";
+
+interface FooBarResponse {
+  bars: { id: string; name: string }[];
+}
+
+export function registerFooCommand(program: Command): void {
+  registerCommand(program, {
+    name: "foo",
+    transport: "ipc",
+    description: "Manage foos",
+    build: (foo) => {
+      foo
+        .command("bar")
+        .description("List bars")
+        .option("--baz <n>", "Filter by baz")
+        .action(async (opts, cmd) => {
+          const r = await cliIpcCall<FooBarResponse>("foo_bar", {
+            baz: opts.baz,
+          });
+          if (!r.ok) return exitFromIpcResult(r);
+          writeOutput(cmd, r.result);
+        });
+    },
+  });
+}
+```
+
+Then wire it from `program.ts` inside `buildCliProgram()`:
+
+```ts
+import { registerFooCommand } from "./commands/foo.js";
+// ...
+registerFooCommand(program);
+```
+
+### Rules
+
+1. **One `registerCommand` call per file.** The options object MUST be
+   passed inline as an object literal; `name` and `transport` MUST be
+   string literals. Hoisted variables and `as const` casts break the
+   static analysis tools rely on.
+
+2. **No daemon-internal imports.** An `ipc` command file can import:
+
+   - the IPC client (`../../ipc/cli-client`)
+   - the Commander framework + Node stdlib (`commander`, `node:*`)
+   - shared CLI helpers (`../logger`, `../output`, `../lib/*`,
+     `../../utils/*`)
+   - sibling subcommand modules (`./connect`, etc. — for namespace
+     parents like `oauth/index.ts`)
+
+   It **cannot** import anything under `runtime/`, `services/`,
+   `agents/`, `llm/`, `skills/`, or any other daemon-internal namespace.
+   The `cli/no-daemon-internals` ESLint rule enforces this at `"error"`
+   severity. See `assistant/eslint-rules/cli-no-daemon-internals.js` for
+   the per-transport allowlist (including per-command escape hatches for
+   things like the `keys` security helpers and `credential-execution`
+   bridge).
+
+3. **One IPC call per subcommand action.** A thin wrapper does not
+   compose multiple IPC methods, does not validate beyond Commander's
+   argument parsing, and does not reshape the daemon response.
+   Composition belongs on the daemon side, in a route.
+
+4. **Always check `r.ok` before reading `r.result`.** `cliIpcCall`
+   returns `CliIpcCallResult<T>` — either `{ ok: true, result }` or
+   `{ ok: false, error, statusCode?, errorCode?, errorDetails? }`. Use
+   `exitFromIpcResult(r)` to surface failure: it writes the error to
+   stderr and exits with a code derived from the daemon-side
+   `statusCode` (10 connect failure, 3 5xx, 2 4xx, 1 other).
+
+5. **Output via `writeOutput(cmd, payload)`.** The shared helper writes
+   JSON to stdout — compact with `--json`, pretty otherwise — and
+   respects `--json` inherited from parent commands. Don't
+   `console.log` results directly; that bypasses the convention and
+   breaks downstream scripting.
+
+### Anti-patterns
+
+- ❌ `import { something } from "../../runtime/foo.js"` from an
+  `ipc`-tagged command. The ESLint rule rejects this at `"error"`.
+- ❌ `registerCommand(program, opts)` where `opts` is a hoisted
+  variable. Inline the literal so the transport tag is statically
+  visible.
+- ❌ Multiple `registerCommand` calls in one file.
+- ❌ Reshaping `r.result` to differ from what the route returns. If the
+  CLI shape needs to diverge from the daemon response, change the
+  route — the CLI is just a transport.
+- ❌ Bypassing `exitFromIpcResult` to format your own error output.
+  The shared helper gives consistent exit codes across the surface so
+  scripts can branch on them.
+- ❌ Calling the gateway HTTP API (`fetch`, `axios`) from a CLI
+  command. All daemon work goes through IPC; the gateway is for
+  external clients.
+
+## IPC operation IDs and routes
+
+Every `ipc`-tagged subcommand action maps to exactly one operation
+served by the daemon's IPC server. Two route surfaces exist:
+
+- **Shared routes (`assistant/src/runtime/routes/`).** Served over both
+  HTTP and IPC via the shared `ROUTES` array. Most domain routes live
+  here — dual exposure is by design so the gateway can call the daemon
+  over IPC instead of HTTP. See `assistant/AGENTS.md` for the routes /
+  dispatch architecture.
+- **IPC-only routes (`assistant/src/ipc/routes/`).** CLI/tool-specific
+  methods with no HTTP counterpart (e.g. `wake_conversation`,
+  `upsert_contact`). Use this surface only when the operation
+  shouldn't be exposed over HTTP — when in doubt, default to the
+  shared surface.
+
+Operation IDs are snake_case. The conventional shape is
+`<command>_<subcommand>` (`pending_list`, `oauth_connect`,
+`cache_get`), but verb-first names are also used where they read more
+naturally (`upsert_contact`, `wake_conversation`, `conversations_import`).
+Pick the form that makes the operation obvious from the ID alone.
+
+The route owns the request schema (zod), the business logic, and the
+response shape. The CLI just forwards arguments and renders the
+response. When you add a new CLI verb you're almost always also adding
+(or extending) a route — see the PR template's CLI verb checklist.
 
 ## Canonical example
 
-`commands/pending.ts` is the reference implementation for a thin `ipc`-tagged command:
-- Single `registerCommand({ transport: "ipc", ... })` call
-- One `cliIpcCall` per subcommand action
-- Table output with `--json` flag alternative
+`commands/pending.ts` is the reference implementation. Read it first
+when migrating a legacy command or unsure about a pattern.
 - Clean error handling via `exitFromIpcResult`
 - No daemon-internal imports
 

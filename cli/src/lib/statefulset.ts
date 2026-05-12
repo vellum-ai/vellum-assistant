@@ -99,6 +99,11 @@ export interface DockerContainerSpec {
   ports?: PortSpec[];
   env: EnvEntry[];
   volumeMounts: VolumeMount[];
+  /**
+   * Optional `--user` override for `docker run`. Mirrors K8s
+   * `securityContext.runAsUser`. Omitted ⇒ image's `USER` directive wins.
+   */
+  user?: string;
 }
 
 export interface DockerVolumeClaimTemplate {
@@ -168,6 +173,7 @@ export const DOCKER_STATEFUL_SET_SPEC: DockerStatefulSetSpec = {
         { kind: "static", name: "DEBUG_STDOUT_LOGS",         value: "1" },
         { kind: "static", name: "VELLUM_CLOUD",              value: "docker" },
         { kind: "static", name: "RUNTIME_HTTP_HOST",         value: "0.0.0.0" },
+        { kind: "static", name: "RUNTIME_HTTP_PORT",         value: `${ASSISTANT_INTERNAL_PORT}` },
         { kind: "static", name: "VELLUM_WORKSPACE_DIR",      value: "/workspace" },
         { kind: "static", name: "VELLUM_BACKUP_DIR",         value: "/workspace/.backups" },
         { kind: "static", name: "VELLUM_BACKUP_KEY_PATH",    value: "/workspace/.backup.key" },
@@ -196,6 +202,7 @@ export const DOCKER_STATEFUL_SET_SPEC: DockerStatefulSetSpec = {
       name: "gateway-sidecar",
       internalName: "gateway",
       network: "container",
+      user: "0",
       env: [
         { kind: "static", name: "VELLUM_WORKSPACE_DIR",      value: "/workspace" },
         { kind: "static", name: "GATEWAY_SECURITY_DIR",      value: "/gateway-security" },
@@ -299,6 +306,11 @@ export function buildServiceRunArgs(
             ? res.gatewayContainer
             : res.cesContainer;
       args.push("--name", containerName);
+
+      // User override (mirrors K8s securityContext.runAsUser)
+      if (container.user !== undefined) {
+        args.push("--user", container.user);
+      }
 
       // Network
       if (container.network === "bridge") {

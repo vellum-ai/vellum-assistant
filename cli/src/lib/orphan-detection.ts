@@ -1,5 +1,11 @@
 import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 
+import {
+  getDaemonPidPath,
+  loadAllAssistantsAcrossEnvs,
+  type AssistantEntry,
+} from "./assistant-config.js";
 import { execOutput } from "./step-runner";
 
 export interface RemoteProcess {
@@ -67,9 +73,67 @@ export interface OrphanedProcess {
   source: string;
 }
 
-export async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
+/**
+ * Collect PIDs that belong to a known assistant in any environment.
+ *
+ * For local entries this reads the daemon/gateway/qdrant/embed-worker PID
+ * files under each entry's `instanceDir`. For docker entries we include the
+ * `watcherPid` field when present (the file watcher runs as a host process,
+ * unlike the containers themselves). Other cloud topologies don't have
+ * host-side processes that show up in `ps ax`.
+ *
+ * This set is the basis for filtering the orphan list: if a running process
+ * matches a recorded PID for *any* env's assistant, it's not an orphan.
+ */
+export function getKnownPidsFromAssistants(
+  entries: AssistantEntry[],
+): Set<string> {
+  const pids = new Set<string>();
+  for (const entry of entries) {
+    if (entry.cloud === "local" && entry.resources) {
+      const vellumDir = join(entry.resources.instanceDir, ".vellum");
+      const candidates = [
+        getDaemonPidPath(entry.resources),
+        join(vellumDir, "gateway.pid"),
+        join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid"),
+        join(vellumDir, "workspace", "embed-worker.pid"),
+      ];
+      for (const file of candidates) {
+        const pid = readPidFile(file);
+        if (pid) pids.add(pid);
+      }
+    }
+    if (typeof entry.watcherPid === "number") {
+      pids.add(String(entry.watcherPid));
+    }
+  }
+  return pids;
+}
+
+export interface DetectOrphansOptions {
+  /**
+   * Set of PIDs to treat as known and exclude from the orphan list. When
+   * omitted, defaults to the union of every env's recorded assistant PIDs
+   * via {@link loadAllAssistantsAcrossEnvs} +
+   * {@link getKnownPidsFromAssistants}. Tests can inject an explicit set to
+   * avoid touching the real on-host lockfiles.
+   */
+  excludePids?: Set<string>;
+}
+
+export async function detectOrphanedProcesses(
+  options: DetectOrphansOptions = {},
+): Promise<OrphanedProcess[]> {
   const results: OrphanedProcess[] = [];
   const seenPids = new Set<string>();
+
+  // PIDs that belong to a known assistant in *any* environment are not
+  // orphans. Without this filter, running `vellum ps` from an env that has
+  // no assistants — or `vellum clean` from any env — would flag (or kill)
+  // another env's healthy services as orphans.
+  const knownPids =
+    options.excludePids ??
+    getKnownPidsFromAssistants(loadAllAssistantsAcrossEnvs());
 
   // Process table scan — discover orphaned processes by scanning the OS
   // process table rather than reading PID files from the workspace.
@@ -83,6 +147,7 @@ export async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
 
     for (const p of procs) {
       if (p.pid === ownPid || seenPids.has(p.pid)) continue;
+      if (knownPids.has(p.pid)) continue;
       const type = classifyProcess(p.command);
       if (type === "unknown") continue;
       results.push({ name: type, pid: p.pid, source: "process table" });

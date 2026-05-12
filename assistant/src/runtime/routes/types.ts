@@ -136,4 +136,10 @@ export interface RouteDefinition {
    * RouteError subclasses rather than explicit Response objects.
    */
   additionalResponses?: Record<string, { description: string }>;
+  /**
+   * When true, the route expects a raw binary body (e.g. file uploads).
+   * The HTTP adapter already reads `rawBody` for non-JSON content types;
+   * this flag is a declarative signal for documentation and tooling.
+   */
+  rawBody?: boolean;
 }

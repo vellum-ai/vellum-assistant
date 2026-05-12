@@ -23,6 +23,7 @@ import { PROVIDER_CATALOG } from "./model-catalog.js";
 const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   brave: "BRAVE_API_KEY",
   perplexity: "PERPLEXITY_API_KEY",
+  tavily: "TAVILY_API_KEY",
 };
 
 export function getLlmProviderEnvVar(providerId: string): string | undefined {

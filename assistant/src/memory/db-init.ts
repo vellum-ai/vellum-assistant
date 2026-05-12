@@ -115,6 +115,7 @@ import {
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
+  migrateMemoryRetrospectiveState,
   migrateMemoryV2ActivationLogs,
   migrateMessageBookmarks,
   migrateMessagesConversationCreatedAtIndex,
@@ -137,6 +138,7 @@ import {
   migrateOAuthProvidersScopeSeparator,
   migrateOAuthProvidersTokenAuthMethodDefault,
   migrateOAuthProvidersTokenExchangeBodyFormat,
+  migrateProviderConnectionStatusLabel,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameConversationTypeColumn,
@@ -418,6 +420,8 @@ export function initializeDb(): void {
     migrateConversationInferenceProfileSession,
     migrateMessageBookmarks,
     migrateCreateProviderConnections,
+    migrateProviderConnectionStatusLabel,
+    migrateMemoryRetrospectiveState,
   ];
 
   // Run each migration step, catching and logging individual failures so one

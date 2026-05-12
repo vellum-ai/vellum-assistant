@@ -264,7 +264,7 @@ public final class ChatMessageManager {
     // MARK: - Model / provider
 
     /// The currently active model ID, updated via `model_info` messages.
-    public var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
+    public var selectedModel: String = LLMProviderRegistry.defaultProvider.defaultModel
     /// Set of provider keys with configured API keys, updated via `model_info` messages.
     public var configuredProviders: Set<String> = ["anthropic"]
     /// Full provider catalog from daemon, updated via `model_info` messages.

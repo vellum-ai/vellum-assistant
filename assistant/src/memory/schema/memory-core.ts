@@ -100,6 +100,15 @@ export const memoryCheckpoints = sqliteTable("memory_checkpoints", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const memoryRetrospectiveState = sqliteTable(
+  "memory_retrospective_state",
+  {
+    conversationId: text("conversation_id").primaryKey(),
+    lastProcessedMessageId: text("last_processed_message_id").notNull(),
+    lastRunAt: integer("last_run_at").notNull(),
+  },
+);
+
 export const conversationStarters = sqliteTable(
   "conversation_starters",
   {

@@ -155,6 +155,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations/attention", scopes: ["chat.read"] },
   { endpoint: "conversations/seen", scopes: ["chat.write"] },
   { endpoint: "conversations/unread", scopes: ["chat.write"] },
+  { endpoint: "conversations/import", scopes: ["chat.write"] },
   { endpoint: "search", scopes: ["chat.read"] },
   { endpoint: "search/global", scopes: ["chat.read"] },
   { endpoint: "suggestion", scopes: ["chat.read"] },
@@ -319,6 +320,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/restore", scopes: ["settings.write"] },
   { endpoint: "apps/bundle", scopes: ["settings.write"] },
   { endpoint: "apps/open-bundle", scopes: ["settings.write"] },
+  { endpoint: "apps/import-bundle", scopes: ["settings.write"] },
   { endpoint: "apps/shared-list", scopes: ["settings.read"] },
   { endpoint: "apps/fork", scopes: ["settings.write"] },
   { endpoint: "apps/share-cloud", scopes: ["settings.write"] },
@@ -327,6 +329,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/sign-bundle", scopes: ["settings.write"] },
   { endpoint: "apps/signing-identity", scopes: ["settings.read"] },
   { endpoint: "apps/dist", scopes: ["settings.read"] },
+  { endpoint: "apps/publish", scopes: ["settings.write"] },
+  { endpoint: "apps/unpublish", scopes: ["settings.write"] },
+  { endpoint: "apps/publish-status", scopes: ["settings.read"] },
   { endpoint: "pages", scopes: ["settings.read"] },
 
   // Usage / cost telemetry
@@ -396,7 +401,14 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Generic config read/patch
   { endpoint: "config:GET", scopes: ["settings.read"] },
+
+  // Config JSON Schema (full or scoped sub-schema)
+  { endpoint: "config/schema:GET", scopes: ["settings.read"] },
   { endpoint: "config:PATCH", scopes: ["settings.write"] },
+  // Direct single-path set (preserves null, replaces objects)
+  { endpoint: "config/set:POST", scopes: ["settings.write"] },
+  // Secret-allowlist regex validation (read-only)
+  { endpoint: "config/allowlist/validate:GET", scopes: ["settings.read"] },
 
   // LLM call site catalog
   { endpoint: "config/llm/call-sites:GET", scopes: ["settings.read"] },
@@ -499,12 +511,24 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "backups/create", scopes: ["settings.write"] },
   { endpoint: "backups/restore", scopes: ["settings.write"] },
   { endpoint: "backups/verify", scopes: ["settings.read"] },
+  { endpoint: "backup/enable", scopes: ["settings.write"] },
+  { endpoint: "backup/disable", scopes: ["settings.write"] },
+  { endpoint: "backup/destinations", scopes: ["settings.read"] },
+  { endpoint: "backup/destinations/add", scopes: ["settings.write"] },
+  { endpoint: "backup/destinations/remove", scopes: ["settings.write"] },
+  { endpoint: "backup/destinations/set-encrypt", scopes: ["settings.write"] },
+  { endpoint: "backup/status", scopes: ["settings.read"] },
 
   // Settings (voice, avatar, client settings)
   { endpoint: "settings/voice", scopes: ["settings.write"] },
   { endpoint: "settings/avatar/generate", scopes: ["settings.write"] },
   { endpoint: "avatar/character-components", scopes: ["settings.read"] },
   { endpoint: "avatar/render-from-traits", scopes: ["settings.write"] },
+  { endpoint: "avatar/generate", scopes: ["settings.write"] },
+  { endpoint: "avatar/set", scopes: ["settings.write"] },
+  { endpoint: "avatar/remove", scopes: ["settings.write"] },
+  { endpoint: "avatar/get", scopes: ["settings.read"] },
+  { endpoint: "avatar/character/ascii", scopes: ["settings.read"] },
   { endpoint: "settings/client", scopes: ["settings.write"] },
 
   // Schedules
@@ -548,6 +572,25 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "stt/providers", scopes: ["settings.read"] },
   { endpoint: "stt/transcribe", scopes: ["chat.write"] },
 
+  // Inference provider connections
+  { endpoint: "inference/provider-connections:GET", scopes: ["settings.read"] },
+  {
+    endpoint: "inference/provider-connections:POST",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "inference/provider-connections/detail:GET",
+    scopes: ["settings.read"],
+  },
+  {
+    endpoint: "inference/provider-connections/detail:PATCH",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "inference/provider-connections/detail:DELETE",
+    scopes: ["settings.write"],
+  },
+
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
   { endpoint: "integrations/oauth/start", scopes: ["settings.write"] }, // legacy alias
@@ -570,6 +613,25 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Tools
   { endpoint: "tools", scopes: ["settings.read"] },
   { endpoint: "tools/simulate-permission", scopes: ["settings.read"] },
+
+  // Webhooks
+  { endpoint: "webhooks/register", scopes: ["settings.write"] },
+  { endpoint: "webhooks", scopes: ["settings.read"] },
+
+  // Image generation
+  { endpoint: "image-generation/generate", scopes: ["settings.write"] },
+
+  // Auth introspection (returns platform identity for the calling actor)
+  { endpoint: "auth/info", scopes: ["settings.read"] },
+
+  // OAuth provider mutations (mirror oauth/apps.create/.delete shape)
+  { endpoint: "oauth/providers.register", scopes: ["settings.write"] },
+  { endpoint: "oauth/providers.update", scopes: ["settings.write"] },
+  { endpoint: "oauth/providers.delete", scopes: ["settings.write"] },
+
+  // OAuth app upsert + lookup
+  { endpoint: "oauth/apps.upsert", scopes: ["settings.write"] },
+  { endpoint: "oauth/apps/lookup", scopes: ["settings.read"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
@@ -610,6 +672,9 @@ const INTERNAL_ENDPOINTS = [
   "internal/mcp/reload", // ← new
   "internal/oauth/connect/start",
   "internal/oauth/connect/status",
+  "internal/mcp/list",
+  "internal/mcp/add",
+  "internal/mcp/remove",
 ];
 for (const endpoint of INTERNAL_ENDPOINTS) {
   registerPolicy(endpoint, {
@@ -817,8 +882,224 @@ registerPolicy("background-tools/cancel", {
   allowedPrincipalTypes: ["local"],
 });
 
+// TTS CLI synthesis: local-only (CLI / IPC callers)
+registerPolicy("tts/synthesize-cli", {
+  requiredScopes: ["chat.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// STT file transcription: local-only — handler reads/transcodes an arbitrary
+// host filesystem path, so non-local callers cannot be allowed to drive it.
+registerPolicy("stt/transcribe-file", {
+  requiredScopes: ["chat.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Domain management (IPC-local)
+registerPolicy("domain/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("domain/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Email management (IPC-local)
+registerPolicy("email/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/unregister", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/send", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/download", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Email attachment-get streams binary bytes via an IPC envelope ({ stream,
+// headers }). HTTP callers would receive the envelope serialized as JSON
+// rather than a usable byte stream, so gate the route to local principals
+// (CLI / IPC) only. Aligns with tts/synthesize-cli + stt/transcribe-file.
+registerPolicy("email/attachment-get", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("email/attachment-list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // User-defined routes under /x/*
 registerPolicy("x", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+});
+
+// Audit log read (CLI-local introspection of tool invocations)
+registerPolicy("audit", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Conversation CLI routes (IPC-local — feed `assistant conversations list/create/export/clear`)
+registerPolicy("conversations/cli/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("conversations/cli/create", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("conversations/cli/export", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+// `conversations/cli/clear` wipes every conversation + message + vector
+// collection. Elevated to settings.write and locked to local callers,
+// mirroring the `conversations/clear-all` and `conversations/wipe` gates.
+registerPolicy("conversations/cli/clear", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// CLI-driven LLM dispatch. Aligns with `tts/synthesize-cli` and
+// `stt/transcribe-file` — IPC-local with chat.write because the handler
+// drives a model call on behalf of the caller.
+registerPolicy("inference/send", {
+  requiredScopes: ["chat.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Platform connection management (IPC-local CLI workflow)
+registerPolicy("platform/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("platform/connect", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("platform/disconnect", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("platform/callback-routes", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("platform/callback-routes/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Email sequences (IPC-local CLI workflow). Reads use settings.read, writes
+// use settings.write.
+registerPolicy("sequences/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/get", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/pause", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/resume", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/cancel-enrollment", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/stats", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+// Both GET and POST live on `sequences/guardrails`; the POST variant flips
+// to settings.write below.
+registerPolicy("sequences/guardrails", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("sequences/guardrails:POST", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// User-defined route inspection (CLI: `assistant routes list/inspect`).
+// Reads the workspace `routes/` directory and dynamically imports modules
+// — keep firmly local-only.
+registerPolicy("user-routes/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("user-routes/inspect", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// OAuth CLI commands (IPC-local — `assistant oauth status/ping/token/...`).
+// Migrated from CLI process to daemon IPC handlers in #30251; the existing
+// `oauth/*` entries in ACTOR_ENDPOINTS cover the actor-token surface, these
+// register policies for the CLI-only IPC paths added in that migration.
+registerPolicy("oauth/disconnect", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/mode", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/mode.set", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/status", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/ping", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/token", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/request", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/managed-connect.start", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("oauth/managed-connect/poll", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
 });

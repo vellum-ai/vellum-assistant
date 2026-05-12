@@ -832,7 +832,10 @@ describe("HeartbeatService", () => {
     await service.runOnce();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(conversationCreatedCalls).toHaveLength(0);
+    // The conversation surfaces to the sidebar via the runner's bootstrap
+    // callback for *every* heartbeat — "silent OK" means no notification
+    // signal is emitted, not that the conversation is hidden.
+    expect(conversationCreatedCalls).toHaveLength(1);
     expect(emittedNotificationSignals).toHaveLength(0);
   });
 
@@ -874,7 +877,9 @@ describe("HeartbeatService", () => {
     await service.runOnce();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(conversationCreatedCalls).toHaveLength(0);
+    // Conversation surfaces via the runner bootstrap, but no notification
+    // is emitted since the disposition is OK.
+    expect(conversationCreatedCalls).toHaveLength(1);
     expect(emittedNotificationSignals).toHaveLength(0);
   });
 
@@ -1541,7 +1546,10 @@ describe("HeartbeatService", () => {
       await service.runOnce();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(conversationCreatedCalls).toHaveLength(0);
+      // The bootstrap-time surface fires regardless of CAS (it happens
+      // before completeHeartbeatRun). CAS-false suppresses the alert
+      // notification emit but not the sidebar entry.
+      expect(conversationCreatedCalls).toHaveLength(1);
       expect(emittedNotificationSignals).toHaveLength(0);
     });
 

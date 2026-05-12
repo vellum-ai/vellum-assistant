@@ -36,6 +36,21 @@ export function getActivePublishedPageByAppId(
   return row ?? null;
 }
 
+export function insertPublishedPage(record: {
+  id: string;
+  deploymentId: string;
+  publicUrl: string;
+  pageTitle: string | null;
+  htmlHash: string;
+  publishedAt: number;
+  status: string;
+  appId: string | null;
+  projectSlug: string | null;
+}): void {
+  const db = getDb();
+  db.insert(publishedPages).values(record).run();
+}
+
 export function updatePublishedPage(
   id: string,
   updates: {
@@ -44,6 +59,7 @@ export function updatePublishedPage(
     htmlHash?: string;
     publishedAt?: number;
     appId?: string;
+    status?: string;
   },
 ): void {
   const db = getDb();

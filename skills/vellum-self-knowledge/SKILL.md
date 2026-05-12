@@ -40,7 +40,6 @@ The CLI is the single source of truth for anything about the running assistant's
 | Stored credentials                  | `assistant credentials list`                                               |
 | API keys                            | `assistant keys list`                                                      |
 | MCP servers                         | `assistant mcp list`                                                       |
-| Autonomy tiers                      | `assistant autonomy get`                                                   |
 | Watchers                            | `assistant watchers list`                                                  |
 | Token usage/costs                   | `assistant usage totals` / `assistant usage breakdown --group-by provider` |
 | Version                             | `assistant --version`                                                      |

@@ -45,6 +45,7 @@ enum APIKeyManager {
         "openai",
         "openrouter",
         "perplexity",
+        "tavily",
     ]
 
     /// Provider identifiers whose API keys are synced to the daemon as
@@ -293,6 +294,50 @@ enum APIKeyManager {
             names.insert(name)
         }
         return names
+    }
+
+    /// List credential entries from the daemon's secret store.
+    /// Returns an array of (service, field) tuples for credential-type secrets,
+    /// or nil on transport failure.
+    static func listCredentials() async -> [(service: String, field: String)]? {
+        do {
+            let response = try await GatewayHTTPClient.get(path: "secrets", timeout: 5)
+            guard response.isSuccess else { return nil }
+            return parseListCredentialsResponse(response.data)
+        } catch {
+            apiKeyLog.error("listCredentials failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Surfaces only `credential`-type entries from the daemon's secret store.
+    ///
+    /// `api_key`-type entries are intentionally excluded: they back the inline
+    /// API Key field at the top of the provider editor, and the credential
+    /// dropdown is for picking *additional* credential references. Lumping them
+    /// in caused two failure modes the dropdown couldn't recover from —
+    /// `secrets/read` with `type:"credential"` returned not-found (the entry
+    /// lives under `type:"api_key"`), so saving a value would write a fresh
+    /// `credential`-type row alongside the original.
+    static func parseListCredentialsResponse(_ data: Data) -> [(service: String, field: String)]? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let entries = (json["secrets"] as? [[String: Any]])
+            ?? (json["accounts"] as? [[String: Any]])
+            ?? []
+        var results: [(service: String, field: String)] = []
+        for entry in entries {
+            guard let type = entry["type"] as? String, type == "credential",
+                  let name = entry["name"] as? String else { continue }
+            guard let colonIdx = name.lastIndex(of: ":") else { continue }
+            let service = String(name[name.startIndex..<colonIdx])
+            let field = String(name[name.index(after: colonIdx)...])
+            if !service.isEmpty && !field.isEmpty {
+                results.append((service: service, field: field))
+            }
+        }
+        return results
     }
 
     // MARK: - Credential access (service:field secrets)

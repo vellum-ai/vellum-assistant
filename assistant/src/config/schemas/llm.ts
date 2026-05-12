@@ -47,7 +47,9 @@ export const LLMCallSiteEnum = z.enum([
   "memoryRetrieval",
   "memoryV2Migration",
   "memoryV2Sweep",
+  "memoryRouter",
   "memoryV2Consolidation",
+  "memoryRetrospective",
   "recall",
   "narrativeRefinement",
   "patternScan",
@@ -324,6 +326,9 @@ const LLMConfigFragment = z.object({
 });
 type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 
+export const ProfileStatusSchema = z.enum(["active", "disabled"]);
+export type ProfileStatus = z.infer<typeof ProfileStatusSchema>;
+
 /**
  * A named profile entry: an `LLMConfigFragment` augmented with
  * presentation/ownership metadata. These fields are intentionally kept off
@@ -336,12 +341,13 @@ export const ProfileEntry = LLMConfigFragment.extend({
   description: z.string().optional(),
   /**
    * Name of a `provider_connections` row to use for this profile.
-   * When set, the dispatcher resolves auth from the connection instead of
-   * the global `services.inference.mode` toggle. Additive alongside the
-   * legacy `provider` + `source` fields; those remain as read-only
-   * deprecated fallbacks for profiles not yet backfilled.
+   * The dispatcher resolves auth from this connection; the legacy `provider`
+   * and `source` fields remain as read-only deprecated fallbacks for profiles
+   * not yet backfilled by the boot-time migration.
    */
   provider_connection: z.string().min(1).optional(),
+  /** Absent means active. */
+  status: ProfileStatusSchema.optional(),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 

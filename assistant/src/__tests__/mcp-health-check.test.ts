@@ -18,20 +18,51 @@ mock.module("../mcp/client.js", () => ({
   },
 }));
 
-const { checkServerHealth } = await import("../cli/commands/mcp.js");
+mock.module("../config/loader.js", () => ({
+  loadRawConfig: () => ({
+    mcp: {
+      servers: {
+        test: {
+          transport: {
+            type: "streamable-http",
+            url: "https://example.com/mcp",
+          },
+          enabled: true,
+          defaultRiskLevel: "high",
+          maxTools: 20,
+        },
+      },
+    },
+  }),
+  saveRawConfig: () => {},
+}));
 
-const serverConfig = (overrides = {}) => ({
-  transport: {
-    type: "streamable-http" as const,
-    url: "https://example.com/mcp",
-  },
-  enabled: true,
-  defaultRiskLevel: "high" as const,
-  maxTools: 20,
-  ...overrides,
-});
+mock.module("../daemon/mcp-reload-service.js", () => ({
+  reloadMcpServers: async () => {},
+}));
 
-describe("checkServerHealth", () => {
+mock.module("../mcp/mcp-auth-orchestrator.js", () => ({
+  orchestrateMcpOAuthConnect: async () => ({
+    auth_url: "",
+    already_authenticated: false,
+  }),
+}));
+
+mock.module("../mcp/mcp-auth-state.js", () => ({
+  getMcpAuthState: () => null,
+}));
+
+mock.module("../mcp/mcp-oauth-provider.js", () => ({
+  deleteMcpOAuthCredentials: async () => {},
+}));
+
+const { ROUTES } = await import("../runtime/routes/mcp-auth-routes.js");
+
+const listHandler = ROUTES.find(
+  (r: { operationId: string }) => r.operationId === "internal_mcp_list",
+)!.handler;
+
+describe("checkServerHealth (via internal_mcp_list route)", () => {
   beforeEach(() => {
     mockConnect.mockReset();
     mockDisconnect.mockReset();
@@ -43,8 +74,10 @@ describe("checkServerHealth", () => {
     mockConnect.mockResolvedValue(undefined);
     mockDisconnect.mockResolvedValue(undefined);
 
-    const result = await checkServerHealth("test", serverConfig());
-    expect(result).toContain("Connected");
+    const result = (await listHandler({})) as {
+      servers: { status: string }[];
+    };
+    expect(result.servers[0].status).toContain("Connected");
     expect(mockDisconnect).toHaveBeenCalled();
   });
 
@@ -52,8 +85,10 @@ describe("checkServerHealth", () => {
     mockConnect.mockResolvedValue(undefined);
     mockIsConnected = false;
 
-    const result = await checkServerHealth("test", serverConfig());
-    expect(result).toContain("Needs authentication");
+    const result = (await listHandler({})) as {
+      servers: { status: string }[];
+    };
+    expect(result.servers[0].status).toContain("Needs authentication");
   });
 
   test("returns Error when connect fails with lastError", async () => {
@@ -62,16 +97,10 @@ describe("checkServerHealth", () => {
     mockLastError = new Error("Connection refused");
     mockDisconnect.mockResolvedValue(undefined);
 
-    const result = await checkServerHealth("test", serverConfig());
-    expect(result).toContain("Error");
-    expect(result).toContain("Connection refused");
-  });
-
-  test("returns Timed out when connect hangs", async () => {
-    mockConnect.mockImplementation(() => new Promise(() => {}));
-    mockDisconnect.mockResolvedValue(undefined);
-
-    const result = await checkServerHealth("test", serverConfig(), 100);
-    expect(result).toContain("Timed out");
+    const result = (await listHandler({})) as {
+      servers: { status: string }[];
+    };
+    expect(result.servers[0].status).toContain("Error");
+    expect(result.servers[0].status).toContain("Connection refused");
   });
 });

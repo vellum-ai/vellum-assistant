@@ -144,6 +144,7 @@ struct SettingsPanel: View {
 
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
+    @State private var tavilyKeyText: String = ""
     @State private var imageGenKeyText: String = ""
     @State private var embeddingKeyText: String = ""
 
@@ -550,7 +551,6 @@ struct SettingsPanel: View {
             // ANTHROPIC / INFERENCE
             InferenceServiceCard(
                 store: store,
-                authManager: authManager,
                 showToast: showToast
             )
 
@@ -560,6 +560,7 @@ struct SettingsPanel: View {
                 authManager: authManager,
                 perplexityKeyText: $perplexityKeyText,
                 braveKeyText: $braveKeyText,
+                tavilyKeyText: $tavilyKeyText,
                 showToast: showToast
             )
 

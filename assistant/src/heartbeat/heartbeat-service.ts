@@ -720,12 +720,12 @@ export class HeartbeatService {
     // timeout, and emits `activity.failed` on any failure path. Never
     // re-throws — failures come back as a structured result.
     //
-    // We capture the conversationId from the runner's bootstrap callback
-    // for use on the failure path, but intentionally do NOT pass it
-    // through to `deps.onConversationCreated`. Most heartbeats end with
-    // HEARTBEAT_OK and should stay invisible to the sidebar — only the
-    // alert disposition or the failure surfacing below should expose the
-    // conversation to the user.
+    // The runner fires `onConversationCreated` synchronously after
+    // bootstrap so the macOS sidebar gets the new conversation
+    // immediately rather than waiting up to HEARTBEAT_TIMEOUT_MS for
+    // the LLM turn to finish. We forward to `deps.onConversationCreated`
+    // for every run; "silent OK" is enforced by NOT emitting any
+    // notification signal further down, not by hiding the conversation.
     let conversationId: string | undefined;
     const result = await runBackgroundJob({
       jobName: "heartbeat",
@@ -741,6 +741,10 @@ export class HeartbeatService {
       origin: "heartbeat",
       onConversationCreated: (newConversationId) => {
         conversationId = newConversationId;
+        this.deps.onConversationCreated?.({
+          conversationId: newConversationId,
+          title: "Heartbeat",
+        });
       },
     });
 
@@ -781,10 +785,8 @@ export class HeartbeatService {
           assistantMessage?.text ?? null,
         );
         if (disposition === "alert") {
-          this.deps.onConversationCreated?.({
-            conversationId: result.conversationId,
-            title,
-          });
+          // Conversation was already surfaced via the runner's bootstrap
+          // callback above; alert just needs to emit the notification.
           void this.emitHeartbeatAlertNotification({
             runId,
             conversationId: result.conversationId,

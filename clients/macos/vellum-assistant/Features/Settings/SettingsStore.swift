@@ -65,18 +65,19 @@ public final class SettingsStore: ObservableObject {
     @Published var apiKeySaving: Bool = false
     @Published var braveKeySaveError: String?
     @Published var perplexityKeySaveError: String?
+    @Published var tavilyKeySaveError: String?
     @Published var imageGenKeySaveError: String?
     @Published var imageGenKeySaving: Bool = false
 
     // MARK: - Model Selection
 
-    @Published var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
+    @Published var selectedModel: String = LLMProviderRegistry.defaultProvider.defaultModel
     @Published var configuredProviders: Set<String> = ["ollama"]
     @Published var selectedImageGenModel: String = "gemini-3.1-flash-image-preview"
 
     // MARK: - Inference Provider Selection
 
-    @Published var selectedInferenceProvider: String = "anthropic"
+    @Published var selectedInferenceProvider: String = LLMProviderRegistry.defaultProvider.id
 
     /// Full provider catalog from daemon. Seeded with inline defaults for pre-fetch rendering.
     @Published var providerCatalog: [ProviderCatalogEntry] = []
@@ -270,10 +271,6 @@ public final class SettingsStore: ObservableObject {
     /// Values: `"user-key"`, `"managed-proxy"`, or absent.
     @Published var providerRoutingSources: [String: String] = [:]
 
-    /// Current inference mode from the daemon debug endpoint.
-    /// Values: `"managed"` or `"your-own"`.
-    @Published var inferenceMode: String = "your-own"
-
     /// Current image generation mode. Values: "managed" or "your-own".
     @Published var imageGenMode: String = "your-own"
 
@@ -316,12 +313,13 @@ public final class SettingsStore: ObservableObject {
     @Published var yourOwnOAuthConnectingAppId: String? = nil
     @Published var yourOwnOAuthProviderMetadata: [String: OAuthProviderMetadata] = [:]
 
-    static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave"]
+    static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave", "tavily"]
 
     static let webSearchProviderDisplayNames: [String: String] = [
         "inference-provider-native": "Provider Native",
         "perplexity": "Perplexity",
         "brave": "Brave",
+        "tavily": "Tavily",
     ]
 
     // MARK: - Managed Assistant Recovery Mode State
@@ -988,6 +986,35 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    func saveTavilyKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        tavilyKeySaveError = nil
+        removeDeletionTombstone(type: "api_key", name: "tavily")
+        Task {
+            let result = await APIKeyManager.setKey(trimmed, for: "tavily")
+            if result.success {
+                let _: Void = APIKeyManager.deleteKey(for: "tavily")
+                scheduleRoutingSourceRefresh()
+                onSuccess?()
+            } else if let error = result.error {
+                tavilyKeySaveError = error
+                if !result.isTransient {
+                    let _: Void = APIKeyManager.deleteKey(for: "tavily")
+                }
+            }
+        }
+    }
+
+    func clearTavilyKey() {
+        APIKeyManager.deleteKey(for: "tavily")
+        scheduleRoutingSourceRefresh()
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: "tavily")
+            if !deleted { addDeletionTombstone(type: "api_key", name: "tavily") }
+        }
+    }
+
     func saveImageGenKey(_ raw: String, for provider: String = "gemini", onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -1408,10 +1435,10 @@ public final class SettingsStore: ObservableObject {
         return true
     }
 
-    /// Re-sync locally-known keys to daemon on reconnect.
-    /// Pushes keys present in the credential store via the async gateway API,
-    /// and replays any pending deletion tombstones so user-initiated clears
-    /// are eventually consistent.
+    /// Replay any pending deletion tombstones on reconnect so user-initiated
+    /// clears are eventually consistent if the daemon was unreachable when
+    /// the user clicked. (Legacy file→daemon resync removed — settings
+    /// writes go straight to the daemon now.)
     private func syncAllKeysToDaemon() {
         Task {
             // In managed mode, auth is handled by SessionTokenManager — no actor token needed.
@@ -1423,13 +1450,6 @@ public final class SettingsStore: ObservableObject {
             if !isManagedMode {
                 guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
             }
-
-            for provider in APIKeyManager.allSyncableProviders {
-                if let key = APIKeyManager.getKey(for: provider) {
-                    _ = await APIKeyManager.setKey(key, for: provider)
-                }
-            }
-
             await replayDeletionTombstones()
         }
     }
@@ -2341,9 +2361,6 @@ public final class SettingsStore: ObservableObject {
         let llmDefault = (config["llm"] as? [String: Any])?["default"] as? [String: Any]
         let inference = services?["inference"] as? [String: Any]
 
-        if let inference, let mode = inference["mode"] as? String {
-            self.inferenceMode = mode
-        }
         // Only apply local config provider/model as a fallback when the daemon
         // hasn't yet reported an authoritative value. Once the daemon responds
         // via applyModelInfoResponse, its values take precedence over local
@@ -2394,22 +2411,6 @@ public final class SettingsStore: ObservableObject {
            let mode = notionOAuth["mode"] as? String {
             self.managedOAuthMode["notion"] = mode
         }
-    }
-
-    @discardableResult
-    func setInferenceMode(_ mode: String) -> Task<Bool, Never> {
-        inferenceMode = mode
-        let task = Task {
-            let success = await settingsClient.patchConfig([
-                "services": ["inference": ["mode": mode]]
-            ])
-            if !success {
-                log.error("Failed to patch config for inference mode")
-            }
-            return success
-        }
-        scheduleRoutingSourceRefresh()
-        return task
     }
 
     @discardableResult
@@ -3413,6 +3414,89 @@ public final class SettingsStore: ObservableObject {
         return success
     }
 
+    /// In-flight `setProfileStatus` PATCHes, keyed by profile name. Used by
+    /// `deleteProfile` to serialize per-profile writes and prevent a
+    /// status-only PATCH from resurrecting a deleted profile if it arrives
+    /// at the daemon out of order. See `setProfileStatus` and
+    /// `deleteProfile` below. (Codex P1, iter2.)
+    private var pendingStatusPatches: [String: Task<Bool, Never>] = [:]
+
+    /// Flips the visibility status of an inference profile in-place.
+    /// Used by the inline list-row toggle in `InferenceProfilesSheet` so
+    /// users can hide a profile from pickers without opening the editor.
+    ///
+    /// Wire shape: `{ llm: { profiles: { <name>: { status: "active" | "disabled" } } } }`.
+    /// Bypasses `InferenceProfile.toJSON()` which omits status when active
+    /// (absent==active convention) — the schema accepts the literal
+    /// "active" string and treats it equivalently to absent, but the
+    /// daemon's deep-merge only updates the field when the key is present.
+    ///
+    /// Optimistic update + rollback on failure mirrors the provider
+    /// connection status toggle pattern in `ProvidersSheet`.
+    ///
+    /// Concurrency: the PATCH task is registered in `pendingStatusPatches`
+    /// so `deleteProfile` can await it before issuing its own delete
+    /// PATCH. This prevents the "toggle then delete" race where a
+    /// status-only PATCH arrives at the daemon after the delete and
+    /// resurrects the profile as `{ status: "disabled" }` (deep-merge
+    /// re-creates the key). (Codex P1, iter2.)
+    @discardableResult
+    func setProfileStatus(name: String, active: Bool) async -> Bool {
+        // Existence guard: if the profile is no longer in `profiles` (e.g. a
+        // concurrent config sync removed it between render and the toggle
+        // handler firing), skip the PATCH entirely. Sending a status-only
+        // payload here would be deep-merged by the daemon and resurrect the
+        // profile key with `{ status: ... }` only — leaving a partial /
+        // orphaned profile in pickers. Same resurrection class of bug as
+        // the toggle→delete race already serialized via
+        // `pendingStatusPatches`. (Codex P2, iter2 round 2.)
+        guard profiles.contains(where: { $0.name == name }) else {
+            log.warning("setProfileStatus called for missing profile \(name, privacy: .public); skipping PATCH to avoid resurrection")
+            return false
+        }
+        let previousStatus = profiles.first(where: { $0.name == name })?.status
+        let nextLocalStatus: String? = active ? nil : "disabled"
+        let wireStatus: String = active ? "active" : "disabled"
+
+        // Optimistic update
+        if let idx = profiles.firstIndex(where: { $0.name == name }) {
+            var copy = profiles[idx]
+            copy.status = nextLocalStatus
+            profiles[idx] = copy
+        }
+
+        // Register the PATCH as an in-flight task so `deleteProfile` can
+        // serialize after it. The capture-list weak ref keeps the cleanup
+        // path safe across early `await` suspensions.
+        let patchTask: Task<Bool, Never> = Task { [weak self] in
+            guard let self else { return false }
+            return await self.settingsClient.patchConfig([
+                "llm": ["profiles": [name: ["status": wireStatus]]]
+            ])
+        }
+        pendingStatusPatches[name] = patchTask
+        let success = await patchTask.value
+        // Clear only if it's still our task (another toggle may have
+        // overwritten the slot during the await — leave that entry in
+        // place so a concurrent `deleteProfile` still serializes after
+        // the newer PATCH). `Task` conforms to Hashable, so `==` compares
+        // the underlying job identity.
+        if pendingStatusPatches[name] == patchTask {
+            pendingStatusPatches[name] = nil
+        }
+
+        if !success {
+            log.error("Failed to patch status for llm.profiles.\(name, privacy: .public)")
+            // Roll back
+            if let idx = profiles.firstIndex(where: { $0.name == name }) {
+                var copy = profiles[idx]
+                copy.status = previousStatus
+                profiles[idx] = copy
+            }
+        }
+        return success
+    }
+
     /// Replaces the Settings-UI-managed leaves for a profile. Unlike
     /// `setProfile`, nil fields in `fragment` are treated as removals by
     /// the assistant route, so hidden or toggled-off editor controls do not
@@ -3524,6 +3608,14 @@ public final class SettingsStore: ObservableObject {
         let conflictingCallSites = callSiteIdsReferencingProfile(name)
         if !conflictingCallSites.isEmpty {
             return .blockedByCallSites(conflictingCallSites)
+        }
+        // Serialize after any in-flight `setProfileStatus` PATCH for this
+        // profile so the delete PATCH arrives at the daemon strictly after
+        // the status PATCH. Without this, a fast "toggle then delete" can
+        // re-create the profile as `{ status: "disabled" }` via deep-merge.
+        // (Codex P1, iter2.)
+        if let pending = pendingStatusPatches[name] {
+            _ = await pending.value
         }
         let nextOrder = hasExplicitProfileOrder ? profileOrder.filter { $0 != name } : nil
         var llmPatch: [String: Any] = ["profiles": [name: NSNull()]]

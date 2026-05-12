@@ -245,22 +245,26 @@ describe("GET /v1/oauth/providers/:providerKey", () => {
     );
 
     expect(status).toBe(200);
+    // The GET-by-key endpoint uses `serializeProviderFull`, which intentionally
+    // emits camelCase keys (see provider-serializer.ts). The list endpoint
+    // uses `serializeProviderSummary` and emits snake_case — these are
+    // separate wire formats by design.
     const { provider } = body as {
       provider: {
-        provider_key: string;
-        display_name: string | null;
+        providerKey: string;
+        displayName: string | null;
         description: string | null;
-        dashboard_url: string | null;
-        client_id_placeholder: string | null;
-        requires_client_secret: boolean;
-        supports_managed_mode: boolean;
+        dashboardUrl: string | null;
+        clientIdPlaceholder: string | null;
+        requiresClientSecret: boolean;
+        supportsManagedMode: boolean;
       };
     };
 
-    expect(provider.provider_key).toBe("google");
-    expect(provider.display_name).toBe("Google");
-    expect(provider.supports_managed_mode).toBe(true);
-    expect(provider.requires_client_secret).toBe(true);
+    expect(provider.providerKey).toBe("google");
+    expect(provider.displayName).toBe("Google");
+    expect(provider.supportsManagedMode).toBe(true);
+    expect(provider.requiresClientSecret).toBe(true);
   });
 
   test("returns 404 for unknown provider", async () => {

@@ -158,6 +158,126 @@ tester.run("cli/no-daemon-internals", rule, {
         }).command("subcmd").description("desc");
       `,
     },
+    // Sibling subcommand composition: an index file (e.g. oauth/index.ts)
+    // imports sibling subcommand files (./connect.js, ./disconnect.js) to
+    // attach them under a parent group. The imported file is itself a
+    // command and the rule checks its imports independently, so this can't
+    // smuggle daemon internals.
+    {
+      code: `
+        import type { Command } from "commander";
+        import { registerCommand } from "../../lib/register-command.js";
+        import { setupConnect } from "./connect.js";
+        import { setupDisconnect } from "./disconnect.js";
+
+        registerCommand(program, {
+          name: "ipc-index-composition",
+          transport: "ipc",
+          build: () => {},
+        });
+      `,
+    },
+    // Nested command file (commands/oauth/foo.ts) needs deeper relative
+    // paths to the IPC client, lib/, logger, and output. Without the
+    // depth-2 entries the rule would false-positive on every nested
+    // command (oauth/*, platform/*).
+    {
+      code: `
+        import type { Command } from "commander";
+        import { cliIpcCall } from "../../../ipc/cli-client.js";
+        import { registerCommand } from "../../lib/register-command.js";
+        import { log } from "../../logger.js";
+        import { writeOutput } from "../../output.js";
+
+        registerCommand(program, {
+          name: "ipc-nested",
+          transport: "ipc",
+          build: () => {},
+        });
+      `,
+    },
+    // Shared CLI utils (src/cli/utils/*) — sibling utility directory used
+    // by task/ui/conversations-defer for ID resolution and parsing. Lives
+    // alongside lib/ but historically wasn't on the allowlist.
+    {
+      code: `
+        import type { Command } from "commander";
+        import { cliIpcCall } from "../../ipc/cli-client.js";
+        import { resolveConversationId } from "../utils/conversation-id.js";
+        import { parseDuration } from "../utils/parse-duration.js";
+
+        registerCommand(program, {
+          name: "ipc-with-utils",
+          transport: "ipc",
+          build: () => {},
+        });
+      `,
+    },
+    // status.ts pattern: when the daemon is unreachable, the command falls
+    // back to a local socket-path probe + platform helpers. Both imports
+    // are part of the documented daemon-down fallback contract (§3.7).
+    {
+      code: `
+        import type { Command } from "commander";
+        import { cliIpcCall } from "../../ipc/cli-client.js";
+        import { getSocketPath } from "../../ipc/socket-path.js";
+        import { getWorkspaceDir } from "../../util/platform.js";
+
+        registerCommand(program, {
+          name: "ipc-status",
+          transport: "ipc",
+          build: () => {},
+        });
+      `,
+    },
+    // local-tagged keys.ts pattern: the secure-key helpers are designed to
+    // run in-process (not over IPC), so direct security/* imports are part
+    // of the contract.
+    {
+      code: `
+        import type { Command } from "commander";
+        import { credentialKey } from "../../security/credential-key.js";
+        import { getSecureKeyAsync } from "../../security/secure-keys.js";
+
+        registerCommand(program, {
+          name: "local-keys",
+          transport: "local",
+          build: () => {},
+        });
+      `,
+    },
+    // local-tagged credential-execution.ts pattern: speaks to the CES
+    // sidecar via service-contracts RPC; the daemon is not involved.
+    {
+      code: `
+        import type { Command } from "commander";
+        import { credentialRpc } from "@vellumai/service-contracts/credential-rpc";
+        import { connect } from "../../credential-execution/client.js";
+
+        registerCommand(program, {
+          name: "local-ces",
+          transport: "local",
+          build: () => {},
+        });
+      `,
+    },
+    // local-tagged config.ts uses zod for schema validation and reaches
+    // across to oauth/shared.ts for the managed-mode platform-connection
+    // check (documented cross-namespace helper).
+    {
+      code: `
+        import type { Command } from "commander";
+        import { z } from "zod";
+        import { loadRawConfig } from "../../config/loader.js";
+        import { requirePlatformConnection } from "./oauth/shared.js";
+
+        registerCommand(program, {
+          name: "local-config",
+          transport: "local",
+          build: () => {},
+        });
+      `,
+    },
   ],
 
   invalid: [
@@ -244,6 +364,54 @@ tester.run("cli/no-daemon-internals", rule, {
           data: {
             transport: "local",
             source: "../../runtime/routes/health-routes.js",
+          },
+        },
+      ],
+    },
+    // Nested command file (commands/oauth/foo.ts) STILL rejects runtime
+    // route imports. Locking in the boundary so the depth-2 allowlist
+    // additions don't accidentally open daemon-internal namespaces.
+    {
+      code: `
+        import type { Command } from "commander";
+        import { cliIpcCall } from "../../../ipc/cli-client.js";
+        import { healthRoutes } from "../../../runtime/routes/health-routes.js";
+
+        registerCommand(program, {
+          name: "bad-ipc-nested",
+          transport: "ipc",
+          build: () => {},
+        });
+      `,
+      errors: [
+        {
+          messageId: "forbiddenImport",
+          data: {
+            transport: "ipc",
+            source: "../../../runtime/routes/health-routes.js",
+          },
+        },
+      ],
+    },
+    // services/, agents/, llm/ namespaces remain forbidden for ipc commands.
+    {
+      code: `
+        import type { Command } from "commander";
+        import { cliIpcCall } from "../../ipc/cli-client.js";
+        import { dispatchAgent } from "../../agents/dispatcher.js";
+
+        registerCommand(program, {
+          name: "bad-ipc-agents",
+          transport: "ipc",
+          build: () => {},
+        });
+      `,
+      errors: [
+        {
+          messageId: "forbiddenImport",
+          data: {
+            transport: "ipc",
+            source: "../../agents/dispatcher.js",
           },
         },
       ],

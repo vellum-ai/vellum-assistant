@@ -91,6 +91,27 @@ mock.module("../../memory/auto-analysis-enqueue.js", () => ({
   },
 }));
 
+let memoryRetroEnabled = false;
+const memoryRetroCalls: Array<{
+  conversationId: string;
+  trigger: string;
+}> = [];
+
+mock.module("../../memory/memory-retrospective-enqueue.js", () => ({
+  enqueueMemoryRetrospectiveIfEnabled: (args: {
+    conversationId: string;
+    trigger: string;
+  }) => {
+    if (!memoryRetroEnabled) return;
+    memoryRetroCalls.push(args);
+  },
+  // Also export sibling functions other modules import from this file, so
+  // mocking it here doesn't break transitive imports loaded during the
+  // `disposeConversation` dynamic-import chain.
+  enqueueMemoryRetrospectiveOnCompaction: () => {},
+  isMemoryRetrospectiveConversation: (_id: string) => false,
+}));
+
 // Stub all side-effecting cleanup helpers that disposeConversation chains
 // into after the enqueue block. We assert on enqueue behavior only.
 mock.module("../../tools/browser/browser-screencast.js", () => ({
@@ -168,7 +189,9 @@ describe("disposeConversation — auto-analysis enqueue", () => {
   beforeEach(() => {
     memoryJobCalls.length = 0;
     autoAnalyzeCalls.length = 0;
+    memoryRetroCalls.length = 0;
     autoAnalyzeEnabled = true;
+    memoryRetroEnabled = false;
     autoAnalysisConversations.clear();
     v2Enabled = false;
   });
@@ -344,5 +367,61 @@ describe("disposeConversation — auto-analysis enqueue", () => {
       conversationId: "conv-v2-on",
       trigger: "lifecycle",
     });
+  });
+});
+
+describe("disposeConversation — memory-retrospective lifecycle safety net", () => {
+  beforeEach(() => {
+    memoryJobCalls.length = 0;
+    autoAnalyzeCalls.length = 0;
+    memoryRetroCalls.length = 0;
+    autoAnalyzeEnabled = false;
+    memoryRetroEnabled = false;
+    autoAnalysisConversations.clear();
+    v2Enabled = false;
+  });
+
+  test("guardian conversation + flag on — enqueues memory-retrospective with trigger 'lifecycle'", () => {
+    memoryRetroEnabled = true;
+    const ctx = makeDisposeContext({
+      conversationId: "conv-retro",
+      trustClass: "guardian",
+    });
+
+    disposeConversation(ctx);
+
+    expect(memoryRetroCalls).toHaveLength(1);
+    expect(memoryRetroCalls[0]).toEqual({
+      conversationId: "conv-retro",
+      trigger: "lifecycle",
+    });
+  });
+
+  test("flag off — no memory-retrospective enqueue", () => {
+    memoryRetroEnabled = false;
+    const ctx = makeDisposeContext({
+      conversationId: "conv-retro-off",
+      trustClass: "guardian",
+    });
+
+    disposeConversation(ctx);
+
+    expect(memoryRetroCalls).toHaveLength(0);
+  });
+
+  test("untrusted actor — no memory-retrospective enqueue even when flag is on", () => {
+    memoryRetroEnabled = true;
+    const ctx = makeDisposeContext({
+      conversationId: "conv-retro-untrusted",
+      trustClass: "unknown",
+    });
+
+    disposeConversation(ctx);
+
+    // The outer trust-class guard in disposeConversation gates ALL three
+    // enqueues (graph_extract, auto-analyze, memory-retrospective). When
+    // the actor is untrusted, none of them fire.
+    expect(memoryRetroCalls).toHaveLength(0);
+    expect(autoAnalyzeCalls).toHaveLength(0);
   });
 });

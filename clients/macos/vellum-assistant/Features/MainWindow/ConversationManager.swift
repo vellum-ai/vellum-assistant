@@ -1,7 +1,7 @@
-import SwiftUI
-import VellumAssistantShared
+import AppKit
 import Foundation
 import UserNotifications
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationManager")
@@ -412,6 +412,10 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     func mergeAssistantAttention(from item: ConversationListResponseItem, intoConversationAt index: Int) {
         listStore.mergeAssistantAttention(from: item, intoConversationAt: index)
+    }
+
+    func applyAssistantAttention(from item: ConversationListResponseItem, into conversation: inout ConversationModel) {
+        listStore.applyAssistantAttention(from: item, into: &conversation)
     }
 
     func restoreLastActiveConversation() {
@@ -1426,14 +1430,14 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         if let existingIdx = listStore.conversations.firstIndex(where: { $0.conversationId == item.id }) {
             let existingConversation = listStore.conversations[existingIdx]
-            let updatedConversation = listStore.conversationModel(
+            var updatedConversation = listStore.conversationModel(
                 from: item,
                 localId: existingConversation.id,
                 createdAt: existingConversation.createdAt,
                 isArchived: isArchived
             )
+            listStore.applyAssistantAttention(from: item, into: &updatedConversation)
             listStore.conversations[existingIdx] = updatedConversation
-            listStore.mergeAssistantAttention(from: item, intoConversationAt: existingIdx)
             if let viewModel = selectionStore.chatViewModels[existingConversation.id] {
                 viewModel.conversationId = item.id
                 viewModel.isChannelConversation = updatedConversation.isChannelConversation

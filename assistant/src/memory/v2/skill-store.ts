@@ -34,6 +34,7 @@ import {
   embedWithBackend,
   generateSparseEmbedding,
 } from "../embedding-backend.js";
+import { invalidatePageIndex } from "./page-index.js";
 import {
   pruneSlugsWithPrefixExcept,
   upsertConceptPageEmbedding,
@@ -245,6 +246,10 @@ async function runSeedOnce(): Promise<void> {
 
     // Atomically replace the cache only after every step above succeeds.
     entries = nextEntries;
+    // Drop the page-index cache so the next router invocation observes the
+    // freshly seeded skill set (skill entries share the unified concept-page
+    // collection and surface in the same index).
+    invalidatePageIndex();
     lastSeedError = null;
   } catch (err) {
     lastSeedError = err;
@@ -271,6 +276,22 @@ export function getSkillCapability(idOrSlug: string): SkillEntry | null {
 /** True iff the slug refers to a skill entry in the unified collection. */
 export function isSkillSlug(slug: string): boolean {
   return slug.startsWith(SKILL_SLUG_PREFIX);
+}
+
+/**
+ * Snapshot of the in-process skill cache, sorted by skill id (ASCII order)
+ * for determinism. Returns a freshly allocated array on each call so callers
+ * cannot mutate the underlying cache.
+ *
+ * The cache is replaced atomically by `seedV2SkillEntries`, so a snapshot
+ * may be stale once a subsequent seed run completes. Callers that need
+ * up-to-the-moment state must re-call this after awaiting the seed.
+ */
+export function listSkillEntries(): SkillEntry[] {
+  if (!entries) return [];
+  return [...entries.values()].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
 }
 
 /** @internal Test-only: clear the module-level cache. */

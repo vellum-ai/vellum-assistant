@@ -362,10 +362,15 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    // Seed canonical inference provider_connections and backfill any legacy
-    // profiles that pre-date the connection field. Idempotent — runs every
-    // boot so new canonicals propagate and manual config.json edits self-heal.
     if (dbReady) {
+      await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
+      log.info("Daemon startup: workspace migrations complete");
+
+      // Seed canonical inference provider_connections and backfill any legacy
+      // profiles that pre-date the connection field. Runs after workspace
+      // migrations so migration 076 has already stripped services.inference.mode
+      // before backfill reads config. Idempotent — runs every boot so new
+      // canonicals propagate and manual config.json edits self-heal.
       try {
         runProviderConnectionsBackfill(getDb());
       } catch (err) {
@@ -374,11 +379,6 @@ export async function runDaemon(): Promise<void> {
           "provider_connections backfill failed — continuing startup",
         );
       }
-    }
-
-    if (dbReady) {
-      await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
-      log.info("Daemon startup: workspace migrations complete");
 
       // Profiler retention sweep — prune completed profiler runs to stay
       // within configured byte-count, run-count, and free-space budgets.
@@ -510,15 +510,16 @@ export async function runDaemon(): Promise<void> {
     // seeder and persisted alongside schema defaults.
     const defaultConfigMerge = mergeDefaultWorkspaceConfig();
 
-    // Seed managed inference profiles into the workspace config. Runs after
-    // workspace migrations and default-config merge, but before loadConfig() so
-    // fresh hatches have profiles on disk before the first config load. Any
-    // profile fields explicitly supplied by the default overlay stay
-    // authoritative for this startup.
+    // Seed inference profiles into the workspace config. Managed Anthropic
+    // profiles are overwritten on every boot so Vellum can push updates.
+    // Off-platform hatches additionally create user profiles + a personal
+    // provider connection for the hatch provider.
     try {
       seedInferenceProfiles({
         preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
         preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+        isHatch: defaultConfigMerge.hadOverlay,
+        db: dbReady ? getDb() : undefined,
       });
       log.info("Inference profile seeding complete");
     } catch (err) {

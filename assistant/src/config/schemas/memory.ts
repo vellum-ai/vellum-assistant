@@ -10,6 +10,7 @@ import {
   MemorySummarizationConfigSchema,
 } from "./memory-processing.js";
 import { MemoryRetrievalConfigSchema } from "./memory-retrieval.js";
+import { MemoryRetrospectiveConfigSchema } from "./memory-retrospective.js";
 import {
   MemoryEmbeddingsConfigSchema,
   MemorySegmentationConfigSchema,
@@ -47,6 +48,9 @@ export const MemoryConfigSchema = z
       MemorySummarizationConfigSchema.parse({}),
     ),
     v2: MemoryV2ConfigSchema.default(MemoryV2ConfigSchema.parse({})),
+    retrospective: MemoryRetrospectiveConfigSchema.default(
+      MemoryRetrospectiveConfigSchema.parse({}),
+    ),
   })
   .describe(
     "Long-term memory system — stores, retrieves, and manages persistent knowledge across conversations",

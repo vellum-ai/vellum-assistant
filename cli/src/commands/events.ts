@@ -49,13 +49,14 @@ interface AssistantEvent {
     content?: string;
     message?: string;
     chunk?: string;
+    tags?: unknown;
     conversationId?: string;
     [key: string]: unknown;
   };
 }
 
 /** Render an event as human-readable markdown to stdout. */
-function renderMarkdown(event: AssistantEvent): void {
+export function renderMarkdown(event: AssistantEvent): void {
   const msg = event.message;
   switch (msg.type) {
     case "assistant_text_delta":
@@ -94,6 +95,17 @@ function renderMarkdown(event: AssistantEvent): void {
     case "user_message_echo":
       console.log(`\n**You:** ${msg.text}`);
       break;
+    case "sync_changed": {
+      const tags = Array.isArray(msg.tags)
+        ? msg.tags.filter((tag): tag is string => typeof tag === "string")
+        : [];
+      const renderedTags =
+        tags.length > 0
+          ? tags.map((tag) => `\`${tag}\``).join(", ")
+          : "(no tags)";
+      console.log(`\n> **Sync changed:** ${renderedTags}`);
+      break;
+    }
     default:
       // Silently skip events that don't have a markdown representation
       // (e.g. heartbeat comments, activity states, etc.)

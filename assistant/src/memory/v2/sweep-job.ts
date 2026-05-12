@@ -26,7 +26,10 @@ import { and, desc, eq, gt, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../config/types.js";
-import { getAssistantName } from "../../daemon/identity-helpers.js";
+import {
+  getAssistantName,
+  resolveUserName,
+} from "../../daemon/identity-helpers.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import {
   extractToolUse,
@@ -317,23 +320,4 @@ function loadRecentMessagesText(nowMs: number): string {
     joined = joined.slice(joined.length - MAX_RECENT_TEXT_CHARS);
   }
   return joined;
-}
-
-/**
- * Read the guardian's display name from `users/default.md`. We look for the
- * markdown-bold "Name" label (matching the IDENTITY.md convention) and fall
- * back to `null` on any miss; the prompt template substitutes a generic
- * label.
- */
-function resolveUserName(workspaceDir: string): string | null {
-  try {
-    const content = readFileSync(
-      join(workspaceDir, "users", "default.md"),
-      "utf-8",
-    );
-    const match = content.match(/\*\*Name:\*\*\s*(.+)/);
-    return match?.[1]?.trim() || null;
-  } catch {
-    return null;
-  }
 }

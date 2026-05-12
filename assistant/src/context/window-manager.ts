@@ -501,13 +501,45 @@ export class ContextWindowManager {
       };
     }
 
-    const keepPlan = this.pickKeepBoundary(messages, userTurnStarts, {
+    const keepPlanInitial = this.pickKeepBoundary(messages, userTurnStarts, {
       minKeepRecentUserTurns: options?.minKeepRecentUserTurns,
       targetInputTokensOverride: options?.targetInputTokensOverride,
       conversationOriginChannel: options?.conversationOriginChannel,
       force: options?.force,
       previousEstimatedInputTokens,
     });
+    // Under force (user-explicit `/compact`), never route through the
+    // "already fits" / "truncated tool results without summarization"
+    // early-return — those are no-op responses to a direct user command.
+    // The boundary can collapse to the summary in two cases the
+    // projection-optimism clamp in pickKeepBoundary does not cover:
+    //   1. `adjustForToolPairs` walked the boundary back through a
+    //      tool_use/tool_result chain at the start of the conversation.
+    //   2. The binary search settled below `userTurnStarts.length` (so
+    //      the clamp at the top of pickKeepBoundary did not fire) but
+    //      `adjustForToolPairs` still walked the resulting boundary
+    //      backwards past `summaryOffset`.
+    // Rescue: restore the binary search's intended keep depth (capped at
+    // `length - 1` so we always summarize at least one turn) and bypass
+    // `adjustForToolPairs`. The kept region's first message may then
+    // contain a `tool_result` whose matching `tool_use` lives in the
+    // compacted region; we strip such orphans below before assembling
+    // the final messages array so the next agent turn does not fail
+    // when sending to the LLM.
+    const forceRescueApplied =
+      options?.force === true &&
+      keepPlanInitial.keepFromIndex <= summaryOffset &&
+      userTurnStarts.length >= 2;
+    const safeKeepTurns = Math.max(
+      1,
+      Math.min(keepPlanInitial.keepTurns, userTurnStarts.length - 1),
+    );
+    const keepPlan = forceRescueApplied
+      ? {
+          keepFromIndex: userTurnStarts[userTurnStarts.length - safeKeepTurns],
+          keepTurns: safeKeepTurns,
+        }
+      : keepPlanInitial;
     if (keepPlan.keepFromIndex <= summaryOffset) {
       // All turns fit after truncation projection, but the real in-memory
       // messages may still contain un-truncated tool results. Apply truncation
@@ -524,6 +556,14 @@ export class ContextWindowManager {
             toolTokenBudget: this.toolTokenBudget,
           })
         : previousEstimatedInputTokens;
+      // Under force with only one user turn, the rescue above could not
+      // fire — there is nothing earlier to summarize. Surface that
+      // explicitly instead of "conversation already fits..." so the user
+      // knows why `/compact` did not produce a summary.
+      const noSummarizationReason =
+        options?.force && userTurnStarts.length < 2
+          ? "only one user turn — nothing earlier to compact"
+          : "conversation already fits within the compaction target";
       return {
         messages: truncatedMessages,
         compacted: didTruncate,
@@ -540,7 +580,7 @@ export class ContextWindowManager {
         summaryText: existingSummary ?? "",
         reason: didTruncate
           ? "truncated tool results without summarization"
-          : "conversation already fits within the compaction target",
+          : noSummarizationReason,
       };
     }
 
@@ -658,9 +698,15 @@ export class ContextWindowManager {
       };
     }
 
+    // `severePressure` already bypasses this guard to keep context from
+    // overflowing. Forced compaction also bypasses: when the user
+    // explicitly types `/compact` we must summarize whatever is
+    // available rather than return "insufficient compactable persisted
+    // messages" — that is a no-op response to a direct user command.
     if (
       compactedPersistedMessages < MIN_COMPACTABLE_PERSISTED_MESSAGES &&
-      !severePressure
+      !severePressure &&
+      !options?.force
     ) {
       return {
         messages,
@@ -741,7 +787,14 @@ export class ContextWindowManager {
         messages.slice(keepPlan.keepFromIndex),
         COMPACTION_TOOL_RESULT_MAX_CHARS,
       );
-    const compactedMessages = [summaryMessage, ...truncatedKeptMessages];
+    // The force-rescue boundary bypasses `adjustForToolPairs`, so the
+    // kept region may contain `tool_result` blocks whose matching
+    // `tool_use` is in the (now-compacted) prefix. Strip those orphans
+    // so the next agent turn does not fail with an LLM API error.
+    const keptMessages = forceRescueApplied
+      ? stripOrphanToolResults(truncatedKeptMessages)
+      : truncatedKeptMessages;
+    const compactedMessages = [summaryMessage, ...keptMessages];
     const estimatedInputTokens = estimatePromptTokens(
       compactedMessages,
       this.systemPrompt,
@@ -1276,6 +1329,53 @@ function adjustForToolPairs(
   return idx;
 }
 
+/**
+ * Strip `tool_result` blocks whose matching `tool_use` is not present in
+ * the message array. Used by the force-rescue path in `_maybeCompact`
+ * which bypasses `adjustForToolPairs` to honor user-explicit `/compact`
+ * commands — the kept region's first user message can otherwise contain
+ * an orphan `tool_result`, which the LLM API rejects.
+ *
+ * A user message that contains only orphan `tool_result` blocks is
+ * dropped entirely; partial messages keep the surviving content blocks.
+ */
+function stripOrphanToolResults(messages: Message[]): Message[] {
+  const knownToolUseIds = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    for (const block of msg.content) {
+      if (
+        (block.type === "tool_use" || block.type === "server_tool_use") &&
+        "id" in block
+      ) {
+        knownToolUseIds.add((block as { id: string }).id);
+      }
+    }
+  }
+
+  return messages.flatMap((msg) => {
+    if (msg.role !== "user") return [msg];
+    let stripped = false;
+    const filtered = msg.content.filter((block) => {
+      if (
+        (block.type === "tool_result" ||
+          block.type === "web_search_tool_result") &&
+        "tool_use_id" in block
+      ) {
+        const id = (block as { tool_use_id: string }).tool_use_id;
+        if (!knownToolUseIds.has(id)) {
+          stripped = true;
+          return false;
+        }
+      }
+      return true;
+    });
+    if (!stripped) return [msg];
+    if (filtered.length === 0) return [];
+    return [{ ...msg, content: filtered }];
+  });
+}
+
 export function getSummaryFromContextMessage(
   message: Message | undefined,
 ): string | null {
@@ -1339,7 +1439,11 @@ export function extractTailAssistantText(
     if (text.length === 0) continue;
     if (text.length <= maxChars) return text;
     // Keep the END — most recent narration wins.
-    const truncated = safeStringSlice(text, text.length - maxChars, text.length);
+    const truncated = safeStringSlice(
+      text,
+      text.length - maxChars,
+      text.length,
+    );
     return `[...truncated] ${truncated}`;
   }
   return null;

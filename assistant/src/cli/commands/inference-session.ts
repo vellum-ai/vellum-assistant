@@ -11,7 +11,6 @@
 
 import type { Command } from "commander";
 
-import { getConfigReadOnly } from "../../config/loader.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import { log } from "../logger.js";
 import { resolveConversationId } from "../utils/conversation-id.js";
@@ -20,6 +19,12 @@ import { parseDuration } from "../utils/parse-duration.js";
 const CONV_ID_HELP =
   "No conversation ID available.\n" +
   "Provide --conversation-id explicitly, or run from a skill or bash tool context.";
+
+/**
+ * Default session TTL in seconds when --ttl is not specified.
+ * Matches the documented default of 30 minutes.
+ */
+const DEFAULT_TTL_SECONDS = 1800;
 
 // ── Type aliases ─────────────────────────────────────────────────────
 
@@ -110,7 +115,7 @@ Examples:
     .description("Open a profile session for the current conversation")
     .option(
       "--ttl <duration>",
-      'Session TTL (e.g. 30m, 1h, "never" for sticky; default: configured llm.profileSession.defaultTtlSeconds (30m if unset))',
+      'Session TTL (e.g. 30m, 1h, "never" for sticky; default: 30m)',
     )
     .option(
       "--conversation-id <id>",
@@ -123,7 +128,7 @@ Examples:
 Opens a profile session that pins the given profile to the current
 conversation. The session expires after --ttl, or is sticky (no
 expiry) if --ttl never is specified. If --ttl is omitted, the session
-defaults to llm.profileSession.defaultTtlSeconds (30m if unset).
+defaults to 30m.
 
 Examples:
   $ assistant inference session open balanced --ttl 30m
@@ -181,10 +186,8 @@ Examples:
           }
         }
 
-        const defaultTtlSeconds =
-          getConfigReadOnly().llm?.profileSession?.defaultTtlSeconds ?? 1800;
         const effectiveTtlSeconds =
-          ttlSeconds !== undefined ? ttlSeconds : defaultTtlSeconds;
+          ttlSeconds !== undefined ? ttlSeconds : DEFAULT_TTL_SECONDS;
         const body: Record<string, unknown> = {
           conversationId,
           profile: profileName,

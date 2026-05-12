@@ -15,6 +15,7 @@ import {
   fetchManagedPs,
   type ManagedProcessEntry,
 } from "../lib/health-check";
+import { readPlatformToken } from "../lib/platform-client";
 import { dockerResourceNames } from "../lib/docker";
 import { existsSync } from "fs";
 import {
@@ -472,7 +473,7 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
 
 // ── List all assistants (no arg) ────────────────────────────────
 
-async function listAllAssistants(verbose: boolean): Promise<void> {
+export async function listAllAssistants(verbose: boolean): Promise<void> {
   const { name: envName, source: envSource } = resolveEnvironmentSource();
   const sourceLabels: Record<typeof envSource, string> = {
     flag: "--environment flag",
@@ -486,23 +487,33 @@ async function listAllAssistants(verbose: boolean): Promise<void> {
     ? (msg) => console.log(`  [verbose] ${msg}`)
     : undefined;
 
-  // Refresh cloud assistants from the platform before listing.
-  const syncResult = await syncCloudAssistants({ log });
-
-  // Show platform login status
-  if (syncResult) {
-    const parts = [`Platform: logged in`];
-    if (syncResult.email) parts[0] += ` as ${syncResult.email}`;
-    if (syncResult.added > 0 || syncResult.removed > 0) {
-      const changes: string[] = [];
-      if (syncResult.added > 0) changes.push(`${syncResult.added} added`);
-      if (syncResult.removed > 0)
-        changes.push(`${syncResult.removed} removed`);
-      parts.push(`(${changes.join(", ")})`);
-    }
-    console.log(parts.join(" "));
-  } else {
+  // Decide platform login status FIRST, before touching the network. With no
+  // local token we never enter the platform fetch path — so unreachable-host
+  // errors from the org-ID/user lookups can't leak onto stderr ahead of the
+  // "Platform: not logged in" line.
+  const platformToken = readPlatformToken();
+  if (!platformToken) {
+    log?.("No platform token found — skipping cloud sync");
     console.log("Platform: not logged in");
+  } else {
+    const syncResult = await syncCloudAssistants(platformToken, { log });
+    if (syncResult) {
+      const parts = [`Platform: logged in`];
+      if (syncResult.email) parts[0] += ` as ${syncResult.email}`;
+      if (syncResult.added > 0 || syncResult.removed > 0) {
+        const changes: string[] = [];
+        if (syncResult.added > 0) changes.push(`${syncResult.added} added`);
+        if (syncResult.removed > 0)
+          changes.push(`${syncResult.removed} removed`);
+        parts.push(`(${changes.join(", ")})`);
+      }
+      console.log(parts.join(" "));
+    } else {
+      // We had a token but the platform fetch failed (offline, expired, etc.).
+      // Treat it the same as "not logged in" from a UX perspective — the user
+      // can't reach cloud-managed assistants right now either way.
+      console.log("Platform: not logged in");
+    }
   }
   console.log("");
 

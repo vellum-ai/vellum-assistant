@@ -126,7 +126,7 @@ describe("recallTool definition", () => {
       type: "array",
       items: {
         type: "string",
-        enum: ["memory", "pkb", "conversations", "workspace"],
+        enum: ["memory", "conversations", "workspace"],
       },
     });
     expect(properties.max_results).toMatchObject({
@@ -179,7 +179,7 @@ describe("recallTool.execute", () => {
     const result = await recallTool.execute(
       {
         query: "release notes",
-        sources: ["pkb", "workspace"],
+        sources: ["memory", "workspace"],
         max_results: 4,
         depth: "deep",
       },
@@ -193,7 +193,7 @@ describe("recallTool.execute", () => {
     expect(recallCalls).toHaveLength(1);
     expect(recallCalls[0]?.input).toEqual({
       query: "release notes",
-      sources: ["pkb", "workspace"],
+      sources: ["memory", "workspace"],
       max_results: 4,
       depth: "deep",
     });

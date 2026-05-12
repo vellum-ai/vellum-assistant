@@ -29,6 +29,7 @@ import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
@@ -70,6 +71,7 @@ import {
 } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
+import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import {
@@ -679,7 +681,9 @@ export async function runAgentLoopImpl(
     overrideProfile: turnOverrideProfile ?? undefined,
   });
   const turnContextWindowConfig = contextWindowConfigFromEffective(
-    config.llm.default.contextWindow,
+    resolveCallSiteConfig(turnCallSite, config.llm, {
+      overrideProfile: turnOverrideProfile ?? undefined,
+    }).contextWindow,
     effectiveContextWindow,
   );
   (
@@ -3293,6 +3297,10 @@ export async function applyCompactionResult(
     );
   }
   enqueueAutoAnalysisOnCompaction(
+    ctx.conversationId,
+    ctx.trustContext?.trustClass,
+  );
+  enqueueMemoryRetrospectiveOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,
   );

@@ -3,6 +3,33 @@ export type LongContextMode =
   | "provider-request-option"
   | "unsupported";
 
+export interface CatalogModelPricingTier {
+  /**
+   * Threshold in total prompt input tokens above which this tier's rates
+   * apply. The largest matched threshold wins when usage exceeds multiple
+   * tiers (single-step staircase, not progressive bracketing).
+   */
+  inputTokenThreshold: number;
+  inputPer1mTokens: number;
+  outputPer1mTokens: number;
+  cacheReadPer1mTokens?: number;
+  cacheWritePer1mTokens?: number;
+}
+
+export interface CatalogModelPricing {
+  inputPer1mTokens: number;
+  outputPer1mTokens: number;
+  cacheWritePer1mTokens?: number;
+  cacheReadPer1mTokens?: number;
+  /**
+   * Optional long-context pricing tiers. Selected by total prompt input
+   * tokens. When set, the base fields above apply at the low-context tier
+   * (below every tier threshold) and tier entries override at higher
+   * thresholds.
+   */
+  tiers?: CatalogModelPricingTier[];
+}
+
 export interface CatalogModel {
   id: string;
   displayName: string;
@@ -15,12 +42,7 @@ export interface CatalogModel {
   supportsCaching?: boolean;
   supportsVision?: boolean;
   supportsToolUse?: boolean;
-  pricing?: {
-    inputPer1mTokens: number;
-    outputPer1mTokens: number;
-    cacheWritePer1mTokens?: number;
-    cacheReadPer1mTokens?: number;
-  };
+  pricing?: CatalogModelPricing;
 }
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 200000;
@@ -201,6 +223,15 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
           cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold:
+                OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
         },
       },
       {
@@ -217,6 +248,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 30.0,
           outputPer1mTokens: 180.0,
+          tiers: [
+            {
+              inputTokenThreshold:
+                OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 60,
+              outputPer1mTokens: 270,
+            },
+          ],
         },
       },
       {
@@ -234,6 +273,15 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 2.5,
           outputPer1mTokens: 15.0,
           cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold:
+                OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
         },
       },
       {
@@ -315,6 +363,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 12.0,
           cacheReadPer1mTokens: 0.2,
+          tiers: [
+            {
+              inputTokenThreshold: 200_000,
+              inputPer1mTokens: 4,
+              outputPer1mTokens: 18,
+              cacheReadPer1mTokens: 0.4,
+            },
+          ],
         },
       },
       {
@@ -331,6 +387,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 12.0,
           cacheReadPer1mTokens: 0.2,
+          tiers: [
+            {
+              inputTokenThreshold: 200_000,
+              inputPer1mTokens: 4,
+              outputPer1mTokens: 18,
+              cacheReadPer1mTokens: 0.4,
+            },
+          ],
         },
       },
       {
@@ -407,6 +471,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 1.25,
           outputPer1mTokens: 10.0,
           cacheReadPer1mTokens: 0.3125,
+          tiers: [
+            {
+              inputTokenThreshold: 200_000,
+              inputPer1mTokens: 2.5,
+              outputPer1mTokens: 15,
+              cacheReadPer1mTokens: 0.625,
+            },
+          ],
         },
       },
     ],

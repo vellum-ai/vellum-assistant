@@ -62,9 +62,12 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["admin_rollbackmigrations_post", ["internal.write"], ["svc_gateway"]],
   ["channel_inbound", ["ingress.write"], ["svc_gateway"]],
   ["emit_event", ["internal.write"], ["svc_gateway"]],
+  ["internal_mcp_add", ["internal.write"], ["svc_gateway"]],
   ["internal_mcp_auth_start", ["internal.write"], ["svc_gateway"]],
   ["internal_mcp_auth_status", ["internal.write"], ["svc_gateway"]],
+  ["internal_mcp_list", ["internal.write"], ["svc_gateway"]],
   ["internal_mcp_reload", ["internal.write"], ["svc_gateway"]],
+  ["internal_mcp_remove", ["internal.write"], ["svc_gateway"]],
   ["internal_oauth_callback", ["internal.write"], ["svc_gateway"]],
   ["internal_oauth_connect_start", ["internal.write"], ["svc_gateway"]],
   ["internal_oauth_connect_status", ["internal.write"], ["svc_gateway"]],
@@ -157,6 +160,13 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["inference_profile_close", ["chat.write"]],
   ["inference_profile_list", ["chat.read"]],
   ["inference_profile_open", ["chat.write"]],
+
+  // Inference provider connections
+  ["inference_provider_connections_create", ["settings.write"]],
+  ["inference_provider_connections_delete", ["settings.write"]],
+  ["inference_provider_connections_get", ["settings.read"]],
+  ["inference_provider_connections_list", ["settings.read"]],
+  ["inference_provider_connections_update", ["settings.write"]],
 
   // Notification intent
   ["notificationintentresult_post", ["settings.write"]],

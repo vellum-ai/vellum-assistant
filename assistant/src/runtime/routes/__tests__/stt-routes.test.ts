@@ -100,7 +100,7 @@ describe("stt-routes", () => {
   // -- Route metadata -------------------------------------------------------
 
   test("exports route definitions for stt/providers and stt/transcribe", () => {
-    expect(ROUTES).toHaveLength(2);
+    expect(ROUTES).toHaveLength(3);
 
     const providers = getRoute("stt/providers");
     expect(providers.method).toBe("GET");
@@ -109,6 +109,10 @@ describe("stt-routes", () => {
     const transcribe = getRoute("stt/transcribe");
     expect(transcribe.method).toBe("POST");
     expect(transcribe.policyKey).toBe("stt/transcribe");
+
+    const transcribeFile = getRoute("stt/transcribe-file");
+    expect(transcribeFile.method).toBe("POST");
+    expect(transcribeFile.policyKey).toBe("stt/transcribe-file");
   });
 
   // -- Success path ---------------------------------------------------------

@@ -487,7 +487,7 @@ export async function cliIpcCallStream(
  * if (!r.ok) return exitFromIpcResult(r, cmd);
  */
 export function exitFromIpcResult(
-  r: { ok: false; error?: string; statusCode?: number },
+  r: { ok: boolean; error?: string; statusCode?: number },
   _cmd?: unknown,
 ): never {
   process.stderr.write((r.error ?? "Unknown error") + "\n");

@@ -51,6 +51,7 @@ import { getLogger } from "../../util/logger.js";
 import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { publishAvatarChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { resolveWorkspacePath } from "./workspace-utils.js";
@@ -94,16 +95,7 @@ async function handleGenerateAvatar({ body = {} }: RouteHandlerArgs) {
 
     const avatarPath = getAvatarImagePath();
 
-    assistantEventHub
-      .publish(
-        buildAssistantEvent({
-          type: "avatar_updated",
-          avatarPath,
-        }),
-      )
-      .catch((err) => {
-        log.warn({ err }, "Failed to publish avatar_updated event");
-      });
+    publishAvatarChanged();
 
     return { ok: true, avatarPath };
   } catch (err) {

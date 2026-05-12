@@ -23,7 +23,6 @@ const PATH_LITERAL_PATTERN =
 
 const WORKSPACE_BUCKETS: readonly WorkspaceBucket[] = [
   { name: "root", relativePath: "", budget: 100, rootFilesOnly: true },
-  { name: "pkb", relativePath: "pkb", budget: 500 },
   { name: "memory", relativePath: "memory", budget: 500 },
   { name: "journal", relativePath: "journal", budget: 250 },
   { name: "scratch", relativePath: "scratch", budget: 500 },
@@ -1055,8 +1054,6 @@ function getPathPriorityBoost(relativePath: string): number {
   if (relativePath.startsWith("scratch/")) return 0.35;
   if (relativePath.startsWith("users/")) return 0.3;
   if (relativePath.startsWith("journal/")) return 0.25;
-  if (relativePath.startsWith("pkb/archive/")) return -0.15;
-  if (relativePath.startsWith("pkb/")) return 0.2;
   if (relativePath.startsWith("memory/concepts/")) return 0.4;
   if (relativePath.startsWith("memory/")) return 0.2;
   if (

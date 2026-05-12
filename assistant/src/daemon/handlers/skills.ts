@@ -691,6 +691,65 @@ export async function getSkill(
   return { skill: detail };
 }
 
+export function getSkillLocalDetail(
+  skillId: string,
+): {
+  ok: true;
+  id: string;
+  name: string;
+  description: string;
+  emoji: string | null;
+  source: string;
+  state: string;
+  directoryPath: string;
+  featureFlag: string | null;
+  includes: string[] | null;
+  activationHints: string[] | null;
+  avoidWhen: string[] | null;
+  toolManifest: { valid: boolean; toolCount: number; toolNames: string[] } | null;
+  installMeta: Record<string, unknown> | null;
+  config: { enabled: boolean; envKeys: string[]; configKeys: string[] } | null;
+} | { ok: false; error: string; status: 404 | 500 } {
+  try {
+    const catalog = loadSkillCatalog();
+    const config = getConfig();
+    const resolved = resolveSkillStates(catalog, config);
+    const match = resolved.find((r) => r.summary.id === skillId);
+    if (!match) {
+      return { ok: false, error: `Skill "${skillId}" not found. Run 'assistant skills list' to see available skills.`, status: 404 };
+    }
+    const { summary, state, configEntry } = match;
+    const installMeta = readInstallMeta(summary.directoryPath);
+    return {
+      ok: true,
+      id: summary.id,
+      name: summary.displayName,
+      description: summary.description,
+      emoji: summary.emoji ?? null,
+      source: summary.source,
+      state,
+      directoryPath: summary.directoryPath,
+      featureFlag: summary.featureFlag ?? null,
+      includes: summary.includes ?? null,
+      activationHints: summary.activationHints ?? null,
+      avoidWhen: summary.avoidWhen ?? null,
+      toolManifest: summary.toolManifest
+        ? { valid: summary.toolManifest.valid, toolCount: summary.toolManifest.toolCount, toolNames: summary.toolManifest.toolNames }
+        : null,
+      installMeta: installMeta ? (installMeta as unknown as Record<string, unknown>) : null,
+      config: configEntry
+        ? {
+            enabled: configEntry.enabled !== false,
+            envKeys: configEntry.env ? Object.keys(configEntry.env) : [],
+            configKeys: configEntry.config ? Object.keys(configEntry.config) : [],
+          }
+        : null,
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), status: 500 };
+  }
+}
+
 // ─── Skill file listing ──────────────────────────────────────────────────────
 
 // `SkillFileEntry` lives in `../../skills/catalog-files.ts` to keep a single
@@ -1017,6 +1076,8 @@ export async function installSkill(spec: {
   slug: string;
   version?: string;
   origin?: "clawhub" | "skillssh";
+  catalogOnly?: boolean;
+  overwrite?: boolean;
   contactId?: string;
 }): Promise<
   { success: true; skillId: string } | { success: false; error: string }
@@ -1078,10 +1139,14 @@ export async function installSkill(spec: {
         const vellumCatalog = await getCatalog();
         const catalogEntry = vellumCatalog.find((s) => s.id === spec.slug);
         if (catalogEntry) {
+          // Default `overwrite` to true at the handler boundary to preserve
+          // pre-existing HTTP API behaviour. CLI callers always pass an
+          // explicit boolean (`opts.overwrite ?? false`) so the CLI surface
+          // still defaults to non-destructive installs.
           await installSkillLocally(
             spec.slug,
             catalogEntry,
-            true,
+            spec.overwrite ?? true,
             spec.contactId,
           );
 
@@ -1090,12 +1155,18 @@ export async function installSkill(spec: {
           return { success: true, skillId: spec.slug };
         }
       } catch (err) {
-        // If catalog lookup/install fails, fall through to community registries
+        if (spec.catalogOnly) {
+          return { success: false, error: `Failed to install catalog skill "${spec.slug}"` };
+        }
         log.warn(
           { err, skillId: spec.slug },
           "Vellum catalog install failed, falling back to community registry",
         );
       }
+
+    if (spec.catalogOnly) {
+      return { success: false, error: `Skill "${spec.slug}" not found in the Vellum catalog` };
+    }
 
     // skills.sh install path: route here when origin is explicitly "skillssh"
     // or when the slug looks like a skills.sh multi-segment format (owner/repo/skill)
@@ -1104,11 +1175,14 @@ export async function installSkill(spec: {
       (spec.origin !== "clawhub" && looksLikeSkillsShSlug(spec.slug))
     ) {
       const resolved = resolveSkillSource(spec.slug);
+      // Default `overwrite` to true at the handler boundary to preserve
+      // pre-existing HTTP API behaviour (same rationale as the catalog
+      // install path above).
       await installExternalSkill(
         resolved.owner,
         resolved.repo,
         resolved.skillSlug,
-        true /* overwrite */,
+        spec.overwrite ?? true,
         resolved.ref ?? spec.version,
         spec.contactId,
       );
@@ -1254,6 +1328,7 @@ export async function checkSkillUpdates(): Promise<
 
 export async function searchSkills(
   query: string,
+  limit: number = 25,
 ): Promise<
   | { success: true; skills: SlimSkillResponse[] }
   | { success: false; error: string }
@@ -1294,8 +1369,8 @@ export async function searchSkills(
 
     // Search both community registries in parallel (non-fatal on failure)
     const [clawhubResult, skillsshResult] = await Promise.allSettled([
-      clawhubSearch(query),
-      searchSkillsRegistry(query, 25),
+      clawhubSearch(query, { limit }),
+      searchSkillsRegistry(query, limit),
     ]);
 
     let clawhubSkills: SlimSkillResponse[] = [];

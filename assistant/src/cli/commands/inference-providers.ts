@@ -10,29 +10,37 @@
  *     update  — update a connection's auth
  *     delete  — delete a connection (rejects if profiles reference it)
  *
- * Future provider-scoped commands (capabilities, picklists, etc.) hang off
- * the `providers` namespace alongside `connections`.
+ * All subcommands delegate to the daemon via IPC using the
+ * `inference_provider_connections_*` routes.
  */
 
 import type { Command } from "commander";
 
-import { getConfigReadOnly } from "../../config/loader.js";
-import { getDb } from "../../memory/db-connection.js";
-import { AuthSchema, VALID_CONNECTION_PROVIDERS } from "../../providers/inference/auth.js";
-import {
-  createConnection,
-  deleteConnection,
-  getConnection,
-  listConnections,
-  updateConnection,
-} from "../../providers/inference/connections.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import { log } from "../logger.js";
+
+// ---------------------------------------------------------------------------
+// Response types
+// ---------------------------------------------------------------------------
+
+interface AuthInfo {
+  type: string;
+  credential?: string;
+}
+
+interface ProviderConnection {
+  name: string;
+  provider: string;
+  auth: AuthInfo;
+  createdAt: string;
+  updatedAt: string;
+}
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
-function formatAuth(auth: ReturnType<typeof AuthSchema.parse>): string {
+function formatAuth(auth: AuthInfo): string {
   switch (auth.type) {
     case "api_key":
       return `api_key (credential: ${auth.credential})`;
@@ -44,6 +52,8 @@ function formatAuth(auth: ReturnType<typeof AuthSchema.parse>): string {
       return `oauth_subscription (credential: ${auth.credential})`;
     case "service_account":
       return `service_account (credential: ${auth.credential})`;
+    default:
+      return auth.type;
   }
 }
 
@@ -58,8 +68,19 @@ function attachListSubcommand(connections: Command): void {
     .option("--provider <p>", "Filter by provider")
     .option("--json", "Output as JSON")
     .action(async (opts: { provider?: string; json?: boolean }) => {
-      const db = getDb();
-      const rows = listConnections(db, opts.provider ? { provider: opts.provider } : undefined);
+      const ipcResult = await cliIpcCall<{ connections: ProviderConnection[] }>(
+        "inference_provider_connections_list",
+        {
+          queryParams: opts.provider ? { provider: opts.provider } : {},
+        },
+      );
+
+      if (!ipcResult.ok) {
+        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
+        return;
+      }
+
+      const rows = ipcResult.result!.connections;
 
       if (opts.json) {
         process.stdout.write(JSON.stringify({ ok: true, connections: rows }) + "\n");
@@ -89,19 +110,19 @@ function attachGetSubcommand(connections: Command): void {
     .description("Show a single provider connection")
     .option("--json", "Output as JSON")
     .action(async (name: string, opts: { json?: boolean }) => {
-      const db = getDb();
-      const conn = getConnection(db, name);
+      const ipcResult = await cliIpcCall<ProviderConnection>(
+        "inference_provider_connections_get",
+        {
+          pathParams: { name },
+        },
+      );
 
-      if (!conn) {
-        const msg = `Connection "${name}" not found.`;
-        if (opts.json) {
-          process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-        } else {
-          log.error(msg);
-        }
-        process.exitCode = 1;
+      if (!ipcResult.ok) {
+        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
         return;
       }
+
+      const conn = ipcResult.result!;
 
       if (opts.json) {
         process.stdout.write(JSON.stringify({ ok: true, connection: conn }) + "\n");
@@ -121,6 +142,42 @@ function attachGetSubcommand(connections: Command): void {
 }
 
 // ---------------------------------------------------------------------------
+// Auth input builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build and validate auth input from CLI flags. Returns the auth object on
+ * success, or an error message string on validation failure.
+ */
+function buildAuthInput(
+  authType: string,
+  credential?: string,
+): Record<string, unknown> | string {
+  if (authType === "api_key") {
+    if (!credential) return "--credential is required when --auth api_key";
+    return { type: "api_key", credential };
+  }
+  if (authType === "platform") {
+    if (credential) return "--credential is not accepted with --auth platform";
+    return { type: "platform" };
+  }
+  if (authType === "none") {
+    if (credential) return "--credential is not accepted with --auth none";
+    return { type: "none" };
+  }
+  return `Unknown auth type "${authType}". Use: api_key, platform, none`;
+}
+
+function writeCliError(msg: string, json?: boolean): void {
+  if (json) {
+    process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
+  } else {
+    log.error(msg);
+  }
+  process.exitCode = 1;
+}
+
+// ---------------------------------------------------------------------------
 // Subcommand: create
 // ---------------------------------------------------------------------------
 
@@ -128,7 +185,7 @@ function attachCreateSubcommand(connections: Command): void {
   connections
     .command("create <name>")
     .description("Create a new provider connection")
-    .requiredOption("--provider <p>", `Provider (${VALID_CONNECTION_PROVIDERS.join("|")})`)
+    .requiredOption("--provider <p>", "Provider (anthropic|openai|gemini|ollama|...)")
     .requiredOption("--auth <type>", "Auth type: api_key|platform|none")
     .option("--credential <vault-key>", "Vault credential name (required for --auth api_key)")
     .option("--json", "Output as JSON")
@@ -137,98 +194,37 @@ function attachCreateSubcommand(connections: Command): void {
         name: string,
         opts: { provider: string; auth: string; credential?: string; json?: boolean },
       ) => {
-        let authInput: unknown;
-        if (opts.auth === "api_key") {
-          if (!opts.credential) {
-            const msg = "--credential is required when --auth api_key";
-            if (opts.json) {
-              process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-            } else {
-              log.error(msg);
-            }
-            process.exitCode = 1;
-            return;
-          }
-          authInput = { type: "api_key", credential: opts.credential };
-        } else if (opts.auth === "platform") {
-          if (opts.credential) {
-            const msg = "--credential is not accepted with --auth platform";
-            if (opts.json) {
-              process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-            } else {
-              log.error(msg);
-            }
-            process.exitCode = 1;
-            return;
-          }
-          authInput = { type: "platform" };
-        } else if (opts.auth === "none") {
-          if (opts.credential) {
-            const msg = "--credential is not accepted with --auth none";
-            if (opts.json) {
-              process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-            } else {
-              log.error(msg);
-            }
-            process.exitCode = 1;
-            return;
-          }
-          authInput = { type: "none" };
-        } else {
-          const msg = `Unknown auth type "${opts.auth}". Use: api_key, platform, none`;
-          if (opts.json) {
-            process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
+        const authInput = buildAuthInput(opts.auth, opts.credential);
+        if (typeof authInput === "string") {
+          writeCliError(authInput, opts.json);
           return;
         }
 
-        const authResult = AuthSchema.safeParse(authInput);
-        if (!authResult.success) {
-          const msg = `Invalid auth: ${authResult.error.message}`;
-          if (opts.json) {
-            process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
+        const ipcResult = await cliIpcCall<ProviderConnection>(
+          "inference_provider_connections_create",
+          {
+            body: {
+              name,
+              provider: opts.provider,
+              auth: authInput,
+            },
+          },
+        );
+
+        if (!ipcResult.ok) {
+          writeCliError(ipcResult.error ?? "Unknown error", opts.json);
           return;
         }
 
-        const db = getDb();
-        const result = createConnection(db, {
-          name,
-          provider: opts.provider,
-          auth: authResult.data,
-        });
-
-        if (!result.ok) {
-          let msg: string;
-          if (result.error.code === "already_exists") {
-            msg = `Connection "${name}" already exists. Use 'update' to modify it.`;
-          } else if (result.error.code === "invalid_provider") {
-            msg = `Invalid provider "${result.error.provider}". Valid: ${VALID_CONNECTION_PROVIDERS.join(", ")}`;
-          } else {
-            msg = "Invalid auth configuration.";
-          }
-          if (opts.json) {
-            process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
-          return;
-        }
+        const conn = ipcResult.result!;
 
         if (opts.json) {
           process.stdout.write(
-            JSON.stringify({ ok: true, connection: result.connection }) + "\n",
+            JSON.stringify({ ok: true, connection: conn }) + "\n",
           );
         } else {
           process.stdout.write(
-            `Created connection "${result.connection.name}" (provider=${result.connection.provider}, auth=${formatAuth(result.connection.auth)})\n`,
+            `Created connection "${conn.name}" (provider=${conn.provider}, auth=${formatAuth(conn.auth)})\n`,
           );
         }
       },
@@ -251,90 +247,34 @@ function attachUpdateSubcommand(connections: Command): void {
         name: string,
         opts: { auth: string; credential?: string; json?: boolean },
       ) => {
-        let authInput: unknown;
-        if (opts.auth === "api_key") {
-          if (!opts.credential) {
-            const msg = "--credential is required when --auth api_key";
-            if (opts.json) {
-              process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-            } else {
-              log.error(msg);
-            }
-            process.exitCode = 1;
-            return;
-          }
-          authInput = { type: "api_key", credential: opts.credential };
-        } else if (opts.auth === "platform") {
-          if (opts.credential) {
-            const msg = "--credential is not accepted with --auth platform";
-            if (opts.json) {
-              process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-            } else {
-              log.error(msg);
-            }
-            process.exitCode = 1;
-            return;
-          }
-          authInput = { type: "platform" };
-        } else if (opts.auth === "none") {
-          if (opts.credential) {
-            const msg = "--credential is not accepted with --auth none";
-            if (opts.json) {
-              process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-            } else {
-              log.error(msg);
-            }
-            process.exitCode = 1;
-            return;
-          }
-          authInput = { type: "none" };
-        } else {
-          const msg = `Unknown auth type "${opts.auth}". Use: api_key, platform, none`;
-          if (opts.json) {
-            process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
+        const authInput = buildAuthInput(opts.auth, opts.credential);
+        if (typeof authInput === "string") {
+          writeCliError(authInput, opts.json);
           return;
         }
 
-        const authResult = AuthSchema.safeParse(authInput);
-        if (!authResult.success) {
-          const msg = `Invalid auth: ${authResult.error.message}`;
-          if (opts.json) {
-            process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
+        const ipcResult = await cliIpcCall<ProviderConnection>(
+          "inference_provider_connections_update",
+          {
+            pathParams: { name },
+            body: { auth: authInput },
+          },
+        );
+
+        if (!ipcResult.ok) {
+          writeCliError(ipcResult.error ?? "Unknown error", opts.json);
           return;
         }
 
-        const db = getDb();
-        const result = updateConnection(db, name, { auth: authResult.data });
-
-        if (!result.ok) {
-          const msg =
-            result.error.code === "not_found"
-              ? `Connection "${name}" not found.`
-              : "Invalid auth configuration.";
-          if (opts.json) {
-            process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
-          return;
-        }
+        const conn = ipcResult.result!;
 
         if (opts.json) {
           process.stdout.write(
-            JSON.stringify({ ok: true, connection: result.connection }) + "\n",
+            JSON.stringify({ ok: true, connection: conn }) + "\n",
           );
         } else {
           process.stdout.write(
-            `Updated connection "${name}" auth to ${formatAuth(result.connection.auth)}\n`,
+            `Updated connection "${name}" auth to ${formatAuth(conn.auth)}\n`,
           );
         }
       },
@@ -349,41 +289,17 @@ function attachDeleteSubcommand(connections: Command): void {
   connections
     .command("delete <name>")
     .description("Delete a provider connection")
-    .option("--force", "Delete even if profiles reference this connection")
     .option("--json", "Output as JSON")
-    .action(async (name: string, opts: { force?: boolean; json?: boolean }) => {
-      const db = getDb();
+    .action(async (name: string, opts: { json?: boolean }) => {
+      const ipcResult = await cliIpcCall<{ ok: true }>(
+        "inference_provider_connections_delete",
+        {
+          pathParams: { name },
+        },
+      );
 
-      // Find profiles referencing this connection.
-      const config = getConfigReadOnly();
-      const profiles = config.llm?.profiles ?? {};
-      const referencingProfiles = Object.entries(profiles)
-        .filter(([, p]) => (p as Record<string, unknown>).provider_connection === name)
-        .map(([profileName]) => profileName);
-
-      const result = deleteConnection(db, name, {
-        force: opts.force,
-        referencingProfiles,
-      });
-
-      if (!result.ok) {
-        let msg: string;
-        if (result.error.code === "not_found") {
-          msg = `Connection "${name}" not found.`;
-        } else if (result.error.code === "has_references") {
-          msg =
-            `Connection "${name}" is referenced by ${result.error.count} profile(s): ` +
-            `${referencingProfiles.join(", ")}. ` +
-            "Use --force to delete anyway (profiles will error at next inference call).";
-        } else {
-          msg = "Delete failed.";
-        }
-        if (opts.json) {
-          process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-        } else {
-          log.error(msg);
-        }
-        process.exitCode = 1;
+      if (!ipcResult.ok) {
+        writeCliError(ipcResult.error ?? "Unknown error", opts.json);
         return;
       }
 
@@ -391,12 +307,6 @@ function attachDeleteSubcommand(connections: Command): void {
         process.stdout.write(JSON.stringify({ ok: true }) + "\n");
       } else {
         process.stdout.write(`Deleted connection "${name}"\n`);
-        if (referencingProfiles.length > 0 && opts.force) {
-          process.stdout.write(
-            `Warning: ${referencingProfiles.length} profile(s) now reference a missing connection: ` +
-              `${referencingProfiles.join(", ")}\n`,
-          );
-        }
       }
     });
 }
@@ -424,7 +334,6 @@ Canonical connections (seeded on every boot):
   anthropic-managed  → provider=anthropic, auth=platform
   openai-managed     → provider=openai,    auth=platform
   gemini-managed     → provider=gemini,    auth=platform
-  ollama-local       → provider=ollama,    auth=none
 
 Examples:
   $ assistant inference providers connections list

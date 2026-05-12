@@ -9,6 +9,7 @@ import AppKit
 struct ConversationTitleActionsControl: View {
     let presentation: ConversationHeaderPresentation
     let onCopy: () -> Void
+    let onCopyConversationId: () -> Void
     let onForkConversation: () -> Void
     let onPin: () -> Void
     let onUnpin: () -> Void
@@ -141,6 +142,7 @@ struct ConversationTitleActionsControl: View {
             ConversationActionsMenuContent(
                 presentation: presentation,
                 onCopy: onCopy,
+                onCopyConversationId: onCopyConversationId,
                 onForkConversation: onForkConversation,
                 onPin: onPin,
                 onUnpin: onUnpin,
@@ -162,6 +164,7 @@ struct ConversationTitleActionsControl: View {
 struct ConversationActionsMenuContent: View {
     let presentation: ConversationHeaderPresentation
     let onCopy: () -> Void
+    let onCopyConversationId: () -> Void
     let onForkConversation: () -> Void
     let onPin: () -> Void
     let onUnpin: () -> Void
@@ -175,6 +178,10 @@ struct ConversationActionsMenuContent: View {
         VMenu(width: ConversationTitleActionsControl.menuWidth) {
             if presentation.canCopy {
                 VMenuItem(icon: VIcon.copy.rawValue, label: "Copy full conversation", action: onCopy)
+            }
+
+            if presentation.isPersisted {
+                VMenuItem(icon: VIcon.hash.rawValue, label: "Copy conversation ID", action: onCopyConversationId)
             }
 
             if presentation.showsForkConversationAction && !presentation.isChannelConversation {

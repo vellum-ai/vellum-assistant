@@ -27,6 +27,7 @@ import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
@@ -434,7 +435,8 @@ export class Conversation {
     );
 
     const config = getConfig();
-    this.streamThinking = config.llm.default.thinking.streamThinking ?? false;
+    const resolvedMainAgent = resolveCallSiteConfig("mainAgent", config.llm);
+    this.streamThinking = resolvedMainAgent.thinking.streamThinking ?? false;
 
     // CES (Credential Execution Service) — use the shared server-level client.
     // The CES sidecar accepts exactly one bootstrap connection, so the
@@ -489,20 +491,19 @@ export class Conversation {
     };
 
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
-    const resolvedSpeed = speedOverride ?? config.llm.default.speed;
-    const llmDefault = config.llm.default;
+    const resolvedSpeed = speedOverride ?? resolvedMainAgent.speed;
     const initialContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
       callSite: "mainAgent",
     });
     const initialContextWindowConfig = contextWindowConfigFromEffective(
-      llmDefault.contextWindow,
+      resolvedMainAgent.contextWindow,
       initialContextWindow,
     );
 
     const agentLoopConfig: Partial<AgentLoopConfig> = {
-      thinking: llmDefault.thinking,
-      effort: llmDefault.effort,
+      thinking: resolvedMainAgent.thinking,
+      effort: resolvedMainAgent.effort,
       ...(fastModeEnabled && resolvedSpeed === "fast"
         ? { speed: resolvedSpeed }
         : {}),
@@ -1042,7 +1043,9 @@ export class Conversation {
       }
     ).updateConfig?.(
       contextWindowConfigFromEffective(
-        config.llm.default.contextWindow,
+        resolveCallSiteConfig("mainAgent", config.llm, {
+          overrideProfile: overrideProfile ?? undefined,
+        }).contextWindow,
         effectiveContextWindow,
       ),
     );

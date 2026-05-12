@@ -374,4 +374,54 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     });
     expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
   });
+
+  test("writes provider_connection when present in body", () => {
+    const result = replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "openai",
+        provider_connection: "personal-openai",
+        model: "gpt-5.5",
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.provider).toBe("openai");
+    expect(savedProfile.provider_connection).toBe("personal-openai");
+  });
+
+  test("clears provider_connection when omitted from body (UI-owned key)", () => {
+    // Seed an existing binding so the test starts from a non-empty state.
+    (
+      rawConfigFixture.llm as {
+        profiles: { custom: Record<string, unknown> };
+      }
+    ).profiles.custom.provider_connection = "stale-openai";
+
+    const result = replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "openai",
+        model: "gpt-5.5",
+        // provider_connection deliberately omitted — the UI cleared the
+        // picker back to "Any active" and the route must wipe the saved
+        // binding, not silently round-trip it.
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.provider_connection).toBeUndefined();
+  });
 });

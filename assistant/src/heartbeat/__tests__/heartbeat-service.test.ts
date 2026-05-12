@@ -151,6 +151,7 @@ mock.module("../heartbeat-run-store.js", () => ({
   supersedePendingRun: () => {},
   markStaleRunsAsMissed: () => 0,
   markStaleRunningAsError: () => 0,
+  countCompletedHeartbeatRuns: () => 10,
 }));
 
 

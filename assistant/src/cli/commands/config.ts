@@ -1,14 +1,7 @@
 import type { Command } from "commander";
-import { z } from "zod";
 
-import {
-  getNestedValue,
-  loadRawConfig,
-  saveRawConfig,
-  setNestedValue,
-} from "../../config/loader.js";
-import { AssistantConfigSchema } from "../../config/schema.js";
-import { getSchemaAtPath } from "../../config/schema-utils.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { getNestedValue } from "../lib/nested-value.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { requirePlatformConnection } from "./oauth/shared.js";
@@ -36,23 +29,41 @@ function flattenConfig(
   return result;
 }
 
-/** Matches config paths like `services.inference.mode`, `services.image-generation.mode`, etc. */
+/** Matches config paths like `services.image-generation.mode`, `services.web-search.mode`, etc. */
 const SERVICE_MODE_PATH_RE = /^services\.[^.]+\.mode$/;
+
+/**
+ * Fetch the full raw config from the assistant via IPC.
+ * On transport / connection error, prints a helpful message and exits.
+ */
+async function fetchRawConfig(
+  cmd: Command,
+): Promise<Record<string, unknown> | undefined> {
+  const ipcResult = await cliIpcCall<Record<string, unknown>>("config_get");
+  if (!ipcResult.ok) {
+    exitFromIpcResult(ipcResult, cmd);
+    return undefined;
+  }
+  return ipcResult.result ?? {};
+}
 
 export function registerConfigCommand(program: Command): void {
   registerCommand(program, {
     name: "config",
-    transport: "local",
+    transport: "ipc",
     description: "Manage configuration",
     build: (config) => {
 
   config.addHelpText(
     "after",
     `
-Configuration is stored in config.json in the assistant workspace directory.
-Keys support dotted paths for nested values (e.g. calls.enabled, twilio.accountSid).
-Values are auto-parsed as JSON (booleans, numbers, objects) with fallback to
-plain string if parsing fails.
+Configuration is managed by the assistant. The CLI sends every read/write
+through the assistant so the in-memory cache, provider registry, and
+file-watcher stay coherent with config.json.
+
+Keys support dotted paths for nested values (e.g. calls.enabled,
+twilio.accountSid). Values are auto-parsed as JSON (booleans, numbers,
+objects) with fallback to plain string if parsing fails.
 
 API keys are managed separately via secure storage. Use "assistant keys list"
 and "assistant keys set <provider> <key>" to view and manage API keys.
@@ -81,7 +92,10 @@ Arguments:
           true, "42" becomes number 42). Falls back to plain string if JSON
           parsing fails.
 
-After writing the value to config.json, the change takes effect immediately.
+The CLI sends the change to the assistant, which assigns the value at the
+given path, invalidates caches, and reinitializes providers so the new
+value takes effect immediately. Object subtrees replace (not merge), and
+explicit null is preserved.
 
 To manage API keys, use "assistant keys set <provider> <key>" instead.
 
@@ -105,9 +119,16 @@ Examples:
           if (!connected) return;
         }
 
-        const raw = loadRawConfig();
-        setNestedValue(raw, key, parsed);
-        saveRawConfig(raw);
+        // Direct-replacement set semantics (preserves null, replaces objects).
+        // See conversation-query-routes.ts:handleSetConfig for why this is a
+        // separate route from config_patch.
+        const result = await cliIpcCall("config_set", {
+          body: { path: key, value: parsed },
+        });
+        if (!result.ok) {
+          exitFromIpcResult(result, cmd);
+          return;
+        }
         log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
       },
     );
@@ -122,8 +143,9 @@ Arguments:
   key   Dotted path to the config key (e.g. llm.default.provider,
         calls.enabled)
 
-Prints the value at the given key path. If the key is not set, prints
-"(not set)". Object values are pretty-printed as indented JSON.
+Fetches the full config from the assistant and prints the value at the
+given key path. If the key is not set, prints "(not set)". Object
+values are pretty-printed as indented JSON.
 
 To view API keys, use "assistant keys list" instead.
 
@@ -131,8 +153,9 @@ Examples:
   $ assistant config get llm.default.provider
   $ assistant config get calls.enabled`,
     )
-    .action((key: string) => {
-      const raw = loadRawConfig();
+    .action(async (key: string, _opts: unknown, cmd: Command) => {
+      const raw = await fetchRawConfig(cmd);
+      if (!raw) return;
       const value = getNestedValue(raw, key);
       if (value === undefined) {
         log.info(`(not set)`);
@@ -154,36 +177,25 @@ Examples:
 Arguments:
   path   Optional dotted path to a config key (e.g. calls, memory.segmentation)
 
-Prints the JSON Schema for the entire config object, or the sub-schema at the
-given path. Useful for understanding available fields, their types, defaults,
-and constraints.
+Asks the assistant for the JSON Schema of the entire config object, or
+the sub-schema at the given path. Useful for understanding available
+fields, their types, defaults, and constraints.
 
 Examples:
   $ assistant config schema
   $ assistant config schema calls
   $ assistant config schema memory.segmentation`,
     )
-    .action((path?: string) => {
-      if (!path) {
-        const jsonSchema = z.toJSONSchema(AssistantConfigSchema, {
-          unrepresentable: "any",
-          io: "input",
-        });
-        log.info(JSON.stringify(jsonSchema, null, 2));
+    .action(async (path: string | undefined, _opts: unknown, cmd: Command) => {
+      const result = await cliIpcCall<{ schema: unknown }>(
+        "config_schema_get",
+        path ? { queryParams: { path } } : undefined,
+      );
+      if (!result.ok) {
+        exitFromIpcResult(result, cmd);
         return;
       }
-
-      const subSchema = getSchemaAtPath(AssistantConfigSchema, path);
-      if (!subSchema) {
-        log.error(`No schema found at path: ${path}`);
-        process.exit(1);
-      }
-
-      const jsonSchema = z.toJSONSchema(subSchema, {
-        unrepresentable: "any",
-        io: "input",
-      });
-      log.info(JSON.stringify(jsonSchema, null, 2));
+      log.info(JSON.stringify(result.result?.schema ?? {}, null, 2));
     });
 
   config
@@ -196,8 +208,9 @@ Examples:
     .addHelpText(
       "after",
       `
-Dumps the full raw configuration from config.json as pretty-printed JSON.
-If no configuration has been set, prints "No configuration set".
+Fetches the full raw configuration from the assistant and prints it as
+pretty-printed JSON. If no configuration has been set, prints
+"No configuration set".
 
 The --search flag filters results by case-insensitive substring match against
 flattened dotted key paths. For example, --search calls matches calls.enabled,
@@ -208,8 +221,9 @@ Examples:
   $ assistant config list --search api
   $ assistant config list --search calls`,
     )
-    .action((opts: { search?: string }) => {
-      const raw = loadRawConfig();
+    .action(async (opts: { search?: string }, cmd: Command) => {
+      const raw = await fetchRawConfig(cmd);
+      if (!raw) return;
       if (Object.keys(raw).length === 0) {
         log.info("No configuration set");
         return;
@@ -254,33 +268,42 @@ reports that and exits normally.
 Examples:
   $ assistant config validate-allowlist`,
     )
-    .action(() => {
-      const { validateAllowlistFile } =
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require("../../security/secret-allowlist.js") as typeof import("../../security/secret-allowlist.js");
-      try {
-        const errors = validateAllowlistFile();
-        if (errors == null) {
-          log.info("No secret-allowlist.json file found");
-          return;
-        }
-        if (errors.length === 0) {
-          log.info("All patterns in secret-allowlist.json are valid");
-          return;
-        }
+    .action(async (_opts: unknown, cmd: Command) => {
+      const result = await cliIpcCall<{
+        exists: boolean;
+        parseError?: string;
+        errors?: Array<{ index: number; pattern: string; message: string }>;
+      }>("config_allowlist_validate");
+      if (!result.ok) {
+        exitFromIpcResult(result, cmd);
+        return;
+      }
+      const payload = result.result;
+      if (!payload || !payload.exists) {
+        log.info("No secret-allowlist.json file found");
+        return;
+      }
+      // The daemon surfaces a malformed-JSON failure as `parseError` so
+      // the CLI can print a single user-readable message and exit 1,
+      // matching the pre-IPC behavior.
+      if (payload.parseError) {
         log.error(
-          `Found ${errors.length} invalid pattern(s) in secret-allowlist.json:`,
-        );
-        for (const e of errors) {
-          log.error(`  [${e.index}] "${e.pattern}": ${e.message}`);
-        }
-        process.exit(1);
-      } catch (err) {
-        log.error(
-          `Failed to read secret-allowlist.json: ${(err as Error).message}`,
+          `Failed to read secret-allowlist.json: ${payload.parseError}`,
         );
         process.exit(1);
       }
+      const errors = payload.errors ?? [];
+      if (errors.length === 0) {
+        log.info("All patterns in secret-allowlist.json are valid");
+        return;
+      }
+      log.error(
+        `Found ${errors.length} invalid pattern(s) in secret-allowlist.json:`,
+      );
+      for (const e of errors) {
+        log.error(`  [${e.index}] "${e.pattern}": ${e.message}`);
+      }
+      process.exit(1);
     });
     },
   });

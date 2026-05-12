@@ -43,7 +43,6 @@ Examples:
         trust: ["list"],
         memory: ["status", "backfill", "cleanup", "query", "rebuild-index"],
         contacts: ["list", "invites", "get", "merge"],
-        autonomy: ["get", "set"],
       };
       const topLevel = [
         "conversations",
@@ -52,7 +51,6 @@ Examples:
         "trust",
         "memory",
         "contacts",
-        "autonomy",
         "audit",
         "completions",
         "help",
@@ -132,7 +130,6 @@ _assistant() {
         'trust:View trust rules'
         'memory:Manage long-term memory'
         'contacts:Manage the contact graph'
-        'autonomy:View and configure autonomy tiers'
         'audit:Show recent tool invocations'
         'completions:Generate shell completion script'
         'help:Display help'
@@ -171,7 +168,6 @@ function generateFishCompletion(
     trust: "View trust rules",
     memory: "Manage long-term memory",
     contacts: "Manage the contact graph",
-    autonomy: "View and configure autonomy tiers",
     audit: "Show recent tool invocations",
     completions: "Generate shell completion script",
     help: "Display help",

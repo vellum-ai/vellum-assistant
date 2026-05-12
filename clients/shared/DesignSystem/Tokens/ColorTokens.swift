@@ -26,13 +26,39 @@ public extension Color {
 
 // MARK: - Adaptive Color Helper
 
+/// Hoisted out of the dynamic-provider closure so each invocation reuses one
+/// shared array reference instead of allocating a fresh `[NSAppearance.Name]`
+/// every time AppKit asks the color for a component value.
+private let adaptiveColorAppearanceMatchList: [NSAppearance.Name] = [.darkAqua, .aqua]
+
 /// Creates a `Color` that automatically resolves to `light` or `dark` based on
 /// the current system / window appearance.
+///
+/// The light and dark `Color` arguments are bridged to `NSColor` once at
+/// token-init time, each under the appropriate drawing appearance via
+/// `NSAppearance.performAsCurrentDrawingAppearance(_:)`, so the dynamic
+/// provider closure only has to pick between two captured references on each
+/// invocation. AppKit calls the provider whenever a method on the color needs
+/// component values (per Apple's NSColor(name:dynamicProvider:) docs), which
+/// is the SwiftUI render hot path, so the body needs to stay trivial.
 public func adaptiveColor(light: Color, dark: Color) -> Color {
-    Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        return isDark ? NSColor(dark) : NSColor(light)
+    let lightNS = resolveSwiftUIColor(light, appearance: .aqua)
+    let darkNS = resolveSwiftUIColor(dark, appearance: .darkAqua)
+    return Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.bestMatch(from: adaptiveColorAppearanceMatchList) == .darkAqua ? darkNS : lightNS
     }))
+}
+
+/// Resolve a SwiftUI `Color` to a concrete `NSColor` under a specific
+/// appearance. Used to pre-bridge the light/dark branches of `adaptiveColor`
+/// so that nested adaptive arguments (e.g. `VColor.surfaceOverlay.opacity(…)`)
+/// resolve their own inner dynamic providers in the correct branch instead of
+/// whatever ambient drawing appearance happens to be set at token-init time.
+private func resolveSwiftUIColor(_ color: Color, appearance name: NSAppearance.Name) -> NSColor {
+    guard let target = NSAppearance(named: name) else { return NSColor(color) }
+    var resolved: NSColor!
+    target.performAsCurrentDrawingAppearance { resolved = NSColor(color) }
+    return resolved
 }
 
 // MARK: - Canonical Semantic Tokens

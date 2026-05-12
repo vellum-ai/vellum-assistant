@@ -73,7 +73,10 @@ import { seedReplySuggestionCallsiteMigration } from "./072-seed-reply-suggestio
 import { repairRecallCallsiteEmptyProfileMigration } from "./073-repair-recall-callsite-empty-profile.js";
 import { dropDeprecatedSecretDetectionKeysMigration } from "./074-drop-deprecated-secret-detection-keys.js";
 import { memoryV2Bm25BDefaultReembedMigration } from "./075-memory-v2-bm25-b-default-reembed.js";
-import { homeFeedNotificationOnlyMigration } from "./076-home-feed-notification-only.js";
+import { dropServicesInferenceModeMigration } from "./076-drop-services-inference-mode.js";
+import { seedMemoryRouterCallsiteMigration } from "./077-seed-memory-router-callsite.js";
+import { releaseNotesTavilyWebSearchMigration } from "./078-release-notes-tavily-web-search.js";
+import { homeFeedNotificationOnlyMigration } from "./079-home-feed-notification-only.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -158,5 +161,8 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repairRecallCallsiteEmptyProfileMigration,
   dropDeprecatedSecretDetectionKeysMigration,
   memoryV2Bm25BDefaultReembedMigration,
+  dropServicesInferenceModeMigration,
+  seedMemoryRouterCallsiteMigration,
+  releaseNotesTavilyWebSearchMigration,
   homeFeedNotificationOnlyMigration,
 ];

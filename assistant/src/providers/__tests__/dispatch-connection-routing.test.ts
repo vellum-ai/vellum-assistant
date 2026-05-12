@@ -1,25 +1,26 @@
 /**
- * Cycle-3 gate test — proves that `resolveConfiguredProvider` actually routes
- * through `resolveProviderFromConnection` when a profile names a
- * `provider_connection`.
+ * Dispatcher gate test — proves that `resolveConfiguredProvider` routes
+ * through `resolveProviderFromConnection` for every dispatch when a profile
+ * names a `provider_connection`, AND that misconfigurations now fail loudly
+ * rather than silently rerouting to a legacy registry.
  *
- * Why this exists: cycle-1 and cycle-2 both shipped `resolveProviderFromConnection`
- * as dead code (zero call sites), and the cycle-2 "mix-and-match" test only
- * validated DB shape — never that the dispatcher actually invoked the
- * resolver. This test fails if the wiring regresses, by spying on
- * `resolveProviderFromConnection` and asserting:
+ * Hard config errors (missing connection name, unknown connection,
+ * provider mismatch) throw `ConnectionResolutionError`. Soft credential
+ * failures (resolver returns null) still return null so callers can
+ * degrade gracefully.
  *
- *   1. It was called once per dispatch invocation when the profile has a
- *      `provider_connection`.
- *   2. The connection passed in matches the profile's `provider_connection`.
- *   3. The returned `Provider` from each dispatch is the per-connection
- *      stub (different instances for different connections, regardless of
- *      shared underlying provider impl name).
- *
- * Two profiles, same `provider: anthropic`, different `provider_connection`:
- * exactly the mix-and-match scenario goal #2 of the design. If the dispatcher
- * falls back to `getProvider(name)`, both profiles would route to the same
- * Provider instance and this test would catch it.
+ * Hard gates:
+ *   1. Two profiles, same provider, different `provider_connection` →
+ *      resolver called twice with the right connection each time, with
+ *      auth bundles distinguishable per profile (mix-and-match goal #2
+ *      of the design).
+ *   2. Profile WITHOUT `provider_connection` → throws
+ *      `ConnectionResolutionError` (configuration bug; backfill should
+ *      have populated it).
+ *   3. `provider_connection` set but unknown → throws (loud config error).
+ *   4. `provider_connection` set, found, but resolver returns null →
+ *      returns null (soft credential failure; satellite caller decides
+ *      what to do).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -73,11 +74,10 @@ mock.module("../inference/connections.js", () => ({
 }));
 
 mock.module("../registry.js", () => ({
-  // Legacy fallback path — tests that exercise it provide their own entries.
+  // The dispatch path does not import getProvider.
+  // Kept here only because other test files share this mock module shape.
   getProvider: (name: string) => {
-    const p = fakeProviders.get(`legacy:${name}`);
-    if (!p) throw new Error(`legacy getProvider unknown: ${name}`);
-    return p;
+    throw new Error(`legacy getProvider should not be called: ${name}`);
   },
   initializeProviders: async () => {},
   listProviders: () => Array.from(fakeProviders.values()),
@@ -92,6 +92,7 @@ mock.module("../registry.js", () => ({
 // Imports (after mocks).
 // ---------------------------------------------------------------------------
 
+import { ConnectionResolutionError } from "../connection-resolution.js";
 import { getConfiguredProvider } from "../provider-send-message.js";
 
 // ---------------------------------------------------------------------------
@@ -102,7 +103,10 @@ function setLlmConfig(c: Record<string, unknown>): void {
   mockLlmConfig = c;
 }
 
-function registerConnection(c: Connection, providerStub: { name: string; tag: string }): void {
+function registerConnection(
+  c: Connection,
+  providerStub: { name: string; tag: string },
+): void {
   fakeConnections.set(c.name, c);
   fakeProviders.set(`conn:${c.name}`, providerStub);
 }
@@ -118,7 +122,7 @@ function reset(): void {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("dispatch routes through provider_connection (cycle-3 gate)", () => {
+describe("dispatch routes through provider_connection (Phase 1: connection-only)", () => {
   beforeEach(reset);
 
   test("two profiles, same provider, different connections → resolver called twice with the right connection each time", async () => {
@@ -186,18 +190,18 @@ describe("dispatch routes through provider_connection (cycle-3 gate)", () => {
     expect(personalResult).not.toBeNull();
   });
 
-  test("profile WITHOUT provider_connection falls back to legacy registry dispatch", async () => {
-    fakeProviders.set("legacy:anthropic", {
-      name: "anthropic",
-      tag: "legacy-stub",
-    });
-
+  test("profile WITHOUT provider_connection returns null (graceful fallback)", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "legacy-profile": {
           provider: "anthropic",
-          // no provider_connection — must use getProvider() fallback
+          // no provider_connection — boot-time backfill is expected to
+          // populate this in production. When unset, the per-callsite
+          // resolver returns null so callsites with deterministic
+          // fallbacks (invite instructions, telegram resolution, etc.)
+          // keep working. Hard config errors (lookup failed, mismatch)
+          // still throw via tryResolveProviderForConnectionName.
         },
       },
     });
@@ -206,18 +210,14 @@ describe("dispatch routes through provider_connection (cycle-3 gate)", () => {
       overrideProfile: "legacy-profile",
     });
 
-    // Resolver must NOT have been called — legacy path only.
+    expect(result).toBeNull();
+    // Resolver must NOT have been called — short-circuited before reaching it.
     expect(resolveProviderCalls.length).toBe(0);
-    expect(result).not.toBeNull();
   });
 
-  test("provider_connection set but unknown → falls back to legacy registry dispatch", async () => {
-    // No connection registered — dispatcher should warn and fall through.
-    fakeProviders.set("legacy:anthropic", {
-      name: "anthropic",
-      tag: "legacy-stub",
-    });
-
+  test("provider_connection set but unknown → throws ConnectionResolutionError(not_found)", async () => {
+    // No connection registered — the dispatcher should throw with reason
+    // 'not_found' rather than falling through to a legacy lookup.
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
@@ -228,28 +228,31 @@ describe("dispatch routes through provider_connection (cycle-3 gate)", () => {
       },
     });
 
-    const result = await getConfiguredProvider("mainAgent", {
-      overrideProfile: "broken",
-    });
+    let caught: unknown;
+    try {
+      await getConfiguredProvider("mainAgent", { overrideProfile: "broken" });
+    } catch (err) {
+      caught = err;
+    }
 
+    expect(caught).toBeInstanceOf(ConnectionResolutionError);
+    expect((caught as ConnectionResolutionError).reason).toBe("not_found");
+    expect((caught as ConnectionResolutionError).connectionName).toBe(
+      "does-not-exist",
+    );
     // Resolver was NOT called (lookup failed before reaching it).
     expect(resolveProviderCalls.length).toBe(0);
-    // Legacy path returned a provider — system stays operational.
-    expect(result).not.toBeNull();
   });
 
-  test("provider_connection set, connection found, but resolver returns null → falls back to legacy", async () => {
+  test("provider_connection set, connection found, but resolver returns null → returns null (soft credential failure)", async () => {
     // Connection exists but resolver returns null (e.g., missing credential).
     fakeConnections.set("anthropic-broken-personal", {
       name: "anthropic-broken-personal",
       provider: "anthropic",
       auth: { type: "api_key", credential: "credential/missing" },
     });
-    // intentionally do NOT register a fakeProviders entry for `conn:anthropic-broken-personal`
-    fakeProviders.set("legacy:anthropic", {
-      name: "anthropic",
-      tag: "legacy-stub",
-    });
+    // Intentionally do NOT register a fakeProviders entry for
+    // `conn:anthropic-broken-personal` — resolver returns null.
 
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
@@ -265,10 +268,12 @@ describe("dispatch routes through provider_connection (cycle-3 gate)", () => {
       overrideProfile: "broken-creds",
     });
 
-    // Resolver WAS called — but returned null, so we fell back.
+    // Resolver WAS called — but returned null. No legacy fallback.
     expect(resolveProviderCalls.length).toBe(1);
     expect(resolveProviderCalls[0].name).toBe("anthropic-broken-personal");
-    // Legacy fallback succeeded — system stays operational.
-    expect(result).not.toBeNull();
+    // Soft credential failure → null result. Satellite callers handle null
+    // however they want (rollup producer skips, others throw a domain-
+    // specific error).
+    expect(result).toBeNull();
   });
 });
