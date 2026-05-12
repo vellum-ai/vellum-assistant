@@ -101,7 +101,7 @@ Run with `python3 /path/to/script.py` on the user's machine (`host_bash`). The u
 ### 3. Store Tokens
 
 After the OAuth flow, read tokens from `/tmp/oura_tokens.json` and store them:
-- `access_token` — store in credential vault with injection template for `api.ouraring.com` Authorization header (Bearer prefix)
+- `access_token` — store in credential vault with injection template for `api.ouraring.com` Authorization header (Bearer prefix) and `allowed_tools: ["bash"]`
 - `refresh_token` — store in credential vault for token refresh
 - Tokens expire in ~30 days. Set a reminder to refresh before expiry.
 
