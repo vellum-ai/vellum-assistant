@@ -270,4 +270,74 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         XCTAssertNil(setPatch.entry["provider"])
         XCTAssertNil(setPatch.entry["model"])
     }
+
+    // MARK: - visibleProfilesForPicker
+
+    /// Active profiles (no `status` set) must always appear in the picker.
+    func testVisibleProfilesIncludesActiveProfiles() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "quality"),
+        ]
+        let visible = CallSiteOverrideRow.visibleProfilesForPicker(profiles)
+        XCTAssertEqual(visible.map(\.name), ["balanced", "quality"])
+    }
+
+    /// Disabled profiles must be hidden when they're not the current selection.
+    /// Mirrors web's `visibleProfilesForPicker(orderedProfiles, [selectedProfile])`
+    /// in `CallSiteOverridesModal.tsx`.
+    func testVisibleProfilesHidesDisabledProfilesNotSelected() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "legacy-quality", status: "disabled"),
+            InferenceProfile(name: "fast"),
+        ]
+        let visible = CallSiteOverrideRow.visibleProfilesForPicker(profiles)
+        XCTAssertEqual(
+            visible.map(\.name),
+            ["balanced", "fast"],
+            "Disabled profiles must not appear in the picker as fresh options"
+        )
+    }
+
+    /// A row already pointing at a disabled profile must keep it in the picker
+    /// — otherwise the dropdown would silently render a different value than
+    /// the row actually references.
+    func testVisibleProfilesKeepsSelectedDisabledProfile() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "legacy-quality", status: "disabled"),
+            InferenceProfile(name: "fast"),
+        ]
+        let visible = CallSiteOverrideRow.visibleProfilesForPicker(
+            profiles,
+            keepSelected: ["legacy-quality"]
+        )
+        XCTAssertEqual(
+            visible.map(\.name),
+            ["balanced", "legacy-quality", "fast"],
+            "The currently-selected profile must be retained even when disabled"
+        )
+    }
+
+    /// `keepSelected` entries that are empty strings or the Custom sentinel
+    /// must not accidentally retain a disabled profile — those values never
+    /// match a real profile name, so all disabled profiles still drop out.
+    func testVisibleProfilesIgnoresEmptyAndSentinelSelections() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "legacy-quality", status: "disabled"),
+        ]
+        let emptySel = CallSiteOverrideRow.visibleProfilesForPicker(
+            profiles,
+            keepSelected: [""]
+        )
+        XCTAssertEqual(emptySel.map(\.name), ["balanced"])
+
+        let sentinelSel = CallSiteOverrideRow.visibleProfilesForPicker(
+            profiles,
+            keepSelected: [CallSiteOverrideRow.customSentinel]
+        )
+        XCTAssertEqual(sentinelSel.map(\.name), ["balanced"])
+    }
 }

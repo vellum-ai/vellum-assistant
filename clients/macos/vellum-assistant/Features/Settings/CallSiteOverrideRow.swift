@@ -80,6 +80,24 @@ struct CallSiteOverrideRow: View {
         return ""
     }
 
+    /// Returns the subset of `profiles` that should appear in the picker.
+    /// Profiles whose `status == "disabled"` are hidden so they can't be
+    /// picked fresh, but any profile whose name appears in `keepSelected`
+    /// is retained regardless of status — otherwise a row that already
+    /// references a disabled profile would silently re-render as a
+    /// different value in the dropdown. Mirrors web's
+    /// `visibleProfilesForPicker(orderedProfiles, [selectedProfile])`
+    /// helper in `CallSiteOverridesModal.tsx`.
+    static func visibleProfilesForPicker(
+        _ profiles: [InferenceProfile],
+        keepSelected: [String] = []
+    ) -> [InferenceProfile] {
+        let keep = Set(keepSelected.filter { !$0.isEmpty })
+        return profiles.filter { profile in
+            !profile.isDisabled || keep.contains(profile.name)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             headerRow
@@ -141,7 +159,19 @@ struct CallSiteOverrideRow: View {
     // MARK: - Inline Profile Picker
 
     private var inlineProfilePicker: some View {
-        VDropdown(
+        // Hide profiles whose `status == "disabled"` so the user can't
+        // pick a disabled profile fresh, but always retain the currently
+        // selected profile (even when disabled) so the row keeps showing
+        // the value it actually references instead of silently snapping
+        // to a different profile. Mirrors web's
+        // `visibleProfilesForPicker(orderedProfiles, [selectedProfile])`
+        // helper in `CallSiteOverridesModal.tsx`.
+        let selected = Self.profilePickerValue(for: draft)
+        let visibleProfiles = Self.visibleProfilesForPicker(
+            profiles,
+            keepSelected: [selected]
+        )
+        return VDropdown(
             placeholder: "Profile\u{2026}",
             selection: Binding(
                 get: { Self.profilePickerValue(for: draft) },
@@ -160,7 +190,7 @@ struct CallSiteOverrideRow: View {
                     }
                 }
             ),
-            options: profiles.map { (label: $0.displayName, value: $0.name) }
+            options: visibleProfiles.map { (label: $0.displayName, value: $0.name) }
                 + [(label: Self.customLabel, value: Self.customSentinel)],
             maxWidth: 150,
             menuWidth: 150
