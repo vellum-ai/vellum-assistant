@@ -6,6 +6,10 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import {
+  conversationMessagesSyncTag,
+  type SyncChangedMessage,
+} from "../daemon/message-types/sync.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -272,6 +276,8 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { Conversation } from "../daemon/conversation.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { waitFor } from "./helpers/wait-for.js";
 
 type ConversationWithWorkspaceDeps = Conversation & {
   getWorkspaceGitService?: (_workspaceDir: string) => {
@@ -340,6 +346,25 @@ function resolveRun(index: number) {
   });
   run.onEvent({ type: "message_complete", message: assistantMsg });
   run.resolve([...run.messages, assistantMsg]);
+}
+
+function syncChangedMessages(): {
+  messages: SyncChangedMessage[];
+  dispose: () => void;
+} {
+  const messages: SyncChangedMessage[] = [];
+  const subscription = assistantEventHub.subscribe({
+    type: "process",
+    callback: (event) => {
+      if (event.message.type === "sync_changed") {
+        messages.push(event.message);
+      }
+    },
+  });
+  return {
+    messages,
+    dispose: () => subscription.dispose(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -484,5 +509,35 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
 
     resolveRun(2);
     await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test("/compact failure still emits message-history sync after persisting the user message", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    conversation.forceCompact = async () => {
+      throw new Error("compaction failed");
+    };
+
+    const sync = syncChangedMessages();
+    try {
+      await expect(
+        conversation.processMessage("/compact", [], () => {}, "req-compact"),
+      ).rejects.toThrow("compaction failed");
+
+      await waitFor(
+        () =>
+          sync.messages.some(
+            (message) =>
+              message.tags.length === 1 &&
+              message.tags[0] === conversationMessagesSyncTag("conv-1"),
+          ),
+        {
+          message:
+            "Timed out waiting for /compact failure message-history sync tag",
+        },
+      );
+    } finally {
+      sync.dispose();
+    }
   });
 });

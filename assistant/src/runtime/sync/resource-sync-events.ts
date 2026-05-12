@@ -1,6 +1,7 @@
 import type { IdentityFields } from "../../daemon/handlers/identity.js";
 import type { ConversationListInvalidatedReason } from "../../daemon/message-types/conversations.js";
 import {
+  conversationMessagesSyncTag,
   conversationMetadataSyncTag,
   SYNC_TAGS,
 } from "../../daemon/message-types/sync.js";
@@ -46,6 +47,12 @@ export function publishConversationListChanged(
     reason,
   });
   void publishSyncInvalidation([SYNC_TAGS.conversationsList]);
+}
+
+export function publishConversationMessagesChanged(
+  conversationId: string,
+): void {
+  void publishSyncInvalidation([conversationMessagesSyncTag(conversationId)]);
 }
 
 export function publishConversationListAndMetadataChanged(
