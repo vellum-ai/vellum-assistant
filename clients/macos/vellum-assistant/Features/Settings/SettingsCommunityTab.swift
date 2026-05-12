@@ -34,10 +34,9 @@ private struct CommunityHeroBanner: View {
                 .foregroundStyle(VColor.contentTertiary)
                 .frame(maxWidth: 480, alignment: .leading)
         }
-        .padding(.vertical, VSpacing.xl)
+        .padding(VSpacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(VColor.surfaceLift)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .vCard()
     }
 }
 
