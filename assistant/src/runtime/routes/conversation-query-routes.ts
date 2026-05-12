@@ -4,7 +4,6 @@
  * context inspection, and queued message deletion.
  *
  * GET    /v1/model                      — current model info
- * PUT    /v1/model                      — set model
  * PUT    /v1/model/image-gen            — set image-gen model
  * GET    /v1/config/embeddings          — current embedding config
  * PUT    /v1/config/embeddings          — set embedding provider/model
@@ -34,7 +33,6 @@ import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import { ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
-import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
   getEmbeddingConfigInfo,
@@ -44,7 +42,6 @@ import {
   getModelInfo,
   type ModelSetContext,
   setImageGenModel,
-  setModel,
 } from "../../daemon/handlers/config-model.js";
 import {
   getMessageContent,
@@ -75,7 +72,6 @@ import {
 } from "./llm-context-normalization.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-const validProviderSet = new Set<string>(VALID_INFERENCE_PROVIDERS);
 const validEmbeddingProviderSet = new Set<string>(
   VALID_MEMORY_EMBEDDING_PROVIDERS,
 );
@@ -245,33 +241,6 @@ function getModelSetContext(): ModelSetContext {
 
 async function handleGetModel() {
   return getModelInfo();
-}
-
-async function handleSetModel({ body }: RouteHandlerArgs) {
-  if (!body || typeof body !== "object") {
-    throw new BadRequestError("Request body is required");
-  }
-  const { modelId, provider } = body as {
-    modelId?: string;
-    provider?: string;
-  };
-  if (!modelId || typeof modelId !== "string") {
-    throw new BadRequestError("Missing required field: modelId");
-  }
-  if (
-    provider !== undefined &&
-    (typeof provider !== "string" || !validProviderSet.has(provider))
-  ) {
-    throw new BadRequestError(
-      `Invalid provider "${provider}". Valid providers: ${[...validProviderSet].join(", ")}`,
-    );
-  }
-  try {
-    return await setModel(modelId, getModelSetContext(), provider);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new InternalError(`Failed to set model: ${message}`);
-  }
 }
 
 async function handleSetImageGenModel({ body }: RouteHandlerArgs) {
@@ -481,7 +450,7 @@ async function commitConfigWrite(
   // second time - starting with providers.clear() which races with the
   // explicit reinit below. The watcher also fires onConversationEvict(),
   // which would evict all cached conversations on every write. Mirror the
-  // suppress/reset pattern used in setModel (config-model.ts).
+  // suppress/reset pattern used in setImageGenModel (config-model.ts).
   const configWatcher = getConfigWatcher();
   const wasSuppressed = configWatcher.suppressConfigReload;
   configWatcher.suppressConfigReload = true;
@@ -891,20 +860,6 @@ export const ROUTES: RouteDefinition[] = [
       "Return the active LLM model ID, provider, and available models.",
     tags: ["config"],
     handler: handleGetModel,
-  },
-  {
-    operationId: "model_set",
-    endpoint: "model",
-    method: "PUT",
-    policyKey: "model",
-    summary: "Set LLM model",
-    description: "Change the active LLM model and optionally its provider.",
-    tags: ["config"],
-    requestBody: z.object({
-      modelId: z.string(),
-      provider: z.string().describe("Optional provider override").optional(),
-    }),
-    handler: handleSetModel,
   },
   {
     operationId: "model_image_gen_set",

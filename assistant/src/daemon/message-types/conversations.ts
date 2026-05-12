@@ -138,12 +138,6 @@ export interface ModelGetRequest {
   type: "model_get";
 }
 
-export interface ModelSetRequest {
-  type: "model_set";
-  model: string;
-  provider?: string;
-}
-
 export interface ImageGenModelSetRequest {
   type: "image_gen_model_set";
   model: string;
@@ -607,7 +601,6 @@ export type _ConversationsClientMessages =
   | CancelRequest
   | DeleteQueuedMessage
   | ModelGetRequest
-  | ModelSetRequest
   | ImageGenModelSetRequest
   | UndoRequest
   | UsageRequest

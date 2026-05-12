@@ -10793,30 +10793,6 @@ paths:
       responses:
         "200":
           description: Successful response
-    put:
-      operationId: model_put
-      summary: Set LLM model
-      description: Change the active LLM model and optionally its provider.
-      tags:
-        - config
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                modelId:
-                  type: string
-                provider:
-                  type: string
-                  description: Optional provider override
-              required:
-                - modelId
-              additionalProperties: false
   /v1/model/image-gen:
     put:
       operationId: model_imagegen_put

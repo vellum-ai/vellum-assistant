@@ -2636,16 +2636,6 @@ extension ModelGetRequest {
     }
 }
 
-/// Set the active model.
-/// Backed by generated `ModelSetRequest`.
-public typealias ModelSetRequestMessage = ModelSetRequest
-
-extension ModelSetRequest {
-    public init(model: String) {
-        self.init(type: "model_set", model: model)
-    }
-}
-
 /// Set the active image generation model.
 /// Backed by generated `ImageGenModelSetRequest`.
 public typealias ImageGenModelSetRequestMessage = ImageGenModelSetRequest

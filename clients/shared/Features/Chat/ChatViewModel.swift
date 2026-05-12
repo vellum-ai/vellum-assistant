@@ -1550,29 +1550,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         bootstrapConversation(userMessage: nil, attachments: nil)
     }
 
-    // MARK: - Model
-
-    /// Switch the active model via the gateway.
-    public func setModel(_ modelId: String) {
-        // Ensure the message loop is running so we receive downstream events.
-        // VMs restored with an existing conversationId may not have started it yet.
-        if messageLoopTask == nil {
-            startMessageLoop()
-        }
-        Task {
-            let info = await SettingsClient().setModel(model: modelId)
-            if let model = info?.model {
-                self.selectedModel = model
-            }
-            if let providers = info?.configuredProviders {
-                self.configuredProviders = Set(providers)
-            }
-            if let allProviders = info?.allProviders, !allProviders.isEmpty {
-                self.providerCatalog = allProviders
-            }
-        }
-    }
-
     // MARK: - Actions
 
     public func sendSurfaceAction(surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {

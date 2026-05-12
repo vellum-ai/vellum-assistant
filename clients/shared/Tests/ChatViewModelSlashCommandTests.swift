@@ -17,8 +17,6 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             return modelInfoResponse
         }
 
-        func setModel(model: String, provider: String?) async -> ModelInfoMessage? { nil }
-
         func setImageGenModel(modelId: String) async -> ModelInfoMessage? { nil }
 
         func fetchEmbeddingConfig() async -> EmbeddingConfigMessage? { nil }
