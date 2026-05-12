@@ -3,6 +3,9 @@
  *
  * Phase 0 keeps memory in process and persists to a single JSONL file
  * managed by the init/shutdown hooks. Real backing store lands later.
+ *
+ * The logger is stashed here at init time so the no-arg `onShutdown` hook
+ * can still emit structured logs without re-receiving the runtime context.
  */
 
 export interface MemoryEntry {
@@ -13,11 +16,22 @@ export interface MemoryEntry {
   readonly createdAt: number;
 }
 
+/**
+ * Minimal pino-compatible logger shape. Defined locally so this module
+ * has no imports outside the plugin directory.
+ */
+export interface PluginLogger {
+  info(obj: Record<string, unknown>, msg?: string): void;
+  error(obj: Record<string, unknown>, msg?: string): void;
+}
+
 export interface PluginState {
   /** Absolute path to the JSONL file backing the in-memory store. */
   storePath: string;
   /** All entries, append-order. */
   entries: MemoryEntry[];
+  /** Child logger handed to us by the harness at init time. */
+  logger: PluginLogger;
 }
 
 let state: PluginState | null = null;

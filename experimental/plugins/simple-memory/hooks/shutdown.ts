@@ -1,20 +1,17 @@
 /**
  * shutdown hook — flushes the in-process store back to JSONL.
+ *
+ * The harness invokes this with no arguments per the Plugin contract, so
+ * we read the logger and store path from module state (set by init).
+ *
+ * Convention: default export is the function the harness invokes.
  */
 
 import { promises as fs } from "node:fs";
 
 import { clearState, requireState } from "../src/state.js";
 
-interface ShutdownLogger {
-  info(obj: Record<string, unknown>, msg?: string): void;
-}
-
-interface ShutdownContext {
-  logger: ShutdownLogger;
-}
-
-export async function onShutdown(ctx: ShutdownContext): Promise<void> {
+export default async function onShutdown(): Promise<void> {
   let snapshot: ReturnType<typeof requireState>;
   try {
     snapshot = requireState();
@@ -22,11 +19,11 @@ export async function onShutdown(ctx: ShutdownContext): Promise<void> {
     // init() never ran or already torn down — nothing to flush.
     return;
   }
-  const { storePath, entries } = snapshot;
+  const { storePath, entries, logger } = snapshot;
   const serialized =
     entries.length === 0 ? "" : `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`;
   await fs.writeFile(storePath, serialized, "utf8");
-  ctx.logger.info(
+  logger.info(
     { plugin: "simple-memory", storePath, flushedEntries: entries.length },
     "simple-memory shutdown",
   );

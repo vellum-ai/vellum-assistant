@@ -230,4 +230,149 @@ registerPlugin({
     await loadUserPlugins();
     expect(getRegisteredPlugins()).toHaveLength(0);
   });
+
+  describe("experimental plugin framework branch", () => {
+    /**
+     * Write a directory-convention plugin (package.json + optional
+     * hooks/tools default exports). Mirrors `writePlugin()` above but
+     * targets the new experimental loader path.
+     */
+    function writeExperimentalPlugin(
+      name: string,
+      pkg: Record<string, unknown>,
+      files: Record<string, string> = {},
+    ): void {
+      const pluginDir = join(PLUGINS_DIR, name);
+      mkdirSync(pluginDir, { recursive: true });
+      writeFileSync(
+        join(pluginDir, "package.json"),
+        JSON.stringify(pkg, null, 2),
+      );
+      for (const [rel, body] of Object.entries(files)) {
+        const parts = rel.split("/");
+        parts.pop();
+        if (parts.length > 0) {
+          mkdirSync(join(pluginDir, ...parts), { recursive: true });
+        }
+        writeFileSync(join(pluginDir, rel), body);
+      }
+    }
+
+    test("loads a plugin via the package.json branch and registers it", async () => {
+      writeExperimentalPlugin(
+        "experimental-one",
+        { name: "experimental-one", version: "0.1.0" },
+        {
+          "hooks/init.ts":
+            "export default async function init(_ctx: unknown): Promise<void> {}\n",
+        },
+      );
+
+      await loadUserPlugins();
+
+      const names = getRegisteredPlugins().map((p) => p.manifest.name);
+      expect(names).toContain("experimental-one");
+      const registered = getRegisteredPlugins().find(
+        (p) => p.manifest.name === "experimental-one",
+      );
+      expect(typeof registered?.init).toBe("function");
+    });
+
+    test("strips npm scope from package.json name", async () => {
+      writeExperimentalPlugin("scoped", {
+        name: "@vellumai/cool-plugin",
+        version: "0.1.0",
+      });
+
+      await loadUserPlugins();
+
+      const names = getRegisteredPlugins().map((p) => p.manifest.name);
+      expect(names).toContain("cool-plugin");
+    });
+
+    test("a broken experimental plugin is logged and skipped without affecting others", async () => {
+      // Plugin A has a malformed package.json; Plugin B is a healthy
+      // legacy register.ts. The loader must isolate A's failure and still
+      // register B — same per-plugin contract as the legacy path.
+      const brokenDir = join(PLUGINS_DIR, "broken-experimental");
+      mkdirSync(brokenDir, { recursive: true });
+      writeFileSync(join(brokenDir, "package.json"), "{ not valid json");
+
+      writePlugin(
+        "healthy-legacy",
+        `
+registerPlugin({
+  manifest: {
+    name: "healthy-legacy",
+    version: "0.0.1",
+    requires: { pluginRuntime: "v1" },
+  },
+});
+`,
+      );
+
+      await loadUserPlugins();
+
+      const names = getRegisteredPlugins().map((p) => p.manifest.name);
+      expect(names).toContain("healthy-legacy");
+      expect(names).not.toContain("broken-experimental");
+    });
+
+    test("experimental and legacy plugins coexist in one workspace", async () => {
+      writeExperimentalPlugin("new-style", {
+        name: "new-style",
+        version: "0.1.0",
+      });
+      writePlugin(
+        "old-style",
+        `
+registerPlugin({
+  manifest: {
+    name: "old-style",
+    version: "0.0.1",
+    requires: { pluginRuntime: "v1" },
+  },
+});
+`,
+      );
+
+      await loadUserPlugins();
+
+      const names = getRegisteredPlugins()
+        .map((p) => p.manifest.name)
+        .sort();
+      expect(names).toEqual(["new-style", "old-style"]);
+    });
+
+    test("package.json branch wins over a stale register.ts in the same dir", async () => {
+      // A migrated plugin may keep its old register.ts on disk while it
+      // adopts the new convention. The package.json gate takes the
+      // experimental path and the legacy register.ts is never imported,
+      // so the plugin must register exactly once.
+      const dir = join(PLUGINS_DIR, "migrated");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "migrated", version: "0.1.0" }),
+      );
+      // A register.ts that would double-register if both paths fired.
+      const registryPath = join(
+        import.meta.dir,
+        "..",
+        "plugins",
+        "registry.ts",
+      );
+      writeFileSync(
+        join(dir, "register.ts"),
+        `import { registerPlugin } from ${JSON.stringify(registryPath)};
+registerPlugin({ manifest: { name: "migrated", version: "0.0.1", requires: { pluginRuntime: "v1" } } });
+`,
+      );
+
+      await loadUserPlugins();
+
+      const names = getRegisteredPlugins().map((p) => p.manifest.name);
+      expect(names.filter((n) => n === "migrated")).toHaveLength(1);
+    });
+  });
 });

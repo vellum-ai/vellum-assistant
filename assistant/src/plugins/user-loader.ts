@@ -1,24 +1,33 @@
 /**
- * User plugin loader — discovers plugins under `<workspaceDir>/plugins/*` and
- * invokes each plugin's registration side effect via a dynamic import.
+ * User plugin loader — discovers plugins under `<workspaceDir>/plugins/*` via
+ * one of two paths, gated by the contents of each candidate directory.
  *
- * A user plugin is a directory under `getWorkspaceDir()/plugins/` that contains a
- * `register.ts` (or `register.js` after compilation). The file is expected to
- * call {@link registerPlugin} at import time so the plugin ends up in the
- * registry before {@link bootstrapPlugins} runs during daemon startup.
+ * **Experimental plugin framework path** (`package.json` present): the
+ * harness walks the plugin's interface dirs (`hooks/`, `tools/`) and reads
+ * the **default export** from each surface file via
+ * {@link loadExperimentalPlugin}. The constructed `Plugin` is handed to
+ * {@link registerPlugin} directly. No central `register.ts`, no
+ * side-effect registration.
+ *
+ * **Legacy path** (`register.{ts,js}` present): the file is dynamic-imported
+ * and expected to call {@link registerPlugin} at import time as a side
+ * effect, populating the registry before {@link bootstrapPlugins} runs.
+ *
+ * A directory that matches neither path is skipped silently.
  *
  * The loader deliberately:
  *
  * - Uses `getWorkspaceDir()` so each instance loads its own plugin set
  *   when `VELLUM_WORKSPACE_DIR` is set.
- * - Prefers `register.js` over `register.ts` when both exist (compiled plugins
- *   always win; this matches how `bun`/Node consumers resolve modules at
- *   runtime in the compiled binary).
- * - Treats any error from the dynamic import as a per-plugin isolation
- *   boundary: the offending directory is logged with `"Failed to load user
- *   plugin <dir>: <err>"` and the loader moves on to the next candidate.
- *   One bad user plugin must not crash the daemon.
- * - Bounds each dynamic import with a timeout
+ * - Prefers `.js` over `.ts` for every surface file when both exist
+ *   (compiled plugins always win; this matches how `bun`/Node consumers
+ *   resolve modules at runtime in the compiled binary). The experimental
+ *   loader applies the same rule per surface file; the legacy path picks
+ *   between `register.js` and `register.ts`.
+ * - Treats any error from a plugin load as a per-plugin isolation
+ *   boundary: the offending directory is logged and the loader moves on
+ *   to the next candidate. One bad user plugin must not crash the daemon.
+ * - Bounds each plugin load with a timeout
  *   ({@link USER_PLUGIN_IMPORT_TIMEOUT_MS}) so a plugin whose top-level
  *   `await` hangs or whose module evaluation never resolves cannot stall
  *   daemon startup. Timed-out plugins are logged and skipped just like
@@ -39,7 +48,8 @@ import { pathToFileURL } from "node:url";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
-import { closeRegistration } from "./registry.js";
+import { loadExperimentalPlugin } from "./experimental-plugin-loader.js";
+import { closeRegistration, registerPlugin } from "./registry.js";
 
 const log = getLogger("user-plugin-loader");
 
@@ -118,10 +128,60 @@ export async function loadUserPlugins(
     }
     if (!stats.isDirectory()) continue;
 
-    // Prefer the compiled `register.js` over the TypeScript source. In the
-    // bun-compiled daemon binary only the compiled file can be imported;
-    // in development both may exist, in which case resolving the compiled
-    // artifact matches how the runtime would behave in production.
+    // Experimental plugin framework branch: a directory with a
+    // `package.json` is loaded by walking its interface dirs (`hooks/`,
+    // `tools/`) and reading the **default export** from each surface file.
+    // The harness builds the `Plugin` object and calls `registerPlugin()`
+    // directly — no central `register.ts`, no side-effect registration on
+    // this path. Same per-plugin isolation + timeout boundary as the
+    // legacy path: a bad/hung experimental plugin must not crash startup.
+    if (existsSync(join(pluginDir, "package.json"))) {
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const timeoutSentinel = Symbol("experimental-plugin-load-timeout");
+        const loadPromise = loadExperimentalPlugin(pluginDir);
+        const timeoutPromise = new Promise<typeof timeoutSentinel>(
+          (resolve) => {
+            timeoutHandle = setTimeout(
+              () => resolve(timeoutSentinel),
+              importTimeoutMs,
+            );
+          },
+        );
+        const result = await Promise.race([loadPromise, timeoutPromise]);
+        if (result === timeoutSentinel) {
+          loadPromise.catch(() => {
+            // Abandoned load — closed-registration latch rejects any late
+            // `registerPlugin()` from the resolved value's surface imports.
+          });
+          log.warn(
+            { pluginDir, timeoutMs: importTimeoutMs },
+            `Timed out loading experimental plugin ${pluginDir} after ${importTimeoutMs}ms — skipping`,
+          );
+        } else {
+          registerPlugin(result);
+          log.info(
+            { pluginDir, name: result.manifest.name },
+            "loaded experimental plugin",
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          { err, pluginDir },
+          `Failed to load experimental plugin ${pluginDir}: ${message}`,
+        );
+      } finally {
+        if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+      }
+      continue;
+    }
+
+    // Legacy register.{ts,js} side-effect path. Prefer the compiled
+    // `register.js` over the TypeScript source. In the bun-compiled daemon
+    // binary only the compiled file can be imported; in development both
+    // may exist, in which case resolving the compiled artifact matches how
+    // the runtime would behave in production.
     const jsPath = join(pluginDir, "register.js");
     const tsPath = join(pluginDir, "register.ts");
     let registerPath: string | undefined;
@@ -133,7 +193,7 @@ export async function loadUserPlugins(
     if (!registerPath) {
       log.debug(
         { pluginDir },
-        "loadUserPlugins: no register.{ts,js} — skipping",
+        "loadUserPlugins: no register.{ts,js} or package.json — skipping",
       );
       continue;
     }

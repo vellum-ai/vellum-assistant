@@ -1,5 +1,7 @@
 /**
  * `simple_memory_remember` — append a freeform note for the current conversation.
+ *
+ * Convention: default export is the tool object the harness registers.
  */
 
 import { appendEntry, type MemoryEntry, newEntryId } from "../src/state.js";
@@ -13,7 +15,7 @@ interface ToolExecutionResult {
   isError: boolean;
 }
 
-export const rememberTool = {
+export default {
   name: "simple_memory_remember",
   description:
     "Append a freeform note to simple-memory for the current conversation. Use when the user states a stable preference, a fact about themselves, or a decision worth carrying across turns.",

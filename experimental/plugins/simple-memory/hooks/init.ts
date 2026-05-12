@@ -1,27 +1,28 @@
 /**
  * init hook — hydrates the in-process store from `<pluginStorageDir>/entries.jsonl`.
  *
- * The harness supplies `pluginStorageDir` and a `logger`. We define the
- * minimum shape we need locally so this module has no imports outside
- * itself.
+ * The harness supplies `pluginStorageDir` and a `logger`. We stash the
+ * logger in module state so the no-arg `onShutdown` hook can still log
+ * with full attribution.
+ *
+ * Convention: default export is the function the harness invokes.
  */
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { type MemoryEntry, setState } from "../src/state.js";
-
-interface InitLogger {
-  info(obj: Record<string, unknown>, msg?: string): void;
-  error(obj: Record<string, unknown>, msg?: string): void;
-}
+import {
+  type MemoryEntry,
+  type PluginLogger,
+  setState,
+} from "../src/state.js";
 
 interface InitContext {
   pluginStorageDir: string;
-  logger: InitLogger;
+  logger: PluginLogger;
 }
 
-export async function init(ctx: InitContext): Promise<void> {
+export default async function init(ctx: InitContext): Promise<void> {
   const storePath = path.join(ctx.pluginStorageDir, "entries.jsonl");
   await fs.mkdir(ctx.pluginStorageDir, { recursive: true });
 
@@ -46,7 +47,7 @@ export async function init(ctx: InitContext): Promise<void> {
     // First boot — no file yet. Leave entries empty.
   }
 
-  setState({ storePath, entries });
+  setState({ storePath, entries, logger: ctx.logger });
   ctx.logger.info(
     { plugin: "simple-memory", storePath, hydratedEntries: entries.length },
     "simple-memory initialized",
