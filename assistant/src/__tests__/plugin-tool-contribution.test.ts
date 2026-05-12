@@ -48,7 +48,7 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import type { Plugin } from "../plugins/types.js";
+import type { Plugin, PluginInitContext } from "../plugins/types.js";
 import type { ToolDefinition } from "../providers/types.js";
 import {
   __clearRegistryForTesting,
@@ -99,17 +99,45 @@ function makeFakeTool(name: string, extras: Partial<Tool> = {}): Tool {
   };
 }
 
+/**
+ * Test helper. Accepts the new `hooks` bag and ALSO legacy top-level
+ * `init` / `onShutdown` for ergonomics — the helper merges them into a
+ * single `hooks` field that matches the runtime Plugin shape.
+ */
 function buildPlugin(
   name: string,
-  extras: Partial<Omit<Plugin, "manifest">> = {},
+  extras: Partial<Omit<Plugin, "manifest" | "hooks">> & {
+    hooks?: Plugin["hooks"];
+    init?: (ctx: PluginInitContext) => Promise<void>;
+    onShutdown?: () => Promise<void>;
+  } = {},
 ): Plugin {
+  const {
+    init: legacyInit,
+    onShutdown: legacyOnShutdown,
+    hooks: explicitHooks,
+    ...rest
+  } = extras;
+  const mergedHooks: Plugin["hooks"] | undefined =
+    legacyInit !== undefined ||
+    legacyOnShutdown !== undefined ||
+    explicitHooks !== undefined
+      ? {
+          ...(explicitHooks ?? {}),
+          ...(legacyInit !== undefined ? { init: legacyInit } : {}),
+          ...(legacyOnShutdown !== undefined
+            ? { shutdown: legacyOnShutdown }
+            : {}),
+        }
+      : undefined;
   return {
     manifest: {
       name,
       version: "0.0.1",
       requires: { pluginRuntime: "v1" },
     },
-    ...extras,
+    ...rest,
+    ...(mergedHooks ? { hooks: mergedHooks } : {}),
   };
 }
 

@@ -53,7 +53,7 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import type { Plugin } from "../plugins/types.js";
+import type { Plugin, PluginInitContext } from "../plugins/types.js";
 import {
   matchSkillRoute,
   resetSkillRoutesForTests,

@@ -275,7 +275,7 @@ registerPlugin({
       const registered = getRegisteredPlugins().find(
         (p) => p.manifest.name === "experimental-one",
       );
-      expect(typeof registered?.init).toBe("function");
+      expect(typeof registered?.hooks?.init).toBe("function");
     });
 
     test("strips npm scope from package.json name", async () => {
