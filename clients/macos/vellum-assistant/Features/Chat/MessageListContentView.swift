@@ -357,6 +357,8 @@ struct MessageListContentView: View, Equatable {
 
             if let anchorMessage = pinnedTurnPartition.anchorMessage,
                let anchorRow = rowsByMessageId[anchorMessage.id] {
+                orphanSubagentGroup()
+
                 PinnedLatestTurnSection(
                     contentView: self,
                     partition: pinnedTurnPartition,
@@ -476,7 +478,6 @@ private struct PinnedLatestTurnSection: View {
 
     private var hasResponseContent: Bool {
         contentView.showsStandaloneLatestEdgeActivity
-            || !contentView.state.orphanSubagents.isEmpty
             || !partition.responseItems.isEmpty
     }
 
@@ -548,8 +549,6 @@ private struct PinnedLatestTurnSection: View {
                     isFlipped: false
                 )
             }
-
-            contentView.orphanSubagentGroup(isFlipped: false)
 
             contentView.latestEdgeActivityRow(isFlipped: false)
         }

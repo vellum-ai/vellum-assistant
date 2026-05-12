@@ -20,11 +20,10 @@ struct SubagentDetailPanel: View {
     private var events: [SubagentEventItem] { state?.events ?? [] }
     private var isRunning: Bool { subagentInfo?.status == .running || subagentInfo?.status == .pending }
 
-    /// Observed width of the event-list container, forwarded to
-    /// `MarkdownSegmentView.maxContentWidth` so long markdown wraps to the
-    /// panel instead of `VSpacing.chatBubbleMaxWidth` (wider than the panel).
-    /// Safe to observe here — the container's width is driven by the enclosing
-    /// ScrollView, not by child content, so there is no feedback loop.
+    /// Available width for event content, measured from the panel's proposed
+    /// layout width (not from rendered content). Forwarded to
+    /// `MarkdownSegmentView.maxContentWidth` so markdown wraps to the panel
+    /// instead of the default `chatBubbleMaxWidth` (760pt).
     @State private var panelContentWidth: CGFloat = 0
 
     var body: some View {
@@ -104,12 +103,23 @@ struct SubagentDetailPanel: View {
                     icon: "waveform.path"
                 )
             } else {
-                eventList
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.width
-                    } action: { newWidth in
-                        panelContentWidth = newWidth
+                VStack(alignment: .leading, spacing: 0) {
+                    // Captures the *proposed* (container) width independently
+                    // of event content. Color.clear fills exactly the proposed
+                    // width — it cannot overflow — so this avoids a feedback
+                    // loop where overflowing content inflates the measurement.
+                    Color.clear
+                        .frame(height: 0)
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.size.width
+                        } action: { newWidth in
+                            panelContentWidth = newWidth
+                        }
+
+                    if panelContentWidth > 0 {
+                        eventList
                     }
+                }
             }
         }
         .onAppear {
