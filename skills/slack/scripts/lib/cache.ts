@@ -63,10 +63,11 @@ export async function refreshChannelCache(): Promise<SlackChannelCache> {
     const resp = await slackRequest<{
       channels: Array<{
         id: string;
-        name: string;
-        is_private: boolean;
-        is_mpim: boolean;
-        is_im: boolean;
+        name?: string;
+        is_private?: boolean;
+        is_mpim?: boolean;
+        is_im?: boolean;
+        user?: string;
       }>;
       response_metadata?: { next_cursor?: string };
     }>({ method: "GET", path: "/conversations.list", query });
@@ -83,7 +84,8 @@ export async function refreshChannelCache(): Promise<SlackChannelCache> {
       else if (ch.is_mpim) type = "mpim";
       else if (ch.is_private) type = "private_channel";
 
-      channels[ch.name.toLowerCase()] = { id: ch.id, type };
+      const name = ch.name ?? ch.id;
+      channels[name.toLowerCase()] = { id: ch.id, type };
     }
 
     cursor = resp.data.response_metadata?.next_cursor || undefined;
