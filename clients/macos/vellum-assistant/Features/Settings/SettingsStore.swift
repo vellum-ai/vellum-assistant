@@ -3320,7 +3320,11 @@ public final class SettingsStore: ObservableObject {
     /// to a sibling optimistic value that itself never landed on the
     /// daemon. The current-value guard ensures a newer call that has
     /// already overwritten the published state is not stomped by a
-    /// stale revert.
+    /// stale revert. On success, also resyncs `self.activeProfile` to
+    /// the confirmed name so a late-arriving success (after a competing
+    /// later pick failed and reverted) lands the UI on the
+    /// daemon-persisted value rather than leaving it stuck on the prior
+    /// confirmed profile.
     @discardableResult
     func setActiveProfile(_ name: String) async -> Bool {
         self.activeProfile = name
@@ -3329,6 +3333,7 @@ public final class SettingsStore: ObservableObject {
         ])
         if success {
             lastConfirmedActiveProfile = name
+            self.activeProfile = name
         } else {
             if self.activeProfile == name {
                 self.activeProfile = lastConfirmedActiveProfile
