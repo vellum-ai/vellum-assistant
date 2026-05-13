@@ -535,6 +535,7 @@ export type ConversationErrorCode =
   | "PROVIDER_ORDERING"
   | "PROVIDER_WEB_SEARCH"
   | "PROVIDER_NOT_CONFIGURED"
+  | "PROVIDER_INVALID_KEY"
   | "MANAGED_KEY_INVALID"
   | "CONTEXT_TOO_LARGE"
   | "CONVERSATION_ABORTED"
@@ -552,6 +553,20 @@ export interface ConversationErrorMessage {
   debugDetails?: string;
   /** Machine-readable error category for log report metadata and triage. */
   errorCategory?: string;
+  /**
+   * Name of the `provider_connections` row in play when the error occurred.
+   * Surfaced by the macOS chat banner so users know which connection to fix
+   * (e.g. an invalid API key on `my-anthropic`). Optional because some
+   * errors fire before a connection is resolved.
+   */
+  connectionName?: string;
+  /**
+   * Name of the resolved profile (`llm.activeProfile` or per-call override)
+   * in play when the error occurred. Lets the macOS chat banner point
+   * users at the right profile even when the connection name is generic.
+   * Optional because some errors fire before a profile is resolved.
+   */
+  profileName?: string;
 }
 
 /** Reason the conversation list was invalidated. */

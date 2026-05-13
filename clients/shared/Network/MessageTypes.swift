@@ -1465,6 +1465,7 @@ public enum ConversationErrorCode: String, CaseIterable, Codable, Sendable {
     case regenerateFailed = "REGENERATE_FAILED"
     case authenticationRequired = "AUTHENTICATION_REQUIRED"
     case providerNotConfigured = "PROVIDER_NOT_CONFIGURED"
+    case providerInvalidKey = "PROVIDER_INVALID_KEY"
     case managedKeyInvalid = "MANAGED_KEY_INVALID"
     case unknown = "UNKNOWN"
 
@@ -1491,8 +1492,17 @@ public struct ConversationErrorMessage: Decodable, Sendable {
     /// Contains the message content that failed to send, used to mark
     /// the specific user message as `.sendFailed` in the chat.
     public let failedMessageContent: String?
+    /// Optional `provider_connections.name` for credential-related errors
+    /// (`PROVIDER_INVALID_KEY`, `PROVIDER_NOT_CONFIGURED`). The
+    /// `InvalidApiKeyBanner` / `MissingApiKeyBanner` reads this so the
+    /// surface can name the exact connection to fix.
+    public let connectionName: String?
+    /// Optional name of the resolved profile (`llm.activeProfile` /
+    /// per-call override) in play when the error occurred. Surfaced
+    /// alongside `connectionName` for chat banners.
+    public let profileName: String?
 
-    public init(conversationId: String, code: ConversationErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil) {
+    public init(conversationId: String, code: ConversationErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil, connectionName: String? = nil, profileName: String? = nil) {
         self.conversationId = conversationId
         self.code = code
         self.userMessage = userMessage
@@ -1500,6 +1510,8 @@ public struct ConversationErrorMessage: Decodable, Sendable {
         self.debugDetails = debugDetails
         self.errorCategory = errorCategory
         self.failedMessageContent = failedMessageContent
+        self.connectionName = connectionName
+        self.profileName = profileName
     }
 }
 
