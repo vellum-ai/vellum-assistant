@@ -191,7 +191,7 @@ export class VellumSocialExecutor implements AgentExecutor {
     };
     eventBus.publish(workingStatus2);
 
-    await Bun.sleep(1000);
+    await Bun.sleep(this.config.humanDelayMs);
 
     const artifactEvent: TaskArtifactUpdateEvent = {
       kind: 'artifact-update',
@@ -250,7 +250,7 @@ export class VellumSocialExecutor implements AgentExecutor {
       artifact: {
         artifactId: crypto.randomUUID(),
         parts: [
-          { kind: 'text', text: 'No response received' },
+          { kind: 'text', text: this.config.responseText },
           makeResponsePart({ response_basis: 'unreachable', correlation_id: correlationId }),
         ],
       },
