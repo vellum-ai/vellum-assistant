@@ -333,6 +333,10 @@ jobs:
       - name: Upload to Chrome Web Store
         env:
           EXTENSION_ID: ${{ steps.read-extension-id.outputs.id }}
+          # chrome-webstore-upload-cli reads credentials from CLIENT_ID,
+          # CLIENT_SECRET, and REFRESH_TOKEN env vars. The equivalent CLI
+          # flags were removed and now cause the CLI to exit with an error.
+          # See https://github.com/fregante/chrome-webstore-upload-cli/issues/80.
           CLIENT_ID: ${{ vars.CWS_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
@@ -344,10 +348,7 @@ jobs:
           set +e
           OUTPUT=$(chrome-webstore-upload upload \
             --source "$UPLOAD_FILE" \
-            --extension-id "$EXTENSION_ID" \
-            --client-id "$CLIENT_ID" \
-            --client-secret "$CLIENT_SECRET" \
-            --refresh-token "$REFRESH_TOKEN" 2>&1)
+            --extension-id "$EXTENSION_ID" 2>&1)
           EXIT=$?
           set -e
           echo "$OUTPUT"
@@ -369,10 +370,7 @@ jobs:
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
         run: |
           chrome-webstore-upload publish \
-            --extension-id "$EXTENSION_ID" \
-            --client-id "$CLIENT_ID" \
-            --client-secret "$CLIENT_SECRET" \
-            --refresh-token "$REFRESH_TOKEN"
+            --extension-id "$EXTENSION_ID"
 
   push-assistant-image:
     needs: [extract-version, ci-assistant]
