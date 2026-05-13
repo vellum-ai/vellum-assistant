@@ -1007,6 +1007,53 @@ describe("buildSystemPrompt", () => {
       });
     });
 
+    describe("credential-security section (slot 06)", () => {
+      const CREDENTIAL_FILE = join(
+        SYSTEM_PROMPTS_DIR,
+        "06-credential-security.md",
+      );
+
+      test("workspace credential-security file is rendered into the static block", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CREDENTIAL_FILE,
+          "## Credential Security\n\nWorkspace override marker BRAVO_TANGO_7.\n",
+        );
+        const result = buildSystemPrompt();
+        expect(result).toContain("## Credential Security");
+        expect(result).toContain("Workspace override marker BRAVO_TANGO_7.");
+        // Section lives in the static (cached) block.
+        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        expect(boundaryIdx).toBeGreaterThan(-1);
+        const staticBlock = result.slice(0, boundaryIdx);
+        expect(staticBlock).toContain("## Credential Security");
+      });
+
+      test("bundled credential-security default renders when no workspace override", () => {
+        // Bundled `06-credential-security` registry entry is the source of
+        // default truth; no workspace override → renderer falls through to
+        // bundled body.
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        expect(result).toContain("## Credential Security");
+        expect(result).toContain("Never ask users to share secrets");
+        expect(result).toContain("`credential_store` tool");
+      });
+
+      test("renders after the access-preference section to preserve original order", () => {
+        // Static-block order from the pre-registry inline build was
+        // access-preference → credential-security.  The numeric prefix on
+        // the registry id (`06-` > `05-`) preserves that order.
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        const accessIdx = result.indexOf("## External Service Access");
+        const credentialIdx = result.indexOf("## Credential Security");
+        expect(accessIdx).toBeGreaterThan(-1);
+        expect(credentialIdx).toBeGreaterThan(-1);
+        expect(accessIdx).toBeLessThan(credentialIdx);
+      });
+    });
+
     test("unresolved {{variable}} is left as a literal in the body", () => {
       mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
       writeFileSync(

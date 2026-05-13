@@ -1,7 +1,7 @@
 /**
  * Bundled default content for system prompt sections.
  *
- * These entries form the daemon's static instruction prefix.  Each enabled
+ * These entries form the assistant's static instruction prefix.  Each enabled
  * entry is rendered in `id`-sort order and prepended to the dynamic
  * workspace suffix.  Users can override any entry by id by writing
  * `<workspace>/prompts/system/<id>.md` — the workspace file wins when
@@ -13,7 +13,15 @@
  * bundling required a side-channel `cp -R` at build time and only worked
  * on platforms where that copy was wired up (macOS .app bundles).  TS
  * modules ARE embedded by `--compile`, so this registry ships with every
- * daemon binary uniformly — no build-script support required.
+ * assistant binary uniformly — no build-script support required.
+ *
+ * **Future:** once we drop `--compile` support from the distribution
+ * pipeline, switch these entries back to markdown files in the repo
+ * (`templates/system/<id>.md`) and have the renderer read from disk
+ * again.  Markdown is friendlier for review diffs and for authors who
+ * don't want to escape backticks and template-literal `${}` inside
+ * string bodies; this TS-registry shape exists purely to satisfy the
+ * `--compile` bundling constraint above.
  */
 
 export interface BundledSection {
@@ -113,6 +121,13 @@ Priority: (1) sandbox \`bash\` — install tools yourself; (2) browser automatio
 {{^hasNoClient}}
 Priority: (1) sandbox \`bash\` - install tools yourself, only fall back to host when you need local files/auth; (2) \`host_bash\` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).
 {{/hasNoClient}}
+`,
+  },
+  {
+    id: "06-credential-security",
+    body: `## Credential Security
+
+Never ask users to share secrets (API keys, tokens, passwords, webhook secrets) in chat — secret messages may be blocked at ingress. Use the \`credential_store\` tool with \`action: "prompt"\` instead; it collects secrets through a secure UI that never exposes the value in the conversation. Non-secret values (Client IDs, Account SIDs, usernames) may be collected conversationally.
 `,
   },
 ];

@@ -103,14 +103,6 @@ export function ensurePromptFiles(): void {
     }
   }
 
-  // Note: section templates under `<bundled>/templates/system/` are NOT
-  // seeded into the workspace.  Bundled files are the source of default
-  // truth and the renderer reads them directly; users opt into customizing
-  // a section by writing their own file at
-  // `<workspace>/prompts/system/<NN-name>.md`, which overrides the
-  // bundled body.  The workspace dir is created lazily if and when a user
-  // writes an override.
-
   // Only seed BOOTSTRAP.md on a truly fresh install so that deleting it
   // reliably signals onboarding completion across daemon restarts.
   if (isFirstRun) {
@@ -262,7 +254,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // (runtime gates, paths) must be lifted onto `ctx` rather than branched
   // on at the call site.  `hasNoClient` is normalized to a defined boolean
   // here so the `{{#hasNoClient}}` / `{{^hasNoClient}}` conditionals in
-  // `05-access-preference.md` always resolve (never warn-literal).
+  // the `05-access-preference` registry entry always resolve (never
+  // warn-literal).
   const ctx = {
     ...options,
     hasNoClient: options?.hasNoClient ?? false,
@@ -270,7 +263,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     workspaceDir: getWorkspaceDir(),
   };
   const staticParts: string[] = [...renderWorkspaceSections(ctx)];
-  staticParts.push(buildCredentialSecuritySection());
   staticParts.push(buildExternalContentSection());
   if (options?.isBackgroundConversation) {
     staticParts.push(buildBackgroundConversationSection());
@@ -377,14 +369,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const dynamic = dynamicParts.join("\n\n");
 
   return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
-}
-
-function buildCredentialSecuritySection(): string {
-  return [
-    "## Credential Security",
-    "",
-    'Never ask users to share secrets (API keys, tokens, passwords, webhook secrets) in chat — secret messages may be blocked at ingress. Use the `credential_store` tool with `action: "prompt"` instead; it collects secrets through a secure UI that never exposes the value in the conversation. Non-secret values (Client IDs, Account SIDs, usernames) may be collected conversationally.',
-  ].join("\n");
 }
 
 function buildExternalContentSection(): string {
