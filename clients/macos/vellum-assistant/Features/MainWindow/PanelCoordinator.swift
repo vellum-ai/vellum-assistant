@@ -173,7 +173,7 @@ extension MainWindowView {
                 pendingSkillId: $windowState.pendingSkillId
             )
         case .home:
-            homePanelView(onDismiss: { windowState.selection = nil })
+            homeContentView(onDismiss: { windowState.selection = nil })
         case .acpSessions:
             if CodingAgentsPanelFeatureFlag.isEnabled {
                 ACPSessionsPanel(
@@ -185,29 +185,15 @@ extension MainWindowView {
         }
     }
 
+    // MARK: - Home Panel (VSplitView)
+
     @ViewBuilder
-    func homePanelView(onDismiss: @escaping () -> Void) -> some View {
-        // Home intentionally skips ``VPageContainer`` — the redesigned
-        // Home page has its own centered hero greeting, so a top-aligned
-        // "Home" title would double up and steal vertical space from the
-        // first scroll viewport. ``HomePageView`` paints its own full
-        // background internally, so no outer chrome is needed here.
-        //
-        // Split layout: when a feed item resolves to a detail panel via
-        // ``HomeDetailPanelKind.resolve(for:)``, we stash the resolved
-        // kind in ``activeHomeDetailPanel`` and flip the two-pane layout
-        // on. The trailing pane renders the appropriate detail panel —
-        // real schedule/nudge fields are a daemon follow-up.
+    func homeContentView(onDismiss: @escaping () -> Void) -> some View {
         HomePageView(
             store: homeStore,
             feedStore: feedStore,
             meetStatusViewModel: meetStatusViewModel,
             onFeedConversationOpened: { conversationId in
-                // Daemon already created the conversation in response to
-                // `store.triggerAction`; the client just needs to navigate.
-                // A non-UUID id here means the daemon returned something
-                // the client contract does not allow — log loudly so the
-                // regression is visible instead of silently dropping.
                 guard let uuid = UUID(uuidString: conversationId) else {
                     panelCoordinatorLog.error(
                         "HomeFeed: daemon returned non-UUID conversationId \(conversationId, privacy: .public); cannot navigate"
@@ -215,42 +201,17 @@ extension MainWindowView {
                     windowState.showToast(message: "Couldn't open the conversation.", style: .error)
                     return
                 }
-                // Codex P2 (#27467) + Devin (#27475): clear the detail
-                // panel before navigating away so re-entering Home
-                // doesn't show a stale split layout. Belt-and-suspenders
-                // with .onDisappear below in case the Home view stays
-                // mounted across this navigation path.
                 activeHomeDetailPanel = nil
                 onDismiss()
                 windowState.selection = .conversation(uuid)
             },
             onStartNewChat: {
-                // Route the greeting-header "New Chat" pill through the
-                // same code path the sidebar's New-chat button uses so
-                // draft/app-editing state stays consistent. Dismiss the
-                // Home panel FIRST — ``startNewConversation()`` sets
-                // ``windowState.selection`` internally, and ``onDismiss``
-                // clears it, so running them in this order keeps the
-                // freshly-created conversation as the final selection.
-                // Clear detail panel inline for consistency with the
-                // other Home exit paths (Devin feedback on PR #27475).
                 activeHomeDetailPanel = nil
                 onDismiss()
                 startNewConversation()
             },
-            onDismissSuggestions: {
-                // Server-side persistence of the dismissal is a follow-up
-                // — the view hides the bar locally via its own @State.
-            },
+            onDismissSuggestions: {},
             onSuggestionSelected: { suggestion in
-                // Home suggestion pill: start a brand-new conversation
-                // pre-seeded with the suggestion's full prompt text (NOT
-                // the short pill label — the label is ~3 words, the
-                // prompt is the actual seed message the daemon authored).
-                // `forceNew: true` is critical — we always want the Home
-                // suggestion bar to create a fresh thread. Clear detail
-                // panel inline for consistency with the other Home exit
-                // paths (Devin feedback on PR #27475).
                 activeHomeDetailPanel = nil
                 conversationManager.openConversation(message: suggestion.prompt, forceNew: true)
                 onDismiss()
@@ -259,124 +220,90 @@ extension MainWindowView {
                 }
             },
             onDetailPanelSelected: { item in
-                let resolved = HomeDetailPanelKind.resolve(for: item)
-                activeHomeDetailPanel = resolved
-            },
-            isDetailPanelVisible: activeHomeDetailPanel != nil,
-            detailPanel: {
-                switch activeHomeDetailPanel {
-                case .emailDraft(let item):
-                    // TODO: Wire HomeEmailEditor once FeedItem metadata
-                    // provides editable draft fields (to, subject, body)
-                    // and action callbacks (send, discard, connect).
-                    // HomeEmailEditor requires @Binding state and callbacks
-                    // that cannot be constructed from metadata alone.
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        Text(item.summary)
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .padding(VSpacing.lg)
-                    }
-                case .documentPreview(let item):
-                    // TODO: Wire HomeDocumentPreview once FeedItem
-                    // metadata provides an image (NSImage) or document
-                    // URL that can be loaded into the preview. Currently
-                    // the preview requires an NSImage which cannot be
-                    // constructed from string metadata.
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        Text(item.summary)
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .padding(VSpacing.lg)
-                    }
-                case .permissionChat(let item):
-                    // TODO: Wire HomePermissionChatPreview once FeedItem
-                    // metadata provides structured confirmation data
-                    // (ToolConfirmationData) and action callbacks
-                    // (allow, deny, alwaysAllow). The preview requires
-                    // complex types that cannot be constructed from
-                    // string metadata alone.
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        Text(item.summary)
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .padding(VSpacing.lg)
-                    }
-                case .paymentAuth(let item):
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        HomeAuthDetailCard(item: item)
-                    }
-                case .toolPermission(let item):
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        HomePermissionDetailCard(item: item)
-                    }
-                case .updatesList(let item):
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        HomeUpdatesListDetailCard(item: item)
-                    }
-                case .generic(let item):
-                    HomeDetailPanel(
-                        icon: iconForFeedItem(item),
-                        title: item.title,
-                        iconForeground: iconForegroundForFeedItem(item),
-                        iconBackground: iconBackgroundForFeedItem(item),
-                        onGoToThread: item.conversationId.flatMap { id in
-                            UUID(uuidString: id).map { uuid in
-                                {
-                                    activeHomeDetailPanel = nil
-                                    windowState.selection = .conversation(uuid)
-                                }
-                            }
-                        },
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        Text(item.summary)
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .padding(VSpacing.lg)
-                    }
-                case nil:
-                    EmptyView()
-                }
+                activeHomeDetailPanel = HomeDetailPanelKind.resolve(for: item)
             }
         )
-        .onAppear {
-            homeStore.setHomeTabVisible(true)
-        }
+        .onAppear { homeStore.setHomeTabVisible(true) }
         .onDisappear {
             homeStore.setHomeTabVisible(false)
-            // Codex P2 feedback (#27467): clear the detail panel so
-            // re-entering Home doesn't show a stale split layout when the
-            // user leaves Home through routes other than the detail panel's
-            // own close/action buttons (sidebar switch, conversation open, etc.).
             activeHomeDetailPanel = nil
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+    }
+
+    @ViewBuilder
+    func homeDetailPanelContent() -> some View {
+        switch activeHomeDetailPanel {
+        case .emailDraft(let item):
+            HomeDetailPanel(icon: nil, title: item.title, onDismiss: { activeHomeDetailPanel = nil }) {
+                Text(item.summary).font(VFont.bodyMediumDefault).foregroundStyle(VColor.contentSecondary).padding(VSpacing.lg)
+            }
+        case .documentPreview(let item):
+            HomeDetailPanel(icon: nil, title: item.title, onDismiss: { activeHomeDetailPanel = nil }) {
+                Text(item.summary).font(VFont.bodyMediumDefault).foregroundStyle(VColor.contentSecondary).padding(VSpacing.lg)
+            }
+        case .permissionChat(let item):
+            HomeDetailPanel(icon: nil, title: item.title, onDismiss: { activeHomeDetailPanel = nil }) {
+                Text(item.summary).font(VFont.bodyMediumDefault).foregroundStyle(VColor.contentSecondary).padding(VSpacing.lg)
+            }
+        case .paymentAuth(let item):
+            HomeDetailPanel(icon: nil, title: item.title, onDismiss: { activeHomeDetailPanel = nil }) {
+                HomeAuthDetailCard(item: item)
+            }
+        case .toolPermission(let item):
+            HomeDetailPanel(icon: nil, title: item.title, onDismiss: { activeHomeDetailPanel = nil }) {
+                HomePermissionDetailCard(item: item)
+            }
+        case .updatesList(let item):
+            HomeDetailPanel(icon: nil, title: item.title, onDismiss: { activeHomeDetailPanel = nil }) {
+                HomeUpdatesListDetailCard(item: item)
+            }
+        case .generic(let item):
+            HomeDetailPanel(
+                icon: iconForFeedItem(item),
+                title: item.title,
+                iconForeground: iconForegroundForFeedItem(item),
+                iconBackground: iconBackgroundForFeedItem(item),
+                onGoToThread: item.conversationId.flatMap { id in
+                    UUID(uuidString: id).map { uuid in
+                        { activeHomeDetailPanel = nil; windowState.selection = .conversation(uuid) }
+                    }
+                },
+                onDismiss: { activeHomeDetailPanel = nil }
+            ) {
+                Text(item.summary).font(VFont.bodyMediumDefault).foregroundStyle(VColor.contentSecondary).padding(VSpacing.lg)
+            }
+        case nil:
+            EmptyView()
+        }
+    }
+
+    func clampedHomeDetailPanelWidth(windowSize: CGSize) -> Binding<Double> {
+        let settingsOpen: Bool = {
+            if case .panel(.settings) = windowState.selection { return true }
+            if case .panel(.logsAndUsage) = windowState.selection { return true }
+            return false
+        }()
+        let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
+        let hstackSpacing: CGFloat = 16
+        let outerPadding: CGFloat = 32
+        let windowWidth: Double = Double(windowSize.width) / zoomManager.zoomLevel
+        let availableWidth: Double = windowWidth - Double(sidebarWidth) - Double(hstackSpacing) - Double(outerPadding)
+
+        let preferredMinPanel: Double = 300
+        let preferredMinMain: Double = 300
+        let dividerBudget: Double = Double(VSpacing.xs) + 12
+        let maxPanel: Double = availableWidth - preferredMinMain - dividerBudget
+        let effectiveMinPanel: Double = min(preferredMinPanel, max(maxPanel, 100))
+
+        return Binding<Double>(
+            get: {
+                let raw = homeDetailPanelWidth
+                return min(max(raw, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
+            },
+            set: {
+                homeDetailPanelWidth = min(max($0, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
+            }
+        )
     }
 
     @ViewBuilder
@@ -603,6 +530,17 @@ extension MainWindowView {
                 .onAppear {
                     conversationManager.ensureActiveConversation(preferredConversationId: documentManager.conversationId)
                 }
+            } else if panelType == .home {
+                VSplitView(
+                    panelWidth: clampedHomeDetailPanelWidth(windowSize: windowSize),
+                    showPanel: activeHomeDetailPanel != nil,
+                    main: {
+                        homeContentView(onDismiss: { windowState.selection = nil })
+                    },
+                    panel: {
+                        homeDetailPanelContent()
+                    }
+                )
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
                 VSplitView(
@@ -879,7 +817,7 @@ extension MainWindowView {
                 pendingSkillId: $windowState.pendingSkillId
             )
         case .home:
-            homePanelView(onDismiss: { windowState.dismissOverlay() })
+            homeContentView(onDismiss: { windowState.dismissOverlay() })
         }
     }
 

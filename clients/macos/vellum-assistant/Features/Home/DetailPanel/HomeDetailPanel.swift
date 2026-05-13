@@ -64,9 +64,7 @@ struct HomeDetailPanel<Content: View>: View {
 
             Spacer(minLength: 0)
         }
-        // Allowlisted: eagerly rendered detail panel outside any Lazy*
-        // hierarchy — FlexFrame alignment cascade cost is negligible.
-        .frame(maxWidth: .infinity)
+        .frame(width: Self.defaultWidth)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         .overlay(

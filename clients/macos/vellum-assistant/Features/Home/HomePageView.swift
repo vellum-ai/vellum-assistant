@@ -15,83 +15,33 @@ import VellumAssistantShared
 /// both stores keep the last-good state so we never blank the UI between
 /// refreshes.
 ///
-/// The view is generic over an optional trailing detail panel. When
-/// `isDetailPanelVisible` is true and a non-empty `detailPanel` is
-/// supplied, the body splits into a two-pane layout with the main home
-/// content on the leading side and the supplied panel anchored to the
-/// trailing edge. When false, the layout renders identically to the
-/// single-column original.
-struct HomePageView<DetailPanel: View>: View {
+/// The split layout (detail panel) is now handled by ``VSplitView``
+/// at the ``PanelCoordinator`` level, matching the pattern used by
+/// SubagentDetailPanel and DocumentEditorPanelView.
+struct HomePageView: View {
     @Bindable var store: HomeStore
     @Bindable var feedStore: HomeFeedStore
-    /// Drives the "In meeting" status panel rendered at the top of the
-    /// gallery. Owned by the parent so the panel survives panel-dismiss
-    /// cycles and keeps its SSE subscription live for the whole session.
     @Bindable var meetStatusViewModel: MeetStatusViewModel
-    /// Fired when a feed action resolves to a daemon-created conversation
-    /// — the receiver (usually `PanelCoordinator`) navigates into it.
     let onFeedConversationOpened: (String) -> Void
-    /// Fired when the "New Chat" pill in the greeting header is tapped.
-    /// Routes to the same code path the sidebar's New-chat button hits.
     let onStartNewChat: () -> Void
-    /// Fired when the user dismisses the suggestion bar. The view also
-    /// hides the bar locally via `suggestionsDismissed`; this closure is
-    /// a hook for future server-side persistence (currently a no-op at
-    /// the call site — see PR note in the plan).
     let onDismissSuggestions: () -> Void
-    /// Fired when the user taps one of the suggestion pills. The parent
-    /// opens a fresh conversation seeded with the suggestion label.
     let onSuggestionSelected: (HomeSuggestion) -> Void
-    /// Fired when the user taps a feed item that resolves to a detail
-    /// panel via ``HomeDetailPanelKind.resolve(for:)``. The parent
-    /// presents the appropriate panel instead of opening a conversation.
-    /// Declared as `var` with a no-op default so the synthesized memberwise
-    /// initializer still accepts this argument (Swift bakes `let` defaults
-    /// in and omits them from the memberwise init, which breaks the
-    /// convenience-init forwarding path and any direct memberwise callers).
     var onDetailPanelSelected: (FeedItem) -> Void = { _ in }
-    /// Drives the two-pane split. When false, the home content renders in
-    /// its original single-column layout and the `detailPanel` slot is
-    /// ignored.
-    var isDetailPanelVisible: Bool = false
-    /// Trailing-edge slot. Callers supply a fully-constructed
-    /// `HomeDetailPanel` (or any view) here; ownership of the panel's
-    /// state stays with the caller.
-    @ViewBuilder let detailPanel: () -> DetailPanel
 
-    /// Local hide flag for the "have you tried…" bar. Flipped to `true`
-    /// when the user taps the X affordance; stays true for the rest of
-    /// this view's lifecycle so the bar doesn't reappear on state
-    /// refresh. Persistent per-account dismissal is a follow-up.
     @State private var suggestionsDismissed: Bool = false
-
-    /// Active category filter. `nil` means "All" — show every feed item.
     @State private var activeFilter: FeedItemCategory? = nil
 
-    /// Editorial column width. Bumped from 600pt to 960pt to match the
-    /// Figma redesign — the new three-block layout reads as a wider page,
-    /// not a narrow column.
     private let maxContentWidth: CGFloat = 960
 
     var body: some View {
-        HStack(alignment: .top, spacing: isDetailPanelVisible ? VSpacing.lg : 0) {
-            Group {
-                if let state = store.state {
-                    content(for: state)
-                } else {
-                    skeleton
-                }
-            }
-
-            if isDetailPanelVisible {
-                detailPanel()
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                    .layoutHangSignpost("home.detailPanel")
+        Group {
+            if let state = store.state {
+                content(for: state)
+            } else {
+                skeleton
             }
         }
-        .padding(isDetailPanelVisible ? VSpacing.lg : 0)
         .background(VColor.surfaceBase)
-        .animation(VAnimation.standard, value: isDetailPanelVisible)
         .task {
             await store.load()
             await feedStore.load()
@@ -406,34 +356,3 @@ struct HomePageView<DetailPanel: View>: View {
     }
 }
 
-// MARK: - Backward-compatible convenience init
-
-/// Default specialization used by every call site that doesn't opt into
-/// the split layout. The `detailPanel` closure returns `EmptyView`, and
-/// `isDetailPanelVisible` defaults to false so the single-column layout
-/// is rendered unchanged.
-extension HomePageView where DetailPanel == EmptyView {
-    init(
-        store: HomeStore,
-        feedStore: HomeFeedStore,
-        meetStatusViewModel: MeetStatusViewModel,
-        onFeedConversationOpened: @escaping (String) -> Void,
-        onStartNewChat: @escaping () -> Void,
-        onDismissSuggestions: @escaping () -> Void,
-        onSuggestionSelected: @escaping (HomeSuggestion) -> Void,
-        onDetailPanelSelected: @escaping (FeedItem) -> Void = { _ in }
-    ) {
-        self.init(
-            store: store,
-            feedStore: feedStore,
-            meetStatusViewModel: meetStatusViewModel,
-            onFeedConversationOpened: onFeedConversationOpened,
-            onStartNewChat: onStartNewChat,
-            onDismissSuggestions: onDismissSuggestions,
-            onSuggestionSelected: onSuggestionSelected,
-            onDetailPanelSelected: onDetailPanelSelected,
-            isDetailPanelVisible: false,
-            detailPanel: { EmptyView() }
-        )
-    }
-}
