@@ -565,17 +565,15 @@ private struct SubagentCollapsibleText: View {
                 .lineLimit(isExpanded ? nil : collapsedLineLimit)
                 .textSelection(.enabled)
 
-            if !isExpanded {
-                Button {
-                    withAnimation(VAnimation.fast) { isExpanded = true }
-                } label: {
-                    Text("Show more")
-                        .font(VFont.bodySmallEmphasised)
-                        .foregroundStyle(VColor.primaryBase)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
+            Button {
+                withAnimation(VAnimation.fast) { isExpanded.toggle() }
+            } label: {
+                Text(isExpanded ? "Show less" : "Show more")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.primaryBase)
             }
+            .buttonStyle(.plain)
+            .pointerCursor()
         }
     }
 }
