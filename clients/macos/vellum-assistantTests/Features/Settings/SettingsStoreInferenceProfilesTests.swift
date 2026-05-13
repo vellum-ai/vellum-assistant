@@ -221,12 +221,14 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
 
         // Resolve B first — daemon-confirmed value becomes B.
         continuationB?.resume(returning: true)
-        XCTAssertTrue(await resultB)
+        let bSucceeded = await resultB
+        XCTAssertTrue(bSucceeded)
         XCTAssertEqual(store.activeProfile, "B")
 
         // Resolve A's late success. The guard must drop the stale write.
         continuationA?.resume(returning: true)
-        XCTAssertTrue(await resultA)
+        let aSucceeded = await resultA
+        XCTAssertTrue(aSucceeded)
         XCTAssertEqual(
             store.activeProfile,
             "B",

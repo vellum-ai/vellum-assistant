@@ -163,6 +163,7 @@ import { fetchImpl } from "./fetch.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
+import { hasTwilioSetupStarted } from "./twilio/setup-state.js";
 import { syncConfiguredTwilioPhoneNumberWebhooks } from "./twilio/webhook-sync.js";
 import {
   isOnlyVelayPublicBaseUrlChange,
@@ -181,7 +182,10 @@ import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
-import { createVelayTunnelClient } from "./velay/client.js";
+import {
+  clearManagedPublicBaseUrl,
+  createVelayTunnelClient,
+} from "./velay/client.js";
 import { VERSION_HEADER_NAME, VERSION_HEADER_VALUE } from "./version.js";
 
 const log = getLogger("main");
@@ -311,6 +315,46 @@ async function main() {
   let whatsappReady = false;
   let slackReady = false;
   let vellumReady = false;
+  let velayStartRequested = false;
+
+  function maybeStartVelayTunnelForTwilio(
+    reason: string,
+    twilioCredentials?: Record<string, string> | null,
+  ): boolean {
+    if (velayStartRequested || !velayTunnelClient) {
+      return velayStartRequested;
+    }
+    if (!hasTwilioSetupStarted(configFileCache, twilioCredentials)) {
+      return false;
+    }
+
+    velayStartRequested = true;
+    log.info({ reason }, "Starting Velay tunnel after Twilio setup detected");
+    velayTunnelClient.start();
+    return true;
+  }
+
+  async function readTwilioCredentialsForVelayStartup(): Promise<Record<
+    string,
+    string
+  > | null> {
+    try {
+      const [accountSid, authToken] = await Promise.all([
+        credentialCache.get(credentialKey("twilio", "account_sid")),
+        credentialCache.get(credentialKey("twilio", "auth_token")),
+      ]);
+      if (!accountSid?.trim() || !authToken?.trim()) {
+        return null;
+      }
+      return { account_sid: accountSid, auth_token: authToken };
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to read Twilio credentials before Velay startup gate",
+      );
+      return null;
+    }
+  }
 
   const twilioValidationCaches = {
     credentials: credentialCache,
@@ -733,7 +777,10 @@ async function main() {
       method: "POST",
       auth: "none",
       handler: (req, _params, getClientIp) =>
-        channelVerificationSessionProxy.handleResetBootstrap(getClientIp(), req),
+        channelVerificationSessionProxy.handleResetBootstrap(
+          getClientIp(),
+          req,
+        ),
     },
     {
       path: "/v1/channel-verification-sessions",
@@ -1644,7 +1691,6 @@ async function main() {
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
   logAuthBypassState();
-  velayTunnelClient?.start();
 
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();
@@ -1998,6 +2044,7 @@ async function main() {
       vellumCreds?.assistant_api_key &&
       vellumCreds?.platform_assistant_id
     );
+    const twilioCreds = event.credentials.get("twilio");
 
     // Side effects keyed by service name
     if (changed.has("telegram") && telegramReady) {
@@ -2028,6 +2075,7 @@ async function main() {
     }
 
     if (changed.has("twilio")) {
+      maybeStartVelayTunnelForTwilio("twilio credentials changed", twilioCreds);
       syncConfiguredTwilioPhoneNumberWebhooks({
         credentials: credentialCache,
         configFile: configFileCache,
@@ -2053,9 +2101,17 @@ async function main() {
     }
   });
 
-  // The credential watcher callback handles startup side effects (Telegram
-  // webhook reconciliation, Slack Socket Mode) during the initial poll, so no
-  // additional post-start triggers are needed here.
+  const twilioStartupCredentials = await readTwilioCredentialsForVelayStartup();
+  if (velayTunnelClient) {
+    await clearManagedPublicBaseUrl(configFileCache).catch((err) => {
+      log.error({ err }, "Failed to clear stale Velay public URL");
+    });
+  }
+  maybeStartVelayTunnelForTwilio("startup", twilioStartupCredentials);
+
+  // The credential watcher callback handles credential-backed startup side
+  // effects during the initial poll. Stale Velay-owned ingress is already
+  // cleared before those side effects can register external callbacks.
   await credentialWatcher.start();
 
   // Start watching avatar directory for changes after credential watcher
@@ -2089,6 +2145,10 @@ async function main() {
       }).catch((err) => {
         log.warn({ err }, "Twilio webhook sync failed after config change");
       });
+    }
+
+    if (event.changedKeys.has("twilio")) {
+      maybeStartVelayTunnelForTwilio("twilio config changed");
     }
 
     // Side effect: re-register email callback when ingress URL changes so

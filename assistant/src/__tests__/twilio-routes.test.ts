@@ -1392,6 +1392,10 @@ describe("twilio webhook routes", () => {
 
       expect(result.success).toBe(true);
       expect(result.hasCredentials).toBe(true);
+      expect(mockRawConfigStore.twilio).toEqual({
+        accountSid: "AC_new_credentials",
+        setupStarted: true,
+      });
     });
 
     test("clearing credentials succeeds", async () => {

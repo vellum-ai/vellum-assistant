@@ -10,6 +10,10 @@ export const TwilioConfigSchema = z
       .string({ error: "twilio.phoneNumber must be a string" })
       .default("")
       .describe("Twilio phone number used for outbound calls and SMS"),
+    setupStarted: z
+      .boolean({ error: "twilio.setupStarted must be a boolean" })
+      .default(false)
+      .describe("Whether Twilio setup has ever been started"),
   })
   .describe("Twilio account configuration");
 

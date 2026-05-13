@@ -68,4 +68,54 @@ describe("subagent-only tool filtering", () => {
     // A regular tool not in SUBAGENT_ONLY_TOOL_NAMES should still be active
     expect(isToolActiveForContext("bash", ctx)).toBe(true);
   });
+
+  test("respects subagentAllowedTools — tools outside the allowlist are inactive", () => {
+    // Mirrors `createResolveToolsCallback`'s post-filter so callers see the
+    // same final tool set the LLM receives.
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(),
+      toolsDisabledDepth: 0,
+      hasNoClient: false,
+      isSubagent: true,
+      subagentAllowedTools: new Set(["bash"]),
+    };
+
+    expect(isToolActiveForContext("bash", ctx)).toBe(true);
+    expect(isToolActiveForContext("ask_question", ctx)).toBe(false);
+    expect(isToolActiveForContext(TEST_TOOL_NAME, ctx)).toBe(false);
+  });
+
+  test("returns false for every tool when toolsDisabledDepth > 0", () => {
+    // `createResolveToolsCallback` returns an empty tool list when tools are
+    // disabled; mirror it here so this helper reports the same final tool set.
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(),
+      toolsDisabledDepth: 1,
+      hasNoClient: false,
+    };
+
+    expect(isToolActiveForContext("bash", ctx)).toBe(false);
+    expect(isToolActiveForContext("ask_question", ctx)).toBe(false);
+  });
+
+  test("under disk-pressure cleanup mode, only cleanup-safe tools are active", () => {
+    // `createResolveToolsCallback` restricts the turn to cleanup-safe tools
+    // (`file_remove`, `bash`, etc.); ensure the helper agrees.
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(),
+      toolsDisabledDepth: 0,
+      hasNoClient: false,
+      diskPressureCleanupModeActive: true,
+    };
+
+    // `bash` is in DISK_PRESSURE_CLEANUP_TOOL_NAMES; `ask_question` is not.
+    expect(isToolActiveForContext("bash", ctx)).toBe(true);
+    expect(isToolActiveForContext("ask_question", ctx)).toBe(false);
+  });
 });

@@ -451,11 +451,7 @@ export class VelayTunnelClient {
     }
     this.heartbeatTimer = this.timerApi.setTimeout(() => {
       this.heartbeatTimer = null;
-      if (
-        this.ws !== ws ||
-        !this.running ||
-        ws.readyState !== WebSocket.OPEN
-      ) {
+      if (this.ws !== ws || !this.running || ws.readyState !== WebSocket.OPEN) {
         return;
       }
       this.sendFrame({ type: VELAY_FRAME_TYPES.heartbeat });
@@ -600,7 +596,7 @@ async function writeManagedPublicBaseUrl(
   );
 }
 
-async function clearManagedPublicBaseUrl(
+export async function clearManagedPublicBaseUrl(
   configFile: ConfigFileCache,
   expectedPublicUrl?: string,
 ): Promise<void> {

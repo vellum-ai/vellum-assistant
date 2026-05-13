@@ -28,7 +28,33 @@ struct SubagentDetailPanel: View {
     @State private var panelContentWidth: CGFloat = 0
 
     var body: some View {
-        VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.titleSmall, onClose: onClose, pinnedContent: {
+        VSidePanel(title: "", titleFont: VFont.titleSmall, onClose: onClose, titleAccessory: {
+            panelAvatar
+            Text(subagentInfo?.label ?? "Subagent")
+                .font(VFont.titleSmall)
+                .foregroundStyle(VColor.contentDefault)
+            statusBadge
+        }, headerTrailing: {
+            if isRunning {
+                Button(action: { onAbort?() }) {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.square, size: 10)
+                        Text("Stop")
+                            .font(VFont.bodySmallEmphasised)
+                    }
+                    .foregroundStyle(VColor.systemNegativeStrong)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .frame(height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .strokeBorder(VColor.systemNegativeStrong, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop subagent")
+            }
+        }, pinnedContent: {
             pinnedBody
 
             Divider().background(VColor.borderBase)
@@ -47,10 +73,11 @@ struct SubagentDetailPanel: View {
                     subtitle: "Events will appear as the subagent runs",
                     icon: "waveform.path"
                 )
-            } else if panelContentWidth > 0 {
+            } else {
                 eventList
             }
         }
+        .background(VColor.surfaceLift)
         .onAppear {
             // Lazy-load events from DB when the panel opens for a completed subagent with no cached events
             if events.isEmpty, subagentInfo?.conversationId != nil {
@@ -64,45 +91,24 @@ struct SubagentDetailPanel: View {
     @ViewBuilder
     private var pinnedBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Status + abort row
-            HStack {
-                statusBadge
-                Spacer()
-                if isRunning {
-                    Button(action: { onAbort?() }) {
-                        HStack(spacing: VSpacing.xxs) {
-                            VIconView(.square, size: 8)
-                            Text("Abort")
-                                .font(VFont.labelDefault)
-                        }
-                        .foregroundStyle(VColor.systemNegativeStrong)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xxs)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.pill)
-                                .fill(VColor.systemNegativeStrong.opacity(0.12))
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Abort subagent")
-                }
-            }
-
-            // Objective
-            if let objective, !objective.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("OBJECTIVE")
-                        .font(VFont.labelSmall)
-                        .foregroundStyle(VColor.contentTertiary)
-                    Text(objective)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
-            }
-
-            // Usage metrics row
+            // Usage metrics row (above objective per Figma mock)
             if let usage {
                 usageMetrics(usage)
+            }
+
+            // Objective card
+            if let objective, !objective.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Objective")
+                        .font(VFont.bodyMediumEmphasised)
+                        .foregroundStyle(VColor.contentEmphasized)
+                    Text(objective)
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentDefault)
+                        .lineSpacing(18 - 14)
+                }
+                .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.md, bottom: VSpacing.lg, trailing: VSpacing.md))
+                .vCard(background: VColor.surfaceOverlay)
             }
 
             // Error banner
@@ -115,7 +121,6 @@ struct SubagentDetailPanel: View {
                         .foregroundStyle(VColor.systemNegativeStrong)
                 }
                 .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .fill(VColor.systemNegativeStrong.opacity(0.08))
@@ -136,99 +141,150 @@ struct SubagentDetailPanel: View {
     /// subagent is terminal. Text / error events render inline in either mode.
     @ViewBuilder
     private var eventList: some View {
-        let groups = isRunning
-            ? SubagentEventGrouping.build(events: events)
-            : SubagentEventGrouping.buildCompleted(events: events)
-        LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-                renderGroup(group)
+        let groups = SubagentEventGrouping.build(events: events)
+
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            Text("Timeline")
+                .font(VFont.titleMedium)
+                .foregroundStyle(VColor.contentEmphasized)
+
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+                    let isLast = index == groups.count - 1
+                    timelineNode(for: group, isLast: isLast)
+                }
             }
         }
     }
+
+    // MARK: - Timeline Node
+
+    private static let gutterWidth: CGFloat = 24
+
+    private static let iconNodeSize: CGFloat = 24
+
+    @ViewBuilder
+    private func timelineNode(for group: SubagentEventGrouping.Group, isLast: Bool) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.lg) {
+            iconNode(for: group)
+                .frame(width: Self.gutterWidth)
+
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    renderGroup(group)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.bottom, isLast ? 0 : VSpacing.lg)
+        .overlay(alignment: .topLeading) {
+            if !isLast {
+                Rectangle()
+                    .fill(VColor.borderBase)
+                    .frame(width: 1.5)
+                    .frame(maxHeight: .infinity)
+                    .padding(.top, Self.iconNodeSize)
+                    .padding(.leading, (Self.gutterWidth - 1.5) / 2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func iconNode(for group: SubagentEventGrouping.Group) -> some View {
+        VIconView(timelineIcon(for: group), size: 12)
+            .foregroundStyle(timelineIconColor(for: group))
+            .padding(6)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(timelineIconBackground(for: group))
+            )
+    }
+
+    private func timelineIcon(for group: SubagentEventGrouping.Group) -> VIcon {
+        if group.isError { return .triangleAlert }
+        switch group {
+        case .text: return .messageSquare
+        case .error: return .triangleAlert
+        case .toolCall: return .wrench
+        case .orphanToolResult: return .circleCheck
+        case .completedToolCalls: return .circleCheck
+        }
+    }
+
+    private func timelineIconColor(for group: SubagentEventGrouping.Group) -> Color {
+        if group.isError { return VColor.systemNegativeStrong }
+        return VColor.systemPositiveStrong
+    }
+
+    private func timelineIconBackground(for group: SubagentEventGrouping.Group) -> Color {
+        if group.isError { return VColor.systemNegativeStrong.opacity(0.12) }
+        return VColor.systemPositiveWeak
+    }
+
+    // MARK: - Group Rendering
 
     @ViewBuilder
     private func renderGroup(_ group: SubagentEventGrouping.Group) -> some View {
         switch group {
         case .text(let event):
-            textCell(event)
-        case .error(let event):
-            errorCell(event)
-        case .toolCall(let pair):
-            SubagentToolCallRow(pair: pair, isExpanded: expansionBinding(for: pair.id))
-        case .orphanToolResult(let event):
-            SubagentOrphanToolResultRow(event: event, isExpanded: expansionBinding(for: event.id))
-        case .completedToolCalls(let pairs):
-            completedToolCallsSection(pairs)
-        }
-    }
-
-    /// The "Completed N events" section shown when the subagent is terminal.
-    /// Mirrors the `AssistantProgressView.swift` main-thread pattern.
-    ///
-    /// Each group tracks its own expansion state via a per-group key — the
-    /// first pair's `id` — so when text/error events split a run of tool
-    /// calls into multiple `.completedToolCalls` groups, expanding one does
-    /// not toggle the others. If `pairs.first?.id` is unexpectedly `nil`
-    /// (empty group — should not happen), the section short-circuits.
-    @ViewBuilder
-    private func completedToolCallsSection(_ pairs: [SubagentToolCallPair]) -> some View {
-        if let groupKey = pairs.first?.id {
-            let groupBinding = Binding<Bool>(
-                get: { state?.completedGroupExpandedIds.contains(groupKey) ?? false },
-                set: { newValue in
-                    if newValue {
-                        state?.completedGroupExpandedIds.insert(groupKey)
-                    } else {
-                        state?.completedGroupExpandedIds.remove(groupKey)
-                    }
-                }
-            )
-            SubagentCompletedStepsHeader(
-                count: pairs.count,
-                totalDuration: SubagentEventGrouping.duration(across: pairs),
-                isExpanded: groupBinding
-            )
-            if groupBinding.wrappedValue {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(pairs, id: \.id) { pair in
-                        SubagentToolCallRow(pair: pair, isExpanded: expansionBinding(for: pair.id))
-                    }
-                }
+            timelineCard(title: "Response") {
+                textCardContent(event)
             }
+        case .error(let event):
+            timelineCard(title: "Error") {
+                errorCardContent(event)
+            }
+        case .toolCall(let pair):
+            timelineCard(title: "Tool Call") {
+                toolCallCardContent(pair)
+            }
+        case .orphanToolResult(let event):
+            timelineCard(title: "Tool Result") {
+                toolResultCardContent(event)
+            }
+        case .completedToolCalls:
+            EmptyView()
         }
     }
 
-    private func expansionBinding(for id: UUID) -> Binding<Bool> {
-        Binding(
-            get: { state?.isEventExpanded(id) ?? false },
-            set: { state?.setEventExpanded(id, expanded: $0) }
-        )
-    }
-
-    // MARK: - Text & Error Cells
+    // MARK: - Timeline Card
 
     @ViewBuilder
-    private func textCell(_ event: SubagentEventItem) -> some View {
-        // Subtract horizontal padding so markdown fits inside the rounded card.
+    private func timelineCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text(title)
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(VColor.contentEmphasized)
+                content()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.md, bottom: VSpacing.lg, trailing: VSpacing.md))
+        .vCard(background: VColor.surfaceOverlay)
+    }
+
+    // MARK: - Card Content Views
+
+    @ViewBuilder
+    private func textCardContent(_ event: SubagentEventItem) -> some View {
+        // Subtract: gutter (24) + gutter-to-card spacing (16) + card horizontal padding (12*2)
         let markdownWidth: CGFloat? = panelContentWidth > 0
-            ? max(panelContentWidth - 2 * VSpacing.sm, 0)
+            ? max(panelContentWidth - Self.gutterWidth - VSpacing.lg - 2 * VSpacing.md, 0)
             : nil
         ZStack(alignment: .topTrailing) {
             HStack(spacing: 0) {
-                MarkdownSegmentView(
-                    segments: parseMarkdownSegments(event.content),
-                    typographyGeneration: typographyObserver.generation,
-                    maxContentWidth: markdownWidth
-                )
-                .equatable()
-                .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 0) {
+                    MarkdownSegmentView(
+                        segments: parseMarkdownSegments(event.content),
+                        typographyGeneration: typographyObserver.generation,
+                        maxContentWidth: markdownWidth
+                    )
+                    .equatable()
+                    .textSelection(.enabled)
+                }
                 Spacer(minLength: 0)
             }
-            .padding(VSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surfaceBase.opacity(0.4))
-            )
 
             SubagentTextActionOverlay(
                 event: event,
@@ -239,55 +295,98 @@ struct SubagentDetailPanel: View {
     }
 
     @ViewBuilder
-    private func errorCell(_ event: SubagentEventItem) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.xs) {
-            VIconView(.triangleAlert, size: 11)
-                .foregroundStyle(VColor.systemNegativeStrong)
-            Text(event.content)
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.systemNegativeStrong)
-                .textSelection(.enabled)
+    private func errorCardContent(_ event: SubagentEventItem) -> some View {
+        Text(event.content)
+            .font(VFont.bodyMediumLighter)
+            .foregroundStyle(VColor.systemNegativeStrong)
+            .textSelection(.enabled)
+    }
+
+    @ViewBuilder
+    private func toolCallCardContent(_ pair: SubagentToolCallPair) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text(pair.toolName)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentTertiary)
+            if !pair.inputSummary.isEmpty {
+                Text(pair.inputSummary)
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+            if let resultContent = pair.resultContent, !resultContent.isEmpty {
+                Divider().background(VColor.borderBase)
+                if pair.resultIsError {
+                    Text(resultContent)
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .textSelection(.enabled)
+                } else {
+                    SubagentCollapsibleText(
+                        text: resultContent,
+                        isExpanded: Binding(
+                            get: { state?.isEventExpanded(pair.id) ?? false },
+                            set: { state?.setEventExpanded(pair.id, expanded: $0) }
+                        )
+                    )
+                }
+            }
         }
-        .padding(VSpacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.systemNegativeStrong.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .strokeBorder(VColor.systemNegativeStrong.opacity(0.15), lineWidth: 1)
+    }
+
+    @ViewBuilder
+    private func toolResultCardContent(_ event: SubagentEventItem) -> some View {
+        if !event.content.isEmpty {
+            SubagentCollapsibleText(
+                text: event.content,
+                isExpanded: Binding(
+                    get: { state?.isEventExpanded(event.id) ?? false },
+                    set: { state?.setEventExpanded(event.id, expanded: $0) }
                 )
-        )
+            )
+        }
     }
 
     // MARK: - Status Badge
 
     @ViewBuilder
+    private var panelAvatar: some View {
+        VAvatarImage(
+            image: SubagentAvatarProvider.avatar(for: subagentId, size: 28),
+            size: 23,
+            showBorder: false
+        )
+    }
+
+    @ViewBuilder
     private var statusBadge: some View {
         if let info = subagentInfo {
-            HStack(spacing: VSpacing.xs) {
-                Circle()
-                    .fill(statusColor(info.status))
-                    .frame(width: 8, height: 8)
-                Text(info.status.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(statusColor(info.status))
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xxs)
-            .background(
-                Capsule()
-                    .fill(statusColor(info.status).opacity(0.12))
-            )
+            Text(info.status.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundStyle(statusTextColor(info.status))
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(statusBackgroundColor(info.status))
+                )
         }
     }
 
-    private func statusColor(_ status: SubagentStatus) -> Color {
+    private func statusTextColor(_ status: SubagentStatus) -> Color {
         switch status {
-        case .completed: return VColor.systemPositiveStrong
+        case .completed: return VColor.contentDefault
         case .failed, .aborted: return VColor.systemNegativeStrong
         case .running: return VColor.primaryActive
         default: return VColor.contentTertiary
+        }
+    }
+
+    private func statusBackgroundColor(_ status: SubagentStatus) -> Color {
+        switch status {
+        case .completed: return VColor.systemPositiveWeak
+        case .failed, .aborted: return VColor.systemNegativeStrong.opacity(0.12)
+        case .running: return VColor.primaryActive.opacity(0.12)
+        default: return VColor.contentTertiary.opacity(0.12)
         }
     }
 
@@ -295,30 +394,40 @@ struct SubagentDetailPanel: View {
 
     @ViewBuilder
     private func usageMetrics(_ usage: SubagentUsageStats) -> some View {
-        HStack(spacing: 0) {
-            metricItem(icon: "arrow.down.circle", label: "Input", value: "\(formatNumber(usage.inputTokens)) tokens")
-            Spacer()
-            metricItem(icon: "arrow.up.circle", label: "Output", value: "\(formatNumber(usage.outputTokens)) tokens")
-            Spacer()
-            metricItem(icon: "dollarsign.circle", label: "Cost", value: formatCost(usage.estimatedCost))
+        HStack(spacing: VSpacing.sm) {
+            metricCard(icon: .arrowDown, label: "Input", value: formatNumber(usage.inputTokens))
+            metricCard(icon: .arrowUp, label: "Output", value: formatNumber(usage.outputTokens))
+            metricCard(icon: .circleDollarSign, label: "Cost", value: formatCost(usage.estimatedCost))
         }
-        .padding(.vertical, VSpacing.xs)
     }
 
     @ViewBuilder
-    private func metricItem(icon: String, label: String, value: String) -> some View {
-        HStack(spacing: VSpacing.xxs) {
-            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
+    private func metricCard(icon: VIcon, label: String, value: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            VIconView(icon, size: 16)
                 .foregroundStyle(VColor.contentTertiary)
+                .padding(VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.primaryDisabled)
+                )
             VStack(alignment: .leading, spacing: 0) {
-                Text(label)
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
                 Text(value)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
+                    .font(VFont.titleSmall)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(label)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
             }
+            Spacer(minLength: 0)
         }
+        .padding(VSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .strokeBorder(VColor.borderBase, lineWidth: 1)
+        )
     }
 
     // MARK: - Formatting
@@ -353,6 +462,17 @@ struct SubagentEventGrouping {
         /// still want the result (and any error payload) inspectable.
         case orphanToolResult(SubagentEventItem)
         case completedToolCalls([SubagentToolCallPair])
+
+        var isError: Bool {
+            switch self {
+            case .error: return true
+            case .toolCall(let pair): return pair.resultIsError
+            case .orphanToolResult(let event):
+                if case .toolResult(let isErr) = event.kind { return isErr }
+                return false
+            default: return false
+            }
+        }
     }
 
     /// Build the visual groups for the running state (tool calls inline). Each
@@ -465,148 +585,32 @@ struct SubagentToolCallPair {
     }
 }
 
-// MARK: - Tool Call Row
 
-private struct SubagentToolCallRow: View {
-    let pair: SubagentToolCallPair
+// MARK: - Collapsible Text
+
+private struct SubagentCollapsibleText: View {
+    let text: String
     @Binding var isExpanded: Bool
-
-    @State private var isHovered = false
+    private let collapsedLineLimit = 4
 
     var body: some View {
-        VCollapsibleStepRow(
-            title: pair.toolName,
-            state: pair.state,
-            startedAt: pair.startedAt,
-            completedAt: pair.completedAt,
-            hasDetails: pair.hasDetails,
-            isExpanded: $isExpanded,
-            trailingAccessory: { trailingAccessory },
-            detailContent: { detailContent }
-        )
-        .onHover { isHovered = $0 }
-    }
-
-    @ViewBuilder
-    private var trailingAccessory: some View {
-        if isHovered, !copyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            SubagentCopyButton(text: copyText)
-                .transition(.opacity)
-        }
-    }
-
-    private var copyText: String {
-        [pair.inputSummary, pair.resultContent]
-            .compactMap { $0 }
-            .joined(separator: "\n\n")
-    }
-
-    @ViewBuilder
-    private var detailContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Divider().padding(.horizontal, VSpacing.lg)
-
-            if !pair.inputSummary.isEmpty {
-                detailBlock(label: "INPUT", content: pair.inputSummary, isError: false)
-            }
-            if let result = pair.resultContent, !result.isEmpty {
-                detailBlock(
-                    label: pair.resultIsError ? "ERROR" : "OUTPUT",
-                    content: result,
-                    isError: pair.resultIsError
-                )
-            }
-        }
-        .padding(.bottom, VSpacing.sm)
-    }
-
-    @ViewBuilder
-    private func detailBlock(label: String, content: String, isError: Bool) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text(label)
-                .font(VFont.labelSmall)
-                .foregroundStyle(VColor.contentTertiary)
-            Text(content)
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
+            Text(text)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(isExpanded ? nil : collapsedLineLimit)
                 .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, VSpacing.lg)
-    }
-}
 
-// MARK: - Orphan Tool Result Row
-
-/// Renders a `.toolResult` event whose matching `.toolUse` has been trimmed
-/// out of the retained event window. Mirrors the visual shape of
-/// `SubagentToolCallRow` (collapsible, same expansion-state binding) so the
-/// result content — especially error payloads — stays inspectable.
-private struct SubagentOrphanToolResultRow: View {
-    let event: SubagentEventItem
-    @Binding var isExpanded: Bool
-
-    @State private var isHovered = false
-
-    private var isError: Bool {
-        if case .toolResult(let err) = event.kind { return err }
-        return false
-    }
-
-    private var title: String {
-        isError ? "Tool error" : "Tool result"
-    }
-
-    private var state: VCollapsibleStepRowState {
-        isError ? .failed : .succeeded
-    }
-
-    private var hasDetails: Bool {
-        !event.content.isEmpty
-    }
-
-    var body: some View {
-        VCollapsibleStepRow(
-            title: title,
-            state: state,
-            startedAt: event.timestamp,
-            completedAt: event.timestamp,
-            hasDetails: hasDetails,
-            isExpanded: $isExpanded,
-            trailingAccessory: { trailingAccessory },
-            detailContent: { detailContent }
-        )
-        .onHover { isHovered = $0 }
-    }
-
-    @ViewBuilder
-    private var trailingAccessory: some View {
-        if isHovered, !event.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            SubagentCopyButton(text: event.content)
-                .transition(.opacity)
-        }
-    }
-
-    @ViewBuilder
-    private var detailContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Divider().padding(.horizontal, VSpacing.lg)
-
-            if !event.content.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(isError ? "ERROR" : "OUTPUT")
-                        .font(VFont.labelSmall)
-                        .foregroundStyle(VColor.contentTertiary)
-                    Text(event.content)
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, VSpacing.lg)
+            Button {
+                withAnimation(VAnimation.fast) { isExpanded.toggle() }
+            } label: {
+                Text(isExpanded ? "Show less" : "Show more")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.primaryBase)
             }
+            .buttonStyle(.plain)
+            .pointerCursor()
         }
-        .padding(.bottom, VSpacing.sm)
     }
 }
 
@@ -705,41 +709,3 @@ private struct SubagentCopyButton: View {
     }
 }
 
-// MARK: - Completed Steps Header
-
-/// Collapsible "Completed N events" header for terminal subagents. Mirrors
-/// the main-thread pattern from `AssistantProgressView.swift`.
-private struct SubagentCompletedStepsHeader: View {
-    let count: Int
-    let totalDuration: TimeInterval?
-    @Binding var isExpanded: Bool
-
-    var body: some View {
-        Button {
-            withAnimation(VAnimation.fast) { isExpanded.toggle() }
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.circleCheck, size: 12)
-                    .foregroundStyle(VColor.primaryBase)
-                    .frame(width: 16)
-                Text("Completed \(count) event\(count == 1 ? "" : "s")")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(1)
-                Spacer()
-                if let totalDuration {
-                    Text(VCollapsibleStepRowDurationFormatter.format(totalDuration))
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-                VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-    }
-}
