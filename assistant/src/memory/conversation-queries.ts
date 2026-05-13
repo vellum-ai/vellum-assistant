@@ -55,9 +55,14 @@ export function listConversations(
   // SQLite file without running migrations in-process, so legacy private rows
   // can briefly exist before migration cleanup. Hide them from foreground
   // lists until the next migration pass deletes them.
+  //
+  // group_id is checked alongside conversationType so that conversations
+  // routed to system:background (e.g. heartbeat) via conversationMetadata
+  // but created with conversationType "standard" (vellum channel strategy)
+  // appear in the correct bucket.
   const typeCond = backgroundOnly
-    ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`;
+    ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
+    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
   const where = includeArchived
     ? typeCond
     : sql`${typeCond} AND ${conversations.archivedAt} IS NULL`;
@@ -153,8 +158,8 @@ export function listConversationsByTitlePrefix(
 export function countConversations(backgroundOnly = false): number {
   const db = getDb();
   const where = backgroundOnly
-    ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`;
+    ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
+    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
