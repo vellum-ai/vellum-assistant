@@ -23,6 +23,8 @@
  * - {@link PluginInitContext} — passed to `init` hook at bootstrap
  * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
+ * - {@link ToolContext} — passed to a plugin tool's `execute` method
+ * - {@link ToolExecutionResult} — return shape of a plugin tool's `execute`
  *
  * Pipeline-argument types (`LLMCallArgs`, `MemoryArgs`, etc.) currently
  * live in `assistant/src/plugins/types.ts` and have not yet migrated into
@@ -34,4 +36,6 @@ export type {
   PluginInitContext,
   PluginLogger,
   PluginShutdownContext,
+  ToolContext,
+  ToolExecutionResult,
 } from "./types.js";

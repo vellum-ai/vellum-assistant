@@ -8,14 +8,20 @@
  * assistant binary, the same source is reachable to user plugins via a
  * boot-time shim that re-exports from the embedded bundle.
  *
- * Today this module is intentionally narrow — `PluginInitContext`,
- * `PluginShutdownContext`, and the `PluginLogger` shape they reference.
- * Additional public types migrate over in follow-up PRs as the surface
- * stabilizes.
+ * Today this module exposes the hook contexts (`PluginInitContext`,
+ * `PluginShutdownContext`), the `PluginLogger` shape they reference,
+ * and the tool-execution contract (`ToolContext`, `ToolExecutionResult`)
+ * that plugin-authored tools rely on. Additional public types migrate
+ * over in follow-up PRs as the surface stabilizes.
  *
  * Internal-only types (pipeline shapes, middleware, manifest validation,
  * etc.) stay in `assistant/src/plugins/types.ts` until they're ready to
- * become public.
+ * become public. The full daemon-side `ToolContext` /
+ * `ToolExecutionResult` (with CES, trust classification, lifecycle
+ * events, etc.) live in `assistant/src/tools/types.ts`; the public
+ * shape here is intentionally a narrow, stable subset that plugin
+ * tools can pattern-match without taking a dependency on daemon
+ * internals.
  */
 
 // ─── Logger ──────────────────────────────────────────────────────────────────
@@ -81,4 +87,86 @@ export interface PluginInitContext {
 export interface PluginShutdownContext {
   /** Assistant semver for compatibility checks inside the plugin. */
   assistantVersion: string;
+}
+
+// ─── Tool context ────────────────────────────────────────────────────────────
+
+/**
+ * Context passed to a plugin-authored tool's `execute` method.
+ *
+ * This is the **public, narrow** view of the daemon's `ToolContext`. The
+ * full internal shape (CES client, trust classification, host-bash proxy,
+ * lifecycle event handlers, requester metadata, etc.) lives in
+ * `assistant/src/tools/types.ts` and is reserved for daemon-internal
+ * tools. Plugin tools receive the same runtime object at execute time —
+ * extra fields are simply not part of the public contract.
+ *
+ * Fields here are the subset stable across daemon revisions:
+ *
+ * - `conversationId`: the conversation the tool invocation belongs to.
+ * - `workingDir`: the directory the daemon was launched from, for
+ *   plugins that touch the filesystem outside their `pluginStorageDir`.
+ * - `requestId`: per-turn correlation id; surface in plugin logs so
+ *   plugin output can be joined with daemon logs.
+ * - `signal`: cooperative cancellation. Long-running plugin tools
+ *   should check `signal.aborted` (or pass `signal` into `fetch` /
+ *   child-process options) and bail with `isError: true` on abort.
+ * - `onOutput`: optional incremental-output callback. Streaming plugin
+ *   tools should fall back to returning the full result in `content`
+ *   when this is absent.
+ *
+ * Adding fields to this surface is a non-breaking change. Renaming
+ * or removing fields is breaking and gated on a major bump of
+ * `@vellumai/plugin-api`.
+ */
+export interface ToolContext {
+  /** Identifier of the conversation this tool invocation belongs to. */
+  conversationId: string;
+  /** Working directory the daemon was launched from. */
+  workingDir: string;
+  /** Per-turn request id for cross-component log correlation. */
+  requestId?: string;
+  /** Cooperative cancellation signal for long-running tools. */
+  signal?: AbortSignal;
+  /** Optional incremental-output callback for streaming tools. */
+  onOutput?: (chunk: string) => void;
+}
+
+// ─── Tool execution result ───────────────────────────────────────────────────
+
+/**
+ * Return shape of a plugin-authored tool's `execute` method.
+ *
+ * The daemon-side `ToolExecutionResult` (in
+ * `assistant/src/tools/types.ts`) carries additional fields that the
+ * runtime populates around the call — risk metadata, approval
+ * bookkeeping, sensitive-output bindings, etc. Plugins MUST NOT set
+ * those: they are runtime-internal and stripped/overwritten by the
+ * executor. The shape here exposes the small set of fields plugins
+ * are responsible for producing.
+ *
+ * - `content`: the textual result the LLM sees in the tool-result
+ *   block. Empty string is valid.
+ * - `isError`: when `true`, the agent loop treats `content` as an
+ *   error message and may surface it to the user / retry.
+ * - `status`: optional short status string for client display
+ *   (e.g. `"truncated"`, `"timed out"`).
+ * - `yieldToUser`: when `true`, the agent loop pushes the tool result
+ *   onto history and yields control back to the user instead of
+ *   running another LLM call. Used by tools that want to force the
+ *   loop to stop (e.g. interactive surfaces, `remember`-style "end
+ *   my turn" hooks).
+ *
+ * Adding fields here is a non-breaking change; renaming or removing
+ * fields is breaking and gated on a major bump.
+ */
+export interface ToolExecutionResult {
+  /** Textual result shown to the model in the tool-result block. */
+  content: string;
+  /** When true, the result is surfaced as an error to the agent loop. */
+  isError: boolean;
+  /** Optional short status message for client display. */
+  status?: string;
+  /** When true, the agent loop yields back to the user after this result. */
+  yieldToUser?: boolean;
 }

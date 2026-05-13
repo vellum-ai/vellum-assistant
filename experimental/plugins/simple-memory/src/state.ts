@@ -39,13 +39,34 @@ export function clearState(): void {
 
 export function requireState(): PluginState {
   if (state === null) {
-    throw new Error("simple-memory: state not initialized — was init() called?");
+    throw new Error(
+      "simple-memory: state not initialized — was init() called?",
+    );
   }
   return state;
 }
 
-export function entriesFor(conversationId: string): MemoryEntry[] {
-  return requireState().entries.filter((e) => e.conversationId === conversationId);
+/**
+ * Case-insensitive substring search across every entry, regardless of
+ * conversation. Results are returned newest-first (descending
+ * `createdAt`) and capped at `limit`. An empty / whitespace-only
+ * query returns no results — callers should pre-validate so they can
+ * surface a clearer error.
+ */
+export function searchEntries(query: string, limit: number): MemoryEntry[] {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) {
+    return [];
+  }
+  const all = requireState().entries;
+  const matches: MemoryEntry[] = [];
+  for (const entry of all) {
+    if (entry.text.toLowerCase().includes(needle)) {
+      matches.push(entry);
+    }
+  }
+  matches.sort((a, b) => b.createdAt - a.createdAt);
+  return matches.slice(0, limit);
 }
 
 export function appendEntry(entry: MemoryEntry): void {
