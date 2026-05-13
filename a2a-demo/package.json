@@ -6,6 +6,7 @@
     "build:ui": "bun build ui/src/main.tsx --outdir ui/dist --bundle --minify && cp ui/index.html ui/src/styles.css ui/dist/",
     "dev": "bun run build:ui && bun run src/server.ts",
     "peers:start": "bun run src/peers/start-all.ts",
+    "demo": "bun run src/demo.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test src/"
   },
