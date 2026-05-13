@@ -156,6 +156,7 @@ export function listConversationsByTitlePrefix(
 }
 
 export function countConversations(backgroundOnly = false): number {
+  ensureGroupMigration();
   const db = getDb();
   const where = backgroundOnly
     ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
