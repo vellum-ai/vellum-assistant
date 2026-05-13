@@ -28,7 +28,29 @@ struct SubagentDetailPanel: View {
     @State private var panelContentWidth: CGFloat = 0
 
     var body: some View {
-        VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.titleSmall, onClose: onClose, pinnedContent: {
+        VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.titleSmall, onClose: onClose, titleAccessory: {
+            statusBadge
+        }, headerTrailing: {
+            if isRunning {
+                Button(action: { onAbort?() }) {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.square, size: 10)
+                        Text("Stop")
+                            .font(VFont.bodySmallEmphasised)
+                    }
+                    .foregroundStyle(VColor.systemNegativeStrong)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .frame(height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .strokeBorder(VColor.systemNegativeStrong, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop subagent")
+            }
+        }, pinnedContent: {
             pinnedBody
 
             Divider().background(VColor.borderBase)
@@ -64,31 +86,6 @@ struct SubagentDetailPanel: View {
     @ViewBuilder
     private var pinnedBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Status badge + Stop button row (matches Figma header layout)
-            HStack(spacing: VSpacing.sm) {
-                statusBadge
-                Spacer()
-                if isRunning {
-                    Button(action: { onAbort?() }) {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.square, size: 10)
-                            Text("Stop")
-                                .font(VFont.bodySmallEmphasised)
-                        }
-                        .foregroundStyle(VColor.systemNegativeStrong)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .frame(height: 32)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .strokeBorder(VColor.systemNegativeStrong, lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Stop subagent")
-                }
-            }
-
             // Usage metrics row (above objective per Figma mock)
             if let usage {
                 usageMetrics(usage)
