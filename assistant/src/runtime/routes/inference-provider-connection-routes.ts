@@ -59,6 +59,19 @@ function parseCustomProviderFields(body: Record<string, unknown>): {
     if (raw === null) {
       out.baseUrl = null;
     } else if (typeof raw === "string" && raw.length > 0) {
+      // Parse as a URL so values like "foo" are rejected at create/update
+      // time instead of failing later when the adapter tries to dispatch.
+      try {
+        const parsed = new URL(raw);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new BadRequestError(`Invalid base_url: must be an http(s) URL`);
+        }
+      } catch (err) {
+        if (err instanceof BadRequestError) throw err;
+        throw new BadRequestError(
+          `Invalid base_url: must be a valid http(s) URL`,
+        );
+      }
       out.baseUrl = raw;
     } else {
       throw new BadRequestError(

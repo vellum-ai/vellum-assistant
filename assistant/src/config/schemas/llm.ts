@@ -20,6 +20,7 @@ const LLMProvider = z.enum([
   "ollama",
   "fireworks",
   "openrouter",
+  "openai-compatible",
 ]);
 type LLMProvider = z.infer<typeof LLMProvider>;
 
