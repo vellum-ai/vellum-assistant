@@ -834,6 +834,36 @@ describe("RetryProvider — streaming response handling", () => {
     expect(callCount).toBe(1);
   });
 
+  test("does NOT retry OpenAI/Gemini-shaped 'Request was aborted' (no inner-timeout rewrite at those catch-sites)", async () => {
+    // The OpenAI chat-completions, OpenAI responses, and Gemini catch-sites
+    // format their errors as `"<Provider> API error (undefined): Request
+    // was aborted."` (note the `(undefined)` parenthetical that the
+    // Anthropic catch-site intentionally omits) and — unlike the Anthropic
+    // catch-site — they do NOT rewrite their inner-streamTimeoutMs
+    // deadline failures. A provider-agnostic transport-abort predicate
+    // would burn three retries on what is by construction a deterministic
+    // 30-minute deadline failure that will fire again on every attempt.
+    // Scoping the predicate to the Anthropic message prefix avoids that
+    // wasted retry budget for non-Anthropic providers until their
+    // catch-sites grow the same `innerTimeoutFired` distinction.
+    const openaiAbortError = new ProviderError(
+      "OpenAI API error (undefined): Request was aborted.",
+      "openai",
+      undefined,
+    );
+    let callCount = 0;
+    const inner: Provider = {
+      name: "openai-aborted-stream",
+      async sendMessage() {
+        callCount++;
+        throw openaiAbortError;
+      },
+    };
+    const provider = new RetryProvider(inner);
+    await expect(provider.sendMessage(MESSAGES)).rejects.toBe(openaiAbortError);
+    expect(callCount).toBe(1);
+  });
+
   test("events accumulate across retries (each attempt delivers events independently)", async () => {
     let callCount = 0;
     const inner: Provider = {

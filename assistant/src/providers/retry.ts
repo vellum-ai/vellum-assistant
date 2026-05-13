@@ -73,24 +73,38 @@ const RETRYABLE_STREAM_PATTERNS = [
 const RETRYABLE_PROVIDER_MESSAGE_PATTERNS = [/overloaded/i];
 
 /**
- * Patterns that indicate the provider SDK reported a transport-level abort
- * (TCP close mid-stream, edge LB idle cutoff, Bun fetch deadline) rather than
- * a caller-initiated cancellation. Anthropic in particular surfaces both
- * cases as ``Request was aborted`` from the SDK with ``error.status ===
- * undefined``; the catch-site in ``providers/anthropic/client.ts`` tags
- * caller cancellations with ``abortReason`` so they short-circuit *above*
- * this check in {@link isRetryableError}. By the time a ProviderError with
- * an aborted-request message reaches this predicate, ``abortReason`` is
- * undefined — meaning the abort came from the transport, not the daemon —
- * and a retry should issue a fresh request rather than letting the user
- * stare at a blank screen until the client-side SSE watchdog fires.
+ * Patterns that indicate the Anthropic provider SDK reported a transport-level
+ * abort (TCP close mid-stream, edge LB idle cutoff, Bun fetch deadline) rather
+ * than a caller-initiated cancellation or inner-timeout deadline. The SDK
+ * surfaces all three cases as ``Request was aborted`` with ``error.status ===
+ * undefined``; the catch-site in ``providers/anthropic/client.ts`` separates
+ * them by:
+ *   - tagging caller cancellations with ``abortReason`` (short-circuits in
+ *     {@link isRetryableError} before reaching this predicate)
+ *   - rewriting the inner-timeout message to ``"Anthropic stream timed out
+ *     after Xs (inner streamTimeoutMs)"`` (doesn't start with ``Anthropic API
+ *     error:`` so it falls through to network-error classification)
+ *   - leaving the transport-abort message verbatim as
+ *     ``"Anthropic API error: Request was aborted."``
+ *
+ * Pattern is intentionally anchored to the Anthropic-specific message prefix.
+ * The OpenAI / Gemini / OpenRouter catch-sites format their errors as
+ * ``"<Provider> API error (undefined): Request was aborted."`` (note the
+ * ``(undefined)`` parenthetical) and — crucially — do **not** rewrite
+ * inner-timeout failures, so a provider-agnostic ``/request was aborted/i``
+ * predicate would erroneously retry their 30-minute deadline failures three
+ * additional times. Once those catch-sites grow the same
+ * ``innerTimeoutFired`` distinction the Anthropic one has, the pattern set
+ * here can be expanded to cover them too.
  *
  * This is the daemon-side counterpart to the vembda graceful-close behavior
  * for upstream disconnects (LUM-1536) — together they collapse the 45 s
  * silent-stall window the web client used to observe whenever Anthropic's
  * stream was cut mid-token.
  */
-const RETRYABLE_TRANSPORT_ABORT_PATTERNS = [/request was aborted/i];
+const RETRYABLE_TRANSPORT_ABORT_PATTERNS = [
+  /^anthropic api error:\s*request was aborted/i,
+];
 
 function isRetryableStreamError(error: unknown): boolean {
   if (!(error instanceof ProviderError)) return false;
