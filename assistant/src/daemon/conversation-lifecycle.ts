@@ -118,6 +118,7 @@ export interface LoadFromDbContext {
   contextCompactedAt: number | null;
   trustContext?: TrustContext;
   loadedHistoryTrustClass?: TrustClass;
+  loadedHistoryPersonalMemoryAllowed?: boolean;
 }
 
 export interface AbortContext {
@@ -346,6 +347,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
   }
 
   ctx.loadedHistoryTrustClass = trustClass;
+  ctx.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
 
   log.info(
     { conversationId: ctx.conversationId, count: ctx.messages.length },
