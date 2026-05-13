@@ -41,6 +41,16 @@ name: Linear Release Sync
 on:
   release:
     types: [published]
+  # Manual trigger for backfill or re-sync. Use this to (a) sync a historical
+  # tag that was published before this workflow existed, or (b) re-run sync
+  # against a release whose Linear stamping turned out wrong. Pass the git
+  # tag name (e.g. `v0.8.0`) — must be an exact tag that exists in this repo.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to sync (e.g. v0.8.0)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -64,9 +74,18 @@ jobs:
     # `github.event.release.prerelease`. Filtering on a hyphen in the tag
     # catches every pre-release shape semver allows and keeps
     # Scheduled-pipeline releases aligned with actual production launches.
+    # On `release: published`, skip pre-release tags (those that contain a
+    # hyphen, e.g. `vX.Y.Z-staging.N`). On `workflow_dispatch`, the operator
+    # explicitly provided the tag, so trust their intent.
     if: >-
       github.repository == 'vellum-ai/vellum-assistant' &&
-      !contains(github.event.release.tag_name, '-')
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'release' &&
+          !contains(github.event.release.tag_name, '-')
+        )
+      )
     steps:
       - name: Checkout release tag
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -74,8 +93,8 @@ jobs:
           # The published release's tag — checkout this exact ref so the
           # action scans the commit history that actually shipped, not
           # whatever HEAD happens to be on the default branch when the event
-          # fires.
-          ref: ${{ github.event.release.tag_name }}
+          # fires. For manual dispatch, use the operator-supplied tag.
+          ref: ${{ github.event.inputs.tag || github.event.release.tag_name }}
           # Full commit history required so the action can walk back from the
           # release tag to the previous Linear release and find every issue
           # mentioned in commit titles, merge commits, and PR titles in
@@ -91,11 +110,25 @@ jobs:
           # release matching this git tag instead of inferring from
           # started/planned state. See "Command targeting" in the action's
           # README.
-          version: ${{ github.event.release.tag_name }}
+          version: ${{ github.event.inputs.tag || github.event.release.tag_name }}
           # Pin the underlying Linear Release CLI version. The action's input
           # defaults to `latest`, which would let every production run pull a
           # newer CLI build with potentially-changed behavior or flags. To
           # upgrade: look up the new CLI tag at
           # https://github.com/linear/linear-release/releases and bump the
           # value below in the same PR as the action SHA bump.
+          cli_version: v0.10.0
+
+      # Scheduled-pipeline releases are created in the pipeline's initial
+      # stage (Planned / Started). The `complete` command moves them to the
+      # terminal stage so they show up as shipped in Linear without manual
+      # UI clicks per release. Continuous pipelines auto-complete on sync
+      # and don't need this step (see vellum-assistant-platform's workflow).
+      # See the action README's "complete" command for full semantics.
+      - name: Mark Linear release complete
+        uses: linear/linear-release-action@755d50b5adb7dd42b976ee9334952745d62ceb2d # v0.6.0
+        with:
+          access_key: ${{ secrets.LINEAR_ACCESS_KEY }}
+          command: complete
+          version: ${{ github.event.inputs.tag || github.event.release.tag_name }}
           cli_version: v0.10.0
