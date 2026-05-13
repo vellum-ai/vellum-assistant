@@ -110,12 +110,26 @@ export function listBookmarks(db: DrizzleDb): BookmarkSummary[] {
  * {@link BookmarkSummary}. Idempotent on the unique `message_id` index —
  * if a bookmark already exists for `messageId`, the existing summary is
  * returned and no new row is inserted.
+ *
+ * `conversationId` is derived from the message row rather than trusted from
+ * the caller, so a buggy or malicious caller cannot persist a bookmark
+ * whose `conversationId` disagrees with the message's actual conversation.
  */
 export function createBookmark(
   db: DrizzleDb,
-  params: { messageId: string; conversationId: string },
+  params: { messageId: string },
 ): BookmarkSummary {
-  const { messageId, conversationId } = params;
+  const { messageId } = params;
+  const message = db
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (!message) {
+    throw new Error(`Message ${messageId} not found`);
+  }
+  const conversationId = message.conversationId;
+
   const existing = db
     .select({ id: messageBookmarks.id })
     .from(messageBookmarks)

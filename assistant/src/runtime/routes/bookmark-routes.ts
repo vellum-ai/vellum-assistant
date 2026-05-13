@@ -79,7 +79,7 @@ function handleCreateBookmark({
     );
   }
 
-  const summary = createBookmark(getDb(), { messageId, conversationId });
+  const summary = createBookmark(getDb(), { messageId });
   publishBookmarkCreated(summary);
   return summary;
 }
