@@ -380,7 +380,7 @@ struct ChatView: View {
                 searchQuery: searchQuery
             )
             .animation(nil, value: queuedMessages.isEmpty)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .overlay(alignment: .bottom) {
                 chatBanners(layoutMetrics: layoutMetrics, queuedMessages: queuedMessages)
             }
 
@@ -418,11 +418,16 @@ struct ChatView: View {
         .animation(.spring(duration: 0.28, bounce: 0.15), value: queuedMessages.isEmpty)
     }
 
-    /// Status/notification banners rendered as a safe-area inset at the
-    /// bottom of the message list scroll view. Using `.safeAreaInset` instead
-    /// of VStack siblings keeps the scroll viewport at its full height so
-    /// `bottomAlignedMinHeight` / `topAlignedMinHeight` use the correct
-    /// dimension and content is not clipped at the visual top.
+    /// Status/notification banners rendered as an overlay at the bottom of
+    /// the message list. Using `.overlay` instead of VStack siblings keeps
+    /// the scroll viewport at its full height so `bottomAlignedMinHeight` /
+    /// `topAlignedMinHeight` use the correct dimension and content is not
+    /// clipped at the visual top.
+    ///
+    /// `.safeAreaInset` was considered but rejected: the inverted scroll
+    /// (`.flipped()`) causes bottom safe-area insets to propagate as content
+    /// padding at the visual *top* (oldest messages) rather than the visual
+    /// bottom where the banner sits, providing no overlap protection.
     @ViewBuilder
     private func chatBanners(
         layoutMetrics: MessageListLayoutMetrics,
