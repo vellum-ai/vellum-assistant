@@ -1904,5 +1904,44 @@ describe("injectMemoryV2Block", () => {
       const row = telemetryState.recordCalls[0] as { mode: string };
       expect(row.mode).toBe("per-turn");
     });
+
+    test("flag-on + mode='context-load': activation pipeline runs (not the router) so post-compaction bootstrap can re-emit pages already in everInjected", async () => {
+      // Context-load is the full top-K bootstrap fired after compaction or
+      // a fresh conversation reload. The router's `everInjected` dedupe is
+      // correct for per-turn deltas but wrong here — pages the user just
+      // lost from compaction live in `everInjected` and would be filtered
+      // out, so context-load must always bypass the router and re-run the
+      // activation pipeline against the full top-K.
+      stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+      routerState.nextResult = {
+        selectedSlugs: ["should-not-be-used"],
+        failureReason: null,
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-context-load-router-on",
+        currentTurn: 1,
+        userMessage: "Tell me about Alice",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        mode: "context-load",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      // Router must not be called — context-load bypasses the gate even
+      // when the flag is on.
+      expect(routerState.callCount).toBe(0);
+
+      // Activation pipeline produced the normal context-load result.
+      expect(result.toInject).toEqual(["alice-vscode"]);
+      expect(result.block).toContain("# memory/concepts/alice-vscode.md");
+
+      // Telemetry row reflects the activation mode, not router.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as { mode: string };
+      expect(row.mode).toBe("context-load");
+    });
   });
 });

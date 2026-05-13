@@ -144,6 +144,7 @@ export async function injectMemoryV2Block(
   } = params;
 
   const workspaceDir = getWorkspaceDir();
+  const mode: InjectMemoryV2Mode = params.mode ?? "per-turn";
 
   // (1) Hydrate. Missing rows are normal at conversation start — proceed
   // with an effective empty prior state so the first turn can still inject.
@@ -155,7 +156,14 @@ export async function injectMemoryV2Block(
   // for persistence, render, and telemetry. The activation pipeline below
   // remains the default (flag-off) behavior — every code path past this
   // branch only runs when the router is disabled.
-  if (config.memory.v2.router.enabled) {
+  //
+  // Restricted to `mode === "per-turn"`: `context-load` (the full top-K
+  // bootstrap after compaction/reload) must always re-emit pages the user
+  // just lost. The router's abstention + `everInjected` dedupe is correct
+  // for per-turn delta injection but breaks context-restoration — pages
+  // already in `everInjected` from before compaction would be filtered out
+  // and never re-attached.
+  if (config.memory.v2.router.enabled && mode === "per-turn") {
     return injectViaRouter({
       workspaceDir,
       database,
@@ -214,7 +222,6 @@ export async function injectMemoryV2Block(
   // prior cached attachments don't exist or have been thrown away. The user
   // message gets a complete top-K dump alongside the static
   // essentials/threads/recent block, then per-turn turns just add deltas.
-  const mode: InjectMemoryV2Mode = params.mode ?? "per-turn";
   const priorEverInjected: readonly EverInjectedEntry[] =
     priorState?.everInjected ?? [];
   const { topNow, toInject } = selectInjections({
