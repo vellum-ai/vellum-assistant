@@ -136,6 +136,7 @@ assistant config set llm.callSites '{
   "memoryExtraction":         {"profile":"cost-optimized"},
   "memoryConsolidation":      {"profile":"balanced"},
   "memoryRetrieval":          {"profile":"cost-optimized"},
+  "memoryRetrospective":      {"profile":"cost-optimized"},
   "recall":                   {"profile":"cost-optimized","maxTokens":4096,"effort":"low","thinking":{"enabled":false,"streamThinking":false},"temperature":0},
   "memoryV2Migration":        {"profile":"cost-optimized"},
   "memoryV2Sweep":            {"profile":"cost-optimized"},
@@ -152,7 +153,6 @@ assistant config set llm.callSites '{
   "guardianQuestionCopy":     {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
   "approvalCopy":             {"profile":"cost-optimized"},
   "approvalConversation":     {"profile":"cost-optimized"},
-  "feedEventCopy":            {"profile":"cost-optimized"},
   "trustRuleSuggestion":      {"profile":"cost-optimized"},
 
   "notificationDecision":     {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
