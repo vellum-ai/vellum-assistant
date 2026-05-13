@@ -413,6 +413,36 @@ describe("FilingService", () => {
       expect(hold.compactionCalls()).toBe(0);
     });
 
+    test("stop() prevents retry callback from re-arming a fresh timer", async () => {
+      // Race: the retry callback fires while filing is still in-flight and
+      // stop() has begun. The callback already cleared compactionRetryTimer,
+      // so clearCompactionRetry is a no-op. Without a stopped flag, the
+      // callback's runCompactionOnce() hits the activeRun branch and schedules
+      // a fresh retry, leaving a live timer after stop() resolves.
+      const hold = holdFilingRun();
+      const service = new FilingService({ compactionContendedRetryMs: 5 });
+      const filingPromise = service.runOnce();
+      await hold.waitForFilingStarted();
+      await service.runCompactionOnce();
+      expect(service.nextCompactionAt).not.toBeNull();
+
+      // Begin stop without awaiting — it would block on the held filing run.
+      // stop() flips `stopped` synchronously before the retry timer fires.
+      const stopPromise = service.stop();
+
+      // Wait past the retry delay. Without the guard, the callback would call
+      // runCompactionOnce(), observe activeRun, and re-arm a new retry.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(service.nextCompactionAt).toBeNull();
+
+      hold.release();
+      await filingPromise;
+      await stopPromise;
+
+      expect(service.nextCompactionAt).toBeNull();
+      expect(hold.compactionCalls()).toBe(0);
+    });
+
     test("respects active hours", async () => {
       mockConfig.filing.activeHoursStart = 9;
       mockConfig.filing.activeHoursEnd = 17;
