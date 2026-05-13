@@ -28,8 +28,11 @@ struct SubagentDetailPanel: View {
     @State private var panelContentWidth: CGFloat = 0
 
     var body: some View {
-        VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.titleSmall, onClose: onClose, titleAccessory: {
+        VSidePanel(title: "", titleFont: VFont.titleSmall, onClose: onClose, titleAccessory: {
             panelAvatar
+            Text(subagentInfo?.label ?? "Subagent")
+                .font(VFont.titleSmall)
+                .foregroundStyle(VColor.contentDefault)
             statusBadge
         }, headerTrailing: {
             if isRunning {
