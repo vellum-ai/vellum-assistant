@@ -214,7 +214,6 @@ export class QuestionPrompter {
       // our local handlers fire — using the registry as the guard in that
       // case would leave the Promise unresolved and the tool hung.
       let settled = false;
-      let timer: ReturnType<typeof setTimeout>;
       let onAbort: (() => void) | undefined;
       const finish = (fn: () => void): void => {
         if (settled) return;
@@ -229,7 +228,7 @@ export class QuestionPrompter {
         fn();
       };
 
-      timer = setTimeout(() => {
+      const timer = setTimeout(() => {
         log.warn({ requestId, conversationId }, "Question prompt timed out");
         finish(() =>
           resolve({
