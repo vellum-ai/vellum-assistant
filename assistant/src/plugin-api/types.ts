@@ -8,14 +8,36 @@
  * assistant binary, the same source is reachable to user plugins via a
  * boot-time shim that re-exports from the embedded bundle.
  *
- * Today this module is intentionally narrow — only `PluginInitContext` and
- * `PluginShutdownContext`. Additional public types migrate over in
- * follow-up PRs as the surface stabilizes.
+ * Today this module is intentionally narrow — `PluginInitContext`,
+ * `PluginShutdownContext`, and the `PluginLogger` shape they reference.
+ * Additional public types migrate over in follow-up PRs as the surface
+ * stabilizes.
  *
  * Internal-only types (pipeline shapes, middleware, manifest validation,
  * etc.) stay in `assistant/src/plugins/types.ts` until they're ready to
  * become public.
  */
+
+// ─── Logger ──────────────────────────────────────────────────────────────────
+
+/**
+ * Minimal pino-compatible logger surface handed to plugin hooks. The host
+ * supplies a pino child logger bound to `{ plugin: <name> }`; this
+ * interface intentionally captures only the two call shapes plugin code
+ * needs (structured object + optional message), so the public surface
+ * doesn't take a dependency on pino's full type machinery.
+ *
+ * Each method accepts a structured-fields object followed by an optional
+ * message string. Plugin authors that need pino's wider API (`child()`,
+ * `level`, etc.) can cast to their own narrower interface in plugin code
+ * — but the canonical contract here covers the 99% case.
+ */
+export interface PluginLogger {
+  info(obj: Record<string, unknown>, msg?: string): void;
+  warn(obj: Record<string, unknown>, msg?: string): void;
+  error(obj: Record<string, unknown>, msg?: string): void;
+  debug(obj: Record<string, unknown>, msg?: string): void;
+}
 
 // ─── Init context ────────────────────────────────────────────────────────────
 
@@ -29,11 +51,8 @@ export interface PluginInitContext {
   config: unknown;
   /** Resolved credential values keyed by the entries of `manifest.requiresCredential`. */
   credentials: Record<string, string>;
-  /**
-   * Pino-compatible child logger bound to `{ plugin: <name> }`. Untyped here
-   * to avoid pulling pino into the types module.
-   */
-  logger: unknown;
+  /** Pino-compatible child logger bound to `{ plugin: <name> }`. */
+  logger: PluginLogger;
   /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */
   pluginStorageDir: string;
   /**

@@ -11,35 +11,27 @@
  *
  * ## Surface today
  *
- * Runtime values:
- * - {@link registerPlugin} — register a plugin with the assistant's runtime
+ * The public package is intentionally **declarative**: a plugin is a
+ * directory whose `package.json` is the manifest and whose `hooks/` /
+ * `tools/` / `skills/` / `routes/` subdirectories are the contributions.
+ * The host introspects the directory at load time and wires it into the
+ * runtime — plugin authors never call a runtime registration function.
  *
- * Public types:
- * - {@link Plugin} — the manifest + hook + tool + skill + route bundle the
- *   runtime accepts
- * - {@link PluginManifest} — static metadata describing a plugin
- * - {@link PluginInitContext} — passed to `Plugin.hooks.init()` at bootstrap
- * - {@link PluginShutdownContext} — passed to `Plugin.hooks.shutdown()` at
- *   teardown
+ * What this module exposes is therefore types-only: the context shapes
+ * the host hands to plugin hooks, and the logger shape they include.
+ *
+ * - {@link PluginInitContext} — passed to `init` hook at bootstrap
+ * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
+ * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  *
  * Pipeline-argument types (`LLMCallArgs`, `MemoryArgs`, etc.) currently
  * live in `assistant/src/plugins/types.ts` and have not yet migrated into
- * this package. Plugin authors writing middleware for those pipelines can
- * either rely on TypeScript's structural typing without naming the args
- * type, or vendor the type definitions directly. A follow-up PR will move
- * them into this surface as the per-pipeline schemas stabilize.
+ * this package. A follow-up PR will move them into this surface as the
+ * per-pipeline schemas stabilize.
  */
 
-// Runtime: register a plugin with the host's registry. Plugin authors call
-// this from their module body as a side effect; the host walks the registry
-// post-load and wires each plugin into its lifecycle.
-export { registerPlugin } from "../plugins/registry.js";
-
-// Public types: defined inside this package's own module so the surface is
-// self-contained, plus a curated re-export of the higher-level Plugin /
-// PluginManifest shapes from the internal types module. The Plugin /
-// PluginManifest re-export is type-only — plugins consume the names, but
-// none of the transitive internal type machinery gets dragged through to
-// the runtime layer.
-export type { Plugin, PluginManifest } from "../plugins/types.js";
-export type { PluginInitContext, PluginShutdownContext } from "./types.js";
+export type {
+  PluginInitContext,
+  PluginLogger,
+  PluginShutdownContext,
+} from "./types.js";
