@@ -150,6 +150,20 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 
 Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
 
+## Multi-Client Assistant State Sync
+
+Persisted assistant state that must converge across macOS, web/Capacitor iOS, and CLI should use the generic `sync_changed` invalidation contract instead of adding a new bespoke server message for each resource. The event payload is `{ type: "sync_changed", tags: [...] }`; tags describe which cached resource is stale, not the new value.
+
+When adding a synced resource:
+
+- Add or reuse a stable tag in `assistant/src/daemon/message-types/sync.ts`.
+- Emit the invalidation after the canonical state write succeeds, using `publishSyncInvalidation()` or the existing serialized `broadcastMessage()` path so clients observe invalidations in send order.
+- Route tags in native and CLI clients by refetching their existing endpoints; broad reconnect/resume catch-up should perform resource refetches instead of depending on a durable sync ledger.
+- Keep live turn and streaming events domain-specific. `sync_changed` is for persisted resource invalidation.
+- Keep legacy bespoke events during native rollout and remove them only after adoption is verified. Do not add durable `sync_changes` tables, cursors, or `/sync/changes` endpoints for v1 unless the design is reopened.
+
+See the platform repo's `docs/multi-client-sync.md` for the tag registry and client-routing examples.
+
 ## Assistant-Driven Judgement
 
 Judgement calls affecting user experience should be made by the assistant through the daemon — not hardcoded heuristics. Reserve deterministic logic for mechanical operations (parsing, validation, access control). If you're writing string matches or scoring functions to approximate what the model would decide, route it through the daemon instead.
