@@ -10,47 +10,8 @@ struct GuardianChannelsDetailView: View {
     /// Channels surfaced as cards, with their display metadata (label,
     /// subtitle, icon, verification capability, setup-message copy).
     /// Hydrated from the gateway's `channels/available` endpoint on first
-    /// task; falls back to the static default below if that fetch fails so
-    /// the UI is never empty mid-rollout. The fallback intentionally
-    /// matches the pre-metadata-endpoint baseline (slack/telegram/phone,
-    /// all verification-capable).
-    @State private var availableChannels: [ChannelInfo] = GuardianChannelsDetailView.defaultChannels
-
-    private static let defaultChannels: [ChannelInfo] = [
-        ChannelInfo(
-            id: "slack",
-            label: "Slack",
-            subtitle: "Message your assistant from Slack",
-            icon: "hash",
-            supportsVerification: true,
-            setupMessages: ChannelInfo.SetupMessages(
-                guardian: "I'd like to verify my identity as your guardian on Slack. Can you help me set that up?",
-                contact: "I'd like to verify a contact's Slack identity. Can you walk me through it?"
-            )
-        ),
-        ChannelInfo(
-            id: "telegram",
-            label: "Telegram",
-            subtitle: "Message your assistant from Telegram",
-            icon: "send",
-            supportsVerification: true,
-            setupMessages: ChannelInfo.SetupMessages(
-                guardian: "I'd like to verify my identity as your guardian on Telegram. Can you help me set that up?",
-                contact: "I'd like to verify a contact's Telegram identity. Can you walk me through it?"
-            )
-        ),
-        ChannelInfo(
-            id: "phone",
-            label: "Phone Calling",
-            subtitle: "Call or text your assistant via phone",
-            icon: "phone",
-            supportsVerification: true,
-            setupMessages: ChannelInfo.SetupMessages(
-                guardian: "I'd like to verify my identity as your guardian for phone calls. Can you help me set that up?",
-                contact: "I'd like to verify a contact's phone number. Can you help me set that up?"
-            )
-        ),
-    ]
+    /// task; stays empty if the fetch fails.
+    @State private var availableChannels: [ChannelInfo] = []
 
     let contact: ContactPayload
     var connectionManager: GatewayConnectionManager?
@@ -124,8 +85,7 @@ struct GuardianChannelsDetailView: View {
             // Hydrate availability + metadata from the gateway. On failure
             // (network, gateway pre-rollout) revert to the static default
             // so the UI never carries stale state from a prior success.
-            availableChannels = await channelClient.fetchChannelAvailability()
-                ?? Self.defaultChannels
+            availableChannels = await channelClient.fetchChannelAvailability() ?? []
             // Pre-warm verification status for every verification-capable
             // channel. Runs after availability hydrates so newly-surfaced
             // verification-capable channels are included automatically.

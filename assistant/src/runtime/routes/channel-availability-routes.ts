@@ -70,15 +70,20 @@ async function hasRegisteredInbox(): Promise<boolean> {
 
 async function handleGetChannelAvailability(
   _args: RouteHandlerArgs,
-): Promise<{ success: true; channels: ChannelInfo[] }> {
+): Promise<{ channels: ChannelInfo[] }> {
   const ids: ChannelId[] = [...BASE_AVAILABLE_CHANNELS];
   if (await hasRegisteredInbox()) {
     ids.push("email");
   }
-  return {
-    success: true,
-    channels: ids.map((id) => CHANNEL_METADATA[id]),
-  };
+  // CHANNEL_METADATA is `Partial<Record<ChannelId, ChannelInfo>>` because
+  // unsurfaced channels deliberately have no metadata. `ids` only ever
+  // contains channels that BASE_AVAILABLE_CHANNELS / the email branch
+  // explicitly chose, so the lookup is always defined — filter to satisfy
+  // the type system without a non-null assertion.
+  const channels = ids
+    .map((id) => CHANNEL_METADATA[id])
+    .filter((info): info is ChannelInfo => info !== undefined);
+  return { channels };
 }
 
 const channelInfoSchema = z.object({
@@ -108,7 +113,6 @@ export const ROUTES: RouteDefinition[] = [
     requirePolicyEnforcement: true,
     handler: handleGetChannelAvailability,
     responseBody: z.object({
-      success: z.boolean(),
       channels: z
         .array(channelInfoSchema)
         .describe("Available channels in display order"),

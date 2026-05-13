@@ -64,7 +64,6 @@ interface ChannelEntry {
   setupMessages: { guardian: string; contact: string };
 }
 interface HandlerResult {
-  success: boolean;
   channels: ChannelEntry[];
 }
 
@@ -86,7 +85,6 @@ describe("channels/available", () => {
   test("base list only when no email address registered", async () => {
     const result = (await handler({})) as HandlerResult;
 
-    expect(result.success).toBe(true);
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",

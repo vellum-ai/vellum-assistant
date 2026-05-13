@@ -145,7 +145,6 @@ public struct ChannelClient: ChannelClientProtocol {
     }
 
     private struct AvailabilityResponse: Decodable {
-        let success: Bool
         let channels: [ChannelInfo]
     }
 

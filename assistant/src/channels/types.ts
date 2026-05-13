@@ -61,13 +61,13 @@ export interface ChannelInfo {
 }
 
 /**
- * Source of truth for per-channel display metadata. Add an entry here when
- * introducing a new `ChannelId` so the Contacts UI renders it without any
- * client-side change. Unsurfaced channels (`vellum`, `platform`) carry
- * placeholder entries so the type system stays exhaustive; they are not
- * currently returned from `/v1/channels/available`.
+ * Per-channel display metadata for the channels the gateway can currently
+ * surface to clients. Add an entry here when surfacing a new channel via
+ * `/v1/channels/available`. `Partial` because unsurfaced channels (e.g.
+ * `vellum`, `platform`) deliberately have no metadata — keep this map
+ * minimal until there's a real surface to feed.
  */
-export const CHANNEL_METADATA: Record<ChannelId, ChannelInfo> = {
+export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
   slack: {
     id: "slack",
     label: "Slack",
@@ -131,28 +131,6 @@ export const CHANNEL_METADATA: Record<ChannelId, ChannelInfo> = {
         "I'd like to verify my identity as your guardian on WhatsApp. Can you help me set that up?",
       contact:
         "I'd like to verify a contact's WhatsApp identity. Can you walk me through it?",
-    },
-  },
-  vellum: {
-    id: "vellum",
-    label: "Vellum",
-    subtitle: "Use the Vellum desktop app",
-    icon: "message-circle",
-    supportsVerification: false,
-    setupMessages: {
-      guardian: "I'd like to set up the Vellum desktop app as a channel.",
-      contact: "I'd like to set up the Vellum desktop app as a channel.",
-    },
-  },
-  platform: {
-    id: "platform",
-    label: "Platform",
-    subtitle: "Connect via the Vellum platform",
-    icon: "globe",
-    supportsVerification: false,
-    setupMessages: {
-      guardian: "I'd like to set up the Vellum platform as a channel.",
-      contact: "I'd like to set up the Vellum platform as a channel.",
     },
   },
 };

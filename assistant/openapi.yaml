@@ -3093,8 +3093,6 @@ paths:
               schema:
                 type: object
                 properties:
-                  success:
-                    type: boolean
                   channels:
                     type: array
                     items:
@@ -3139,7 +3137,6 @@ paths:
                       additionalProperties: false
                     description: Available channels in display order
                 required:
-                  - success
                   - channels
                 additionalProperties: false
   /v1/channels/conversation:
