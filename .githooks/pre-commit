@@ -163,6 +163,11 @@ declare -a SAFE_LINE_PATTERNS=(
     # `clientSecret:\n  type: string`). A real secret value would be on the
     # same line (`clientSecret: "abc"`) or use a multi-line string marker
     # (`clientSecret: |`); a bare key is unambiguously a schema declaration.
+    # Context-guarded below: only whitelisted when the file is `.yaml`/`.yml`
+    # AND the next line looks like a YAML schema annotation (`type:`,
+    # `$ref:`, `description:`, etc.). Without that context, an indented bare
+    # `clientSecret:` line would whitelist any structurally-similar line in
+    # any file type, weakening secret scanning outside schema files.
     "^[[:space:]]+[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$"
     # TS: optional property type annotation (e.g. `clientSecret?: string;`)
     # Must end with type + optional semicolon/comma — no `=` assignment.
@@ -220,12 +225,27 @@ declare -a SAFE_LINE_PATTERNS=(
 
 matches_safe_line_pattern() {
     local text="$1"
+    local file="${2:-}"
+    local next_line="${3:-}"
     local pattern
     for pattern in "${SAFE_LINE_PATTERNS[@]}"; do
         # Case-sensitive: safe patterns handle case variants explicitly.
         # This lets the angle-bracket allowlist distinguish uppercase
         # placeholders from lowercase passphrase-style secrets.
         if printf '%s\n' "$text" | grep -nE -- "$pattern" >/dev/null 2>&1; then
+            # Context guard: the bare-key `clientSecret:` whitelist is only
+            # valid in an OpenAPI / YAML schema context. Require both a
+            # `.yaml`/`.yml` file path AND a following line that looks like
+            # a YAML schema annotation (`type:`, `$ref:`, `description:`,
+            # etc.). Without either, treat the line as a potential secret.
+            if [ "$pattern" = '^[[:space:]]+[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$' ]; then
+                if [[ ! "$file" =~ \.(yaml|yml)$ ]]; then
+                    continue
+                fi
+                if ! printf '%s\n' "$next_line" | grep -qE '^[[:space:]]*(type|\$ref|description|format|nullable|enum|oneOf|anyOf|allOf|items|properties|required|default|example):'; then
+                    continue
+                fi
+            fi
             # Guard: if this looks like a key-constant declaration (let/var/val ...Key = "..."),
             # check that the full variable name doesn't contain a sensitive keyword.
             # This prevents e.g. `let apiStorageKey = "..."` from being whitelisted
@@ -743,6 +763,44 @@ if [ "${1:-}" = "--self-test" ]; then
         exit 1
     fi
 
+    # Bare-key `clientSecret:` whitelist: context-guarded so an indented
+    # bare key only counts as safe inside an OpenAPI / YAML schema. The
+    # guard takes the file path + the following line; without either, the
+    # whitelist no longer fires.
+    YAML_BARE_KEY_LINE='              clientSecret:'
+    YAML_SCHEMA_NEXT_LINE='                type: string'
+    YAML_SCHEMA_REF_NEXT_LINE='                $ref: ''#/components/schemas/Secret'''
+    YAML_NON_SCHEMA_NEXT_LINE='              SuperSecretValue42'
+    # OpenAPI YAML schema context (yaml file + schema annotation next) — safe.
+    if matches_secret_pattern "$YAML_BARE_KEY_LINE" && ! matches_safe_line_pattern "$YAML_BARE_KEY_LINE" "assistant/openapi.yaml" "$YAML_SCHEMA_NEXT_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} bare clientSecret in OpenAPI YAML schema (type:) false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$YAML_BARE_KEY_LINE" && ! matches_safe_line_pattern "$YAML_BARE_KEY_LINE" "openapi/spec.yml" "$YAML_SCHEMA_REF_NEXT_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} bare clientSecret in OpenAPI YAML schema (\$ref:) false positive"
+        exit 1
+    fi
+    # YAML file but next line is not a schema annotation — must NOT be whitelisted.
+    if matches_safe_line_pattern "$YAML_BARE_KEY_LINE" "config/secrets.yaml" "$YAML_NON_SCHEMA_NEXT_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} bare clientSecret in YAML without schema annotation was incorrectly whitelisted"
+        exit 1
+    fi
+    # YAML file but no next-line context — must NOT be whitelisted.
+    if matches_safe_line_pattern "$YAML_BARE_KEY_LINE" "assistant/openapi.yaml" ""; then
+        echo -e "${RED}Self-test failed:${NC} bare clientSecret with no next-line context was incorrectly whitelisted"
+        exit 1
+    fi
+    # Non-YAML file with schema-like next line — must NOT be whitelisted.
+    if matches_safe_line_pattern "$YAML_BARE_KEY_LINE" "src/secrets.ts" "$YAML_SCHEMA_NEXT_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} bare clientSecret in non-YAML file was incorrectly whitelisted"
+        exit 1
+    fi
+    # No file context at all — must NOT be whitelisted.
+    if matches_safe_line_pattern "$YAML_BARE_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} bare clientSecret with no file context was incorrectly whitelisted"
+        exit 1
+    fi
+
     echo "✅ Secret scanner self-test passed"
     exit 0
 fi
@@ -809,8 +867,16 @@ while IFS= read -r -d '' FILE; do
             if [ -z "$line" ]; then
                 continue
             fi
+            LINENO="${line%%:*}"
             CONTENT="${line#*:}"
-            if matches_safe_line_pattern "$CONTENT"; then
+            # Context-aware patterns need the line that follows the match
+            # in the staged blob (e.g. to confirm a bare `clientSecret:` key
+            # sits in an OpenAPI schema). Compute lazily — only when needed.
+            NEXT_LINE=""
+            if [[ "$LINENO" =~ ^[0-9]+$ ]] && [[ "$FILE" =~ \.(yaml|yml)$ ]]; then
+                NEXT_LINE=$(git show ":$FILE" 2>/dev/null | sed -n "$((LINENO + 1))p")
+            fi
+            if matches_safe_line_pattern "$CONTENT" "$FILE" "$NEXT_LINE"; then
                 # Strip safe-line portions and re-check: a real secret
                 # on the same line (e.g. minified JSON) must not be masked.
                 STRIPPED="$CONTENT"
