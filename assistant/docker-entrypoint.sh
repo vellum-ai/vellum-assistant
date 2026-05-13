@@ -5,7 +5,7 @@ set -eu
 # processes (the `assistant` user, bun's tmpdir, scratch writes) can use it.
 chmod 1777 /tmp 2>/dev/null || true
 
-if [ -x /app/assistant/docker-init-apt-root.sh ] && /app/assistant/docker-is-kata-runtime.sh; then
+if [ "${VELLUM_SANDBOX_RUNTIME:-}" = "kata" ] && [ -x /app/assistant/docker-init-apt-root.sh ]; then
   export VELLUM_APT_DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
   APT_SYSTEM_PATH="${VELLUM_APT_DATA_ROOT}/bin:${VELLUM_APT_DATA_ROOT}/usr/local/sbin:${VELLUM_APT_DATA_ROOT}/usr/local/bin:${VELLUM_APT_DATA_ROOT}/usr/sbin:${VELLUM_APT_DATA_ROOT}/usr/bin:${VELLUM_APT_DATA_ROOT}/sbin"
   APT_LIBRARY_PATH="${VELLUM_APT_DATA_ROOT}/usr/local/lib:${VELLUM_APT_DATA_ROOT}/usr/lib:${VELLUM_APT_DATA_ROOT}/usr/lib/x86_64-linux-gnu:${VELLUM_APT_DATA_ROOT}/usr/lib/aarch64-linux-gnu"
