@@ -60,6 +60,8 @@ describe("AskQuestionTool definition", () => {
     expect(def.description).toContain("obvious from context");
     expect(def.description).toContain("Use this tool whenever");
     expect(def.description).toContain("When in doubt");
+    expect(def.description).toContain("plausible interpretations");
+    expect(def.description).toContain("remove guessing");
     expect(def.description).toContain("skips a question");
     expect(def.description).toContain("skip every question in the batch");
     // Batching language is back now that the prompter handles batches.
@@ -257,10 +259,7 @@ describe("AskQuestionTool batched input", () => {
       singleCompleted({ decision: "option", optionId: "a" }),
     );
 
-    const result = await tool.execute(
-      { questions: [singleQ] },
-      makeContext(),
-    );
+    const result = await tool.execute({ questions: [singleQ] }, makeContext());
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.questions).toHaveLength(1);
@@ -454,10 +453,7 @@ describe("AskQuestionTool batched input", () => {
       singleCompleted({ decision: "option", optionId: "a" }),
     );
 
-    const result = await tool.execute(
-      { question: "Hi?" },
-      makeContext(),
-    );
+    const result = await tool.execute({ question: "Hi?" }, makeContext());
 
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("invalid input");

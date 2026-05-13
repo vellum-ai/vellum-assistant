@@ -410,8 +410,7 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
  * Determine whether a tool is part of the final exposed tool set for the
  * current turn. This helper mirrors the filtering applied by
  * `createResolveToolsCallback` — including the subagent allowlist,
- * `toolsDisabledDepth`, and disk-pressure cleanup restrictions — so callers
- * see the same tool set the LLM ultimately receives.
+ * `toolsDisabledDepth`, and disk-pressure cleanup restrictions.
  */
 export function isToolActiveForContext(
   name: string,
@@ -419,15 +418,14 @@ export function isToolActiveForContext(
 ): boolean {
   // When the conversation is acting as a subagent, the parent orchestrator
   // restricts the tool list. A tool that isn't on the allowlist is not
-  // available for this turn — short-circuit before any capability checks so
-  // callers see the same final tool set as `createResolveToolsCallback`.
+  // available for this turn, so short-circuit before any capability checks.
   if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
     return false;
   }
   // `createResolveToolsCallback` returns an empty tool list when tools are
   // disabled (e.g. pointer-generation turns) and restricts to cleanup-safe
-  // tools under disk pressure. Mirror both here so callers don't see tools
-  // the LLM cannot actually invoke.
+  // tools under disk pressure. Mirror both here so this helper reports the
+  // same final tool set the LLM receives.
   if (ctx.toolsDisabledDepth > 0) {
     return false;
   }

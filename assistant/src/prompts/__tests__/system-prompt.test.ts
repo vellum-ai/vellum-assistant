@@ -105,3 +105,14 @@ describe("buildSystemPrompt — Background Conversation gating", () => {
   });
 });
 
+describe("buildSystemPrompt — tool routing guidance", () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  test("does not include ask_question routing guidance", () => {
+    const result = buildSystemPrompt({});
+    expect(result).not.toContain("## Clarifying questions");
+    expect(result).not.toContain("ask_question");
+  });
+});

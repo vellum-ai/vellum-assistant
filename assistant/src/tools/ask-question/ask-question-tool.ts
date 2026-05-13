@@ -75,8 +75,9 @@ export type AskQuestionInput = z.infer<typeof InputSchema>;
 
 const DESCRIPTION = [
   "Use this tool whenever the user's request is ambiguous and can be resolved",
-  "by 2–4 discrete choices. Prefer it over plain-text clarification — a single",
-  "option tap is faster than free-form back-and-forth, and avoids guessing.",
+  "by 2–4 plausible interpretations or discrete choices. Prefer it over",
+  "plain-text clarification — structured options are faster to answer and",
+  "remove guessing.",
   "",
   "When in doubt between (a) asking inline and (b) calling ask_question with",
   "structured options: call ask_question. The structured choices are better UX.",

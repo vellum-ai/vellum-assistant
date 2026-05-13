@@ -70,8 +70,8 @@ export async function runBtwSidechain(
   const tools = params.tools;
   const history = params.messages ?? params.conversation?.getMessages() ?? [];
   const messages = [...history, userMessage(trimmedContent)];
-  // Side-chains force `tool_choice: { type: "none" }` below, so the model
-  // cannot invoke any tools from this path.
+  // Side-chains force `tool_choice: { type: "none" }` below, so tool usage
+  // guidance must stay in tool descriptions rather than this system prompt.
   const systemPrompt =
     params.systemPrompt ??
     (params.conversation?.hasSystemPromptOverride

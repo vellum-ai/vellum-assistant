@@ -214,9 +214,9 @@ Adding content to the system prompt is a **last resort**. The system prompt is t
 2. **Config / feature flags** — Use runtime configuration instead of prompt-level instructions.
 3. **Code** — If a behavior can be enforced programmatically, enforce it in code.
 
-Only add to the system prompt when the behavior cannot be achieved any other way. When you must, keep additions minimal and look for existing content to condense or remove to offset the addition.
+Tool routing and tool usage guidance belong in the relevant tool description, input schema, or SKILL.md — not in the system prompt. Only put this guidance in the system prompt when it must apply across tools and cannot be localized.
 
-**Tool-specific guidance belongs in the tool's `description` field, not in `<workspace>/prompts/system/` sections.** When to call a tool, when not to, examples of well-formed inputs, fallback behavior when the user skips — all of that travels with the tool definition and is gated by the same tool-availability logic. The system prompt is for cross-tool flow signals (e.g. background-conversation mode), not tool-routing advice. If you find yourself adding a workspace section that names a single tool, rewrite it as a description edit instead.
+Only add to the system prompt when the behavior cannot be achieved any other way. When you must, keep additions minimal and look for existing content to condense or remove to offset the addition.
 
 CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md` for details.
 

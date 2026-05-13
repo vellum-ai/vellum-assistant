@@ -71,7 +71,7 @@ describe("subagent-only tool filtering", () => {
 
   test("respects subagentAllowedTools — tools outside the allowlist are inactive", () => {
     // Mirrors `createResolveToolsCallback`'s post-filter so callers see the
-    // same final tool set.
+    // same final tool set the LLM receives.
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
@@ -89,8 +89,7 @@ describe("subagent-only tool filtering", () => {
 
   test("returns false for every tool when toolsDisabledDepth > 0", () => {
     // `createResolveToolsCallback` returns an empty tool list when tools are
-    // disabled; mirror it here so callers don't see tools the LLM cannot
-    // invoke.
+    // disabled; mirror it here so this helper reports the same final tool set.
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
@@ -105,8 +104,7 @@ describe("subagent-only tool filtering", () => {
 
   test("under disk-pressure cleanup mode, only cleanup-safe tools are active", () => {
     // `createResolveToolsCallback` restricts the turn to cleanup-safe tools
-    // (`file_remove`, `bash`, etc.); ensure the helper agrees so callers see
-    // the same filtered tool set.
+    // (`file_remove`, `bash`, etc.); ensure the helper agrees.
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
