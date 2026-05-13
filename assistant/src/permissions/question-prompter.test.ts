@@ -4,6 +4,10 @@ import type {
   QuestionRequest,
   ServerMessage,
 } from "../daemon/message-protocol.js";
+import type {
+  QuestionBatchSubmission,
+  QuestionPromptResult,
+} from "./question-prompter.js";
 
 // Use a tiny timeout so the setTimeout branch fires quickly in tests
 const mockConfig = {
@@ -33,9 +37,18 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Use a real Map so QuestionPrompter can store and retrieve callbacks.
-const _piStore = new Map<string, { timer?: ReturnType<typeof setTimeout> }>();
+interface MockInteraction {
+  rpcResolve?: (v: unknown) => void;
+  rpcReject?: (e: unknown) => void;
+  timer?: ReturnType<typeof setTimeout>;
+  metadata?: {
+    orderedIds: string[];
+    optionsById: Record<string, string[]>;
+  };
+}
+const _piStore = new Map<string, MockInteraction>();
 mock.module("../runtime/pending-interactions.js", () => ({
-  register: (id: string, entry: object) => _piStore.set(id, entry),
+  register: (id: string, entry: MockInteraction) => _piStore.set(id, entry),
   resolve: (id: string) => {
     const e = _piStore.get(id);
     if (e?.timer != null) clearTimeout(e.timer);
@@ -50,9 +63,11 @@ mock.module("../runtime/pending-interactions.js", () => ({
   clear: () => _piStore.clear(),
 }));
 
-const { QuestionPrompter, QuestionBatchValidationError } = await import(
-  "./question-prompter.js"
-);
+const {
+  QuestionPrompter,
+  QuestionBatchValidationError,
+  buildBatchEntries,
+} = await import("./question-prompter.js");
 
 function makePrompter() {
   const sent: ServerMessage[] = [];
@@ -60,6 +75,57 @@ function makePrompter() {
     broadcastMessage: (msg) => sent.push(msg),
   });
   return { prompter, sent };
+}
+
+/**
+ * Drive a pending question interaction the same way the
+ * `/v1/question-response` route does: look up the metadata, run
+ * `buildBatchEntries`, deregister, then fire `rpcResolve`. Centralizing the
+ * sequence in one helper keeps the tests focused on observable behavior and
+ * mirrors the production resolution path.
+ */
+function resolveBatch(
+  requestId: string,
+  submissions: QuestionBatchSubmission[],
+): QuestionPromptResult {
+  const interaction = _piStore.get(requestId);
+  if (!interaction?.metadata) {
+    throw new Error(`No pending question interaction for ${requestId}`);
+  }
+  const { orderedIds, optionsById } = interaction.metadata;
+  const entries = buildBatchEntries(
+    orderedIds,
+    (qid, oid) => (optionsById[qid] ?? []).includes(oid),
+    new Set(Object.keys(optionsById)),
+    submissions,
+  );
+  const result: QuestionPromptResult = { entries, overall: "completed" };
+  if (interaction.timer != null) clearTimeout(interaction.timer);
+  _piStore.delete(requestId);
+  interaction.rpcResolve?.(result);
+  return result;
+}
+
+/**
+ * Close a pending question card: every entry reported as `skipped`, overall
+ * status `closed`. Mirrors the route's `kind: "close"` branch.
+ */
+function closeBatch(requestId: string): QuestionPromptResult {
+  const interaction = _piStore.get(requestId);
+  if (!interaction?.metadata) {
+    throw new Error(`No pending question interaction for ${requestId}`);
+  }
+  const result: QuestionPromptResult = {
+    entries: interaction.metadata.orderedIds.map((id) => ({
+      questionId: id,
+      decision: "skipped" as const,
+    })),
+    overall: "closed",
+  };
+  if (interaction.timer != null) clearTimeout(interaction.timer);
+  _piStore.delete(requestId);
+  interaction.rpcResolve?.(result);
+  return result;
 }
 
 const fruitOptions = [
@@ -104,7 +170,7 @@ describe("QuestionPrompter", () => {
     _piStore.clear();
   });
 
-  test("happy path: option resolution via submitQuestionBatch", async () => {
+  test("happy path: option resolution via the shared batch helpers", async () => {
     const { prompter, sent } = makePrompter();
 
     const promise = prompter.prompt(singleQuestionParams);
@@ -115,7 +181,7 @@ describe("QuestionPrompter", () => {
     expect(req.questions).toHaveLength(1);
     expect(req.questions[0]?.id).toBe("q1");
 
-    prompter.submitQuestionBatch(req.requestId, [
+    resolveBatch(req.requestId, [
       { questionId: "q1", kind: "option", optionId: "a" },
     ]);
 
@@ -124,7 +190,7 @@ describe("QuestionPrompter", () => {
       entries: [{ questionId: "q1", decision: "option", optionId: "a" }],
       overall: "completed",
     });
-    expect(prompter.hasPendingRequest(req.requestId)).toBe(false);
+    expect(_piStore.has(req.requestId)).toBe(false);
   });
 
   test("free-text resolution", async () => {
@@ -145,7 +211,7 @@ describe("QuestionPrompter", () => {
     expect(req.freeTextPlaceholder).toBe("Type a fruit");
     expect(req.questions[0]?.freeTextPlaceholder).toBe("Type a fruit");
 
-    prompter.submitQuestionBatch(req.requestId, [
+    resolveBatch(req.requestId, [
       { questionId: "q1", kind: "free_text", text: "Cherry" },
     ]);
 
@@ -175,7 +241,7 @@ describe("QuestionPrompter", () => {
     const promise = prompter.prompt(threeQuestionParams);
     const req = sent[0] as QuestionRequest;
 
-    prompter.submitQuestionBatch(req.requestId, [
+    resolveBatch(req.requestId, [
       { questionId: "q2", kind: "option", optionId: "y" },
       { questionId: "q1", kind: "option", optionId: "a" },
       { questionId: "q3", kind: "free_text", text: "noon-ish" },
@@ -192,13 +258,13 @@ describe("QuestionPrompter", () => {
     ]);
   });
 
-  test("three-question batch: all skipped via submitQuestionBatch", async () => {
+  test("three-question batch: all skipped via submitted entries", async () => {
     const { prompter, sent } = makePrompter();
 
     const promise = prompter.prompt(threeQuestionParams);
     const req = sent[0] as QuestionRequest;
 
-    prompter.submitQuestionBatch(req.requestId, [
+    resolveBatch(req.requestId, [
       { questionId: "q1", kind: "skip" },
       { questionId: "q2", kind: "skip" },
       { questionId: "q3", kind: "skip" },
@@ -209,13 +275,13 @@ describe("QuestionPrompter", () => {
     expect(result.entries.every((e) => e.decision === "skipped")).toBe(true);
   });
 
-  test("closeQuestion: all entries skipped with overall=closed", async () => {
+  test("close path: all entries skipped with overall=closed", async () => {
     const { prompter, sent } = makePrompter();
 
     const promise = prompter.prompt(threeQuestionParams);
     const req = sent[0] as QuestionRequest;
 
-    prompter.closeQuestion(req.requestId);
+    closeBatch(req.requestId);
 
     const result = await promise;
     expect(result.overall).toBe("closed");
@@ -226,40 +292,39 @@ describe("QuestionPrompter", () => {
     ]);
   });
 
-  test("submitQuestionBatch rejects unknown questionId", async () => {
-    const { prompter, sent } = makePrompter();
-    void prompter.prompt(singleQuestionParams);
-    const req = sent[0] as QuestionRequest;
-
+  test("buildBatchEntries rejects unknown questionId", () => {
     expect(() =>
-      prompter.submitQuestionBatch(req.requestId, [
-        { questionId: "qX", kind: "option", optionId: "a" },
-      ]),
+      buildBatchEntries(
+        ["q1"],
+        () => true,
+        new Set(["q1"]),
+        [{ questionId: "qX", kind: "option", optionId: "a" }],
+      ),
     ).toThrow(QuestionBatchValidationError);
   });
 
-  test("submitQuestionBatch rejects missing entry", async () => {
-    const { prompter, sent } = makePrompter();
-    void prompter.prompt(threeQuestionParams);
-    const req = sent[0] as QuestionRequest;
-
+  test("buildBatchEntries rejects missing entry", () => {
     expect(() =>
-      prompter.submitQuestionBatch(req.requestId, [
-        { questionId: "q1", kind: "option", optionId: "a" },
-        { questionId: "q2", kind: "option", optionId: "x" },
-      ]),
+      buildBatchEntries(
+        ["q1", "q2", "q3"],
+        () => true,
+        new Set(["q1", "q2", "q3"]),
+        [
+          { questionId: "q1", kind: "option", optionId: "a" },
+          { questionId: "q2", kind: "option", optionId: "x" },
+        ],
+      ),
     ).toThrow(QuestionBatchValidationError);
   });
 
-  test("submitQuestionBatch rejects unknown optionId", async () => {
-    const { prompter, sent } = makePrompter();
-    void prompter.prompt(singleQuestionParams);
-    const req = sent[0] as QuestionRequest;
-
+  test("buildBatchEntries rejects unknown optionId", () => {
     expect(() =>
-      prompter.submitQuestionBatch(req.requestId, [
-        { questionId: "q1", kind: "option", optionId: "nope" },
-      ]),
+      buildBatchEntries(
+        ["q1"],
+        (qid, oid) => qid === "q1" && (oid === "a" || oid === "b"),
+        new Set(["q1"]),
+        [{ questionId: "q1", kind: "option", optionId: "nope" }],
+      ),
     ).toThrow(QuestionBatchValidationError);
   });
 
@@ -274,7 +339,7 @@ describe("QuestionPrompter", () => {
     ]);
   });
 
-  test("abort signal triggers overall: aborted", async () => {
+  test("abort signal triggers overall: aborted with per-entry aborted decisions", async () => {
     const { prompter, sent } = makePrompter();
     const ac = new AbortController();
 
@@ -283,15 +348,20 @@ describe("QuestionPrompter", () => {
       signal: ac.signal,
     });
     const req = sent[0] as QuestionRequest;
-    expect(prompter.hasPendingRequest(req.requestId)).toBe(true);
+    expect(_piStore.has(req.requestId)).toBe(true);
 
     ac.abort();
     const result = await promise;
     expect(result.overall).toBe("aborted");
-    expect(prompter.hasPendingRequest(req.requestId)).toBe(false);
+    expect(result.entries).toEqual([
+      { questionId: "q1", decision: "aborted" },
+      { questionId: "q2", decision: "aborted" },
+      { questionId: "q3", decision: "aborted" },
+    ]);
+    expect(_piStore.has(req.requestId)).toBe(false);
   });
 
-  test("pre-aborted signal short-circuits before broadcasting", async () => {
+  test("pre-aborted signal short-circuits before broadcasting with aborted entries", async () => {
     const { prompter, sent } = makePrompter();
     const ac = new AbortController();
     ac.abort();
@@ -301,6 +371,11 @@ describe("QuestionPrompter", () => {
       signal: ac.signal,
     });
     expect(result.overall).toBe("aborted");
+    expect(result.entries).toEqual([
+      { questionId: "q1", decision: "aborted" },
+      { questionId: "q2", decision: "aborted" },
+      { questionId: "q3", decision: "aborted" },
+    ]);
     expect(sent).toHaveLength(0);
   });
 });

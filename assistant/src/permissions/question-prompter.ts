@@ -32,13 +32,15 @@ export class QuestionBatchValidationError extends Error {
  *  - `"skipped"` — the user explicitly skipped this question, or the card
  *    was closed before any answer was submitted.
  *  - `"timed_out"` — the prompt timer fired before the client submitted.
+ *  - `"aborted"` — the prompter's abort signal fired before any answer
+ *    was submitted.
  *
  * `questionId` matches the daemon-assigned id (`q1`, `q2`...) that the
  * prompter attached to the broadcast.
  */
 export interface QuestionPromptEntryResult {
   questionId: string;
-  decision: "option" | "free_text" | "skipped" | "timed_out";
+  decision: "option" | "free_text" | "skipped" | "timed_out" | "aborted";
   optionId?: string;
   text?: string;
 }
@@ -135,17 +137,17 @@ export function buildBatchEntries(
  * The route reads this to validate batched submissions without needing a
  * reference to the prompter that registered them.
  */
-interface QuestionBatchMetadata {
+export interface QuestionBatchMetadata {
   orderedIds: string[];
   optionsById: Record<string, string[]>;
 }
 
 /**
  * Broadcast an ask-question request to all connected clients and wait for the
- * user's reply. Mirrors the {@link SecretPrompter} and {@link PermissionPrompter}
- * patterns: lifecycle state (rpcResolve, rpcReject, timer) lives in
- * pendingInteractions; this class only tracks ownership so dispose can scope
- * cleanup to a single conversation.
+ * user's reply. All lifecycle state (rpcResolve, rpcReject, timer, batch
+ * metadata) lives on the `pendingInteractions` entry — `/v1/question-response`
+ * resolves the entry directly without holding a reference back to the prompter
+ * that registered it.
  *
  * Batching: a single `prompt()` call broadcasts one or more questions, and
  * the prompter waits for exactly one resolution call carrying the full
@@ -159,8 +161,6 @@ interface QuestionBatchMetadata {
  * secret prompts, so they share the same idle-timeout knob.
  */
 export class QuestionPrompter {
-  private ownedIds = new Set<string>();
-
   constructor(
     private deps: { broadcastMessage(msg: ServerMessage): void },
   ) {}
@@ -194,7 +194,7 @@ export class QuestionPrompter {
       return {
         entries: orderedIds.map((id) => ({
           questionId: id,
-          decision: "skipped",
+          decision: "aborted",
         })),
         overall: "aborted",
       };
@@ -207,7 +207,6 @@ export class QuestionPrompter {
 
       const timer = setTimeout(() => {
         pendingInteractions.resolve(requestId);
-        this.ownedIds.delete(requestId);
         log.warn({ requestId, conversationId }, "Question prompt timed out");
         resolve({
           entries: orderedIds.map((id) => ({
@@ -229,21 +228,21 @@ export class QuestionPrompter {
         toolUseId,
         metadata: { orderedIds, optionsById } satisfies QuestionBatchMetadata,
       });
-      this.ownedIds.add(requestId);
 
       if (signal) {
         const onAbort = () => {
-          if (this.ownedIds.has(requestId)) {
-            pendingInteractions.resolve(requestId);
-            this.ownedIds.delete(requestId);
-            resolve({
-              entries: orderedIds.map((id) => ({
-                questionId: id,
-                decision: "skipped",
-              })),
-              overall: "aborted",
-            });
-          }
+          // `pendingInteractions.resolve(requestId)` returns the deregistered
+          // entry on first call and undefined thereafter — use that as the
+          // idempotency guard so a late abort after route/timeout resolution
+          // is a no-op.
+          if (pendingInteractions.resolve(requestId) === undefined) return;
+          resolve({
+            entries: orderedIds.map((id) => ({
+              questionId: id,
+              decision: "aborted",
+            })),
+            overall: "aborted",
+          });
         };
         signal.addEventListener("abort", onAbort, { once: true });
       }
@@ -266,86 +265,5 @@ export class QuestionPrompter {
 
       this.deps.broadcastMessage(msg);
     });
-  }
-
-  hasPendingRequest(requestId: string): boolean {
-    return this.ownedIds.has(requestId);
-  }
-
-  /**
-   * Resolve a pending request with a complete batched submission. Validates
-   * that every original questionId is covered exactly once, no unknown
-   * questionId appears, and each `"option"` entry's optionId is one of
-   * the question's options.
-   *
-   * Throws {@link QuestionBatchValidationError} on validation failure so the
-   * route can map it to a 400. Returns `false` if no request matches.
-   */
-  submitQuestionBatch(
-    requestId: string,
-    submissions: QuestionBatchSubmission[],
-  ): boolean {
-    const meta = this.getOwnedBatchMetadata(requestId);
-    if (!meta) return false;
-
-    const entries = buildBatchEntries(
-      meta.orderedIds,
-      (qid, oid) => (meta.optionsById[qid] ?? []).includes(oid),
-      new Set(Object.keys(meta.optionsById)),
-      submissions,
-    );
-    this.resolveOwned(requestId, { entries, overall: "completed" });
-    return true;
-  }
-
-  /**
-   * Resolve a pending request as "closed" — the user dismissed the card
-   * without answering. Every entry is reported as `skipped` and the overall
-   * status is `closed`. Returns `false` if no request matches.
-   */
-  closeQuestion(requestId: string): boolean {
-    const meta = this.getOwnedBatchMetadata(requestId);
-    if (!meta) return false;
-
-    const entries: QuestionPromptEntryResult[] = meta.orderedIds.map((id) => ({
-      questionId: id,
-      decision: "skipped",
-    }));
-    this.resolveOwned(requestId, { entries, overall: "closed" });
-    return true;
-  }
-
-  dispose(): void {
-    for (const requestId of [...this.ownedIds]) {
-      const interaction = pendingInteractions.resolve(requestId);
-      this.ownedIds.delete(requestId);
-      interaction?.rpcReject?.(
-        new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
-      );
-    }
-  }
-
-  // ── Internals ──────────────────────────────────────────────────────
-
-  /** Read batch metadata for an owned requestId, or null/log-warn otherwise. */
-  private getOwnedBatchMetadata(
-    requestId: string,
-  ): QuestionBatchMetadata | null {
-    if (!this.ownedIds.has(requestId)) {
-      log.warn({ requestId }, "No pending prompt for this requestId");
-      return null;
-    }
-    const interaction = pendingInteractions.get(requestId);
-    const meta = interaction?.metadata as QuestionBatchMetadata | undefined;
-    return meta ?? null;
-  }
-
-  /** Resolve an owned request: deregister, drop ownership, fire rpcResolve. */
-  private resolveOwned(requestId: string, value: QuestionPromptResult): void {
-    const interaction = pendingInteractions.resolve(requestId);
-    this.ownedIds.delete(requestId);
-    (interaction?.rpcResolve as
-      | ((v: QuestionPromptResult) => void)
-      | undefined)?.(value);
   }
 }
