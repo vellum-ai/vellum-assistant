@@ -1,31 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-
 export interface ApiKeyCheckResult {
   hasKey: boolean;
-  /** Absolute path to the instance .env file (may or may not exist). */
-  envPath: string;
-}
-
-/**
- * Parse a .env file into a key→value map.
- *
- * Handles the common subset used by this project:
- *   - KEY=value (no quotes)
- *   - # comment lines and blank lines are skipped
- */
-function parseDotEnv(content: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const value = trimmed.slice(eq + 1).trim();
-    if (key) result[key] = value;
-  }
-  return result;
 }
 
 /**
@@ -42,19 +16,16 @@ function isPlaceholder(value: string | undefined): boolean {
 }
 
 /**
- * Check whether at least one LLM provider API key is configured for the given
- * local assistant instance.
+ * Check whether at least one LLM provider API key is configured in the
+ * current process environment.
  *
- * Checks (in priority order):
- *   1. `process.env.ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`
- *   2. The same keys read from `<instanceDir>/.vellum/.env`
- *
- * Returns `hasKey: false` when none of the known provider keys is set to a
- * non-placeholder value so that callers can print a clear, actionable warning.
+ * The CLI's job is to spawn the daemon and pass configuration via environment
+ * variables — it does not read from the .vellum/ directory (see AGENTS.md).
+ * Checking process.env is sufficient: the daemon forwards whatever is set
+ * in the environment, so exporting a key before running `vellum wake` is the
+ * correct way to supply it.
  */
-export function checkProviderApiKey(instanceDir: string): ApiKeyCheckResult {
-  const envPath = join(instanceDir, ".vellum", ".env");
-
+export function checkProviderApiKey(): ApiKeyCheckResult {
   const PROVIDER_KEYS = [
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
@@ -62,22 +33,11 @@ export function checkProviderApiKey(instanceDir: string): ApiKeyCheckResult {
     "OLLAMA_API_KEY",
   ] as const;
 
-  // Check the process environment first (the user may have exported a key).
   for (const key of PROVIDER_KEYS) {
     if (!isPlaceholder(process.env[key])) {
-      return { hasKey: true, envPath };
+      return { hasKey: true };
     }
   }
 
-  // Fall back to the instance .env file.
-  if (existsSync(envPath)) {
-    const parsed = parseDotEnv(readFileSync(envPath, "utf-8"));
-    for (const key of PROVIDER_KEYS) {
-      if (!isPlaceholder(parsed[key])) {
-        return { hasKey: true, envPath };
-      }
-    }
-  }
-
-  return { hasKey: false, envPath };
+  return { hasKey: false };
 }

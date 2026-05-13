@@ -155,16 +155,14 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
-    const apiKeyCheck = checkProviderApiKey(resources.instanceDir);
+    const apiKeyCheck = checkProviderApiKey();
     if (!apiKeyCheck.hasKey) {
       console.warn("");
       console.warn(
         "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
       );
-      console.warn(
-        `  To fix, add your ANTHROPIC_API_KEY (or another provider key) to:`,
-      );
-      console.warn(`  ${apiKeyCheck.envPath}`);
+      console.warn("  To fix, export your key before running vellum wake:");
+      console.warn("  export ANTHROPIC_API_KEY=<your-key>");
       console.warn("");
     }
     await startLocalDaemon(watch, resources, { foreground, signingKey });
