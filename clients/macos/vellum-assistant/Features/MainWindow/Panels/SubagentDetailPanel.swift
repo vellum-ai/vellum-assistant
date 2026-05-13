@@ -104,7 +104,6 @@ struct SubagentDetailPanel: View {
                         .lineSpacing(18 - 14)
                 }
                 .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.md, bottom: VSpacing.lg, trailing: VSpacing.md))
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceOverlay)
             }
 
@@ -118,7 +117,6 @@ struct SubagentDetailPanel: View {
                         .foregroundStyle(VColor.systemNegativeStrong)
                 }
                 .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .fill(VColor.systemNegativeStrong.opacity(0.08))
@@ -167,10 +165,12 @@ struct SubagentDetailPanel: View {
             iconNode(for: group)
                 .frame(width: Self.gutterWidth)
 
-            VStack(alignment: .leading, spacing: 0) {
-                renderGroup(group)
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    renderGroup(group)
+                }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.bottom, isLast ? 0 : VSpacing.lg)
         .overlay(alignment: .topLeading) {
@@ -259,7 +259,6 @@ struct SubagentDetailPanel: View {
         .padding(.horizontal, VSpacing.md)
         .padding(.top, VSpacing.md)
         .padding(.bottom, VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceOverlay)
     }
 
@@ -272,16 +271,18 @@ struct SubagentDetailPanel: View {
             ? max(panelContentWidth - Self.gutterWidth - VSpacing.lg - 2 * VSpacing.md, 0)
             : nil
         ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 0) {
-                MarkdownSegmentView(
-                    segments: parseMarkdownSegments(event.content),
-                    typographyGeneration: typographyObserver.generation,
-                    maxContentWidth: markdownWidth
-                )
-                .equatable()
-                .textSelection(.enabled)
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    MarkdownSegmentView(
+                        segments: parseMarkdownSegments(event.content),
+                        typographyGeneration: typographyObserver.generation,
+                        maxContentWidth: markdownWidth
+                    )
+                    .equatable()
+                    .textSelection(.enabled)
+                }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
             SubagentTextActionOverlay(
                 event: event,
@@ -391,7 +392,6 @@ struct SubagentDetailPanel: View {
             }
         }
         .padding(VSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .strokeBorder(VColor.borderBase, lineWidth: 1)
