@@ -1,13 +1,11 @@
 /**
- * Tests for the task_progress_hint workspace system prompt section.
+ * Tests for the task_progress hint in the 01-parallel-tool-calls workspace
+ * system prompt section.
  *
- * Verifies that 02-task-progress-hint.md exists as a bundled template and
- * renders unconditionally into the system prompt output — no `enabled`
- * frontmatter gating, no options dependency.
+ * Verifies that the task_progress guidance renders unconditionally in the
+ * system prompt — no `enabled` frontmatter gating, no options dependency.
  */
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const noopLogger: Record<string, unknown> = new Proxy(
@@ -59,32 +57,20 @@ mock.module("../../config/loader.js", () => ({
 const { buildSystemPrompt, ensurePromptFiles, SYSTEM_PROMPT_CACHE_BOUNDARY } =
   await import("../system-prompt.js");
 
-const TEMPLATE_PATH = join(
-  import.meta.dirname ?? __dirname,
-  "..",
-  "templates",
-  "system",
-  "02-task-progress-hint.md",
-);
-
-describe("task_progress_hint workspace section", () => {
+describe("task_progress hint in parallel-tool-calls section", () => {
   beforeEach(() => {
-    // Seed template files into the test workspace — mirrors daemon startup.
     ensurePromptFiles();
   });
 
-  test("template file exists at the expected bundled path", () => {
-    expect(existsSync(TEMPLATE_PATH)).toBe(true);
-  });
-
-  test("buildSystemPrompt() includes task_progress content", () => {
+  test("buildSystemPrompt() includes task_progress guidance", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("task_progress");
+    expect(result).toContain("No exceptions");
   });
 
   test("renders unconditionally — no options required", () => {
     const result = buildSystemPrompt(undefined);
-    expect(result).toContain("task_progress_hint");
+    expect(result).toContain("task_progress");
   });
 
   test("renders regardless of options passed", () => {
@@ -98,16 +84,16 @@ describe("task_progress_hint workspace section", () => {
       excludeCustomPrefix: true,
     });
 
-    expect(withBackground).toContain("task_progress_hint");
-    expect(withoutBackground).toContain("task_progress_hint");
-    expect(withExcludePrefix).toContain("task_progress_hint");
+    expect(withBackground).toContain("task_progress");
+    expect(withoutBackground).toContain("task_progress");
+    expect(withExcludePrefix).toContain("task_progress");
   });
 
-  test("section lives in the static (cached) block before SYSTEM_PROMPT_CACHE_BOUNDARY", () => {
+  test("hint lives in the static (cached) block before SYSTEM_PROMPT_CACHE_BOUNDARY", () => {
     const result = buildSystemPrompt();
     const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
     expect(boundaryIdx).toBeGreaterThan(-1);
     const staticBlock = result.slice(0, boundaryIdx);
-    expect(staticBlock).toContain("task_progress_hint");
+    expect(staticBlock).toContain("task_progress");
   });
 });
