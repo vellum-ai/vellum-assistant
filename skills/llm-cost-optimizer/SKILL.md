@@ -2,8 +2,9 @@
 name: "llm-cost-optimizer"
 description: "Analyze and reduce LLM spend by mapping call-site overrides to managed profiles (Balanced / Quality / Speed). Covers spend analysis, profile assignment, and config correctness."
 metadata:
+  emoji: "💸"
   vellum:
-    emoji: 💸
+    display-name: "LLM Cost Optimizer"
 ---
 
 ## Overview
@@ -15,6 +16,7 @@ This skill walks through analyzing and reducing LLM spend on a Vellum assistant.
 3. **Call-site overrides** (`llm.callSites.<id>`) — per-task model/profile pinning. Falls back to `llm.default` when absent.
 
 UI labels for the three managed profiles:
+
 - `balanced` → **Balanced** (Sonnet, good for agent loop)
 - `quality-optimized` → **Quality** (Opus, for hard tasks)
 - `cost-optimized` → **Speed** (Haiku, for utility/background tasks)
@@ -61,11 +63,11 @@ assistant inference providers connections list
 
 ## Step 3 — Recommended profile assignment
 
-| Profile | Call Sites |
-|---|---|
-| `balanced` (Sonnet) | `mainAgent`, `subagentSpawn`, `compactionAgent`, `analyzeConversation`, `patternScan`, `narrativeRefinement`, `memoryRouter`, `memoryConsolidation` |
-| `cost-optimized` (Haiku) | **Everything else** — memory extraction/retrieval, UI copy, classifiers, summarization, background tasks |
-| `quality-optimized` (Opus) | **Do not pin.** Reserved for on-demand user escalation via `/model` |
+| Profile                    | Call Sites                                                                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `balanced` (Sonnet)        | `mainAgent`, `subagentSpawn`, `compactionAgent`, `analyzeConversation`, `patternScan`, `narrativeRefinement`, `memoryRouter`, `memoryConsolidation` |
+| `cost-optimized` (Haiku)   | **Everything else** — memory extraction/retrieval, UI copy, classifiers, summarization, background tasks                                            |
+| `quality-optimized` (Opus) | **Do not pin.** Reserved for on-demand user escalation via `/model`                                                                                 |
 
 ---
 
@@ -82,11 +84,13 @@ assistant inference providers connections list
 ### ⚠️ Always use profile references — never direct model
 
 ❌ Wrong (shows "Custom" with empty provider/model in UI, won't track profile updates):
+
 ```bash
 assistant config set llm.callSites.memoryExtraction.model claude-haiku-4-5-20251001
 ```
 
 ✅ Correct (shows "Speed" in UI):
+
 ```bash
 assistant config set llm.callSites.memoryExtraction.profile cost-optimized
 ```
@@ -173,6 +177,7 @@ assistant config set llm.activeProfile balanced
 This controls what the app shows as the selected profile in the UI, and matters because of a platform quirk: `llm.activeProfile` takes priority over `llm.callSites.mainAgent` in the resolver (inverted vs all other call sites). Setting both to `balanced` keeps them aligned.
 
 Then verify:
+
 ```bash
 assistant config get llm.callSites
 assistant config get llm.activeProfile
