@@ -256,11 +256,6 @@ struct GuardianChannelsDetailView: View {
         } else if (isGuardian && store?.channelVerificationState(for: type).verified == true)
             || (!existingChannels.isEmpty && !dismissedChannels.contains(type))
             || setupExpanded.contains(type) {
-            if showCardBorders && !isGuardian, let channel = existingChannels.first {
-                VButton(label: "Mark Verified", style: .outlined, isDisabled: actionInProgress != nil) {
-                    verifyChannel(channelId: channel.id, type: type)
-                }
-            }
             verificationFlowContent(for: type)
         } else {
             VButton(label: setupButtonLabel, style: .outlined) {
