@@ -199,10 +199,17 @@ function App() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deadlineSeconds: 15 }),
-    }).catch((err) => {
-      console.error('Failed to start coffee run:', err);
-      setRunning(false);
-    });
+    })
+      .then((res) => {
+        if (!res.ok) {
+          console.error(`Coffee run request failed: ${res.status} ${res.statusText}`);
+          setRunning(false);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to start coffee run:', err);
+        setRunning(false);
+      });
   }
 
   return (
