@@ -97,9 +97,21 @@ export class QuestionPrompter {
         signal.addEventListener("abort", onAbort, { once: true });
       }
 
+      // Populate both shapes on the wire: `questions[]` is the canonical
+      // batched payload, and the flat fields mirror `questions[0]` for
+      // backwards compat with clients that haven't adopted `questions[]`.
       const msg: QuestionRequest = {
         type: "question_request",
         requestId,
+        questions: [
+          {
+            id: "q1",
+            question,
+            description,
+            options,
+            freeTextPlaceholder,
+          },
+        ],
         question,
         description,
         options,

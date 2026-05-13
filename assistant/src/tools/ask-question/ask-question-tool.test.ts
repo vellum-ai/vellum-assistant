@@ -57,9 +57,12 @@ describe("AskQuestionTool definition", () => {
         string,
         { type?: string; minItems?: number; maxItems?: number }
       >;
-      required: string[];
+      required?: string[];
     };
-    expect(schema.required).toEqual(["question", "options"]);
+    // PR 2 removed top-level `required` — caller may supply either
+    // `questions` or the legacy flat fields, enforced at runtime by Zod.
+    // Per-shape `required` arrays still live on the legacy `options` field
+    // and on the `questions[]` item schema.
     expect(schema.properties.options?.type).toBe("array");
     expect(schema.properties.options?.minItems).toBe(2);
     expect(schema.properties.options?.maxItems).toBe(4);
@@ -190,5 +193,191 @@ describe("AskQuestionTool.execute", () => {
     const ac = new AbortController();
     await tool.execute(validInput, makeContext({ signal: ac.signal }));
     expect(calls[0]?.signal).toBe(ac.signal);
+  });
+});
+
+// ── Batched input ───────────────────────────────────────────────────
+// These tests cover the input-shape contract only — the `questions[]`
+// shape, the 1..5 cap, and the legacy-flat normalization. Outbound
+// prompter behavior (id assignment, batched broadcasting) is covered
+// in `question-prompter.test.ts`.
+
+const singleQ = {
+  question: validInput.question,
+  description: validInput.description,
+  options: validInput.options,
+  freeTextPlaceholder: validInput.freeTextPlaceholder,
+};
+
+describe("AskQuestionTool batched input", () => {
+  test("normalizes legacy flat input into a one-element batch", async () => {
+    const { tool, calls } = makeToolWithStub({
+      decision: "option",
+      optionId: "a",
+    });
+
+    const result = await tool.execute(validInput, makeContext());
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.question).toBe(validInput.question);
+    expect(calls[0]?.options).toEqual(validInput.options);
+    expect(result.isError).toBe(false);
+  });
+
+  test("accepts a single-element `questions` batch", async () => {
+    const { tool, calls } = makeToolWithStub({
+      decision: "option",
+      optionId: "a",
+    });
+
+    const result = await tool.execute(
+      { questions: [singleQ] },
+      makeContext(),
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.question).toBe(singleQ.question);
+    expect(calls[0]?.options).toEqual(singleQ.options);
+    expect(calls[0]?.description).toBe(singleQ.description);
+    expect(calls[0]?.freeTextPlaceholder).toBe(singleQ.freeTextPlaceholder);
+    expect(result.isError).toBe(false);
+  });
+
+  test("accepts a multi-question batch up to 5", async () => {
+    const { tool, calls } = makeToolWithStub({
+      decision: "option",
+      optionId: "a",
+    });
+    const five = [singleQ, singleQ, singleQ, singleQ, singleQ];
+
+    const result = await tool.execute({ questions: five }, makeContext());
+
+    // Only the head is forwarded until the prompter learns to batch.
+    expect(calls).toHaveLength(1);
+    expect(result.isError).toBe(false);
+  });
+
+  test("rejects batches with 6+ questions", async () => {
+    const { tool, calls } = makeToolWithStub({
+      decision: "option",
+      optionId: "a",
+    });
+    const six = [singleQ, singleQ, singleQ, singleQ, singleQ, singleQ];
+
+    const result = await tool.execute({ questions: six }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content.toLowerCase()).toContain("invalid input");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("rejects empty `questions` array", async () => {
+    const { tool, calls } = makeToolWithStub({
+      decision: "option",
+      optionId: "a",
+    });
+
+    const result = await tool.execute({ questions: [] }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content.toLowerCase()).toContain("invalid input");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("rejects input missing both `questions` and flat fields", async () => {
+    const { tool, calls } = makeToolWithStub({
+      decision: "option",
+      optionId: "a",
+    });
+
+    const result = await tool.execute({}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content.toLowerCase()).toContain("invalid input");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("rejects legacy `question` without `options`", async () => {
+    const { tool, calls } = makeToolWithStub({
+      decision: "option",
+      optionId: "a",
+    });
+
+    const result = await tool.execute(
+      { question: "Hi?" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content.toLowerCase()).toContain("invalid input");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("formats free-text result for batched input", async () => {
+    const { tool } = makeToolWithStub({
+      decision: "free_text",
+      text: "Cherry",
+    });
+
+    const result = await tool.execute(
+      { questions: [singleQ] },
+      makeContext(),
+    );
+
+    expect(result.content).toBe("Free text: Cherry");
+    expect(result.isError).toBe(false);
+  });
+});
+
+describe("AskQuestionTool definition (batched schema)", () => {
+  test("exposes `questions[]` shape, keeps legacy fields, omits per-question id", () => {
+    const def = new AskQuestionTool().getDefinition();
+    const schema = def.input_schema as {
+      properties: Record<
+        string,
+        {
+          type?: string;
+          minItems?: number;
+          maxItems?: number;
+          items?: {
+            type?: string;
+            properties?: Record<string, unknown>;
+            required?: string[];
+          };
+        }
+      >;
+      required?: string[];
+    };
+
+    // Batched shape is present and capped at 5.
+    const questions = schema.properties.questions;
+    expect(questions?.type).toBe("array");
+    expect(questions?.minItems).toBe(1);
+    expect(questions?.maxItems).toBe(5);
+
+    // Per-question item schema requires `question` and `options` but
+    // explicitly does NOT include an `id` field — ids are daemon-assigned.
+    const itemProps = questions?.items?.properties ?? {};
+    expect(Object.keys(itemProps)).toEqual(
+      expect.arrayContaining([
+        "question",
+        "description",
+        "options",
+        "freeTextPlaceholder",
+      ]),
+    );
+    expect(Object.keys(itemProps)).not.toContain("id");
+    expect(questions?.items?.required).toEqual(["question", "options"]);
+
+    // Legacy flat fields are still present (optional, no top-level required).
+    expect(schema.properties.question?.type).toBe("string");
+    expect(schema.properties.options?.type).toBe("array");
+    expect(schema.properties.options?.minItems).toBe(2);
+    expect(schema.properties.options?.maxItems).toBe(4);
+    expect(schema.properties.freeTextPlaceholder?.type).toBe("string");
+
+    // No top-level `required` array — the choice between batched and flat
+    // is enforced at runtime by Zod.
+    expect(schema.required).toBeUndefined();
   });
 });
