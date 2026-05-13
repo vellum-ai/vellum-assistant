@@ -12,6 +12,12 @@ const PRIVATE_GRAPH_NODE_IDS = /*sql*/ `
 `;
 
 export function migrateDeletePrivateConversations(database: DrizzleDb): void {
+  // Snapshot the migration's start time. The trailing orphan-attachment sweep
+  // uses this as an upper bound so it cleans up leaks from prior runs of this
+  // migration (those rows were created before this run started) without
+  // touching pre-staged uploads created during or after the migration.
+  const migrationStartTs = Date.now();
+
   database.run(/*sql*/ `
     DELETE FROM tool_invocations
     WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
@@ -204,6 +210,7 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
       FROM message_attachments ma
       WHERE ma.attachment_id = attachments.id
     )
+      AND created_at <= ${migrationStartTs}
   `);
   database.run(/*sql*/ `
     DELETE FROM memory_summaries
