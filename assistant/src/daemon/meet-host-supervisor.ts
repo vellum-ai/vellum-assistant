@@ -254,10 +254,11 @@ export class MeetHostSupervisor {
   }
 
   /**
-   * Ensure the meet-host child is spawned, the IPC handshake has been
-   * received, and the manifest hash validated. Idempotent: a second
-   * call while the child is already running is a no-op; a second call
-   * during an in-flight spawn awaits the same promise.
+   * Ensure the meet-host child is spawned and the IPC handshake has
+   * been received. Idempotent: a second call while the child is
+   * already running is a no-op; a second call during an in-flight
+   * spawn awaits the same promise. Manifest hash validation is
+   * currently dormant (see {@link notifyHandshake}).
    */
   ensureRunning(): Promise<void> {
     if (this.shuttingDown) {
