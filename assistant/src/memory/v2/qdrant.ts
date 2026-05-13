@@ -200,6 +200,9 @@ async function ensureConceptPageCollectionOnce(): Promise<{
 
       const missing = missingNamedVectors(info);
       if (missing.length === 0) {
+        // Long-lived installs may predate the `kind` payload index; ensure
+        // every required index exists before declaring the collection ready.
+        await ensurePayloadIndexes();
         _collectionReady = true;
         return { migrated: false };
       }
@@ -271,15 +274,43 @@ async function ensureConceptPageCollectionOnce(): Promise<{
     throw err;
   }
 
-  // Slug is the only payload field we filter on; index it once at create-time
-  // so upserts and slug-restricted queries don't pay a per-call indexing cost.
-  await client.createPayloadIndex(MEMORY_V2_COLLECTION, {
-    field_name: "slug",
-    field_schema: "keyword",
-  });
+  await ensurePayloadIndexes();
 
   _collectionReady = true;
   return { migrated };
+}
+
+/**
+ * Idempotently create the payload indexes the collection's query and
+ * filter paths rely on:
+ *
+ *   - `slug` (keyword): every slug-restricted query and prefix scan filters on it.
+ *   - `kind` (keyword): the skill-backfill scroll filters with `is_empty` on
+ *     `kind`. Strict-mode Qdrant deployments reject filters on unindexed
+ *     payload fields, so without this the backfill consistently fails and
+ *     legacy skill points remain untagged.
+ *
+ * `createPayloadIndex` is idempotent in Qdrant; re-issuing on an existing
+ * index is a no-op. We tolerate other failure shapes so that an upgrade of
+ * a long-lived install — where the collection existed before this index
+ * set — converges on the next ensure call without aborting the boot path.
+ */
+async function ensurePayloadIndexes(): Promise<void> {
+  const client = getClient();
+  const indexes = [
+    { field_name: "slug", field_schema: "keyword" as const },
+    { field_name: "kind", field_schema: "keyword" as const },
+  ];
+  for (const index of indexes) {
+    try {
+      await client.createPayloadIndex(MEMORY_V2_COLLECTION, index);
+    } catch (err) {
+      log.warn(
+        { err, collection: MEMORY_V2_COLLECTION, index },
+        "createPayloadIndex non-fatal — assuming index already present",
+      );
+    }
+  }
 }
 
 /**
@@ -422,7 +453,10 @@ export async function deleteConceptPageEmbedding(slug: string): Promise<void> {
  * `payload.kind` matches are eligible for deletion. This is critical because
  * `validateSlug` permits user-authored concept pages slugged like
  * `skills/foo`; without a kind filter they would collide with the skill
- * namespace and be repeatedly pruned every seed run.
+ * namespace and be repeatedly pruned every seed run. The companion
+ * {@link backfillKindOnPointsWithPrefix} preserves this invariant for legacy
+ * untagged rows by tagging only suffixes the caller knows are skills —
+ * user-authored `skills/<slug>` rows stay kindless and outside this prune.
  *
  * Idempotent: when the live `<prefix>*` slugs already match `activeSuffixes`,
  * the function performs a single scroll and no deletes.
@@ -492,10 +526,17 @@ export async function pruneSlugsWithPrefixExcept(
 }
 
 /**
- * Set `payload.kind` on every point whose slug starts with `prefix` and is
- * currently missing the `kind` discriminator. Used to tag legacy rows that
- * predate the kind field so the kind-scoped
- * {@link pruneSlugsWithPrefixExcept} no longer leaves them as orphans.
+ * Set `payload.kind` on every point whose slug starts with `prefix`, whose
+ * suffix is in `allowedSuffixes`, and is currently missing the `kind`
+ * discriminator. Used to tag legacy rows that predate the kind field so the
+ * kind-scoped {@link pruneSlugsWithPrefixExcept} no longer leaves them as
+ * orphans.
+ *
+ * `allowedSuffixes` is required because `validateSlug` permits user-authored
+ * concept pages slugged like `skills/my-notes` — those rows also lack `kind`
+ * and would otherwise be tagged here and then deleted by the kind-scoped
+ * prune. Callers must pass the closed set of legitimate suffixes (e.g. the
+ * union of installed + remote-catalog skill IDs) so user pages stay untagged.
  *
  * The "missing kind" predicate is pushed to Qdrant via `is_empty`, so once
  * every legacy row has been tagged the scroll returns the bounded set of
@@ -506,7 +547,9 @@ export async function pruneSlugsWithPrefixExcept(
 export async function backfillKindOnPointsWithPrefix(
   prefix: string,
   kind: string,
+  allowedSuffixes: ReadonlySet<string>,
 ): Promise<number> {
+  if (allowedSuffixes.size === 0) return 0;
   await ensureConceptPageCollection();
 
   const client = getClient();
@@ -528,6 +571,8 @@ export async function backfillKindOnPointsWithPrefix(
         const slug = (point.payload as { slug?: unknown } | null)?.slug;
         if (typeof slug !== "string") continue;
         if (!slug.startsWith(prefix)) continue;
+        const suffix = slug.slice(prefix.length);
+        if (!allowedSuffixes.has(suffix)) continue;
         pointIds.push(point.id);
       }
       const next = result.next_page_offset;

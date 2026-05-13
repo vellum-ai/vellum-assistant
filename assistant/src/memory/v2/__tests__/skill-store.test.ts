@@ -51,6 +51,7 @@ interface PruneCall {
 interface BackfillCall {
   prefix: string;
   kind: string;
+  allowedSuffixes: ReadonlySet<string>;
 }
 
 interface TestState {
@@ -139,10 +140,14 @@ mock.module("../qdrant.js", () => ({
     state.callSequence.push("prune");
     state.pruneCalls.push({ prefix, activeSuffixes, options });
   },
-  backfillKindOnPointsWithPrefix: async (prefix: string, kind: string) => {
+  backfillKindOnPointsWithPrefix: async (
+    prefix: string,
+    kind: string,
+    allowedSuffixes: ReadonlySet<string>,
+  ) => {
     if (state.backfillThrows) throw state.backfillThrows;
     state.callSequence.push("backfill");
-    state.backfillCalls.push({ prefix, kind });
+    state.backfillCalls.push({ prefix, kind, allowedSuffixes });
     return state.backfillReturn;
   },
 }));
@@ -501,7 +506,12 @@ describe("seedV2SkillEntries", () => {
 
     await seedV2SkillEntries();
 
-    expect(state.backfillCalls).toEqual([{ prefix: "skills/", kind: "skill" }]);
+    expect(state.backfillCalls).toHaveLength(1);
+    expect(state.backfillCalls[0].prefix).toBe("skills/");
+    expect(state.backfillCalls[0].kind).toBe("skill");
+    expect([...state.backfillCalls[0].allowedSuffixes].sort()).toEqual([
+      "example-skill-a",
+    ]);
     expect(state.pruneCalls).toHaveLength(1);
     expect(state.pruneCalls[0].options).toEqual({ kind: "skill" });
     expect(state.callSequence.filter((s) => s !== "upsert")).toEqual([
@@ -547,6 +557,33 @@ describe("seedV2SkillEntries", () => {
     // Prune still ran despite the backfill failure — we don't want to block
     // the steady-state prune when the legacy scan trips.
     expect(state.pruneCalls).toHaveLength(1);
+  });
+
+  test("backfill allowlist spans installed + remote catalog ids so user-authored skills/* pages stay untagged", async () => {
+    // Regression: backfilling kind on every `skills/*` point would also tag
+    // user-authored concept pages slugged like `skills/my-notes` — those
+    // would then be pruned as stale skills. The allowlist must contain
+    // every legitimate skill id we know about (installed + remote catalog)
+    // and nothing else.
+    const installed = makeSummary({ id: "installed-skill" });
+    state.catalog = [installed];
+    state.resolved = [{ summary: installed, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "installed-skill", name: "installed-skill", description: "X" },
+      { id: "remote-only-skill", name: "remote-only-skill", description: "Y" },
+    ];
+    state.embedReturn = [
+      [0.1, 0.2, 0.3],
+      [0.4, 0.5, 0.6],
+    ];
+
+    await seedV2SkillEntries();
+
+    expect(state.backfillCalls).toHaveLength(1);
+    expect([...state.backfillCalls[0].allowedSuffixes].sort()).toEqual([
+      "installed-skill",
+      "remote-only-skill",
+    ]);
   });
 
   test("skips pruning when catalog fetch returns empty (network failure guard)", async () => {

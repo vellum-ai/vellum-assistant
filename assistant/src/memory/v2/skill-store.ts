@@ -168,11 +168,19 @@ async function runSeedOnce(): Promise<void> {
     // Seed uninstalled catalog skills so their activation hints are
     // discoverable by intent. Track whether the catalog was available so we
     // can guard pruning below.
+    //
+    // Build the legacy-backfill allowlist in parallel: every locally
+    // installed skill id (regardless of enabled state) plus every remote
+    // catalog id. Restricting the backfill to this set keeps user-authored
+    // concept pages that happen to live under `skills/<slug>` from being
+    // mis-tagged and then pruned. See `backfillKindOnPointsWithPrefix`.
+    const knownSkillIds = new Set<string>(installedIds);
     let catalogAvailable = false;
     try {
       const fullCatalog = await getCatalog();
       catalogAvailable = fullCatalog.length > 0;
       for (const entry of fullCatalog) {
+        knownSkillIds.add(entry.id);
         if (installedIds.has(entry.id)) continue;
         const flagKey = entry.metadata?.vellum?.["feature-flag"];
         if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
@@ -250,6 +258,7 @@ async function runSeedOnce(): Promise<void> {
           await backfillKindOnPointsWithPrefix(
             SKILL_SLUG_PREFIX,
             SKILL_PAYLOAD_KIND,
+            knownSkillIds,
           );
           legacyKindBackfillDone = true;
         } catch (err) {
