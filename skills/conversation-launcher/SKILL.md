@@ -91,4 +91,4 @@ After rendering the card, end your turn. The click pipeline handles everything:
 - Don't invent options. Only surface branches the user has actually discussed or implied.
 - 2–5 buttons is the sweet spot. One option? Just reply inline. More than five? Trim or group.
 - Keep the card body to one sentence. The buttons carry the payload; the body just frames the choice.
-- All titles should be highly concise, context-specific, and ideally under 5 words.
+- Conversation titles should be highly concise, context-specific, and 3–5 words.
