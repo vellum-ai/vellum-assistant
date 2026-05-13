@@ -318,8 +318,9 @@ export async function startVoiceTurn(
 
   // Phone voice has no interactive permission/secret UI, so apply explicit
   // per-role policies by default. Local live voice opts into the normal
-  // client approval path instead. Side-effect double-defense is wired
-  // below at the conversation-configure point.
+  // client approval path instead. Side-effect double-defense
+  // (forcePromptSideEffects) is wired inside the agent-loop IIFE so it
+  // is always paired with cleanup() in the IIFE's finally.
   const trustClass = opts.trustContext?.trustClass;
   const isGuardian = trustClass === "guardian";
   const approvalMode = opts.approvalMode ?? "phone-call";
@@ -391,13 +392,6 @@ export async function startVoiceTurn(
     }
   }
 
-  // Non-guardian phone voice forces side-effect tools to prompt so the
-  // auto-deny handler below reliably sees a confirmation_request. Without
-  // this, a broad allow trust rule (e.g. wildcard bash) would let
-  // side-effect tools execute without ever emitting an event for the
-  // auto-deny / scoped-grant handler to intercept.
-  conversation.forcePromptSideEffects =
-    !isGuardian && !usesLocalInteractiveApprovals;
   conversation.setAssistantId(opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
   conversation.callSessionId = voiceSessionId;
   conversation.setTrustContext(opts.trustContext ?? null);
@@ -575,6 +569,15 @@ export async function startVoiceTurn(
 
   void (async () => {
     try {
+      // Non-guardian phone voice forces side-effect tools to prompt so the
+      // auto-deny handler above reliably sees a confirmation_request. Without
+      // this, a broad allow trust rule (e.g. wildcard bash) would let
+      // side-effect tools execute without ever emitting an event for the
+      // auto-deny / scoped-grant handler to intercept. Set inside the
+      // try/finally so a failed setup before this point cannot leak the
+      // flag into subsequent non-voice turns on the same conversation.
+      conversation.forcePromptSideEffects =
+        !isGuardian && !usesLocalInteractiveApprovals;
       await conversation.runAgentLoop(
         persistedContent,
         messageId,
