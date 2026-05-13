@@ -51,6 +51,6 @@ export function renderSweepPrompt(opts: {
   const user = opts.userName?.trim() || "the user";
   return SWEEP_PROMPT.replaceAll(
     ASSISTANT_NAME_PLACEHOLDER,
-    assistant,
-  ).replaceAll(USER_NAME_PLACEHOLDER, user);
+    () => assistant,
+  ).replaceAll(USER_NAME_PLACEHOLDER, () => user);
 }

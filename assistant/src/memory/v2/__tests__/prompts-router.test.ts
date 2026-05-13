@@ -123,6 +123,39 @@ describe("renderRouterPrompt — page index handling", () => {
   });
 });
 
+describe("renderRouterPrompt — replacement-pattern specials", () => {
+  // String.prototype.replaceAll interprets `$&`, `$'`, `` $` ``, `$$`, and
+  // `$n` in the replacement string as backreferences. LLM-generated page
+  // index content can contain literal `$` runs, so the substituter must
+  // pass values through unchanged.
+  const SPECIALS = "$& and $' and $` and $$ and $1";
+
+  test.each([
+    [
+      "pageIndexBlock",
+      { assistantName: "Aria", userName: "Alice", pageIndexBlock: SPECIALS },
+    ],
+    [
+      "assistantName",
+      {
+        assistantName: SPECIALS,
+        userName: "Alice",
+        pageIndexBlock: SAMPLE_INDEX,
+      },
+    ],
+    [
+      "userName",
+      {
+        assistantName: "Aria",
+        userName: SPECIALS,
+        pageIndexBlock: SAMPLE_INDEX,
+      },
+    ],
+  ])("renders %s with $ specials verbatim", (_, opts) => {
+    expect(renderRouterPrompt(opts)).toContain(SPECIALS);
+  });
+});
+
 describe("renderRouterPrompt — determinism & snapshot stability", () => {
   test("returns the same string for the same inputs", () => {
     const opts = {
