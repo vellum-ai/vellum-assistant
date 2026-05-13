@@ -18,7 +18,12 @@ const OptionSchema = z.object({
   description: z.string().optional(),
 });
 
-const InputSchema = z.object({
+// One question in a (possibly single-element) batch. Intentionally has no
+// `id` field — per-question ids are daemon-assigned (`q1`, `q2`, ...) inside
+// the prompter, never supplied by the LLM. This keeps the LLM-facing schema
+// smaller and removes a validation surface (no duplicate-id check, no
+// length cap on ids).
+const SingleQuestionSchema = z.object({
   question: z.string().min(1),
   description: z.string().optional(),
   // 2–4 LLM-supplied options. The client renders a fixed 5th "Type
@@ -28,6 +33,42 @@ const InputSchema = z.object({
   freeTextPlaceholder: z.string().optional(),
 });
 
+// Cap at 5 questions per batch. Past that it starts to feel like a form,
+// not a clarification — the model should be implementing, not asking. Any
+// input with ≥6 entries is rejected with a clear Zod error.
+const MAX_QUESTIONS_PER_BATCH = 5;
+
+// Both the new batched shape (`questions[]`) and the legacy flat shape are
+// accepted. `execute()` normalizes legacy callers into a one-element
+// `questions` array before forwarding to the prompter.
+const InputSchema = z
+  .object({
+    questions: z
+      .array(SingleQuestionSchema)
+      .min(1)
+      .max(MAX_QUESTIONS_PER_BATCH, {
+        message: `At most ${MAX_QUESTIONS_PER_BATCH} questions per batch; split into multiple turns if you need more.`,
+      })
+      .optional(),
+    // Legacy flat fields. Optional so batched callers can omit them; when
+    // present and `questions` is absent, they are normalized into a
+    // one-element batch in `execute()`.
+    question: z.string().min(1).optional(),
+    description: z.string().optional(),
+    options: z.array(OptionSchema).min(2).max(4).optional(),
+    freeTextPlaceholder: z.string().optional(),
+  })
+  .refine(
+    (v) =>
+      v.questions !== undefined ||
+      (v.question !== undefined && v.options !== undefined),
+    {
+      message:
+        "Provide `questions` (preferred) or the legacy flat fields (`question` + `options`).",
+    },
+  );
+
+export type SingleQuestion = z.infer<typeof SingleQuestionSchema>;
 export type AskQuestionInput = z.infer<typeof InputSchema>;
 
 // ── Tool description ────────────────────────────────────────────────
@@ -88,55 +129,98 @@ export class AskQuestionTool implements Tool {
   }
 
   getDefinition(): ToolDefinition {
+    // Shared option-schema fragment used by both the batched `questions[]`
+    // shape and the legacy flat `options` field.
+    const optionItemsSchema = {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description:
+            "Stable identifier for this option (returned verbatim in the response).",
+        },
+        label: {
+          type: "string",
+          description: "Short human-readable label.",
+        },
+        description: {
+          type: "string",
+          description: "Optional one-line context shown beneath the label.",
+        },
+      },
+      required: ["id", "label"],
+    } as const;
+
     return {
       name: this.name,
       description: this.description,
       input_schema: {
         type: "object",
         properties: {
+          // ── Recommended shape ─────────────────────────────────────
+          questions: {
+            type: "array",
+            minItems: 1,
+            maxItems: MAX_QUESTIONS_PER_BATCH,
+            description: `Recommended shape. 1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
+            items: {
+              type: "object",
+              properties: {
+                question: {
+                  type: "string",
+                  description: "The clarifying question shown to the user.",
+                },
+                description: {
+                  type: "string",
+                  description:
+                    "Optional one-line context shown beneath the question.",
+                },
+                options: {
+                  type: "array",
+                  minItems: 2,
+                  maxItems: 4,
+                  description:
+                    "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
+                  items: optionItemsSchema,
+                },
+                freeTextPlaceholder: {
+                  type: "string",
+                  description:
+                    "Optional placeholder text shown inside the free-text fallback input.",
+                },
+              },
+              required: ["question", "options"],
+            },
+          },
+          // ── Legacy single-question fields ─────────────────────────
+          // Kept optional so existing prompt caches and any single-question
+          // callers continue to work. New callers should use `questions`.
           question: {
             type: "string",
-            description: "The clarifying question shown to the user.",
+            description:
+              "Legacy: the single clarifying question. Prefer `questions[]` for new code.",
           },
           description: {
             type: "string",
             description:
-              "Optional one-line context shown beneath the question.",
+              "Legacy: optional one-line context shown beneath the question. Prefer `questions[].description`.",
           },
           options: {
             type: "array",
             minItems: 2,
             maxItems: 4,
             description:
-              "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
-            items: {
-              type: "object",
-              properties: {
-                id: {
-                  type: "string",
-                  description:
-                    "Stable identifier for this option (returned verbatim in the response).",
-                },
-                label: {
-                  type: "string",
-                  description: "Short human-readable label.",
-                },
-                description: {
-                  type: "string",
-                  description:
-                    "Optional one-line context shown beneath the label.",
-                },
-              },
-              required: ["id", "label"],
-            },
+              "Legacy: 2–4 structured options. Prefer `questions[].options`. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
+            items: optionItemsSchema,
           },
           freeTextPlaceholder: {
             type: "string",
             description:
-              "Optional placeholder text shown inside the free-text fallback input.",
+              "Legacy: optional placeholder text for the free-text fallback input. Prefer `questions[].freeTextPlaceholder`.",
           },
         },
-        required: ["question", "options"],
+        // No top-level `required` — caller must supply either `questions`
+        // or the legacy flat trio (`question` + `options`). Enforced in Zod.
       },
     };
   }
@@ -153,7 +237,37 @@ export class AskQuestionTool implements Tool {
       };
     }
 
-    const { question, description, options, freeTextPlaceholder } = parsed.data;
+    // TODO: remove this guard once PR 3 wires the prompter to handle batches.
+    // The schema accepts up to MAX_QUESTIONS_PER_BATCH entries so PR 3 doesn't
+    // have to re-extend it, but until the prompter can broadcast multi-question
+    // batches we must reject them explicitly — otherwise extra entries would
+    // be silently dropped and the caller would receive an incomplete answer.
+    if (parsed.data.questions && parsed.data.questions.length > 1) {
+      return {
+        content:
+          "Batched questions (more than one entry in `questions`) are not yet supported by this assistant build. Call ask_question once per clarification for now.",
+        isError: true,
+      };
+    }
+
+    // Normalize legacy flat input into a one-element `questions` batch so
+    // downstream code only has to deal with the batched shape. The refine
+    // above guarantees `question` and `options` are present whenever
+    // `questions` is absent.
+    const questions: SingleQuestion[] = parsed.data.questions ?? [
+      {
+        question: parsed.data.question!,
+        description: parsed.data.description,
+        options: parsed.data.options!,
+        freeTextPlaceholder: parsed.data.freeTextPlaceholder,
+      },
+    ];
+
+    // The prompter currently handles one question at a time. Multi-question
+    // batches are rejected by the guard above, so `questions` is guaranteed
+    // to hold exactly one entry here.
+    const head = questions[0]!;
+    const { question, description, options, freeTextPlaceholder } = head;
 
     const prompter = this.prompterFactory();
     const result = await prompter.prompt({
