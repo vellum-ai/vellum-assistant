@@ -44,27 +44,29 @@ struct HomeDetailPanel<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                header
 
-            VColor.borderBase
-                .frame(height: 1)
-                .accessibilityHidden(true)
+                VColor.borderBase
+                    .frame(height: 1)
+                    .accessibilityHidden(true)
 
-            if scrollable {
-                ScrollView {
-                    content()
-                        .containerRelativeFrame(.horizontal, alignment: .top)
-                }
-                .layoutPriority(1)
-            } else {
-                content()
+                if scrollable {
+                    ScrollView {
+                        content()
+                            .containerRelativeFrame(.horizontal, alignment: .top)
+                    }
                     .layoutPriority(1)
-            }
+                } else {
+                    content()
+                        .layoutPriority(1)
+                }
 
+                Spacer(minLength: 0)
+            }
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         .overlay(
