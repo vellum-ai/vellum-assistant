@@ -11,7 +11,7 @@
  * silently drift.
  */
 
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 type IpcCallArgs = {
   method: string;
