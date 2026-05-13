@@ -23,6 +23,7 @@ import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { OllamaProvider } from "../ollama/client.js";
+import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
 import { OpenRouterProvider } from "../openrouter/client.js";
 import { RetryProvider } from "../retry.js";
@@ -52,7 +53,13 @@ type AdapterFactory = (opts: AdapterCreateOpts) => Provider;
  * module-load time.
  */
 const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
-  anthropic: ({ apiKey, model, streamTimeoutMs, baseURL, useNativeWebSearch }) =>
+  anthropic: ({
+    apiKey,
+    model,
+    streamTimeoutMs,
+    baseURL,
+    useNativeWebSearch,
+  }) =>
     new AnthropicProvider(apiKey, model, {
       useNativeWebSearch,
       streamTimeoutMs,
@@ -83,6 +90,13 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     new OpenRouterProvider(apiKey, model, {
       useNativeWebSearch,
       streamTimeoutMs,
+    }),
+  "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "openai-compatible",
+      providerLabel: "OpenAI-compatible",
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
     }),
 };
 
@@ -138,7 +152,11 @@ export function buildProviderAdapter(
 export function createAdapterFromConnection(
   connection: ProviderConnection,
   resolvedAuth: ResolvedAuth,
-  opts: { model: string; streamTimeoutMs?: number; useNativeWebSearch?: boolean },
+  opts: {
+    model: string;
+    streamTimeoutMs?: number;
+    useNativeWebSearch?: boolean;
+  },
 ): Provider | null {
   const { provider } = connection;
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);

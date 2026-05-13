@@ -868,6 +868,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyUrl: "https://openrouter.ai/keys",
     apiKeyPlaceholder: "sk-or-v1-...",
   },
+  {
+    id: "openai-compatible",
+    displayName: "OpenAI-compatible",
+    subtitle:
+      "Bring your own OpenAI-compatible endpoint (z.ai, Together, vLLM, etc.).",
+    setupMode: "api-key",
+    setupHint:
+      "Enter the base URL of your endpoint and at least one model identifier.",
+    apiKeyPlaceholder: "Your provider's API key",
+    models: [],
+    defaultModel: "",
+  },
 ];
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] =

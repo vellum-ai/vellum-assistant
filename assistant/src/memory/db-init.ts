@@ -139,6 +139,7 @@ import {
   migrateOAuthProvidersScopeSeparator,
   migrateOAuthProvidersTokenAuthMethodDefault,
   migrateOAuthProvidersTokenExchangeBodyFormat,
+  migrateProviderConnectionBaseUrlAndModels,
   migrateProviderConnectionStatusLabel,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
@@ -424,6 +425,7 @@ export function initializeDb(): void {
     migrateProviderConnectionStatusLabel,
     migrateMemoryRetrospectiveState,
     migrateBackfillProviderConnectionLabel,
+    migrateProviderConnectionBaseUrlAndModels,
   ];
 
   // Run each migration step, catching and logging individual failures so one
