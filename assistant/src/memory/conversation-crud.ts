@@ -727,9 +727,14 @@ export function forkConversation(params: {
 
     // Carry the parent's per-conversation memory state into the child so the
     // forked thread resumes with the same activation/injection log and
-    // in-context tracker the parent had at fork time.
-    forkActivationState(db, sourceConversation.id, fc.id);
-    forkGraphMemoryState(sourceConversation.id, fc.id);
+    // in-context tracker the parent had at fork time. Only valid for
+    // full-history forks: a truncated fork would inherit activation/tracker
+    // entries for turns the child does not actually contain.
+    const isFullHistoryFork = copyBoundaryIndex === sourceMessages.length - 1;
+    if (isFullHistoryFork) {
+      forkActivationState(db, sourceConversation.id, fc.id);
+      forkGraphMemoryState(sourceConversation.id, fc.id);
+    }
     forkRetrospectiveState({
       database: db,
       sourceConversationId: sourceConversation.id,
