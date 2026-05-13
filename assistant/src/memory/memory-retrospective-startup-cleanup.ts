@@ -30,7 +30,17 @@
 //     `<already_remembered>` dedup block; sweeping it would force the
 //     next run to re-save facts the prior pass already captured.
 
-import { and, eq, inArray, isNotNull, lt, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
 import { deleteConversation } from "./conversation-crud.js";
@@ -126,9 +136,16 @@ export function sweepOrphanMemoryRetrospectiveConversations(
         isNotNull(conversations.lastMessageAt),
         lt(conversations.lastMessageAt, cutoff),
         activeJobSourceConversationIds.length > 0
-          ? notInArray(
-              conversations.forkParentConversationId,
-              activeJobSourceConversationIds,
+          ? // `forkParentConversationId` is nullable, and SQLite's
+            // `NULL NOT IN (...)` evaluates to unknown (falsy), so legacy
+            // rows with a null parent would never match. Include them
+            // explicitly so the sweep covers them.
+            or(
+              isNull(conversations.forkParentConversationId),
+              notInArray(
+                conversations.forkParentConversationId,
+                activeJobSourceConversationIds,
+              ),
             )
           : sql`1=1`,
       ),
