@@ -60,7 +60,8 @@ describe("AskQuestionTool definition", () => {
     expect(def.description).toContain("obvious from context");
     expect(def.description).toContain("Use this tool whenever");
     expect(def.description).toContain("When in doubt");
-    expect(def.description).toContain("skips the question");
+    expect(def.description).toContain("skips a question");
+    expect(def.description).toContain("skip every question in the batch");
     // Batching language is back now that the prompter handles batches.
     expect(def.description).toContain("Batch related clarifications");
     expect(def.description).toContain("up to 5");
