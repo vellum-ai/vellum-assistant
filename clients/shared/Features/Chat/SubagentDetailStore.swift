@@ -321,11 +321,10 @@ public final class SubagentDetailStore {
             #endif
 
         case .toolResult(let msg):
-            let truncated = msg.result.count > 500 ? String(msg.result.prefix(497)) + "..." : msg.result
             let item = SubagentEventItem(
                 timestamp: Date(),
                 kind: .toolResult(isError: msg.isError ?? false),
-                content: truncated
+                content: msg.result
             )
             var events = currentEvents(for: subagentId)
             events.append(item)

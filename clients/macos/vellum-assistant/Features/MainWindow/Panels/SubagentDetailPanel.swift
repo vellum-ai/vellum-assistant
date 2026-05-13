@@ -572,6 +572,7 @@ private struct SubagentCollapsibleText: View {
                         .foregroundStyle(VColor.primaryBase)
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
             }
         }
     }
