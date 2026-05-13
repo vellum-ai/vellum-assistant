@@ -54,7 +54,7 @@ struct HomeDetailPanel<Content: View>: View {
             if scrollable {
                 ScrollView {
                     content()
-                        .containerRelativeFrame(.horizontal, alignment: .top)
+                        .containerRelativeFrame(.horizontal, alignment: .topLeading)
                 }
                 .layoutPriority(1)
             } else {
