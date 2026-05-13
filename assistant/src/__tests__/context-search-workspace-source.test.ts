@@ -126,10 +126,15 @@ describe("searchWorkspaceSource", () => {
     writeWorkspaceFile(root, "api-key.md", "needle key");
     writeWorkspaceFile(root, "secret-plan.md", "needle secret");
     writeWorkspaceFile(root, "token-cache.md", "needle token");
+    writeWorkspaceFile(root, "apiKey.json", "needle camel key");
+    writeWorkspaceFile(root, "userToken.txt", "needle camel token");
+    writeWorkspaceFile(root, "MySecret.md", "needle camel secret");
     writeWorkspaceFile(root, "credentials.json", "needle credentials");
     writeWorkspaceFile(root, "protected/readme.md", "needle protected");
     writeWorkspaceFile(root, "gateway-security/readme.md", "needle gateway");
     writeWorkspaceFile(root, "ces-security/readme.md", "needle ces");
+    writeWorkspaceFile(root, "keyboard.ts", "needle keyboard");
+    writeWorkspaceFile(root, "tokenizer.py", "needle tokenizer");
     writeWorkspaceFile(root, "src/readme.md", "needle safe");
 
     const result = await searchWorkspaceSource("needle", makeContext(root), 10);
@@ -138,7 +143,9 @@ describe("searchWorkspaceSource", () => {
       ".hidden.md:1",
       ".notes/.format-rec.md:1",
       ".notes/cake.md:1",
+      "keyboard.ts:1",
       "src/readme.md:1",
+      "tokenizer.py:1",
     ]);
   });
 
