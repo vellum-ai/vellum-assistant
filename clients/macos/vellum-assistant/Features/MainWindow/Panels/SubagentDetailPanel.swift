@@ -256,9 +256,7 @@ struct SubagentDetailPanel: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.top, VSpacing.md)
-        .padding(.bottom, VSpacing.lg)
+        .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.md, bottom: VSpacing.lg, trailing: VSpacing.md))
         .vCard(background: VColor.surfaceOverlay)
     }
 
