@@ -73,6 +73,7 @@ struct SubagentDetailPanel: View {
                 eventList
             }
         }
+        .background(VColor.surfaceLift)
         .onAppear {
             // Lazy-load events from DB when the panel opens for a completed subagent with no cached events
             if events.isEmpty, subagentInfo?.conversationId != nil {
@@ -175,11 +176,11 @@ struct SubagentDetailPanel: View {
         .overlay(alignment: .topLeading) {
             if !isLast {
                 Rectangle()
-                    .fill(VColor.borderHover)
-                    .frame(width: 1)
+                    .fill(VColor.borderBase)
+                    .frame(width: 1.5)
                     .frame(maxHeight: .infinity)
                     .padding(.top, Self.iconNodeSize)
-                    .padding(.leading, Self.gutterWidth / 2)
+                    .padding(.leading, (Self.gutterWidth - 1.5) / 2)
             }
         }
     }
@@ -393,7 +394,7 @@ struct SubagentDetailPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .strokeBorder(VColor.borderHover, lineWidth: 1)
+                .strokeBorder(VColor.borderBase, lineWidth: 1)
         )
     }
 
