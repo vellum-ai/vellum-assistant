@@ -607,7 +607,7 @@ extension AppDelegate {
             switch route {
             case .conversationList, .conversationMetadata(_), .conversationMessages(_):
                 return true
-            case .assistantAvatar, .assistantIdentity, .assistantConfig, .assistantSounds:
+            case .assistantAvatar, .assistantIdentity, .assistantConfig, .assistantSounds, .assistantSchedules:
                 return false
             }
         }
@@ -625,6 +625,8 @@ extension AppDelegate {
                 services.settingsStore.refreshForSyncInvalidation()
             case .assistantSounds:
                 SoundManager.shared.handleSoundsConfigBroadcast()
+            case .assistantSchedules:
+                NotificationCenter.default.post(name: .schedulesChanged, object: nil)
             case .conversationList, .conversationMetadata(_), .conversationMessages(_):
                 continue
             }

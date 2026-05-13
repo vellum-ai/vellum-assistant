@@ -16,6 +16,7 @@ import { invalidatePageIndex } from "../memory/v2/page-index.js";
 import { getConceptsDir } from "../memory/v2/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
+import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -184,6 +185,10 @@ registerHook("voice_config_update", (_name, input) => {
     key,
     value: coerced,
   } as unknown as ServerMessage);
+});
+
+registerHook(["schedule_create", "schedule_update", "schedule_delete"], () => {
+  publishSchedulesChanged();
 });
 
 // Dispatch pending Slack DM delivery when a CLI verification command

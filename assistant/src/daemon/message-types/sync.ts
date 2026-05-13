@@ -5,6 +5,7 @@ export const SYNC_TAGS = {
   assistantIdentity: "assistant:self:identity",
   assistantConfig: "assistant:self:config",
   assistantSounds: "assistant:self:sounds",
+  assistantSchedules: "assistant:self:schedules",
   conversationsList: "conversations:list",
 } as const;
 

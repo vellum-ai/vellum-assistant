@@ -9,6 +9,7 @@ final class MultiClientSyncTests: XCTestCase {
             "assistant:self:identity",
             "assistant:self:config",
             "assistant:self:sounds",
+            "assistant:self:schedules",
             "conversations:list",
             "conversation:conv-123:metadata",
             "conversation:conv-123:messages",
@@ -20,6 +21,7 @@ final class MultiClientSyncTests: XCTestCase {
             .assistantIdentity,
             .assistantConfig,
             .assistantSounds,
+            .assistantSchedules,
             .conversationList,
             .conversationMetadata(conversationId: "conv-123"),
             .conversationMessages(conversationId: "conv-123"),
@@ -60,6 +62,7 @@ final class MultiClientSyncTests: XCTestCase {
             .assistantIdentity,
             .assistantConfig,
             .assistantSounds,
+            .assistantSchedules,
             .conversationMetadata(conversationId: "conv-active"),
             .conversationMessages(conversationId: "conv-active"),
         ])

@@ -27,6 +27,7 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
+import { publishSchedulesChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -73,12 +74,18 @@ function handleListSchedules(queryParams: Record<string, string>) {
   };
 }
 
+function handleSchedulesChangedResponse() {
+  publishSchedulesChanged();
+  return handleListSchedules({});
+}
+
 function handleCreateSchedule(body: Record<string, unknown>) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const expression =
     typeof body.expression === "string" ? body.expression.trim() : "";
   const message = typeof body.message === "string" ? body.message : "";
-  const timezoneRaw = typeof body.timezone === "string" ? body.timezone.trim() : "";
+  const timezoneRaw =
+    typeof body.timezone === "string" ? body.timezone.trim() : "";
   const timezone = timezoneRaw === "" ? null : timezoneRaw;
   const enabled = body.enabled !== false;
   const mode = (body.mode as string | undefined) ?? "execute";
@@ -117,7 +124,7 @@ function handleCreateSchedule(body: Record<string, unknown>) {
     if (err instanceof Error) throw new BadRequestError(err.message);
     throw err;
   }
-  return handleListSchedules({});
+  return handleSchedulesChangedResponse();
 }
 
 function handleToggleSchedule(id: string, body: Record<string, unknown>) {
@@ -131,7 +138,7 @@ function handleToggleSchedule(id: string, body: Record<string, unknown>) {
     throw new NotFoundError("Schedule not found");
   }
   log.info({ id, enabled }, "Schedule toggled");
-  return handleListSchedules({});
+  return handleSchedulesChangedResponse();
 }
 
 function handleDeleteSchedule(id: string) {
@@ -140,7 +147,7 @@ function handleDeleteSchedule(id: string) {
     throw new NotFoundError("Schedule not found");
   }
   log.info({ id }, "Schedule removed");
-  return handleListSchedules({});
+  return handleSchedulesChangedResponse();
 }
 
 function handleCancelSchedule(id: string) {
@@ -149,7 +156,7 @@ function handleCancelSchedule(id: string) {
     throw new NotFoundError("Schedule not found or not cancellable");
   }
   log.info({ id }, "Schedule cancelled");
-  return handleListSchedules({});
+  return handleSchedulesChangedResponse();
 }
 
 const VALID_MODES = ["notify", "execute", "script", "wake"] as const;
@@ -217,7 +224,7 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     }
     throw err;
   }
-  return handleListSchedules({});
+  return handleSchedulesChangedResponse();
 }
 
 function handleListScheduleRuns(
@@ -298,16 +305,12 @@ export const ROUTES: RouteDefinition[] = [
         .boolean()
         .describe("Whether the schedule starts active (default true)")
         .optional(),
-      mode: z
-        .string()
-        .describe("Currently must be 'execute'")
-        .optional(),
+      mode: z.string().describe("Currently must be 'execute'").optional(),
     }),
     responseBody: z.object({
       schedules: z.array(z.unknown()).describe("Updated schedule list"),
     }),
-    handler: ({ body }: RouteHandlerArgs) =>
-      handleCreateSchedule(body ?? {}),
+    handler: ({ body }: RouteHandlerArgs) => handleCreateSchedule(body ?? {}),
   },
   {
     operationId: "listScheduleRuns",
@@ -451,7 +454,7 @@ async function handleRunScheduleNow(id: string) {
       );
       completeScheduleRun(runId, { status: "error", error: errorMsg });
     }
-    return handleListSchedules({});
+    return handleSchedulesChangedResponse();
   }
 
   // Check if message is a task invocation (run_task:<task_id>)
@@ -511,7 +514,7 @@ async function handleRunScheduleNow(id: string) {
       const runId = createScheduleRun(schedule.id, fallbackConversation.id);
       completeScheduleRun(runId, { status: "error", error: message });
     }
-    return handleListSchedules({});
+    return handleSchedulesChangedResponse();
   }
 
   // ── Wake mode (resume an existing conversation, no new message) ────
@@ -532,7 +535,7 @@ async function handleRunScheduleNow(id: string) {
       log.warn({ err, jobId: schedule.id }, "Manual wake execution failed");
       throw new InternalError(message);
     }
-    return handleListSchedules({});
+    return handleSchedulesChangedResponse();
   }
 
   // Regular message-based schedule — respect reuseConversation flag
@@ -586,5 +589,5 @@ async function handleRunScheduleNow(id: string) {
     );
     completeScheduleRun(runId, { status: "error", error: message });
   }
-  return handleListSchedules({});
+  return handleSchedulesChangedResponse();
 }

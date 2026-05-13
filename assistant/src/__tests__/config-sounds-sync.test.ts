@@ -5,6 +5,7 @@ import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   publishConfigChanged,
+  publishSchedulesChanged,
   publishSoundsConfigUpdated,
 } from "../runtime/sync/resource-sync-events.js";
 
@@ -66,6 +67,28 @@ describe("config and sounds sync events", () => {
       expect(received[1].message).toEqual({
         type: "sync_changed",
         tags: [SYNC_TAGS.assistantSounds],
+      });
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  test("schedule changes emit a sync tag", async () => {
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+
+    try {
+      publishSchedulesChanged();
+      await waitFor(() => received.length === 1);
+
+      expect(received[0].message).toEqual({
+        type: "sync_changed",
+        tags: [SYNC_TAGS.assistantSchedules],
       });
     } finally {
       subscription.dispose();
