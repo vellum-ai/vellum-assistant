@@ -197,6 +197,7 @@ struct SubagentDetailPanel: View {
     }
 
     private func timelineIcon(for group: SubagentEventGrouping.Group) -> VIcon {
+        if group.isError { return .triangleAlert }
         switch group {
         case .text: return .messageSquare
         case .error: return .triangleAlert
@@ -207,17 +208,13 @@ struct SubagentDetailPanel: View {
     }
 
     private func timelineIconColor(for group: SubagentEventGrouping.Group) -> Color {
-        switch group {
-        case .error: return VColor.systemNegativeStrong
-        default: return VColor.systemPositiveStrong
-        }
+        if group.isError { return VColor.systemNegativeStrong }
+        return VColor.systemPositiveStrong
     }
 
     private func timelineIconBackground(for group: SubagentEventGrouping.Group) -> Color {
-        switch group {
-        case .error: return VColor.systemNegativeStrong.opacity(0.12)
-        default: return VColor.systemPositiveWeak
-        }
+        if group.isError { return VColor.systemNegativeStrong.opacity(0.12) }
+        return VColor.systemPositiveWeak
     }
 
     // MARK: - Group Rendering
@@ -454,6 +451,17 @@ struct SubagentEventGrouping {
         /// still want the result (and any error payload) inspectable.
         case orphanToolResult(SubagentEventItem)
         case completedToolCalls([SubagentToolCallPair])
+
+        var isError: Bool {
+            switch self {
+            case .error: return true
+            case .toolCall(let pair): return pair.resultIsError
+            case .orphanToolResult(let event):
+                if case .toolResult(let isErr) = event.kind { return isErr }
+                return false
+            default: return false
+            }
+        }
     }
 
     /// Build the visual groups for the running state (tool calls inline). Each
