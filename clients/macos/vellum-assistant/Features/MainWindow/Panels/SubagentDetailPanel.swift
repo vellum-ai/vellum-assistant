@@ -158,38 +158,41 @@ struct SubagentDetailPanel: View {
 
     private static let gutterWidth: CGFloat = 24
 
+    private static let iconNodeSize: CGFloat = 24
+
     @ViewBuilder
     private func timelineNode(for group: SubagentEventGrouping.Group, isLast: Bool) -> some View {
         HStack(alignment: .top, spacing: VSpacing.lg) {
-            timelineGutter(for: group, isLast: isLast)
+            iconNode(for: group)
+                .frame(width: Self.gutterWidth)
 
             VStack(alignment: .leading, spacing: 0) {
                 renderGroup(group)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, isLast ? 0 : VSpacing.lg)
         }
-    }
-
-    @ViewBuilder
-    private func timelineGutter(for group: SubagentEventGrouping.Group, isLast: Bool) -> some View {
-        VStack(spacing: 0) {
-            VIconView(timelineIcon(for: group), size: 12)
-                .foregroundStyle(timelineIconColor(for: group))
-                .padding(6)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(timelineIconBackground(for: group))
-                )
-
+        .padding(.bottom, isLast ? 0 : VSpacing.lg)
+        .overlay(alignment: .topLeading) {
             if !isLast {
                 Rectangle()
                     .fill(VColor.borderHover)
                     .frame(width: 1)
                     .frame(maxHeight: .infinity)
+                    .padding(.top, Self.iconNodeSize)
+                    .padding(.leading, Self.gutterWidth / 2)
             }
         }
-        .frame(width: Self.gutterWidth)
+    }
+
+    @ViewBuilder
+    private func iconNode(for group: SubagentEventGrouping.Group) -> some View {
+        VIconView(timelineIcon(for: group), size: 12)
+            .foregroundStyle(timelineIconColor(for: group))
+            .padding(6)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(timelineIconBackground(for: group))
+            )
     }
 
     private func timelineIcon(for group: SubagentEventGrouping.Group) -> VIcon {
