@@ -32,7 +32,7 @@ import {
   hasManagedProxyPrereqs,
   managedFallbackEnabledFor,
   resolveManagedProxyContext,
-} from "../providers/managed-proxy/context.js";
+} from "../providers/platform-proxy/context.js";
 
 describe("resolveManagedProxyContext", () => {
   beforeEach(() => {

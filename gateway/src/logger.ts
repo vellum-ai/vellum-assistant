@@ -64,6 +64,10 @@ function jsonLogFilePathForDate(dir: string, date: Date): string {
 
 export function pruneOldLogFiles(dir: string, retentionDays: number): number {
   if (!existsSync(dir)) return 0;
+  // Disabled retention is a no-op. Guarding here (not just in the `prune()`
+  // wrapper) lets tests exercise the disable path directly without going
+  // through `initLogger`, which is module-level state.
+  if (retentionDays <= 0) return 0;
 
   const cutoff = new Date();
   cutoff.setUTCDate(cutoff.getUTCDate() - retentionDays);
@@ -151,26 +155,42 @@ function buildLogger(config: LogFileConfig | null): pino.Logger {
   );
 }
 
+/**
+ * Best-effort retention sweep. Called once at startup and again whenever the
+ * UTC date rolls over inside a long-lived process, so log files don't outlive
+ * `retentionDays` even if the gateway never restarts. No-ops when no dir is
+ * configured or retention is disabled (`retentionDays <= 0`).
+ */
+function prune(config: LogFileConfig | null, logger: pino.Logger | null): void {
+  if (!config?.dir) return;
+  // `pruneOldLogFiles` short-circuits when retentionDays <= 0, so we don't
+  // double-guard here. Keeping the dir check because we have nothing to
+  // sweep without a configured directory.
+  const removed = pruneOldLogFiles(config.dir, config.retentionDays);
+  if (removed > 0) {
+    logger?.info(
+      { removed, retentionDays: config.retentionDays },
+      "Pruned old log files",
+    );
+  }
+}
+
 function ensureCurrentDate(): void {
   if (!activeConfig?.dir || !activeLogDate) return;
   const today = formatDate(new Date());
   if (today !== activeLogDate) {
-    rootLogger = buildLogger(activeConfig);
+    const config = activeConfig;
+    rootLogger = buildLogger(config);
+    // Retention sweep on date rollover so long-lived pods don't accumulate
+    // files past `retentionDays`. `pruneOldLogFiles` is best-effort and safe
+    // to call on every rollover.
+    prune(config, rootLogger);
   }
 }
 
 export function initLogger(config: LogFileConfig): void {
   rootLogger = buildLogger(config);
-
-  if (config.dir && config.retentionDays > 0) {
-    const removed = pruneOldLogFiles(config.dir, config.retentionDays);
-    if (removed > 0) {
-      rootLogger.info(
-        { removed, retentionDays: config.retentionDays },
-        "Pruned old log files",
-      );
-    }
-  }
+  prune(config, rootLogger);
 }
 
 /**

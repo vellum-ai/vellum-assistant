@@ -12,7 +12,7 @@
 import { getPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
-import { MANAGED_PROVIDER_META } from "./constants.js";
+import { PLATFORM_PROVIDER_META } from "./constants.js";
 
 /** Storage key for the assistant API key credential. */
 const ASSISTANT_API_KEY_STORAGE_KEY = credentialKey(
@@ -70,7 +70,7 @@ export async function hasManagedProxyPrereqs(): Promise<boolean> {
 export async function buildManagedBaseUrl(
   provider: string,
 ): Promise<string | undefined> {
-  const meta = MANAGED_PROVIDER_META[provider];
+  const meta = PLATFORM_PROVIDER_META[provider];
   if (!meta?.managed || !meta.proxyPath) return undefined;
 
   const ctx = await resolveManagedProxyContext();
@@ -88,7 +88,7 @@ export async function buildManagedBaseUrl(
 export async function managedFallbackEnabledFor(
   provider: string,
 ): Promise<boolean> {
-  const meta = MANAGED_PROVIDER_META[provider];
+  const meta = PLATFORM_PROVIDER_META[provider];
   if (!meta?.managed) return false;
   return await hasManagedProxyPrereqs();
 }

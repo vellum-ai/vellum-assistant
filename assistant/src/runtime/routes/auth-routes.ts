@@ -12,7 +12,7 @@ import {
   getPlatformOrganizationId,
   getPlatformUserId,
 } from "../../config/env.js";
-import { resolveManagedProxyContext } from "../../providers/managed-proxy/context.js";
+import { resolveManagedProxyContext } from "../../providers/platform-proxy/context.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 interface AuthInfoResult {

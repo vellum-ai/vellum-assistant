@@ -715,6 +715,7 @@ export class AnthropicProvider implements Provider {
   private model: string;
   private useNativeWebSearch: boolean;
   private streamTimeoutMs: number;
+  private requestHeaders: Record<string, string>;
 
   constructor(
     apiKey: string,
@@ -730,9 +731,12 @@ export class AnthropicProvider implements Provider {
        * positional `apiKey` argument is ignored on the wire.
        */
       authToken?: string;
+      /** Provider-level request headers merged into every API request. */
+      requestHeaders?: Record<string, string>;
     } = {},
   ) {
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
+    this.requestHeaders = options.requestHeaders ?? {};
     // Pass the same deadline to the SDK so its per-request timeout can't
     // fire before `createStreamTimeout` does. The SDK's default is 10 min,
     // which truncates any request we intend to run longer than that. We add
@@ -1201,6 +1205,16 @@ export class AnthropicProvider implements Provider {
 
       let response: Anthropic.Message;
       try {
+        const requestHeaders = {
+          ...this.requestHeaders,
+          ...(usageAttributionHeaders ?? {}),
+        };
+        const requestOptions = {
+          signal: timeoutSignal,
+          ...(Object.keys(requestHeaders).length > 0
+            ? { headers: requestHeaders }
+            : {}),
+        };
         const stream: UnifiedStream = useFastMode
           ? (this.client.beta.messages.stream(
               {
@@ -1209,12 +1223,7 @@ export class AnthropicProvider implements Provider {
                 betas,
               } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
                 Anthropic.Beta.Messages.MessageCreateParamsStreaming,
-              {
-                signal: timeoutSignal,
-                ...(usageAttributionHeaders
-                  ? { headers: usageAttributionHeaders }
-                  : {}),
-              },
+              requestOptions,
             ) as unknown as UnifiedStream)
           : betas.length > 0
             ? (this.client.beta.messages.stream(
@@ -1223,19 +1232,12 @@ export class AnthropicProvider implements Provider {
                   betas,
                 } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
                   Anthropic.Beta.Messages.MessageCreateParamsStreaming,
-                {
-                  signal: timeoutSignal,
-                  ...(usageAttributionHeaders
-                    ? { headers: usageAttributionHeaders }
-                    : {}),
-                },
+                requestOptions,
               ) as unknown as UnifiedStream)
-            : (this.client.messages.stream(params, {
-                signal: timeoutSignal,
-                ...(usageAttributionHeaders
-                  ? { headers: usageAttributionHeaders }
-                  : {}),
-              }) as unknown as UnifiedStream);
+            : (this.client.messages.stream(
+                params,
+                requestOptions,
+              ) as unknown as UnifiedStream);
 
         // Buffer streaming text until it's clear the accumulated text isn't
         // going to form a placeholder sentinel. Sentinels are injected into

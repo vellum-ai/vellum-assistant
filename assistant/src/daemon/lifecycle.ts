@@ -59,7 +59,7 @@ import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,

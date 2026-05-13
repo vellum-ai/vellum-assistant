@@ -1344,6 +1344,30 @@ describe("OpenRouterProvider reasoning", () => {
     expect(lastCreateParams!.reasoning).toEqual({ enabled: false });
   });
 
+  test("sends OpenRouter app-attribution headers on OpenAI-compatible requests", async () => {
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: {
+        usageAttributionHeaders: {
+          "Vellum-Organization-Id": "org-123",
+        },
+      },
+    });
+
+    expect(lastCreateOptions?.headers).toEqual(
+      expect.objectContaining({
+        "HTTP-Referer": "https://www.vellum.ai",
+        "X-OpenRouter-Title": "Vellum Assistant",
+        "X-OpenRouter-Categories": "personal-agent,cli-agent",
+        "Vellum-Organization-Id": "org-123",
+      }),
+    );
+    expect(lastCreateParams).not.toHaveProperty("HTTP-Referer");
+    expect(lastCreateParams).not.toHaveProperty("X-OpenRouter-Title");
+    expect(lastCreateParams).not.toHaveProperty("X-OpenRouter-Categories");
+    expect(lastCreateParams).not.toHaveProperty("usageAttributionHeaders");
+  });
+
   test("RetryProvider + OpenRouterProvider enables thinking end-to-end", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     const retry = new RetryProvider(provider);

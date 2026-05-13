@@ -379,7 +379,7 @@ struct ProvidersSheet: View {
                     editorDraft.credential = ""
                 } else {
                     if editorDraft.authType == "none" ||
-                        (editorDraft.authType == "platform" && !store.isManagedCapable(newProvider)) {
+                        (editorDraft.authType == "platform" && !store.isPlatformCapable(newProvider)) {
                         editorDraft.authType = "api_key"
                     }
                     editorDraft.credential = "credential/\(newProvider)/api_key"
@@ -508,7 +508,7 @@ struct ProvidersSheet: View {
         var options: [(label: String, value: String)] = [
             (label: "API Key", value: "api_key"),
         ]
-        if store.isManagedCapable(provider) {
+        if store.isPlatformCapable(provider) {
             options.append((label: "Platform (managed by Vellum)", value: "platform"))
         }
         // Preserve the current auth type in edit mode so existing connections

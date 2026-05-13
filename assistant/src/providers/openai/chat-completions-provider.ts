@@ -60,6 +60,8 @@ export interface OpenAIChatCompletionsProviderOptions {
   providerName?: string;
   providerLabel?: string;
   streamTimeoutMs?: number;
+  /** Provider-level request headers merged into every API request. */
+  requestHeaders?: Record<string, string>;
   /** Extra params spread into every chat.completions.create call (e.g. reasoning). */
   extraCreateParams?: Record<string, unknown>;
   /** Upper bound for `reasoning_effort` sent on the wire. Defaults to "xhigh"
@@ -110,6 +112,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private streamTimeoutMs: number;
   private extraCreateParams: Record<string, unknown>;
   private maxReasoningEffort: "high" | "xhigh";
+  private requestHeaders: Record<string, string>;
 
   constructor(
     apiKey: string,
@@ -126,6 +129,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
     this.extraCreateParams = options.extraCreateParams ?? {};
     this.maxReasoningEffort = options.maxReasoningEffort ?? "xhigh";
+    this.requestHeaders = options.requestHeaders ?? {};
   }
 
   async sendMessage(
@@ -197,10 +201,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
       let cachedPromptTokens = 0;
 
       try {
+        const requestHeaders = {
+          ...this.requestHeaders,
+          ...(usageAttributionHeaders ?? {}),
+        };
         const stream = await this.client.chat.completions.create(params, {
           signal: timeoutSignal,
-          ...(usageAttributionHeaders
-            ? { headers: usageAttributionHeaders }
+          ...(Object.keys(requestHeaders).length > 0
+            ? { headers: requestHeaders }
             : {}),
         });
 

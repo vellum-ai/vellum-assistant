@@ -4,18 +4,14 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
-
-import JSZip from "jszip";
 
 import { getPlatformBaseUrl } from "../config/env.js";
 import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
@@ -135,42 +131,6 @@ export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
 
 // ─── Tar extraction ──────────────────────────────────────────────────────────
 
-function resolveArchiveEntryPath(
-  entryName: string,
-  destDir: string,
-): { destPath: string; normalizedPath: string } | null {
-  const normalizedName = entryName.replace(/\\/g, "/").replace(/^\.\/+/, "");
-  const normalizedPath = posix.normalize(normalizedName);
-  const hasWindowsDrivePrefix = /^[a-zA-Z]:\//.test(normalizedPath);
-  const isTraversal =
-    normalizedPath === ".." || normalizedPath.startsWith("../");
-
-  if (
-    !normalizedPath ||
-    normalizedPath === "." ||
-    normalizedPath.startsWith("/") ||
-    hasWindowsDrivePrefix ||
-    isTraversal
-  ) {
-    return null;
-  }
-
-  const destRoot = resolve(destDir);
-  const destPath = resolve(destRoot, normalizedPath);
-  const insideDestination =
-    destPath === destRoot || destPath.startsWith(destRoot + sep);
-
-  if (!insideDestination) {
-    return null;
-  }
-
-  return { destPath, normalizedPath };
-}
-
-function isSkillMarkdownPath(normalizedPath: string): boolean {
-  return normalizedPath === "SKILL.md" || normalizedPath.endsWith("/SKILL.md");
-}
-
 /**
  * Extract all files from a tar archive (uncompressed) into a directory.
  * Returns true if a SKILL.md was found in the archive.
@@ -201,16 +161,38 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
 
     // Skip directories and empty names
     if (name && typeFlag !== 53 /* '5' */) {
-      // Prevent path traversal and absolute path writes.
-      const resolved = resolveArchiveEntryPath(name, destDir);
-      if (resolved) {
-        mkdirSync(dirname(resolved.destPath), { recursive: true });
-        writeFileSync(
-          resolved.destPath,
-          tarBuffer.subarray(offset, offset + size),
-        );
+      // Prevent path traversal and absolute path writes
+      const normalizedName = name.replace(/\\/g, "/").replace(/^\.\/+/, "");
+      const normalizedPath = posix.normalize(normalizedName);
+      const hasWindowsDrivePrefix = /^[a-zA-Z]:\//.test(normalizedPath);
+      const isTraversal =
+        normalizedPath === ".." || normalizedPath.startsWith("../");
 
-        if (isSkillMarkdownPath(resolved.normalizedPath)) foundSkillMd = true;
+      if (
+        normalizedPath &&
+        normalizedPath !== "." &&
+        !normalizedPath.startsWith("/") &&
+        !hasWindowsDrivePrefix &&
+        !isTraversal
+      ) {
+        const destRoot = resolve(destDir);
+        const destPath = resolve(destRoot, normalizedPath);
+        const insideDestination =
+          destPath === destRoot || destPath.startsWith(destRoot + sep);
+        if (!insideDestination) {
+          offset += Math.ceil(size / 512) * 512;
+          continue;
+        }
+
+        mkdirSync(dirname(destPath), { recursive: true });
+        writeFileSync(destPath, tarBuffer.subarray(offset, offset + size));
+
+        if (
+          normalizedPath === "SKILL.md" ||
+          normalizedPath.endsWith("/SKILL.md")
+        ) {
+          foundSkillMd = true;
+        }
       }
     }
 
@@ -218,71 +200,6 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
     offset += Math.ceil(size / 512) * 512;
   }
   return foundSkillMd;
-}
-
-async function extractZipToDir(
-  zipBuffer: Buffer,
-  destDir: string,
-): Promise<boolean> {
-  const zip = await JSZip.loadAsync(zipBuffer);
-  let foundSkillMd = false;
-
-  for (const entry of Object.values(zip.files)) {
-    if (entry.dir) continue;
-
-    const resolved = resolveArchiveEntryPath(entry.name, destDir);
-    if (!resolved) continue;
-
-    const content = Buffer.from(await entry.async("uint8array"));
-    mkdirSync(dirname(resolved.destPath), { recursive: true });
-    writeFileSync(resolved.destPath, content);
-
-    if (isSkillMarkdownPath(resolved.normalizedPath)) foundSkillMd = true;
-  }
-
-  return foundSkillMd;
-}
-
-function findSkillMarkdownFiles(dir: string, relPath = ""): string[] {
-  const results: string[] = [];
-
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const childRelPath = relPath ? posix.join(relPath, entry.name) : entry.name;
-    const childPath = join(dir, entry.name);
-
-    if (entry.isDirectory()) {
-      results.push(...findSkillMarkdownFiles(childPath, childRelPath));
-    } else if (entry.isFile() && entry.name === "SKILL.md") {
-      results.push(childRelPath);
-    }
-  }
-
-  return results;
-}
-
-function normalizeImportedSkillRoot(tmpDir: string): boolean {
-  if (existsSync(join(tmpDir, "SKILL.md"))) return true;
-
-  const skillMarkdownFiles = findSkillMarkdownFiles(tmpDir);
-  if (skillMarkdownFiles.length !== 1) return false;
-
-  const skillRoot = dirname(join(tmpDir, ...skillMarkdownFiles[0]!.split("/")));
-  if (skillRoot === tmpDir) return true;
-
-  const flattenedDir = join(
-    dirname(tmpDir),
-    `.tmp-import-root-${randomUUID()}`,
-  );
-  mkdirSync(flattenedDir, { recursive: true });
-
-  for (const entry of readdirSync(skillRoot)) {
-    renameSync(join(skillRoot, entry), join(flattenedDir, entry));
-  }
-
-  rmSync(tmpDir, { recursive: true, force: true });
-  renameSync(flattenedDir, tmpDir);
-
-  return existsSync(join(tmpDir, "SKILL.md"));
 }
 
 async function fetchAndExtractSkill(
@@ -538,100 +455,4 @@ export async function autoInstallFromCatalog(
   await installSkillLocally(skillId, entry, false);
 
   return true;
-}
-
-// ─── Import skill from ZIP/tar.gz (drag-n-drop) ──────────────────────────────
-
-/**
- * Import a skill from a base64-encoded ZIP or tar.gz file.
- * This is the "escape hatch" for users who want to install custom skills
- * that are not available in any public catalog.
- */
-export async function importSkillFromFile(
-  fileName: string,
-  fileContentBase64: string,
-): Promise<
-  { success: true; skillId: string } | { success: false; error: string }
-> {
-  let tmpDir: string | undefined;
-  let tmpDirMoved = false;
-
-  try {
-    const buffer = Buffer.from(fileContentBase64, "base64");
-
-    // Use fileName (without extension) as candidate skillId
-    const baseName = fileName
-      .replace(/\.(tar\.gz|tgz|zip|tar)$/i, "")
-      .replace(/[^a-zA-Z0-9._-]/g, "-")
-      .toLowerCase();
-    const skillId = baseName || "imported-skill";
-    const skillDir = join(getWorkspaceSkillsDir(), skillId);
-
-    // Extract to temp dir first to validate before touching existing install
-    tmpDir = join(getWorkspaceSkillsDir(), `.tmp-import-${randomUUID()}`);
-    mkdirSync(tmpDir, { recursive: true });
-
-    const isGzip = buffer[0] === 0x1f && buffer[1] === 0x8b;
-    const isZip = buffer[0] === 0x50 && buffer[1] === 0x4b;
-    const foundSkillMd = isZip
-      ? await extractZipToDir(buffer, tmpDir)
-      : extractTarToDir(isGzip ? gunzipSync(buffer) : buffer, tmpDir);
-
-    if (!foundSkillMd) {
-      return {
-        success: false,
-        error:
-          "No SKILL.md found in uploaded archive. Please include a SKILL.md file.",
-      };
-    }
-
-    if (!normalizeImportedSkillRoot(tmpDir)) {
-      return {
-        success: false,
-        error:
-          "Uploaded archive must contain exactly one root skill directory with a SKILL.md file.",
-      };
-    }
-
-    // Install dependencies before replacing an existing skill, so a failed
-    // package install leaves the current skill untouched.
-    if (existsSync(join(tmpDir, "package.json"))) {
-      const bunPath = `${homedir()}/.bun/bin`;
-      execSync("bun install", {
-        cwd: tmpDir,
-        stdio: "inherit",
-        env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
-      });
-    }
-
-    writeInstallMeta(tmpDir, {
-      origin: "custom",
-      installedAt: new Date().toISOString(),
-      contentHash: computeSkillHash(tmpDir) ?? undefined,
-    });
-
-    // Validation passed — atomically replace existing skill directory
-    if (existsSync(skillDir)) {
-      if (!statSync(skillDir).isDirectory()) {
-        return {
-          success: false,
-          error: `Skill path "${skillId}" exists but is not a directory.`,
-        };
-      }
-      rmSync(skillDir, { recursive: true, force: true });
-    }
-    renameSync(tmpDir, skillDir);
-    tmpDirMoved = true;
-
-    upsertSkillsIndex(skillId);
-
-    return { success: true, skillId };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { success: false, error: message };
-  } finally {
-    if (tmpDir && !tmpDirMoved) {
-      rmSync(tmpDir, { recursive: true, force: true });
-    }
-  }
 }

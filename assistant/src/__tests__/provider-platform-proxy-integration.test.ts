@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
+import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { credentialKey } from "../security/credential-key.js";
 
 // ---------------------------------------------------------------------------
@@ -436,7 +436,7 @@ describe("managed proxy integration — ollama exclusion", () => {
   });
 
   test("ollama metadata is marked as non-managed", () => {
-    const meta = MANAGED_PROVIDER_META.ollama;
+    const meta = PLATFORM_PROVIDER_META.ollama;
     expect(meta).toBeDefined();
     expect(meta.managed).toBe(false);
     expect(meta.proxyPath).toBeUndefined();
@@ -478,7 +478,7 @@ describe("config mode flip → provider reinit", () => {
 describe("managed proxy integration — constants integrity", () => {
   test("anthropic, openai, and gemini have metadata with managed=true and a proxyPath", () => {
     for (const provider of ["anthropic", "openai", "gemini"]) {
-      const meta = MANAGED_PROVIDER_META[provider];
+      const meta = PLATFORM_PROVIDER_META[provider];
       expect(meta).toBeDefined();
       expect(meta.managed).toBe(true);
       expect(meta.proxyPath).toBeTruthy();
@@ -487,27 +487,27 @@ describe("managed proxy integration — constants integrity", () => {
   });
 
   test("anthropic routes through anthropic proxy path", () => {
-    expect(MANAGED_PROVIDER_META.anthropic.proxyPath).toBe(
+    expect(PLATFORM_PROVIDER_META.anthropic.proxyPath).toBe(
       "/v1/runtime-proxy/anthropic",
     );
   });
 
   test("gemini routes through gemini proxy path", () => {
-    expect(MANAGED_PROVIDER_META.gemini.proxyPath).toBe(
+    expect(PLATFORM_PROVIDER_META.gemini.proxyPath).toBe(
       "/v1/runtime-proxy/gemini",
     );
   });
 
   test("openai routes through openai proxy path", () => {
-    expect(MANAGED_PROVIDER_META.openai.proxyPath).toBe(
+    expect(PLATFORM_PROVIDER_META.openai.proxyPath).toBe(
       "/v1/runtime-proxy/openai",
     );
   });
 
   test("fireworks and openrouter are not managed proxy capable", () => {
     for (const provider of ["fireworks", "openrouter"]) {
-      expect(MANAGED_PROVIDER_META[provider].managed).toBe(false);
-      expect(MANAGED_PROVIDER_META[provider].proxyPath).toBeUndefined();
+      expect(PLATFORM_PROVIDER_META[provider].managed).toBe(false);
+      expect(PLATFORM_PROVIDER_META[provider].proxyPath).toBeUndefined();
     }
   });
 });

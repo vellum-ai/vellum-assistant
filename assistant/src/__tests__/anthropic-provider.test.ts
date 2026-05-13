@@ -2346,6 +2346,35 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
     expect(lastStreamParams!.reasoning).toBeUndefined();
   });
 
+  test("sends OpenRouter app-attribution headers on Anthropic-compatible requests", async () => {
+    const { OpenRouterProvider } =
+      await import("../providers/openrouter/client.js");
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: {
+        usageAttributionHeaders: {
+          "Vellum-Organization-Id": "org-123",
+        },
+      },
+    });
+
+    expect(_lastStreamOptions?.headers).toEqual(
+      expect.objectContaining({
+        "HTTP-Referer": "https://www.vellum.ai",
+        "X-OpenRouter-Title": "Vellum Assistant",
+        "X-OpenRouter-Categories": "personal-agent,cli-agent",
+        "Vellum-Organization-Id": "org-123",
+      }),
+    );
+    expect(lastStreamParams).not.toHaveProperty("HTTP-Referer");
+    expect(lastStreamParams).not.toHaveProperty("X-OpenRouter-Title");
+    expect(lastStreamParams).not.toHaveProperty("X-OpenRouter-Categories");
+    expect(lastStreamParams).not.toHaveProperty("usageAttributionHeaders");
+  });
+
   test("per-request model override routes based on the overridden model", async () => {
     const { OpenRouterProvider } =
       await import("../providers/openrouter/client.js");
