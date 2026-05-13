@@ -44,29 +44,29 @@ struct HomeDetailPanel<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                header
+        VStack(alignment: .leading, spacing: 0) {
+            header
 
-                VColor.borderBase
-                    .frame(height: 1)
-                    .accessibilityHidden(true)
+            VColor.borderBase
+                .frame(height: 1)
+                .accessibilityHidden(true)
 
-                if scrollable {
-                    ScrollView {
-                        content()
-                            .containerRelativeFrame(.horizontal, alignment: .top)
-                    }
-                    .layoutPriority(1)
-                } else {
+            if scrollable {
+                ScrollView {
                     content()
-                        .layoutPriority(1)
+                        .containerRelativeFrame(.horizontal, alignment: .top)
                 }
-
-                Spacer(minLength: 0)
+                .layoutPriority(1)
+            } else {
+                content()
+                    .layoutPriority(1)
             }
+
             Spacer(minLength: 0)
         }
+        // Allowlisted: eagerly rendered detail panel outside any Lazy*
+        // hierarchy — FlexFrame alignment cascade cost is negligible.
+        .frame(maxWidth: .infinity)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         .overlay(
