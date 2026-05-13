@@ -214,6 +214,8 @@ Adding content to the system prompt is a **last resort**. The system prompt is t
 2. **Config / feature flags** — Use runtime configuration instead of prompt-level instructions.
 3. **Code** — If a behavior can be enforced programmatically, enforce it in code.
 
+Tool routing and tool usage guidance belong in the relevant tool description, input schema, or SKILL.md — not in the system prompt. Only put this guidance in the system prompt when it must apply across tools and cannot be localized.
+
 Only add to the system prompt when the behavior cannot be achieved any other way. When you must, keep additions minimal and look for existing content to condense or remove to offset the addition.
 
 CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md` for details.

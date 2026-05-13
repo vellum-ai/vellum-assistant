@@ -118,7 +118,6 @@ import {
   buildToolDefinitions,
   createResolveToolsCallback,
   createToolExecutor,
-  isToolActiveForContext,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { canonicalizeTimeZone } from "./date-context.js";
@@ -479,7 +478,6 @@ export class Conversation {
                 isBackgroundConversation: isBackgroundConversationType(
                   getConversation(this.conversationId)?.conversationType,
                 ),
-                hasAskQuestion: isToolActiveForContext("ask_question", this),
               });
             })(),
       };
@@ -570,7 +568,6 @@ export class Conversation {
             isBackgroundConversation: isBackgroundConversationType(
               getConversation(this.conversationId)?.conversationType,
             ),
-            hasAskQuestion: isToolActiveForContext("ask_question", this),
           });
         })();
     const tools = buildToolDefinitions();

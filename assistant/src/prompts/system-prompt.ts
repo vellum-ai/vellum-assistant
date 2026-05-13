@@ -284,15 +284,6 @@ export interface BuildSystemPromptOptions {
    * unset so they pay zero token cost.
    */
   isBackgroundConversation?: boolean;
-  /**
-   * When true, the `ask_question` tool is available in the current
-   * conversation's resolved tool set. Gates the workspace
-   * `04-ask-question.md` section, which nudges the model to prefer
-   * structured clarifying questions over plain-text prose. Callers compute
-   * this from the same source of truth used by tool gating
-   * (`isToolActiveForContext` in `conversation-tool-setup.ts`).
-   */
-  hasAskQuestion?: boolean;
 }
 
 /**
