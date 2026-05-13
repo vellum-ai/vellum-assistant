@@ -29,6 +29,7 @@ struct SubagentDetailPanel: View {
 
     var body: some View {
         VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.titleSmall, onClose: onClose, titleAccessory: {
+            panelAvatar
             statusBadge
         }, headerTrailing: {
             if isRunning {
@@ -343,6 +344,15 @@ struct SubagentDetailPanel: View {
     }
 
     // MARK: - Status Badge
+
+    @ViewBuilder
+    private var panelAvatar: some View {
+        VAvatarImage(
+            image: SubagentAvatarProvider.avatar(for: subagentId, size: 28),
+            size: 23,
+            showBorder: false
+        )
+    }
 
     @ViewBuilder
     private var statusBadge: some View {
