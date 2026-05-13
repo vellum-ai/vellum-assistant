@@ -106,10 +106,20 @@ export function listBookmarks(db: DrizzleDb): BookmarkSummary[] {
 }
 
 /**
- * Create a bookmark for the given message and return its JOIN-shaped
- * {@link BookmarkSummary}. Idempotent on the unique `message_id` index —
- * if a bookmark already exists for `messageId`, the existing summary is
- * returned and no new row is inserted.
+ * Discriminated result returned by {@link createBookmark}. `inserted`
+ * distinguishes a brand-new row from an idempotent return of an existing
+ * one, so callers can suppress side effects (e.g. `bookmark.created` SSE
+ * publishes) on duplicate POSTs.
+ */
+export type CreateBookmarkResult =
+  | { inserted: true; bookmark: BookmarkSummary }
+  | { inserted: false; bookmark: BookmarkSummary };
+
+/**
+ * Create a bookmark for the given message and return a discriminated
+ * result indicating whether a new row was actually inserted. Idempotent
+ * on the unique `message_id` index — if a bookmark already exists for
+ * `messageId`, the existing summary is returned with `inserted: false`.
  *
  * `conversationId` is derived from the message row rather than trusted from
  * the caller, so a buggy or malicious caller cannot persist a bookmark
@@ -118,7 +128,7 @@ export function listBookmarks(db: DrizzleDb): BookmarkSummary[] {
 export function createBookmark(
   db: DrizzleDb,
   params: { messageId: string },
-): BookmarkSummary {
+): CreateBookmarkResult {
   const { messageId } = params;
   const message = db
     .select({ conversationId: messages.conversationId })
@@ -135,7 +145,12 @@ export function createBookmark(
     .from(messageBookmarks)
     .where(eq(messageBookmarks.messageId, messageId))
     .get();
-  if (existing) return readBookmarkSummaryOrThrow(db, existing.id);
+  if (existing) {
+    return {
+      inserted: false,
+      bookmark: readBookmarkSummaryOrThrow(db, existing.id),
+    };
+  }
 
   const id = uuid();
   try {
@@ -151,9 +166,12 @@ export function createBookmark(
       .where(eq(messageBookmarks.messageId, messageId))
       .get();
     if (!winner) throw err;
-    return readBookmarkSummaryOrThrow(db, winner.id);
+    return {
+      inserted: false,
+      bookmark: readBookmarkSummaryOrThrow(db, winner.id),
+    };
   }
-  return readBookmarkSummaryOrThrow(db, id);
+  return { inserted: true, bookmark: readBookmarkSummaryOrThrow(db, id) };
 }
 
 function readBookmarkSummaryOrThrow(

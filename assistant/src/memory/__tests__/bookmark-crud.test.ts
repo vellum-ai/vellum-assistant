@@ -96,8 +96,10 @@ describe("bookmark-crud", () => {
     const first = createBookmark(db, { messageId: "msg-1" });
     const second = createBookmark(db, { messageId: "msg-1" });
 
-    expect(second.id).toBe(first.id);
-    expect(second.createdAt).toBe(first.createdAt);
+    expect(first.inserted).toBe(true);
+    expect(second.inserted).toBe(false);
+    expect(second.bookmark.id).toBe(first.bookmark.id);
+    expect(second.bookmark.createdAt).toBe(first.bookmark.createdAt);
 
     const all = listBookmarks(db);
     expect(all.length).toBe(1);
@@ -113,8 +115,10 @@ describe("bookmark-crud", () => {
       messageRole: "assistant",
     });
 
-    const summary = createBookmark(db, { messageId: "msg-summary" });
+    const result = createBookmark(db, { messageId: "msg-summary" });
 
+    expect(result.inserted).toBe(true);
+    const summary = result.bookmark;
     expect(summary.conversationTitle).toBe("Title goes here");
     expect(summary.messagePreview).toBe("summary body");
     expect(summary.messageRole).toBe("assistant");
@@ -208,7 +212,9 @@ describe("bookmark-crud", () => {
       messageRole: "user",
     });
 
-    const summary = createBookmark(db, { messageId: "msg-blocks" });
+    const { bookmark: summary } = createBookmark(db, {
+      messageId: "msg-blocks",
+    });
 
     // Without the decode step, this would render as the raw JSON literal
     // (`[{"type":"text","text":"…"}]`) rather than the spoken text.
@@ -230,7 +236,9 @@ describe("bookmark-crud", () => {
       messageRole: "assistant",
     });
 
-    const summary = createBookmark(db, { messageId: "msg-multi" });
+    const { bookmark: summary } = createBookmark(db, {
+      messageId: "msg-multi",
+    });
 
     expect(summary.messagePreview).toBe("first paragraph\nsecond paragraph");
   });
@@ -242,7 +250,7 @@ describe("bookmark-crud", () => {
       messageId: "msg-x",
     });
 
-    const summary = createBookmark(db, { messageId: "msg-x" });
+    const { bookmark: summary } = createBookmark(db, { messageId: "msg-x" });
     expect(summary.conversationId).toBe("conv-real");
     expect(listBookmarks(db)[0]?.conversationId).toBe("conv-real");
   });

@@ -241,6 +241,23 @@ describe("bookmark routes", () => {
     ).toBe("msg-6");
   });
 
+  test("duplicate POSTs only broadcast one bookmark.created event", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-dup",
+      messageId: "msg-dup",
+    });
+
+    await call(createHandler, {
+      body: { messageId: "msg-dup", conversationId: "conv-dup" },
+    });
+    await call(createHandler, {
+      body: { messageId: "msg-dup", conversationId: "conv-dup" },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(publishedTypes()).toEqual(["bookmark.created"]);
+  });
+
   test("DELETE on a non-existent messageId does not publish", async () => {
     await call(deleteByMessageHandler, {
       pathParams: { messageId: "does-not-exist" },

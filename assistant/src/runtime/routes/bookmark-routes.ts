@@ -79,9 +79,11 @@ function handleCreateBookmark({
     );
   }
 
-  const summary = createBookmark(getDb(), { messageId });
-  publishBookmarkCreated(summary);
-  return summary;
+  const result = createBookmark(getDb(), { messageId });
+  if (result.inserted) {
+    publishBookmarkCreated(result.bookmark);
+  }
+  return result.bookmark;
 }
 
 function handleDeleteBookmarkByMessage({ pathParams = {} }: RouteHandlerArgs): {
