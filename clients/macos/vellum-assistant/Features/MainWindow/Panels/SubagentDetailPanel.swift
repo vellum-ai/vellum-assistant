@@ -313,7 +313,6 @@ struct SubagentDetailPanel: View {
                 Text(pair.inputSummary)
                     .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentSecondary)
-                    .lineLimit(2)
             }
         }
     }
@@ -324,7 +323,6 @@ struct SubagentDetailPanel: View {
             Text(event.content)
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentDefault)
-                .lineLimit(4)
                 .textSelection(.enabled)
         }
     }
