@@ -671,6 +671,73 @@ describe("buildSystemPrompt", () => {
       expect(orgIdx).toBeGreaterThan(parallelIdx);
     });
 
+    describe("containerized section (slot 02)", () => {
+      const CONTAINERIZED_FILE = join(SYSTEM_PROMPTS_DIR, "02-containerized.md");
+
+      // The runtime gate is `isContainerized` on the render context, sourced
+      // from `getIsContainerized()` which reads `process.env.IS_CONTAINERIZED`.
+      // Tests toggle the env var directly and restore it in `finally`.
+      let priorIsContainerized: string | undefined;
+
+      beforeEach(() => {
+        priorIsContainerized = process.env.IS_CONTAINERIZED;
+      });
+
+      afterEach(() => {
+        if (priorIsContainerized === undefined)
+          delete process.env.IS_CONTAINERIZED;
+        else process.env.IS_CONTAINERIZED = priorIsContainerized;
+      });
+
+      test("renders the section when IS_CONTAINERIZED=true with {{workspaceDir}} interpolated", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CONTAINERIZED_FILE,
+          "---\nenabled: isContainerized\n---\n" +
+            "Container mounted at `{{workspaceDir}}`. Persist accordingly.\n",
+        );
+        process.env.IS_CONTAINERIZED = "true";
+        const result = buildSystemPrompt();
+        expect(result).toContain(
+          `Container mounted at \`${TEST_DIR}\`. Persist accordingly.`,
+        );
+        // The literal `{{workspaceDir}}` must be substituted, not leaked.
+        expect(result).not.toContain("{{workspaceDir}}");
+      });
+
+      test("omits the section when IS_CONTAINERIZED is unset", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CONTAINERIZED_FILE,
+          "---\nenabled: isContainerized\n---\nContainer guidance body.\n",
+        );
+        delete process.env.IS_CONTAINERIZED;
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("Container guidance body.");
+      });
+
+      test("omits the section when IS_CONTAINERIZED=false (string)", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CONTAINERIZED_FILE,
+          "---\nenabled: isContainerized\n---\nContainer guidance body.\n",
+        );
+        process.env.IS_CONTAINERIZED = "false";
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("Container guidance body.");
+      });
+    });
+
+    test("unresolved {{variable}} is left as a literal in the body", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER + "Has {{somethingMissing}} in body.\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).toContain("Has {{somethingMissing}} in body.");
+    });
+
   });
 });
 

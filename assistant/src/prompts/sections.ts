@@ -107,10 +107,42 @@ function renderSection(id: string, ctx: SectionRenderContext): string | null {
 
   const stripped = stripCommentLines(body).trim();
   if (stripped.length === 0) return null;
-  return stripped;
+  return interpolateVariables(stripped, ctx);
 }
 
 const IDENT_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
+ * Substitute `{{key}}` placeholders in the section body with stringified
+ * `ctx[key]` values.  Keys are restricted to JS-identifier characters so
+ * the syntax stays readable in markdown — `{{workspaceDir}}` interpolates,
+ * `{{ some expression }}` or `{{a.b}}` does not.
+ *
+ * Unresolved keys (ctx value is `null`/`undefined`) are left as literal
+ * `{{key}}` text and logged at warn level so authors notice the typo
+ * rather than seeing silently empty prose.  Plain `String(value)` is used
+ * for the substitution, so non-string ctx values (numbers, booleans) work
+ * too.
+ */
+function interpolateVariables(
+  body: string,
+  ctx: SectionRenderContext,
+): string {
+  return body.replace(
+    /\{\{([A-Za-z_$][A-Za-z0-9_$]*)\}\}/g,
+    (match, key: string) => {
+      const value = ctx[key];
+      if (value === undefined || value === null) {
+        log.warn(
+          { key },
+          "Unresolved {{variable}} in workspace system prompt section; leaving literal",
+        );
+        return match;
+      }
+      return String(value);
+    },
+  );
+}
 
 /**
  * Evaluate an `enabled:` frontmatter value.  Supported shapes:
