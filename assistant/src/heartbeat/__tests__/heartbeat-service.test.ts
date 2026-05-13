@@ -91,7 +91,6 @@ mock.module("../../prompts/system-prompt.js", () => ({
   SYSTEM_PROMPT_CACHE_BOUNDARY: "<<CACHE_BOUNDARY>>",
   buildCoreIdentityContext: () => "",
   buildSystemPrompt: () => "",
-  buildCliReferenceSection: () => "",
   ensurePromptFiles: () => {},
   stripCommentLines: (s: string) => s,
 }));
