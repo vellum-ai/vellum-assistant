@@ -26,9 +26,15 @@ extension MessageListView {
         scrollState.lastContentOffsetY = newState.contentOffsetY
 
         // --- Viewport height update ---
-        // Filter non-finite viewport heights and sub-pixel jitter.
+        // Use containerHeight (clipView.bounds.height) — the actual scroll
+        // viewport size — instead of visibleRectHeight (documentVisibleRect).
+        // documentVisibleRect.height equals min(document, viewport), so when
+        // content is shorter than the viewport (conversation start/switch
+        // before bottomAlignedMinHeight has expanded the document) it returns
+        // the content height, not the viewport height. containerHeight is
+        // always correct regardless of content size.
         let decision = PreferenceGeometryFilter.evaluate(
-            newValue: newState.visibleRectHeight,
+            newValue: newState.containerHeight,
             previous: scrollState.viewportHeight,
             deadZone: 0.5
         )
