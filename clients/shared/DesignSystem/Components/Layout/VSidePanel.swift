@@ -1,22 +1,36 @@
 import SwiftUI
 
-public struct VSidePanel<PinnedContent: View, Content: View>: View {
+public struct VSidePanel<PinnedContent: View, Content: View, TitleAccessory: View, HeaderTrailing: View>: View {
     public let title: String
     public let titleFont: Font
     public let uppercased: Bool
     public let contentPadding: EdgeInsets
     public var onClose: (() -> Void)? = nil
+    @ViewBuilder public let titleAccessory: () -> TitleAccessory
+    @ViewBuilder public let headerTrailing: () -> HeaderTrailing
     @ViewBuilder public let pinnedContent: () -> PinnedContent
     @ViewBuilder public let content: () -> Content
 
     @State private var scrollViewWidth: CGFloat = 0
 
-    public init(title: String, titleFont: Font = VFont.titleLarge, uppercased: Bool = false, contentPadding: EdgeInsets = EdgeInsets(top: VSpacing.lg, leading: VSpacing.lg, bottom: VSpacing.lg, trailing: VSpacing.lg), onClose: (() -> Void)? = nil, @ViewBuilder pinnedContent: @escaping () -> PinnedContent, @ViewBuilder content: @escaping () -> Content) {
+    public init(
+        title: String,
+        titleFont: Font = VFont.titleLarge,
+        uppercased: Bool = false,
+        contentPadding: EdgeInsets = EdgeInsets(top: VSpacing.lg, leading: VSpacing.lg, bottom: VSpacing.lg, trailing: VSpacing.lg),
+        onClose: (() -> Void)? = nil,
+        @ViewBuilder titleAccessory: @escaping () -> TitleAccessory,
+        @ViewBuilder headerTrailing: @escaping () -> HeaderTrailing,
+        @ViewBuilder pinnedContent: @escaping () -> PinnedContent,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
         self.title = title
         self.titleFont = titleFont
         self.uppercased = uppercased
         self.contentPadding = contentPadding
         self.onClose = onClose
+        self.titleAccessory = titleAccessory
+        self.headerTrailing = headerTrailing
         self.pinnedContent = pinnedContent
         self.content = content
     }
@@ -28,7 +42,9 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
                 Text(uppercased ? title.uppercased() : title)
                     .font(titleFont)
                     .foregroundStyle(VColor.contentDefault)
+                titleAccessory()
                 Spacer()
+                headerTrailing()
                 if let onClose = onClose {
                     VButton(label: "Close", iconOnly: "xmark", style: .ghost, action: onClose)
                 }
@@ -63,7 +79,7 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
             ScrollView {
                 content()
                     .padding(contentPadding)
-                    .frame(width: scrollViewWidth > 0 ? scrollViewWidth : nil, alignment: .top)
+                    .frame(width: scrollViewWidth > 0 ? scrollViewWidth : nil, alignment: .topLeading)
             }
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
@@ -75,3 +91,26 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
     }
 }
 
+// MARK: - Backward-compatible init (no titleAccessory / headerTrailing)
+
+public extension VSidePanel where TitleAccessory == EmptyView, HeaderTrailing == EmptyView {
+    init(
+        title: String,
+        titleFont: Font = VFont.titleLarge,
+        uppercased: Bool = false,
+        contentPadding: EdgeInsets = EdgeInsets(top: VSpacing.lg, leading: VSpacing.lg, bottom: VSpacing.lg, trailing: VSpacing.lg),
+        onClose: (() -> Void)? = nil,
+        @ViewBuilder pinnedContent: @escaping () -> PinnedContent,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.titleFont = titleFont
+        self.uppercased = uppercased
+        self.contentPadding = contentPadding
+        self.onClose = onClose
+        self.titleAccessory = { EmptyView() }
+        self.headerTrailing = { EmptyView() }
+        self.pinnedContent = pinnedContent
+        self.content = content
+    }
+}

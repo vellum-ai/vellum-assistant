@@ -282,7 +282,8 @@ struct MessageCellView: View, Equatable {
                 SubagentGroupContainer(
                     subagents: subagents,
                     onAbort: { id in onAbortSubagent?(id) },
-                    onTap: { id in onSubagentTap?(id) }
+                    onTap: { id in onSubagentTap?(id) },
+                    avatarProvider: { SubagentAvatarProvider.avatar(for: $0, size: 20) }
                 )
                 Spacer(minLength: 0)
             }

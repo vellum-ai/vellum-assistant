@@ -10,17 +10,20 @@ public struct SubagentGroupContainer: View {
     let subagents: [SubagentInfo]
     var onAbort: ((String) -> Void)?
     var onTap: ((String) -> Void)?
+    var avatarProvider: ((String) -> NSImage?)?
 
     @State private var isExpanded: Bool
 
     public init(
         subagents: [SubagentInfo],
         onAbort: ((String) -> Void)? = nil,
-        onTap: ((String) -> Void)? = nil
+        onTap: ((String) -> Void)? = nil,
+        avatarProvider: ((String) -> NSImage?)? = nil
     ) {
         self.subagents = subagents
         self.onAbort = onAbort
         self.onTap = onTap
+        self.avatarProvider = avatarProvider
         _isExpanded = State(initialValue: !subagents.allSatisfy(\.isTerminal))
     }
 
@@ -106,6 +109,7 @@ public struct SubagentGroupContainer: View {
             ForEach(subagents) { subagent in
                 SubagentGroupRow(
                     subagent: subagent,
+                    avatarImage: avatarProvider?(subagent.id),
                     onAbort: { onAbort?(subagent.id) },
                     onTap: { onTap?(subagent.id) }
                 )
@@ -120,6 +124,7 @@ public struct SubagentGroupContainer: View {
 /// subagent's label with a status indicator. Tapping opens the detail panel.
 public struct SubagentGroupRow: View {
     let subagent: SubagentInfo
+    var avatarImage: NSImage?
     var onAbort: (() -> Void)?
     var onTap: (() -> Void)?
 
@@ -156,16 +161,21 @@ public struct SubagentGroupRow: View {
         }
     }
 
-    public init(subagent: SubagentInfo, onAbort: (() -> Void)? = nil, onTap: (() -> Void)? = nil) {
+    public init(subagent: SubagentInfo, avatarImage: NSImage? = nil, onAbort: (() -> Void)? = nil, onTap: (() -> Void)? = nil) {
         self.subagent = subagent
+        self.avatarImage = avatarImage
         self.onAbort = onAbort
         self.onTap = onTap
     }
 
     public var body: some View {
         HStack(spacing: VSpacing.sm) {
-            VIconView(statusIcon, size: 9)
-                .foregroundStyle(statusColor)
+            if let avatarImage {
+                VAvatarImage(image: avatarImage, size: 20, showBorder: false)
+            } else {
+                VIconView(statusIcon, size: 9)
+                    .foregroundStyle(statusColor)
+            }
 
             Text(subagent.label)
                 .font(VFont.labelDefault)
@@ -186,13 +196,13 @@ public struct SubagentGroupRow: View {
             }
 
             if isRunning, let onAbort {
-                VIconView(.x, size: 9)
+                VIconView(.square, size: 9)
                     .foregroundStyle(VColor.contentTertiary)
                     .padding(VSpacing.xs)
                     .contentShape(Rectangle())
                     .highPriorityGesture(TapGesture().onEnded { onAbort() })
                     .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel("Abort subagent")
+                    .accessibilityLabel("Stop subagent")
                     .accessibilityAction { onAbort() }
             }
 
@@ -231,5 +241,3 @@ private struct SubagentAnimatedDots: View {
         }
     }
 }
-
-
