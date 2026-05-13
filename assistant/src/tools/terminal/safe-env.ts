@@ -67,6 +67,30 @@ export const KATA_SAFE_ENV_VARS = [
   "VELLUM_APT_DATA_MIRROR",
 ] as const;
 
+const KATA_APT_DATA_ROOT = "/data/system";
+
+function kataAptPaths(dataRoot: string): string[] {
+  return [
+    `${dataRoot}/bin`,
+    `${dataRoot}/usr/local/sbin`,
+    `${dataRoot}/usr/local/bin`,
+    `${dataRoot}/usr/sbin`,
+    `${dataRoot}/usr/bin`,
+    `${dataRoot}/sbin`,
+    `${dataRoot}/usr/games`,
+    `${dataRoot}/games`,
+  ];
+}
+
+function kataAptLibraryPaths(dataRoot: string): string[] {
+  return [
+    `${dataRoot}/usr/local/lib`,
+    `${dataRoot}/usr/lib`,
+    `${dataRoot}/usr/lib/x86_64-linux-gnu`,
+    `${dataRoot}/usr/lib/aarch64-linux-gnu`,
+  ];
+}
+
 /**
  * Keys that buildSanitizedEnv always injects into the returned env,
  * independent of what is present in process.env.
@@ -78,17 +102,39 @@ export const ALWAYS_INJECTED_ENV_VARS = [
   "VELLUM_WORKSPACE_DIR",
 ] as const;
 
+function appendUniquePathEntries(
+  value: string | undefined,
+  entries: readonly string[],
+): string {
+  const parts = value ? value.split(":").filter(Boolean) : [];
+  for (const entry of entries) {
+    if (!parts.includes(entry)) {
+      parts.push(entry);
+    }
+  }
+  return parts.join(":");
+}
+
 export function buildSanitizedEnv(): Record<string, string> {
   const env: Record<string, string> = {};
-  const safeEnvVars =
-    process.env.VELLUM_SANDBOX_RUNTIME === "kata"
-      ? [...SAFE_ENV_VARS, ...KATA_SAFE_ENV_VARS]
-      : SAFE_ENV_VARS;
+  const isKataRuntime = process.env.VELLUM_SANDBOX_RUNTIME === "kata";
+  const safeEnvVars = isKataRuntime
+    ? [...SAFE_ENV_VARS, ...KATA_SAFE_ENV_VARS]
+    : SAFE_ENV_VARS;
 
   for (const key of safeEnvVars) {
     if (process.env[key] != null) {
       env[key] = process.env[key]!;
     }
+  }
+  if (isKataRuntime) {
+    const kataAptDataRoot = env.VELLUM_APT_DATA_ROOT ?? KATA_APT_DATA_ROOT;
+    env.VELLUM_APT_DATA_ROOT = kataAptDataRoot;
+    env.PATH = appendUniquePathEntries(env.PATH, kataAptPaths(kataAptDataRoot));
+    env.LD_LIBRARY_PATH = appendUniquePathEntries(
+      env.LD_LIBRARY_PATH,
+      kataAptLibraryPaths(kataAptDataRoot),
+    );
   }
   // Always inject an internal gateway base for local control-plane/API calls.
   const internalGatewayBase = getGatewayInternalBaseUrl();

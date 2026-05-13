@@ -143,17 +143,24 @@ describe("buildSanitizedEnv", () => {
 
   test("only includes Kata apt variables when sandbox runtime is kata", () => {
     process.env.VELLUM_SANDBOX_RUNTIME = "gvisor";
+    process.env.PATH = "/usr/bin";
     process.env.VELLUM_APT_DATA_ROOT = "/data/system";
     process.env.LD_LIBRARY_PATH = "/data/system/usr/lib";
 
     let env = buildSanitizedEnv();
     expect(env.VELLUM_APT_DATA_ROOT).toBeUndefined();
     expect(env.LD_LIBRARY_PATH).toBeUndefined();
+    expect(env.PATH.split(":")).not.toContain("/data/system/usr/bin");
 
     process.env.VELLUM_SANDBOX_RUNTIME = "kata";
     env = buildSanitizedEnv();
     expect(env.VELLUM_APT_DATA_ROOT).toBe("/data/system");
-    expect(env.LD_LIBRARY_PATH).toBe("/data/system/usr/lib");
+    expect(env.PATH.split(":")).toContain("/data/system/usr/bin");
+    expect(env.PATH.split(":")).toContain("/data/system/usr/local/bin");
+    expect(env.LD_LIBRARY_PATH.split(":")).toContain("/data/system/usr/lib");
+    expect(env.LD_LIBRARY_PATH.split(":")).toContain(
+      "/data/system/usr/local/lib",
+    );
   });
 
   test("defaults LANG and LC_ALL to UTF-8 when unset", () => {

@@ -6,11 +6,7 @@ set -eu
 chmod 1777 /tmp 2>/dev/null || true
 
 if [ "${VELLUM_SANDBOX_RUNTIME:-}" = "kata" ] && [ -x /app/assistant/docker-init-apt-root.sh ]; then
-  export VELLUM_APT_DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
-  APT_SYSTEM_PATH="${VELLUM_APT_DATA_ROOT}/bin:${VELLUM_APT_DATA_ROOT}/usr/local/sbin:${VELLUM_APT_DATA_ROOT}/usr/local/bin:${VELLUM_APT_DATA_ROOT}/usr/sbin:${VELLUM_APT_DATA_ROOT}/usr/bin:${VELLUM_APT_DATA_ROOT}/sbin"
-  APT_LIBRARY_PATH="${VELLUM_APT_DATA_ROOT}/usr/local/lib:${VELLUM_APT_DATA_ROOT}/usr/lib:${VELLUM_APT_DATA_ROOT}/usr/lib/x86_64-linux-gnu:${VELLUM_APT_DATA_ROOT}/usr/lib/aarch64-linux-gnu"
-  export PATH="${PATH}:${APT_SYSTEM_PATH}"
-  export LD_LIBRARY_PATH="${APT_LIBRARY_PATH}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+  . /app/assistant/docker-kata-apt-env.sh
   /app/assistant/docker-init-apt-root.sh
 fi
 

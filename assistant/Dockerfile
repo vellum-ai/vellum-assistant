@@ -152,6 +152,31 @@ ENV PYTHONUSERBASE="/home/assistant/.python"
 ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
 
 RUN printf '%s\n' \
+    'if [ -r /app/assistant/docker-kata-apt-env.sh ]; then' \
+    '  . /app/assistant/docker-kata-apt-env.sh' \
+    'fi' \
+    > /etc/profile.d/vellum-kata-apt-root.sh && \
+    printf '%s\n' \
+    '' \
+    'if [ -r /etc/profile.d/vellum-kata-apt-root.sh ]; then' \
+    '  . /etc/profile.d/vellum-kata-apt-root.sh' \
+    'fi' \
+    >> /etc/bash.bashrc && \
+    printf '%s\n' \
+    '' \
+    'if [ -r /etc/profile.d/vellum-kata-apt-root.sh ]; then' \
+    '  . /etc/profile.d/vellum-kata-apt-root.sh' \
+    'fi' \
+    >> /root/.bashrc && \
+    printf '%s\n' \
+    '' \
+    'if [ -r /etc/profile.d/vellum-kata-apt-root.sh ]; then' \
+    '  . /etc/profile.d/vellum-kata-apt-root.sh' \
+    'fi' \
+    >> /home/assistant/.bashrc && \
+    chown assistant:assistant /home/assistant/.bashrc
+
+RUN printf '%s\n' \
     '#!/usr/bin/env sh' \
     'set -eu' \
     'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
@@ -210,7 +235,7 @@ ENV IS_CONTAINERIZED=true
 # and the generated meet-join manifest from the builder stage.
 COPY --from=builder /app /app
 
-RUN chmod +x /app/assistant/docker-entrypoint.sh /app/assistant/docker-init-apt-root.sh
+RUN chmod +x /app/assistant/docker-entrypoint.sh /app/assistant/docker-init-apt-root.sh /app/assistant/docker-kata-apt-env.sh
 
 # Run the daemon + http server
 CMD ["/app/assistant/docker-entrypoint.sh"]
