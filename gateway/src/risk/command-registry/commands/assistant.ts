@@ -252,6 +252,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "email download",
   "email send",
   "email attachment",
+  "plugins",
+  "plugins install",
 ] as const;
 
 interface AssistantRiskOverride {
@@ -491,6 +493,11 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "sequence resume", risk: "medium" },
   { path: "sequence cancel-enrollment", risk: "medium" },
   { path: "sequence guardrails set", risk: "medium" },
+  {
+    path: "plugins install",
+    risk: "high",
+    reason: "Fetches and installs external plugin code from GitHub",
+  },
   { path: "skills install", risk: "high" },
   { path: "skills uninstall", risk: "medium" },
   { path: "skills add", risk: "high" },

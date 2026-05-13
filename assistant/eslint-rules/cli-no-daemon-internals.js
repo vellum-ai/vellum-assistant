@@ -64,6 +64,10 @@ const ALLOWED_PREFIXES = {
     // CES bridge (credential-execution.ts) speaks to the CES sidecar via
     // service-contracts RPC; daemon is not involved.
     "../../credential-execution/",
+    // Plugins install (plugins.ts) materializes an external plugin from
+    // GitHub onto the workspace's plugins/ directory before the daemon is
+    // even up; daemon is not involved.
+    "../../plugins/install-from-github",
     "@vellumai/service-contracts",
   ],
   bootstrap: [

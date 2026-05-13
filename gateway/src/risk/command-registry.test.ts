@@ -564,6 +564,7 @@ describe("command-registry", () => {
         "notifications",
         "oauth",
         "platform",
+        "plugins",
         "routes",
         "sequence",
         "skills",
