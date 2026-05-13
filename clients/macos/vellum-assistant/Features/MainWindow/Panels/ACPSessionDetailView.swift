@@ -346,12 +346,16 @@ struct ACPSessionDetailView: View {
                 .onChange(of: showThoughts) {
                     // Toggling thought visibility shrinks/grows the timeline,
                     // which moves the bottom offset. Reset the watermark for
-                    // the same reason as the ring-buffer trim above and
-                    // re-engage auto-scroll so users who flip the toggle while
-                    // parked at the bottom keep getting new events pinned.
+                    // the same reason as the ring-buffer trim above. Only
+                    // re-engage auto-scroll if the user was already parked at
+                    // the bottom — otherwise we'd snap users who deliberately
+                    // scrolled up to read history back down on the next event.
+                    let wasAtBottom = abs(lastScrollOffset - lastMaxScrollOffset) < Self.scrollAtBottomTolerance
                     lastMaxScrollOffset = 0
                     lastScrollOffset = 0
-                    autoScrollEnabled = true
+                    if wasAtBottom {
+                        autoScrollEnabled = true
+                    }
                 }
                 .onAppear {
                     // First-paint: park at the bottom so the user lands on
