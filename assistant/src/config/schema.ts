@@ -52,7 +52,6 @@ import {
   RateLimitConfigSchema,
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
-import { UpdatesConfigSchema } from "./schemas/updates.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 export const AssistantConfigSchema = z
@@ -85,7 +84,6 @@ export const AssistantConfigSchema = z
     llmRequestLogs: LlmRequestLogsConfigSchema,
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
-    updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),
     hostBrowser: HostBrowserConfigSchema.default(
       HostBrowserConfigSchema.parse({}),
     ),

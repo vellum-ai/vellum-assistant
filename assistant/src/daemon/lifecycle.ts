@@ -697,20 +697,6 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: DaemonServer started");
     startDiskPressureGuardForLifecycle();
 
-    // Kick off the update bulletin background job AFTER `server.start()`
-    // resolves. The conversation store must be initialized before wake
-    // calls can resolve targets.
-    //
-    // Kept fire-and-forget (`void import(...).then(...).catch(...)`) so the
-    // daemon never blocks startup on it.
-    if (dbReady) {
-      void import("../prompts/update-bulletin-job.js")
-        .then((m) => m.runUpdateBulletinJobIfNeeded())
-        .catch((err) =>
-          log.warn({ err }, "Update bulletin job failed — continuing startup"),
-        );
-    }
-
     // Mutable refs for Qdrant and memory worker so background
     // init can assign them and the shutdown handler always sees the latest value.
     const bgRefs: {

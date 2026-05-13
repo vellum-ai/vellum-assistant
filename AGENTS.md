@@ -265,28 +265,11 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 - **The daemon must never read from `GATEWAY_SECURITY_DIR`** or any gateway-owned directory. Any data the daemon needs from the gateway (e.g. capability token verification, feature flags, trust rules) must flow through IPC or HTTP APIs.
 - **Do not access the user's `~/.vellum` directory from client packages** (`clients/chrome-extension/`, `clients/macos/`). Clients should read configuration from their own package directory or from `GATEWAY_SECURITY_DIR`. Existing `~/.vellum` references in client code are legacy and should be removed.
 
-## Release Update Hygiene
+## Release Notes
 
-Release notes for user/assistant-facing changes ship via **workspace migrations**. There is no bundled template to edit and no checkpoint state to clear — the notes are just a migration that writes to `<workspace>/UPDATES.md`.
+Release notes are produced at tag time by `scripts/generate-release-notes.ts` (wired into `.github/workflows/release.yml`) and published as the GitHub Release body. Users see them through the `assistant changelog` CLI, which fetches releases from the GitHub Releases API on demand and caches them locally. There is no per-release source change required — author release notes by editing the GitHub Release body if a regen produces something unsatisfying.
 
-**Do not ship release notes for feature-flagged or rollout-only features.** `UPDATES.md` is processed by the assistant without checking the feature flag that may guard the underlying feature, so release-note copy for disabled features can still leak into user-facing prompts. If a feature is still controlled by a default-disabled assistant flag or rollout flag, skip the release-note migration. When the feature actually GAs, add a new append-only release-note migration with a new marker; never change an already-shipped migration id from no-op back to writing release notes.
-
-The guard test `assistant/src/__tests__/workspace-release-notes-feature-flag-guard.test.ts` blocks new release-note migrations that mention flag/rollout launch language or default-disabled assistant feature flag keys. Prefer removing that copy and waiting for GA. Only extend the legacy allowlist for a bulletin that already shipped before the guard existed.
-
-**To ship release notes:**
-
-1. Add a new migration file at `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts`. Use the next available sequence number (migrations are append-only). Put the release-note text inline as a string literal inside the migration and append it to `UPDATES.md` in the migration's `run()`.
-2. Append the new migration's export to `WORKSPACE_MIGRATIONS` in `assistant/src/workspace/migrations/registry.ts`. Never reorder or remove existing entries.
-3. Skip the migration entirely for no-op releases — do not add an empty migration.
-
-**Idempotency requires both the runner AND an in-file marker.** The workspace-migration runner is the primary mechanism: `runWorkspaceMigrations()` in `assistant/src/workspace/migrations/runner.ts` records each successfully applied migration's `WorkspaceMigration.id` in `~/.vellum/workspace/data/.workspace-migrations.json` and skips any ID already in the `applied` set. However, the runner alone does not close two narrow duplicate-append windows, so release-notes migrations **must also** embed an in-file marker and short-circuit when it is present:
-
-1. **Crash mid-migration.** The runner marks a migration as `started` before `run()` executes and promotes it to `applied` only after `run()` returns. If the daemon crashes after `UPDATES.md` is appended but before the checkpoint is finalized, the next boot clears the `started` entry and re-runs the migration — producing a duplicate append.
-2. **Failed entries stay applied-adjacent.** Failed migrations persist in the checkpoint state and are not retried, but a migration that partially succeeded (appended, then threw) leaves `UPDATES.md` mutated without a guaranteed `applied` record, so subsequent hand-edits or reruns can double-write.
-
-**Required pattern for release-notes migrations:** embed an HTML marker like `<!-- release-note-id:<migration-id> -->` in the appended block, and before appending, read `UPDATES.md` and skip the append if the marker is already present. Do not drop this check on the assumption that the runner makes it redundant — it does not.
-
-**Processing:** After workspace migrations run at daemon startup, `runUpdateBulletinJobIfNeeded()` fires a background-only conversation (`conversationType: "background"`) via `wakeAgentForOpportunity()` to process `UPDATES.md`. The agent reads the file, acts on whatever is relevant, and deletes `UPDATES.md` when done. `rm UPDATES.md` remains auto-allowed so deletion needs no approval. The job short-circuits when the content hash matches the previously processed value (`updates:last_processed_hash`), so running on every startup is safe.
+The numbered `0XX-release-notes-*.ts` workspace migration slots are reserved no-ops kept for migration-checkpoint compatibility. Do not add new release-note migrations — they are not read by anything.
 
 ## Companion Repos
 

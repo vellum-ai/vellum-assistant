@@ -437,24 +437,6 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("file_read of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "UPDATES.md");
-      const result = await check("file_read", { path: updatesPath }, "/tmp");
-      expect(result.decision).toBe("allow");
-    });
-
-    test("file_write of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "UPDATES.md");
-      const result = await check("file_write", { path: updatesPath }, "/tmp");
-      expect(result.decision).toBe("allow");
-    });
-
-    test("file_edit of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "UPDATES.md");
-      const result = await check("file_edit", { path: updatesPath }, "/tmp");
-      expect(result.decision).toBe("allow");
-    });
-
     test("file_write of non-workspace file is auto-allowed (Low risk)", async () => {
       const otherPath = join(checkerTestDir, "OTHER.md");
       const result = await check("file_write", { path: otherPath }, "/home");

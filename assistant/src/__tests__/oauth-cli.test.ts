@@ -49,7 +49,6 @@ mock.module("../config/loader.js", () => ({
   mergeDefaultWorkspaceConfig: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
-  _appendQuarantineBulletin: () => {},
   API_KEY_PROVIDERS: ["anthropic", "openai", "gemini"],
 }));
 

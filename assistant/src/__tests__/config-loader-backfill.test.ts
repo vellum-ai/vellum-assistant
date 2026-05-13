@@ -305,8 +305,6 @@ describe("loadConfig startup behavior", () => {
         }
       }
     }
-    const updatesPath = join(WORKSPACE_DIR, "UPDATES.md");
-    if (existsSync(updatesPath)) rmSync(updatesPath, { force: true });
     ensureTestDir();
     _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;

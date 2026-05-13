@@ -81,7 +81,6 @@ mock.module("../config/loader.js", () => ({
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
-  _appendQuarantineBulletin: () => {},
 }));
 
 mock.module("../config/skill-state.js", () => ({

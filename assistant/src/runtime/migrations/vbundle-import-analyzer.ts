@@ -34,7 +34,6 @@ const ALLOWED_PROMPT_FILENAMES = new Set([
   "IDENTITY.md",
   "SOUL.md",
   "USER.md",
-  "UPDATES.md",
 ]);
 
 /** Archive path for the legacy guardian user persona file. */

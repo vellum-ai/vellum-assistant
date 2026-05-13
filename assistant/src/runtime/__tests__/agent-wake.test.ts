@@ -38,7 +38,6 @@ mock.module("../../config/loader.js", () => ({
   getNestedValue: () => undefined,
   setNestedValue: () => {},
   API_KEY_PROVIDERS: [],
-  _appendQuarantineBulletin: () => {},
   invalidateConfigCache: () => {},
 }));
 
@@ -638,10 +637,10 @@ describe("wakeAgentForOpportunity", () => {
   });
 
   test("applies caller-supplied trustContext to the target before the agent loop runs", async () => {
-    // Background system jobs (memory consolidation, update-bulletin) need
-    // guardian trust to clear the side-effect approval gate. The wake must
-    // call setTrustContext BEFORE agentLoop.run so the per-turn snapshot
-    // captures the elevated trust.
+    // Background system jobs (memory consolidation) need guardian trust to
+    // clear the side-effect approval gate. The wake must call setTrustContext
+    // BEFORE agentLoop.run so the per-turn snapshot captures the elevated
+    // trust.
     const trustCalls: Array<{ ctx: unknown; before: number }> = [];
     const runCalls: number[] = [];
     let callOrder = 0;

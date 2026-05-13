@@ -156,11 +156,11 @@ export interface WakeTarget {
   onWakeProducedOutput?(source: string, hint: string, surfaceId: string): void;
   /**
    * Apply a trust context to the underlying conversation before the agent
-   * loop runs. Internal background jobs (memory consolidation, update
-   * bulletin) use this to declare guardian trust so side-effect tools
-   * (file_edit, file_write, bash) clear the approval gate. Inbound message
-   * conversations populate trust via `processMessage()` and don't pass
-   * `trustContext` through the wake.
+   * loop runs. Internal background jobs (memory consolidation) use this to
+   * declare guardian trust so side-effect tools (file_edit, file_write,
+   * bash) clear the approval gate. Inbound message conversations populate
+   * trust via `processMessage()` and don't pass `trustContext` through the
+   * wake.
    */
   setTrustContext?(ctx: TrustContext): void;
 }
@@ -195,10 +195,10 @@ export interface WakeOptions {
 }
 
 /**
- * Reason a wake returned `invoked: false`. Callers (CLI, update-bulletin
- * job) need to distinguish "conversation doesn't exist" from "conversation
- * exists but stayed busy past the wait-until-idle timeout" — the former is
- * a user-visible error, the latter is an expected transient condition.
+ * Reason a wake returned `invoked: false`. Callers need to distinguish
+ * "conversation doesn't exist" from "conversation exists but stayed busy
+ * past the wait-until-idle timeout" — the former is a user-visible error,
+ * the latter is an expected transient condition.
  */
 export type WakeSkipReason =
   | "not_found"

@@ -86,7 +86,6 @@ describe("pre-chat onboarding contract", () => {
       "USER.md",
       "BOOTSTRAP.md",
       "BOOTSTRAP-REFERENCE.md",
-      "UPDATES.md",
     ]) {
       const p = join(TEST_DIR, name);
       if (existsSync(p)) rmSync(p, { recursive: true, force: true });
