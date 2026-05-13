@@ -71,10 +71,7 @@ export async function runBtwSidechain(
   const history = params.messages ?? params.conversation?.getMessages() ?? [];
   const messages = [...history, userMessage(trimmedContent)];
   // Side-chains force `tool_choice: { type: "none" }` below, so the model
-  // cannot invoke `ask_question` (or any other tool) from this path. Leaving
-  // `hasAskQuestion` unset keeps the "## Clarifying questions" workspace
-  // section out of the side-chain system prompt — advertising the tool would
-  // be misleading.
+  // cannot invoke any tools from this path.
   const systemPrompt =
     params.systemPrompt ??
     (params.conversation?.hasSystemPromptOverride

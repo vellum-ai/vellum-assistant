@@ -216,6 +216,8 @@ Adding content to the system prompt is a **last resort**. The system prompt is t
 
 Only add to the system prompt when the behavior cannot be achieved any other way. When you must, keep additions minimal and look for existing content to condense or remove to offset the addition.
 
+**Tool-specific guidance belongs in the tool's `description` field, not in `<workspace>/prompts/system/` sections.** When to call a tool, when not to, examples of well-formed inputs, fallback behavior when the user skips — all of that travels with the tool definition and is gated by the same tool-availability logic. The system prompt is for cross-tool flow signals (e.g. background-conversation mode), not tool-routing advice. If you find yourself adding a workspace section that names a single tool, rewrite it as a description edit instead.
+
 CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md` for details.
 
 ## User-Facing Terminology: "daemon" vs "assistant"
@@ -352,10 +354,11 @@ The IPC protocol is newline-delimited JSON over the Unix domain socket:
 - Request:  `{ "id": string, "method": string, "params"?: object }`
 - Response: `{ "id": string, "result"?: unknown, "error"?: string }`
 
-When you need to publish events to connected clients (e.g. `open_url`,
-`avatar_updated`) from code running inside the daemon process, import and
-call the `assistantEventHub` singleton directly rather than adding a new
-HTTP endpoint.
+When you need to publish domain/live events to connected clients (e.g.
+`open_url`) from code running inside the daemon process, import and call the
+`assistantEventHub` singleton directly rather than adding a new HTTP endpoint.
+For persisted multi-client state invalidation, use `sync_changed` via
+`publishSyncInvalidation()` instead.
 
 ## See Also
 

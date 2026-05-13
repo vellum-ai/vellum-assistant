@@ -154,7 +154,7 @@ export function countConversations(backgroundOnly = false): number {
   const db = getDb();
   const where = backgroundOnly
     ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`;
+    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)

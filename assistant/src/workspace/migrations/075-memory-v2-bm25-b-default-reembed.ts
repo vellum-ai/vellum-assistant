@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
@@ -12,6 +12,12 @@ import type { WorkspaceMigration } from "./types.js";
  * vectors at write time, so without this nudge workspaces that never pinned
  * the field would silently mix old and new length normalization until a
  * manual reembed.
+ *
+ * Gated on whether the workspace already has concept pages on disk, not on
+ * `memory.v2.enabled`. A workspace that has v2 disabled today may still
+ * carry pages from a prior session; if v2 is re-enabled later, the queued
+ * job is what brings those pages onto the new default. Workspaces that
+ * have never written a v2 page have nothing to reembed.
  */
 export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
   id: "075-memory-v2-bm25-b-default-reembed",
@@ -19,6 +25,8 @@ export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
     "Enqueue memory_v2_reembed so existing concept pages pick up the new bm25_b=0.4 default",
 
   run(workspaceDir: string): void {
+    if (!hasConceptPages(workspaceDir)) return;
+
     const dbPath = join(workspaceDir, "data", "db", "assistant.db");
     if (!existsSync(dbPath)) return; // Fresh install — pages will embed at the new default.
 
@@ -59,3 +67,29 @@ export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
     // Forward-only: the reembed is a one-shot data refresh.
   },
 };
+
+/**
+ * Returns true when `memory/concepts/` contains any `.md` file. Walks the
+ * tree iteratively so we bail on the first hit — pages can be nested in
+ * subdirectories (e.g. `memory/concepts/people/alice.md`).
+ */
+function hasConceptPages(workspaceDir: string): boolean {
+  const stack = [join(workspaceDir, "memory", "concepts")];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        stack.push(join(dir, entry.name));
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        return true;
+      }
+    }
+  }
+  return false;
+}

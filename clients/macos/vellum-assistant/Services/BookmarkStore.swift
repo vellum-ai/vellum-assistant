@@ -30,6 +30,14 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Bookm
 public final class BookmarkStore {
     public private(set) var bookmarks: [BookmarkSummary] = []
     public private(set) var bookmarkedMessageIds: Set<String> = []
+    /// True until the first ``reload()`` completes, and true whenever at least
+    /// one ``reload()`` is in flight. Reference-counted via ``loadingCount`` so
+    /// overlapping reloads (e.g. the view's `.task` and an SSE-driven reload)
+    /// don't briefly flip the flag to `false` when the earlier call returns.
+    public var isLoading: Bool { !hasLoaded || loadingCount > 0 }
+
+    private var loadingCount = 0
+    private var hasLoaded = false
 
     @ObservationIgnored private let client: BookmarkClient
     @ObservationIgnored private var sseChangeCancellable: AnyCancellable?
@@ -50,6 +58,11 @@ public final class BookmarkStore {
     /// local state. Call once the gateway connection is established, and
     /// whenever a `bookmark.*` SSE event arrives from another window.
     public func reload() async {
+        loadingCount += 1
+        defer {
+            loadingCount -= 1
+            hasLoaded = true
+        }
         do {
             let fetched = try await client.listBookmarks()
             bookmarks = fetched
@@ -83,6 +96,10 @@ public final class BookmarkStore {
                     messageId: messageId,
                     conversationId: conversationId
                 )
+                // Re-insert into the id set in case a concurrent reload()
+                // overwrote the optimistic insert before createBookmark
+                // returned — keeps bookmarkedMessageIds and bookmarks in sync.
+                bookmarkedMessageIds.insert(created.messageId)
                 // Guard against a duplicate row if an SSE-driven reload
                 // landed the same record first.
                 if !bookmarks.contains(where: { $0.messageId == created.messageId }) {

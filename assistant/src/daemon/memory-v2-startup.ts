@@ -36,6 +36,55 @@ export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
 }
 
 /**
+ * Build the v2 BM25 corpus stats (per-token document frequencies + avg doc
+ * length), then re-seed the v2 skill entries so any skills written during
+ * cold start with the legacy TF encoder get rewritten with stemmed BM25
+ * vectors. The cold-start window exists because the very first
+ * `maybeSeedMemoryV2Skills` call can race ahead of the corpus-stats build —
+ * `skill-store.runSeedOnce` falls back to `generateSparseEmbedding` while
+ * `getConceptPageCorpusStats()` is still `null`, leaving stored skill
+ * sparse vectors in a different hash space than the BM25 query vectors
+ * callers issue (see `simBatch`, `activation.selectCandidates`). Reseeding
+ * here closes that gap without operator intervention.
+ *
+ * Fire-and-forget by design — startup must not block on either step. The
+ * reseed depends on the corpus-stats build, so a corpus-stats failure
+ * short-circuits and skips the reseed (the BM25 vectors it would produce
+ * would be wrong without fresh stats). Both steps log and swallow their own
+ * errors so neither blocks startup.
+ */
+export async function rebuildBm25CorpusStatsAndReseedSkills(
+  config: AssistantConfig,
+): Promise<void> {
+  try {
+    const { rebuildConceptPageCorpusStats } =
+      await import("../memory/v2/sparse-bm25.js");
+    await rebuildConceptPageCorpusStats(getWorkspaceDir());
+    log.info("Memory v2 BM25 corpus stats built");
+  } catch (err) {
+    log.warn(
+      { err },
+      "BM25 corpus-stats rebuild failed — sparse channel will fall back to TF-only until next rebuild",
+    );
+    return;
+  }
+
+  if (!config.memory.v2.enabled) return;
+  try {
+    const { seedV2SkillEntries } = await import("../memory/v2/skill-store.js");
+    await seedV2SkillEntries({ throwOnError: true });
+    log.info(
+      "Memory v2 skill embeddings re-seeded with BM25 vectors after corpus-stats build",
+    );
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to re-seed v2 skill entries after BM25 corpus-stats build — skills seeded during cold start may keep TF-only sparse vectors until next reseed",
+    );
+  }
+}
+
+/**
  * Reconcile the v2 concept-page Qdrant collection with the expected schema
  * and enqueue `memory_v2_reembed` when the collection is missing data.
  * Triggers reembed in two cases:

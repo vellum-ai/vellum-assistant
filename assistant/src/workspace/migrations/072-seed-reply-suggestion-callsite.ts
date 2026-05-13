@@ -14,12 +14,20 @@ import type { WorkspaceMigration } from "./types.js";
  * high-effort / extended-thinking default, every turn would kick off an
  * expensive reasoning call and reject the assistant prefill.
  *
+ * Carry-forward: when `replySuggestion` is absent but the workspace has a
+ * customized `conversationStarters` entry (the call site this one was split
+ * out of), clone that entry into `replySuggestion` so users who previously
+ * tuned the combined call site keep their override. Only fall back to the
+ * fixed Haiku defaults when no `conversationStarters` override exists.
+ *
  * Mirrors `046-seed-conversation-starters-callsite`:
  *   - Skip entirely when `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH` is set
  *     (platform overlay owns call-site seeds).
- *   - Skip when the resolved provider is not Anthropic or OpenRouter (the
- *     seeded model IDs are Anthropic-shaped, so mixing with another
- *     provider would guarantee invalid-model errors).
+ *   - In the fallback default path, skip when the resolved provider is not
+ *     Anthropic or OpenRouter (the seeded model IDs are Anthropic-shaped, so
+ *     mixing with another provider would guarantee invalid-model errors).
+ *     The carry-forward path is provider-agnostic since the cloned config
+ *     already reflects the user's explicit choice.
  *   - No-op when `llm.callSites.replySuggestion` is already set.
  *
  * Idempotent, append-only — existing entries are untouched.
@@ -46,29 +54,34 @@ export const seedReplySuggestionCallsiteMigration: WorkspaceMigration = {
     }
 
     const llm = readObject(config.llm) ?? {};
-    const defaultBlock = readObject(llm.default);
-
-    const explicitProvider = readString(defaultBlock?.provider);
-    if (
-      explicitProvider !== undefined &&
-      explicitProvider !== "anthropic" &&
-      explicitProvider !== "openrouter"
-    ) {
-      return;
-    }
-    const provider = explicitProvider ?? "anthropic";
-    const fastModel = resolveLatencyModel(provider);
-    if (fastModel === undefined) return;
-
     const callSites = readObject(llm.callSites) ?? {};
     if (readObject(callSites.replySuggestion) !== null) return;
 
-    callSites.replySuggestion = {
-      model: fastModel,
-      effort: "low",
-      thinking: { enabled: false },
-    };
+    const conversationStarters = readObject(callSites.conversationStarters);
+    let seed: Record<string, unknown>;
+    if (conversationStarters !== null) {
+      seed = { ...conversationStarters };
+    } else {
+      const defaultBlock = readObject(llm.default);
+      const explicitProvider = readString(defaultBlock?.provider);
+      if (
+        explicitProvider !== undefined &&
+        explicitProvider !== "anthropic" &&
+        explicitProvider !== "openrouter"
+      ) {
+        return;
+      }
+      const provider = explicitProvider ?? "anthropic";
+      const fastModel = resolveLatencyModel(provider);
+      if (fastModel === undefined) return;
+      seed = {
+        model: fastModel,
+        effort: "low",
+        thinking: { enabled: false },
+      };
+    }
 
+    callSites.replySuggestion = seed;
     llm.callSites = callSites;
     config.llm = llm;
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

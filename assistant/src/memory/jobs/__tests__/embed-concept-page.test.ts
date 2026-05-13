@@ -151,6 +151,8 @@ type MemoryJob = ReturnType<MemoryJobMod["claimMemoryJobs"]>[number];
 const { embedConceptPageJob, enqueueEmbedConceptPageJob } =
   await import("../embed-concept-page.js");
 const { writePage } = await import("../../v2/page-store.js");
+const { _resetQdrantBreaker, isQdrantBreakerOpen, withQdrantBreaker } =
+  await import("../../qdrant-circuit-breaker.js");
 
 // Use a tiny vectorSize so the cache-dim check matches our stub vector.
 const TEST_CONFIG = {
@@ -186,6 +188,7 @@ beforeEach(() => {
   embedWithBackendCalls.length = 0;
   upsertCalls.length = 0;
   deleteCalls.length = 0;
+  _resetQdrantBreaker();
 });
 
 afterEach(() => {
@@ -433,6 +436,76 @@ describe("embedConceptPageJob — defensive", () => {
     await embedConceptPageJob(makeJob({ slug: "" }), TEST_CONFIG);
     expect(upsertCalls).toEqual([]);
     expect(deleteCalls).toEqual([]);
+  });
+});
+
+describe("embedConceptPageJob — Qdrant breaker integration", () => {
+  test("half-open probe success closes the breaker so embed catch-up unthrottles", async () => {
+    // Trip the breaker by recording 5 consecutive Qdrant failures. Without
+    // this fix, `embed_concept_page` bypassed the breaker entirely — winning
+    // the half-open probe slot did not transition state back to closed and
+    // the embed lane stayed throttled at one job per tick indefinitely.
+    for (let i = 0; i < 5; i++) {
+      try {
+        await withQdrantBreaker(async () => {
+          throw new Error("simulated qdrant failure");
+        });
+      } catch {
+        // expected
+      }
+    }
+    expect(isQdrantBreakerOpen()).toBe(true);
+
+    // Advance time past the 30s cooldown so the next breaker call transitions
+    // open → half-open and allows the probe through.
+    const originalNow = Date.now;
+    Date.now = () => originalNow() + 60_000;
+    try {
+      await writePage(tmpWorkspace, {
+        slug: "probe-success",
+        frontmatter: { edges: [], ref_files: [], ref_urls: [] },
+        body: "Probe body.\n",
+      });
+
+      await embedConceptPageJob(
+        makeJob({ slug: "probe-success" }),
+        TEST_CONFIG,
+      );
+    } finally {
+      Date.now = originalNow;
+    }
+
+    expect(upsertCalls).toHaveLength(1);
+    // Probe succeeded → breaker should now be closed (not open, not
+    // half-open), restoring full embed-lane concurrency.
+    expect(isQdrantBreakerOpen()).toBe(false);
+  });
+
+  test("half-open probe success on the delete path also closes the breaker", async () => {
+    // Same flow as above but exercising the missing-page branch — both v2
+    // Qdrant calls (`upsert` and `delete`) must close the breaker on success.
+    for (let i = 0; i < 5; i++) {
+      try {
+        await withQdrantBreaker(async () => {
+          throw new Error("simulated qdrant failure");
+        });
+      } catch {
+        // expected
+      }
+    }
+    expect(isQdrantBreakerOpen()).toBe(true);
+
+    const originalNow = Date.now;
+    Date.now = () => originalNow() + 60_000;
+    try {
+      // No `writePage` — the handler takes the delete branch.
+      await embedConceptPageJob(makeJob({ slug: "missing-slug" }), TEST_CONFIG);
+    } finally {
+      Date.now = originalNow;
+    }
+
+    expect(deleteCalls).toEqual(["missing-slug"]);
+    expect(isQdrantBreakerOpen()).toBe(false);
   });
 });
 

@@ -57,7 +57,9 @@ export const repairRecallCallsiteEmptyProfileMigration: WorkspaceMigration = {
     if (cheapModel === undefined) return;
 
     delete recall.profile;
-    recall.model = cheapModel;
+    if (readString(recall.model) === undefined) {
+      recall.model = cheapModel;
+    }
     callSites.recall = recall;
     llm.callSites = callSites;
     config.llm = llm;

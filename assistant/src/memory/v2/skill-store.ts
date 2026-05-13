@@ -36,6 +36,7 @@ import {
 } from "../embedding-backend.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
+  backfillKindOnPointsWithPrefix,
   pruneSlugsWithPrefixExcept,
   upsertConceptPageEmbedding,
 } from "./qdrant.js";
@@ -94,6 +95,13 @@ let entries: Map<string, SkillEntry> | null = null;
 let seedTail: Promise<void> = Promise.resolve();
 let seedPending: Promise<void> | null = null;
 let lastSeedError: unknown = null;
+
+/**
+ * In-process latch for the legacy `kind` backfill (see
+ * {@link backfillKindOnPointsWithPrefix}). New upserts always write `kind`,
+ * so once the latch is set there is no follow-up work to do this process.
+ */
+let legacyKindBackfillDone = false;
 
 export async function seedV2SkillEntries(
   opts: { throwOnError?: boolean } = {},
@@ -160,11 +168,19 @@ async function runSeedOnce(): Promise<void> {
     // Seed uninstalled catalog skills so their activation hints are
     // discoverable by intent. Track whether the catalog was available so we
     // can guard pruning below.
+    //
+    // Build the legacy-backfill allowlist in parallel: every locally
+    // installed skill id (regardless of enabled state) plus every remote
+    // catalog id. Restricting the backfill to this set keeps user-authored
+    // concept pages that happen to live under `skills/<slug>` from being
+    // mis-tagged and then pruned. See `backfillKindOnPointsWithPrefix`.
+    const knownSkillIds = new Set<string>(installedIds);
     let catalogAvailable = false;
     try {
       const fullCatalog = await getCatalog();
       catalogAvailable = fullCatalog.length > 0;
       for (const entry of fullCatalog) {
+        knownSkillIds.add(entry.id);
         if (installedIds.has(entry.id)) continue;
         const flagKey = entry.metadata?.vellum?.["feature-flag"];
         if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
@@ -233,6 +249,25 @@ async function runSeedOnce(): Promise<void> {
     // uninstalled catalog skills should exist, so skip pruning entirely to
     // avoid aggressively removing previously-seeded catalog skill embeddings.
     if (catalogAvailable) {
+      // Tag legacy skill points missing `payload.kind` before pruning so the
+      // kind-scoped prune can see them. Once-per-process; the backfill is
+      // idempotent (server-side `is_empty` filter), so a partial failure
+      // converges on retry.
+      if (!legacyKindBackfillDone) {
+        try {
+          await backfillKindOnPointsWithPrefix(
+            SKILL_SLUG_PREFIX,
+            SKILL_PAYLOAD_KIND,
+            knownSkillIds,
+          );
+          legacyKindBackfillDone = true;
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to backfill kind on legacy skill points — pruning may leave orphans this run",
+          );
+        }
+      }
       await pruneSlugsWithPrefixExcept(
         SKILL_SLUG_PREFIX,
         seeds.map((s) => s.id),
@@ -265,12 +300,16 @@ async function runSeedOnce(): Promise<void> {
  * Accepts either a bare skill id (`example-skill`) or its unified-collection
  * slug (`skills/example-skill`) so render-side callers can pass through what
  * they have without a manual prefix strip.
+ *
+ * Returns a frozen copy so callers cannot mutate the underlying cache entry
+ * — matches the defensive-copy contract of `listSkillEntries`.
  */
 export function getSkillCapability(idOrSlug: string): SkillEntry | null {
   const id = idOrSlug.startsWith(SKILL_SLUG_PREFIX)
     ? idOrSlug.slice(SKILL_SLUG_PREFIX.length)
     : idOrSlug;
-  return entries?.get(id) ?? null;
+  const entry = entries?.get(id);
+  return entry ? Object.freeze({ ...entry }) : null;
 }
 
 /** True iff the slug refers to a skill entry in the unified collection. */
@@ -280,8 +319,9 @@ export function isSkillSlug(slug: string): boolean {
 
 /**
  * Snapshot of the in-process skill cache, sorted by skill id (ASCII order)
- * for determinism. Returns a freshly allocated array on each call so callers
- * cannot mutate the underlying cache.
+ * for determinism. Returns a freshly allocated array of frozen entry copies
+ * on each call, so callers cannot mutate the underlying cache — neither by
+ * reassigning the array nor by writing through entry fields.
  *
  * The cache is replaced atomically by `seedV2SkillEntries`, so a snapshot
  * may be stale once a subsequent seed run completes. Callers that need
@@ -289,9 +329,9 @@ export function isSkillSlug(slug: string): boolean {
  */
 export function listSkillEntries(): SkillEntry[] {
   if (!entries) return [];
-  return [...entries.values()].sort((a, b) =>
-    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
-  );
+  return [...entries.values()]
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((entry) => Object.freeze({ ...entry }));
 }
 
 /** @internal Test-only: clear the module-level cache. */
@@ -300,4 +340,5 @@ export function _resetSkillStoreForTests(): void {
   seedTail = Promise.resolve();
   seedPending = null;
   lastSeedError = null;
+  legacyKindBackfillDone = false;
 }

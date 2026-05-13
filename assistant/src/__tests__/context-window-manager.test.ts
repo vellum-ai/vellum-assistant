@@ -129,10 +129,11 @@ describe("ContextWindowManager", () => {
     // `tool_result(tool-1)`. Once the projection-optimism clamp
     // decrements the keep boundary to that user turn,
     // `adjustForToolPairs` walks the boundary back through the
-    // tool_use/tool_result chain to index 0 — under the old code that
-    // routed `/compact` through the "already fits" skip path. With the
-    // rescue, summarization runs and orphan `tool_result` blocks are
-    // stripped from the kept region.
+    // tool_use/tool_result chain to index 0. The force-rescue must run
+    // summarization in this case; any boundary `tool_result` blocks
+    // whose matching `tool_use` lives in the compacted region must be
+    // captured by the summary and stripped from the kept region so the
+    // next LLM request does not fail.
     const history: Message[] = [
       {
         role: "assistant",
@@ -224,18 +225,17 @@ describe("ContextWindowManager", () => {
         targetBudgetRatio: 0.5,
       }),
     });
-    // Two user turns separated by a single assistant message — the
-    // smallest realistic conversation where a forced compaction has
-    // anything to summarize. After the projection clamp + rescue, the
-    // compactable region is at most one user turn (the first one),
-    // which can fall below `MIN_COMPACTABLE_PERSISTED_MESSAGES`. The
-    // bypass must let summarization run instead of returning
-    // "insufficient compactable persisted messages".
+    // Two user turns — after the projection clamp the compactable
+    // region is a single user message, below
+    // `MIN_COMPACTABLE_PERSISTED_MESSAGES`. The precomputed estimate
+    // sits above the compaction threshold (60%) but below the severe
+    // pressure ratio (95%), so only the forced-compaction bypass keeps
+    // summarization running.
     const history: Message[] = [message("user", "u1"), message("user", "u2")];
 
     const result = await manager.maybeCompact(history, undefined, {
       force: true,
-      precomputedEstimate: 50_000,
+      precomputedEstimate: 8_000,
     });
 
     expect(result.compacted).toBe(true);

@@ -609,6 +609,88 @@ describe("forkConversation", () => {
     expect(await hydrateActivationState(db, fork.id)).toBeNull();
     expect(loadGraphMemoryState(fork.id)).toBeNull();
   });
+
+  test("does not copy memory state when the fork is truncated mid-history", async () => {
+    const source = createConversation("Truncated thread");
+    const firstMessage = await addMessage(
+      source.id,
+      "user",
+      "first turn",
+      undefined,
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "assistant", "first reply", undefined, {
+      skipIndexing: true,
+    });
+    const lastMessage = await addMessage(
+      source.id,
+      "user",
+      "second turn",
+      undefined,
+      { skipIndexing: true },
+    );
+
+    const db = getDb();
+    db.insert(activationState)
+      .values({
+        conversationId: source.id,
+        messageId: lastMessage.id,
+        stateJson: JSON.stringify({ "concepts/foo": 0.5 }),
+        everInjectedJson: JSON.stringify([{ slug: "concepts/foo", turn: 2 }]),
+        currentTurn: 2,
+        updatedAt: 1_700_000_000_000,
+      })
+      .run();
+    saveGraphMemoryState(
+      source.id,
+      JSON.stringify({
+        initialized: true,
+        needsReload: false,
+        inContext: ["node-foo"],
+        log: [{ nodeId: "node-foo", turn: 2 }],
+        currentTurn: 2,
+      }),
+    );
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: firstMessage.id,
+    });
+
+    expect(await hydrateActivationState(db, fork.id)).toBeNull();
+    expect(loadGraphMemoryState(fork.id)).toBeNull();
+  });
+
+  test("copies memory state when throughMessageId points at the last message", async () => {
+    const source = createConversation("Through-last thread");
+    const lastMessage = await addMessage(
+      source.id,
+      "user",
+      "only turn",
+      undefined,
+      { skipIndexing: true },
+    );
+
+    const db = getDb();
+    db.insert(activationState)
+      .values({
+        conversationId: source.id,
+        messageId: lastMessage.id,
+        stateJson: JSON.stringify({ "concepts/foo": 0.9 }),
+        everInjectedJson: JSON.stringify([{ slug: "concepts/foo", turn: 1 }]),
+        currentTurn: 1,
+        updatedAt: 1_700_000_000_000,
+      })
+      .run();
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: lastMessage.id,
+    });
+
+    const childState = await hydrateActivationState(db, fork.id);
+    expect(childState?.currentTurn).toBe(1);
+  });
 });
 
 describe("forkConversation + memory_retrospective_state", () => {

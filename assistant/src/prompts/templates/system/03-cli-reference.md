@@ -1,7 +1,3 @@
-_ Tells the assistant the local `assistant` CLI exists and how to discover its
-_ subcommands.  This is the canonical entry point for runtime state and platform
-_ ops — keep the "run --help first" instruction prominent so the assistant
-_ checks before claiming a capability is missing.
 ## Assistant CLI
 
 The `assistant` CLI is available in the sandbox for managing assistant settings, integrations, and services. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.

@@ -68,6 +68,9 @@ const SECRET_SEGMENT_NAMES = new Set([
 const SECRET_TOKEN_PATTERN =
   /(?:^|[-_.])(?:keys?|secrets?|tokens?)(?:[-_.]|$)/i;
 
+const SECRET_TOKEN_CAMEL_CASE_PATTERN =
+  /(?<=[a-z0-9])(?:Keys?|Secrets?|Tokens?)(?=[A-Z]|[-_.]|$)/;
+
 const QUERY_STOP_WORDS = new Set([
   "a",
   "about",
@@ -1185,6 +1188,7 @@ function shouldSkipSegmentName(name: string): boolean {
     GENERATED_OR_DEPENDENCY_DIR_NAMES.has(lowerName) ||
     lowerName.startsWith(".env") ||
     SECRET_TOKEN_PATTERN.test(lowerName) ||
+    SECRET_TOKEN_CAMEL_CASE_PATTERN.test(name) ||
     lowerName.startsWith("credentials") ||
     SECRET_SEGMENT_NAMES.has(lowerName)
   );

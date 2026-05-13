@@ -17,9 +17,12 @@
  * targets the user's actual desktop application, which is a host-wide
  * resource. It is acquired optimistically when `app_control_start` is
  * dispatched (storing `(conversationId, app)`) so that the synchronous
- * guard and the asynchronous host round-trip cannot race; it is released
- * when the host returns a non-running state, the dispatch fails, or the
- * owning proxy's `dispose()` fires.
+ * guard and the asynchronous host round-trip cannot race; the prior
+ * session value is snapshotted before the overwrite and restored if the
+ * dispatch fails or the host returns a non-running state, so a failed
+ * re-start within the same conversation does not strand the original
+ * session. The lock is released outright when the owning proxy's
+ * `dispose()` fires.
  *
  * `app_control_start` is the only tool that can acquire the lock — the
  * user's medium-risk approval at start time is the consent boundary. All
@@ -236,6 +239,8 @@ export class HostAppControlProxy extends HostProxyBase<
     // belong to the active session and target the same `app`. Without this
     // gate, prompt-injected calls would bypass the start-time approval and
     // send raw input to arbitrary apps.
+    let priorSession: ActiveAppControlSession | undefined;
+    let attemptedSession: ActiveAppControlSession | undefined;
     if (input.tool === "start") {
       if (
         activeAppControlSession != null &&
@@ -249,16 +254,24 @@ export class HostAppControlProxy extends HostProxyBase<
           isError: true,
         };
       }
+      // Snapshot the prior session before the optimistic overwrite so a
+      // failed re-start within the same conversation can restore it rather
+      // than stranding the original session. For a first start from a
+      // clean state this is `undefined` (restore == release).
+      priorSession = activeAppControlSession;
       // Acquire optimistically to close the TOCTOU window between this
       // synchronous guard and the asynchronous `dispatchRequest` below. Two
       // concurrent starts from different conversations would otherwise both
       // see `activeAppControlSession == null` and both pass the guard. The
-      // lock is released below if dispatch fails or the host returns a
-      // non-running state.
-      activeAppControlSession = {
+      // lock is rolled back below if dispatch fails or the host returns a
+      // non-running state — keyed on object identity so that a later
+      // overlapping start that has already replaced our write is not
+      // clobbered by a stale rollback.
+      attemptedSession = {
         conversationId: this.conversationId,
         app: input.app,
       };
+      activeAppControlSession = attemptedSession;
     } else {
       const sessionError = checkNonStartAuthorization(
         input,
@@ -278,10 +291,13 @@ export class HostAppControlProxy extends HostProxyBase<
         undefined,
         targetClientId,
       );
-      return this.handleSuccess(input, payload);
+      if (input.tool === "start" && payload.state !== "running") {
+        this.rollbackStartIfCurrent(attemptedSession, priorSession);
+      }
+      return this.handleSuccess(payload);
     } catch (err) {
       if (input.tool === "start") {
-        this.releaseSessionIfHeld();
+        this.rollbackStartIfCurrent(attemptedSession, priorSession);
       }
       if (err instanceof HostProxyRequestError) {
         if (err.reason === "timeout") {
@@ -301,6 +317,30 @@ export class HostAppControlProxy extends HostProxyBase<
     }
   }
 
+  /**
+   * Roll back the optimistic overwrite performed by a `start` when the
+   * dispatch fails or the host returns non-running. Keyed on the
+   * `attempted` reference, not just `conversationId`, so that an
+   * out-of-order failure does not clobber a newer overlapping start that
+   * already replaced our write — e.g. start A → start B (pending) →
+   * start C (success); when B later fails, the live session is C and the
+   * identity check makes our rollback a no-op rather than restoring A.
+   */
+  private rollbackStartIfCurrent(
+    attempted: ActiveAppControlSession | undefined,
+    prior: ActiveAppControlSession | undefined,
+  ): void {
+    if (attempted != null && activeAppControlSession === attempted) {
+      activeAppControlSession = prior;
+    }
+  }
+
+  /**
+   * Release the module-level session lock if this proxy is the current
+   * holder. Used by `dispose()` — distinct from `rollbackStartIfCurrent`
+   * because dispose is keyed on ownership (conversationId) rather than on
+   * a specific in-flight start.
+   */
   private releaseSessionIfHeld(): void {
     if (activeAppControlSession?.conversationId === this.conversationId) {
       activeAppControlSession = undefined;
@@ -312,7 +352,6 @@ export class HostAppControlProxy extends HostProxyBase<
   // ---------------------------------------------------------------------------
 
   private handleSuccess(
-    input: HostAppControlInput,
     payload: HostAppControlResultPayload,
   ): ToolExecutionResult {
     // Update PNG-hash loop tracking only for the "running" state — other
@@ -330,14 +369,6 @@ export class HostAppControlProxy extends HostProxyBase<
       if (this.observationHashRepeatCount >= STUCK_REPEAT_THRESHOLD) {
         stuck = true;
       }
-    }
-
-    // The optimistic lock acquired in `request()` for `start` stays held
-    // only when the host confirms the session is running. Non-running
-    // outcomes (missing/minimized) release it so a retry or another
-    // conversation can acquire.
-    if (input.tool === "start" && payload.state !== "running") {
-      this.releaseSessionIfHeld();
     }
 
     return this.formatResult(payload, stuck);

@@ -205,47 +205,73 @@ export class QuestionPrompter {
     return new Promise<QuestionPromptResult>((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
 
-      const timer = setTimeout(() => {
+      // Closure-scoped idempotency guard. Every resolution path (timeout,
+      // abort, route resolution via `rpcResolve`/`rpcReject`) routes through
+      // `finish()`, which tears down the timer + abort listener exactly
+      // once. We cannot use `pendingInteractions.resolve(requestId) ===
+      // undefined` as the guard because `removeByConversation()` (called
+      // during auto-deny on enqueue) can deregister the entry before any of
+      // our local handlers fire — using the registry as the guard in that
+      // case would leave the Promise unresolved and the tool hung.
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout>;
+      let onAbort: (() => void) | undefined;
+      const finish = (fn: () => void): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (signal && onAbort) {
+          signal.removeEventListener("abort", onAbort);
+        }
+        // Idempotent: a no-op if the entry was already removed (e.g. by
+        // `removeByConversation`) or by an earlier path.
         pendingInteractions.resolve(requestId);
+        fn();
+      };
+
+      timer = setTimeout(() => {
         log.warn({ requestId, conversationId }, "Question prompt timed out");
-        resolve({
-          entries: orderedIds.map((id) => ({
-            questionId: id,
-            decision: "timed_out",
-          })),
-          overall: "timed_out",
-        });
+        finish(() =>
+          resolve({
+            entries: orderedIds.map((id) => ({
+              questionId: id,
+              decision: "timed_out",
+            })),
+            overall: "timed_out",
+          }),
+        );
       }, timeoutMs);
+
+      if (signal) {
+        onAbort = () => {
+          finish(() =>
+            resolve({
+              entries: orderedIds.map((id) => ({
+                questionId: id,
+                decision: "aborted",
+              })),
+              overall: "aborted",
+            }),
+          );
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
 
       // Stash the per-question metadata on the interaction so the route can
       // validate batched submissions without holding a prompter reference.
+      // Route resolution funnels through `finish()` so the same teardown +
+      // idempotency guard applies whether the response comes from the route,
+      // a timeout, or an abort.
       pendingInteractions.register(requestId, {
         conversationId,
         kind: "question",
-        rpcResolve: resolve as (value: unknown) => void,
-        rpcReject: reject,
+        rpcResolve: (value: unknown) =>
+          finish(() => resolve(value as QuestionPromptResult)),
+        rpcReject: (err: unknown) => finish(() => reject(err)),
         timer,
         toolUseId,
         metadata: { orderedIds, optionsById } satisfies QuestionBatchMetadata,
       });
-
-      if (signal) {
-        const onAbort = () => {
-          // `pendingInteractions.resolve(requestId)` returns the deregistered
-          // entry on first call and undefined thereafter — use that as the
-          // idempotency guard so a late abort after route/timeout resolution
-          // is a no-op.
-          if (pendingInteractions.resolve(requestId) === undefined) return;
-          resolve({
-            entries: orderedIds.map((id) => ({
-              questionId: id,
-              decision: "aborted",
-            })),
-            overall: "aborted",
-          });
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-      }
 
       // Populate both shapes on the wire: `questions[]` is the canonical
       // batched payload, and the flat fields mirror `questions[0]` for

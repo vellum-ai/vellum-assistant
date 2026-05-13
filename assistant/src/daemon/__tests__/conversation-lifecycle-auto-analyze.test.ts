@@ -62,8 +62,11 @@ const autoAnalysisConversations = new Set<string>();
 // flip this to true.
 let v2Enabled = false;
 
+const realLoader = await import("../../config/loader.js");
 mock.module("../../config/loader.js", () => ({
+  ...realLoader,
   getConfig: () => ({ memory: { v2: { enabled: v2Enabled } } }),
+  loadConfig: () => ({ memory: { v2: { enabled: v2Enabled } } }),
 }));
 
 mock.module("../../memory/auto-analysis-guard.js", () => ({
@@ -81,7 +84,10 @@ mock.module("../../memory/jobs-store.js", () => ({
   },
 }));
 
+const realAutoAnalysisEnqueue =
+  await import("../../memory/auto-analysis-enqueue.js");
 mock.module("../../memory/auto-analysis-enqueue.js", () => ({
+  ...realAutoAnalysisEnqueue,
   enqueueAutoAnalysisIfEnabled: (args: {
     conversationId: string;
     trigger: "batch" | "idle" | "lifecycle";
@@ -114,15 +120,23 @@ mock.module("../../memory/memory-retrospective-enqueue.js", () => ({
 
 // Stub all side-effecting cleanup helpers that disposeConversation chains
 // into after the enqueue block. We assert on enqueue behavior only.
+const realBrowserScreencast =
+  await import("../../tools/browser/browser-screencast.js");
 mock.module("../../tools/browser/browser-screencast.js", () => ({
+  ...realBrowserScreencast,
   unregisterConversationSender: () => {},
 }));
 
+const realConversationNotifiers = await import("../conversation-notifiers.js");
 mock.module("../conversation-notifiers.js", () => ({
+  ...realConversationNotifiers,
   unregisterCallNotifiers: () => {},
 }));
 
+const realConversationSkillTools =
+  await import("../conversation-skill-tools.js");
 mock.module("../conversation-skill-tools.js", () => ({
+  ...realConversationSkillTools,
   resetSkillToolProjection: () => {},
 }));
 
@@ -423,5 +437,25 @@ describe("disposeConversation — memory-retrospective lifecycle safety net", ()
     // the actor is untrusted, none of them fire.
     expect(memoryRetroCalls).toHaveLength(0);
     expect(autoAnalyzeCalls).toHaveLength(0);
+  });
+
+  // Regression test: the retrospective lifecycle enqueue was previously
+  // outside the `!isAutoAnalysis` guard, so it fired even for auto-analysis
+  // conversations. Mirrors the indexer-time gate in `indexer.ts` and
+  // matches the existing graph_extract recursion-guard semantics.
+  test("auto-analysis conversation — does NOT enqueue memory-retrospective even with flag on", () => {
+    memoryRetroEnabled = true;
+    autoAnalysisConversations.add("conv-auto-retro");
+    const ctx = makeDisposeContext({
+      conversationId: "conv-auto-retro",
+      trustClass: "guardian",
+    });
+
+    disposeConversation(ctx);
+
+    expect(memoryRetroCalls).toHaveLength(0);
+    // graph_extract is also recursion-guarded by the same `!isAutoAnalysis`
+    // block, so it should be skipped here too.
+    expect(memoryJobCalls).toHaveLength(0);
   });
 });

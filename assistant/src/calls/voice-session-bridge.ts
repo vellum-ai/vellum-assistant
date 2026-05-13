@@ -318,8 +318,9 @@ export async function startVoiceTurn(
 
   // Phone voice has no interactive permission/secret UI, so apply explicit
   // per-role policies by default. Local live voice opts into the normal
-  // client approval path instead. Side-effect double-defense is wired
-  // below at the conversation-configure point.
+  // client approval path instead. Side-effect double-defense
+  // (forcePromptSideEffects) is wired inside the agent-loop IIFE so it
+  // is always paired with cleanup() in the IIFE's finally.
   const trustClass = opts.trustContext?.trustClass;
   const isGuardian = trustClass === "guardian";
   const approvalMode = opts.approvalMode ?? "phone-call";
@@ -391,34 +392,52 @@ export async function startVoiceTurn(
     }
   }
 
-  // Non-guardian phone voice forces side-effect tools to prompt so the
-  // auto-deny handler below reliably sees a confirmation_request. Without
-  // this, a broad allow trust rule (e.g. wildcard bash) would let
-  // side-effect tools execute without ever emitting an event for the
-  // auto-deny / scoped-grant handler to intercept.
-  conversation.forcePromptSideEffects =
-    !isGuardian && !usesLocalInteractiveApprovals;
-  conversation.setAssistantId(opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
-  conversation.callSessionId = voiceSessionId;
-  conversation.setTrustContext(opts.trustContext ?? null);
-  conversation.setCommandIntent(null);
-  conversation.setTurnChannelContext(turnChannelContext);
-  conversation.setTurnInterfaceContext?.(turnInterfaceContext);
-  conversation.setChannelCapabilities(
-    resolveChannelCapabilities(
-      turnChannelContext.userMessageChannel,
-      turnInterfaceContext.userMessageInterface,
-    ),
-  );
-  conversation.setVoiceCallControlPrompt(voiceCallControlPrompt);
+  // Hoisted so the catch below can clear partially-applied turn state
+  // when a setter or `persistUserMessage` throws — otherwise `trustContext`,
+  // `callSessionId`, etc. leak into subsequent non-voice turns on the same
+  // conversation.
+  const cleanup = () => {
+    conversation.setChannelCapabilities(null);
+    conversation.setTrustContext(null);
+    conversation.setCommandIntent(null);
+    conversation.setAssistantId("self");
+    conversation.setVoiceCallControlPrompt(null);
+    conversation.callSessionId = undefined;
+    conversation.forcePromptSideEffects = false;
+    // Reset the client callback to a no-op so the stale closure doesn't
+    // intercept events from future turns on the same conversation.
+    conversation.updateClient(() => {}, true);
+  };
 
   const requestId = crypto.randomUUID();
   const turnId = crypto.randomUUID();
-  const messageId = await conversation.persistUserMessage(
-    persistedContent,
-    [],
-    requestId,
-  );
+  let messageId: string;
+  try {
+    conversation.setAssistantId(
+      opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    );
+    conversation.callSessionId = voiceSessionId;
+    conversation.setTrustContext(opts.trustContext ?? null);
+    conversation.setCommandIntent(null);
+    conversation.setTurnChannelContext(turnChannelContext);
+    conversation.setTurnInterfaceContext?.(turnInterfaceContext);
+    conversation.setChannelCapabilities(
+      resolveChannelCapabilities(
+        turnChannelContext.userMessageChannel,
+        turnInterfaceContext.userMessageInterface,
+      ),
+    );
+    conversation.setVoiceCallControlPrompt(voiceCallControlPrompt);
+
+    messageId = await conversation.persistUserMessage(
+      persistedContent,
+      [],
+      requestId,
+    );
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
   try {
     opts.callbacks?.persisted_user_message_id?.(messageId);
   } catch (err) {
@@ -558,23 +577,17 @@ export async function startVoiceTurn(
   });
 
   // Fire-and-forget the agent loop
-  const cleanup = () => {
-    // Reset channel capabilities so a subsequent desktop session on the
-    // same conversation is not incorrectly treated as a voice client.
-    conversation.setChannelCapabilities(null);
-    conversation.setTrustContext(null);
-    conversation.setCommandIntent(null);
-    conversation.setAssistantId("self");
-    conversation.setVoiceCallControlPrompt(null);
-    conversation.callSessionId = undefined;
-    conversation.forcePromptSideEffects = false;
-    // Reset the conversation's client callback to a no-op so the stale
-    // closure doesn't intercept events from future turns on the same conversation.
-    conversation.updateClient(() => {}, true);
-  };
-
   void (async () => {
     try {
+      // Non-guardian phone voice forces side-effect tools to prompt so the
+      // auto-deny handler above reliably sees a confirmation_request. Without
+      // this, a broad allow trust rule (e.g. wildcard bash) would let
+      // side-effect tools execute without ever emitting an event for the
+      // auto-deny / scoped-grant handler to intercept. Set inside the
+      // try/finally so a failed setup before this point cannot leak the
+      // flag into subsequent non-voice turns on the same conversation.
+      conversation.forcePromptSideEffects =
+        !isGuardian && !usesLocalInteractiveApprovals;
       await conversation.runAgentLoop(
         persistedContent,
         messageId,

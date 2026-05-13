@@ -3308,32 +3308,30 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Persists `llm.activeProfile` so the daemon's resolver layers the
-    /// named profile into every callsite resolution. The mock client
-    /// captures the patch payload for assertion in tests.
+    /// named profile into every callsite resolution. Optimistically updates
+    /// `self.activeProfile` synchronously so SwiftUI bindings render the new
+    /// value without waiting for the round-trip.
     ///
-    /// Optimistically updates `self.activeProfile` synchronously before
-    /// the await so SwiftUI bindings reading the published value (e.g.
-    /// the dropdown selection in `InferenceServiceCard`) see the new
-    /// value on the next render cycle without waiting for the network
-    /// round-trip. Reverts on failure to `lastConfirmedActiveProfile` —
-    /// the last daemon-confirmed value — so a failed pick never reverts
-    /// to a sibling optimistic value that itself never landed on the
-    /// daemon. The current-value guard ensures a newer call that has
-    /// already overwritten the published state is not stomped by a
-    /// stale revert.
+    /// Both branches gate post-PATCH state mutation on `self.activeProfile
+    /// == name` — i.e. apply only if the published state still reflects
+    /// this call's pick. Guards against stale async completions when picks
+    /// resolve out of order: e.g. user picks A then B; B succeeds first; A's
+    /// delayed success then arrives and would otherwise stomp the newer
+    /// confirmed value.
     @discardableResult
     func setActiveProfile(_ name: String) async -> Bool {
         self.activeProfile = name
         let success = await settingsClient.patchConfig([
             "llm": ["activeProfile": name]
         ])
+        if !success {
+            log.error("Failed to patch config for llm.activeProfile")
+        }
+        guard self.activeProfile == name else { return success }
         if success {
             lastConfirmedActiveProfile = name
         } else {
-            if self.activeProfile == name {
-                self.activeProfile = lastConfirmedActiveProfile
-            }
-            log.error("Failed to patch config for llm.activeProfile")
+            self.activeProfile = lastConfirmedActiveProfile
         }
         return success
     }
@@ -3365,8 +3363,11 @@ public final class SettingsStore: ObservableObject {
             // config push (via `applyDaemonConfig` → `loadInferenceProfiles`)
             // can replace `profiles` during the suspension, invalidating
             // `existingIndex` and risking an out-of-bounds subscript or
-            // a write to the wrong row.
-            if let index = profiles.firstIndex(where: { $0.name == name }) {
+            // a write to the wrong row. The same post-await result must
+            // gate the reorder branch below so the merge/append and
+            // reorder decisions stay consistent.
+            let postAwaitIndex = profiles.firstIndex(where: { $0.name == name })
+            if let index = postAwaitIndex {
                 // Daemon deep-merges the patch (toJSON omits nil fields).
                 // Mirror that locally so fields the fragment leaves nil
                 // retain whatever the daemon already had.
@@ -3383,7 +3384,7 @@ public final class SettingsStore: ObservableObject {
                     profileOrder = profiles.map(\.name)
                 }
             }
-            if let nextOrder, existingIndex != nil {
+            if let nextOrder, postAwaitIndex != nil {
                 profileOrder = nextOrder
                 reorderPublishedProfiles(to: nextOrder)
             }
@@ -3581,6 +3582,22 @@ public final class SettingsStore: ObservableObject {
             ])
             guard orderSuccess else {
                 log.error("Failed to patch llm.profileOrder after replacing llm.profiles.\(name, privacy: .public)")
+                // Server-side replace already succeeded, so `profiles`
+                // has the new entry but `profileOrder` lacks it. Without
+                // reconciliation a caller retry hits a stuck "already
+                // exists" collision and `reorderPublishedProfiles`
+                // silently drops the unlisted name. Reconcile against
+                // the existing order (not an alphabetic resort) so a
+                // user-defined custom order survives — a retry's
+                // `nextProfileOrderAfterSaving` reads local state and
+                // would otherwise persist alphabetical order back to
+                // the daemon.
+                let rebuiltOrder = Self.normalizedProfileOrder(
+                    profileNames: profiles.map(\.name),
+                    storedOrder: profileOrder
+                )
+                profileOrder = rebuiltOrder
+                reorderPublishedProfiles(to: rebuiltOrder)
                 return false
             }
         }

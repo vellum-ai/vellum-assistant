@@ -245,6 +245,89 @@ describe("getPageIndex", () => {
     const idx = await getPageIndex(workspaceDir);
     expect(idx.bySlug.get("alice")?.summary.length).toBe(200);
   });
+
+  test("collapses embedded newlines in frontmatter.summary to single spaces", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("alice", { summary: "First line.\nSecond line.\nThird line." }),
+    );
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.bySlug.get("alice")?.summary).toBe(
+      "First line. Second line. Third line.",
+    );
+  });
+
+  test("collapses embedded newlines and runs of whitespace in body fallback", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("alice", {
+        body: "  Body  with\n\nmultiple\tlines\n  and   spaces.  ",
+      }),
+    );
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.bySlug.get("alice")?.summary).toBe(
+      "Body with multiple lines and spaces.",
+    );
+  });
+
+  test("normalizes skill-entry content with embedded newlines", async () => {
+    skillState.entries = [
+      { id: "browser", content: "Drive a browser.\nSupports multiple tabs." },
+    ];
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.bySlug.get("skills/browser")?.summary).toBe(
+      "Drive a browser. Supports multiple tabs.",
+    );
+  });
+
+  test("renders a single line per entry even when summaries contain newlines", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("alice", { summary: "line one\nline two" }),
+    );
+    const idx = await getPageIndex(workspaceDir);
+    // Exactly one trailing newline — the entry itself must not split.
+    expect(idx.rendered.split("\n").filter(Boolean).length).toBe(1);
+  });
+
+  test("drops a user concept page whose slug collides with a seeded skill entry", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("skills/browser", {
+        summary: "User-authored page that shadows the skill.",
+      }),
+    );
+    skillState.entries = [{ id: "browser", content: "Seeded skill content." }];
+
+    const idx = await getPageIndex(workspaceDir);
+    // Only the skill entry survives under skills/browser.
+    expect(idx.entries.filter((e) => e.slug === "skills/browser").length).toBe(
+      1,
+    );
+    expect(idx.bySlug.get("skills/browser")?.summary).toBe(
+      "Seeded skill content.",
+    );
+  });
+
+  test("collision dedupe leaves non-colliding pages and skills intact", async () => {
+    await writePage(workspaceDir, makePage("alice", { summary: "Alice" }));
+    await writePage(
+      workspaceDir,
+      makePage("skills/browser", { summary: "Shadow page." }),
+    );
+    skillState.entries = [
+      { id: "browser", content: "Seeded browser." },
+      { id: "calendar", content: "Seeded calendar." },
+    ];
+
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.entries.map((e) => e.slug)).toEqual([
+      "alice",
+      "skills/browser",
+      "skills/calendar",
+    ]);
+    expect(idx.bySlug.get("skills/browser")?.summary).toBe("Seeded browser.");
+  });
 });
 
 // ---------------------------------------------------------------------------

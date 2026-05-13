@@ -24,7 +24,10 @@ struct SettingsBookmarksTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            if bookmarkStore.bookmarks.isEmpty {
+            if bookmarkStore.isLoading && bookmarkStore.bookmarks.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            } else if bookmarkStore.bookmarks.isEmpty {
                 GeometryReader { geo in
                     VEmptyState(
                         title: "No bookmarks",

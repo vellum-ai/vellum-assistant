@@ -302,6 +302,8 @@ struct SettingsPanel: View {
                     isEmbeddingProviderEnabled = enabled
                 } else if key == Self.soundsFeatureFlagKey {
                     isSoundsEnabled = enabled
+                } else if key == Self.bookmarksFeatureFlagKey {
+                    isBookmarksEnabled = enabled
                 }
             }
         }

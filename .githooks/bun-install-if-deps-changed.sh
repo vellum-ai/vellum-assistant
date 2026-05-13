@@ -70,9 +70,29 @@ if [ -z "$pkgs" ]; then
     exit 0
 fi
 
+# Sub-package dirs we never want to auto-install in:
+#   meta/                — thin installer wrapper, only workspace dep links,
+#                          ships only bin/+Dockerfile per package.json `files`.
+#   */plugins/*          — plugin examples declare only peerDependencies. The
+#                          resulting bun.lock is empty noise and regenerates
+#                          non-deterministically.
+# A manual `bun install` in these dirs still works — this just keeps the
+# auto-install hook from making `git status` dirty after every pull/switch.
+should_skip_pkg() {
+    case "$1" in
+        meta) return 0 ;;
+        */plugins/*) return 0 ;;
+    esac
+    return 1
+}
+
 # Serialize installs — parallel bun runs can contend on the shared ~/.bun cache.
 while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
+    if should_skip_pkg "$pkg"; then
+        echo "[git-hook] Skipping 'bun install' in $pkg (excluded — see hook source)." >&2
+        continue
+    fi
     target="$REPO_ROOT/$pkg"
     [ -d "$target" ] || continue
     [ -f "$target/package.json" ] || continue

@@ -361,6 +361,41 @@ describe("QuestionPrompter", () => {
     expect(_piStore.has(req.requestId)).toBe(false);
   });
 
+  test("abort after removeByConversation still resolves the Promise (no hang)", async () => {
+    // Regression test for the race exposed by PR #30566: when
+    // `removeByConversation()` (auto-deny on enqueue) deregisters the
+    // question interaction before the abort signal fires, the abort handler
+    // must still resolve the prompt Promise. Previously, the handler used
+    // `pendingInteractions.resolve(id) === undefined` as the idempotency
+    // guard — which returned `undefined` after the registry was cleared,
+    // causing the handler to early-return and the Promise to hang forever.
+    // Now an internal `settled` flag guards every resolution path.
+    const { prompter, sent } = makePrompter();
+    const ac = new AbortController();
+
+    const promise = prompter.prompt({
+      ...threeQuestionParams,
+      signal: ac.signal,
+    });
+    const req = sent[0] as QuestionRequest;
+    expect(_piStore.has(req.requestId)).toBe(true);
+
+    // Simulate `removeByConversation` clearing the registry entry before
+    // the abort signal fires.
+    const interaction = _piStore.get(req.requestId);
+    if (interaction?.timer != null) clearTimeout(interaction.timer);
+    _piStore.delete(req.requestId);
+
+    ac.abort();
+    const result = await promise;
+    expect(result.overall).toBe("aborted");
+    expect(result.entries).toEqual([
+      { questionId: "q1", decision: "aborted" },
+      { questionId: "q2", decision: "aborted" },
+      { questionId: "q3", decision: "aborted" },
+    ]);
+  });
+
   test("pre-aborted signal short-circuits before broadcasting with aborted entries", async () => {
     const { prompter, sent } = makePrompter();
     const ac = new AbortController();

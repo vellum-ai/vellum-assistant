@@ -14,6 +14,7 @@ import {
   like,
   lt,
   lte,
+  or,
   sql,
 } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
@@ -727,9 +728,14 @@ export function forkConversation(params: {
 
     // Carry the parent's per-conversation memory state into the child so the
     // forked thread resumes with the same activation/injection log and
-    // in-context tracker the parent had at fork time.
-    forkActivationState(db, sourceConversation.id, fc.id);
-    forkGraphMemoryState(sourceConversation.id, fc.id);
+    // in-context tracker the parent had at fork time. Only valid for
+    // full-history forks: a truncated fork would inherit activation/tracker
+    // entries for turns the child does not actually contain.
+    const isFullHistoryFork = copyBoundaryIndex === sourceMessages.length - 1;
+    if (isFullHistoryFork) {
+      forkActivationState(db, sourceConversation.id, fc.id);
+      forkGraphMemoryState(sourceConversation.id, fc.id);
+    }
     forkRetrospectiveState({
       database: db,
       sourceConversationId: sourceConversation.id,
@@ -1110,13 +1116,23 @@ export function countMessagesAfter(
     .where(eq(messages.id, afterMessageId))
     .get();
   if (!ref) return 0;
+  // Tie-breaker on `messages.id` so rows that share a millisecond timestamp
+  // with the reference are not permanently skipped. Mirrors the
+  // `(createdAt, id)` cursor pattern used by the backfill job-handler and
+  // turn-events-store.
   const row = db
     .select({ c: count() })
     .from(messages)
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        gt(messages.createdAt, ref.createdAt),
+        or(
+          gt(messages.createdAt, ref.createdAt),
+          and(
+            eq(messages.createdAt, ref.createdAt),
+            gt(messages.id, afterMessageId),
+          ),
+        ),
       ),
     )
     .get();
@@ -1136,11 +1152,14 @@ export function getMessagesAfter(
 ): MessageRow[] {
   const db = getDb();
   if (afterMessageId === null || afterMessageId === "") {
+    // Secondary `asc(messages.id)` matches the non-null path's cursor
+    // ordering, so callers tracking `cutoffMessageId` across runs see a
+    // consistent ordering when multiple rows share a millisecond timestamp.
     return db
       .select()
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
-      .orderBy(asc(messages.createdAt))
+      .orderBy(asc(messages.createdAt), asc(messages.id))
       .all()
       .map(parseMessage);
   }
@@ -1150,16 +1169,24 @@ export function getMessagesAfter(
     .where(eq(messages.id, afterMessageId))
     .get();
   if (!ref) return [];
+  // Same `(createdAt, id)` cursor as `countMessagesAfter` — rows sharing
+  // the reference's millisecond timestamp would otherwise be skipped.
   return db
     .select()
     .from(messages)
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        gt(messages.createdAt, ref.createdAt),
+        or(
+          gt(messages.createdAt, ref.createdAt),
+          and(
+            eq(messages.createdAt, ref.createdAt),
+            gt(messages.id, afterMessageId),
+          ),
+        ),
       ),
     )
-    .orderBy(asc(messages.createdAt))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
     .all()
     .map(parseMessage);
 }

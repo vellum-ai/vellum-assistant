@@ -842,8 +842,12 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 // ---------------------------------------------------------------------------
 
 // Import the real buildSanitizedEnv (not mocked) for baseline credential tests
-const { buildSanitizedEnv, SAFE_ENV_VARS, ALWAYS_INJECTED_ENV_VARS } =
-  await import("../tools/terminal/safe-env.js");
+const {
+  buildSanitizedEnv,
+  KATA_SAFE_ENV_VARS,
+  SAFE_ENV_VARS,
+  ALWAYS_INJECTED_ENV_VARS,
+} = await import("../tools/terminal/safe-env.js");
 
 describe("buildSanitizedEnv — baseline: credential exclusion", () => {
   // Credential-like env vars that must never appear in the sanitized env.
@@ -901,7 +905,11 @@ describe("buildSanitizedEnv — baseline: credential exclusion", () => {
   });
 
   test("sanitized env only contains keys from the allowlist", () => {
-    const allowed: string[] = [...SAFE_ENV_VARS, ...ALWAYS_INJECTED_ENV_VARS];
+    const allowed: string[] = [
+      ...SAFE_ENV_VARS,
+      ...KATA_SAFE_ENV_VARS,
+      ...ALWAYS_INJECTED_ENV_VARS,
+    ];
     const env = buildSanitizedEnv();
     for (const key of Object.keys(env)) {
       expect(allowed).toContain(key);
@@ -1211,7 +1219,9 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     cachedAssessmentOverride = {
       riskLevel: "low",
       reason: "GET request to public URL",
-      scopeOptions: [{ pattern: "https://example.com/.*", label: "example.com" }],
+      scopeOptions: [
+        { pattern: "https://example.com/.*", label: "example.com" },
+      ],
       // allowlistOptions intentionally omitted — some classifiers don't emit them.
       matchType: "registry",
     };

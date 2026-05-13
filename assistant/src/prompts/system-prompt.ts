@@ -284,15 +284,6 @@ export interface BuildSystemPromptOptions {
    * unset so they pay zero token cost.
    */
   isBackgroundConversation?: boolean;
-  /**
-   * When true, the `ask_question` tool is available in the current
-   * conversation's resolved tool set. Gates the workspace
-   * `04-ask-question.md` section, which nudges the model to prefer
-   * structured clarifying questions over plain-text prose. Callers compute
-   * this from the same source of truth used by tool gating
-   * (`isToolActiveForContext` in `conversation-tool-setup.ts`).
-   */
-  hasAskQuestion?: boolean;
 }
 
 /**
@@ -304,25 +295,25 @@ export interface BuildSystemPromptOptions {
  * files change between turns.
  */
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
-  const hasNoClient = options?.hasNoClient ?? false;
-
   // ── Static instruction sections (stable across turns) ──
   // These sections are deterministic within a process lifetime.  They form
   // the first cache block so they remain cached even when workspace files
   // (IDENTITY.md, SOUL.md, users/<slug>.md, etc.) are edited between turns.
   //
   // Section render context.  Workspace section frontmatter `enabled:`
-  // predicates and `{{key}}` body interpolation both resolve against this
-  // map, so anything the renderer needs to see (runtime gates, paths) must
-  // be lifted onto `ctx` rather than branched on at the call site.
+  // predicates and `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation
+  // both resolve against this map, so anything the renderer needs to see
+  // (runtime gates, paths) must be lifted onto `ctx` rather than branched
+  // on at the call site.  `hasNoClient` is normalized to a defined boolean
+  // here so the `{{#hasNoClient}}` / `{{^hasNoClient}}` conditionals in
+  // `05-access-preference.md` always resolve (never warn-literal).
   const ctx = {
     ...options,
+    hasNoClient: options?.hasNoClient ?? false,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
   };
   const staticParts: string[] = [...renderWorkspaceSections(ctx)];
-  staticParts.push(buildAttachmentSection());
-  staticParts.push(buildAccessPreferenceSection(hasNoClient));
   staticParts.push(buildCredentialSecuritySection());
   staticParts.push(buildExternalContentSection());
   if (options?.isBackgroundConversation) {
@@ -430,36 +421,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const dynamic = dynamicParts.join("\n\n");
 
   return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
-}
-
-function buildAttachmentSection(): string {
-  return [
-    "## Sending Files to the User",
-    "",
-    'To deliver files to the user, include `<vellum-attachment source="sandbox" path="scratch/output.png" />` in your response text. This tag is the ONLY way files reach the user - omitting it means the user won\'t see the file.',
-    "",
-    'Use `source="host"` with an absolute path for host filesystem files. Optional attributes: `filename` (display name override), `mime_type` (override auto-detection).',
-    "",
-    "Image and video attachments can render inline in chat. If the user asks to preview a media file here, attach it instead of only printing its path.",
-    "",
-    "Embed images/GIFs inline using markdown: `![description](URL)`.",
-  ].join("\n");
-}
-
-function buildAccessPreferenceSection(hasNoClient: boolean): string {
-  if (hasNoClient) {
-    return [
-      "## External Service Access",
-      "",
-      "Priority: (1) sandbox `bash` — install tools yourself; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).",
-    ].join("\n");
-  }
-
-  return [
-    "## External Service Access",
-    "",
-    "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).",
-  ].join("\n");
 }
 
 function buildCredentialSecuritySection(): string {

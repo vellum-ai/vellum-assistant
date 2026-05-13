@@ -373,11 +373,13 @@ function listMergedSessions(opts: {
     : baseQuery;
   // Fetch only enough rows to fill the requested page after merging with
   // in-memory sessions. In-memory entries take precedence on id collision,
-  // so we pad by inMemory.length to guarantee we still surface `limit`
-  // distinct rows even when every in-memory session shadows a DB row.
+  // so we pad by the count that survived the conversation filter to
+  // guarantee we still surface `limit` distinct rows even when every
+  // in-memory session shadows a DB row — without over-fetching when many
+  // unrelated sessions are in memory.
   const historyRows = filtered
     .orderBy(desc(acpSessionHistory.startedAt))
-    .limit(opts.limit + inMemory.length)
+    .limit(opts.limit + merged.size)
     .all();
 
   for (const row of historyRows) {

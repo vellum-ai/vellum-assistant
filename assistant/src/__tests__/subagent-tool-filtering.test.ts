@@ -70,8 +70,8 @@ describe("subagent-only tool filtering", () => {
   });
 
   test("respects subagentAllowedTools — tools outside the allowlist are inactive", () => {
-    // Mirrors `createResolveToolsCallback`'s post-filter so callers using this
-    // helper for system-prompt gating see the same final tool set.
+    // Mirrors `createResolveToolsCallback`'s post-filter so callers see the
+    // same final tool set.
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
@@ -89,8 +89,8 @@ describe("subagent-only tool filtering", () => {
 
   test("returns false for every tool when toolsDisabledDepth > 0", () => {
     // `createResolveToolsCallback` returns an empty tool list when tools are
-    // disabled; mirror it here so system-prompt gating doesn't advertise tools
-    // the LLM cannot invoke.
+    // disabled; mirror it here so callers don't see tools the LLM cannot
+    // invoke.
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
@@ -105,8 +105,8 @@ describe("subagent-only tool filtering", () => {
 
   test("under disk-pressure cleanup mode, only cleanup-safe tools are active", () => {
     // `createResolveToolsCallback` restricts the turn to cleanup-safe tools
-    // (`file_remove`, `bash`, etc.); ensure the helper agrees so the system
-    // prompt doesn't advertise tools that have been filtered out.
+    // (`file_remove`, `bash`, etc.); ensure the helper agrees so callers see
+    // the same filtered tool set.
     const ctx: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},

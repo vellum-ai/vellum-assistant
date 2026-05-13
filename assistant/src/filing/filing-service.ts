@@ -17,6 +17,11 @@ const log = getLogger("filing-service");
 
 const FILING_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
+// When compaction skips because a filing run holds the serialization lock,
+// retry on this near-term cadence so phase-aligned 24h timers don't starve
+// compaction across consecutive ticks.
+const COMPACTION_CONTENDED_RETRY_MS = 10 * 60 * 1000; // 10 minutes
+
 const FILING_PROMPT_TEMPLATE = `You are running a periodic knowledge base filing job. This is a background maintenance task focused on the buffer.
 
 Read \`pkb/buffer.md\`. For each item in the buffer:
@@ -66,6 +71,7 @@ This is your knowledge base — keep it sharp.`;
 
 export interface FilingDeps {
   getCurrentHour?: () => number;
+  compactionContendedRetryMs?: number;
 }
 
 export class FilingService {
@@ -79,8 +85,10 @@ export class FilingService {
   private readonly deps: FilingDeps;
   private timer: ReturnType<typeof setInterval> | null = null;
   private compactionTimer: ReturnType<typeof setInterval> | null = null;
+  private compactionRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private activeRun: Promise<void> | null = null;
   private activeCompactionRun: Promise<void> | null = null;
+  private stopped = false;
   private _lastRunAt: number | null = null;
   private _nextRunAt: number | null = null;
   private _lastCompactionAt: number | null = null;
@@ -108,6 +116,7 @@ export class FilingService {
   }
 
   start(): void {
+    this.stopped = false;
     const fullConfig = getConfig();
     if (fullConfig.memory.v2.enabled) {
       log.info("Filing service disabled — memory v2 is active");
@@ -157,12 +166,14 @@ export class FilingService {
       clearInterval(this.compactionTimer);
       this.compactionTimer = null;
     }
+    this.clearCompactionRetry();
     this._nextRunAt = null;
     this._nextCompactionAt = null;
     this.start();
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -171,6 +182,7 @@ export class FilingService {
       clearInterval(this.compactionTimer);
       this.compactionTimer = null;
     }
+    this.clearCompactionRetry();
     this._nextRunAt = null;
     this._nextCompactionAt = null;
     const inflight: Promise<void>[] = [];
@@ -269,9 +281,13 @@ export class FilingService {
       log.debug(
         "Filing run in progress, skipping compaction to avoid concurrent PKB writes",
       );
+      this.scheduleCompactionRetry(
+        this.deps.compactionContendedRetryMs ?? COMPACTION_CONTENDED_RETRY_MS,
+      );
       return false;
     }
 
+    this.clearCompactionRetry();
     const run = this.executeCompactionRun();
     this.activeCompactionRun = run;
     try {
@@ -299,6 +315,29 @@ export class FilingService {
 
   private scheduleNextCompactionRun(intervalMs: number): void {
     this._nextCompactionAt = Date.now() + intervalMs;
+  }
+
+  private scheduleCompactionRetry(delayMs: number): void {
+    this.clearCompactionRetry();
+    if (this.stopped) return;
+    this.compactionRetryTimer = setTimeout(() => {
+      this.compactionRetryTimer = null;
+      if (this.stopped) return;
+      this.runCompactionOnce().catch((err) => {
+        log.error({ err }, "Compaction retry failed");
+      });
+    }, delayMs);
+    // unref so the pending retry doesn't keep the daemon process alive on
+    // shutdown paths that don't call stop().
+    this.compactionRetryTimer.unref?.();
+    this._nextCompactionAt = Date.now() + delayMs;
+  }
+
+  private clearCompactionRetry(): void {
+    if (this.compactionRetryTimer) {
+      clearTimeout(this.compactionRetryTimer);
+      this.compactionRetryTimer = null;
+    }
   }
 
   private shouldSkipForDiskPressure(source: "filing" | "compaction"): boolean {
