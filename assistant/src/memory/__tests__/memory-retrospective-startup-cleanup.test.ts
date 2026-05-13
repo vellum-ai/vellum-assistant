@@ -16,6 +16,7 @@ type ConvRow = {
   source: string | null;
   last_message_at: number | null;
   fork_parent_conversation_id: string | null;
+  created_at: number;
 };
 type JobRow = {
   type: string;
@@ -59,10 +60,26 @@ mock.module("../db-connection.js", () => ({
                   return { conversationId: convId };
                 });
             }
-            // Otherwise, this is the conversation query. The production
-            // predicate now compares `forkParentConversationId` (the source
-            // ID encoded on the background conversation row) against the
-            // set of source IDs extracted from active jobs.
+            // The "all retros" query (used to compute most-recent-per-source
+            // preservation) requests id + forkParentConversationId + createdAt
+            // with only the source + isNotNull(forkParent) predicate.
+            if (
+              colKeys.includes("forkParentConversationId") &&
+              colKeys.includes("createdAt")
+            ) {
+              return mockConversations
+                .filter((c) => c.source === "memory-retrospective")
+                .filter((c) => c.fork_parent_conversation_id !== null)
+                .map((c) => ({
+                  id: c.id,
+                  forkParentConversationId: c.fork_parent_conversation_id,
+                  createdAt: c.created_at,
+                }));
+            }
+            // Otherwise, this is the orphan-candidate query. The production
+            // predicate compares `forkParentConversationId` (the source ID
+            // encoded on the background conversation row) against the set
+            // of source IDs extracted from active jobs.
             return mockConversations
               .filter((c) => c.source === "memory-retrospective")
               .filter(
@@ -131,7 +148,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     mockJobs = [];
   });
 
-  test("sweeps an old memory-retrospective conversation with no active job", () => {
+  test("sweeps an old memory-retrospective orphan that has been superseded by a newer retro for the same source", () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     mockConversations = [
@@ -140,6 +157,15 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
         source: "memory-retrospective",
         last_message_at: now - 2 * ORPHAN_AGE_MS,
         fork_parent_conversation_id: "source-A",
+        created_at: now - 3 * ORPHAN_AGE_MS,
+      },
+      // Newer successful retro for the same source — this one is preserved.
+      {
+        id: "newer-retro",
+        source: "memory-retrospective",
+        last_message_at: now - 90 * 60 * 1000,
+        fork_parent_conversation_id: "source-A",
+        created_at: now - 2 * ORPHAN_AGE_MS,
       },
     ];
     rebuildActiveJobSet();
@@ -159,6 +185,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
         source: "memory-retrospective",
         last_message_at: now - 60_000,
         fork_parent_conversation_id: "source-A",
+        created_at: now - 60_000,
       },
     ];
     rebuildActiveJobSet();
@@ -178,6 +205,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
         source: "auto-analysis",
         last_message_at: now - 2 * ORPHAN_AGE_MS,
         fork_parent_conversation_id: "source-A",
+        created_at: now - 2 * ORPHAN_AGE_MS,
       },
     ];
     rebuildActiveJobSet();
@@ -203,6 +231,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
         source: "memory-retrospective",
         last_message_at: now - 2 * ORPHAN_AGE_MS,
         fork_parent_conversation_id: "source-conv-id",
+        created_at: now - 2 * ORPHAN_AGE_MS,
       },
     ];
     mockJobs = [
@@ -220,7 +249,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     expect(deletedIds).toEqual([]);
   });
 
-  test("sweeps a background conversation whose source has NO active job, even when another unrelated job is pending", () => {
+  test("sweeps a superseded background conversation whose source has NO active job, even when another unrelated job is pending", () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     mockConversations = [
@@ -229,10 +258,18 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
         source: "memory-retrospective",
         last_message_at: now - 2 * ORPHAN_AGE_MS,
         fork_parent_conversation_id: "source-A",
+        created_at: now - 3 * ORPHAN_AGE_MS,
+      },
+      {
+        id: "newer-A",
+        source: "memory-retrospective",
+        last_message_at: now - 90 * 60 * 1000,
+        fork_parent_conversation_id: "source-A",
+        created_at: now - 2 * ORPHAN_AGE_MS,
       },
     ];
-    // Active job references a DIFFERENT source — the orphan above is not
-    // protected because its forkParent doesn't match.
+    // Active job references a DIFFERENT source — neither retro above is
+    // protected by the active-job guard.
     mockJobs = [
       {
         type: "memory_retrospective",
@@ -246,6 +283,31 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
 
     expect(result.swept).toBe(1);
     expect(deletedIds).toEqual(["background-A"]);
+  });
+
+  // Regression test for Devin's concern on PR #30331: the sweep used to
+  // delete every memory-retrospective conversation older than 1h, including
+  // the most-recent successful one per source. That broke
+  // `findMostRecentRetrospectiveFor` on the next run — the next retro had
+  // no dedup context and could re-save facts the prior pass already captured.
+  test("PRESERVES the most-recent retro per source even when older than the orphan cutoff", () => {
+    const now = Date.now();
+    injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
+    mockConversations = [
+      {
+        id: "successful-retro",
+        source: "memory-retrospective",
+        last_message_at: now - 2 * ORPHAN_AGE_MS,
+        fork_parent_conversation_id: "source-A",
+        created_at: now - 2 * ORPHAN_AGE_MS,
+      },
+    ];
+    rebuildActiveJobSet();
+
+    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+
+    expect(result.swept).toBe(0);
+    expect(deletedIds).toEqual([]);
   });
 
   test("running across an empty workspace returns swept=0 without errors", () => {
