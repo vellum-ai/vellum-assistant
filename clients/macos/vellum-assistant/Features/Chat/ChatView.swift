@@ -380,110 +380,8 @@ struct ChatView: View {
                 searchQuery: searchQuery
             )
             .animation(nil, value: queuedMessages.isEmpty)
-
-            if let error = viewModel.errorManager.conversationError,
-               error.presentationSurface == .managedCreditsBanner {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    CreditsExhaustedBanner(
-                        onAddFunds: { onAddFunds?() }
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if let error = viewModel.errorManager.conversationError,
-               error.presentationSurface == .providerBillingBanner {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    ProviderBillingBanner(
-                        onOpenSettings: { onOpenModelsAndServices?() }
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if let safeStorageCleanupState, let onOpenStorageCleanup {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    SafeStorageCleanupStatusBanner(
-                        state: safeStorageCleanupState,
-                        onOpenStorageCleanup: onOpenStorageCleanup
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if let error = viewModel.errorManager.conversationError,
-               error.presentationSurface == .missingApiKeyBanner {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    MissingApiKeyBanner(
-                        onOpenSettings: { onOpenModelsAndServices?() },
-                        onDismiss: { viewModel.dismissConversationError() }
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if let error = viewModel.errorManager.conversationError,
-               error.presentationSurface == .invalidApiKeyBanner {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    InvalidApiKeyBanner(
-                        connectionName: error.connectionName,
-                        profileName: error.profileName,
-                        onOpenSettings: { onOpenModelsAndServices?() },
-                        onDismiss: { viewModel.dismissConversationError() }
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if let until = viewModel.compactionCircuitOpenUntil, until > Date() {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    // CompactionCircuitOpenBanner is natural-width; spacers center it
-                    // within the fixed column instead of leading-aligning it.
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        CompactionCircuitOpenBanner(
-                            openUntil: until,
-                            onExpired: { viewModel.compactionCircuitOpenUntil = nil }
-                        )
-                        Spacer(minLength: 0)
-                    }
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if let mode = recoveryMode, mode.enabled {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    RecoveryModeBanner(
-                        recoveryMode: mode,
-                        onResumeAssistant: { onResumeAssistant?() },
-                        onOpenSSHSettings: { onOpenSSHSettings?() },
-                        isExiting: isRecoveryModeExiting
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if shouldShowDiscordBanner {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    DiscordCommunityBanner(
-                        onJoin: {
-                            discordJoined = true
-                            openURL(AppURLs.discordInviteURL)
-                        },
-                        onDismiss: {
-                            discordBannerDismissed = true
-                        }
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
+            .overlay(alignment: .bottom) {
+                chatBanners(layoutMetrics: layoutMetrics, queuedMessages: queuedMessages)
             }
 
             if !queuedMessages.isEmpty {
@@ -518,6 +416,128 @@ struct ChatView: View {
             }
         }
         .animation(.spring(duration: 0.28, bounce: 0.15), value: queuedMessages.isEmpty)
+    }
+
+    /// Status/notification banners rendered as an overlay at the bottom of
+    /// the message list. Using `.overlay` instead of VStack siblings keeps
+    /// the scroll viewport at its full height so `bottomAlignedMinHeight` /
+    /// `topAlignedMinHeight` use the correct dimension and content is not
+    /// clipped at the visual top.
+    ///
+    /// `.safeAreaInset` was considered but rejected: the inverted scroll
+    /// (`.flipped()`) causes bottom safe-area insets to propagate as content
+    /// padding at the visual *top* (oldest messages) rather than the visual
+    /// bottom where the banner sits, providing no overlap protection.
+    @ViewBuilder
+    private func chatBanners(
+        layoutMetrics: MessageListLayoutMetrics,
+        queuedMessages: [ChatMessage]
+    ) -> some View {
+        let bannerWidth = max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)
+        VStack(spacing: 0) {
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .managedCreditsBanner {
+                centeredChatColumn(width: bannerWidth) {
+                    CreditsExhaustedBanner(
+                        onAddFunds: { onAddFunds?() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .providerBillingBanner {
+                centeredChatColumn(width: bannerWidth) {
+                    ProviderBillingBanner(
+                        onOpenSettings: { onOpenModelsAndServices?() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let safeStorageCleanupState, let onOpenStorageCleanup {
+                centeredChatColumn(width: bannerWidth) {
+                    SafeStorageCleanupStatusBanner(
+                        state: safeStorageCleanupState,
+                        onOpenStorageCleanup: onOpenStorageCleanup
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .missingApiKeyBanner {
+                centeredChatColumn(width: bannerWidth) {
+                    MissingApiKeyBanner(
+                        onOpenSettings: { onOpenModelsAndServices?() },
+                        onDismiss: { viewModel.dismissConversationError() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .invalidApiKeyBanner {
+                centeredChatColumn(width: bannerWidth) {
+                    InvalidApiKeyBanner(
+                        connectionName: error.connectionName,
+                        profileName: error.profileName,
+                        onOpenSettings: { onOpenModelsAndServices?() },
+                        onDismiss: { viewModel.dismissConversationError() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let until = viewModel.compactionCircuitOpenUntil, until > Date() {
+                centeredChatColumn(width: bannerWidth) {
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        CompactionCircuitOpenBanner(
+                            openUntil: until,
+                            onExpired: { viewModel.compactionCircuitOpenUntil = nil }
+                        )
+                        Spacer(minLength: 0)
+                    }
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let mode = recoveryMode, mode.enabled {
+                centeredChatColumn(width: bannerWidth) {
+                    RecoveryModeBanner(
+                        recoveryMode: mode,
+                        onResumeAssistant: { onResumeAssistant?() },
+                        onOpenSSHSettings: { onOpenSSHSettings?() },
+                        isExiting: isRecoveryModeExiting
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if shouldShowDiscordBanner {
+                centeredChatColumn(width: bannerWidth) {
+                    DiscordCommunityBanner(
+                        onJoin: {
+                            discordJoined = true
+                            openURL(AppURLs.discordInviteURL)
+                        },
+                        onDismiss: {
+                            discordBannerDismissed = true
+                        }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+        }
     }
 
     /// Renders the chat composer centered to the standard chat-column width.
