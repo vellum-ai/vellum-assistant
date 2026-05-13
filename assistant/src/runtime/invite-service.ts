@@ -51,7 +51,9 @@ const log = getLogger("invite-service");
  *
  * See: memory/concepts/workstreams/track-b-invite-redemption.md
  */
-async function mirrorInviteToGateway(invite: IngressInvite): Promise<void> {
+export async function mirrorInviteToGateway(
+  invite: IngressInvite,
+): Promise<void> {
   try {
     await ipcCall("mirror_invite_create", {
       id: invite.id,
