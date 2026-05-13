@@ -229,7 +229,7 @@ describe("resolveRouterPrompt — override path", () => {
   };
 
   test("null overridePath returns the bundled prompt verbatim", () => {
-    expect(resolveRouterPrompt(null, STD_OPTS)).toEqual(
+    expect(resolveRouterPrompt(null, tmpDir, STD_OPTS)).toEqual(
       renderRouterPrompt(STD_OPTS),
     );
   });
@@ -242,16 +242,35 @@ describe("resolveRouterPrompt — override path", () => {
       "utf-8",
     );
 
-    const out = resolveRouterPrompt(overridePath, STD_OPTS);
+    const out = resolveRouterPrompt(overridePath, tmpDir, STD_OPTS);
     expect(out).toContain("Hi Aria, you are routing for Alice.");
     expect(out).toContain(SAMPLE_INDEX);
     expect(out).not.toContain("{{ASSISTANT_NAME}}");
     expect(out).not.toContain("{{PAGE_INDEX}}");
   });
 
+  test("relative override path is resolved under the passed workspaceDir, not the default workspace", () => {
+    // Write the override into the per-test temp dir, which acts as a
+    // non-default workspace. The configured path is purely relative so the
+    // loader must resolve it against the supplied workspaceDir — if it
+    // resolved against the process-wide default workspace instead, the file
+    // wouldn't be found and the bundled prompt would be returned.
+    const relativeName = "router-override.md";
+    writeFileSync(
+      join(tmpDir, relativeName),
+      "Routed via {{ASSISTANT_NAME}} for {{USER_NAME}} :: {{PAGE_INDEX}}",
+      "utf-8",
+    );
+
+    const out = resolveRouterPrompt(relativeName, tmpDir, STD_OPTS);
+    expect(out).toContain("Routed via Aria for Alice");
+    expect(out).toContain(SAMPLE_INDEX);
+    expect(out).not.toEqual(renderRouterPrompt(STD_OPTS));
+  });
+
   test("missing override file falls back to bundled prompt", () => {
     const overridePath = join(tmpDir, "does-not-exist.md");
-    expect(resolveRouterPrompt(overridePath, STD_OPTS)).toEqual(
+    expect(resolveRouterPrompt(overridePath, tmpDir, STD_OPTS)).toEqual(
       renderRouterPrompt(STD_OPTS),
     );
   });
@@ -259,7 +278,7 @@ describe("resolveRouterPrompt — override path", () => {
   test("empty override file falls back to bundled prompt", () => {
     const overridePath = join(tmpDir, "empty.md");
     writeFileSync(overridePath, "   \n\t\n", "utf-8");
-    expect(resolveRouterPrompt(overridePath, STD_OPTS)).toEqual(
+    expect(resolveRouterPrompt(overridePath, tmpDir, STD_OPTS)).toEqual(
       renderRouterPrompt(STD_OPTS),
     );
   });
@@ -267,7 +286,7 @@ describe("resolveRouterPrompt — override path", () => {
   test("override that is a directory falls back to bundled prompt", () => {
     // Pass the temp directory itself as the override path — lstat sees a
     // directory, not a regular file, so the loader bails to bundled.
-    expect(resolveRouterPrompt(tmpDir, STD_OPTS)).toEqual(
+    expect(resolveRouterPrompt(tmpDir, tmpDir, STD_OPTS)).toEqual(
       renderRouterPrompt(STD_OPTS),
     );
   });
@@ -280,7 +299,7 @@ describe("resolveRouterPrompt — override path", () => {
       "utf-8",
     );
 
-    const out = resolveRouterPrompt(overridePath, {
+    const out = resolveRouterPrompt(overridePath, tmpDir, {
       assistantName: null,
       userName: null,
       pageIndexBlock: "",

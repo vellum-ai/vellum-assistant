@@ -181,6 +181,7 @@ export async function runRouter(
 
   const systemPrompt = resolveRouterPrompt(
     config.memory?.v2?.router?.router_prompt_path ?? null,
+    workspaceDir,
     {
       assistantName: getAssistantName(),
       userName: resolveUserName(workspaceDir),
