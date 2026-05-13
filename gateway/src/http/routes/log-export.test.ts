@@ -537,4 +537,29 @@ describe("gateway log export handler", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/gzip");
   });
+
+  it("prioritizes JSONL over pretty .log when the 10MB cap can only fit one per date", async () => {
+    // Fabricate a .log + .jsonl pair where each file is just under 6 MB so
+    // that the two combined exceed the 10 MB cap. After the JSONL-first sort,
+    // the .jsonl must be included and the .log must be skipped — tooling that
+    // depends on parseable logs in the support bundle is the higher-priority
+    // consumer when the cap forces a choice.
+    const sixMB = Buffer.alloc(6 * 1024 * 1024, "x").toString("utf8");
+    writeFileSync(join(tmpLogDir, "gateway-2025-01-15.log"), sixMB);
+    writeFileSync(join(tmpLogDir, "gateway-2025-01-15.jsonl"), sixMB);
+
+    delete process.env["CES_CREDENTIAL_URL"];
+    fetchMock.mockImplementation(() =>
+      Promise.reject(new Error("not reachable")),
+    );
+
+    const config = configWithLogDir(tmpLogDir);
+    const handler = createLogExportHandler(config);
+    const res = await handler(makeRequest(), [], getClientIp);
+
+    expect(res.status).toBe(200);
+    const entries = extractTarGzEntries(await res.arrayBuffer());
+    expect(entries).toContain("gateway-logs/gateway-2025-01-15.jsonl");
+    expect(entries).not.toContain("gateway-logs/gateway-2025-01-15.log");
+  });
 });

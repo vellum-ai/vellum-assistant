@@ -2,7 +2,11 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { GatewayConfig } from "../../config.js";
-import { getLogger, LOG_FILE_JSON_PATTERN } from "../../logger.js";
+import {
+  getLogger,
+  LOG_FILE_JSON_PATTERN,
+  LOG_FILE_PATTERN,
+} from "../../logger.js";
 
 const log = getLogger("log-tail");
 
@@ -19,9 +23,11 @@ const LEVEL_MAP: Record<LevelName, number> = {
 };
 
 // Server-side level/module filtering walks the JSONL sidecar produced by the
-// logger. The default human-readable .log file is pino-pretty multi-line and
-// not safely parseable line-by-line.
-const LOG_FILE_PATTERN = LOG_FILE_JSON_PATTERN;
+// logger. Legacy gateway-YYYY-MM-DD.log files (raw JSON from before the
+// pretty/JSONL split) are also walked so upgrades don't blackhole recent
+// history; current-format pretty .log files are multi-line and their lines
+// silently fail `JSON.parse` below, which is the desired behavior.
+const TAIL_PATTERNS = [LOG_FILE_JSON_PATTERN, LOG_FILE_PATTERN] as const;
 
 export function createLogTailHandler(
   config: GatewayConfig,
@@ -52,7 +58,7 @@ export function createLogTailHandler(
       const dir = config.logFile.dir;
 
       const files = readdirSync(dir)
-        .filter((f) => LOG_FILE_PATTERN.test(f))
+        .filter((f) => TAIL_PATTERNS.some((p) => p.test(f)))
         .sort()
         .reverse();
 
