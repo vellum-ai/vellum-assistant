@@ -17,15 +17,17 @@ function parseSSE(text: string): SSEEvent[] {
   const blocks = text.split('\n\n').filter(Boolean);
   for (const block of blocks) {
     const lines = block.split('\n');
-    let type = '';
     let data = '';
     for (const line of lines) {
-      if (line.startsWith('event: ')) type = line.slice(7);
-      else if (line.startsWith('data: ')) data = line.slice(6);
+      if (line.startsWith('data: ')) data = line.slice(6);
     }
-    if (type && data) {
+    if (data) {
       try {
-        events.push({ type, data: JSON.parse(data) });
+        const parsed = JSON.parse(data) as Record<string, unknown>;
+        const { type, ...rest } = parsed;
+        if (typeof type === 'string') {
+          events.push({ type, data: rest });
+        }
       } catch {
         // skip malformed
       }
