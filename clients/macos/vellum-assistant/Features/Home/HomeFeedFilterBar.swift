@@ -14,6 +14,8 @@ private struct HomeFeedFilterPill: View {
         Button(action: onTap) {
             Text(label)
                 .font(VFont.bodySmallEmphasised)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(isSelected ? VColor.contentInset : VColor.contentSecondary)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.xs)
@@ -49,19 +51,21 @@ struct HomeFeedFilterBar: View {
         }
 
     var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            HomeFeedFilterPill(
-                label: "All",
-                isSelected: activeFilter == nil,
-                onTap: { onFilterChanged(nil) }
-            )
-
-            ForEach(Self.categories, id: \.category) { entry in
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: VSpacing.sm) {
                 HomeFeedFilterPill(
-                    label: entry.label,
-                    isSelected: activeFilter == entry.category,
-                    onTap: { onFilterChanged(entry.category) }
+                    label: "All",
+                    isSelected: activeFilter == nil,
+                    onTap: { onFilterChanged(nil) }
                 )
+
+                ForEach(Self.categories, id: \.category) { entry in
+                    HomeFeedFilterPill(
+                        label: entry.label,
+                        isSelected: activeFilter == entry.category,
+                        onTap: { onFilterChanged(entry.category) }
+                    )
+                }
             }
         }
     }
