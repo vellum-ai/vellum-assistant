@@ -300,30 +300,38 @@ struct SubagentDetailPanel: View {
 
     @ViewBuilder
     private func usageMetrics(_ usage: SubagentUsageStats) -> some View {
-        HStack(spacing: 0) {
-            metricItem(icon: "arrow.down.circle", label: "Input", value: "\(formatNumber(usage.inputTokens)) tokens")
-            Spacer()
-            metricItem(icon: "arrow.up.circle", label: "Output", value: "\(formatNumber(usage.outputTokens)) tokens")
-            Spacer()
-            metricItem(icon: "dollarsign.circle", label: "Cost", value: formatCost(usage.estimatedCost))
+        HStack(spacing: VSpacing.sm) {
+            metricCard(icon: .arrowDown, label: "Input", value: formatNumber(usage.inputTokens))
+            metricCard(icon: .arrowUp, label: "Output", value: formatNumber(usage.outputTokens))
+            metricCard(icon: .circleDollarSign, label: "Cost", value: formatCost(usage.estimatedCost))
         }
-        .padding(.vertical, VSpacing.xs)
     }
 
     @ViewBuilder
-    private func metricItem(icon: String, label: String, value: String) -> some View {
-        HStack(spacing: VSpacing.xxs) {
-            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
+    private func metricCard(icon: VIcon, label: String, value: String) -> some View {
+        HStack(spacing: VSpacing.lg) {
+            VIconView(icon, size: 16)
                 .foregroundStyle(VColor.contentTertiary)
+                .padding(VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.primaryDisabled)
+                )
             VStack(alignment: .leading, spacing: 0) {
-                Text(label)
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
                 Text(value)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
+                    .font(VFont.titleSmall)
+                    .foregroundStyle(VColor.contentDefault)
+                Text(label)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
+        .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .strokeBorder(VColor.borderHover, lineWidth: 1)
+        )
     }
 
     // MARK: - Formatting
