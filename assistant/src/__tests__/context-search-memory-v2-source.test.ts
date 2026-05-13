@@ -41,7 +41,6 @@ mock.module("../memory/embedding-backend.js", () => ({
     model: "test-model",
     vectors: [denseEmbedReturn],
   }),
-  generateSparseEmbedding: () => ({ indices: [1], values: [1] }),
 }));
 
 interface QdrantHit {

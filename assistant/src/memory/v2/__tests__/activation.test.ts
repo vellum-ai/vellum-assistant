@@ -52,9 +52,7 @@ mock.module("../../qdrant-client.js", () => ({
 
 const state = {
   embedCalls: [] as Array<{ inputs: unknown[] }>,
-  sparseCalls: [] as string[],
   embedReturn: [[0.1, 0.2, 0.3]] as number[][],
-  sparseReturn: { indices: [1, 2, 3], values: [0.5, 0.5, 0.5] },
   /**
    * Programmable Qdrant query response queues — one per channel. Each test
    * stages whatever ordered hits it needs and lets `simBatch` /
@@ -86,10 +84,6 @@ mock.module("../../embedding-backend.js", () => ({
       model: "test-model",
       vectors: state.embedReturn,
     };
-  },
-  generateSparseEmbedding: (text: string) => {
-    state.sparseCalls.push(text);
-    return state.sparseReturn;
   },
 }));
 
@@ -176,9 +170,7 @@ const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
 
 function resetState(): void {
   state.embedCalls.length = 0;
-  state.sparseCalls.length = 0;
   state.embedReturn = [[0.1, 0.2, 0.3]];
-  state.sparseReturn = { indices: [1, 2, 3], values: [0.5, 0.5, 0.5] };
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
   state.queryCalls.length = 0;
