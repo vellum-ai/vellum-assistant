@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build:ui": "bun build ui/src/main.tsx --outdir ui/dist --bundle --minify && cp ui/index.html ui/src/styles.css ui/dist/",
+    "dev": "bun run build:ui && bun run src/server.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test src/"
   },
