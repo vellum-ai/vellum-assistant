@@ -391,7 +391,7 @@ struct SubagentDetailPanel: View {
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .truncationMode(.tail)
                 Text(label)
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
