@@ -1,5 +1,5 @@
 #if os(macOS)
-import Foundation
+import AppKit
 
 /// Pure helpers for applying markdown formatting markers around a text
 /// selection. Used by ``ComposerTextView`` to handle Cmd+B / Cmd+I /
