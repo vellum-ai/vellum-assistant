@@ -450,6 +450,119 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[2].content).toEqual([{ type: "text", text: "Tail" }]);
   });
 
+  test("internal-channel trusted_contact view still rehydrates memoryV2StaticBlock", async () => {
+    // Regression: the prior `!isUntrustedTrustClass(trustClass)` gate
+    // blocked any non-guardian view from rehydrating personal memory,
+    // including legitimate internal flows (e.g. trusted_contact actors
+    // arriving over the internal `"vellum"` channel). Injection time
+    // uses `shouldExposePersonalMemory`, which keys on `sourceChannel`
+    // rather than `trustClass` and exposes personal memory for
+    // `sourceChannel === "vellum"` regardless of actor trust class. The
+    // rehydrate gate must match so a daemon-restart reload of the same
+    // conversation produces an identical prefix.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First" }]),
+        metadata: JSON.stringify({
+          // Rows must carry `trusted_contact` / `unknown` provenance to
+          // survive the row-level filter for non-guardian views.
+          provenanceTrustClass: "trusted_contact",
+          memoryV2StaticBlock:
+            "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "vellum",
+    });
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+      },
+      { type: "text", text: "First" },
+    ]);
+  });
+
+  test("rehydration order matches injection-time order for the full personal-memory set", async () => {
+    // Injection-time layout (per `applyRuntimeInjections` after-memory-
+    // prefix splicing in ascending injector order: pkb-context 30,
+    // pkb-reminder 35, memory-v2-static 38, now-md 40):
+    //   [<memory __injected>, <memory>v2static</memory>, <NOW.md>,
+    //    <system_reminder>, <knowledge_base>, ...original]
+    // Rehydration must reproduce this exactly so Anthropic's prefix cache
+    // matches msg[0] across daemon restarts.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          memoryInjectedBlock: "mem payload",
+          memoryV2StaticBlock:
+            "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+          nowScratchpadBlock: "<NOW.md>\nnow body\n</NOW.md>",
+          pkbSystemReminderBlock:
+            "<system_reminder>\npkb reminder body\n</system_reminder>",
+          pkbContextBlock: "<knowledge_base>\nkb body\n</knowledge_base>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toEqual([
+      { type: "text", text: "<memory>\nmem payload\n</memory>" },
+      {
+        type: "text",
+        text: "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+      },
+      { type: "text", text: "<NOW.md>\nnow body\n</NOW.md>" },
+      {
+        type: "text",
+        text: "<system_reminder>\npkb reminder body\n</system_reminder>",
+      },
+      { type: "text", text: "<knowledge_base>\nkb body\n</knowledge_base>" },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
   test("untrusted-actor view does not rehydrate memoryV2StaticBlock", async () => {
     mockConversation = defaultConv();
     // Rows with `trusted_contact` / `unknown` provenance survive the
