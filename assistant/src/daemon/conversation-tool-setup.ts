@@ -407,11 +407,12 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
- * Determine whether a tool should be included in the LLM tool definitions
- * for the current turn based on conversation context. Tools not active for the
- * current context are omitted from the definitions sent to the provider,
- * reducing noise and preventing the model from attempting calls that would
- * fail.
+ * Determine whether a tool is part of the final exposed tool set for the
+ * current turn. This helper mirrors the filtering applied by
+ * `createResolveToolsCallback` — including the subagent allowlist,
+ * `toolsDisabledDepth`, and disk-pressure cleanup restrictions — so callers
+ * using it for system-prompt gating (e.g. `hasAskQuestion`) see the same
+ * tool set the LLM ultimately receives.
  */
 export function isToolActiveForContext(
   name: string,
@@ -423,6 +424,19 @@ export function isToolActiveForContext(
   // callers using this helper for system-prompt gating (e.g. hasAskQuestion)
   // see the same final tool set as `createResolveToolsCallback`.
   if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
+    return false;
+  }
+  // `createResolveToolsCallback` returns an empty tool list when tools are
+  // disabled (e.g. pointer-generation turns) and restricts to cleanup-safe
+  // tools under disk pressure. Mirror both here so system-prompt gating
+  // doesn't advertise tools the LLM cannot actually invoke.
+  if (ctx.toolsDisabledDepth > 0) {
+    return false;
+  }
+  if (
+    ctx.diskPressureCleanupModeActive === true &&
+    !isDiskPressureCleanupToolName(name)
+  ) {
     return false;
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
