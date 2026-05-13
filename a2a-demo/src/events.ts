@@ -32,7 +32,7 @@ export class EventBus {
    * Silently drops disconnected clients.
    */
   broadcast(eventType: string, data: object): void {
-    const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
+    const payload = `data: ${JSON.stringify({ type: eventType, ...data })}\n\n`;
 
     for (const client of this.clients) {
       try {
