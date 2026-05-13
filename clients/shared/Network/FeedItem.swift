@@ -186,6 +186,7 @@ extension FeedItem: Equatable {
             && lhs.conversationId == rhs.conversationId
             && lhs.detailPanel == rhs.detailPanel
             && lhs.category == rhs.category
+            && lhs.metadata == rhs.metadata
             && lhs.createdAt == rhs.createdAt
     }
 }

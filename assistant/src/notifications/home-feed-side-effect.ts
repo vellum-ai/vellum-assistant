@@ -130,12 +130,11 @@ function deriveDetailPanelKind(
 
   if (signal.sourceEventName === "guardian.question") {
     const payload = signal.contextPayload;
-    if (
-      payload &&
-      typeof payload === "object" &&
-      "requestKind" in payload &&
-      (payload as Record<string, unknown>).requestKind === "tool_approval"
-    ) {
+    const kind =
+      payload && typeof payload === "object" && "requestKind" in payload
+        ? (payload as Record<string, unknown>).requestKind
+        : undefined;
+    if (kind === "tool_approval" || kind === "tool_grant_request") {
       return "permissionChat";
     }
   }
