@@ -253,12 +253,7 @@ export class AskQuestionTool implements Tool {
     const prompter = this.prompterFactory();
     const result = await prompter.prompt({
       conversationId: context.conversationId,
-      questions: questions.map((q) => ({
-        question: q.question,
-        description: q.description,
-        options: q.options,
-        freeTextPlaceholder: q.freeTextPlaceholder,
-      })),
+      questions,
       toolUseId: context.toolUseId,
       signal: context.signal,
     });

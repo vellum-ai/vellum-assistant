@@ -23,6 +23,7 @@ import { z } from "zod";
 
 import {
   buildBatchEntries,
+  type QuestionBatchMetadata,
   type QuestionBatchSubmission,
   QuestionBatchValidationError,
   type QuestionPromptResult,
@@ -78,7 +79,11 @@ const LegacyFreeTextBody = z.object({
   text: z.string(),
 });
 
-const QuestionResponseBody = z.union([
+// All four variants are mutually exclusive by their `kind` literal, so use
+// `discriminatedUnion` rather than plain `union`. The generated OpenAPI then
+// emits `oneOf` for the body (matching the pre-batched-shape spec) instead
+// of the looser `anyOf` that `z.union` produces.
+const QuestionResponseBody = z.discriminatedUnion("kind", [
   SubmitBody,
   CloseBody,
   LegacyOptionBody,
@@ -223,14 +228,11 @@ function buildCompletedResult(
  */
 function readBatchMetadata(
   interaction: ReturnType<typeof pendingInteractions.get>,
-): { orderedIds: string[]; optionsById: Record<string, string[]> } {
+): QuestionBatchMetadata {
+  const meta = interaction?.metadata as Partial<QuestionBatchMetadata> | undefined;
   return {
-    orderedIds:
-      (interaction?.metadata?.orderedIds as string[] | undefined) ?? [],
-    optionsById:
-      (interaction?.metadata?.optionsById as
-        | Record<string, string[]>
-        | undefined) ?? {},
+    orderedIds: meta?.orderedIds ?? [],
+    optionsById: meta?.optionsById ?? {},
   };
 }
 
