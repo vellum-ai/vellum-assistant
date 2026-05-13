@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
@@ -13,9 +13,11 @@ import type { WorkspaceMigration } from "./types.js";
  * the field would silently mix old and new length normalization until a
  * manual reembed.
  *
- * Skipped when `memory.v2.enabled` is explicitly `false`. Those workspaces
- * have no v2 concept pages to refresh, so the job would be a no-op (or
- * worse, confusing) once the v2 worker is disabled.
+ * Gated on whether the workspace already has concept pages on disk, not on
+ * `memory.v2.enabled`. A workspace that has v2 disabled today may still
+ * carry pages from a prior session; if v2 is re-enabled later, the queued
+ * job is what brings those pages onto the new default. Workspaces that
+ * have never written a v2 page have nothing to reembed.
  */
 export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
   id: "075-memory-v2-bm25-b-default-reembed",
@@ -23,7 +25,7 @@ export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
     "Enqueue memory_v2_reembed so existing concept pages pick up the new bm25_b=0.4 default",
 
   run(workspaceDir: string): void {
-    if (isMemoryV2Disabled(workspaceDir)) return;
+    if (!hasConceptPages(workspaceDir)) return;
 
     const dbPath = join(workspaceDir, "data", "db", "assistant.db");
     if (!existsSync(dbPath)) return; // Fresh install — pages will embed at the new default.
@@ -67,18 +69,27 @@ export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
 };
 
 /**
- * Returns true only when `memory.v2.enabled` is explicitly set to `false` in
- * the workspace `config.json`. Missing/unparseable config falls through to
- * the schema default (enabled), matching `MemoryV2ConfigSchema`.
+ * Returns true when `memory/concepts/` contains any `.md` file. Walks the
+ * tree iteratively so we bail on the first hit — pages can be nested in
+ * subdirectories (e.g. `memory/concepts/people/alice.md`).
  */
-function isMemoryV2Disabled(workspaceDir: string): boolean {
-  const configPath = join(workspaceDir, "config.json");
-  if (!existsSync(configPath)) return false;
-  try {
-    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-    const memory = (raw as { memory?: { v2?: { enabled?: unknown } } })?.memory;
-    return memory?.v2?.enabled === false;
-  } catch {
-    return false;
+function hasConceptPages(workspaceDir: string): boolean {
+  const stack = [join(workspaceDir, "memory", "concepts")];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        stack.push(join(dir, entry.name));
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        return true;
+      }
+    }
   }
+  return false;
 }
