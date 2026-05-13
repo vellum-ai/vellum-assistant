@@ -87,6 +87,10 @@ import {
 } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import {
+  startPluginSourceWatcher,
+  stopPluginSourceWatcher,
+} from "./plugin-source-watcher.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
 const log = getLogger("plugins-bootstrap");
@@ -474,6 +478,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
     // Still install the shutdown hook so a post-boot plugin install that
     // succeeds against an otherwise-empty registry has a teardown owner.
     installSharedShutdownHook(shutdownContext);
+    startPluginSourceWatcher(ctx);
     return;
   }
 
@@ -513,6 +518,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   }
 
   installSharedShutdownHook(shutdownContext);
+  startPluginSourceWatcher(ctx);
 }
 
 /**
@@ -545,6 +551,7 @@ function installSharedShutdownHook(
   //      successful registration must get a matching unregister call,
   //      regardless of whether onShutdown throws.
   registerShutdownHook("plugins", async (reason) => {
+    stopPluginSourceWatcher();
     for (let i = activePluginsForShutdown.length - 1; i >= 0; i--) {
       await teardownPlugin(
         activePluginsForShutdown[i]!,
@@ -714,6 +721,7 @@ export function resetBootstrapStateForTests(): void {
       undefined,
     );
   }
+  stopPluginSourceWatcher();
   activePluginsForShutdown.length = 0;
   shutdownContextRef = undefined;
   shutdownHookInstalled = false;

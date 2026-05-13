@@ -1105,12 +1105,3 @@ registerPolicy("oauth/managed-connect/poll", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],
 });
-
-// `assistant plugins install` fires this IPC call to live-load the plugin
-// into the running daemon (no restart). IPC-local + settings.write because
-// the handler mutates the in-memory plugin registry and runs init() side
-// effects.
-registerPolicy("plugins/register-installed", {
-  requiredScopes: ["settings.write"],
-  allowedPrincipalTypes: ["local"],
-});
