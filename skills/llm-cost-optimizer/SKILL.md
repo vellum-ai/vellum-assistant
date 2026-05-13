@@ -1,5 +1,5 @@
 ---
-name: "LLM Cost Optimizer"
+name: "llm-cost-optimizer"
 description: "Analyze and reduce LLM spend by mapping call-site overrides to managed profiles (Balanced / Quality / Speed). Covers spend analysis, profile assignment, and config correctness."
 metadata:
   vellum:
@@ -111,6 +111,8 @@ assistant config set llm.callSites.memoryExtraction.profile cost-optimized
 
 This covers **every known call site** — nothing falls back to default. Copy, paste, apply:
 
+> **Note:** The canonical call-site list lives in `assistant/src/config/schemas/call-site-catalog.ts`. If new call sites have been added since this skill was written, add them to the blob below (default to `cost-optimized` unless they involve reasoning or memory consolidation).
+
 ```bash
 assistant config set llm.callSites '{
   "mainAgent":                {"profile":"balanced"},
@@ -192,7 +194,9 @@ assistant inference session close
 If the user has a personal API key, wire it as a custom profile:
 
 ```bash
-assistant keys set anthropic sk-ant-...
+# Collect the key securely — never paste it in chat
+credential_store prompt --service anthropic --field api_key \
+  --label "Anthropic API Key" --placeholder "sk-ant-..."
 
 assistant inference providers connections create my-anthropic-key \
   --provider anthropic \
