@@ -39,21 +39,21 @@ export function createServer(options: ServerOptions = {}) {
     name: assistantName,
     url: `${publicBaseUrl}/a2a/jsonrpc`,
     description: `${assistantName} — A2A demo assistant with Vellum social extension`,
-    protocolVersion: '0.2.0',
+    protocolVersion: '0.3.0',
     version: '0.1.0',
     capabilities: {
       streaming: true,
     },
     skills: [
       {
-        id: 'coffee-order',
+        id: 'coffee_order',
         name: 'Coffee Order',
         description: 'Respond to coffee run requests',
         tags: ['coffee', 'social'],
       },
     ],
-    defaultInputModes: ['text/plain', 'application/json'],
-    defaultOutputModes: ['text/plain', 'application/json'],
+    defaultInputModes: ['text/plain'],
+    defaultOutputModes: ['text/plain'],
   };
 
   const peerConfig: PeerConfig = {

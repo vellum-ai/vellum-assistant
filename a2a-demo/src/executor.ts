@@ -63,7 +63,15 @@ export class VellumSocialExecutor implements AgentExecutor {
     }
   }
 
-  async cancelTask(_taskId: string, eventBus: ExecutionEventBus): Promise<void> {
+  async cancelTask(taskId: string, eventBus: ExecutionEventBus): Promise<void> {
+    const canceledStatus: TaskStatusUpdateEvent = {
+      kind: 'status-update',
+      taskId,
+      contextId: taskId,
+      status: { state: 'canceled' },
+      final: true,
+    };
+    eventBus.publish(canceledStatus);
     eventBus.finished();
   }
 
@@ -191,7 +199,7 @@ export class VellumSocialExecutor implements AgentExecutor {
     };
     eventBus.publish(workingStatus2);
 
-    await Bun.sleep(this.config.humanDelayMs);
+    await Bun.sleep(1000);
 
     const artifactEvent: TaskArtifactUpdateEvent = {
       kind: 'artifact-update',
