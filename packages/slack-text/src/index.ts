@@ -106,10 +106,14 @@ export async function buildSlackChannelLabelMap(
 
   for (const text of texts) {
     if (!text) continue;
-    for (const id of extractSlackChannelReferenceIds(text)) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      ids.push(id);
+    for (const match of text.matchAll(SLACK_CHANNEL_REFERENCE_RE)) {
+      const id = match[1];
+      const [, embeddedLabel] = splitSlackLabel(match[0].slice(1, -1));
+      if (embeddedLabel !== undefined) continue;
+      if (!seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
     }
   }
 
@@ -158,8 +162,19 @@ function renderChannelReference(
     options.channelFallbackLabel,
     "unknown-channel",
   );
-  const resolvedLabel = options.channelLabels?.[channelId] ?? label;
-  return `#${sanitizeLabel(resolvedLabel, fallback)}`;
+  const embeddedLabel = sanitizeOptionalLabel(label);
+  if (embeddedLabel && embeddedLabel !== channelId) {
+    return `#${embeddedLabel}`;
+  }
+
+  const resolvedLabel = sanitizeOptionalLabel(
+    options.channelLabels?.[channelId],
+  );
+  if (resolvedLabel && resolvedLabel !== channelId) {
+    return `#${resolvedLabel}`;
+  }
+
+  return `#${fallback}`;
 }
 
 function renderSpecialReference(content: string): string {

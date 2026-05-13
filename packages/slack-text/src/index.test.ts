@@ -62,12 +62,36 @@ describe("renderSlackTextForModel", () => {
     expect(renderSlackTextForModel("<#C789>")).toBe("#unknown-channel");
   });
 
-  test("prefers resolved channel labels over embedded Slack labels", () => {
+  test("prefers embedded Slack labels over resolved channel labels", () => {
     expect(
       renderSlackTextForModel("<#C123|old-name>", {
         channelLabels: { C123: "new-name" },
       }),
-    ).toBe("#new-name");
+    ).toBe("#old-name");
+  });
+
+  test("falls back to embedded channel labels when resolved labels are empty", () => {
+    expect(
+      renderSlackTextForModel("<#C123|general> <#C456|ops>", {
+        channelLabels: { C123: "", C456: "   " },
+      }),
+    ).toBe("#general #ops");
+  });
+
+  test("does not emit raw channel IDs from embedded or resolved labels", () => {
+    expect(
+      renderSlackTextForModel("<#C123|C123> <#C456|general>", {
+        channelLabels: { C456: "C456" },
+      }),
+    ).toBe("#unknown-channel #general");
+  });
+
+  test("uses resolved channel labels when embedded labels are missing or ID-shaped", () => {
+    expect(
+      renderSlackTextForModel("<#C123> <#C456|C456>", {
+        channelLabels: { C123: "general", C456: "ops" },
+      }),
+    ).toBe("#general #ops");
   });
 
   test("renders special broadcasts", () => {
@@ -156,10 +180,10 @@ describe("buildSlackUserLabelMap", () => {
 });
 
 describe("buildSlackChannelLabelMap", () => {
-  test("dedupes channel references and resolves them in parallel", async () => {
+  test("dedupes unlabeled channel references and resolves them in parallel", async () => {
     const resolved: string[] = [];
     const labels = await buildSlackChannelLabelMap(
-      ["<#C123> hi <#G999|private>", undefined, "<#C123> and <#D456>"],
+      ["<#C123> hi <#G999> <#G999>", undefined, "<#C123> and <#D456>"],
       async (channelId) => {
         resolved.push(channelId);
         if (channelId === "G999") return "private-team";
@@ -173,6 +197,20 @@ describe("buildSlackChannelLabelMap", () => {
       D456: "direct-chat",
       G999: "private-team",
     });
+  });
+
+  test("does not resolve channel references that already have embedded labels", async () => {
+    const resolved: string[] = [];
+    const labels = await buildSlackChannelLabelMap(
+      ["<#C123|general> <#C456> <#C789|C789>"],
+      async (channelId) => {
+        resolved.push(channelId);
+        return channelId === "C456" ? "support" : "resolved";
+      },
+    );
+
+    expect(resolved).toEqual(["C456"]);
+    expect(labels).toEqual({ C456: "support" });
   });
 
   test("omits unresolved labels and labels equal to the Slack channel ID", async () => {

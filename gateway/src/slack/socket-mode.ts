@@ -1396,6 +1396,7 @@ function isSlackConversationId(id: string): boolean {
 export interface SlackScopeCheckResult {
   filesReadMissing: boolean;
   missingHistoryScopes: string[];
+  missingConversationInfoScopes: string[];
 }
 
 /**
@@ -1411,6 +1412,9 @@ export interface SlackScopeCheckResult {
  *     the corresponding scope (see
  *     https://api.slack.com/methods/conversations.history), and the
  *     catch-up error handler treats that as zero messages.
+ *   - `*:read` (channels/im/groups/mpim) — required for
+ *     `conversations.info`, used to resolve Slack channel refs in inbound
+ *     message text.
  */
 export function inspectSlackScopes(
   scopesHeader: string,
@@ -1429,6 +1433,12 @@ export function inspectSlackScopes(
       "groups:history",
       "mpim:history",
     ].filter((scope) => !scopes.has(scope)),
+    missingConversationInfoScopes: [
+      "channels:read",
+      "im:read",
+      "groups:read",
+      "mpim:read",
+    ].filter((scope) => !scopes.has(scope)),
   };
 }
 
@@ -1440,8 +1450,11 @@ export function inspectSlackScopes(
  * `missing_scope`.
  */
 export function warnOnMissingSlackScopes(scopesHeader: string): void {
-  const { filesReadMissing, missingHistoryScopes } =
-    inspectSlackScopes(scopesHeader);
+  const {
+    filesReadMissing,
+    missingHistoryScopes,
+    missingConversationInfoScopes,
+  } = inspectSlackScopes(scopesHeader);
   if (filesReadMissing) {
     log.warn(
       "Slack bot token is missing the 'files:read' scope — file/image " +
@@ -1456,6 +1469,15 @@ export function warnOnMissingSlackScopes(scopesHeader: string): void {
         "reconnect catch-up will not recover messages from the affected " +
         "channel types. Add the missing scopes to your Slack app's Bot " +
         "Token Scopes and reinstall the app.",
+    );
+  }
+  if (missingConversationInfoScopes.length > 0) {
+    log.warn(
+      { missingConversationInfoScopes },
+      "Slack bot token is missing one or more *:read scopes — " +
+        "inbound channel references may render as #unknown-channel for the " +
+        "affected channel types. Add the missing scopes to your Slack app's " +
+        "Bot Token Scopes and reinstall the app.",
     );
   }
 }
