@@ -280,8 +280,9 @@ export function isSkillSlug(slug: string): boolean {
 
 /**
  * Snapshot of the in-process skill cache, sorted by skill id (ASCII order)
- * for determinism. Returns a freshly allocated array on each call so callers
- * cannot mutate the underlying cache.
+ * for determinism. Returns a freshly allocated array of frozen entry copies
+ * on each call, so callers cannot mutate the underlying cache — neither by
+ * reassigning the array nor by writing through entry fields.
  *
  * The cache is replaced atomically by `seedV2SkillEntries`, so a snapshot
  * may be stale once a subsequent seed run completes. Callers that need
@@ -289,9 +290,9 @@ export function isSkillSlug(slug: string): boolean {
  */
 export function listSkillEntries(): SkillEntry[] {
   if (!entries) return [];
-  return [...entries.values()].sort((a, b) =>
-    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
-  );
+  return [...entries.values()]
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((entry) => Object.freeze({ ...entry }));
 }
 
 /** @internal Test-only: clear the module-level cache. */

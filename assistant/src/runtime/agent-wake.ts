@@ -330,7 +330,7 @@ function classifyWakeDiskPressurePolicy(opts: WakeOptions): {
   const status = getDiskPressureStatus();
   const decision = classifyDiskPressureTurnPolicy(status, {
     conversationSource: opts.source,
-    callSite: "mainAgent",
+    callSite: opts.callSite ?? "mainAgent",
     isDirectWake: true,
     sourceChannel: opts.sourceChannel ?? opts.trustContext?.sourceChannel,
     sourceInterface: opts.sourceInterface,

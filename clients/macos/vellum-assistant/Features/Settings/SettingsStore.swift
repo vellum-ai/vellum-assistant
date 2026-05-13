@@ -3584,6 +3584,15 @@ public final class SettingsStore: ObservableObject {
             ])
             guard orderSuccess else {
                 log.error("Failed to patch llm.profileOrder after replacing llm.profiles.\(name, privacy: .public)")
+                // Server-side replace already succeeded and `profiles`
+                // includes the new entry, but the follow-up order patch
+                // failed. Without rebuilding `profileOrder`, a caller
+                // retry hits a stuck "already exists" collision and
+                // `reorderPublishedProfiles` silently drops the unlisted
+                // name on the next refresh.
+                let rebuiltOrder = profiles.map(\.name).sorted()
+                profileOrder = rebuiltOrder
+                reorderPublishedProfiles(to: rebuiltOrder)
                 return false
             }
         }

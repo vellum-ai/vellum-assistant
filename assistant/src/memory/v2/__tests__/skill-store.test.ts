@@ -521,4 +521,35 @@ describe("listSkillEntries", () => {
     expect(second).toHaveLength(1);
     expect(second[0].id).toBe("example-skill-a");
   });
+
+  test("mutating a returned entry does not corrupt the cache", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    const first = listSkillEntries();
+    expect(first).toHaveLength(1);
+    const originalContent = first[0].content;
+
+    // Frozen entries throw in strict mode (ESM tests are strict) when
+    // mutated; suppress so we can prove cache invariance even if a future
+    // refactor swaps freeze for a plain clone.
+    try {
+      (first[0] as { id: string }).id = "tampered";
+      (first[0] as { content: string }).content = "tampered";
+    } catch {
+      // expected under Object.freeze
+    }
+
+    const second = listSkillEntries();
+    expect(second[0].id).toBe("example-skill-a");
+    expect(second[0].content).toBe(originalContent);
+
+    // Lookup-by-id path also unaffected.
+    const viaLookup = getSkillCapability("example-skill-a");
+    expect(viaLookup?.content).toBe(originalContent);
+  });
 });

@@ -637,6 +637,8 @@ struct ACPSessionDetailView: View {
         // We piggy-back on `userMessageChunk` rather than introducing a new
         // wire-side update type so `buildRows` keeps a closed switch and the
         // entry coalesces naturally with any prior user-message run.
+        // The failure follow-up uses a distinct `.steerFailure` updateType
+        // so it renders as its own row instead of coalescing with this one.
         session.appendEvent(ACPSessionUpdateMessage(
             acpSessionId: session.state.acpSessionId,
             updateType: .userMessageChunk,
@@ -657,7 +659,7 @@ struct ACPSessionDetailView: View {
             if case .failure = result {
                 session.appendEvent(ACPSessionUpdateMessage(
                     acpSessionId: acpSessionId,
-                    updateType: .userMessageChunk,
+                    updateType: .steerFailure,
                     content: "→ steer failed — the session may have ended."
                 ))
             }
@@ -835,6 +837,15 @@ extension ACPSessionDetailView {
                 lastChunk = nil
                 let items = parsePlanItems(event.content ?? "")
                 rows.append(.plan(id: event.id.uuidString, items: items))
+            case .steerFailure:
+                // Reset `lastChunk` so the row neither coalesces with the
+                // preceding optimistic "→ steered: …" user-message chunk
+                // nor with any subsequent user chunk.
+                lastChunk = nil
+                rows.append(.userMessage(
+                    id: event.id.uuidString,
+                    content: event.content ?? ""
+                ))
             case .unknown:
                 // Tolerated by design — ACP allows unknown updateType
                 // values; rather than crashing or showing a placeholder we

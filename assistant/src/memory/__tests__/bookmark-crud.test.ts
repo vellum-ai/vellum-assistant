@@ -93,14 +93,8 @@ describe("bookmark-crud", () => {
       messageId: "msg-1",
     });
 
-    const first = createBookmark(db, {
-      messageId: "msg-1",
-      conversationId: "conv-1",
-    });
-    const second = createBookmark(db, {
-      messageId: "msg-1",
-      conversationId: "conv-1",
-    });
+    const first = createBookmark(db, { messageId: "msg-1" });
+    const second = createBookmark(db, { messageId: "msg-1" });
 
     expect(first.inserted).toBe(true);
     expect(second.inserted).toBe(false);
@@ -121,10 +115,7 @@ describe("bookmark-crud", () => {
       messageRole: "assistant",
     });
 
-    const result = createBookmark(db, {
-      messageId: "msg-summary",
-      conversationId: "conv-summary",
-    });
+    const result = createBookmark(db, { messageId: "msg-summary" });
 
     expect(result.inserted).toBe(true);
     const summary = result.bookmark;
@@ -183,14 +174,8 @@ describe("bookmark-crud", () => {
       conversationId: "conv-drop",
       messageId: "msg-drop",
     });
-    createBookmark(db, {
-      messageId: "msg-keep",
-      conversationId: "conv-keep",
-    });
-    createBookmark(db, {
-      messageId: "msg-drop",
-      conversationId: "conv-drop",
-    });
+    createBookmark(db, { messageId: "msg-keep" });
+    createBookmark(db, { messageId: "msg-drop" });
     expect(listBookmarks(db).length).toBe(2);
 
     // Deleting the parent conversation cascades through messages → bookmarks.
@@ -207,7 +192,7 @@ describe("bookmark-crud", () => {
       conversationId: "conv-d",
       messageId: "msg-d",
     });
-    createBookmark(db, { messageId: "msg-d", conversationId: "conv-d" });
+    createBookmark(db, { messageId: "msg-d" });
     expect(listBookmarks(db).length).toBe(1);
 
     expect(deleteBookmarkByMessageId(db, "msg-d")).toBe(true);
@@ -229,7 +214,6 @@ describe("bookmark-crud", () => {
 
     const { bookmark: summary } = createBookmark(db, {
       messageId: "msg-blocks",
-      conversationId: "conv-blocks",
     });
 
     // Without the decode step, this would render as the raw JSON literal
@@ -254,9 +238,27 @@ describe("bookmark-crud", () => {
 
     const { bookmark: summary } = createBookmark(db, {
       messageId: "msg-multi",
-      conversationId: "conv-multi",
     });
 
     expect(summary.messagePreview).toBe("first paragraph\nsecond paragraph");
+  });
+
+  test("createBookmark derives conversationId from the message row", () => {
+    const { db, raw } = setupDb();
+    seedConversationAndMessage(raw, {
+      conversationId: "conv-real",
+      messageId: "msg-x",
+    });
+
+    const { bookmark: summary } = createBookmark(db, { messageId: "msg-x" });
+    expect(summary.conversationId).toBe("conv-real");
+    expect(listBookmarks(db)[0]?.conversationId).toBe("conv-real");
+  });
+
+  test("createBookmark throws when the message id does not exist", () => {
+    const { db } = setupDb();
+    expect(() => createBookmark(db, { messageId: "ghost" })).toThrow(
+      /Message ghost not found/,
+    );
   });
 });

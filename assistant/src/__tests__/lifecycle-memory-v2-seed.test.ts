@@ -34,6 +34,9 @@ interface TestState {
   listPagesResult: string[];
   enqueueCalls: Array<{ type: string; payload: Record<string, unknown> }>;
   clearSentinelCallCount: number;
+  // BM25 corpus-stats rebuild + reseed mocks.
+  corpusStatsBuildCount: number;
+  corpusStatsThrows: Error | null;
 }
 
 const state: TestState = {
@@ -48,6 +51,8 @@ const state: TestState = {
   listPagesResult: [],
   enqueueCalls: [],
   clearSentinelCallCount: 0,
+  corpusStatsBuildCount: 0,
+  corpusStatsThrows: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -79,6 +84,13 @@ mock.module("../memory/v2/qdrant.js", () => ({
 mock.module("../memory/v2/page-store.js", () => ({
   hasConceptPages: async (): Promise<boolean> =>
     state.listPagesResult.length > 0,
+}));
+
+mock.module("../memory/v2/sparse-bm25.js", () => ({
+  rebuildConceptPageCorpusStats: async (): Promise<void> => {
+    state.corpusStatsBuildCount += 1;
+    if (state.corpusStatsThrows) throw state.corpusStatsThrows;
+  },
 }));
 
 mock.module("../memory/jobs-store.js", () => ({
@@ -113,8 +125,11 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-const { maybeSeedMemoryV2Skills, maybeRebuildMemoryV2Concepts } =
-  await import("../daemon/memory-v2-startup.js");
+const {
+  maybeSeedMemoryV2Skills,
+  maybeRebuildMemoryV2Concepts,
+  rebuildBm25CorpusStatsAndReseedSkills,
+} = await import("../daemon/memory-v2-startup.js");
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -159,6 +174,8 @@ function resetState(): void {
   state.listPagesResult = [];
   state.enqueueCalls = [];
   state.clearSentinelCallCount = 0;
+  state.corpusStatsBuildCount = 0;
+  state.corpusStatsThrows = null;
 }
 
 describe("maybeSeedMemoryV2Skills (daemon startup gate)", () => {
@@ -272,5 +289,68 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
     expect((lastWarn.obj as { err: Error }).err.message).toBe(
       "Qdrant unreachable",
     );
+  });
+});
+
+describe("rebuildBm25CorpusStatsAndReseedSkills", () => {
+  beforeEach(resetState);
+
+  test("builds corpus stats then re-seeds skills when v2 is enabled", async () => {
+    await rebuildBm25CorpusStatsAndReseedSkills(makeConfig(true));
+
+    expect(state.corpusStatsBuildCount).toBe(1);
+    expect(state.seedCallCount).toBe(1);
+    expect(state.warnCalls).toHaveLength(0);
+  });
+
+  test("builds corpus stats but skips skill reseed when v2 is disabled", async () => {
+    await rebuildBm25CorpusStatsAndReseedSkills(makeConfig(false));
+
+    expect(state.corpusStatsBuildCount).toBe(1);
+    expect(state.seedCallCount).toBe(0);
+    expect(state.warnCalls).toHaveLength(0);
+  });
+
+  test("skips the reseed and logs a warning when the corpus-stats build throws", async () => {
+    state.corpusStatsThrows = new Error("listPages failed");
+
+    // Must not throw — fire-and-forget startup must not block.
+    let thrown: unknown = null;
+    try {
+      await rebuildBm25CorpusStatsAndReseedSkills(makeConfig(true));
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeNull();
+
+    expect(state.corpusStatsBuildCount).toBe(1);
+    expect(state.seedCallCount).toBe(0);
+    const corpusWarn = state.warnCalls.find(
+      (w) =>
+        typeof w.msg === "string" &&
+        w.msg.includes("BM25 corpus-stats rebuild failed"),
+    );
+    expect(corpusWarn).toBeTruthy();
+  });
+
+  test("swallows skill-reseed rejections after a successful corpus-stats build", async () => {
+    state.seedShouldReject = new Error("reseed failed");
+
+    let thrown: unknown = null;
+    try {
+      await rebuildBm25CorpusStatsAndReseedSkills(makeConfig(true));
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeNull();
+
+    expect(state.corpusStatsBuildCount).toBe(1);
+    expect(state.seedCallCount).toBe(1);
+    const reseedWarn = state.warnCalls.find(
+      (w) =>
+        typeof w.msg === "string" &&
+        w.msg.includes("Failed to re-seed v2 skill entries"),
+    );
+    expect(reseedWarn).toBeTruthy();
   });
 });

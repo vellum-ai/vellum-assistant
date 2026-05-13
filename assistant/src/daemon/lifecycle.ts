@@ -116,6 +116,7 @@ import { installAssistantSymlink } from "./install-symlink.js";
 import {
   maybeRebuildMemoryV2Concepts,
   maybeSeedMemoryV2Skills,
+  rebuildBm25CorpusStatsAndReseedSkills,
 } from "./memory-v2-startup.js";
 import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
@@ -837,25 +838,13 @@ export async function runDaemon(): Promise<void> {
         }
 
         // Build the BM25 corpus stats (per-token document frequencies and
-        // average document length) used by the v2 sparse channel. Without
-        // this, document-side sparse embeddings fall back to legacy TF-only
-        // weighting via the chicken-and-egg guard in
-        // `embed-concept-page.ts`. Fire-and-forget for the same reason as
-        // PKB reconcile — the stats are an optional optimization, never a
-        // boot-blocking dependency.
-        void (async () => {
-          try {
-            const { rebuildConceptPageCorpusStats } =
-              await import("../memory/v2/sparse-bm25.js");
-            await rebuildConceptPageCorpusStats(getWorkspaceDir());
-            log.info("Memory v2 BM25 corpus stats built");
-          } catch (err) {
-            log.warn(
-              { err },
-              "BM25 corpus-stats rebuild failed — sparse channel will fall back to TF-only until next rebuild",
-            );
-          }
-        })();
+        // average document length) used by the v2 sparse channel, then
+        // re-seed v2 skill entries so any skill vectors written during the
+        // cold-start window with the legacy TF encoder get rewritten with
+        // stemmed BM25 vectors. Fire-and-forget for the same reason as PKB
+        // reconcile — the stats and skill reseed are optional optimizations,
+        // never boot-blocking dependencies.
+        void rebuildBm25CorpusStatsAndReseedSkills(config);
 
         // Validate every concept page's frontmatter against the strict
         // schema and emit a `warn` per offender. Surfaces schema drift
