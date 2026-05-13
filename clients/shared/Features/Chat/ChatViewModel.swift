@@ -827,7 +827,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     @ObservationIgnored var secretBlockedCurrentPage: String?
     /// Nonce sent with `conversation_create` and echoed back in `conversation_info`.
     /// Used to ensure this ChatViewModel only claims its own conversation.
-    @ObservationIgnored var bootstrapCorrelationId: String?
+    /// Observed (not `@ObservationIgnored`) so that the computed `isBootstrapping`
+    /// propagates changes to `observationStream` consumers — e.g. the voice-mode
+    /// bootstrap wait in `ConversationManager.prepareActiveConversationForVoiceMode`.
+    var bootstrapCorrelationId: String?
     /// Conversation type sent with `conversation_create` (e.g. "background" or "scheduled").
     /// Set by `createConversationIfNeeded(conversationType:)` and included in the
     /// message so the daemon can persist the correct conversation kind.
