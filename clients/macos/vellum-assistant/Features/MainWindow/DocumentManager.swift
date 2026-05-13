@@ -17,6 +17,7 @@ final class DocumentManager {
     var surfaceId: String?
     var conversationId: String?
     var isSaving: Bool = false
+    var isExportingPDF: Bool = false
     var lastSaveError: String?
 
     /// Current document content and metadata.
@@ -33,6 +34,9 @@ final class DocumentManager {
 
     /// Debounced auto-save task cancelled and rescheduled on every content update
     @ObservationIgnored private var autoSaveTask: Task<Void, Never>?
+
+    /// In-flight PDF export task, cancelled on document close
+    @ObservationIgnored private var pdfExportTask: Task<Void, Never>?
 
     /// Reference to daemon client for saving documents
     @ObservationIgnored weak var connectionManager: GatewayConnectionManager?
@@ -133,6 +137,8 @@ final class DocumentManager {
         save()
         autoSaveTask?.cancel()
         autoSaveTask = nil
+        pdfExportTask?.cancel()
+        pdfExportTask = nil
         hasActiveDocument = false
         surfaceId = nil
         conversationId = nil
@@ -142,6 +148,7 @@ final class DocumentManager {
         initialContent = ""
         pendingInitialContent = nil
         isSaving = false
+        isExportingPDF = false
         lastSaveError = nil
         log.info("Document closed")
     }
@@ -149,7 +156,7 @@ final class DocumentManager {
     func exportToFile() {
         let content = currentContent ?? ""
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = sanitizedFilename(from: title) + ".md"
+        panel.nameFieldStringValue = Self.sanitizedFilename(from: title) + ".md"
         panel.canCreateDirectories = true
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
@@ -166,8 +173,14 @@ final class DocumentManager {
         let contentToSave = currentContent ?? ""
         let wordCountToSave = wordCount
         let client = documentClient
-        Task {
-            // Await the save so the server has the latest content before rendering
+        isExportingPDF = true
+        pdfExportTask?.cancel()
+        pdfExportTask = Task { [weak self] in
+            defer {
+                if let self, self.surfaceId == surfaceId {
+                    self.isExportingPDF = false
+                }
+            }
             _ = await client.saveDocument(
                 surfaceId: surfaceId,
                 conversationId: conversationId,
@@ -175,13 +188,15 @@ final class DocumentManager {
                 content: contentToSave,
                 wordCount: wordCountToSave
             )
+            guard !Task.isCancelled else { return }
             guard let pdfData = await client.exportDocumentPDF(surfaceId: surfaceId) else {
                 log.error("PDF export failed: no data returned")
                 return
             }
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 let panel = NSSavePanel()
-                panel.nameFieldStringValue = sanitizedFilename(from: titleForFile) + ".pdf"
+                panel.nameFieldStringValue = Self.sanitizedFilename(from: titleForFile) + ".pdf"
                 panel.canCreateDirectories = true
                 panel.begin { response in
                     guard response == .OK, let url = panel.url else { return }
@@ -193,7 +208,7 @@ final class DocumentManager {
         }
     }
 
-    private func sanitizedFilename(from title: String) -> String {
+    private static func sanitizedFilename(from title: String) -> String {
         let replaced = title.replacingOccurrences(of: " ", with: "-")
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let sanitized = replaced.unicodeScalars.filter { allowed.contains($0) }

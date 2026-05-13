@@ -723,8 +723,12 @@ export function parseExtractionResponse(
 
     // Auto-create event trigger when event_date is set but LLM didn't include one,
     // or replace a malformed event trigger (event_date unset) with a valid one.
+    // Only auto-create for future events — past-dated memories (historical
+    // milestones, dated events that already happened) shouldn't generate
+    // ramp/follow-up reminders.
     if (
       node.eventDate != null &&
+      node.eventDate > now &&
       (!Array.isArray(raw.triggers) ||
         !raw.triggers.some((t) => t.type === "event" && t.event_date != null))
     ) {

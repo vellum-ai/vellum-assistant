@@ -90,13 +90,6 @@ export const defaultToolErrorPlugin: Plugin = {
   manifest: {
     name: "default-tool-error",
     version: "1.0.0",
-    requires: {
-      pluginRuntime: "v1",
-      toolErrorApi: "v1",
-    },
-    provides: {
-      toolError: "v1",
-    },
   },
   middleware: {
     toolError: defaultToolErrorMiddleware,

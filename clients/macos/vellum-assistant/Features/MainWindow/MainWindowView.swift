@@ -42,6 +42,11 @@ struct MainWindowView: View {
     /// invalidation policy — Observation still tracks property granularly.
     @Bindable var windowState: MainWindowState
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    /// Long-lived ``BookmarkStore`` shared across panels. UI consumers
+    /// (hover star, sidebar bookmarks list, settings tab) wire up in
+    /// PRs 9-12; the dependency is threaded here ahead of time so those
+    /// PRs only have to add the read sites.
+    var bookmarkStore: BookmarkStore
     var diskPressureStatusStore: DiskPressureStatusStore
     @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
@@ -122,7 +127,7 @@ struct MainWindowView: View {
     /// inside ``HomePageView``) so the selection survives any @ViewBuilder
     /// rebuild of the Home panel wrapper.
     @State var activeHomeDetailPanel: HomeDetailPanelKind? = nil
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, diskPressureStatusStore: DiskPressureStatusStore, documentManager: DocumentManager, acpSessionStore: ACPSessionStore, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, bookmarkStore: BookmarkStore, diskPressureStatusStore: DiskPressureStatusStore, documentManager: DocumentManager, acpSessionStore: ACPSessionStore, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
         self.conversationManager = conversationManager
         self.listStore = conversationManager.listStore
         self.appListManager = appListManager
@@ -137,6 +142,7 @@ struct MainWindowView: View {
         self.authManager = authManager
         self.windowState = windowState
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
+        self.bookmarkStore = bookmarkStore
         self.diskPressureStatusStore = diskPressureStatusStore
         self.documentManager = documentManager
         self.acpSessionStore = acpSessionStore
@@ -154,15 +160,26 @@ struct MainWindowView: View {
         // Eagerly construct the Home store so it's ready the moment the user
         // toggles the `home-tab` flag on — even if the panel is opened
         // without an app relaunch.
-        self._homeStore = State(initialValue: HomeStore(
+        let homeStoreInstance = HomeStore(
             client: DefaultHomeStateClient(),
             messageStream: eventStreamClient.subscribe()
-        ))
+        )
+        self._homeStore = State(initialValue: homeStoreInstance)
         // Same eager-construction rationale for the activity feed store
-        // — ready the instant the `home-feed` flag flips on.
+        // — ready the instant the `home-feed` flag flips on. The
+        // `onSSEUpdate` callback is what turns a `home_feed_updated`
+        // SSE event into the Home toolbar's unread dot — gated on the
+        // tab being off-surface so we don't badge while the user is
+        // already looking at the feed.
         self._feedStore = State(initialValue: HomeFeedStore(
             client: DefaultHomeFeedClient(),
-            messageStream: eventStreamClient.subscribe()
+            messageStream: eventStreamClient.subscribe(),
+            onSSEUpdate: { [weak homeStoreInstance] in
+                guard let homeStoreInstance else { return }
+                if !homeStoreInstance.isHomeTabVisible {
+                    homeStoreInstance.flagUnseenChanges()
+                }
+            }
         ))
         // Meet status panel subscribes to the same shared SSE stream.
         self._meetStatusViewModel = State(initialValue: MeetStatusViewModel(
@@ -279,9 +296,14 @@ struct MainWindowView: View {
             participantNames: names
         )
         guard !markdown.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(markdown, forType: .string)
+        VCopyButton.copyToPasteboard(markdown)
         windowState.showToast(message: "Conversation copied to clipboard", style: .success)
+    }
+
+    func copyActiveConversationIdToClipboard() {
+        guard let conversationId = conversationManager.activeConversation?.conversationId else { return }
+        VCopyButton.copyToPasteboard(conversationId)
+        windowState.showToast(message: "Conversation ID copied to clipboard", style: .success)
     }
 
     var conversationHeaderPresentation: ConversationHeaderPresentation {
@@ -629,6 +651,7 @@ struct MainWindowView: View {
                 sidebarExpandedWidth: sidebarExpandedWidth,
                 sidebarCollapsedWidth: sidebarCollapsedWidth,
                 onCopyConversation: { copyActiveConversationToClipboard() },
+                onCopyConversationId: { copyActiveConversationIdToClipboard() },
                 onRenameConversation: { startRenameActiveConversation() },
                 onOpenForkParent: { openForkParentConversation() }
             )
@@ -815,6 +838,7 @@ struct ConversationTitleOverlay: View {
     let sidebarCollapsedWidth: CGFloat
     let isSettingsOpen: Bool
     let onCopy: () -> Void
+    let onCopyConversationId: () -> Void
     let onForkConversation: () -> Void
     let onPin: () -> Void
     let onUnpin: () -> Void
@@ -837,6 +861,7 @@ struct ConversationTitleOverlay: View {
         ConversationTitleActionsControl(
             presentation: presentation,
             onCopy: onCopy,
+            onCopyConversationId: onCopyConversationId,
             onForkConversation: onForkConversation,
             onPin: onPin,
             onUnpin: onUnpin,

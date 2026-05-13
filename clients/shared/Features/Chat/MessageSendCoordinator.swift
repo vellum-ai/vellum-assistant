@@ -508,6 +508,13 @@ final class MessageSendCoordinator {
         if queuedMessageId == nil {
             messageManager.isThinking = true
         }
+        // Track real user-typed sends so `ConversationActivityStore` can gate
+        // the `task_complete` chime to turns the user actually initiated from
+        // this client. Automated/hidden sends (the daemon-driven `automated`
+        // flag) are excluded — they're programmatic, not interactive.
+        if !automated {
+            messageManager.pendingUserTurnCount += 1
+        }
 
         // Make sure we're listening
         if delegate.messageLoopTask == nil {
@@ -704,6 +711,7 @@ final class MessageSendCoordinator {
         delegate.requestIdToMessageId = [:]
         delegate.activeRequestIdToMessageId = [:]
         delegate.pendingLocalDeletions.removeAll()
+        messageManager.pendingUserTurnCount = 0
     }
 
     // MARK: - Offline Queue Flush

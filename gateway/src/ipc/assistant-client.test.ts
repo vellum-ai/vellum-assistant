@@ -14,7 +14,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { ipcCallAssistant, ipcSuggestTrustRule } from "./assistant-client.js";
+import {
+  IpcHandlerError,
+  IpcTransportError,
+  ipcCallAssistant,
+  ipcSuggestTrustRule,
+} from "./assistant-client.js";
 
 // ---------------------------------------------------------------------------
 // Test infrastructure
@@ -22,10 +27,16 @@ import { ipcCallAssistant, ipcSuggestTrustRule } from "./assistant-client.js";
 
 let server: Server | undefined;
 let origWorkspaceDir: string | undefined;
+let origAssistantIpcDir: string | undefined;
 
-// Save and restore VELLUM_WORKSPACE_DIR around each test.
+// Save and restore VELLUM_WORKSPACE_DIR + ASSISTANT_IPC_SOCKET_DIR around
+// each test. The sandbox sets ASSISTANT_IPC_SOCKET_DIR, which would
+// otherwise win over VELLUM_WORKSPACE_DIR in `resolveIpcSocketPath` and
+// route requests to the real daemon socket instead of our test server.
 beforeEach(() => {
   origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+  origAssistantIpcDir = process.env.ASSISTANT_IPC_SOCKET_DIR;
+  delete process.env.ASSISTANT_IPC_SOCKET_DIR;
   server = undefined;
 });
 
@@ -34,6 +45,12 @@ afterEach(async () => {
     process.env.VELLUM_WORKSPACE_DIR = origWorkspaceDir;
   } else {
     delete process.env.VELLUM_WORKSPACE_DIR;
+  }
+
+  if (origAssistantIpcDir !== undefined) {
+    process.env.ASSISTANT_IPC_SOCKET_DIR = origAssistantIpcDir;
+  } else {
+    delete process.env.ASSISTANT_IPC_SOCKET_DIR;
   }
 
   if (server) {
@@ -70,6 +87,19 @@ function sendResult(socket: Socket, id: string, result: unknown): void {
 /** Send an error NDJSON response over the socket. */
 function sendError(socket: Socket, id: string, error: string): void {
   socket.write(JSON.stringify({ id, error }) + "\n");
+}
+
+/** Send a handler-level error (with statusCode) over the socket. */
+function sendHandlerError(
+  socket: Socket,
+  id: string,
+  error: string,
+  statusCode: number,
+  errorCode: string,
+): void {
+  socket.write(
+    JSON.stringify({ id, error, statusCode, errorCode }) + "\n",
+  );
 }
 
 /**
@@ -131,14 +161,15 @@ describe("ipcCallAssistant", () => {
     expect(result).toEqual(expectedResult);
   });
 
-  test("returns undefined when the socket does not exist", async () => {
+  test("throws IpcTransportError when the socket does not exist", async () => {
     setupWorkspace();
     // No server started — socket file does not exist
-    const result = await ipcCallAssistant("test_method");
-    expect(result).toBeUndefined();
+    await expect(ipcCallAssistant("test_method")).rejects.toBeInstanceOf(
+      IpcTransportError,
+    );
   });
 
-  test("returns undefined when server returns an error field", async () => {
+  test("throws IpcTransportError when server returns an error without statusCode", async () => {
     const sockPath = setupWorkspace();
 
     await startServer(sockPath, (id, _method, _params, socket) => {
@@ -146,8 +177,29 @@ describe("ipcCallAssistant", () => {
       socket.end();
     });
 
-    const result = await ipcCallAssistant("failing_method");
-    expect(result).toBeUndefined();
+    await expect(ipcCallAssistant("failing_method")).rejects.toBeInstanceOf(
+      IpcTransportError,
+    );
+  });
+
+  test("throws IpcHandlerError when server returns error with statusCode", async () => {
+    const sockPath = setupWorkspace();
+
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendHandlerError(socket, id, "Not found", 404, "NOT_FOUND");
+      socket.end();
+    });
+
+    const promise = ipcCallAssistant("failing_method");
+    await expect(promise).rejects.toBeInstanceOf(IpcHandlerError);
+    try {
+      await promise;
+    } catch (err) {
+      const handlerErr = err as IpcHandlerError;
+      expect(handlerErr.message).toBe("Not found");
+      expect(handlerErr.statusCode).toBe(404);
+      expect(handlerErr.code).toBe("NOT_FOUND");
+    }
   });
 
   test("passes method and params to the server", async () => {
@@ -227,7 +279,7 @@ describe("ipcSuggestTrustRule", () => {
     expect(receivedMethod).toBe("suggest_trust_rule");
   });
 
-  test("throws when the assistant returns an error field", async () => {
+  test("propagates IpcTransportError when the assistant returns an error field", async () => {
     const sockPath = setupWorkspace();
 
     await startServer(sockPath, (id, _method, _params, socket) => {
@@ -235,8 +287,8 @@ describe("ipcSuggestTrustRule", () => {
       socket.end();
     });
 
-    await expect(ipcSuggestTrustRule(validRequest)).rejects.toThrow(
-      "ipcSuggestTrustRule: unexpected response shape",
+    await expect(ipcSuggestTrustRule(validRequest)).rejects.toBeInstanceOf(
+      IpcTransportError,
     );
   });
 
@@ -279,12 +331,12 @@ describe("ipcSuggestTrustRule", () => {
     );
   });
 
-  test("throws when the socket is unavailable (assistant not running)", async () => {
+  test("propagates IpcTransportError when the socket is unavailable", async () => {
     setupWorkspace();
-    // No server — socket does not exist, ipcCallAssistant returns undefined
+    // No server — socket does not exist, ipcCallAssistant throws IpcTransportError.
 
-    await expect(ipcSuggestTrustRule(validRequest)).rejects.toThrow(
-      "ipcSuggestTrustRule: unexpected response shape",
+    await expect(ipcSuggestTrustRule(validRequest)).rejects.toBeInstanceOf(
+      IpcTransportError,
     );
   });
 });

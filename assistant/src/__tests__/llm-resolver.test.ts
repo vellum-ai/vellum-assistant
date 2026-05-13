@@ -251,6 +251,7 @@ describe("resolveCallSiteConfig", () => {
       callSites: {
         mainAgent: { profile: "nonexistent" },
       },
+      profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
       pricingOverrides: [],
     };
     expect(() => resolveCallSiteConfig("mainAgent", llm)).toThrow(
@@ -383,6 +384,7 @@ describe("resolveCallSiteConfig", () => {
       profileOrder: [],
       callSites: {},
       activeProfile: "nonexistent",
+      profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
       pricingOverrides: [],
     };
     const resolved = resolveCallSiteConfig("mainAgent", llm);

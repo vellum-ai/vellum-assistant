@@ -8,6 +8,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // -- Types --------------------------------------------------------------------
@@ -25,9 +26,11 @@ interface TrustRule {
 // -- Registration -------------------------------------------------------------
 
 export function registerTrustCommand(program: Command): void {
-  const trust = program
-    .command("trust")
-    .description("View tool trust rules (allow-list patterns for tool use)");
+  registerCommand(program, {
+    name: "trust",
+    transport: "ipc",
+    description: "View tool trust rules (allow-list patterns for tool use)",
+    build: (trust) => {
 
   trust.addHelpText(
     "after",
@@ -139,4 +142,6 @@ Examples:
         );
       }
     });
+    },
+  });
 }

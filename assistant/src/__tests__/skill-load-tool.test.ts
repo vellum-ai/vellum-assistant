@@ -371,15 +371,13 @@ describe("skill_load tool", () => {
     expect(result.content).toContain("Skill: No Includes");
   });
 
-  test("bundled app-builder loads when frontend-design is unavailable", async () => {
+  test("bundled app-builder loads without includes", async () => {
     const result = await executeSkillLoad({ skill: "app-builder" });
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Skill: App Builder");
-    expect(result.content).toContain("Suggested Included Skills (not loaded):");
-    expect(result.content).toContain("frontend-design");
+    expect(result.content).toContain("Included Skills (immediate): none");
     expect(result.content).toContain('<loaded_skill id="app-builder"');
-    expect(result.content).not.toContain('<loaded_skill id="frontend-design"');
   });
 
   test("bundled phone-calls loads when setup includes are unavailable", async () => {

@@ -140,7 +140,7 @@ swift_with_retry() {
         # Common on hosted CI runners with rotated/partial caches.
         if [ "$_artifact_cleaned" -eq 0 ] && grep -q "already exists in file system" "$_stderr_log" 2>/dev/null; then
             echo "warning: stale SPM binary artifact detected, cleaning and retrying..."
-            sed -nE 's/.*: (\/[^[:space:]]+) already exists in file system.*/\1/p' "$_stderr_log" 2>/dev/null \
+            sed -nE 's/.*: (\/.+) already exists in file system.*/\1/p' "$_stderr_log" 2>/dev/null \
                 | sort -u \
                 | while IFS= read -r _stale_path; do
                     [ -n "$_stale_path" ] && rm -rf "$_stale_path"
@@ -324,19 +324,55 @@ keyUsage = critical, digitalSignature
 extendedKeyUsage = critical, codeSigning
 basicConstraints = critical, CA:false
 CERTEOF
-                if openssl req -x509 -newkey rsa:2048 \
+                # Run each step separately so we can surface the real error
+                # if one fails (instead of swallowing stderr from all three).
+                _cert_step=""
+                _cert_ok=true
+                if ! openssl req -x509 -newkey rsa:2048 \
                     -keyout "$_CERT_DIR/key.pem" -out "$_CERT_DIR/cert.pem" \
-                    -days 3650 -nodes -config "$_CERT_DIR/cert.conf" 2>/dev/null && \
-                   openssl pkcs12 -export -in "$_CERT_DIR/cert.pem" \
+                    -days 3650 -nodes -config "$_CERT_DIR/cert.conf" \
+                    2>"$_CERT_DIR/openssl-req.err"; then
+                    _cert_step="openssl req (cert generation)"
+                    _cert_ok=false
+                elif ! openssl pkcs12 -export -in "$_CERT_DIR/cert.pem" \
                     -inkey "$_CERT_DIR/key.pem" -out "$_CERT_DIR/cert.p12" \
-                    -passout pass: 2>/dev/null && \
-                   security import "$_CERT_DIR/cert.p12" \
+                    -passout pass: 2>"$_CERT_DIR/openssl-p12.err"; then
+                    _cert_step="openssl pkcs12 -export (p12 conversion)"
+                    _cert_ok=false
+                elif ! security import "$_CERT_DIR/cert.p12" \
                     -k ~/Library/Keychains/login.keychain-db \
-                    -T /usr/bin/codesign -P "" 2>/dev/null; then
+                    -T /usr/bin/codesign -P "" \
+                    2>"$_CERT_DIR/security-import.err"; then
+                    _cert_step="security import (keychain import)"
+                    _cert_ok=false
+                fi
+
+                if $_cert_ok; then
                     echo "Certificate '$_CERT_CN' created and imported into login keychain."
                     echo ""
                 else
                     echo "Warning: Failed to create self-signed certificate." >&2
+                    echo "  Failed at: $_cert_step" >&2
+                    case "$_cert_step" in
+                        openssl*req*)
+                            if [ -s "$_CERT_DIR/openssl-req.err" ]; then
+                                sed 's/^/    /' "$_CERT_DIR/openssl-req.err" >&2
+                            fi
+                            ;;
+                        openssl*pkcs12*)
+                            if [ -s "$_CERT_DIR/openssl-p12.err" ]; then
+                                sed 's/^/    /' "$_CERT_DIR/openssl-p12.err" >&2
+                            fi
+                            ;;
+                        security*import*)
+                            if [ -s "$_CERT_DIR/security-import.err" ]; then
+                                sed 's/^/    /' "$_CERT_DIR/security-import.err" >&2
+                            fi
+                            echo "" >&2
+                            echo "  Common cause: login keychain is locked. Try:" >&2
+                            echo "    security unlock-keychain ~/Library/Keychains/login.keychain-db" >&2
+                            ;;
+                    esac
                     echo "         You may need to create one manually or install an Apple Development cert." >&2
                     echo ""
                 fi
@@ -958,6 +994,24 @@ for stale in "$SCRIPT_DIR/dist"/*.app; do
     [ "$stale" = "$APP_DIR" ] && continue
     stale_id=$(plutil -extract CFBundleIdentifier raw "$stale/Contents/Info.plist" 2>/dev/null || true)
     if [ "$stale_id" = "$BUNDLE_ID" ]; then
+        # Kill processes from this bundle before removing it — the `run`
+        # kill pass below matches by reading each PID's Info.plist, so
+        # deleting first would orphan a running sibling and leave a
+        # duplicate Dock entry.
+        stale_pids=""
+        while IFS= read -r line; do
+            read -r pid exe_path <<< "$line"
+            [ -n "$pid" ] || continue
+            case "$exe_path" in
+                "$stale"/Contents/MacOS/*) stale_pids+="$pid " ;;
+            esac
+        done < <(ps -ax -o pid=,comm=)
+        if [ -n "$stale_pids" ]; then
+            echo "Stopping process(es) inside stale bundle $stale: $stale_pids"
+            echo "$stale_pids" | xargs kill 2>/dev/null || true
+            sleep 0.3
+            echo "$stale_pids" | xargs kill -9 2>/dev/null || true
+        fi
         echo "Removing stale bundle with matching ID: $stale"
         rm -rf "$stale"
     fi
@@ -1433,10 +1487,11 @@ TTS_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/tts-provider-catalog.json"
 if [ -f "$TTS_PROVIDER_CATALOG" ]; then
     cp "$TTS_PROVIDER_CATALOG" "$RESOURCES_DIR/tts-provider-catalog.json"
 fi
-LLM_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/llm-provider-catalog.json"
-if [ -f "$LLM_PROVIDER_CATALOG" ]; then
-    cp "$LLM_PROVIDER_CATALOG" "$RESOURCES_DIR/llm-provider-catalog.json"
-fi
+# NOTE: llm-provider-catalog.json is bundled into the
+# VellumAssistantShared SPM resource bundle (see clients/Package.swift)
+# and loaded via Bundle.vellumShared at runtime; no main-bundle copy
+# needed. tts-provider-catalog.json still copies here because
+# TTSProviderRegistry continues to use Bundle.main.
 # Bundle Dockerfiles into Contents/Resources/dockerfiles/ for debug builds
 # so that the CLI's findRepoRoot() can locate them when running from a
 # packaged DMG.  This enables `vellum hatch --remote docker` to work

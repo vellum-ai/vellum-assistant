@@ -638,44 +638,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Compute migration ceilings
-        id: migration-ceilings
-        run: |
-          DB_VERSION=$(node -e "
-            const fs = require('fs');
-            const content = fs.readFileSync('assistant/src/memory/migrations/registry.ts', 'utf-8');
-            const versions = [...content.matchAll(/version:\s*(\d+)/g)].map(m => parseInt(m[1]));
-            console.log(Math.max(...versions));
-          ")
-          echo "db_version=$DB_VERSION" >> "$GITHUB_OUTPUT"
-
-          WS_ID=$(node -e "
-            const fs = require('fs');
-            const path = require('path');
-            const registry = fs.readFileSync('assistant/src/workspace/migrations/registry.ts', 'utf-8');
-            const importMap = {};
-            for (const m of registry.matchAll(/import\s+\{\s*(\w+)\s*\}\s+from\s+['\x22]\.\/([^'\x22]+)['\x22];/g)) {
-              importMap[m[1]] = m[2];
-            }
-            const arrayMatch = registry.match(/WORKSPACE_MIGRATIONS[^=]*=\s*\[([\s\S]*?)\]/);
-            const entries = arrayMatch[1].match(/\w+/g);
-            const lastVar = entries[entries.length - 1];
-            const relPath = importMap[lastVar];
-            const filePath = path.join('assistant/src/workspace/migrations', relPath.replace(/\.js$/, '.ts'));
-            const src = fs.readFileSync(filePath, 'utf-8');
-            let id;
-            const litMatch = src.match(/^\s*id:\s*['\x22]([^'\x22]+)['\x22]/m);
-            if (litMatch) {
-              id = litMatch[1];
-            } else {
-              const refMatch = src.match(/^\s*id:\s*(\w+)/m);
-              const constLine = src.split('\n').find(l => l.includes('const ' + refMatch[1] + ' ='));
-              id = constLine.match(/['\x22]([^'\x22]+)['\x22]/)[1];
-            }
-            console.log(id);
-          ")
-          echo "ws_id=$WS_ID" >> "$GITHUB_OUTPUT"
-          echo "Migration ceilings: db=$DB_VERSION, workspace=$WS_ID"
 
       - name: Download manifest digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -702,8 +664,6 @@ jobs:
             --arg version "$VERSION" \
             --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --argjson is_stable true \
-            --argjson db_migration_version "${{ steps.migration-ceilings.outputs.db_version }}" \
-            --arg last_workspace_migration_id "${{ steps.migration-ceilings.outputs.ws_id }}" \
             --arg assistant_repo "$ASSISTANT_REPO" \
             --arg assistant_tag "${VERSION}" \
             --arg assistant_sha "$SHA" \
@@ -720,8 +680,6 @@ jobs:
               version: $version,
               released_at: $released_at,
               is_stable: $is_stable,
-              db_migration_version: $db_migration_version,
-              last_workspace_migration_id: $last_workspace_migration_id,
               assistant_image: {
                 repository: $assistant_repo,
                 tag: $assistant_tag,

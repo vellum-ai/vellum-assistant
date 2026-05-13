@@ -163,14 +163,7 @@ struct MessageInspectorView: View {
     }
 
     private var emptyStateSubtitle: String {
-        switch viewState.conversationKind {
-        case .backgroundMemoryConsolidation:
-            return "Per-call LLM context isn't currently captured for memory consolidation runs."
-        case .background, .scheduled:
-            return "Per-call LLM context isn't currently captured for this conversation type."
-        case .user, nil:
-            return "This message does not have any recorded LLM context to inspect."
-        }
+        "This message does not have any recorded LLM context to inspect."
     }
 
     private var failedState: some View {
@@ -713,13 +706,6 @@ struct MessageInspectorViewState {
                || !orderedLogs.contains(where: { $0.id == selectedLogID }) {
                 selectedLogID = orderedLogs.last?.id
             }
-        case .empty:
-            logs = []
-            memoryRecall = nil
-            memoryV2Activation = nil
-            conversationKind = nil
-            loadState = .empty
-            selectedLogID = nil
         case .failed:
             logs = []
             memoryRecall = nil

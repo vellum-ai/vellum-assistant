@@ -76,6 +76,7 @@ const defaultLlmConfig: LLMConfig = {
   profiles: {},
   profileOrder: [],
   callSites: {},
+  profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
   pricingOverrides: [],
 };
 
@@ -86,6 +87,7 @@ mock.module("../config/loader.js", () => ({
     llm: mockLlmConfig,
     rateLimit: { maxRequestsPerMinute: 0 },
     workspaceGit: { turnCommitMaxWaitMs: 10 },
+    memory: { retrieval: { scratchpadInjection: { enabled: true } } },
     ui: {},
   }),
   loadRawConfig: () => ({}),

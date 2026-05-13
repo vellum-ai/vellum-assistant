@@ -41,29 +41,31 @@ final class CallSiteOverridesSheetTests: XCTestCase {
     }
 
     /// Returns the most recent `llm.callSites.<id>` SET payload (a
-    /// dictionary entry) written to the mock client. Walks the patch
-    /// history newest-first and skips clear-PATCHes (which encode the
-    /// entry as `NSNull`).
-    private func lastEntryPatch(for id: String) -> [String: Any]? {
-        for payload in mockSettingsClient.patchConfigCalls.reversed() {
+    /// dictionary entry) written to the mock client, paired with its
+    /// index in the patch history. Walks the patch history newest-first
+    /// and skips clear-PATCHes (which encode the entry as `NSNull`).
+    private func lastEntryPatch(for id: String) -> (index: Int, entry: [String: Any])? {
+        for (index, payload) in mockSettingsClient.patchConfigCalls.enumerated().reversed() {
             guard let llm = payload["llm"] as? [String: Any],
                   let sites = llm["callSites"] as? [String: Any],
                   let entry = sites[id] as? [String: Any] else { continue }
-            return entry
+            return (index, entry)
         }
         return nil
     }
 
-    /// Returns true if any patch in history nulled `llm.callSites.<id>`
-    /// at the entry level. `replaceCallSiteOverride` emits a clear-PATCH
-    /// (`[id: NSNull()]`) first, then a set-PATCH with the new fields.
-    private func didClearEntry(for id: String) -> Bool {
-        for payload in mockSettingsClient.patchConfigCalls {
+    /// Returns the index of the first patch that nulled
+    /// `llm.callSites.<id>` at the entry level, or nil if no such patch
+    /// exists. `replaceCallSiteOverride` must emit this clear-PATCH
+    /// (`[id: NSNull()]`) before the set-PATCH; callers assert the
+    /// returned index precedes the set-PATCH index.
+    private func entryClearIndex(for id: String) -> Int? {
+        for (index, payload) in mockSettingsClient.patchConfigCalls.enumerated() {
             guard let llm = payload["llm"] as? [String: Any],
                   let sites = llm["callSites"] as? [String: Any] else { continue }
-            if sites[id] is NSNull { return true }
+            if sites[id] is NSNull { return index }
         }
-        return false
+        return nil
     }
 
     // MARK: - Profile picker value derivation
@@ -199,20 +201,30 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         // Assert: an entry-level clear-PATCH preceded the SET-PATCH, so any
         // stale fragment leaves on the daemon are deleted. The SET-PATCH
         // then contains only `{ profile }` — no NSNull leaves are needed
-        // because the entry was already wiped.
-        XCTAssertTrue(
-            didClearEntry(for: "memoryRetrieval"),
-            "replaceCallSiteOverride must first NSNull-clear the entry"
+        // because the entry was already wiped. Order matters: a regression
+        // that emits SET before CLEAR would leave the daemon in a cleared
+        // state, so we assert the relative indices, not just presence.
+        guard let clearIndex = entryClearIndex(for: "memoryRetrieval") else {
+            XCTFail("replaceCallSiteOverride must first NSNull-clear the entry")
+            return
+        }
+        guard let setPatch = lastEntryPatch(for: "memoryRetrieval") else {
+            XCTFail("replaceCallSiteOverride must emit a SET-PATCH after the clear")
+            return
+        }
+        XCTAssertLessThan(
+            clearIndex, setPatch.index,
+            "Entry-level clear-PATCH must precede the SET-PATCH"
         )
-        let entry = lastEntryPatch(for: "memoryRetrieval")
-        XCTAssertEqual(entry?["profile"] as? String, "balanced")
+        let entry = setPatch.entry
+        XCTAssertEqual(entry["profile"] as? String, "balanced")
         // SET-PATCH carries only `profile`; the entry-level clear deletes
         // all legacy fragment fields, so no NSNull leaves are needed here.
-        XCTAssertNil(entry?["provider"])
-        XCTAssertNil(entry?["model"])
-        XCTAssertNil(entry?["maxTokens"])
-        XCTAssertNil(entry?["effort"])
-        XCTAssertNil(entry?["thinking"])
+        XCTAssertNil(entry["provider"])
+        XCTAssertNil(entry["model"])
+        XCTAssertNil(entry["maxTokens"])
+        XCTAssertNil(entry["effort"])
+        XCTAssertNil(entry["thinking"])
 
         // Local cache reflects the new profile-only override.
         let cached = store.callSiteOverrides.first(where: { $0.id == "memoryRetrieval" })
@@ -242,10 +254,132 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         )
         waitForPatchCount(2)
 
-        XCTAssertTrue(didClearEntry(for: "mainAgent"))
-        let entry = lastEntryPatch(for: "mainAgent")
-        XCTAssertEqual(entry?["profile"] as? String, "balanced")
-        XCTAssertNil(entry?["provider"])
-        XCTAssertNil(entry?["model"])
+        guard let clearIndex = entryClearIndex(for: "mainAgent") else {
+            XCTFail("replaceCallSiteOverride must first NSNull-clear the entry")
+            return
+        }
+        guard let setPatch = lastEntryPatch(for: "mainAgent") else {
+            XCTFail("replaceCallSiteOverride must emit a SET-PATCH after the clear")
+            return
+        }
+        XCTAssertLessThan(
+            clearIndex, setPatch.index,
+            "Entry-level clear-PATCH must precede the SET-PATCH"
+        )
+        XCTAssertEqual(setPatch.entry["profile"] as? String, "balanced")
+        XCTAssertNil(setPatch.entry["provider"])
+        XCTAssertNil(setPatch.entry["model"])
+    }
+
+    // MARK: - visibleProfilesForPicker
+
+    /// Active profiles (no `status` set) must always appear in the picker.
+    func testVisibleProfilesIncludesActiveProfiles() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "quality"),
+        ]
+        let visible = CallSiteOverrideRow.visibleProfilesForPicker(profiles)
+        XCTAssertEqual(visible.map(\.name), ["balanced", "quality"])
+    }
+
+    /// Disabled profiles must be hidden when they're not the current selection.
+    /// Mirrors web's `visibleProfilesForPicker(orderedProfiles, [selectedProfile])`
+    /// in `CallSiteOverridesModal.tsx`.
+    func testVisibleProfilesHidesDisabledProfilesNotSelected() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "legacy-quality", status: "disabled"),
+            InferenceProfile(name: "fast"),
+        ]
+        let visible = CallSiteOverrideRow.visibleProfilesForPicker(profiles)
+        XCTAssertEqual(
+            visible.map(\.name),
+            ["balanced", "fast"],
+            "Disabled profiles must not appear in the picker as fresh options"
+        )
+    }
+
+    /// A row already pointing at a disabled profile must keep it in the picker
+    /// — otherwise the dropdown would silently render a different value than
+    /// the row actually references.
+    func testVisibleProfilesKeepsSelectedDisabledProfile() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "legacy-quality", status: "disabled"),
+            InferenceProfile(name: "fast"),
+        ]
+        let visible = CallSiteOverrideRow.visibleProfilesForPicker(
+            profiles,
+            keepSelected: ["legacy-quality"]
+        )
+        XCTAssertEqual(
+            visible.map(\.name),
+            ["balanced", "legacy-quality", "fast"],
+            "The currently-selected profile must be retained even when disabled"
+        )
+    }
+
+    /// `keepSelected` entries that are empty strings or the Custom sentinel
+    /// must not accidentally retain a disabled profile — those values never
+    /// match a real profile name, so all disabled profiles still drop out.
+    func testVisibleProfilesIgnoresEmptyAndSentinelSelections() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "legacy-quality", status: "disabled"),
+        ]
+        let emptySel = CallSiteOverrideRow.visibleProfilesForPicker(
+            profiles,
+            keepSelected: [""]
+        )
+        XCTAssertEqual(emptySel.map(\.name), ["balanced"])
+
+        let sentinelSel = CallSiteOverrideRow.visibleProfilesForPicker(
+            profiles,
+            keepSelected: [CallSiteOverrideRow.customSentinel]
+        )
+        XCTAssertEqual(sentinelSel.map(\.name), ["balanced"])
+    }
+
+    // MARK: - Toggle-on profile seeding
+
+    /// When the user toggles a call-site override ON, the row must seed the
+    /// draft from the same filtered list the picker shows — not from
+    /// `profiles.first` which can be disabled. Codex P1 / Devin finding on
+    /// PR #30349.
+    func testToggleOnSkipsDisabledProfileWhenActivesExist() {
+        // Disabled profile sorts first; an active profile follows.
+        let profiles = [
+            InferenceProfile(name: "legacy", status: "disabled"),
+            InferenceProfile(name: "balanced"),
+        ]
+
+        let candidates = CallSiteOverrideRow.visibleProfilesForPicker(profiles)
+        XCTAssertEqual(
+            candidates.first?.name,
+            "balanced",
+            "toggle-on must skip disabled profiles even when they sort first"
+        )
+    }
+
+    /// When every profile is disabled the picker yields nothing, so the
+    /// toggle-on path falls back to `profiles.first` rather than silently
+    /// dropping into a custom fragment the user never asked for.
+    func testToggleOnFallsBackToFirstWhenAllProfilesDisabled() {
+        let allDisabled = [
+            InferenceProfile(name: "legacy", status: "disabled"),
+            InferenceProfile(name: "old", status: "disabled"),
+        ]
+
+        let candidates = CallSiteOverrideRow.visibleProfilesForPicker(allDisabled)
+        XCTAssertTrue(
+            candidates.isEmpty,
+            "all-disabled pool must yield empty picker candidates"
+        )
+        XCTAssertEqual(
+            allDisabled.first?.name,
+            "legacy",
+            "fallback path requires profiles.first to be non-nil"
+        )
     }
 }

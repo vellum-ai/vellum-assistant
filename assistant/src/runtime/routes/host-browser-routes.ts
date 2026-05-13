@@ -10,7 +10,6 @@ import {
   markTargetInvalidated,
   publishCdpEvent,
 } from "../../browser-session/events.js";
-import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -26,9 +25,7 @@ import {
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
- * Result of attempting to resolve a host browser result frame. Used by both
- * the HTTP endpoint and the WS relay path so they share the same validation
- * and resolution semantics.
+ * Result of attempting to resolve a host browser result frame.
  *
  * Success → the pending interaction was consumed and the conversation was
  * notified.
@@ -57,13 +54,6 @@ export type HostBrowserResultResolution =
  * submitting actor's principal must match the actor captured for that
  * client at registration time. Mirrors the host-cu / host-bash result
  * routes.
- *
- * NOTE: The WebSocket `host_browser_result` frame path does NOT go
- * through this function — it is handled by `HostBrowserProxy.resolveResult`
- * directly, which only consults `pendingInteractions` and does not
- * currently perform a kind check. That asymmetry is pre-existing; if
- * the WS path is ever opened to less-trusted clients, it should adopt
- * the same kind-check + actor-binding guards added here.
  *
  * This function does NOT perform auth — callers are expected to have
  * already authenticated the caller (the HTTP route uses
@@ -159,8 +149,8 @@ export function resolveHostBrowserResultByRequestId(
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
 
-  const proxy = HostBrowserProxy.instance;
-  proxy.resolveResult(requestId, {
+  const interaction = pendingInteractions.resolve(requestId);
+  interaction?.rpcResolve?.({
     content: normalizedContent,
     isError: normalizedIsError,
   });

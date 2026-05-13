@@ -7,19 +7,20 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
+import { LLMSchema } from "../config/schemas/llm.js";
 import {
   getProvider,
   initializeProviders,
   listProviders,
 } from "../providers/registry.js";
 
+const baseLlm = LLMSchema.parse({});
+
 describe("provider registry (ollama)", () => {
   test("registers ollama when selected provider has no API key", async () => {
     await initializeProviders({
       services: {
-        inference: {
-          mode: "your-own",
-        },
+        inference: {},
         "image-generation": {
           mode: "your-own",
           provider: "gemini",
@@ -30,7 +31,14 @@ describe("provider registry (ollama)", () => {
           provider: "inference-provider-native",
         },
       },
-      llm: { default: { provider: "ollama", model: "claude-opus-4-6" } },
+      llm: {
+        ...baseLlm,
+        default: {
+          ...baseLlm.default,
+          provider: "ollama" as const,
+          model: "claude-opus-4-6",
+        },
+      },
     });
 
     const provider = getProvider("ollama");

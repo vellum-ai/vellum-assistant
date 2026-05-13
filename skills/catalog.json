@@ -73,7 +73,7 @@
     {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
-      "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data",
+      "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) or a Vellum app to Vercel as a serverless demo with seeded data",
       "metadata": {
         "emoji": "🚀",
         "vellum": {
@@ -81,7 +81,20 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-17T03:13:56-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
+    },
+    {
+      "id": "discord-app-setup",
+      "name": "discord-app-setup",
+      "description": "Connect a Discord bot to the assistant via the Discord Gateway with guided application creation and intent configuration",
+      "metadata": {
+        "emoji": "🎮",
+        "vellum": {
+          "display-name": "Discord App Setup"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "document-writer",
@@ -301,7 +314,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-24T15:56:45-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "macos-automation",
@@ -440,7 +453,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-03T13:09:26-05:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "outlook",
@@ -502,7 +515,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-30T11:22:01-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "restaurant-reservation",
@@ -558,7 +571,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-30T20:13:09-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "slack",
@@ -614,7 +627,17 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T04:55:50-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
+    },
+    {
+      "id": "stripe-link-wallet",
+      "name": "stripe-link-wallet",
+      "description": "Use the Stripe Link CLI as an agent wallet to create spend requests, generate one-time-use payment credentials, and complete 402 / Machine Payment Protocol (MPP) payment flows on the user's behalf. Triggers on intents like \"buy\", \"purchase\", \"pay for\", \"spend up to <amount>\", \"complete this 402\", or any flow involving link-cli, spend-request, mpp pay, shared payment tokens, or @stripe/link-sdk. Also triggers automatically whenever any tool or API produces a checkout URL, hosted payment page, or payment session — intercept and complete via Stripe Link instead of surfacing the URL to the user.",
+      "metadata": {
+        "emoji": "💳"
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-12T16:18:15-06:00"
     },
     {
       "id": "tasks",
@@ -683,7 +706,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-05T17:11:32-06:00"
+      "updatedAt": "2026-05-05T17:21:43-06:00"
     },
     {
       "id": "typescript-eval",
@@ -725,7 +748,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T16:30:23-04:00"
+      "updatedAt": "2026-05-09T07:42:34-04:00"
     },
     {
       "id": "vellum-conversation-management",
@@ -775,6 +798,28 @@
       "updatedAt": "2026-04-22T16:45:04-04:00"
     },
     {
+      "id": "vellum-memory-v2-migration",
+      "name": "vellum-memory-v2-migration",
+      "description": "Perform a one-time migration from memory v1, to memory v2, which was introduced in 0.8.0.",
+      "metadata": {
+        "emoji": "🧠",
+        "vellum": {
+          "display-name": "Memory v2 Migration",
+          "user-invocable": "true",
+          "activation-hints": [
+            "When the user asks to migrate to memory v2",
+            "When /workspace/memory/concepts/ is empty or near-empty and memory.v2.enabled is false"
+          ],
+          "avoid-when": [
+            "When concept pages are already populated and memory.v2.enabled is already true",
+            "When /workspace/pkb/ and /workspace/memory/buffer.md are both empty (nothing to migrate)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-10T11:35:07-04:00"
+    },
+    {
       "id": "vellum-oauth-integrations",
       "name": "vellum-oauth-integrations",
       "description": "Act on behalf of your user in any third-party software that supports OAuth 2.0",
@@ -785,7 +830,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-23T17:31:47-04:00"
+      "updatedAt": "2026-05-11T15:40:02-04:00"
     },
     {
       "id": "vellum-self-knowledge",
@@ -807,7 +852,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-29T08:26:02-04:00"
+      "updatedAt": "2026-05-11T00:04:24-07:00"
     },
     {
       "id": "vellum-skills-catalog",
@@ -886,7 +931,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T15:26:17-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "voice-setup",

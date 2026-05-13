@@ -101,6 +101,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var contactPromptManager: ContactPromptManager { services.contactPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
     var featureFlagStore: AssistantFeatureFlagStore { services.featureFlagStore }
+    var bookmarkStore: BookmarkStore { services.bookmarkStore }
     var diskPressureStatusStore: DiskPressureStatusStore { services.diskPressureStatusStore }
 
     let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
@@ -503,11 +504,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // persisted value so it doesn't linger in UserDefaults.
         UserDefaults.standard.removeObject(forKey: "conversationTextZoomLevel")
 
-        // Migrate API keys from plaintext UserDefaults to credential storage
-        // (file-based credential storage). Safe to call on every
-        // launch — skips providers already present in credential storage.
-        APIKeyManager.migrateFromUserDefaults()
-
         if let envPath = MacOSClientFeatureFlagManager.findRepoEnvFile() {
             MacOSClientFeatureFlagManager.shared.loadFromFile(at: envPath)
         }
@@ -732,12 +728,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     if authManager.isAuthenticated && (!isCurrentAssistantRemote || isCurrentAssistantDocker) {
                         await awaitLocalBootstrapCompleted(timeout: 30)
                     }
-
-                    // Push locally-stored LLM provider keys (e.g. Anthropic) to the
-                    // assistant so it can fulfil the first message. Without this the
-                    // wake-up greeting races with the detached key sync from onboarding
-                    // and may hit "No providers available".
-                    await self.syncApiKeysViaGateway()
 
                     // Assistant connected within timeout — proceed directly
                     // to mandatory wake-up send with retries.

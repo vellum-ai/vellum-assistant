@@ -53,6 +53,7 @@ let package = Package(
                 .copy("Resources/IntegrationLogos"),
                 .copy("Resources/INTEGRATION-LOGOS-LICENSE"),
                 .copy("Resources/integration-logos-manifest.json"),
+                .copy("Resources/llm-provider-catalog.json"),
             ],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),

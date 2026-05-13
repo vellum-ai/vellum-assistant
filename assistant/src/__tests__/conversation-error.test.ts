@@ -305,6 +305,44 @@ describe("classifyConversationError", () => {
     });
   });
 
+  describe("image-input dimension errors via ProviderError (400)", () => {
+    it("classifies Anthropic 400 with image-dimension overflow as image_dimensions_too_large (non-retryable)", () => {
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.8.content.3.image.source.base64.data: At least one of the image dimensions exceed max allowed size: 8000 pixels"},"request_id":"req_011CaoaGzPXNs2dxAWegSg9D"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
+      expect(result.errorCategory).toBe("image_dimensions_too_large");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("image");
+      expect(result.userMessage).toContain("8000");
+    });
+
+    it("matches the singular 'image dimension exceeds' phrasing as well", () => {
+      const err = new ProviderError(
+        "image dimension exceeds max allowed size: 8000 pixels",
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.errorCategory).toBe("image_dimensions_too_large");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("does not steal generic 400s that happen to mention 'image'", () => {
+      const err = new ProviderError(
+        "invalid request: image source is missing",
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.errorCategory).toBe("provider_api_error");
+      expect(result.retryable).toBe(true);
+    });
+  });
+
   describe("ordering errors (tool_use/tool_result mismatches)", () => {
     const cases = [
       "tool_result block not immediately after tool_use block",

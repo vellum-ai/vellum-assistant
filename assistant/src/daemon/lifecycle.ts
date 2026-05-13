@@ -31,10 +31,6 @@ import {
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import {
-  type FeedSchedulerHandle,
-  startFeedScheduler,
-} from "../home/feed-scheduler.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
@@ -44,6 +40,7 @@ import {
 } from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
@@ -57,9 +54,11 @@ import {
 } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { installPluginRuntime } from "../plugins/external-api.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
+import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
@@ -327,8 +326,6 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Background feature flag init failed"),
     );
 
-    maybeSeedMemoryV2Skills(loadConfig());
-
     seedInterfaceFiles();
 
     log.info("Daemon startup: initializing DB");
@@ -369,6 +366,20 @@ export async function runDaemon(): Promise<void> {
     if (dbReady) {
       await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
       log.info("Daemon startup: workspace migrations complete");
+
+      // Seed canonical inference provider_connections and backfill any legacy
+      // profiles that pre-date the connection field. Runs after workspace
+      // migrations so migration 076 has already stripped services.inference.mode
+      // before backfill reads config. Idempotent — runs every boot so new
+      // canonicals propagate and manual config.json edits self-heal.
+      try {
+        runProviderConnectionsBackfill(getDb());
+      } catch (err) {
+        log.warn(
+          { err },
+          "provider_connections backfill failed — continuing startup",
+        );
+      }
 
       // Profiler retention sweep — prune completed profiler runs to stay
       // within configured byte-count, run-count, and free-space budgets.
@@ -500,15 +511,16 @@ export async function runDaemon(): Promise<void> {
     // seeder and persisted alongside schema defaults.
     const defaultConfigMerge = mergeDefaultWorkspaceConfig();
 
-    // Seed managed inference profiles into the workspace config. Runs after
-    // workspace migrations and default-config merge, but before loadConfig() so
-    // fresh hatches have profiles on disk before the first config load. Any
-    // profile fields explicitly supplied by the default overlay stay
-    // authoritative for this startup.
+    // Seed inference profiles into the workspace config. Managed Anthropic
+    // profiles are overwritten on every boot so Vellum can push updates.
+    // Off-platform hatches additionally create user profiles + a personal
+    // provider connection for the hatch provider.
     try {
       seedInferenceProfiles({
         preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
         preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+        isHatch: defaultConfigMerge.hadOverlay,
+        db: dbReady ? getDb() : undefined,
       });
       log.info("Inference profile seeding complete");
     } catch (err) {
@@ -636,6 +648,12 @@ export async function runDaemon(): Promise<void> {
         }
       });
     }
+
+    // Install the `globalThis.__vellumPluginRuntime` bridge before scanning
+    // for user plugins. Plugins that touch the bridge from their module body
+    // would throw without this — see `plugins/external-api.ts` for the
+    // rationale (compiled-binary module identity).
+    installPluginRuntime();
 
     // Populate the registry with user plugins from `<workspaceDir>/plugins/*`
     // AFTER first-party plugins have already registered via their static
@@ -838,6 +856,26 @@ export async function runDaemon(): Promise<void> {
             );
           }
         })();
+
+        // Validate every concept page's frontmatter against the strict
+        // schema and emit a `warn` per offender. Surfaces schema drift
+        // (unknown keys, type mismatches) at boot time instead of waiting
+        // for the failure to manifest as a silent V2 retrieval no-op when
+        // a bad page first lands in a conversation's top-K. Fire-and-forget
+        // and the sweep itself never throws — defense in depth via the
+        // outer try/catch.
+        void (async () => {
+          try {
+            const { sweepConceptPageFrontmatter } =
+              await import("../memory/v2/frontmatter-sweep.js");
+            await sweepConceptPageFrontmatter(getWorkspaceDir());
+          } catch (err) {
+            log.warn(
+              { err },
+              "Concept page frontmatter sweep threw — continuing startup",
+            );
+          }
+        })();
       }
 
       log.info("Daemon startup: starting memory worker");
@@ -958,24 +996,6 @@ export async function runDaemon(): Promise<void> {
           dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
         });
       },
-      (params) => {
-        void emitNotificationSignal({
-          sourceEventName: "watcher.escalation",
-          sourceChannel: "watcher",
-          sourceContextId: `watcher-escalation-${Date.now()}`,
-          attentionHints: {
-            requiresAction: true,
-            urgency: "high",
-            isAsyncBackground: false,
-            visibleInSourceNow: false,
-          },
-          contextPayload: {
-            title: params.title,
-            body: params.body,
-          },
-          dedupeKey: `watcher:escalation:${crypto.randomUUID()}`,
-        });
-      },
       (info) => {
         broadcastMessage({
           type: "schedule_conversation_created",
@@ -985,19 +1005,6 @@ export async function runDaemon(): Promise<void> {
         });
       },
     );
-
-    // Home activity feed scheduler — drives the assistant reflection
-    // loop + the platform Gmail digest. Fire-and-forget; a startup
-    // failure must never block the rest of daemon boot (CLAUDE.md).
-    let feedScheduler: FeedSchedulerHandle | null = null;
-    try {
-      feedScheduler = startFeedScheduler();
-    } catch (err) {
-      log.warn(
-        { err },
-        "Failed to start home feed scheduler — continuing startup",
-      );
-    }
 
     // Start the runtime HTTP server for optional REST API access.
     // Defaults to port 7821.
@@ -1338,7 +1345,6 @@ export async function runDaemon(): Promise<void> {
       filing,
       runtimeHttp,
       scheduler,
-      feedScheduler,
       getMemoryWorker: () => bgRefs.memoryWorker,
       getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,

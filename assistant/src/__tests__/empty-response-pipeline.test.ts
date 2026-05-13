@@ -192,7 +192,6 @@ describe("emptyResponse pipeline — custom middleware overrides", () => {
       manifest: {
         name: "force-accept",
         version: "1.0.0",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: {
         emptyResponse: async () => ({ action: "accept" }),
@@ -219,7 +218,6 @@ describe("emptyResponse pipeline — custom middleware overrides", () => {
       manifest: {
         name: "force-error",
         version: "1.0.0",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: {
         emptyResponse: async () => ({ action: "error" }),
@@ -239,7 +237,6 @@ describe("emptyResponse pipeline — custom middleware overrides", () => {
       manifest: {
         name: "rewrite-nudge",
         version: "1.0.0",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: {
         emptyResponse: async (args, next, ctx) => {
@@ -287,7 +284,6 @@ describe("emptyResponse pipeline — custom middleware overrides", () => {
       manifest: {
         name: "late-user-empty-response",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1", emptyResponseApi: "v1" },
       },
       middleware: { emptyResponse: userMiddleware },
     });

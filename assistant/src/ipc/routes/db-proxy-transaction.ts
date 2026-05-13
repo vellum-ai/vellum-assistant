@@ -27,6 +27,7 @@
  */
 
 import { getSqlite } from "../../memory/db-connection.js";
+import { RouteError } from "../../runtime/routes/errors.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("db-proxy-transaction");
@@ -71,7 +72,11 @@ export function handleDbProxyTransaction(
   const db = getSqlite();
 
   if (!Array.isArray(params.steps) || params.steps.length === 0) {
-    throw new Error("db_proxy_transaction requires at least one step");
+    throw new RouteError(
+      "db_proxy_transaction requires at least one step",
+      "INVALID_PARAMS",
+      400,
+    );
   }
 
   // Sentinel used to abort the transaction without leaking through as a generic
@@ -128,7 +133,14 @@ export function handleDbProxyTransaction(
         requiredChanges: err.requiredChanges,
       };
     }
-    throw err;
+    // Wrap raw SQL/runtime errors in RouteError so the IPC envelope carries
+    // a statusCode + errorCode. Without this, the gateway-side strict caller
+    // sees a structureless `msg.error` and misclassifies it as a transport
+    // failure ("assistant may not be ready"), masking the real SQL error
+    // and breaking debuggability + retry decisions.
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err }, "db-proxy-transaction execution failed");
+    throw new RouteError(message, "DB_PROXY_TRANSACTION_FAILED", 500);
   }
 
   log.debug(

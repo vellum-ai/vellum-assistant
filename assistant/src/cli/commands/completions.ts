@@ -1,14 +1,16 @@
 import type { Command } from "commander";
 
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 export function registerCompletionsCommand(program: Command): void {
-  program
-    .command("completions")
+  registerCommand(program, {
+    name: "completions",
+    transport: "local",
+    description: "Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)",
+    build: (cmd) => {
+      cmd
     .argument("<shell>", "Shell type: bash, zsh, or fish")
-    .description(
-      "Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)",
-    )
     .addHelpText(
       "after",
       `
@@ -41,7 +43,6 @@ Examples:
         trust: ["list"],
         memory: ["status", "backfill", "cleanup", "query", "rebuild-index"],
         contacts: ["list", "invites", "get", "merge"],
-        autonomy: ["get", "set"],
       };
       const topLevel = [
         "conversations",
@@ -50,7 +51,6 @@ Examples:
         "trust",
         "memory",
         "contacts",
-        "autonomy",
         "audit",
         "completions",
         "help",
@@ -73,6 +73,8 @@ Examples:
           process.exit(1);
       }
     });
+    },
+  });
 }
 
 function generateBashCompletion(
@@ -128,7 +130,6 @@ _assistant() {
         'trust:View trust rules'
         'memory:Manage long-term memory'
         'contacts:Manage the contact graph'
-        'autonomy:View and configure autonomy tiers'
         'audit:Show recent tool invocations'
         'completions:Generate shell completion script'
         'help:Display help'
@@ -167,7 +168,6 @@ function generateFishCompletion(
     trust: "View trust rules",
     memory: "Manage long-term memory",
     contacts: "Manage the contact graph",
-    autonomy: "View and configure autonomy tiers",
     audit: "Show recent tool invocations",
     completions: "Generate shell completion script",
     help: "Display help",

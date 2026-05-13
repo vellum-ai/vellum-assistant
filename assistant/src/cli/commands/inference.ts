@@ -1,13 +1,36 @@
+/**
+ * `assistant inference` and `assistant llm` CLI namespace.
+ *
+ * Subcommands:
+ *   - `send`       — Send a message to the configured LLM (via `inference_send` IPC)
+ *   - `session`    — Manage conversation-scoped inference profile sessions
+ *   - `providers`  — Inference provider admin commands
+ *
+ * The `llm` alias exposes only `send`.
+ */
+
 import { readFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import {
-  extractAllText,
-  getConfiguredProvider,
-  userMessage,
-} from "../../providers/provider-send-message.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { attachProvidersSubcommand } from "./inference-providers.js";
+import { attachSessionSubcommand } from "./inference-session.js";
+
+// ── Types ────────────────────────────────────────────────────────────
+
+interface InferenceSendResult {
+  response: string;
+  model: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
+
+// ── Send subcommand ──────────────────────────────────────────────────
 
 /**
  * Attach the `send` subcommand to the given command group (`inference` or
@@ -19,6 +42,10 @@ function attachSendSubcommand(group: Command): void {
     .description("Send a message to the configured LLM and print the response")
     .option("--system-prompt <text>", "System prompt for the model")
     .option("--model <model-id>", "Model override")
+    .option(
+      "--profile <name>",
+      "Apply a named inference profile from llm.profiles for this single call",
+    )
     .option("--max-tokens <n>", "Max response tokens", undefined)
     .option("--json", "Output structured JSON")
     .argument("[message...]", "User message (joined with spaces)")
@@ -28,13 +55,18 @@ function attachSendSubcommand(group: Command): void {
 Behavioral notes:
   - If no message argument is provided, reads from stdin.
   - If --model is omitted, uses the configured default model.
+  - --profile applies a named profile from llm.profiles for this single call
+    only. It does NOT open a session — to pin a profile to a conversation,
+    use 'assistant inference profile open <name>'.
+  - --profile layers below --model: --model still wins on the model field.
   - Requires a configured LLM provider (see 'assistant config set').
 
 Examples:
   $ assistant inference send "What is 2+2?"
   $ echo "Summarize this" | assistant inference send
   $ assistant llm send --system-prompt "You are a poet" "Write a haiku"
-  $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"`,
+  $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"
+  $ assistant inference send --profile balanced "Explain RFC 1149"`,
     )
     .action(
       async (
@@ -42,11 +74,12 @@ Examples:
         opts: {
           systemPrompt?: string;
           model?: string;
+          profile?: string;
           maxTokens?: string;
           json?: boolean;
         },
       ) => {
-        const { systemPrompt, model, json: jsonOutput } = opts;
+        const { systemPrompt, model, profile, json: jsonOutput } = opts;
         const maxTokens = opts.maxTokens
           ? parseInt(opts.maxTokens, 10)
           : undefined;
@@ -92,78 +125,60 @@ Examples:
           return;
         }
 
-        // Resolve provider.
-        const provider = await getConfiguredProvider("inference");
-        if (!provider) {
-          const msg =
-            "No LLM provider is configured. Run 'assistant config set llm.default.provider <provider>' to set one up.";
+        // Build IPC body
+        const body: Record<string, unknown> = { message: messageText };
+        if (systemPrompt) body.systemPrompt = systemPrompt;
+        if (model) body.model = model;
+        if (profile) body.profile = profile;
+        if (maxTokens) body.maxTokens = maxTokens;
+
+        const ipcResult = await cliIpcCall<InferenceSendResult>(
+          "inference_send",
+          { body },
+        );
+
+        if (!ipcResult.ok) {
           if (jsonOutput) {
             process.stdout.write(
-              JSON.stringify({ ok: false, error: msg }) + "\n",
+              JSON.stringify({ ok: false, error: ipcResult.error }) + "\n",
             );
           } else {
-            log.error(msg);
+            log.error(ipcResult.error ?? "Unknown error occurred");
           }
           process.exitCode = 1;
           return;
         }
 
-        try {
-          const response = await provider.sendMessage(
-            [userMessage(messageText)],
-            undefined,
-            systemPrompt,
-            {
-              config: {
-                callSite: "inference",
-                max_tokens: maxTokens,
-                model,
-              },
-            },
+        const result = ipcResult.result!;
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              response: result.response,
+              model: result.model,
+              usage: result.usage,
+            }) + "\n",
           );
-
-          const text = extractAllText(response);
-
-          if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({
-                ok: true,
-                response: text,
-                model: response.model,
-                usage: {
-                  inputTokens: response.usage.inputTokens,
-                  outputTokens: response.usage.outputTokens,
-                },
-              }) + "\n",
-            );
-          } else {
-            process.stdout.write(text + "\n");
-          }
-        } catch (err) {
-          const msg =
-            err instanceof Error ? err.message : "Unknown error occurred";
-          if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({ ok: false, error: msg }) + "\n",
-            );
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
+        } else {
+          process.stdout.write(result.response + "\n");
         }
       },
     );
 }
 
+// ── Registration ─────────────────────────────────────────────────────
+
 /**
  * Register `inference` and `llm` command groups on the top-level program.
- * Both expose the same subcommands — `llm` is an alias for `inference`.
+ * Both expose `send`. Profile management is only available under `inference`.
  */
 export function registerInferenceCommand(program: Command): void {
-  const inference = program
-    .command("inference")
-    .description("LLM inference operations");
-
+  registerCommand(program, {
+    name: "inference",
+    transport: "ipc",
+    description: "LLM inference operations",
+    build: (inference) => {
   inference.addHelpText(
     "after",
     `
@@ -174,26 +189,33 @@ Examples:
   $ assistant inference send "What is the capital of France?"
   $ echo "Explain quantum computing" | assistant inference send
   $ assistant llm send --system-prompt "Be concise" "What is TCP?"
-  $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"`,
+  $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"
+  $ assistant inference send --profile balanced "Explain RFC 1149"`,
   );
 
   attachSendSubcommand(inference);
+  attachSessionSubcommand(inference);
+  attachProvidersSubcommand(inference);
+    },
+  });
 
   const llm = program
     .command("llm")
-    .description("LLM inference operations (alias for 'inference')");
+    .description("LLM inference operations (alias for 'inference send')");
 
   llm.addHelpText(
     "after",
     `
-The llm command group is an alias for 'inference'. It sends requests to your
-configured LLM provider, resolved from your assistant config (llm.default.provider).
+The llm command group is a shorthand for 'assistant inference send'. It sends
+requests to your configured LLM provider, resolved from your assistant config
+(llm.default.provider). For profile session management, use 'assistant inference session'.
 
 Examples:
   $ assistant llm send "What is the capital of France?"
   $ echo "Explain quantum computing" | assistant llm send
   $ assistant llm send --system-prompt "Be concise" "What is TCP?"
-  $ assistant llm send --model claude-sonnet-4-20250514 --json "Hello"`,
+  $ assistant llm send --model claude-sonnet-4-20250514 --json "Hello"
+  $ assistant llm send --profile balanced "Explain RFC 1149"`,
   );
 
   attachSendSubcommand(llm);

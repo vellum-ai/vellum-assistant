@@ -12,6 +12,7 @@ interface GraphNodeEventDateRow {
   id: string;
   created: number;
   event_date: number;
+  content: string;
 }
 
 interface EventDateRepair {
@@ -37,9 +38,14 @@ function replaceUtcYear(epochMs: number, year: number): number {
   );
 }
 
+function contentMentionsYear(content: string, year: number): boolean {
+  return new RegExp(`\\b${year}\\b`).test(content);
+}
+
 export function repairMemoryGraphEventDate(
   createdMs: number,
   eventDateMs: number,
+  content: string,
 ): number | null {
   if (!Number.isFinite(createdMs) || !Number.isFinite(eventDateMs)) {
     return null;
@@ -49,6 +55,10 @@ export function repairMemoryGraphEventDate(
   const eventYear = utcYear(eventDateMs);
   if (createdYear !== REPAIR_CREATED_YEAR) return null;
   if (!CORRUPT_EVENT_YEARS.includes(eventYear as 2024 | 2025)) return null;
+
+  // If the memory's prose explicitly mentions the prior year, the date is
+  // user-anchored history — not the partial-date inference bug — so leave it.
+  if (contentMentionsYear(content, eventYear)) return null;
 
   const corrected = replaceUtcYear(eventDateMs, createdYear);
   if (corrected === eventDateMs) return null;
@@ -71,7 +81,7 @@ export function migrate231RepairMemoryGraphEventDates(
     const rows = raw
       .query(
         /*sql*/ `
-          SELECT id, created, event_date
+          SELECT id, created, event_date, content
           FROM memory_graph_nodes
           WHERE event_date IS NOT NULL
             AND CAST(strftime('%Y', created / 1000, 'unixepoch') AS INTEGER) = ?
@@ -85,7 +95,11 @@ export function migrate231RepairMemoryGraphEventDates(
 
     const repairs: EventDateRepair[] = [];
     for (const row of rows) {
-      const corrected = repairMemoryGraphEventDate(row.created, row.event_date);
+      const corrected = repairMemoryGraphEventDate(
+        row.created,
+        row.event_date,
+        row.content ?? "",
+      );
       if (corrected == null) continue;
       repairs.push({
         id: row.id,

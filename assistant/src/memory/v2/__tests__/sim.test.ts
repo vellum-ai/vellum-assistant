@@ -433,7 +433,7 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["dense-only-page"], config);
 
-    // 0.7 * 0.5 + 0.3 * 0 = 0.35
+    // cosine 0.5 (positive, passes through); 0.7 * 0.5 + 0.3 * 0 = 0.35
     expect(out.get("dense-only-page")).toBeCloseTo(0.35, 6);
   });
 
@@ -475,6 +475,7 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["alice", "bob"], config);
 
+    // Positive cosines pass through unchanged.
     // alice: 0.4 * 0.5 + 0.6 * 1.0 = 0.8
     // bob:   0.4 * 0.25 + 0.6 * 0.5 = 0.4
     expect(out.get("alice")).toBeCloseTo(0.8, 6);
@@ -537,6 +538,7 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["alice"], config);
 
+    // Positive cosines pass through unchanged: max(0.3, 0.7) = 0.7.
     expect(out.get("alice")).toBeCloseTo(0.7, 6);
   });
 
@@ -553,6 +555,7 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["alice"], config);
 
+    // Positive cosines pass through unchanged: max(0.9, 0.4) = 0.9.
     expect(out.get("alice")).toBeCloseTo(0.9, 6);
   });
 
@@ -570,6 +573,7 @@ describe("simBatch", () => {
 
     const out = await simBatch("query", ["legacy-page"], config);
 
+    // Positive cosine 0.6 passes through unchanged.
     expect(out.get("legacy-page")).toBeCloseTo(0.6, 6);
   });
 
@@ -605,6 +609,46 @@ describe("simBatch", () => {
     // Body side has only bob's tiny sparse=0.5 against the body batch max
     // of 100 → ~0.005. The max picks the summary side.
     expect(out.get("bob")).toBeCloseTo(1.0, 6);
+  });
+
+  test("dense-favored config keeps the dense-strong candidate above the sparse-strong one", async () => {
+    // Regression guard: an earlier fix mapped cosines into [0, 1] via
+    // `(cos + 1) / 2` before fusion, which halved every pairwise dense
+    // difference and silently shifted ranking toward sparse. With dense
+    // weighted higher than sparse, the dense-only hit must outrank the
+    // sparse-only hit even though sparse normalizes to 1.0.
+    const config = configWithWeights(0.7, 0.3);
+    stageHybridResponse([
+      { slug: "dense-strong", denseScore: 0.5 /* sparseScore omitted */ },
+      { slug: "sparse-strong", denseScore: 0.0, sparseScore: 1 },
+    ]);
+
+    const out = await simBatch(
+      "query",
+      ["dense-strong", "sparse-strong"],
+      config,
+    );
+
+    // dense-strong: 0.7 * max(0, 0.5) + 0.3 * 0 = 0.35
+    // sparse-strong: 0.7 * max(0, 0.0) + 0.3 * 1.0 = 0.30
+    expect(out.get("dense-strong")).toBeCloseTo(0.35, 6);
+    expect(out.get("sparse-strong")).toBeCloseTo(0.3, 6);
+    expect(out.get("dense-strong")!).toBeGreaterThan(out.get("sparse-strong")!);
+  });
+
+  test("negative cosine maps to a non-negative dense contribution", async () => {
+    // Qdrant cosine search returns scores in [-1, 1]. A near-zero or
+    // negative cosine must not yield a negative dense contribution that
+    // depresses the fused score below the sparse-only floor.
+    const config = configWithWeights(0.7, 0.3);
+    stageHybridResponse([
+      { slug: "anti-match", denseScore: -1.0, sparseScore: 1 },
+    ]);
+
+    const out = await simBatch("query", ["anti-match"], config);
+
+    // cosine -1 → clamped to 0; sparse-norm = 1.0; fused = 0.7*0 + 0.3*1 = 0.3.
+    expect(out.get("anti-match")).toBeCloseTo(0.3, 6);
   });
 
   test("returned scores are always in [0, 1] for arbitrary inputs", async () => {

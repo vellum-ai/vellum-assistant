@@ -13,9 +13,12 @@
  * gateway's own database.
  */
 
-import { ipcCallAssistant } from "../ipc/assistant-client.js";
+import {
+  IpcHandlerError,
+  ipcCallAssistant,
+} from "../ipc/assistant-client.js";
 
-type SqliteValue = string | number | null | Uint8Array;
+export type SqliteValue = string | number | null | Uint8Array;
 
 interface DbProxyResult {
   rows?: Record<string, SqliteValue>[];
@@ -28,11 +31,11 @@ async function dbProxy(
   mode: "query" | "run" | "exec",
   bind?: SqliteValue[],
 ): Promise<DbProxyResult> {
-  const result = await ipcCallAssistant("db_proxy", { sql, mode, bind });
-  if (result === undefined) {
-    throw new Error("db_proxy IPC call failed — assistant may not be ready");
-  }
-  return result as DbProxyResult;
+  return (await ipcCallAssistant("db_proxy", {
+    sql,
+    mode,
+    bind,
+  })) as DbProxyResult;
 }
 
 /**
@@ -107,17 +110,28 @@ export type AssistantDbTransactionResult =
  * Use this when several writes must succeed or fail as a unit (e.g. invite
  * redemption: contact-channel upsert + invite-use record).
  *
+ * Error handling:
+ * - `requireChanges` violations return `{ ok: false, reason: "require_changes_failed", ... }`.
+ * - Handler-level failures (SQL constraint errors, malformed params) throw
+ *   `IpcHandlerError` so the underlying SQL message is preserved.
+ * - Transport failures (socket missing, daemon unreachable, timeout) throw
+ *   `IpcTransportError`. Use this to distinguish retryable vs.
+ *   non-retryable failures.
+ *
  * Read-modify-write across steps is not supported. Use SQL-level conditions
  * (WHERE clauses, ON CONFLICT) plus `requireChanges` for stale-write detection.
  */
 export async function assistantDbTransaction(
   steps: AssistantDbTransactionStep[],
 ): Promise<AssistantDbTransactionResult> {
-  const result = await ipcCallAssistant("db_proxy_transaction", { steps });
-  if (result === undefined) {
-    throw new Error(
-      "db_proxy_transaction IPC call failed — assistant may not be ready",
-    );
-  }
-  return result as AssistantDbTransactionResult;
+  return (await ipcCallAssistant("db_proxy_transaction", {
+    steps,
+  })) as AssistantDbTransactionResult;
 }
+
+/**
+ * Re-export so callers in this module's domain (gateway DB write helpers)
+ * can identify SQL/handler failures from the assistant DB proxy without
+ * importing from the IPC client directly.
+ */
+export { IpcHandlerError };

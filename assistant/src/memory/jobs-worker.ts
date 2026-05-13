@@ -67,6 +67,8 @@ import {
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "./jobs-store.js";
+import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
+import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
 import {
   memoryV2ActivationRecomputeJob,
@@ -77,6 +79,26 @@ import { memoryV2ConsolidateJob } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
 
 const log = getLogger("memory-jobs-worker");
+
+/**
+ * V1 job types that read or write the v1 Qdrant collection via
+ * `getQdrantClient()`. When `memory.v2.enabled` is true, the v1 client is
+ * intentionally left uninitialized in `lifecycle.ts`, so these handlers would
+ * throw `BackendUnavailableError` and accumulate as a deferred backlog. Stale
+ * rows from indexer.ts and other unguarded enqueue sites must short-circuit
+ * here for the same reason `graph_extract` does below.
+ */
+const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
+  "embed_segment",
+  "embed_summary",
+  "embed_media",
+  "embed_attachment",
+  "embed_graph_node",
+  "embed_pkb_file",
+  "graph_trigger_embed",
+  "rebuild_index",
+  "delete_qdrant_vectors",
+]);
 
 /**
  * Job types whose handlers have been removed. Existing rows may still sit in
@@ -111,6 +133,19 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
     log.info({ recovered }, "Recovered stale running memory jobs");
   }
 
+  // After running-job recovery (so legitimate in-flight retries aren't
+  // swept), clean up orphan memory-retrospective background conversations
+  // left behind by daemon crashes mid-job. Best-effort — never block worker
+  // startup on cleanup failures.
+  try {
+    sweepOrphanMemoryRetrospectiveConversations();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Memory-retrospective startup cleanup failed; continuing worker startup",
+    );
+  }
+
   let stopped = false;
   let tickRunning = false;
   let timer: ReturnType<typeof setTimeout>;
@@ -124,16 +159,24 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
         enableScheduledCleanup: true,
       });
       if (processed > 0) {
-        currentIntervalMs = POLL_INTERVAL_MIN_MS;
+        // Per-tick claim budget equals the lane caps, so when a tick
+        // processed work the next tick must run immediately to drain any
+        // remaining backlog. Holding the 1.5s floor between ticks would cap
+        // sustained throughput at lane-cap jobs per 1.5s and starve large
+        // backlogs of short jobs.
+        currentIntervalMs = 0;
       } else {
         currentIntervalMs = Math.min(
-          currentIntervalMs * 2,
+          Math.max(currentIntervalMs * 2, POLL_INTERVAL_MIN_MS),
           POLL_INTERVAL_MAX_MS,
         );
       }
     } catch (err) {
       log.error({ err }, "Memory worker tick failed");
-      currentIntervalMs = Math.min(currentIntervalMs * 2, POLL_INTERVAL_MAX_MS);
+      currentIntervalMs = Math.min(
+        Math.max(currentIntervalMs * 2, POLL_INTERVAL_MIN_MS),
+        POLL_INTERVAL_MAX_MS,
+      );
     } finally {
       tickRunning = false;
     }
@@ -462,6 +505,9 @@ async function processJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
+  if (config.memory.v2.enabled && V1_QDRANT_JOB_TYPES.has(job.type)) {
+    return;
+  }
   switch (job.type) {
     case "embed_segment":
       await embedSegmentJob(job, config);
@@ -554,6 +600,9 @@ async function processJob(
       return;
     case "memory_v2_activation_recompute":
       await memoryV2ActivationRecomputeJob(job, config);
+      return;
+    case "memory_retrospective":
+      await memoryRetrospectiveJob(job, config);
       return;
 
     default: {

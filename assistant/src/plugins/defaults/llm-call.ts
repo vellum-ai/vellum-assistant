@@ -42,8 +42,6 @@ export const defaultLlmCallPlugin: Plugin = {
   manifest: {
     name: "default-llm-call",
     version: "1.0.0",
-    provides: { llmCall: "v1" },
-    requires: { pluginRuntime: "v1" },
   },
   middleware: {
     llmCall: async function defaultLlmCall(

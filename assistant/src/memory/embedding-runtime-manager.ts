@@ -44,7 +44,7 @@ const JINJA_VERSION = "0.5.5";
  * scripts when the worker IPC contract or spawn-args list changes (without
  * requiring an `@huggingface/transformers` version bump).
  */
-const RUNTIME_VERSION = `ort-${ONNXRUNTIME_NODE_VERSION}_hf-${TRANSFORMERS_VERSION}_jinja-${JINJA_VERSION}_workers-v2`;
+const RUNTIME_VERSION = `ort-${ONNXRUNTIME_NODE_VERSION}_hf-${TRANSFORMERS_VERSION}_jinja-${JINJA_VERSION}_workers-v3`;
 
 const WORKER_FILENAME = "embed-worker.mjs";
 const RERANK_WORKER_FILENAME = "rerank-worker.mjs";
@@ -252,7 +252,6 @@ async function processQueue() {
         text_pair: passages,
         padding: true,
         truncation: true,
-        return_tensors: 'pt',
       });
       const out = await session(inputs);
       const logits = out.logits.data;

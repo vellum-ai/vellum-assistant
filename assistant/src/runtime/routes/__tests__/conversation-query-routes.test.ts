@@ -78,6 +78,7 @@ function seedConversationAndMessage(args: {
   messageId: string;
   source: string;
   conversationType: ConversationCreateType;
+  totalEstimatedCost?: number;
 }): void {
   const now = Date.now();
   getDb()
@@ -90,6 +91,9 @@ function seedConversationAndMessage(args: {
       source: args.source,
       conversationType: args.conversationType,
       memoryScopeId: "default",
+      ...(args.totalEstimatedCost != null
+        ? { totalEstimatedCost: args.totalEstimatedCost }
+        : {}),
     })
     .run();
   getDb()
@@ -236,6 +240,51 @@ describe("GET /v1/messages/:id/llm-context — conversationKind", () => {
   });
 });
 
+describe("GET /v1/messages/:id/llm-context — conversationTotalEstimatedCostUsd", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns the conversation's running cost total when present", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-with-cost",
+      messageId: "msg-with-cost",
+      source: "user",
+      conversationType: "standard",
+      totalEstimatedCost: 1.234,
+    });
+
+    const body = (await dispatchLlmContext("msg-with-cost")) as {
+      conversationTotalEstimatedCostUsd: number | null;
+    };
+
+    expect(body.conversationTotalEstimatedCostUsd).toBeCloseTo(1.234, 5);
+  });
+
+  test("returns 0 when the conversation hasn't accrued any cost yet", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-no-cost",
+      messageId: "msg-no-cost",
+      source: "user",
+      conversationType: "standard",
+    });
+
+    const body = (await dispatchLlmContext("msg-no-cost")) as {
+      conversationTotalEstimatedCostUsd: number | null;
+    };
+
+    expect(body.conversationTotalEstimatedCostUsd).toBe(0);
+  });
+
+  test("returns null when the message can't be resolved to a conversation", async () => {
+    const body = (await dispatchLlmContext("msg-missing-cost")) as {
+      conversationTotalEstimatedCostUsd: number | null;
+    };
+
+    expect(body.conversationTotalEstimatedCostUsd).toBeNull();
+  });
+});
+
 describe("PUT /v1/config/llm/profiles/:name", () => {
   beforeEach(() => {
     savedRawConfig = null;
@@ -324,5 +373,145 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       },
     });
     expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
+  });
+
+  test("writes provider_connection when present in body", () => {
+    const result = replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "openai",
+        provider_connection: "personal-openai",
+        model: "gpt-5.5",
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.provider).toBe("openai");
+    expect(savedProfile.provider_connection).toBe("personal-openai");
+  });
+
+  test("clears provider_connection when omitted from body (UI-owned key)", () => {
+    // Seed an existing binding so the test starts from a non-empty state.
+    (
+      rawConfigFixture.llm as {
+        profiles: { custom: Record<string, unknown> };
+      }
+    ).profiles.custom.provider_connection = "stale-openai";
+
+    const result = replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "openai",
+        model: "gpt-5.5",
+        // provider_connection deliberately omitted — the UI cleared the
+        // picker back to "Any active" and the route must wipe the saved
+        // binding, not silently round-trip it.
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.provider_connection).toBeUndefined();
+  });
+
+  describe("managed profile guard", () => {
+    beforeEach(() => {
+      // Seed a managed profile alongside the existing custom one.
+      (rawConfigFixture.llm as { profiles: Record<string, unknown> }).profiles[
+        "balanced"
+      ] = {
+        source: "managed",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        label: "Balanced",
+        status: "active",
+      };
+    });
+
+    test("allows label edit on managed profile, preserving seed fields", () => {
+      const result = replaceProfileRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { label: "My Balanced" },
+      });
+
+      expect(result).toEqual({ ok: true });
+      const savedProfile = (
+        savedRawConfig?.llm as {
+          profiles: Record<string, Record<string, unknown>>;
+        }
+      ).profiles.balanced;
+
+      expect(savedProfile.label).toBe("My Balanced");
+      // Seed fields preserved.
+      expect(savedProfile.provider).toBe("anthropic");
+      expect(savedProfile.model).toBe("claude-sonnet-4-6");
+      expect(savedProfile.source).toBe("managed");
+    });
+
+    test("allows status edit on managed profile", () => {
+      const result = replaceProfileRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { status: "disabled" },
+      });
+
+      expect(result).toEqual({ ok: true });
+      const savedProfile = (
+        savedRawConfig?.llm as {
+          profiles: Record<string, Record<string, unknown>>;
+        }
+      ).profiles.balanced;
+
+      expect(savedProfile.status).toBe("disabled");
+      expect(savedProfile.provider).toBe("anthropic");
+    });
+
+    test("allows label+status edit together", () => {
+      const result = replaceProfileRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { label: "Renamed", status: "disabled" },
+      });
+
+      expect(result).toEqual({ ok: true });
+      const savedProfile = (
+        savedRawConfig?.llm as {
+          profiles: Record<string, Record<string, unknown>>;
+        }
+      ).profiles.balanced;
+
+      expect(savedProfile.label).toBe("Renamed");
+      expect(savedProfile.status).toBe("disabled");
+    });
+
+    test("rejects provider edit on managed profile with disallowed-keys error", () => {
+      expect(() =>
+        replaceProfileRoute.handler({
+          pathParams: { name: "balanced" },
+          body: { provider: "openai", model: "gpt-5" },
+        }),
+      ).toThrow(/Cannot edit managed profile "balanced" fields \[provider, model\]/);
+    });
+
+    test("rejects mixed allowed+disallowed fields", () => {
+      // label is allowed but maxTokens is not — must reject without partially
+      // applying label, so saver should never be invoked.
+      expect(() =>
+        replaceProfileRoute.handler({
+          pathParams: { name: "balanced" },
+          body: { label: "Try", maxTokens: 999 },
+        }),
+      ).toThrow(/Cannot edit managed profile "balanced" fields \[maxTokens\]/);
+      expect(savedRawConfig).toBeNull();
+    });
   });
 });

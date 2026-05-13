@@ -70,6 +70,22 @@ export function handleRemember(
 }
 
 /**
+ * Format `now` as a buffer-entry timestamp (`Mon D, h:mm AM/PM`). Exported so
+ * the memory v2 consolidation job can present its cutoff in the same shape
+ * the buffer entries use, making the agent's "timestamp ≥ cutoff" comparison
+ * unambiguous at minute precision.
+ */
+export function formatBufferTimestamp(now: Date): string {
+  const month = now.toLocaleString("en-US", { month: "short" });
+  const day = now.getDate();
+  const hours = now.getHours();
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${month} ${day}, ${displayHour}:${minutes} ${ampm}`;
+}
+
+/**
  * Build a timestamped bullet entry for `buffer.md` / `archive/<date>.md`.
  *
  * Format mirrors the long-standing v1 PKB layout so v2 buffers stay
@@ -80,13 +96,7 @@ export function handleRemember(
  * entries identically to user-facing `remember()` calls.
  */
 export function formatRememberEntry(content: string, now: Date): string {
-  const month = now.toLocaleString("en-US", { month: "short" });
-  const day = now.getDate();
-  const hours = now.getHours();
-  const minutes = String(now.getMinutes()).padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
-  const displayHour = hours % 12 || 12;
-  return `- [${month} ${day}, ${displayHour}:${minutes} ${ampm}] ${content}\n`;
+  return `- [${formatBufferTimestamp(now)}] ${content}\n`;
 }
 
 /**

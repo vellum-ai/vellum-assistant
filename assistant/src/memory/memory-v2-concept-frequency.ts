@@ -52,6 +52,7 @@ const ZERO_COUNTS: ConceptFrequencyCounts = {
   in_context: 0,
   not_injected: 0,
   page_missing: 0,
+  corrupt: 0,
 };
 
 interface CountRow {
@@ -129,6 +130,9 @@ export async function getConceptFrequencySummary(
         break;
       case "page_missing":
         entry.counts.page_missing += row.count;
+        break;
+      case "corrupt":
+        entry.counts.corrupt += row.count;
         break;
       default:
         // Forward-compat: unknown status values are ignored, not summed into

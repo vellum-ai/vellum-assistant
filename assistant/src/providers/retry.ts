@@ -205,16 +205,8 @@ function normalizeSendMessageOptions(
     ) {
       nextConfig.temperature = resolved.temperature;
     }
-    if (nextConfig.thinking === undefined) {
-      // Convert the schema-shape `{ enabled, streamThinking }` into Anthropic's
-      // discriminated wire-format (`{ type: "adaptive" | "disabled" }`).
-      // Without this conversion, `thinking` arrives at `AnthropicProvider`
-      // with a shape the SDK doesn't accept (`ThinkingConfigParam` requires
-      // a `type` discriminator).
-      const thinking = normalizeThinkingConfigForWire(resolved.thinking);
-      if (thinking !== undefined) {
-        nextConfig.thinking = thinking;
-      }
+    if (nextConfig.thinking === undefined && resolved.thinking !== undefined) {
+      nextConfig.thinking = resolved.thinking;
     }
     // Forward OpenRouter-only routing preferences so `OpenRouterProvider` can
     // translate `openrouter.only` into the wire-format `provider: { only: [...] }`
@@ -234,6 +226,22 @@ function normalizeSendMessageOptions(
     // leaks unknown fields into provider request bodies — Anthropic (and other
     // strict-schema clients) reject the request with
     // "Extra inputs are not permitted".
+  }
+
+  // Convert schema-shape `{ enabled, streamThinking }` into Anthropic's
+  // discriminated wire-format (`{ type: "adaptive" | "disabled" }`).
+  // `AnthropicProvider`'s SDK requires a `type` discriminator, and downstream
+  // forced-tool/temperature conflict checks compare against the wire shape.
+  // Applies to both the resolver path above and pass-through callers (e.g.
+  // `host.providers.llm.complete`) that supply `thinking` directly without a
+  // `callSite`.
+  if (nextConfig.thinking !== undefined) {
+    const normalized = normalizeThinkingConfigForWire(nextConfig.thinking);
+    if (normalized === undefined) {
+      delete nextConfig.thinking;
+    } else {
+      nextConfig.thinking = normalized;
+    }
   }
 
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a

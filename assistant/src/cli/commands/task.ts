@@ -9,50 +9,18 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
-
-// ── Conversation ID resolution ────────────────────────────────────────
-
-/**
- * Resolve the conversation ID by precedence:
- *   1. Explicit `--conversation-id` flag
- *   2. `__SKILL_CONTEXT_JSON` env var (set by skill sandbox runner)
- *   3. `__CONVERSATION_ID` env var (set by bash tool subprocess)
- *   4. Fail with an actionable error
- */
-function resolveConversationId(explicit?: string): string {
-  if (explicit) return explicit;
-
-  const contextJson = process.env.__SKILL_CONTEXT_JSON;
-  if (contextJson) {
-    try {
-      const parsed = JSON.parse(contextJson);
-      if (parsed.conversationId && typeof parsed.conversationId === "string") {
-        return parsed.conversationId;
-      }
-    } catch {
-      // Fall through
-    }
-  }
-
-  const envConvId = process.env.__CONVERSATION_ID;
-  if (envConvId && typeof envConvId === "string") {
-    return envConvId;
-  }
-
-  throw new Error(
-    "No conversation ID available.\n" +
-      "Provide --conversation-id explicitly (run 'assistant conversations list' to find it),\n" +
-      "or run this command from a skill or bash tool context.",
-  );
-}
+import { resolveConversationId } from "../utils/conversation-id.js";
 
 // ── Registration ──────────────────────────────────────────────────────
 
 export function registerTaskCommand(program: Command): void {
-  const task = program
-    .command("task")
-    .description("Manage task templates and work queue items");
+  registerCommand(program, {
+    name: "task",
+    transport: "ipc",
+    description: "Manage task templates and work queue items",
+    build: (task) => {
 
   task.addHelpText(
     "after",
@@ -100,7 +68,11 @@ Examples:
       }) => {
         let conversationId: string;
         try {
-          conversationId = resolveConversationId(opts.conversationId);
+          conversationId = resolveConversationId({
+            explicit: opts.conversationId,
+            failureHelp:
+              "No conversation ID available.\nProvide --conversation-id explicitly (run 'assistant conversations list' to find it),\nor run this command from a skill or bash tool context.",
+          });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (opts.json) {
@@ -794,4 +766,6 @@ Examples:
         }
       },
     );
+    },
+  });
 }

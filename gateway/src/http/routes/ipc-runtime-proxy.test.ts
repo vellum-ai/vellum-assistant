@@ -31,39 +31,38 @@ class MockIpcTransportError extends Error {
   }
 }
 
-// ipcCallAssistant — used by refreshRouteSchema to prime the cache
-const ipcCallAssistantMock = mock(() =>
-  Promise.resolve([
-    { operationId: "health", endpoint: "health", method: "GET" },
-    { operationId: "acp_steer", endpoint: "acp/:id/steer", method: "POST" },
-    {
-      operationId: "acp_list_sessions",
-      endpoint: "acp/sessions",
-      method: "GET",
-    },
-    {
-      operationId: "apps_dist_file",
-      endpoint: "apps/:appId/dist/:filename",
-      method: "GET",
-    },
-    // Policy-enforced routes (policies resolved gateway-side)
-    { operationId: "settings_get", endpoint: "settings", method: "GET" },
-    { operationId: "calls_start", endpoint: "calls/start", method: "POST" },
-  ]),
-);
+// Single mock for `ipcCallAssistant` — used by both `refreshRouteSchema`
+// (to prime the cache) and `tryIpcProxy` (per-request IPC calls).
+const ROUTE_SCHEMA = [
+  { operationId: "health", endpoint: "health", method: "GET" },
+  { operationId: "acp_steer", endpoint: "acp/:id/steer", method: "POST" },
+  {
+    operationId: "acp_list_sessions",
+    endpoint: "acp/sessions",
+    method: "GET",
+  },
+  {
+    operationId: "apps_dist_file",
+    endpoint: "apps/:appId/dist/:filename",
+    method: "GET",
+  },
+  // Policy-enforced routes (policies resolved gateway-side)
+  { operationId: "settings_get", endpoint: "settings", method: "GET" },
+  { operationId: "calls_start", endpoint: "calls/start", method: "POST" },
+];
 
-// ipcCallAssistantStrict — used by tryIpcProxy for actual IPC calls
-const ipcCallAssistantStrictMock = mock(
-  (_method: string, _params?: Record<string, unknown>) =>
-    Promise.resolve({ ok: true }),
-);
+const defaultIpcImpl = (
+  method: string,
+  _params?: Record<string, unknown>,
+): Promise<unknown> => {
+  if (method === "get_route_schema") return Promise.resolve(ROUTE_SCHEMA);
+  return Promise.resolve({ ok: true });
+};
 
-// Single mock.module for assistant-client — must include ALL exports
-// that any transitive import needs (route-schema-cache uses ipcCallAssistant,
-// ipc-runtime-proxy uses ipcCallAssistantStrict + error classes).
+const ipcCallAssistantMock = mock(defaultIpcImpl);
+
 mock.module("../../ipc/assistant-client.js", () => ({
   ipcCallAssistant: ipcCallAssistantMock,
-  ipcCallAssistantStrict: ipcCallAssistantStrictMock,
   IpcHandlerError: MockIpcHandlerError,
   IpcTransportError: MockIpcTransportError,
 }));
@@ -196,10 +195,8 @@ describe("matchRoute", () => {
 
 describe("tryIpcProxy", () => {
   beforeEach(() => {
-    ipcCallAssistantStrictMock.mockReset();
-    ipcCallAssistantStrictMock.mockImplementation(() =>
-      Promise.resolve({ ok: true }),
-    );
+    ipcCallAssistantMock.mockReset();
+    ipcCallAssistantMock.mockImplementation(defaultIpcImpl);
     validateEdgeTokenMock.mockReset();
     validateEdgeTokenMock.mockImplementation(() => ({
       ok: true,
@@ -241,8 +238,8 @@ describe("tryIpcProxy", () => {
     expect(result).not.toBeNull();
     expect(result!.status).toBe(200);
 
-    expect(ipcCallAssistantStrictMock).toHaveBeenCalledTimes(1);
-    const [opId, params] = ipcCallAssistantStrictMock.mock.calls[0] as [
+    expect(ipcCallAssistantMock).toHaveBeenCalledTimes(1);
+    const [opId, params] = ipcCallAssistantMock.mock.calls[0] as [
       string,
       Record<string, unknown>,
     ];
@@ -263,7 +260,7 @@ describe("tryIpcProxy", () => {
 
     await tryIpcProxy(req, makeConfig());
 
-    const [, params] = ipcCallAssistantStrictMock.mock.calls[0] as [
+    const [, params] = ipcCallAssistantMock.mock.calls[0] as [
       string,
       Record<string, unknown>,
     ];
@@ -306,7 +303,7 @@ describe("tryIpcProxy", () => {
   });
 
   test("returns handler error status code from IpcHandlerError", async () => {
-    ipcCallAssistantStrictMock.mockImplementation(() => {
+    ipcCallAssistantMock.mockImplementation(() => {
       throw new MockIpcHandlerError("Not found", 404, "NOT_FOUND");
     });
 
@@ -320,7 +317,7 @@ describe("tryIpcProxy", () => {
   });
 
   test("returns 502 on transport error", async () => {
-    ipcCallAssistantStrictMock.mockImplementation(() => {
+    ipcCallAssistantMock.mockImplementation(() => {
       throw new MockIpcTransportError("Socket closed");
     });
 
@@ -333,7 +330,7 @@ describe("tryIpcProxy", () => {
     const req = makeRequest("/v1/acp/sessions?limit=10&offset=5");
     await tryIpcProxy(req, makeConfig());
 
-    const [, params] = ipcCallAssistantStrictMock.mock.calls[0] as [
+    const [, params] = ipcCallAssistantMock.mock.calls[0] as [
       string,
       Record<string, unknown>,
     ];
@@ -347,10 +344,8 @@ describe("tryIpcProxy", () => {
 
 describe("policy enforcement", () => {
   beforeEach(() => {
-    ipcCallAssistantStrictMock.mockReset();
-    ipcCallAssistantStrictMock.mockImplementation(() =>
-      Promise.resolve({ ok: true }),
-    );
+    ipcCallAssistantMock.mockReset();
+    ipcCallAssistantMock.mockImplementation(defaultIpcImpl);
     validateEdgeTokenMock.mockReset();
   });
 

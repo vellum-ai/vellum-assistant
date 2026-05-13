@@ -23,7 +23,6 @@ export interface ShutdownDeps {
   filing: FilingService | null;
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
-  feedScheduler: { stop(): void } | null;
   getMemoryWorker: () => { stop(): void } | null;
   getQdrantManager: () => QdrantManager | null;
   mcpManager: McpServerManager | null;
@@ -119,7 +118,6 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     await browserManager.closeAllPages();
     cleanupShellOutputTempFiles();
     deps.scheduler.stop();
-    deps.feedScheduler?.stop();
     deps.getMemoryWorker()?.stop();
 
     if (deps.mcpManager) {

@@ -6,11 +6,11 @@
  * rewrites `memory/recent.md`, promotes new essentials/threads, and trims the
  * buffer down to entries that arrived after the run started.
  *
- * Unlike `sweep`, consolidation runs as the assistant: `wakeAgentForOpportunity()`
- * loads the standard system prompt (SOUL.md + IDENTITY.md + persona + memory/*
- * autoloads) and the standard tool surface (read_file, write_file, edit_file,
- * list_files, bash). The hint string carries the prompt body from §10 of the
- * design doc with the cutoff timestamp templated in. Care, judgment, and the
+ * Consolidation runs as the assistant: `runBackgroundJob()` bootstraps a
+ * background conversation and routes the cutoff-templated prompt through
+ * `processMessage`, so the standard system prompt (SOUL.md + IDENTITY.md +
+ * persona + memory/* autoloads) and tool surface (read_file, write_file,
+ * edit_file, list_files, bash) are loaded. Care, judgment, and the
  * assistant's voice are the point — there is no "consolidator persona" to
  * substitute in.
  *
@@ -26,21 +26,29 @@
  *      the next pass.
  *   4. Read `memory/buffer.md`. Bail if empty (no work to do, but the lock
  *      and skip path still log so operators can confirm the schedule fired).
- *   5. Bootstrap a background conversation (mirrors `runUpdateBulletinJobIfNeeded`)
- *      and call `wakeAgentForOpportunity()` with the templated hint. The wake
- *      reuses the assistant's full system prompt + tools.
- *   6. On wake success, enqueue `memory_v2_reembed` to re-index any pages the
- *      agent touched. Tracking touched pages via mtime would be more precise
- *      but is fragile across filesystems; the embedder's content-hash cache
- *      makes a conservative full-reembed effectively free. On wake failure
- *      no follow-ups are enqueued — the agent didn't run, so there's nothing
- *      to re-embed.
- *   7. Release the lock.
+ *   5. Hand off to `runBackgroundJob()` with the templated prompt. The runner
+ *      handles bootstrap + processMessage + timeout + error classification,
+ *      and (because we set `suppressFailureNotifications: true`) does NOT
+ *      emit an `activity.failed` notification on transient failures —
+ *      consolidation runs on tight intervals, so a network blip or model
+ *      hiccup should not spam the home feed. Sentry-side reporting is
+ *      unchanged. The prompt body is loaded via `resolveConsolidationPrompt`
+ *      which bounds any operator-provided override to a regular file under
+ *      1 MiB before substitution.
+ *   6. On success, enqueue `memory_v2_reembed` (re-index any pages the agent
+ *      touched). Tracking touched pages via mtime would be more precise but
+ *      is fragile across filesystems; the embedder's content-hash cache makes
+ *      a conservative full-reembed effectively free. On failure no follow-ups
+ *      are enqueued — the agent's writes may be partial and re-embedding
+ *      partial state would be misleading.
+ *   7. Release the lock. If a prior holder's PID is no longer running, the
+ *      stale lock is taken over automatically (single-writer per workspace,
+ *      so a holder whose process died is unambiguously stale).
  *
- * The handler never propagates a wake exception: it logs, cleans up the
- * orphan conversation, releases the lock, and returns `wake_failed` so the
- * next scheduled run can re-attempt. A thrown bootstrap error bubbles up and
- * the jobs-worker treats it as a retryable failure.
+ * The handler never propagates exceptions from the run path — `runBackgroundJob`
+ * absorbs them and returns a structured result. A thrown error before the
+ * runner is invoked (e.g. mkdir failures) bubbles up and the jobs-worker
+ * treats it as a retryable failure.
  */
 
 import {
@@ -54,13 +62,11 @@ import {
 import { dirname, join } from "node:path";
 
 import type { AssistantConfig } from "../../config/types.js";
-import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
-import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
+import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { isProcessAlive } from "../../util/process-liveness.js";
-import { bootstrapConversation } from "../conversation-bootstrap.js";
-import { deleteConversation } from "../conversation-crud.js";
+import { formatBufferTimestamp } from "../graph/tool-handlers.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
@@ -70,6 +76,17 @@ import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
 const log = getLogger("memory-v2-consolidate");
+
+/** Stable identifier surfaced in `runBackgroundJob` logs and notifications. */
+const JOB_NAME = "memory.consolidate";
+
+/**
+ * Hard timeout for the consolidation run. Consolidation reads the buffer,
+ * rewrites several files, and re-encodes essentials/threads — generous
+ * upper bound so a slow run isn't killed mid-edit, but bounded so a stuck
+ * provider can't pin the worker indefinitely.
+ */
+const CONSOLIDATION_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
  * Follow-up jobs to fan out after a successful consolidation.
@@ -85,13 +102,13 @@ const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [
 /**
  * Job handler. See file header for the full lifecycle. Returns a discriminated
  * union so tests can assert on the path taken (disabled / locked / empty /
- * invoked) without having to spy on the filesystem.
+ * invoked / failed) without having to spy on the filesystem.
  */
 export type ConsolidationOutcome =
   | { kind: "disabled" }
   | { kind: "locked"; holder: string }
   | { kind: "empty_buffer" }
-  | { kind: "wake_failed"; reason?: string }
+  | { kind: "run_failed"; reason?: string }
   | {
       kind: "invoked";
       conversationId: string;
@@ -121,11 +138,13 @@ export async function memoryV2ConsolidateJob(
   }
 
   try {
-    // Step 2: capture cutoff. ISO-8601 is the convention; it's a total order
-    // string that compares correctly via lexicographic <, which is all the
-    // prompt asks the agent to do. Captured here (not at enqueue time) so
-    // late-claimed rows still get a fresh cutoff.
-    const cutoff = new Date().toISOString();
+    // Step 2: capture cutoff. Formatted to match `buffer.md` entry timestamps
+    // (`Mon D, h:mm AM/PM`, see `formatBufferTimestamp`) so the agent's
+    // "timestamp ≥ cutoff" check compares like-with-like at minute precision.
+    // Same-minute entries land on the next pass — conservative but loss-free.
+    // Captured here (not at enqueue time) so late-claimed rows get a fresh
+    // cutoff.
+    const cutoff = formatBufferTimestamp(new Date());
 
     // Step 3: bail on empty buffer. Nothing for the agent to consolidate.
     // The lock is released in finally below.
@@ -135,57 +154,45 @@ export async function memoryV2ConsolidateJob(
       return { kind: "empty_buffer" };
     }
 
-    // Step 4: bootstrap a background conversation and wake the assistant
-    // with the cutoff-templated prompt. Mirrors the UPDATES.md pattern in
-    // `runUpdateBulletinJobIfNeeded` — the wake runs `mainAgent` against
-    // the assistant's full system prompt, so consolidation thinks and
-    // writes in the assistant's voice.
-    const conversation = bootstrapConversation({
-      conversationType: "background",
+    // Step 4: hand off to the centralized background-job runner. The runner
+    // bootstraps the conversation, drives `processMessage`, applies the
+    // timeout policy, classifies errors, and — because we opt out via
+    // `suppressFailureNotifications` — does NOT emit an `activity.failed`
+    // notification on transient failures. Consolidation runs on tight
+    // intervals; a network blip or model hiccup should not spam the feed.
+    // Sentry-side reporting is unchanged.
+    //
+    // The prompt body comes from `resolveConsolidationPrompt`, which honors
+    // the `memory.v2.consolidation_prompt_path` config override but bounds
+    // it to a regular file under 1 MiB before substitution so a stray path
+    // (or a `/dev/zero`-style pseudo-file) cannot exfiltrate megabytes of
+    // bytes through the wake hint.
+    const runResult = await runBackgroundJob({
+      jobName: JOB_NAME,
       source: MEMORY_V2_CONSOLIDATION_SOURCE,
+      prompt: resolveConsolidationPrompt(
+        config.memory.v2.consolidation_prompt_path,
+        cutoff,
+      ),
+      trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      callSite: "mainAgent",
+      timeoutMs: CONSOLIDATION_TIMEOUT_MS,
       origin: "memory_consolidation",
-      systemHint: "Running memory consolidation",
-      groupId: "system:background",
+      suppressFailureNotifications: true,
     });
 
-    let wakeInvoked = false;
-    let failureReason: string | undefined;
-    try {
-      const result = await wakeAgentForOpportunity({
-        conversationId: conversation.id,
-        hint: resolveConsolidationPrompt(
-          config.memory.v2.consolidation_prompt_path,
-          cutoff,
-        ),
-        source: MEMORY_V2_CONSOLIDATION_SOURCE,
-        trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
-      });
-      wakeInvoked = result.invoked;
-      failureReason = result.reason;
-    } catch (err) {
-      failureReason = err instanceof Error ? err.message : String(err);
+    if (!runResult.ok) {
       log.error(
-        { err, conversationId: conversation.id },
-        "consolidation wake threw; cleaning up and re-enqueuing follow-ups skipped",
+        {
+          conversationId: runResult.conversationId,
+          errorKind: runResult.errorKind,
+          err: runResult.error?.message,
+        },
+        "consolidation run failed; follow-ups skipped",
       );
-    }
-
-    // If the wake never ran (resolver missing, conversation archived,
-    // timeout, exception), clean up the orphan background conversation —
-    // matches the cleanup logic in `runUpdateBulletinJobIfNeeded`. We
-    // do NOT enqueue follow-ups in this branch because no pages changed.
-    if (!wakeInvoked) {
-      try {
-        deleteConversation(conversation.id);
-      } catch (err) {
-        log.warn(
-          { err, conversationId: conversation.id },
-          "consolidation: failed to delete orphan background conversation; continuing",
-        );
-      }
-      return failureReason !== undefined
-        ? { kind: "wake_failed", reason: failureReason }
-        : { kind: "wake_failed" };
+      return runResult.error?.message !== undefined
+        ? { kind: "run_failed", reason: runResult.error.message }
+        : { kind: "run_failed" };
     }
 
     // Step 5: enqueue follow-up jobs. Enqueueing now keeps the dispatch
@@ -207,7 +214,7 @@ export async function memoryV2ConsolidateJob(
 
     log.info(
       {
-        conversationId: conversation.id,
+        conversationId: runResult.conversationId,
         cutoff,
         followUpJobIds,
       },
@@ -215,7 +222,7 @@ export async function memoryV2ConsolidateJob(
     );
     return {
       kind: "invoked",
-      conversationId: conversation.id,
+      conversationId: runResult.conversationId,
       cutoff,
       followUpJobIds,
     };
@@ -335,7 +342,7 @@ function isHolderStale(holder: string): boolean {
 
 /**
  * Idempotent unlink of the lock file. Called from the `finally` block so a
- * crash in the wake path doesn't leave the lock stranded. ENOENT is swallowed
+ * crash in the run path doesn't leave the lock stranded. ENOENT is swallowed
  * because the lock may have been released by an operator or never created
  * (acquire failed before reaching the lock-write step).
  */

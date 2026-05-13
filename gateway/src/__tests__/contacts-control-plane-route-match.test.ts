@@ -15,6 +15,15 @@ describe("matchContactsControlPlaneRoute", () => {
     expect(
       matchContactsControlPlaneRoute("/v1/contact-channels/ch_1", "PATCH"),
     ).toEqual({ kind: "updateContactChannel", contactChannelId: "ch_1" });
+    expect(
+      matchContactsControlPlaneRoute(
+        "/v1/contact-channels/ch_1/verify",
+        "POST",
+      ),
+    ).toEqual({
+      kind: "verifyContactChannel",
+      contactChannelId: "ch_1",
+    });
     expect(matchContactsControlPlaneRoute("/v1/contacts/ct_1", "GET")).toEqual({
       kind: "getContact",
       contactId: "ct_1",
@@ -26,6 +35,13 @@ describe("matchContactsControlPlaneRoute", () => {
     // GET /v1/contact-channels/ch_1 does not match (PATCH only)
     expect(
       matchContactsControlPlaneRoute("/v1/contact-channels/ch_1", "GET"),
+    ).toBeNull();
+    // PATCH on verify subpath does not match (POST only)
+    expect(
+      matchContactsControlPlaneRoute(
+        "/v1/contact-channels/ch_1/verify",
+        "PATCH",
+      ),
     ).toBeNull();
   });
 

@@ -1370,19 +1370,24 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
     }
 
-    // MARK: - Notification Catch-Up
+    // MARK: - History Catch-Up
 
-    /// Prepare the view model for a notification catch-up history fetch.
+    /// Prepare the view model for a latest-history reconciliation fetch.
     ///
     /// Sets `needsReconnectCatchUp` so the next `populateFromHistory` call uses
-    /// the smart merge path (server-authoritative list + preserved unsent locals)
-    /// instead of the prepend-older-only path which would drop the new message.
+    /// the server-authoritative merge path instead of the prepend-older-only
+    /// path, which is only safe for initial history races.
+    public func prepareForLatestHistoryReconciliation() {
+        needsReconnectCatchUp = true
+    }
+
+    /// Prepare the view model for a notification catch-up history fetch.
     ///
     /// Called by ConversationManager when a `notification_intent` arrives for a
     /// conversation that already has an active ViewModel. Must be followed by a
     /// `requestReconnectHistory()` call on the ConversationRestorer.
     public func prepareForNotificationCatchUp() {
-        needsReconnectCatchUp = true
+        prepareForLatestHistoryReconciliation()
     }
 
     /// Prepare the view model for a channel conversation refresh.
@@ -1390,7 +1395,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// `needsReconnectCatchUp` so `populateFromHistory` does an atomic
     /// message replace instead of clearing the array first.
     public func prepareForChannelRefresh() {
-        needsReconnectCatchUp = true
+        prepareForLatestHistoryReconciliation()
         isHistoryLoaded = false
     }
 
@@ -1548,29 +1553,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             self.conversationType = conversationType
         }
         bootstrapConversation(userMessage: nil, attachments: nil)
-    }
-
-    // MARK: - Model
-
-    /// Switch the active model via the gateway.
-    public func setModel(_ modelId: String) {
-        // Ensure the message loop is running so we receive downstream events.
-        // VMs restored with an existing conversationId may not have started it yet.
-        if messageLoopTask == nil {
-            startMessageLoop()
-        }
-        Task {
-            let info = await SettingsClient().setModel(model: modelId)
-            if let model = info?.model {
-                self.selectedModel = model
-            }
-            if let providers = info?.configuredProviders {
-                self.configuredProviders = Set(providers)
-            }
-            if let allProviders = info?.allProviders, !allProviders.isEmpty {
-                self.providerCatalog = allProviders
-            }
-        }
     }
 
     // MARK: - Actions

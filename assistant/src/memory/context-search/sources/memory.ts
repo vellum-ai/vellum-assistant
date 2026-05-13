@@ -34,6 +34,7 @@ export async function searchMemorySource(
     });
     queryVector = result.vectors[0] ?? null;
   } catch (err) {
+    if (context.signal?.aborted || isAbortError(err)) throw err;
     log.warn({ err }, "Failed to embed memory recall query");
     return { evidence: [] };
   }
@@ -67,9 +68,15 @@ export async function searchMemorySource(
 
     return { evidence };
   } catch (err) {
+    if (context.signal?.aborted || isAbortError(err)) throw err;
     log.warn({ err }, "Failed to search memory graph for recall");
     return { evidence: [] };
   }
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === "AbortError" || err.name === "APIUserAbortError";
 }
 
 function memoryNodeToEvidence(node: MemoryNode, score: number): RecallEvidence {

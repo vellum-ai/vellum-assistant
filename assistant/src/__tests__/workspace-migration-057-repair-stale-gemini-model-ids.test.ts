@@ -217,6 +217,64 @@ describe("057-repair-stale-gemini-model-ids migration", () => {
     expect(config.llm.profiles.balanced.model).toBe("gemini-3-flash-preview");
   });
 
+  test("does not rewrite blocks whose effective provider is not Gemini", () => {
+    writeConfig({
+      llm: {
+        default: {
+          provider: "ollama",
+          model: "gemini-3-flash",
+        },
+        callSites: {
+          analyzeConversation: {
+            provider: "openrouter",
+            model: "gemini-3-flash",
+          },
+          recall: {
+            model: "gemini-3-flash",
+          },
+        },
+        profiles: {
+          custom: {
+            provider: "ollama",
+            model: "gemini-3-flash",
+          },
+        },
+      },
+    });
+    const before = readFileSync(configPath(), "utf-8");
+
+    repairStaleGeminiModelIdsMigration.run(workspaceDir);
+
+    expect(readFileSync(configPath(), "utf-8")).toBe(before);
+  });
+
+  test("rewrites call-site/profile blocks without local provider when default is Gemini", () => {
+    writeConfig({
+      llm: {
+        default: { provider: "gemini", model: "gemini-3-flash-preview" },
+        callSites: {
+          memoryRetrieval: { model: "gemini-3-flash" },
+        },
+        profiles: {
+          balanced: { model: "gemini-3-flash" },
+        },
+      },
+    });
+
+    repairStaleGeminiModelIdsMigration.run(workspaceDir);
+
+    const config = readConfig() as {
+      llm: {
+        callSites: Record<string, { model: string }>;
+        profiles: Record<string, { model: string }>;
+      };
+    };
+    expect(config.llm.callSites.memoryRetrieval.model).toBe(
+      "gemini-3.1-flash-lite-preview",
+    );
+    expect(config.llm.profiles.balanced.model).toBe("gemini-3-flash-preview");
+  });
+
   test("no-ops when config.json is missing or invalid", () => {
     repairStaleGeminiModelIdsMigration.run(workspaceDir);
     expect(existsSync(configPath())).toBe(false);

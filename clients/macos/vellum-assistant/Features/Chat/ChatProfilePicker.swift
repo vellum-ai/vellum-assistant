@@ -66,7 +66,8 @@ struct ChatProfilePicker: View {
     }
 
     var body: some View {
-        let pillLabel = Self.label(current: current, profiles: profiles, activeProfile: activeProfile)
+        let activeProfiles = profiles.filter { !$0.isDisabled }
+        let pillLabel = Self.label(current: current, profiles: activeProfiles, activeProfile: activeProfile)
         #if os(macOS)
         ComposerPillMenu(
             isEnabled: isEnabled,
@@ -81,7 +82,7 @@ struct ChatProfilePicker: View {
                 .foregroundStyle(VColor.contentSecondary)
                 .lineLimit(1)
         } menu: {
-            ForEach(profiles) { profile in
+            ForEach(activeProfiles) { profile in
                 VMenuItem(
                     icon: VIcon.sparkles.rawValue,
                     label: profile.displayName,
@@ -100,7 +101,7 @@ struct ChatProfilePicker: View {
             }
             VMenuItem(
                 icon: VIcon.rotateCcw.rawValue,
-                label: "Reset to default (\(profiles.first { $0.name == activeProfile }?.displayName ?? activeProfile))",
+                label: "Reset to default (\(activeProfiles.first { $0.name == activeProfile }?.displayName ?? activeProfile))",
                 isActive: current == nil,
                 size: .regular
             ) {

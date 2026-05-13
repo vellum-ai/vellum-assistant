@@ -52,6 +52,7 @@ public final class GatewayConnectionManager {
     public internal(set) var isUpdateInProgress: Bool = false
     public internal(set) var updateTargetVersion: String?
     public internal(set) var updateStatusMessage: String?
+    public internal(set) var updateExpectedDowntimeSeconds: Double?
     @ObservationIgnored var updateExpiresAt: Date?
     @ObservationIgnored private var outcomeEmittedForCurrentCycle = false
     public internal(set) var lastUpdateOutcome: UpdateOutcome?
@@ -298,6 +299,7 @@ public final class GatewayConnectionManager {
         isUpdateInProgress = false
         updateTargetVersion = nil
         updateStatusMessage = nil
+        updateExpectedDowntimeSeconds = nil
         updateExpiresAt = nil
         lastUpdateOutcome = nil
         keyFingerprint = nil
@@ -504,6 +506,7 @@ public final class GatewayConnectionManager {
         lastUpdateOutcome = UpdateOutcome(result: .timedOut, timestamp: Date())
         isUpdateInProgress = false
         updateTargetVersion = nil
+        updateExpectedDowntimeSeconds = nil
         updateExpiresAt = nil
         updateStatusMessage = nil
         eventStreamClient.resetSSEReconnectDelay()
@@ -537,6 +540,7 @@ public final class GatewayConnectionManager {
             isUpdateInProgress = false
             // Preserve updateTargetVersion — only the authoritative
             // .serviceGroupUpdateComplete SSE event or timeout clears it.
+            updateExpectedDowntimeSeconds = nil
             updateExpiresAt = nil
             updateStatusMessage = nil
             eventStreamClient.resetSSEReconnectDelay()
@@ -592,6 +596,7 @@ public final class GatewayConnectionManager {
                     self.isUpdateInProgress = false
                     // Preserve updateTargetVersion — only the authoritative
                     // .serviceGroupUpdateComplete SSE event or timeout clears it.
+                    self.updateExpectedDowntimeSeconds = nil
                     self.updateExpiresAt = nil
                     self.updateStatusMessage = nil
                     self.eventStreamClient.resetSSEReconnectDelay()
@@ -612,6 +617,7 @@ public final class GatewayConnectionManager {
         switch message {
         case .serviceGroupUpdateStarting(let msg):
             self.updateTargetVersion = msg.targetVersion
+            self.updateExpectedDowntimeSeconds = msg.expectedDowntimeSeconds
             self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
             self.updateStatusMessage = "Preparing to update…"
             setUpdateInProgress(true)
@@ -629,6 +635,7 @@ public final class GatewayConnectionManager {
             }
             self.isUpdateInProgress = false
             self.updateTargetVersion = nil
+            self.updateExpectedDowntimeSeconds = nil
             self.updateExpiresAt = nil
             self.updateStatusMessage = nil
             self.eventStreamClient.resetSSEReconnectDelay()

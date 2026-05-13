@@ -128,6 +128,17 @@ describe("buildServiceRunArgs — gateway", () => {
       buildGatewayArgs().some((arg) => arg.startsWith("VELAY_BASE_URL=")),
     ).toBe(false);
   });
+
+  test("forces gateway to run as uid 0 so it can connect to the assistant's root-owned IPC socket (mirrors K8s securityContext.runAsUser=0)", () => {
+    const args = buildGatewayArgs();
+    const userIdx = args.indexOf("--user");
+    expect(userIdx).toBeGreaterThan(-1);
+    expect(args[userIdx + 1]).toBe("0");
+  });
+
+  test("assistant container does NOT get a --user override (image USER root wins)", () => {
+    expect(buildAssistantArgs().includes("--user")).toBe(false);
+  });
 });
 
 describe("VELLUM_AVATAR_DEVICE passthrough", () => {

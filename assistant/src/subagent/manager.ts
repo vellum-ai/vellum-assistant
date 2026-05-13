@@ -10,14 +10,15 @@
 
 import { v4 as uuid } from "uuid";
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
 import { findConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
+import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
+import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
-import { getProvider } from "../providers/registry.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
@@ -181,19 +182,23 @@ export class SubagentManager {
 
     // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
-    let provider = getProvider(appConfig.llm.default.provider);
+    // Connection-aware default-provider resolution. Throws
+    // `ConnectionResolutionError` if `llm.default.provider_connection` is
+    // unset or the connection row is missing/mismatched (config bugs).
+    // Returns null on soft credential failures (vault miss, transient
+    // auth) — handled below as "no provider available". Per-call
+    // `callSite` routing is layered next.
+    const baseProvider = await resolveDefaultProvider(appConfig);
+    if (!baseProvider) {
+      throw new Error(
+        `Subagent: default provider '${resolveCallSiteConfig("mainAgent", appConfig.llm).provider}' is not registered`,
+      );
+    }
     // Per-call `options.config.callSite` (e.g. `subagentSpawn`) can resolve
-    // to a provider name that differs from `llm.default.provider`. Wrap the
-    // default provider so the actual transport routes correctly per call,
-    // rather than only forwarding metadata to the default's HTTP client.
-    // See `providers/call-site-routing.ts`.
-    provider = new CallSiteRoutingProvider(provider, (name) => {
-      try {
-        return getProvider(name);
-      } catch {
-        return undefined;
-      }
-    });
+    // to a profile that differs from `llm.default`. The shared wrapper
+    // threads `appConfig` through so per-call alternate-profile routing is
+    // also connection-aware (matches the canonical dispatch path).
+    let provider = wrapWithCallSiteRouting(baseProvider, appConfig);
     const { rateLimit } = appConfig;
     if (rateLimit.maxRequestsPerMinute > 0) {
       provider = new RateLimitProvider(
@@ -225,7 +230,7 @@ export class SubagentManager {
         config.systemPromptOverride ??
         buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
     }
-    const maxTokens = appConfig.llm.default.maxTokens;
+    const maxTokens = resolveCallSiteConfig("subagentSpawn", appConfig.llm).maxTokens;
     const workingDir = getSandboxWorkingDir();
 
     // ── Initialise state ────────────────────────────────────────────

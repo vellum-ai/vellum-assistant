@@ -200,15 +200,45 @@ function parseUnifiedDiff(diff: string): AddedLine[] {
 // everything below it is dropped before the commit is recorded.
 const COMMIT_MSG_SCISSORS = "# ------------------------ >8 ------------------------";
 
-function parseCommitMessage(text: string): AddedLine[] {
+// `verbatim` and `whitespace` cleanup modes keep `#` lines in the recorded
+// commit message, so we cannot blindly skip them — quoted real data on a
+// `#` line would slip through the scan. `default`/`strip`/`scissors` strip
+// `#` lines, so skipping them avoids false positives on git editor template
+// text (`# Please enter the commit message...`).
+const STRIPS_HASH_LINES: ReadonlySet<string> = new Set([
+  "default",
+  "strip",
+  "scissors",
+]);
+
+function getCommitCleanupMode(): string {
+  try {
+    const value = execSync("git config --get commit.cleanup", {
+      stdio: ["pipe", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+    return value || "default";
+  } catch {
+    return "default";
+  }
+}
+
+function parseCommitMessage(
+  text: string,
+  cleanupMode: string = getCommitCleanupMode(),
+): AddedLine[] {
   const result: AddedLine[] = [];
   const lines = text.split("\n");
+  const stripsHashLines = STRIPS_HASH_LINES.has(cleanupMode);
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
+    // Always honor the scissors marker: under `scissors` cleanup (and the
+    // implicit mode used by `git commit -v`) everything below it is dropped
+    // before the commit is recorded, and that region typically contains the
+    // diff which can include quoted strings unrelated to the message.
     if (raw === COMMIT_MSG_SCISSORS) break;
-    // Lines starting with `#` are stripped before the commit is recorded;
-    // skip them so we don't false-positive on guidance text.
-    if (raw.startsWith("#")) continue;
+    if (stripsHashLines && raw.startsWith("#")) continue;
     // No previousContent tracking: prior-line suppression markers in commit
     // messages would survive into the recorded message (odd UX). Same-line
     // `generic-examples:ignore-line` still works via isSuppressed().
@@ -390,6 +420,7 @@ const TEST_CASES: TestCase[] = [
 interface CommitMsgTestCase {
   name: string;
   text: string;
+  cleanupMode?: string;
   expectPatterns: string[];
 }
 
@@ -410,9 +441,21 @@ const COMMIT_MSG_TEST_CASES: CommitMsgTestCase[] = [
     expectPatterns: [],
   },
   {
-    name: "comment line containing real email is skipped",
-    text: 'fix: bug\n\n# Please enter the commit message. Lines starting with\n# "#" will be ignored. Example: alice@gmail.com\n',
+    name: "comment line containing quoted real email is skipped under default cleanup",
+    text: 'fix: bug\n\n# note: was "alice@gmail.com"\n',
     expectPatterns: [],
+  },
+  {
+    name: "comment line containing quoted real email is flagged under verbatim cleanup",
+    text: 'fix: bug\n\n# note: was "alice@gmail.com"\n',
+    cleanupMode: "verbatim",
+    expectPatterns: ["non-example-email"],
+  },
+  {
+    name: "comment line containing quoted real email is flagged under whitespace cleanup",
+    text: 'fix: bug\n\n# note: was "alice@gmail.com"\n',
+    cleanupMode: "whitespace",
+    expectPatterns: ["non-example-email"],
   },
   {
     name: "scissors line truncates scan",
@@ -453,7 +496,7 @@ function runSelfTest(): number {
     }
   }
   for (const tc of COMMIT_MSG_TEST_CASES) {
-    const lines = parseCommitMessage(tc.text);
+    const lines = parseCommitMessage(tc.text, tc.cleanupMode ?? "default");
     const findings = scan(lines, SHAPE_PATTERNS);
     const got = findings.map((f) => f.pattern).sort();
     const want = [...tc.expectPatterns].sort();

@@ -96,14 +96,15 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
-  test("rejects edits to quality-optimized with descriptive message", () => {
+  test("rejects edits to quality-optimized that touch non-label/status fields", () => {
     expect(() =>
       replaceRoute.handler({
         pathParams: { name: "quality-optimized" },
         body: { provider: "openai", model: "gpt-4o" },
       }),
     ).toThrow(
-      'Cannot edit managed profile "quality-optimized". Duplicate it to create a custom profile.',
+      'Cannot edit managed profile "quality-optimized" fields [provider, model]. ' +
+        "Only label and status may be edited; duplicate to a custom profile to change other fields.",
     );
   });
 
@@ -143,6 +144,134 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     });
     expect(result).toEqual({ ok: true });
     expect(savedRaw).not.toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Null-as-clear sentinel: `patchManagedProfileFields` has handled `null`
+  // for label and status since #30362, but the Zod `ProfileEntry` schema
+  // had them as `.optional()` (not `.nullable()`), which rejected null
+  // payloads at parse time before the route handler ever saw them.
+  // These tests lock the round-trip now that the schema accepts null.
+  // -------------------------------------------------------------------------
+
+  test("PUT { label: null } on managed profile clears the label on disk", () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            label: "My Custom Name",
+            source: "managed",
+          },
+        },
+      },
+    };
+    const result = replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label: null },
+    });
+    expect(result).toEqual({ ok: true });
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
+      ?.balanced as Record<string, unknown>;
+    // Label key removed; seed fields preserved.
+    expect("label" in profile).toBe(false);
+    expect(profile.provider).toBe("anthropic");
+    expect(profile.model).toBe("claude-sonnet");
+    expect(profile.source).toBe("managed");
+  });
+
+  test("PUT { status: null } on managed profile clears status (back to active-by-absence)", () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          "quality-optimized": {
+            provider: "anthropic",
+            model: "claude-opus",
+            status: "disabled",
+            source: "managed",
+          },
+        },
+      },
+    };
+    const result = replaceRoute.handler({
+      pathParams: { name: "quality-optimized" },
+      body: { status: null },
+    });
+    expect(result).toEqual({ ok: true });
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm
+      ?.profiles?.["quality-optimized"] as Record<string, unknown>;
+    expect("status" in profile).toBe(false);
+    expect(profile.provider).toBe("anthropic");
+    expect(profile.model).toBe("claude-opus");
+  });
+
+  test("PUT { label: null, status: null } clears both in a single request", () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          "cost-optimized": {
+            provider: "anthropic",
+            model: "claude-haiku",
+            label: "Speed (Custom)",
+            status: "disabled",
+            source: "managed",
+          },
+        },
+      },
+    };
+    const result = replaceRoute.handler({
+      pathParams: { name: "cost-optimized" },
+      body: { label: null, status: null },
+    });
+    expect(result).toEqual({ ok: true });
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm
+      ?.profiles?.["cost-optimized"] as Record<string, unknown>;
+    expect("label" in profile).toBe(false);
+    expect(profile.status).toBeUndefined();
+    expect(profile.provider).toBe("anthropic");
+    expect(profile.model).toBe("claude-haiku");
+  });
+
+  test("PUT { label: null, status: 'disabled' } mixes clear + set in one call", () => {
+    savedRaw = null;
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-sonnet",
+            label: "Custom Label",
+            source: "managed",
+          },
+        },
+      },
+    };
+    const result = replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label: null, status: "disabled" },
+    });
+    expect(result).toEqual({ ok: true });
+    const profile = (savedRaw as unknown as Record<string, any>)?.llm?.profiles
+      ?.balanced as Record<string, unknown>;
+    expect("label" in profile).toBe(false);
+    expect(profile.status).toBe("disabled");
+  });
+
+  test("PUT { label: '' } on managed profile still rejected by `.min(1)`", () => {
+    // `.nullable()` only widens the type to accept null — empty strings
+    // still fail the min-length check, which is correct: an empty string
+    // would persist as a literal "" override, not the clear-to-seed
+    // intent. Clients must send `null` to clear.
+    expect(() =>
+      replaceRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { label: "" },
+      }),
+    ).toThrow(BadRequestError);
   });
 });
 

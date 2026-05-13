@@ -470,7 +470,9 @@ describe("computeOwnActivation", () => {
         c_now: 0.2,
       }),
     });
-    // Expected: 0.3*0.6 + 0.3*0.5 + 0.2*0.4 + 0.2*0.2 = 0.18+0.15+0.08+0.04 = 0.45
+    // Positive cosines pass through unchanged (negatives clamp to 0).
+    // Expected: 0.3*0.6 + 0.3*0.5 + 0.2*0.4 + 0.2*0.2
+    //         = 0.18 + 0.15 + 0.08 + 0.04 = 0.45
     expect(out.activation.get("alice")).toBeCloseTo(0.45, 6);
   });
 
@@ -523,6 +525,7 @@ describe("computeOwnActivation", () => {
         c_now: 0.2,
       }),
     });
+    // Positive cosines pass through unchanged: 1.0 stays 1.0; 0 stays 0.
     // 0.3*0 + 0.3*1 + 0.2*0 + 0.2*0 = 0.3
     expect(out.activation.get("fresh")).toBeCloseTo(0.3, 6);
   });
@@ -573,7 +576,8 @@ describe("computeOwnActivation", () => {
     expect(breakdown).toBeDefined();
     // priorContribution is `d * prev`, not the weighted sim term.
     expect(breakdown?.priorContribution).toBeCloseTo(d * 0.6, 6);
-    // Raw sims, captured before c_user / c_assistant / c_now weighting.
+    // Fused sims (positive cosines pass through unchanged), captured before
+    // c_user / c_assistant / c_now weighting.
     expect(breakdown?.simUser).toBeCloseTo(0.5, 6);
     expect(breakdown?.simAssistant).toBeCloseTo(0.4, 6);
     expect(breakdown?.simNow).toBeCloseTo(0.2, 6);
@@ -801,8 +805,10 @@ describe("computeOwnActivation", () => {
   });
 
   test("rerank boost is additive on A_o and leaves raw simUser / simAssistant untouched", async () => {
-    stageHybridResponse([{ slug: "a", denseScore: 0.5 }]); // user
-    stageHybridResponse([{ slug: "a", denseScore: 0.4 }]); // assistant
+    // Positive cosines pass through unchanged; pick 0.5 / 0.4 directly so
+    // the round fused values used in the formula assertion below hold.
+    stageHybridResponse([{ slug: "a", denseScore: 0.5 }]); // user — fused 0.5
+    stageHybridResponse([{ slug: "a", denseScore: 0.4 }]); // assistant — fused 0.4
     stageHybridResponse([]); // now
     rerankState.scores = new Map([["a", 0.8]]);
 
@@ -1219,6 +1225,7 @@ describe("skills participate in the unified pipeline", () => {
     });
 
     // No prior state → priorContribution = 0.
+    // Positive cosines pass through unchanged.
     // 0.3*0.5 + 0.2*0.4 + 0.2*0.2 = 0.15 + 0.08 + 0.04 = 0.27
     expect(out.activation.get("skills/example-skill-a")).toBeCloseTo(0.27, 6);
     expect(out.breakdown.get("skills/example-skill-a")?.priorContribution).toBe(

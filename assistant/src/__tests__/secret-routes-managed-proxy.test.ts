@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { LLMSchema } from "../config/schemas/llm.js";
 import { credentialKey } from "../security/credential-key.js";
 
 let lastGeminiConstructorOpts: Record<string, unknown> | null = null;
@@ -15,11 +16,11 @@ const MANAGED_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
 
 let platformBaseUrlOverride: string | undefined;
 
+const baseLlm = LLMSchema.parse({});
+
 const mockConfig = {
   services: {
-    inference: {
-      mode: "your-own" as const,
-    },
+    inference: {},
     "image-generation": {
       mode: "your-own" as const,
       provider: "gemini",
@@ -30,7 +31,14 @@ const mockConfig = {
       provider: "inference-provider-native",
     },
   },
-  llm: { default: { provider: "anthropic", model: "test-model" } },
+  llm: {
+    ...baseLlm,
+    default: {
+      ...baseLlm.default,
+      provider: "anthropic" as const,
+      model: "test-model",
+    },
+  },
 };
 
 mock.module("@google/genai", () => ({

@@ -78,7 +78,6 @@ final class SettingsStoreInferenceTests: XCTestCase {
                 "inference": [
                     "provider": "anthropic",
                     "model": "claude-opus-4-6",
-                    "mode": "your-own"
                 ]
             ]
         ]
@@ -95,11 +94,6 @@ final class SettingsStoreInferenceTests: XCTestCase {
             "gpt-4.1",
             "loadServiceModes must prefer llm.default.model over services.inference.model"
         )
-        XCTAssertEqual(
-            store.inferenceMode,
-            "your-own",
-            "loadServiceModes must continue to read inferenceMode from services.inference.mode"
-        )
     }
 
     /// When only `services.inference.*` is present (unmigrated config), the
@@ -113,7 +107,6 @@ final class SettingsStoreInferenceTests: XCTestCase {
                 "inference": [
                     "provider": "anthropic",
                     "model": "claude-opus-4-6",
-                    "mode": "managed"
                 ]
             ]
         ]
@@ -129,11 +122,6 @@ final class SettingsStoreInferenceTests: XCTestCase {
             store.selectedModel,
             "claude-opus-4-6",
             "loadServiceModes must fall back to services.inference.model when llm.default is absent"
-        )
-        XCTAssertEqual(
-            store.inferenceMode,
-            "managed",
-            "loadServiceModes must read inferenceMode from services.inference.mode"
         )
     }
 
@@ -265,21 +253,4 @@ final class SettingsStoreInferenceTests: XCTestCase {
         XCTAssertEqual(store.selectedInferenceProvider, "openai")
     }
 
-    // MARK: - Legacy setInferenceMode is preserved
-
-    /// `setInferenceMode` continues to write to `services.inference.mode` —
-    /// the mode toggle is an inference-delivery setting, not part of the
-    /// LLM model config, so it stays under `services.inference`.
-    func testSetInferenceModeStillWritesToServicesInference() {
-        _ = store.setInferenceMode("managed")
-        waitForPatchCount(1)
-
-        let patch = lastServicesInferencePatch()
-        XCTAssertNotNil(patch, "expected a services.inference patch payload")
-        XCTAssertEqual(patch?["mode"] as? String, "managed")
-        XCTAssertNil(
-            lastLLMDefaultPatch(),
-            "setInferenceMode must not write to llm.default.*"
-        )
-    }
 }

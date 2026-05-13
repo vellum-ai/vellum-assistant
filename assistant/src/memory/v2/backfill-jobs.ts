@@ -7,8 +7,7 @@
 //
 //   - `memory_v2_migrate`              — one-shot v1→v2 synthesis (PR 16).
 //   - `memory_v2_reembed`              — fan out an `embed_concept_page` job
-//     per slug, plus four reserved-slug jobs for the meta files
-//     (`__essentials__`, `__threads__`, `__recent__`, `__buffer__`).
+//     per concept-page slug.
 //   - `memory_v2_activation_recompute` — recompute persisted activation
 //     state for every conversation, no rendering. Used after consolidation
 //     replaces or deletes pages that other conversations still reference.
@@ -19,9 +18,6 @@
 // the same code paths exercised by tests of those modules run unchanged when
 // a backfill kicks them off.
 
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -30,6 +26,7 @@ import { listConversations } from "../conversation-queries.js";
 import { getDb } from "../db-connection.js";
 import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
 import type { MemoryJob } from "../jobs-store.js";
+import { stringifyMessageContent } from "../message-content.js";
 import {
   computeOwnActivation,
   selectCandidates,
@@ -41,24 +38,10 @@ import {
   MigrationAlreadyAppliedError,
   runMemoryV2Migration,
 } from "./migration.js";
+import { loadNowText } from "./now-text.js";
 import { listPages } from "./page-store.js";
 
 const log = getLogger("memory-v2-backfill");
-
-/**
- * Reserved slugs the reembed job enqueues alongside the concept-page slugs.
- * These name the four prose meta files (essentials/threads/recent/buffer)
- * loaded into the system prompt by PR 11. Embedding them is forward-looking
- * — the existing `embed-concept-page` handler treats unknown slugs as
- * deletions (a no-op when no embedding exists), so enqueueing here is safe
- * regardless of whether the meta files are ever embedded for retrieval.
- */
-export const META_FILE_SLUGS = [
-  "__essentials__",
-  "__threads__",
-  "__recent__",
-  "__buffer__",
-] as const;
 
 // ---------------------------------------------------------------------------
 // memory_v2_migrate — wraps runMemoryV2Migration
@@ -106,16 +89,22 @@ export async function memoryV2MigrateJob(
 }
 
 // ---------------------------------------------------------------------------
-// memory_v2_reembed — fan out embed jobs for every page + meta file
+// memory_v2_reembed — fan out embed jobs for every concept page
 // ---------------------------------------------------------------------------
 
 /**
- * Job handler: enqueue an `embed_concept_page` job per concept-page slug, plus
- * one job per reserved meta-file slug ({@link META_FILE_SLUGS}).
+ * Job handler: enqueue an `embed_concept_page` job per concept-page slug.
  *
- * Returns the total number of jobs enqueued — `concept-page count + 4`.
- * Callers (and tests) use the return value to assert progress without
- * inspecting the job table directly.
+ * Returns the total number of jobs enqueued. Callers (and tests) use the
+ * return value to assert progress without inspecting the job table directly.
+ *
+ * Note on meta files: `essentials.md` / `threads.md` / `recent.md` /
+ * `buffer.md` are direct-injected into the system prompt every turn via
+ * `_autoinject.md`. They are NOT enqueued for embedding here — their slugs
+ * (`__essentials__` etc.) contain underscores that the concept-page slug
+ * validator rejects (`[a-z0-9][a-z0-9-]*`), and they live at `memory/<name>.md`
+ * rather than `memory/concepts/<name>.md`, so path resolution would also miss.
+ * Embedding them would be redundant with the direct injection regardless.
  */
 export async function memoryV2ReembedJob(
   _job: MemoryJob,
@@ -127,16 +116,12 @@ export async function memoryV2ReembedJob(
   for (const slug of slugs) {
     enqueueEmbedConceptPageJob({ slug });
   }
-  for (const slug of META_FILE_SLUGS) {
-    enqueueEmbedConceptPageJob({ slug });
-  }
 
-  const total = slugs.length + META_FILE_SLUGS.length;
   log.info(
-    { conceptPages: slugs.length, metaFiles: META_FILE_SLUGS.length, total },
+    { conceptPages: slugs.length, total: slugs.length },
     "Memory v2 reembed enqueued",
   );
-  return total;
+  return slugs.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,56 +287,4 @@ function lastExchangeTexts(conversationId: string): {
     if (userText && assistantText) break;
   }
   return { userText, assistantText };
-}
-
-/**
- * Coerce stored message content (JSON-serialized `ContentBlock[]` *or* plain
- * string in legacy rows) into a single text string. Image / tool blocks are
- * dropped — recompute only needs the spoken text.
- */
-function stringifyMessageContent(stored: string): string {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stored);
-  } catch {
-    return stored.trim();
-  }
-  if (typeof parsed === "string") return parsed.trim();
-  if (!Array.isArray(parsed)) return "";
-  const parts: string[] = [];
-  for (const block of parsed) {
-    if (
-      block &&
-      typeof block === "object" &&
-      (block as { type?: string }).type === "text" &&
-      typeof (block as { text?: unknown }).text === "string"
-    ) {
-      parts.push((block as { text: string }).text);
-    }
-  }
-  return parts.join("\n").trim();
-}
-
-/**
- * Read the prose meta files that compose the "NOW" context the activation
- * pipeline correlates against. Mirrors the autoload order in
- * `system-prompt.ts` so the same prose drives both injection and recompute.
- * Missing or unreadable files are treated as empty.
- */
-async function loadNowText(workspaceDir: string): Promise<string> {
-  const filenames = ["essentials.md", "threads.md", "recent.md"];
-  const reads = await Promise.all(
-    filenames.map(async (filename) => {
-      try {
-        const text = await readFile(
-          join(workspaceDir, "memory", filename),
-          "utf-8",
-        );
-        return text.trim();
-      } catch {
-        return "";
-      }
-    }),
-  );
-  return reads.filter((part) => part.length > 0).join("\n\n");
 }

@@ -203,7 +203,7 @@ describe("embedConceptPageJob — happy path", () => {
   test("reads the page, embeds it, and upserts to the v2 collection", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Alice prefers VS Code over Vim.\nShe ships at end of day.\n",
     });
 
@@ -231,7 +231,7 @@ describe("embedConceptPageJob — happy path", () => {
   test("populates the SQLite embedding cache row keyed on (concept_page, slug)", async () => {
     await writePage(tmpWorkspace, {
       slug: "bob-uses-zsh",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Bob uses zsh.\n",
     });
 
@@ -257,6 +257,7 @@ describe("embedConceptPageJob — summary embedding", () => {
       frontmatter: {
         edges: [],
         ref_files: [],
+        ref_urls: [],
         summary: "A short prose summary that retrieval indexes separately.",
       },
       body: "Long-form body content.\n",
@@ -282,7 +283,7 @@ describe("embedConceptPageJob — summary embedding", () => {
   test("skips summary embedding when the page has no summary in frontmatter", async () => {
     await writePage(tmpWorkspace, {
       slug: "legacy-page",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Body only — no summary in frontmatter.\n",
     });
 
@@ -303,6 +304,7 @@ describe("embedConceptPageJob — summary embedding", () => {
       frontmatter: {
         edges: [],
         ref_files: [],
+        ref_urls: [],
         summary: "   ",
       },
       body: "Body content.\n",
@@ -324,14 +326,12 @@ describe("embedConceptPageJob — summary embedding", () => {
       frontmatter: {
         edges: [],
         ref_files: [],
+        ref_urls: [],
         summary: "First version of the summary.",
       },
       body: "Stable body that never changes.\n",
     });
-    await embedConceptPageJob(
-      makeJob({ slug: "cached-summary" }),
-      TEST_CONFIG,
-    );
+    await embedConceptPageJob(makeJob({ slug: "cached-summary" }), TEST_CONFIG);
     // Body + summary batched into a single backend call on first run.
     expect(embedWithBackendCalls).toHaveLength(1);
     expect(embedWithBackendCalls[0].inputs).toHaveLength(2);
@@ -344,14 +344,12 @@ describe("embedConceptPageJob — summary embedding", () => {
       frontmatter: {
         edges: [],
         ref_files: [],
+        ref_urls: [],
         summary: "Second version of the summary, different wording.",
       },
       body: "Stable body that never changes.\n",
     });
-    await embedConceptPageJob(
-      makeJob({ slug: "cached-summary" }),
-      TEST_CONFIG,
-    );
+    await embedConceptPageJob(makeJob({ slug: "cached-summary" }), TEST_CONFIG);
     // One additional backend call with only the summary text — body hit the cache.
     expect(embedWithBackendCalls).toHaveLength(2);
     expect(embedWithBackendCalls[1].inputs).toHaveLength(1);
@@ -362,7 +360,7 @@ describe("embedConceptPageJob — cache hit", () => {
   test("reuses the cached dense vector when content hash matches", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Stable content.\n",
     });
 
@@ -387,7 +385,7 @@ describe("embedConceptPageJob — cache hit", () => {
   test("re-embeds when the body changes (content hash mismatch)", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "First content.\n",
     });
     await embedConceptPageJob(
@@ -398,7 +396,7 @@ describe("embedConceptPageJob — cache hit", () => {
     // Rewrite with different body.
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Second content (different).\n",
     });
     await embedConceptPageJob(
@@ -453,7 +451,7 @@ describe("enqueueEmbedConceptPageJob", () => {
   test("round-trip: enqueued job dispatches through embedConceptPageJob", async () => {
     await writePage(tmpWorkspace, {
       slug: "round-trip-slug",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Round-trip body.\n",
     });
 

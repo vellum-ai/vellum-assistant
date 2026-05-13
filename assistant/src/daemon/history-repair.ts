@@ -68,11 +68,14 @@ export function repairHistory(messages: Message[]): RepairResult {
         }
       }
 
-      // Ensure every server_tool_use has a paired web_search_tool_result
-      // in the same assistant message (handles interrupted streams).
-      // Synthetic results are inserted IMMEDIATELY AFTER their corresponding
-      // server_tool_use block — not appended to the end — so that
-      // ensureToolPairing's split at tool_use boundaries cannot separate them.
+      // Pair server-side tool blocks within the same assistant message.
+      // Server tools (e.g. web_search) emit server_tool_use + matching
+      // web_search_tool_result. Either side can go missing — the synthetic
+      // result is inserted IMMEDIATELY AFTER the orphan server_tool_use (not
+      // appended to the end) so ensureToolPairing's split at tool_use
+      // boundaries cannot separate the pair. An orphan
+      // web_search_tool_result (no preceding server_tool_use) is downgraded
+      // to text — Anthropic rejects the request otherwise.
       const serverToolIds = new Set(
         cleanedContent
           .filter(
@@ -91,11 +94,35 @@ export function repairHistory(messages: Message[]): RepairResult {
           orphanedServerIds.add(id);
         }
       }
+      const orphanedWebSearchResultIds = new Set<string>();
+      for (const id of matchedServerIds) {
+        if (!serverToolIds.has(id)) {
+          orphanedWebSearchResultIds.add(id);
+        }
+      }
 
       let repairedContent: ContentBlock[];
-      if (orphanedServerIds.size > 0) {
+      if (orphanedServerIds.size > 0 || orphanedWebSearchResultIds.size > 0) {
         repairedContent = [];
         for (const block of cleanedContent) {
+          if (
+            block.type === "web_search_tool_result" &&
+            orphanedWebSearchResultIds.has(
+              (block as { tool_use_id: string }).tool_use_id,
+            )
+          ) {
+            repairedContent.push(
+              downgradeResult(
+                block as {
+                  type: "web_search_tool_result";
+                  tool_use_id: string;
+                  content: unknown;
+                },
+              ),
+            );
+            stats.orphanToolResultsDowngraded++;
+            continue;
+          }
           repairedContent.push(block);
           if (
             block.type === "server_tool_use" &&

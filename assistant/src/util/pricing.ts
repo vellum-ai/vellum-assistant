@@ -1,4 +1,10 @@
 import type { ModelPricingOverride } from "../config/schema.js";
+import type {
+  CatalogModel,
+  CatalogModelPricing,
+  CatalogModelPricingTier,
+} from "../providers/model-catalog.js";
+import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import type { PricingResult, PricingUsage } from "../usage/types.js";
 
 interface ModelPricing {
@@ -25,62 +31,22 @@ const ANTHROPIC_PROMPT_CACHE_MULTIPLIERS = {
 const ANTHROPIC_FAST_MODE_MULTIPLIER = 6;
 
 /**
- * Multi-provider pricing catalog keyed by provider then model pattern.
- * Model patterns are matched by exact match first, then by prefix.
+ * Pricing fallback for vendor-versioned IDs that don't match a catalog row
+ * directly. Keys are bare-prefix slugs (`claude-opus-4`, `gpt-4o`) used to
+ * price IDs like `claude-opus-4-5-20250929` or `gpt-4o-mini-2024-07-18`
+ * before the catalog is updated for a new version.
+ *
+ * `findPricing` checks the catalog first (including longest-prefix match
+ * against `CatalogModel.id`); this fallback only fires when nothing in the
+ * catalog matches.
  */
-const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
+const LEGACY_PRICING_FALLBACK: Record<string, Record<string, ModelPricing>> = {
   anthropic: {
-    "claude-opus-4-7": { inputPer1M: 5, outputPer1M: 25 },
-    "claude-opus-4-6": { inputPer1M: 5, outputPer1M: 25 },
     "claude-opus-4": { inputPer1M: 5, outputPer1M: 25 },
     "claude-sonnet-4": { inputPer1M: 3, outputPer1M: 15 },
     "claude-haiku-4": { inputPer1M: 1, outputPer1M: 5 },
   },
   openai: {
-    "gpt-5.5": {
-      inputPer1M: 5,
-      outputPer1M: 30,
-      cacheReadPer1M: 0.5,
-      tiers: [
-        {
-          inputTokenThreshold: 272_000,
-          inputPer1M: 10,
-          outputPer1M: 45,
-          cacheReadPer1M: 1,
-        },
-      ],
-    },
-    "gpt-5.5-pro": {
-      inputPer1M: 30,
-      outputPer1M: 180,
-      tiers: [
-        {
-          inputTokenThreshold: 272_000,
-          inputPer1M: 60,
-          outputPer1M: 270,
-        },
-      ],
-    },
-    "gpt-5.4": {
-      inputPer1M: 2.5,
-      outputPer1M: 15,
-      cacheReadPer1M: 0.25,
-      tiers: [
-        {
-          inputTokenThreshold: 272_000,
-          inputPer1M: 5,
-          outputPer1M: 22.5,
-          cacheReadPer1M: 0.5,
-        },
-      ],
-    },
-    "gpt-5.4-mini": {
-      inputPer1M: 0.75,
-      outputPer1M: 4.5,
-      cacheReadPer1M: 0.075,
-    },
-    "gpt-5.4-nano": { inputPer1M: 0.2, outputPer1M: 1.25 },
-    "gpt-5.2": { inputPer1M: 1.75, outputPer1M: 14 },
     "gpt-4o": { inputPer1M: 2.5, outputPer1M: 10 },
     "gpt-4o-mini": { inputPer1M: 0.15, outputPer1M: 0.6 },
     "gpt-4.1": { inputPer1M: 2.0, outputPer1M: 8.0 },
@@ -92,97 +58,53 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
     "o4-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
   },
   gemini: {
-    "gemini-3.1-pro-preview": {
-      inputPer1M: 2,
-      outputPer1M: 12,
-      cacheReadPer1M: 0.2,
-      tiers: [
-        {
-          inputTokenThreshold: 200_000,
-          inputPer1M: 4,
-          outputPer1M: 18,
-          cacheReadPer1M: 0.4,
-        },
-      ],
-    },
-    "gemini-3.1-pro-preview-customtools": {
-      inputPer1M: 2,
-      outputPer1M: 12,
-      cacheReadPer1M: 0.2,
-      tiers: [
-        {
-          inputTokenThreshold: 200_000,
-          inputPer1M: 4,
-          outputPer1M: 18,
-          cacheReadPer1M: 0.4,
-        },
-      ],
-    },
-    "gemini-3-flash-preview": {
-      inputPer1M: 0.5,
-      outputPer1M: 3,
-      cacheReadPer1M: 0.05,
-    },
-    "gemini-3.1-flash-lite-preview": {
-      inputPer1M: 0.25,
-      outputPer1M: 1.5,
-      cacheReadPer1M: 0.025,
-    },
-    "gemini-2.5-flash": {
-      inputPer1M: 0.3,
-      outputPer1M: 2.5,
-      cacheReadPer1M: 0.03,
-    },
-    "gemini-2.5-flash-lite": {
-      inputPer1M: 0.1,
-      outputPer1M: 0.4,
-      cacheReadPer1M: 0.01,
-    },
-    "gemini-2.5-pro": {
-      inputPer1M: 1.25,
-      outputPer1M: 10,
-      cacheReadPer1M: 0.3125,
-      tiers: [
-        {
-          inputTokenThreshold: 200_000,
-          inputPer1M: 2.5,
-          outputPer1M: 15,
-          cacheReadPer1M: 0.625,
-        },
-      ],
-    },
     "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },
   },
-  fireworks: {
-    "accounts/fireworks/models/kimi-k2p5": {
-      inputPer1M: 0.6,
-      outputPer1M: 2.5,
-    },
-  },
-  // Non-Anthropic OpenRouter models. Anthropic-on-OpenRouter is handled by a
-  // dedicated branch in resolvePricingForUsage that routes to the Anthropic
-  // catalog (OpenRouter bills those at Anthropic's direct rates). Rates here
-  // mirror the catalog metadata in model-catalog.ts so cost tracking has a
-  // priced value instead of falling back to 'unpriced'.
-  openrouter: {
-    "x-ai/grok-4.20-beta": { inputPer1M: 3, outputPer1M: 15 },
-    "x-ai/grok-4": { inputPer1M: 3, outputPer1M: 15 },
-    "deepseek/deepseek-r1-0528": { inputPer1M: 0.55, outputPer1M: 2.19 },
-    "deepseek/deepseek-chat-v3-0324": { inputPer1M: 0.27, outputPer1M: 1.1 },
-    "qwen/qwen3.5-plus-02-15": { inputPer1M: 0.8, outputPer1M: 2.4 },
-    "qwen/qwen3.5-397b-a17b": { inputPer1M: 0.9, outputPer1M: 2.7 },
-    "qwen/qwen3.5-flash-02-23": { inputPer1M: 0.2, outputPer1M: 0.6 },
-    "qwen/qwen3-coder-next": { inputPer1M: 0.5, outputPer1M: 1.5 },
-    "moonshotai/kimi-k2.6": { inputPer1M: 0.6, outputPer1M: 2.8 },
-    "moonshotai/kimi-k2.5": { inputPer1M: 0.6, outputPer1M: 2.5 },
-    "mistralai/mistral-medium-3": { inputPer1M: 0.4, outputPer1M: 2.0 },
-    "mistralai/mistral-small-2603": { inputPer1M: 0.2, outputPer1M: 0.6 },
-    "mistralai/devstral-2512": { inputPer1M: 0.1, outputPer1M: 0.3 },
-    "meta-llama/llama-4-maverick": { inputPer1M: 0.27, outputPer1M: 0.85 },
-    "meta-llama/llama-4-scout": { inputPer1M: 0.11, outputPer1M: 0.34 },
-    "amazon/nova-pro-v1": { inputPer1M: 0.8, outputPer1M: 3.2 },
-  },
 };
+
+/** Convert a catalog pricing entry to the internal pricing shape. */
+function catalogPricingToInternal(p: CatalogModelPricing): ModelPricing {
+  return {
+    inputPer1M: p.inputPer1mTokens,
+    outputPer1M: p.outputPer1mTokens,
+    cacheReadPer1M: p.cacheReadPer1mTokens,
+    tiers: p.tiers?.map(catalogTierToInternal),
+  };
+}
+
+function catalogTierToInternal(
+  tier: CatalogModelPricingTier,
+): ModelPricingTier {
+  return {
+    inputTokenThreshold: tier.inputTokenThreshold,
+    inputPer1M: tier.inputPer1mTokens,
+    outputPer1M: tier.outputPer1mTokens,
+    cacheReadPer1M: tier.cacheReadPer1mTokens,
+  };
+}
+
+/** Look up pricing for a model against `PROVIDER_CATALOG`. */
+function findCatalogPricing(
+  provider: string,
+  model: string,
+): ModelPricing | undefined {
+  const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
+  if (!entry) return undefined;
+  // Exact match
+  const exact = entry.models.find((m) => m.id === model && m.pricing);
+  if (exact?.pricing) return catalogPricingToInternal(exact.pricing);
+  // Longest-prefix match against catalog model IDs
+  let best: CatalogModel | undefined;
+  let bestLen = 0;
+  for (const m of entry.models) {
+    if (!m.pricing) continue;
+    if (model.startsWith(m.id) && m.id.length > bestLen) {
+      best = m;
+      bestLen = m.id.length;
+    }
+  }
+  return best?.pricing ? catalogPricingToInternal(best.pricing) : undefined;
+}
 
 /**
  * Identify a model ID as an Anthropic model — accepts both the OpenRouter
@@ -233,26 +155,41 @@ export function usesAnthropicPricingRules(
 }
 
 /**
- * Look up pricing for a model within a provider's catalog.
+ * Look up pricing for a model within a provider's pricing table.
  * Tries exact match first, then longest prefix match.
  */
-function findPricing(
-  catalog: Record<string, ModelPricing>,
+function findInFallback(
+  table: Record<string, ModelPricing>,
   model: string,
 ): ModelPricing | undefined {
   // Exact match
-  if (catalog[model]) return catalog[model];
+  if (table[model]) return table[model];
 
   // Prefix match: find the longest matching prefix
   let bestMatch: ModelPricing | undefined;
   let bestLen = 0;
-  for (const [pattern, pricing] of Object.entries(catalog)) {
+  for (const [pattern, pricing] of Object.entries(table)) {
     if (model.startsWith(pattern) && pattern.length > bestLen) {
       bestMatch = pricing;
       bestLen = pattern.length;
     }
   }
   return bestMatch;
+}
+
+/**
+ * Resolve a model's pricing: catalog first, then legacy fallback.
+ * Returns undefined when no entry matches.
+ */
+function findPricing(
+  provider: string,
+  model: string,
+): ModelPricing | undefined {
+  const fromCatalog = findCatalogPricing(provider, model);
+  if (fromCatalog) return fromCatalog;
+  const fallbackTable = LEGACY_PRICING_FALLBACK[provider];
+  if (!fallbackTable) return undefined;
+  return findInFallback(fallbackTable, model);
 }
 
 function findOverride(
@@ -452,28 +389,17 @@ export function resolvePricingForUsage(
   // Anthropic's rates and the underlying Messages API response includes
   // Anthropic's cache- and speed-metadata fields.
   if (provider === "openrouter" && isAnthropicModelId(model)) {
-    const anthropicCatalog = PROVIDER_PRICING.anthropic;
-    if (anthropicCatalog) {
-      const pricing = findPricing(
-        anthropicCatalog,
-        normalizeAnthropicModelId(model),
-      );
-      if (pricing) {
-        return {
-          estimatedCostUsd: calculateUsageCost(provider, model, pricing, usage),
-          pricingStatus: "priced",
-        };
-      }
+    const pricing = findPricing("anthropic", normalizeAnthropicModelId(model));
+    if (pricing) {
+      return {
+        estimatedCostUsd: calculateUsageCost(provider, model, pricing, usage),
+        pricingStatus: "priced",
+      };
     }
     return { estimatedCostUsd: null, pricingStatus: "unpriced" };
   }
 
-  const providerCatalog = PROVIDER_PRICING[provider];
-  if (!providerCatalog) {
-    return { estimatedCostUsd: null, pricingStatus: "unpriced" };
-  }
-
-  const pricing = findPricing(providerCatalog, model);
+  const pricing = findPricing(provider, model);
   if (!pricing) {
     return { estimatedCostUsd: null, pricingStatus: "unpriced" };
   }

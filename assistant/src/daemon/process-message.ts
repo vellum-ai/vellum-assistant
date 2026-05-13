@@ -15,7 +15,6 @@ import {
   type InterfaceId,
   parseChannelId,
   parseInterfaceId,
-  supportsHostProxy,
 } from "../channels/types.js";
 import {
   getAttachmentsByIds,
@@ -31,6 +30,7 @@ import {
 import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
@@ -47,9 +47,40 @@ import {
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
-import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
+import {
+  preactivateHostProxySkills,
+  shouldAttachHostProxyForCapability,
+} from "./host-proxy-preactivation.js";
+import type { ServerMessage } from "./message-protocol.js";
 
 const log = getLogger("process-message");
+
+type ProcessMessageOptions = ConversationCreateOptions & {
+  /** Per-turn observer for live agent-loop events. Does not replace SSE broadcast. */
+  onEvent?: (msg: ServerMessage) => void;
+};
+
+function stripPerTurnObservers(
+  options?: ProcessMessageOptions,
+): ConversationCreateOptions | undefined {
+  if (!options) return undefined;
+  const { onEvent: _onEvent, ...conversationOptions } = options;
+  return conversationOptions;
+}
+
+function buildEventEmitter(
+  observer?: (msg: ServerMessage) => void,
+): (msg: ServerMessage) => void {
+  if (!observer) return broadcastMessage;
+  return (msg) => {
+    broadcastMessage(msg);
+    try {
+      observer(msg);
+    } catch (err) {
+      log.warn({ err, messageType: msg.type }, "Agent event observer failed");
+    }
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Turn-context resolution helpers
@@ -154,7 +185,7 @@ async function prepareConversationForMessage(
     );
   }
   // CU is per-conversation (owns step count, AX tree history, loop detection).
-  if (supportsHostProxy(resolvedInterface, "host_cu")) {
+  if (shouldAttachHostProxyForCapability("host_cu", resolvedInterface)) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
@@ -162,10 +193,12 @@ async function prepareConversationForMessage(
     conversation.setHostCuProxy(undefined);
   }
   // App-control mirrors CU's per-conversation lifecycle. The proxy attaches
-  // unconditionally when the client supports the capability — feature-flag
-  // gating is enforced by the skill-projection layer via SKILL.md
-  // frontmatter, so an attached proxy is harmless when the flag is off.
-  if (supportsHostProxy(resolvedInterface, "host_app_control")) {
+  // unconditionally when the capability is reachable — feature-flag gating
+  // is enforced by the skill-projection layer via SKILL.md frontmatter, so
+  // an attached proxy is harmless when the flag is off.
+  if (
+    shouldAttachHostProxyForCapability("host_app_control", resolvedInterface)
+  ) {
     if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
       conversation.setHostAppControlProxy(
         new HostAppControlProxy(conversationId),
@@ -214,18 +247,20 @@ export async function processMessage(
   conversationId: string,
   content: string,
   attachmentIds?: string[],
-  options?: ConversationCreateOptions,
+  options?: ProcessMessageOptions,
   sourceChannel?: string,
   sourceInterface?: string,
 ): Promise<{ messageId: string }> {
+  const conversationOptions = stripPerTurnObservers(options);
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,
     attachmentIds,
-    options,
+    conversationOptions,
     sourceChannel,
     sourceInterface,
   );
+  const emitEvent = buildEventEmitter(options?.onEvent);
 
   const serverInterfaceCtx = conversation.getTurnInterfaceContext();
   const slashContext = buildSlashContextForContent(content, {
@@ -334,6 +369,7 @@ export async function processMessage(
       serverChannelMeta,
     );
     conversation.getMessages().push(assistantMsg);
+    publishConversationMessagesChanged(conversationId);
     return { messageId: persisted.id };
   }
 
@@ -375,7 +411,9 @@ export async function processMessage(
       "context_compacting",
       "assistant_turn",
     );
-    const result = await conversation.forceCompact();
+    const result = await conversation.forceCompact({
+      targetInputTokensOverride: slashResult.targetInputTokensOverride,
+    });
     const responseText = formatCompactResult(result);
     const assistantMsg = createAssistantMessage(responseText);
     await addMessage(
@@ -385,6 +423,7 @@ export async function processMessage(
       compactChannelMeta,
     );
     conversation.getMessages().push(assistantMsg);
+    publishConversationMessagesChanged(conversationId);
     return { messageId: persisted.id };
   }
 
@@ -400,6 +439,7 @@ export async function processMessage(
     requestId,
     persistMetadata,
   );
+  publishConversationMessagesChanged(conversationId);
 
   if (options?.isInteractive === true) {
     conversation.updateClient(broadcastMessage, false);
@@ -409,16 +449,11 @@ export async function processMessage(
     conversation.setSlackRuntimeContextNotice(
       options?.slackRuntimeContextNotice,
     );
-    await conversation.runAgentLoop(
-      resolvedContent,
-      messageId,
-      broadcastMessage,
-      {
-        isInteractive: options?.isInteractive ?? false,
-        isUserMessage: true,
-        ...(options?.callSite ? { callSite: options.callSite } : {}),
-      },
-    );
+    await conversation.runAgentLoop(resolvedContent, messageId, emitEvent, {
+      isInteractive: options?.isInteractive ?? false,
+      isUserMessage: true,
+      ...(options?.callSite ? { callSite: options.callSite } : {}),
+    });
   } finally {
     conversation.setSlackRuntimeContextNotice(undefined);
     if (
@@ -444,18 +479,20 @@ export async function processMessageInBackground(
   conversationId: string,
   content: string,
   attachmentIds?: string[],
-  options?: ConversationCreateOptions,
+  options?: ProcessMessageOptions,
   sourceChannel?: string,
   sourceInterface?: string,
 ): Promise<{ messageId: string }> {
+  const conversationOptions = stripPerTurnObservers(options);
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,
     attachmentIds,
-    options,
+    conversationOptions,
     sourceChannel,
     sourceInterface,
   );
+  const emitEvent = buildEventEmitter(options?.onEvent);
 
   const requestId = crypto.randomUUID();
   const persistMetadata = options?.slackInbound
@@ -467,6 +504,7 @@ export async function processMessageInBackground(
     requestId,
     persistMetadata,
   );
+  publishConversationMessagesChanged(conversationId);
 
   if (options?.isInteractive === true) {
     conversation.updateClient(broadcastMessage, false);
@@ -474,7 +512,7 @@ export async function processMessageInBackground(
 
   conversation.setSlackRuntimeContextNotice(options?.slackRuntimeContextNotice);
   conversation
-    .runAgentLoop(content, messageId, broadcastMessage, {
+    .runAgentLoop(content, messageId, emitEvent, {
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),

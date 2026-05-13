@@ -23,8 +23,9 @@ const loggerSpy = {
   warn: mock(() => {}),
   error: mock(() => {}),
 };
+const getLoggerSpy = mock((_name: string) => loggerSpy);
 mock.module("../../util/logger.js", () => ({
-  getLogger: () => loggerSpy,
+  getLogger: getLoggerSpy,
 }));
 
 mock.module("../../config/loader.js", () => ({
@@ -163,12 +164,13 @@ describe("createDaemonSkillHost", () => {
     expect(host.speakers).toBeDefined();
   });
 
-  test("logger.get returns an object with the four severity methods", () => {
+  test("logger.get prefixes the scope with the skillId", () => {
     const log = host.logger.get("test-scope");
     log.debug("d", { k: "v" });
     log.info("i");
     log.warn("w");
     log.error("e");
+    expect(getLoggerSpy).toHaveBeenCalledWith("meet-join:test-scope");
     expect(loggerSpy.debug).toHaveBeenCalled();
     expect(loggerSpy.info).toHaveBeenCalled();
     expect(loggerSpy.warn).toHaveBeenCalled();
@@ -255,8 +257,12 @@ describe("createDaemonSkillHost", () => {
     });
     expect(handle).toBeDefined();
     expect(registerSkillRouteSpy).toHaveBeenCalled();
-    host.registries.registerShutdownHook("test-hook", async () => {});
-    expect(registerShutdownHookSpy).toHaveBeenCalled();
+    const hook = async () => {};
+    host.registries.registerShutdownHook("test-hook", hook);
+    expect(registerShutdownHookSpy).toHaveBeenCalledWith(
+      "meet-join:test-hook",
+      hook,
+    );
   });
 
   test("speakers.createTracker yields a concrete tracker instance", () => {

@@ -124,7 +124,6 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
   const managed = { mode: "managed" as const };
   return {
     services: {
-      inference: managed,
       "image-generation": managed,
       "web-search": managed,
       "google-oauth": managed,
@@ -520,12 +519,14 @@ export function deepMergeOverwrite(
 }
 
 export type DefaultWorkspaceConfigMergeResult = {
+  hadOverlay: boolean;
   providedLlmProfileNames: Set<string>;
   providedLlmActiveProfile: boolean;
 };
 
 function emptyDefaultWorkspaceConfigMergeResult(): DefaultWorkspaceConfigMergeResult {
   return {
+    hadOverlay: false,
     providedLlmProfileNames: new Set(),
     providedLlmActiveProfile: false,
   };
@@ -571,6 +572,7 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
   );
   const providedProfiles = readPlainObject(llmDefaults?.profiles);
   const mergeResult: DefaultWorkspaceConfigMergeResult = {
+    hadOverlay: true,
     providedLlmProfileNames: new Set(
       providedProfiles ? Object.keys(providedProfiles) : [],
     ),

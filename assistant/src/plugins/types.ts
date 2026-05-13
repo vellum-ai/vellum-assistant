@@ -60,22 +60,13 @@ import { AssistantError, ErrorCode } from "../util/errors.js";
 export interface PluginManifest {
   /** Unique plugin identifier (kebab-case). Duplicate names fail registration. */
   name: string;
-  /** Plugin version (semver). Informational — the registry compares
-   *  capability versions via `requires`, not this field. */
-  version: string;
   /**
-   * Capabilities this plugin exposes to other plugins.
-   *
-   * **Reserved for future cross-plugin composition — not currently consumed
-   * by any runtime code.** The field is declared so future cross-plugin work
-   * can land without a manifest version bump, but today nothing reads it and
-   * plugins must not depend on it for capability discovery. See
-   * `assistant/docs/plugins.md` (Cross-plugin communication) for the
-   * rationale.
+   * Plugin version (semver). Informational. Host-compat negotiation lives
+   * in the plugin's `package.json` `peerDependencies["@vellumai/plugin-api"]`
+   * range — checked by the external-plugin loader against the assistant's
+   * own version at load time.
    */
-  provides?: Record<string, string>;
-  /** Capabilities this plugin needs from the assistant runtime. */
-  requires: Record<string, string>;
+  version: string;
   /** Credential keys the plugin needs resolved before `init()` runs. */
   requiresCredential?: string[];
   /**
@@ -93,30 +84,14 @@ export interface PluginManifest {
   config?: unknown;
 }
 
-// ─── Init context ────────────────────────────────────────────────────────────
-
-/**
- * Context passed to `Plugin.init()` during bootstrap. Carries resolved
- * config/credentials, a pino-compatible logger scoped to the plugin, a
- * per-plugin writable data directory, and the assistant's version metadata.
- */
-export interface PluginInitContext {
-  /** Parsed config for this plugin (may be `unknown` until the manifest validates). */
-  config: unknown;
-  /** Resolved credential values keyed by the entries of `manifest.requiresCredential`. */
-  credentials: Record<string, string>;
-  /**
-   * Pino-compatible child logger bound to `{ plugin: <name> }`. Untyped here
-   * to avoid pulling pino into the types module.
-   */
-  logger: unknown;
-  /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */
-  pluginStorageDir: string;
-  /** Assistant semver for compatibility checks inside the plugin. */
-  assistantVersion: string;
-  /** Capability → version-list map (`ASSISTANT_API_VERSIONS`) for defensive runtime checks. */
-  apiVersions: Record<string, string[]>;
-}
+// ─── Init / Shutdown context ─────────────────────────────────────────────────
+// Public types — defined in `assistant/src/plugin-api/types.ts` and re-exported
+// here so existing internal call sites keep working. Plugin authors will
+// import these from `@vellumai/plugin-api` once that package is published.
+export type {
+  PluginInitContext,
+  PluginShutdownContext,
+} from "../plugin-api/types.js";
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
@@ -1078,18 +1053,50 @@ export interface PluginSkillRegistration {
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 /**
+ * A plugin lifecycle hook. Receives a per-lifecycle context shape and
+ * may return either a transformed context or `void`. Today's runtime
+ * consumes only the resolved-or-rejected nature of the promise; the
+ * `TCtx` return is reserved for future hooks that fan a transformed
+ * context out to downstream plugins.
+ *
+ * Each known hook key has a documented context shape:
+ *   - `init` — {@link PluginInitContext}
+ *   - `shutdown` — {@link PluginShutdownContext}
+ *
+ * Unknown keys are populated by the loader for forward compatibility
+ * but are not invoked by today's runtime.
+ */
+export type PluginHookFn<TCtx = unknown> = (
+  ctx: TCtx,
+) => Promise<TCtx | void>;
+
+/**
+ * Map of lifecycle hooks contributed by a plugin. Keys match file
+ * basenames under `<plugin>/hooks/` — the external loader populates one
+ * entry per `hooks/<name>.{ts,js}` it finds. The runtime invokes
+ * known keys (`init`, `shutdown`) at the matching lifecycle event;
+ * unknown keys are forward-compat scaffolding.
+ *
+ * See `assistant/src/daemon/external-plugins-bootstrap.ts` for the
+ * full lifecycle, and {@link PluginHookFn} for the per-entry signature.
+ */
+// The map stores hooks for arbitrary keys with arbitrary context shapes.
+// `any` (rather than `unknown`) is required so concrete plugin signatures
+// like `(ctx: PluginInitContext) => Promise<void>` and `() => Promise<void>`
+// both assign in/out of slot entries under strict-function-types contravariance.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type PluginHooks = Record<string, PluginHookFn<any>>;
+
+/**
  * A registered plugin. Every field besides `manifest` is optional — a plugin
  * may contribute any combination of middleware, injectors, and model-visible
- * capabilities. Lifecycle hooks (`init`, `onShutdown`) run sequentially
- * during daemon startup/shutdown.
+ * capabilities. Lifecycle hooks live under `hooks`.
  */
 export interface Plugin {
   /** Static manifest validated by the registry. */
   manifest: PluginManifest;
-  /** Optional async initializer. Runs once during bootstrap, before traffic. */
-  init?(ctx: PluginInitContext): Promise<void>;
-  /** Optional shutdown hook. Runs during daemon shutdown in reverse-registration order. */
-  onShutdown?(): Promise<void>;
+  /** Lifecycle hooks (init, shutdown). See {@link PluginHooks}. */
+  hooks?: PluginHooks;
   /** Tool registrations visible to the model. */
   tools?: PluginToolRegistration[];
   /** HTTP route registrations served by the assistant. */

@@ -161,12 +161,13 @@ struct HatchingStepView: View {
                     progressAtCompletion = progressValue(at: Date())
                     completionTime = Date()
                 }
-                // Push the locally-stored API key to the newly-booted daemon.
-                // During onboarding the fire-and-forget gateway HTTP call in
-                // saveAndHatch() races the hatch and silently fails when the
-                // daemon isn't running yet. Re-send once we know it's up.
+                // Push the in-memory API key to the newly-booted daemon.
+                // OnboardingState holds the typed value transiently — this
+                // is its only durable destination, so we POST exactly once
+                // when we know the daemon is up.
                 if !state.skippedAPIKeyEntry,
-                   let key = APIKeyManager.getKey(for: state.selectedProvider) {
+                   let key = state.providerKeys[state.selectedProvider],
+                   !key.isEmpty {
                     let provider = state.selectedProvider
                     Task { await APIKeyManager.setKey(key, for: provider) }
                 }
@@ -588,7 +589,9 @@ struct HatchingStepView: View {
     /// Most config default values are determined by the daemon process and may
     /// depend on whether the assistant is hatched on the Vellum Platform or not.
     private func buildOnboardingConfigValues() -> [String: String] {
-        let provider = state.selectedProvider.isEmpty ? "anthropic" : state.selectedProvider
+        let provider = state.selectedProvider.isEmpty
+            ? LLMProviderRegistry.defaultProvider.id
+            : state.selectedProvider
         return ["llm.default.provider": provider]
     }
 

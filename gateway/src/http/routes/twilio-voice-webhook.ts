@@ -152,20 +152,29 @@ export function createTwilioVoiceWebhookHandler(
           // this number themselves, so disclosing their own name is expected.
           const unverifiedStatuses = new Set(["unverified", "pending"]);
           if (callerRecord && unverifiedStatuses.has(callerRecord.channel.status)) {
+            const isGuardian = callerRecord.contact.role === "guardian";
             log.info(
               {
                 callSid: params.CallSid,
                 contactId: callerRecord.contact.id,
                 channelStatus: callerRecord.channel.status,
+                isGuardian,
               },
               "Known-but-unverified caller — returning verification guidance TwiML",
             );
             const name = escapeXml(callerRecord.contact.displayName);
+            // Conditional guidance: only the guardian has direct access to the
+            // assistant's contacts page; other contacts must ask the guardian
+            // to (re)start a verification session for them.
+            const action = isGuardian
+              ? `To verify, open your assistant's contacts page, click Verify next to the phone channel, ` +
+                `and follow the prompts. Then call back once the verification session is active.`
+              : `Please reach out to the account guardian to start a new verification session, ` +
+                `then call back once the verification session is active.`;
             const twiml =
               `<?xml version="1.0" encoding="UTF-8"?><Response>` +
               `<Say>This number is registered as ${name}'s phone but has not been verified yet. ` +
-              `To verify, open your assistant's contacts page, click Verify next to the phone channel, ` +
-              `and follow the prompts. Then call back once the verification session is active.</Say>` +
+              `${action}</Say>` +
               `</Response>`;
             return new Response(twiml, { status: 200, headers: TWIML_HEADERS });
           }

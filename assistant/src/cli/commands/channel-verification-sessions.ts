@@ -1,28 +1,27 @@
 import type { Command } from "commander";
 
-import {
-  CHANNEL_IDS,
-  type ChannelId,
-  isChannelId,
-} from "../../channels/types.js";
-import {
-  createInboundChallenge,
-  getVerificationStatus,
-  revokeVerificationForChannel,
-  verifyTrustedContact,
-} from "../../daemon/handlers/config-channels.js";
-import { getDb } from "../../memory/db-connection.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
-import { revokePendingSessions } from "../../runtime/channel-verification-service.js";
-import {
-  cancelOutbound,
-  normalizeTelegramDestination,
-  resendOutbound,
-  startOutbound,
-} from "../../runtime/verification-outbound-actions.js";
-import { verificationRateLimiter } from "../../runtime/verification-rate-limiter.js";
-import { normalizePhoneNumber } from "../../util/phone.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { writeOutput } from "../output.js";
+
+// ---------------------------------------------------------------------------
+// Local channel validation (replaces daemon-internal channels/types.js import)
+// ---------------------------------------------------------------------------
+
+const VALID_CHANNEL_IDS = [
+  "telegram",
+  "phone",
+  "vellum",
+  "whatsapp",
+  "slack",
+  "email",
+  "platform",
+] as const;
+type ChannelId = (typeof VALID_CHANNEL_IDS)[number];
+
+function isChannelId(raw: string): raw is ChannelId {
+  return (VALID_CHANNEL_IDS as readonly string[]).includes(raw);
+}
 
 /**
  * Validate the --channel option. Returns the validated ChannelId or writes an
@@ -48,7 +47,7 @@ function validateChannelOpt(
     if (required) {
       writeOutput(cmd, {
         ok: false,
-        error: `The "channel" option is required. Valid values: ${CHANNEL_IDS.join(", ")}`,
+        error: `The "channel" option is required. Valid values: ${VALID_CHANNEL_IDS.join(", ")}`,
       });
       process.exitCode = 1;
       return false;
@@ -58,7 +57,7 @@ function validateChannelOpt(
   if (!isChannelId(raw)) {
     writeOutput(cmd, {
       ok: false,
-      error: `Invalid channel "${raw}". Valid values: ${CHANNEL_IDS.join(", ")}`,
+      error: `Invalid channel "${raw}". Valid values: ${VALID_CHANNEL_IDS.join(", ")}`,
     });
     process.exitCode = 1;
     return false;
@@ -69,14 +68,16 @@ function validateChannelOpt(
 export function registerChannelVerificationSessionsCommand(
   program: Command,
 ): void {
-  const cvs = program
-    .command("channel-verification-sessions")
-    .description("Manage channel verification sessions")
-    .option("--json", "Machine-readable compact JSON output");
+  registerCommand(program, {
+    name: "channel-verification-sessions",
+    transport: "ipc",
+    description: "Manage channel verification sessions",
+    build: (cvs) => {
+      cvs.option("--json", "Machine-readable compact JSON output");
 
-  cvs.addHelpText(
-    "after",
-    `
+      cvs.addHelpText(
+        "after",
+        `
 Verification sessions are used to verify guardian bindings and trusted
 contacts across channels (telegram, phone, slack). Three flows exist:
 
@@ -97,40 +98,40 @@ Examples:
   $ assistant channel-verification-sessions create --channel phone --destination "+15551234567"
   $ assistant channel-verification-sessions create --purpose trusted_contact --contact-channel-id abc-123
   $ assistant channel-verification-sessions status --channel telegram`,
-  );
+      );
 
-  // ---------------------------------------------------------------------------
-  // create
-  // ---------------------------------------------------------------------------
+      // ---------------------------------------------------------------------------
+      // create
+      // ---------------------------------------------------------------------------
 
-  cvs
-    .command("create")
-    .description("Create a new verification session")
-    .option("--channel <channel>", "Channel type (telegram, phone, slack)")
-    .option(
-      "--destination <destination>",
-      "Destination address for outbound verification (handle, phone number, or user ID)",
-    )
-    .option("--rebind", "Replace existing guardian binding")
-    .option(
-      "--conversation-id <conversationId>",
-      "Conversation ID for inbound challenges",
-    )
-    .option(
-      "--origin-conversation-id <id>",
-      "Origin conversation ID for routing",
-    )
-    .option(
-      "--purpose <purpose>",
-      'Verification purpose: "guardian" (default) or "trusted_contact"',
-    )
-    .option(
-      "--contact-channel-id <id>",
-      "Contact channel ID (required when purpose is trusted_contact)",
-    )
-    .addHelpText(
-      "after",
-      `
+      cvs
+        .command("create")
+        .description("Create a new verification session")
+        .option("--channel <channel>", "Channel type (telegram, phone, slack)")
+        .option(
+          "--destination <destination>",
+          "Destination address for outbound verification (handle, phone number, or user ID)",
+        )
+        .option("--rebind", "Replace existing guardian binding")
+        .option(
+          "--conversation-id <conversationId>",
+          "Conversation ID for inbound challenges",
+        )
+        .option(
+          "--origin-conversation-id <id>",
+          "Origin conversation ID for routing",
+        )
+        .option(
+          "--purpose <purpose>",
+          'Verification purpose: "guardian" (default) or "trusted_contact"',
+        )
+        .option(
+          "--contact-channel-id <id>",
+          "Contact channel ID (required when purpose is trusted_contact)",
+        )
+        .addHelpText(
+          "after",
+          `
 Routes between three creation modes based on the provided options:
 
   1. Trusted contact: --purpose trusted_contact --contact-channel-id <id>
@@ -151,135 +152,57 @@ Examples:
   $ assistant channel-verification-sessions create --channel telegram --destination "@guardian_handle"
   $ assistant channel-verification-sessions create --channel phone --destination "+15551234567" --rebind
   $ assistant channel-verification-sessions create --channel telegram --conversation-id conv-123`,
-    )
-    .action(
-      async (
-        opts: {
-          channel?: string;
-          destination?: string;
-          rebind?: boolean;
-          conversationId?: string;
-          originConversationId?: string;
-          purpose?: string;
-          contactChannelId?: string;
-        },
-        cmd: Command,
-      ) => {
-        try {
-          getDb();
+        )
+        .action(
+          async (
+            opts: {
+              channel?: string;
+              destination?: string;
+              rebind?: boolean;
+              conversationId?: string;
+              originConversationId?: string;
+              purpose?: string;
+              contactChannelId?: string;
+            },
+            cmd: Command,
+          ) => {
+            const channel = validateChannelOpt(opts.channel, cmd);
+            if (channel === false) return;
 
-          const purpose = opts.purpose ?? "guardian";
-          const channel = validateChannelOpt(opts.channel, cmd);
-          if (channel === false) return;
-
-          // --- Trusted contact path ---
-          if (purpose === "trusted_contact") {
-            if (!opts.contactChannelId) {
-              writeOutput(cmd, {
-                ok: false,
-                error:
-                  "contactChannelId is required for trusted_contact purpose",
-              });
-              process.exitCode = 1;
-              return;
-            }
-            const result = await verifyTrustedContact(
-              opts.contactChannelId,
-              DAEMON_INTERNAL_ASSISTANT_ID,
-            );
-            writeOutput(cmd, result);
-            if (!result.success) {
-              process.exitCode = 1;
-            }
-            return;
-          }
-
-          // --- Outbound path ---
-          if (opts.destination) {
-            if (!channel) {
-              writeOutput(cmd, {
-                ok: false,
-                error:
-                  'The "channel" option is required for outbound verification.',
-              });
-              process.exitCode = 1;
-              return;
-            }
-
-            // Normalize destination for rate limiting
-            let rateLimitKey: string | undefined = opts.destination;
-            if (rateLimitKey) {
-              if (channel === "phone") {
-                rateLimitKey =
-                  normalizePhoneNumber(rateLimitKey) ?? rateLimitKey;
-              } else if (channel === "telegram") {
-                rateLimitKey = normalizeTelegramDestination(rateLimitKey);
-              }
-            }
-
-            if (
-              rateLimitKey &&
-              verificationRateLimiter.isBlocked(rateLimitKey)
-            ) {
-              writeOutput(cmd, {
-                ok: false,
-                error:
-                  "Too many verification attempts for this identity. Please try again later.",
-              });
-              process.exitCode = 1;
-              return;
-            }
-
-            const result = await startOutbound({
-              channel,
-              destination: opts.destination,
-              rebind: opts.rebind,
-              originConversationId: opts.originConversationId,
+            const r = await cliIpcCall("channel_verification_sessions_create", {
+              body: {
+                channel,
+                destination: opts.destination,
+                rebind: opts.rebind,
+                conversationId: opts.conversationId,
+                originConversationId: opts.originConversationId,
+                purpose: opts.purpose ?? "guardian",
+                contactChannelId: opts.contactChannelId,
+              },
             });
+            if (!r.ok)
+              return exitFromIpcResult(
+                r as { ok: false; error?: string; statusCode?: number },
+                cmd,
+              );
+            writeOutput(cmd, r.result);
+          },
+        );
 
-            if (!result.success && rateLimitKey) {
-              verificationRateLimiter.recordFailure(rateLimitKey);
-            }
+      // ---------------------------------------------------------------------------
+      // status
+      // ---------------------------------------------------------------------------
 
-            writeOutput(cmd, result);
-            if (!result.success) {
-              process.exitCode = 1;
-            }
-            return;
-          }
-
-          // --- Inbound challenge path ---
-          const result = createInboundChallenge(
-            channel,
-            opts.rebind,
-            opts.conversationId,
-          );
-          writeOutput(cmd, result);
-          if (!result.success) {
-            process.exitCode = 1;
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
-          process.exitCode = 1;
-        }
-      },
-    );
-
-  // ---------------------------------------------------------------------------
-  // status
-  // ---------------------------------------------------------------------------
-
-  cvs
-    .command("status")
-    .description("Get verification status for a channel")
-    .option(
-      "--channel <channel>",
-      "Channel type (telegram, phone). Defaults to telegram.",
-    )
-    .addHelpText(
-      "after",
-      `
+      cvs
+        .command("status")
+        .description("Get verification status for a channel")
+        .option(
+          "--channel <channel>",
+          "Channel type (telegram, phone). Defaults to telegram.",
+        )
+        .addHelpText(
+          "after",
+          `
 Returns the current verification state for a channel, including whether a
 guardian is bound, pending challenge status, and any active outbound session
 details (session ID, expiry, send count).
@@ -290,42 +213,42 @@ Examples:
   $ assistant channel-verification-sessions status
   $ assistant channel-verification-sessions status --channel phone
   $ assistant channel-verification-sessions status --channel telegram --json`,
-    )
-    .action(async (opts: { channel?: string }, cmd: Command) => {
-      try {
-        getDb();
-        const channel = validateChannelOpt(opts.channel, cmd);
-        if (channel === false) return;
-        const result = getVerificationStatus(channel);
-        writeOutput(cmd, result);
-        if (!result.success) {
-          process.exitCode = 1;
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
-        process.exitCode = 1;
-      }
-    });
+        )
+        .action(async (opts: { channel?: string }, cmd: Command) => {
+          const channel = validateChannelOpt(opts.channel, cmd);
+          if (channel === false) return;
 
-  // ---------------------------------------------------------------------------
-  // resend
-  // ---------------------------------------------------------------------------
+          const r = await cliIpcCall("channel_verification_sessions_status", {
+            body: { channel },
+          });
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
+          writeOutput(cmd, r.result);
+        });
 
-  cvs
-    .command("resend")
-    .description("Resend the verification code for an active outbound session")
-    .requiredOption(
-      "--channel <channel>",
-      "Channel type (telegram, phone, slack)",
-    )
-    .option(
-      "--origin-conversation-id <id>",
-      "Origin conversation ID for routing",
-    )
-    .addHelpText(
-      "after",
-      `
+      // ---------------------------------------------------------------------------
+      // resend
+      // ---------------------------------------------------------------------------
+
+      cvs
+        .command("resend")
+        .description(
+          "Resend the verification code for an active outbound session",
+        )
+        .requiredOption(
+          "--channel <channel>",
+          "Channel type (telegram, phone, slack)",
+        )
+        .option(
+          "--origin-conversation-id <id>",
+          "Origin conversation ID for routing",
+        )
+        .addHelpText(
+          "after",
+          `
 Resends the verification code for the active outbound session on the
 specified channel. Subject to per-session and per-destination rate limits.
 
@@ -334,46 +257,44 @@ The --channel flag is required and must match the channel of the active session.
 Examples:
   $ assistant channel-verification-sessions resend --channel telegram
   $ assistant channel-verification-sessions resend --channel phone --origin-conversation-id conv-123`,
-    )
-    .action(
-      async (
-        opts: { channel: string; originConversationId?: string },
-        cmd: Command,
-      ) => {
-        try {
-          getDb();
-          const channel = validateChannelOpt(opts.channel, cmd, true);
-          if (channel === false) return;
-          const result = resendOutbound({
-            channel,
-            originConversationId: opts.originConversationId,
-          });
-          writeOutput(cmd, result);
-          if (!result.success) {
-            process.exitCode = 1;
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          writeOutput(cmd, { ok: false, error: message });
-          process.exitCode = 1;
-        }
-      },
-    );
+        )
+        .action(
+          async (
+            opts: { channel: string; originConversationId?: string },
+            cmd: Command,
+          ) => {
+            const channel = validateChannelOpt(opts.channel, cmd, true);
+            if (channel === false) return;
 
-  // ---------------------------------------------------------------------------
-  // cancel
-  // ---------------------------------------------------------------------------
+            const r = await cliIpcCall("channel_verification_sessions_resend", {
+              body: {
+                channel,
+                originConversationId: opts.originConversationId,
+              },
+            });
+            if (!r.ok)
+              return exitFromIpcResult(
+                r as { ok: false; error?: string; statusCode?: number },
+                cmd,
+              );
+            writeOutput(cmd, r.result);
+          },
+        );
 
-  cvs
-    .command("cancel")
-    .description("Cancel all active verification sessions for a channel")
-    .requiredOption(
-      "--channel <channel>",
-      "Channel type (telegram, phone, slack)",
-    )
-    .addHelpText(
-      "after",
-      `
+      // ---------------------------------------------------------------------------
+      // cancel
+      // ---------------------------------------------------------------------------
+
+      cvs
+        .command("cancel")
+        .description("Cancel all active verification sessions for a channel")
+        .requiredOption(
+          "--channel <channel>",
+          "Channel type (telegram, phone, slack)",
+        )
+        .addHelpText(
+          "after",
+          `
 Cancels both active outbound sessions and pending inbound challenges for
 the specified channel. Does not revoke an existing guardian binding — use
 the "revoke" subcommand for that.
@@ -383,38 +304,38 @@ The --channel flag is required.
 Examples:
   $ assistant channel-verification-sessions cancel --channel telegram
   $ assistant channel-verification-sessions cancel --channel phone --json`,
-    )
-    .action(async (opts: { channel: string }, cmd: Command) => {
-      try {
-        getDb();
-        const channel = validateChannelOpt(opts.channel, cmd, true);
-        if (channel === false) return;
-        cancelOutbound({ channel });
-        revokePendingSessions(channel);
-        writeOutput(cmd, { success: true, channel });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
-        process.exitCode = 1;
-      }
-    });
+        )
+        .action(async (opts: { channel: string }, cmd: Command) => {
+          const channel = validateChannelOpt(opts.channel, cmd, true);
+          if (channel === false) return;
 
-  // ---------------------------------------------------------------------------
-  // revoke
-  // ---------------------------------------------------------------------------
+          const r = await cliIpcCall("channel_verification_sessions_cancel", {
+            body: { channel },
+          });
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
+          writeOutput(cmd, r.result);
+        });
 
-  cvs
-    .command("revoke")
-    .description(
-      "Revoke the guardian binding and cancel all sessions for a channel",
-    )
-    .option(
-      "--channel <channel>",
-      "Channel type. Defaults to telegram if omitted.",
-    )
-    .addHelpText(
-      "after",
-      `
+      // ---------------------------------------------------------------------------
+      // revoke
+      // ---------------------------------------------------------------------------
+
+      cvs
+        .command("revoke")
+        .description(
+          "Revoke the guardian binding and cancel all sessions for a channel",
+        )
+        .option(
+          "--channel <channel>",
+          "Channel type. Defaults to telegram if omitted.",
+        )
+        .addHelpText(
+          "after",
+          `
 Performs a complete teardown: cancels any active outbound sessions, revokes
 pending inbound challenges, and revokes the guardian binding itself. The
 guardian's contact channel is also revoked.
@@ -425,21 +346,21 @@ Examples:
   $ assistant channel-verification-sessions revoke
   $ assistant channel-verification-sessions revoke --channel phone
   $ assistant channel-verification-sessions revoke --channel telegram --json`,
-    )
-    .action(async (opts: { channel?: string }, cmd: Command) => {
-      try {
-        getDb();
-        const channel = validateChannelOpt(opts.channel, cmd);
-        if (channel === false) return;
-        const result = revokeVerificationForChannel(channel);
-        writeOutput(cmd, result);
-        if (!result.success) {
-          process.exitCode = 1;
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
-        process.exitCode = 1;
-      }
-    });
+        )
+        .action(async (opts: { channel?: string }, cmd: Command) => {
+          const channel = validateChannelOpt(opts.channel, cmd);
+          if (channel === false) return;
+
+          const r = await cliIpcCall("channel_verification_sessions_revoke", {
+            body: { channel },
+          });
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
+          writeOutput(cmd, r.result);
+        });
+    },
+  });
 }

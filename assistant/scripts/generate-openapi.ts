@@ -19,6 +19,7 @@
 import { readFileSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { Readable } from "node:stream";
 
 import { stringify } from "yaml";
 import { z } from "zod";
@@ -110,8 +111,48 @@ interface JSONSchemaObject {
   [key: string]: unknown;
 }
 
+/**
+ * Recursively strip fields with a `default` from `required[]` on every
+ * object schema in the tree. Zod 4's `toJSONSchema` (output mode) marks
+ * defaulted fields as required because the output always carries them,
+ * but for request bodies the server fills the default when the client
+ * omits the field — generated clients should not be forced to send it.
+ */
+function dropDefaultedFromRequired(node: unknown): void {
+  if (node == null || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const item of node) dropDefaultedFromRequired(item);
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+  const props = obj.properties;
+  const required = obj.required;
+  if (
+    Array.isArray(required) &&
+    props != null &&
+    typeof props === "object"
+  ) {
+    const propsRecord = props as Record<string, unknown>;
+    const filtered = required.filter((name) => {
+      if (typeof name !== "string") return true;
+      const prop = propsRecord[name];
+      return !(
+        prop != null &&
+        typeof prop === "object" &&
+        "default" in (prop as Record<string, unknown>)
+      );
+    });
+    if (filtered.length > 0) obj.required = filtered;
+    else delete obj.required;
+  }
+  for (const value of Object.values(obj)) dropDefaultedFromRequired(value);
+}
+
 /** Convert a Zod schema or plain JSON Schema object to a JSON Schema object. */
-function toJSONSchemaObject(schema: unknown): JSONSchemaObject {
+function toJSONSchemaObject(
+  schema: unknown,
+  options: { stripRequiredDefaults?: boolean } = {},
+): JSONSchemaObject {
   if (schema == null || typeof schema !== "object") return {};
   // Zod schema: has _zod branded property
   if ("_zod" in (schema as Record<string, unknown>)) {
@@ -120,6 +161,7 @@ function toJSONSchemaObject(schema: unknown): JSONSchemaObject {
     });
     // z.toJSONSchema may add $schema — strip it for inline embedding
     const { $schema: _, ...rest } = converted as Record<string, unknown>;
+    if (options.stripRequiredDefaults) dropDefaultedFromRequired(rest);
     return rest as JSONSchemaObject;
   }
   // Plain JSON Schema object (backward compat for inline/pre-auth routes)
@@ -389,7 +431,9 @@ function buildSpec(
       const content: Record<string, { schema: JSONSchemaObject }> = {};
       for (const variant of entry.requestBodies) {
         content[variant.contentType] = {
-          schema: toJSONSchemaObject(variant.schema),
+          schema: toJSONSchemaObject(variant.schema, {
+            stripRequiredDefaults: true,
+          }),
         };
       }
       operation.requestBody = { required: true, content };
@@ -398,7 +442,9 @@ function buildSpec(
         required: true,
         content: {
           "application/json": {
-            schema: toJSONSchemaObject(entry.requestBody),
+            schema: toJSONSchemaObject(entry.requestBody, {
+              stripRequiredDefaults: true,
+            }),
           },
         },
       };
@@ -470,8 +516,10 @@ async function main() {
     stringify(spec, { lineWidth: 120 });
 
   // Format with prettier so the output matches what the pre-commit hook produces.
+  // Use a Node.js Readable stream for stdin — Bun.spawn with Blob stdin produces
+  // empty output on some platforms (Bun 1.3.x Linux sandbox).
   const prettierProc = Bun.spawn(["bunx", "prettier", "--parser", "yaml"], {
-    stdin: new Blob([rawYaml]),
+    stdin: Readable.from([rawYaml]) as unknown as Blob,
     stdout: "pipe",
     stderr: "pipe",
   });

@@ -1,6 +1,11 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  conversationMetadataSyncTag,
+  SYNC_TAGS,
+} from "../daemon/message-types/sync.js";
 import { makeMockLogger } from "./helpers/mock-logger.js";
+import { waitFor } from "./helpers/wait-for.js";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
@@ -63,6 +68,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       type: string;
       conversationId?: string;
       profile?: string | null;
+      tags?: string[];
     }> = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
@@ -74,19 +80,25 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
             event.message.type === "conversation_inference_profile_updated"
               ? event.message.profile
               : undefined,
+          tags:
+            event.message.type === "sync_changed"
+              ? event.message.tags
+              : undefined,
         });
       },
     });
 
-    const result = profileRoute.handler({
+    const result = await profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: "quality-optimized" },
       headers: {},
     });
 
-    await Promise.resolve();
+    await waitFor(() => received.length === 2, {
+      message: "Timed out waiting for inference profile route event",
+    });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       conversationId: conversation.id,
       profile: "quality-optimized",
     });
@@ -98,59 +110,82 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
         type: "conversation_inference_profile_updated",
         conversationId: conversation.id,
         profile: "quality-optimized",
+        tags: undefined,
+      },
+      {
+        type: "sync_changed",
+        conversationId: undefined,
+        profile: undefined,
+        tags: [
+          SYNC_TAGS.conversationsList,
+          conversationMetadataSyncTag(conversation.id),
+        ],
       },
     ]);
 
     subscription.dispose();
   });
 
-  test("rejects unknown profile names with BadRequestError", () => {
+  test("rejects unknown profile names with BadRequestError", async () => {
     const conversation = createConversation("inference-profile-unknown");
 
-    expect(() =>
+    await expect(
       profileRoute.handler({
         pathParams: { id: conversation.id },
         body: { profile: "does-not-exist" },
         headers: {},
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
     expect(getConversation(conversation.id)?.inferenceProfile).toBeNull();
   });
 
   test("clears the override when profile is null", async () => {
     const conversation = createConversation("inference-profile-clear");
 
-    profileRoute.handler({
+    await profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: "balanced" },
       headers: {},
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(getConversation(conversation.id)?.inferenceProfile).toBe("balanced");
 
-    const received: Array<{ profile?: string | null }> = [];
+    const received: Array<{ profile?: string | null; tags?: string[] }> = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
         if (event.message.type === "conversation_inference_profile_updated") {
           received.push({ profile: event.message.profile });
+        } else if (event.message.type === "sync_changed") {
+          received.push({ tags: event.message.tags });
         }
       },
     });
 
-    const result = profileRoute.handler({
+    const result = await profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: null },
       headers: {},
     });
 
-    await Promise.resolve();
+    await waitFor(() => received.length === 2, {
+      message: "Timed out waiting for inference profile route event",
+    });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       conversationId: conversation.id,
       profile: null,
     });
     expect(getConversation(conversation.id)?.inferenceProfile).toBeNull();
-    expect(received).toEqual([{ profile: null }]);
+    expect(received).toEqual([
+      { profile: null },
+      {
+        tags: [
+          SYNC_TAGS.conversationsList,
+          conversationMetadataSyncTag(conversation.id),
+        ],
+      },
+    ]);
 
     subscription.dispose();
   });
@@ -158,11 +193,12 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
   test("skips write and event when the profile is unchanged", async () => {
     const conversation = createConversation("inference-profile-noop");
 
-    profileRoute.handler({
+    await profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: "balanced" },
       headers: {},
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const updatedAtAfterSet = getConversation(conversation.id)?.updatedAt;
 
     const received: Array<{ profile?: string | null }> = [];
@@ -175,7 +211,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       },
     });
 
-    const result = profileRoute.handler({
+    const result = await profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: "balanced" },
       headers: {},
@@ -183,7 +219,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 
     await Promise.resolve();
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       conversationId: conversation.id,
       profile: "balanced",
     });
@@ -193,13 +229,13 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     subscription.dispose();
   });
 
-  test("throws NotFoundError when the conversation does not exist", () => {
-    expect(() =>
+  test("throws NotFoundError when the conversation does not exist", async () => {
+    await expect(
       profileRoute.handler({
         pathParams: { id: "missing" },
         body: { profile: "balanced" },
         headers: {},
       }),
-    ).toThrow(NotFoundError);
+    ).rejects.toThrow(NotFoundError);
   });
 });

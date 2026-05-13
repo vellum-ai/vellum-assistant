@@ -163,21 +163,54 @@ export async function embedConceptPageJob(
     slots.push("summary");
   }
 
-  let bodyDense: number[] | undefined = bodyCacheHit ? bodyCache!.dense : undefined;
+  let bodyDense: number[] | undefined = bodyCacheHit
+    ? bodyCache!.dense
+    : undefined;
   let summaryDense: number[] | undefined = summaryCacheHit
     ? summaryCache!.dense
     : undefined;
   let writeProvider = cacheProvider;
   let writeModel = cacheModel;
+  let bodyFresh = false;
+  let summaryFresh = false;
   if (toEmbed.length > 0) {
-    const embedded = await embedWithBackend(config, toEmbed);
+    let embedded = await embedWithBackend(config, toEmbed);
+    let appliedSlots = slots;
+    // Backend rotation between `getMemoryBackendStatus()` and
+    // `embedWithBackend()` would tag the cached half with the old
+    // provider/model and the fresh half with the new — writing both into
+    // one Qdrant point mixes embedding spaces. Re-embed every slot fresh
+    // when we detect the rotation so the point's named vectors share one
+    // identity.
+    const rotated =
+      (bodyCacheHit || summaryCacheHit) &&
+      (embedded.provider !== cacheProvider || embedded.model !== cacheModel);
+    if (rotated) {
+      const allTexts: Array<{ type: "text"; text: string }> = [
+        { type: "text", text },
+      ];
+      const allSlots: Slot[] = ["body"];
+      if (hasSummary) {
+        allTexts.push({ type: "text", text: summaryText });
+        allSlots.push("summary");
+      }
+      embedded = await embedWithBackend(config, allTexts);
+      appliedSlots = allSlots;
+      bodyDense = undefined;
+      summaryDense = undefined;
+    }
     writeProvider = embedded.provider;
     writeModel = embedded.model;
-    for (let i = 0; i < slots.length; i++) {
+    for (let i = 0; i < appliedSlots.length; i++) {
       const vector = embedded.vectors[i];
       if (!vector) continue;
-      if (slots[i] === "body") bodyDense = vector;
-      else summaryDense = vector;
+      if (appliedSlots[i] === "body") {
+        bodyDense = vector;
+        bodyFresh = true;
+      } else {
+        summaryDense = vector;
+        summaryFresh = true;
+      }
     }
   }
   // Body embedding is the ground truth — without it the page can't surface.
@@ -205,9 +238,12 @@ export async function embedConceptPageJob(
   const now = Date.now();
   // Persist freshly embedded vectors for cross-restart reuse. On cache hit
   // the existing row already has identical content + hash, so the write
-  // would be a no-op — skip it. Best-effort: write failure is not fatal,
-  // we still want the Qdrant upsert below to fire.
-  if (!bodyCacheHit) {
+  // would be a no-op — skip it. Backend rotation flips a cache hit into a
+  // fresh embed (see `rotated` above); the `*Fresh` flags capture that so
+  // the new vector overwrites the now-stale cache row under the new
+  // provider/model identity. Best-effort: write failure is not fatal, we
+  // still want the Qdrant upsert below to fire.
+  if (bodyFresh) {
     writeEmbeddingCache(db, {
       slug,
       cacheId: slug,
@@ -218,7 +254,7 @@ export async function embedConceptPageJob(
       now,
     });
   }
-  if (hasSummary && !summaryCacheHit && summaryDense && summaryContentHash) {
+  if (hasSummary && summaryFresh && summaryDense && summaryContentHash) {
     writeEmbeddingCache(db, {
       slug,
       cacheId: summaryCacheId,

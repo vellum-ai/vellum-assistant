@@ -2,7 +2,6 @@ import type { RecallDepth, RecallInput, RecallSource } from "./types.js";
 
 export const ALL_RECALL_SOURCES: readonly RecallSource[] = [
   "memory",
-  "pkb",
   "conversations",
   "workspace",
 ] as const;
@@ -81,9 +80,7 @@ export function normalizeRecallMaxResults(
   );
 }
 
-function normalizeRecallDepth(
-  depth: RecallDepth | undefined,
-): RecallDepth {
+function normalizeRecallDepth(depth: RecallDepth | undefined): RecallDepth {
   if (depth === undefined) {
     return DEFAULT_RECALL_DEPTH;
   }

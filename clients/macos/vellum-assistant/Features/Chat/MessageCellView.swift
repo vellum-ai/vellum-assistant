@@ -34,6 +34,8 @@ struct MessageCellView: View, Equatable {
             && lhs.isTTSEnabled == rhs.isTTSEnabled
             && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
             && lhs.searchQuery == rhs.searchQuery
+            && lhs.bookmarkStore === rhs.bookmarkStore
+            && lhs.bookmarkConversationId == rhs.bookmarkConversationId
     }
 
     let message: ChatMessage
@@ -66,6 +68,9 @@ struct MessageCellView: View, Equatable {
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
     var onInspectMessage: ((String?) -> Void)?
+    var onToggleBookmark: ((String, String) -> Void)?
+    var bookmarkStore: BookmarkStore?
+    var bookmarkConversationId: String?
     var onRehydrateMessage: ((UUID) -> Void)?
     var onSurfaceRefetch: ((String, String) -> Void)?
     var onRetryFailedMessage: ((UUID) -> Void)?
@@ -119,6 +124,9 @@ struct MessageCellView: View, Equatable {
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 onInspectMessage: onInspectMessage,
+                onToggleBookmark: onToggleBookmark,
+                bookmarkStore: bookmarkStore,
+                bookmarkConversationId: bookmarkConversationId,
                 onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
@@ -212,6 +220,9 @@ struct MessageCellView: View, Equatable {
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 onInspectMessage: onInspectMessage,
+                onToggleBookmark: onToggleBookmark,
+                bookmarkStore: bookmarkStore,
+                bookmarkConversationId: bookmarkConversationId,
                 onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,

@@ -84,6 +84,22 @@ If the user declines to install the extension:
 
 Only fall back to these if the user explicitly indicates they do not want to install the extension. Prefer `cdp-inspect` over `local`.
 
+## Targeting a Specific Client
+
+When multiple clients support `host_browser` (e.g. two Chrome profiles, a macOS client and a Chrome extension), use `--target-client-id <id>` on the `assistant browser` parent command to pin all operations in the invocation to one specific client:
+
+```bash
+assistant browser --target-client-id <client-id> navigate --url https://example.com
+```
+
+Obtain client IDs from:
+
+```bash
+assistant clients list --capability host_browser
+```
+
+Omit `--target-client-id` when only one client is connected — the default interface-preference order (`chrome-extension` first, then `macos`) picks the best available client automatically.
+
 ## Session Management
 
 Use `--session <id>` on the `assistant browser` parent command to group sequential operations so they share browser state (same page, cookies, etc.). Different session IDs create independent browser contexts.

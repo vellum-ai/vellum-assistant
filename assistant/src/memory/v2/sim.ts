@@ -17,13 +17,20 @@
 //   channel separately and fuses with the configured `dense_weight` /
 //   `sparse_weight` (which the schema validates sum to 1.0).
 //
-// Sparse normalization:
-//   Dense cosine similarity is already in [0, 1]. Qdrant's sparse score is
-//   on a different, unbounded scale (it depends on query and document term
-//   weights), so we divide by the per-batch maximum sparse score to bring
-//   it into [0, 1] before fusing. This is the design doc's choice (§4) —
-//   batch-relative normalization is sufficient because the score is consumed
-//   only as a per-turn ordering signal, not compared across turns.
+// Score normalization:
+//   Qdrant returns cosine similarity in [-1, 1]. We clamp negative cosines
+//   to 0 before fusion so anti-correlated documents contribute zero, rather
+//   than a negative term that subtracts from the sparse channel and can
+//   depress the fused score below the sparse-only floor. Positive cosines
+//   pass through unchanged — affine-rescaling them into [0, 1] via
+//   `(cos + 1) / 2` would halve every pairwise dense difference and shift
+//   ranking toward the sparse channel, the opposite of intent. Qdrant's
+//   sparse score is on a different, unbounded scale (it depends on query
+//   and document term weights), so we divide by the per-batch maximum
+//   sparse score to bring it into [0, 1] before fusing. This is the design
+//   doc's choice (§4) — batch-relative normalization is sufficient because
+//   the score is consumed only as a per-turn ordering signal, not compared
+//   across turns.
 
 import type { AssistantConfig } from "../../config/types.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
@@ -264,11 +271,17 @@ function computeMaxSparse<T>(
 
 /**
  * Fuse one half of a hit (body or summary) into a normalized [0, 1] score
- * via `clamp01(dense_weight · dense + sparse_weight · sparse/maxSparse)`.
- * Returns `undefined` when neither channel hit — a signal the half had no
- * match at all, so the caller can fall back to the other half cleanly.
+ * via `clamp01(dense_weight · max(0, cosine) + sparse_weight ·
+ * sparse/maxSparse)`. Negative cosines clamp to 0 so they don't subtract
+ * from sparse; positive cosines pass through unchanged so the
+ * operator-configured dense/sparse balance is preserved. Returns
+ * `undefined` when neither channel hit — a signal the half had no match
+ * at all, so the caller can fall back to the other half cleanly.
+ *
+ * Exported so the context-search adapter can reuse the same fusion math
+ * for its own activation pipeline.
  */
-function fuseHalf(
+export function fuseHalf(
   denseScore: number | undefined,
   sparseScore: number | undefined,
   maxSparse: number,
@@ -276,7 +289,7 @@ function fuseHalf(
   sparseWeight: number,
 ): number | undefined {
   if (denseScore === undefined && sparseScore === undefined) return undefined;
-  const dense = denseScore ?? 0;
+  const dense = denseScore !== undefined ? Math.max(0, denseScore) : 0;
   const sparseNormalized =
     sparseScore !== undefined && maxSparse > 0 ? sparseScore / maxSparse : 0;
   return clamp01(denseWeight * dense + sparseWeight * sparseNormalized);

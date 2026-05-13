@@ -56,9 +56,7 @@ async function spawnSession({ body }: RouteHandlerArgs) {
   const cwd = (body?.cwd as string | undefined) ?? process.cwd();
 
   if (!agent || !task || !conversationId) {
-    throw new BadRequestError(
-      "agent, task, and conversationId are required",
-    );
+    throw new BadRequestError("agent, task, and conversationId are required");
   }
 
   const resolved = resolveAcpAgent(agent);
@@ -182,10 +180,7 @@ function deleteSession({ pathParams }: RouteHandlerArgs) {
     // Not in memory — fall through to the (idempotent) DB delete.
   }
 
-  getDb()
-    .delete(acpSessionHistory)
-    .where(eq(acpSessionHistory.id, id))
-    .run();
+  getDb().delete(acpSessionHistory).where(eq(acpSessionHistory.id, id)).run();
   const deleted = rawChanges() > 0;
   log.info({ acpSessionId: id, deleted }, "ACP session history delete");
   return { deleted };
@@ -376,7 +371,14 @@ function listMergedSessions(opts: {
         eq(acpSessionHistory.parentConversationId, opts.conversationId),
       )
     : baseQuery;
-  const historyRows = filtered.orderBy(desc(acpSessionHistory.startedAt)).all();
+  // Fetch only enough rows to fill the requested page after merging with
+  // in-memory sessions. In-memory entries take precedence on id collision,
+  // so we pad by inMemory.length to guarantee we still surface `limit`
+  // distinct rows even when every in-memory session shadows a DB row.
+  const historyRows = filtered
+    .orderBy(desc(acpSessionHistory.startedAt))
+    .limit(opts.limit + inMemory.length)
+    .all();
 
   for (const row of historyRows) {
     if (merged.has(row.id)) continue;

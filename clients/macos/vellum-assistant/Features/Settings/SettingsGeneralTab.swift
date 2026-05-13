@@ -102,7 +102,6 @@ struct SettingsGeneralTab: View {
                 TeleportSection(assistant: assistant, onClose: onClose)
             }
             SettingsAppearanceTab(store: store)
-            OpenSourceSettingsCard()
             if !lockfileAssistants.isEmpty {
                 retireAssistantSection
             }

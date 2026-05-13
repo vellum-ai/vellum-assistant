@@ -51,6 +51,7 @@ export function resolveUsageAttribution(
   const overrideProfile = normalizeProfileId(input.overrideProfile);
 
   if (callSite == null) {
+    const resolvedMainAgent = resolveCallSiteConfig("mainAgent", llm);
     return {
       callSite: null,
       activeProfile: normalizeProfileId(llm.activeProfile),
@@ -58,8 +59,8 @@ export function resolveUsageAttribution(
       callSiteProfile: null,
       appliedProfile: null,
       profileSource: "unknown",
-      resolvedProvider: llm.default.provider,
-      resolvedModel: llm.default.model,
+      resolvedProvider: resolvedMainAgent.provider,
+      resolvedModel: resolvedMainAgent.model,
     };
   }
 

@@ -86,6 +86,10 @@ import {
 } from "./routes/channel-guardian-routes.js";
 import { RouteError } from "./routes/errors.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
+import {
+  startInferenceProfileSessionReaper,
+  stopInferenceProfileSessionReaper,
+} from "./routes/inference-profile-session-reaper.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
@@ -492,12 +496,16 @@ export class RuntimeHttpServer {
 
     startCanonicalGuardianExpirySweep();
     log.info("Canonical guardian request expiry sweep started");
+
+    startInferenceProfileSessionReaper();
+    log.info("Inference profile session reaper started");
   }
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
     stopGuardianActionSweep();
     stopCanonicalGuardianExpirySweep();
+    stopInferenceProfileSessionReaper();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;
@@ -531,7 +539,9 @@ export class RuntimeHttpServer {
     server: ReturnType<typeof Bun.serve>,
   ): Promise<Response> {
     server.timeout(req, 1800);
-    // Skip request logging for health-check probes to reduce log noise.
+    // Skip request logging entirely for the bare-bones liveness/readiness
+    // probes Bun's load balancer hits — these don't go through the
+    // declarative router and would just clutter logs unconditionally.
     const url = new URL(req.url);
     if (
       (url.pathname === "/healthz" || url.pathname === "/readyz") &&
@@ -539,7 +549,22 @@ export class RuntimeHttpServer {
     ) {
       return this.routeRequest(req, server);
     }
-    return withRequestLogging(req, () => this.routeRequest(req, server));
+    // Ask the router for any per-route logging policy *before* dispatching,
+    // so the middleware can decide whether to suppress the success log
+    // line for noisy probes (e.g. macOS app polling /v1/health every few
+    // seconds). Only `/v1/*` paths are registered with the declarative
+    // router; for everything else `meta` stays undefined and the middleware
+    // falls back to its default log-every-request behavior.
+    let meta;
+    if (url.pathname.startsWith("/v1/")) {
+      const endpoint = url.pathname.slice("/v1/".length).replace(/\/$/, "");
+      meta = this.router.findLoggingMetadata(req.method, endpoint) ?? undefined;
+    }
+    return withRequestLogging(
+      req,
+      () => this.routeRequest(req, server),
+      meta,
+    );
   }
 
   private async routeRequest(
@@ -556,7 +581,6 @@ export class RuntimeHttpServer {
     if (path === "/readyz" && req.method === "GET") {
       return handleReadyz();
     }
-
 
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
@@ -623,6 +647,7 @@ export class RuntimeHttpServer {
             err.code as HttpErrorCode,
             err.message,
             err.statusCode,
+            err.details,
           );
         }
         throw err;
@@ -1013,8 +1038,9 @@ export class RuntimeHttpServer {
     ws: ServerWebSocket<LiveVoiceWebSocketData>,
     frame: LiveVoiceServerFrame,
   ): void {
-    ws.data.lastSeq = Math.max(ws.data.lastSeq, frame.seq);
-    ws.send(JSON.stringify(frame));
+    const seq = Math.max(ws.data.lastSeq + 1, frame.seq);
+    ws.data.lastSeq = seq;
+    ws.send(JSON.stringify({ ...frame, seq }));
   }
 
   private releaseLiveVoiceSession(

@@ -13,6 +13,7 @@ export const VELAY_FRAME_TYPES = {
   websocketOpenError: "websocket_open_error",
   websocketMessage: "websocket_message",
   websocketClose: "websocket_close",
+  heartbeat: "heartbeat",
 } as const;
 
 export const VELAY_WEBSOCKET_MESSAGE_TYPES = {
@@ -82,6 +83,10 @@ export type VelayWebSocketCloseFrame = {
   reason?: string;
 };
 
+export type VelayHeartbeatFrame = {
+  type: typeof VELAY_FRAME_TYPES.heartbeat;
+};
+
 export type VelayFrame =
   | VelayRegisteredFrame
   | VelayHttpRequestFrame
@@ -90,7 +95,8 @@ export type VelayFrame =
   | VelayWebSocketOpenedFrame
   | VelayWebSocketOpenErrorFrame
   | VelayWebSocketMessageFrame
-  | VelayWebSocketCloseFrame;
+  | VelayWebSocketCloseFrame
+  | VelayHeartbeatFrame;
 
 export type VelayWebSocketInboundFrame =
   | VelayWebSocketOpenFrame
@@ -143,12 +149,17 @@ const websocketCloseFrameSchema = z.object({
   reason: z.string().optional(),
 });
 
+const heartbeatFrameSchema = z.object({
+  type: z.literal(VELAY_FRAME_TYPES.heartbeat),
+});
+
 const inboundFrameSchema = z.discriminatedUnion("type", [
   registeredFrameSchema,
   httpRequestFrameSchema,
   websocketOpenFrameSchema,
   websocketMessageFrameSchema,
   websocketCloseFrameSchema,
+  heartbeatFrameSchema,
 ]);
 
 export function parseVelayFrame(data: unknown): VelayFrame | undefined {

@@ -1,7 +1,36 @@
+import { MANAGED_PROVIDER_META } from "./managed-proxy/constants.js";
+
 export type LongContextMode =
   | "native-model"
   | "provider-request-option"
   | "unsupported";
+
+export interface CatalogModelPricingTier {
+  /**
+   * Threshold in total prompt input tokens above which this tier's rates
+   * apply. The largest matched threshold wins when usage exceeds multiple
+   * tiers (single-step staircase, not progressive bracketing).
+   */
+  inputTokenThreshold: number;
+  inputPer1mTokens: number;
+  outputPer1mTokens: number;
+  cacheReadPer1mTokens?: number;
+  cacheWritePer1mTokens?: number;
+}
+
+export interface CatalogModelPricing {
+  inputPer1mTokens: number;
+  outputPer1mTokens: number;
+  cacheWritePer1mTokens?: number;
+  cacheReadPer1mTokens?: number;
+  /**
+   * Optional long-context pricing tiers. Selected by total prompt input
+   * tokens. When set, the base fields above apply at the low-context tier
+   * (below every tier threshold) and tier entries override at higher
+   * thresholds.
+   */
+  tiers?: CatalogModelPricingTier[];
+}
 
 export interface CatalogModel {
   id: string;
@@ -15,12 +44,7 @@ export interface CatalogModel {
   supportsCaching?: boolean;
   supportsVision?: boolean;
   supportsToolUse?: boolean;
-  pricing?: {
-    inputPer1mTokens: number;
-    outputPer1mTokens: number;
-    cacheWritePer1mTokens?: number;
-    cacheReadPer1mTokens?: number;
-  };
+  pricing?: CatalogModelPricing;
 }
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 200000;
@@ -64,6 +88,15 @@ export interface ProviderCatalogEntry {
     url: string;
     linkLabel: string;
   };
+  /**
+   * Whether this provider supports the `platform` auth type (Vellum-managed
+   * keys routed through the platform proxy). Derived from
+   * `MANAGED_PROVIDER_META` at catalog build time so the two stay in lock
+   * step. Clients use this field to hide the "Platform (managed by Vellum)"
+   * option from the auth-type dropdown for providers like Fireworks or
+   * OpenRouter where managed keys are not available.
+   */
+  supportsManagedAuth?: boolean;
 }
 
 /**
@@ -201,6 +234,15 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
           cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold:
+                OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
         },
       },
       {
@@ -217,6 +259,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 30.0,
           outputPer1mTokens: 180.0,
+          tiers: [
+            {
+              inputTokenThreshold:
+                OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 60,
+              outputPer1mTokens: 270,
+            },
+          ],
         },
       },
       {
@@ -234,6 +284,15 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 2.5,
           outputPer1mTokens: 15.0,
           cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold:
+                OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
         },
       },
       {
@@ -315,6 +374,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 12.0,
           cacheReadPer1mTokens: 0.2,
+          tiers: [
+            {
+              inputTokenThreshold: 200_000,
+              inputPer1mTokens: 4,
+              outputPer1mTokens: 18,
+              cacheReadPer1mTokens: 0.4,
+            },
+          ],
         },
       },
       {
@@ -331,6 +398,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 2.0,
           outputPer1mTokens: 12.0,
           cacheReadPer1mTokens: 0.2,
+          tiers: [
+            {
+              inputTokenThreshold: 200_000,
+              inputPer1mTokens: 4,
+              outputPer1mTokens: 18,
+              cacheReadPer1mTokens: 0.4,
+            },
+          ],
         },
       },
       {
@@ -407,6 +482,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 1.25,
           outputPer1mTokens: 10.0,
           cacheReadPer1mTokens: 0.3125,
+          tiers: [
+            {
+              inputTokenThreshold: 200_000,
+              inputPer1mTokens: 2.5,
+              outputPer1mTokens: 15,
+              cacheReadPer1mTokens: 0.625,
+            },
+          ],
         },
       },
     ],
@@ -761,6 +844,11 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
   RAW_PROVIDER_CATALOG.map((entry) => ({
     ...entry,
     models: entry.models.map(catalogModel),
+    // Derive supportsManagedAuth from MANAGED_PROVIDER_META so the catalog
+    // and the proxy routing table can never drift. Adding a provider to
+    // MANAGED_PROVIDER_META with `managed: true` automatically opts it into
+    // the Platform auth-type dropdown in the clients.
+    supportsManagedAuth: MANAGED_PROVIDER_META[entry.id]?.managed === true,
   }));
 
 /** Check if a model ID is in the catalog for a given provider. */

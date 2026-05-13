@@ -138,12 +138,6 @@ export interface ModelGetRequest {
   type: "model_get";
 }
 
-export interface ModelSetRequest {
-  type: "model_set";
-  model: string;
-  provider?: string;
-}
-
 export interface ImageGenModelSetRequest {
   type: "image_gen_model_set";
   model: string;
@@ -536,6 +530,7 @@ export type ConversationErrorCode =
   | "MANAGED_USAGE_LIMIT"
   | "PROVIDER_OVERLOADED"
   | "PROVIDER_API"
+  | "IMAGE_TOO_LARGE"
   | "PROVIDER_BILLING"
   | "PROVIDER_ORDERING"
   | "PROVIDER_WEB_SEARCH"
@@ -606,7 +601,6 @@ export type _ConversationsClientMessages =
   | CancelRequest
   | DeleteQueuedMessage
   | ModelGetRequest
-  | ModelSetRequest
   | ImageGenModelSetRequest
   | UndoRequest
   | UsageRequest

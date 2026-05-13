@@ -161,6 +161,31 @@ describe("resolveAcpAgent", () => {
     expect(result.hint).toBe("npm i -g @zed-industries/codex-acp");
   });
 
+  test("binary preflight honors agent.env.PATH override (matches spawn env)", () => {
+    // The actual spawn merges `agentConfig.env` into the child env, so a
+    // per-agent PATH override wins over the daemon's PATH. The preflight
+    // must use the same PATH or it will reject configs that would have
+    // spawned successfully.
+    config.setConfig({
+      agents: {
+        custom: {
+          command: "my-binary",
+          args: [],
+          env: { PATH: "/opt/custom/bin" },
+        },
+      },
+    });
+    which.setWhich((cmd, options) =>
+      cmd === "my-binary" && options?.PATH === "/opt/custom/bin"
+        ? "/opt/custom/bin/my-binary"
+        : null,
+    );
+
+    const result = resolveAcpAgent("custom");
+
+    expect(result.ok).toBe(true);
+  });
+
   test("ok result when user config provides agent and binary is on PATH", () => {
     config.setConfig({
       agents: {

@@ -8,6 +8,8 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+delete process.env.ASSISTANT_IPC_SOCKET_DIR;
+
 import { runAssistantCommandFull } from "../../cli/__tests__/run-assistant-command.js";
 import { AssistantIpcServer } from "../assistant-server.js";
 

@@ -49,6 +49,7 @@ import type {
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { getConfig } from "../config/loader.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import {
   classifyDiskPressureTurnPolicy,
@@ -56,6 +57,7 @@ import {
 } from "../daemon/disk-pressure-policy.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
+import { recordRequestLog } from "../memory/llm-request-log-store.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -183,6 +185,13 @@ export interface WakeOptions {
    */
   sourceChannel?: TrustContext["sourceChannel"];
   sourceInterface?: InterfaceId | "vellum";
+  /**
+   * LLM call site to route this wake through. Defaults to `"mainAgent"` so
+   * conversation wakes share the user's chat-model selection. Background jobs
+   * (e.g. memory consolidation) pass their own call site so operators can
+   * tune the model/profile and observability bucket independently.
+   */
+  callSite?: LLMCallSite;
 }
 
 /**
@@ -539,6 +548,24 @@ export async function wakeAgentForOpportunity(
       }
     };
     const onEvent = (event: AgentEvent): void => {
+      // Replicates the recordRequestLog side-effect in `handleUsage` because
+      // wakes own their own onEvent and never reach `dispatchAgentEvent`.
+      if (event.type === "usage" && event.rawRequest && event.rawResponse) {
+        try {
+          recordRequestLog(
+            conversationId,
+            JSON.stringify(event.rawRequest),
+            JSON.stringify(event.rawResponse),
+            undefined,
+            event.actualProvider,
+          );
+        } catch (err) {
+          log.warn(
+            { err, conversationId, source },
+            "agent-wake: failed to persist LLM request log (non-fatal)",
+          );
+        }
+      }
       if (mode === "buffering") {
         buffered.push(event);
         return;
@@ -635,10 +662,11 @@ export async function wakeAgentForOpportunity(
     // `markProcessing(true)` so a thrown DB/config read can't strand the
     // processing flag.
     const overrideProfile = getConversationOverrideProfile(conversationId);
+    const callSite = opts.callSite ?? "mainAgent";
     const config = getConfig();
     const effectiveContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
-      callSite: "mainAgent",
+      callSite,
       overrideProfile,
     });
 
@@ -676,12 +704,13 @@ export async function wakeAgentForOpportunity(
           undefined, // no external abort signal
           `wake:${source}`,
           onCheckpoint,
-          // Route through `mainAgent` — same as a normal user turn on this
-          // conversation. Without an explicit callSite, the resolver in
+          // Route through the caller-supplied call site (defaults to
+          // `mainAgent` so a normal user-turn wake shares the user's chat
+          // selection). Without an explicit callSite, the resolver in
           // `RetryProvider` and the routing in `CallSiteRoutingProvider`
-          // short-circuit and silently drop both `llm.callSites.mainAgent`
-          // config and the pinned `overrideProfile` below.
-          "mainAgent",
+          // short-circuit and silently drop both per-callsite config and the
+          // pinned `overrideProfile` below.
+          callSite,
           wakeTurnContext,
           overrideProfile,
           effectiveContextWindow.maxInputTokens,

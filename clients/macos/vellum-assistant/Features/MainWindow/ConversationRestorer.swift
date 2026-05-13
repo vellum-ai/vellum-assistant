@@ -29,6 +29,10 @@ protocol ConversationRestorerDelegate: AnyObject {
     func isConversationArchived(_ conversationId: String) -> Bool
     func restoreLastActiveConversation()
     func appendConversations(from response: ConversationListResponseMessage)
+    /// Queue a latest-history reconciliation for an already-loaded conversation.
+    /// Used when a conversation-list refresh shows that another client advanced
+    /// the conversation while this client may have missed the live SSE event.
+    func reconcileLoadedConversationHistory(localId: UUID, daemonConversationId: String)
     /// Returns an existing ChatViewModel matching the given conversation ID, if any.
     func existingChatViewModel(forConversationId conversationId: String) -> ChatViewModel?
     /// Merge daemon attention metadata into an existing conversation, allowing the
@@ -37,6 +41,14 @@ protocol ConversationRestorerDelegate: AnyObject {
     func mergeAssistantAttention(
         from item: ConversationListResponseItem,
         intoConversationAt index: Int
+    )
+    /// Value-level attention merge for batch operations. Applies attention
+    /// fields and reconciles pending overrides without writing to
+    /// `conversations`, so the caller can coalesce N mutations into one
+    /// `conversations` writeback.
+    func applyAssistantAttention(
+        from item: ConversationListResponseItem,
+        into conversation: inout ConversationModel
     )
 }
 
@@ -80,6 +92,11 @@ final class ConversationRestorer {
     /// NotificationCenter observer token for `NSApplication.didBecomeActiveNotification`.
     /// Kept for the lifetime of the restorer to catch every activation.
     private var appDidBecomeActiveObserver: NSObjectProtocol?
+    /// Last `lastMessageAt` observed in a list response for loaded conversations.
+    /// This prevents app activation/list invalidation refreshes from repeatedly
+    /// fetching the same latest history page when the server-side latest message
+    /// has not changed.
+    private var observedListLastMessageAtByConversationId: [String: Int] = [:]
 
     weak var delegate: ConversationRestorerDelegate?
 
@@ -94,6 +111,9 @@ final class ConversationRestorer {
         fetchConversationListTask?.cancel()
         invalidationRefetchTask?.cancel()
         reconnectHistoryDrainTask?.cancel()
+        for entry in inFlightHistoryReconstructionTasks {
+            entry.task.cancel()
+        }
         if let daemonReconnectObserver {
             NotificationCenter.default.removeObserver(daemonReconnectObserver)
         }
@@ -108,7 +128,11 @@ final class ConversationRestorer {
             for await message in self.eventStreamClient.subscribe() {
                 switch message {
                 case .conversationListResponse(let response):
-                    self.handleConversationListResponse(response)
+                    // SSE-pushed responses don't have the foreground/background
+                    // separation that fetchConversationList enforces, so they
+                    // must not touch serverOffset (which paginates the
+                    // foreground endpoint only).
+                    self.handleConversationListResponse(response, updateServerOffset: false)
                 case .historyResponse(let response):
                     self.handleHistoryResponse(response)
                 case .conversationTitleUpdated(let response):
@@ -367,6 +391,9 @@ final class ConversationRestorer {
             && delegate.chatViewModel(for: delegate.conversations[0].id)?.messages.isEmpty ?? true
             && delegate.chatViewModel(for: delegate.conversations[0].id)?.conversationId == nil
 
+        // Snapshot existing conversations so that per-row merges accumulate
+        // in-memory instead of triggering N × conversations.didSet.
+        var snapshot = delegate.conversations
         var restoredConversations: [ConversationModel] = []
         for session in response.conversations {
             let isPinned = session.isPinned ?? false
@@ -382,10 +409,8 @@ final class ConversationRestorer {
             // If a local conversation already exists (e.g. created by
             // createNotificationConversation before the session list response arrived),
             // merge server pin/order metadata into it instead of creating a duplicate.
-            if let existingIdx = delegate.conversations.firstIndex(where: { $0.conversationId == session.id }) {
-                // Copy-modify-writeback for non-attention fields: write back once
-                // so conversations.didSet fires once instead of per-field.
-                var existing = delegate.conversations[existingIdx]
+            if let existingIdx = snapshot.firstIndex(where: { $0.conversationId == session.id }) {
+                var existing = snapshot[existingIdx]
                 existing.groupId = groupId
                 existing.displayOrder = session.displayOrder.map { Int($0) }
                 existing.forkParent = session.forkParent
@@ -399,18 +424,24 @@ final class ConversationRestorer {
                 existing.conversationType = session.conversationType
                 existing.originChannel = session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
                 existing.inferenceProfile = session.inferenceProfile
-                delegate.conversations[existingIdx] = existing
-                // Attention merge must go through mergeAssistantAttention so that
-                // pendingAttentionOverrides are reconciled (e.g. a notification
-                // conversation the user already opened before the list arrived).
-                delegate.mergeAssistantAttention(from: session, intoConversationAt: existingIdx)
+                existing.scheduleJobId = session.scheduleJobId
+                // Attention merge reconciles pendingAttentionOverrides (e.g. a
+                // notification conversation the user already opened before the list
+                // arrived).
+                delegate.applyAssistantAttention(from: session, into: &existing)
+                snapshot[existingIdx] = existing
+                requestLoadedHistoryReconciliationIfNeeded(
+                    localId: existing.id,
+                    daemonConversationId: session.id,
+                    serverLastMessageAtMillis: session.lastMessageAt
+                )
                 continue
             }
 
             // Preserve user-set titles: if a conversation with this session already
             // exists locally and has a non-default title, keep it instead of
             // overwriting with the daemon's auto-generated title.
-            let existingTitle = delegate.conversations
+            let existingTitle = snapshot
                 .first(where: { $0.conversationId == session.id && $0.title != "New Conversation" })?
                 .title
             let title = existingTitle ?? session.title
@@ -446,25 +477,22 @@ final class ConversationRestorer {
                 suppressed.hasUnseenLatestAssistantMessage = false
                 restoredConversations.append(suppressed)
             } else {
-                // VM creation is lazy — only the active conversation will get a VM via
-                // getOrCreateViewModel() when it's first accessed.
                 restoredConversations.append(conversation)
             }
         }
 
-        // Suppress animations during bulk list assignment. Without this,
-        // SwiftUI computes before/after diffing and animation interpolation
-        // for every row — expensive when restoring ~50 conversations at once.
+        // Single conversations writeback: suppress animations during bulk list
+        // assignment so SwiftUI doesn't compute diffing/animation for every row.
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             if defaultConversationIsEmpty {
-                if let defaultConversation = delegate.conversations.first {
+                if let defaultConversation = snapshot.first {
                     delegate.removeChatViewModel(for: defaultConversation.id)
                 }
                 delegate.conversations = restoredConversations
             } else {
-                delegate.conversations = restoredConversations + delegate.conversations
+                delegate.conversations = restoredConversations + snapshot
             }
         }
 
@@ -554,6 +582,22 @@ final class ConversationRestorer {
         guard let delegate else { return }
         guard let index = delegate.conversations.firstIndex(where: { $0.conversationId == response.conversationId }) else { return }
         delegate.conversations[index].title = response.title
+    }
+
+    private func requestLoadedHistoryReconciliationIfNeeded(
+        localId: UUID,
+        daemonConversationId: String,
+        serverLastMessageAtMillis: Int?
+    ) {
+        guard let serverLastMessageAtMillis else { return }
+        guard observedListLastMessageAtByConversationId[daemonConversationId] != serverLastMessageAtMillis else {
+            return
+        }
+        observedListLastMessageAtByConversationId[daemonConversationId] = serverLastMessageAtMillis
+        delegate?.reconcileLoadedConversationHistory(
+            localId: localId,
+            daemonConversationId: daemonConversationId
+        )
     }
 
     // MARK: - Invalidation Debounce

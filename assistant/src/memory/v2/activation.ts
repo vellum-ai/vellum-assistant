@@ -36,15 +36,13 @@
 
 import type { AssistantConfig } from "../../config/types.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
-import {
-  embedWithBackend,
-  generateSparseEmbedding,
-} from "../embedding-backend.js";
+import { embedWithBackend } from "../embedding-backend.js";
 import { clampUnitInterval } from "../validation.js";
 import type { EdgeIndex } from "./edge-index.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
 import { rerankCandidates } from "./reranker.js";
 import { simBatch } from "./sim.js";
+import { generateBm25QueryEmbedding } from "./sparse-bm25.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 /**
@@ -125,12 +123,13 @@ export async function selectCandidates(
 
   // (2) ANN top-50 against the concatenated turn text. Pure whitespace joins
   // (no separators) keep the embedding behavior aligned with how callers
-  // would naturally read the three texts together.
+  // would naturally read the three texts together. Whitespace-only channels
+  // contribute no semantic content, so trim before deciding whether to embed.
   const annQueryText = [userText, assistantText, nowText]
-    .filter((s) => s.length > 0)
+    .filter((s) => s.trim().length > 0)
     .join("\n");
 
-  if (annQueryText.length > 0) {
+  if (annQueryText.trim().length > 0) {
     throwIfAborted(signal);
     const denseResult = await embedWithBackend(config, [annQueryText], {
       signal,
@@ -141,7 +140,7 @@ export async function selectCandidates(
       denseResult.model,
     );
     throwIfAborted(signal);
-    const sparse = generateSparseEmbedding(annQueryText);
+    const sparse = generateBm25QueryEmbedding(annQueryText);
     const limit =
       config.memory.v2.ann_candidate_limit ?? UNLIMITED_ANN_CANDIDATE_LIMIT;
     const hits = await hybridQueryConceptPages(dense, sparse, limit);
@@ -202,17 +201,19 @@ interface ComputeOwnActivationResult {
  *          + c_user · sim_u + c_assistant · sim_a + c_now · sim_n
  *          + c_user · α · r_norm_u + c_assistant · α · r_norm_a
  * over the candidate set, where the rerank terms only fire for slugs that
- * land in the unified top-K-by-pre-rerank-A_o window. Returns a sparse map
- * keyed by slug; slugs whose computed value rounds to 0 are still included
- * so callers can see the candidate set explicitly. Also returns a per-slug
- * breakdown of the raw inputs (decayed prior + raw sims + rerank deltas) so
- * callers can render contribution diagnostics without re-running the math.
+ * land in the unified top-K window. The pool is ranked by the rerank-eligible
+ * channels alone (`c_user · sim_u + c_assistant · sim_a`) so prior- or
+ * NOW-heavy slugs — which can't gain from rerank — don't starve out
+ * genuinely user/assistant-relevant slugs. Returns a sparse map keyed by
+ * slug; slugs whose computed value rounds to 0 are still included so callers
+ * can see the candidate set explicitly. Also returns a per-slug breakdown of
+ * the raw inputs (decayed prior + raw sims + rerank deltas) so callers can
+ * render contribution diagnostics without re-running the math.
  *
  * The three `simBatch` calls run concurrently — they hit independent named
  * vectors and embed independent query texts. Cross-encoder rerank then runs
- * once on the unified top-K (selected by pre-rerank A_o, not per-channel
- * fused sim) so an entry strong in both channels can't double-boost itself
- * past entries that only land in one channel.
+ * once on the unified top-K so an entry strong in both channels can't
+ * double-boost itself past entries that only land in one channel.
  */
 export async function computeOwnActivation(
   params: ComputeOwnActivationParams,
@@ -248,8 +249,16 @@ export async function computeOwnActivation(
     simU: number;
     simA: number;
     simN: number;
-    /** Pre-rerank A_o; ranking signal for the unified rerank pool. */
+    /** Pre-rerank A_o; full sum used for the final activation value. */
     preRerank: number;
+    /**
+     * Ranking signal for the unified rerank pool — only the channels that
+     * actually participate in rerank (user + assistant). Excluding
+     * `priorContribution` and `c_now * simN` prevents prior- or NOW-heavy
+     * slugs from consuming the rerank budget despite being ineligible for
+     * cross-encoder gains.
+     */
+    rerankPoolScore: number;
   }
   const inputs: SlugInputs[] = slugList.map((slug) => {
     const prev = priorState?.state[slug] ?? 0;
@@ -257,23 +266,24 @@ export async function computeOwnActivation(
     const simA = simAssistant.get(slug) ?? 0;
     const simN = simNow.get(slug) ?? 0;
     const priorContribution = d * prev;
+    const rerankPoolScore = c_user * simU + c_assistant * simA;
     return {
       slug,
       priorContribution,
       simU,
       simA,
       simN,
-      preRerank:
-        priorContribution + c_user * simU + c_assistant * simA + c_now * simN,
+      preRerank: priorContribution + rerankPoolScore + c_now * simN,
+      rerankPoolScore,
     };
   });
 
-  // Unified top-K by pre-rerank A_o. Both channels rerank against the **same**
-  // slug set, so a slug strong on user can't crowd out one strong on assistant
-  // by virtue of appearing in both per-channel top-Ks. Both channel queries
-  // ride in a single `rerankCandidates` call so the worker tokenizes and
-  // forward-passes them together — half the per-call overhead of two
-  // serialised round-trips.
+  // Unified top-K by rerank-eligible signal only. Both channels rerank against
+  // the **same** slug set, so a slug strong on user can't crowd out one strong
+  // on assistant by virtue of appearing in both per-channel top-Ks. Both
+  // channel queries ride in a single `rerankCandidates` call so the worker
+  // tokenizes and forward-passes them together — half the per-call overhead
+  // of two serialised round-trips.
   let userRerankBoost: ReadonlyMap<string, number> = new Map();
   let assistantRerankBoost: ReadonlyMap<string, number> = new Map();
   let inPoolSet: ReadonlySet<string> = new Set();
@@ -282,17 +292,20 @@ export async function computeOwnActivation(
     throwIfAborted(signal);
     const topSlugs = inputs
       .slice()
-      .sort((a, b) => b.preRerank - a.preRerank)
+      .sort((a, b) => b.rerankPoolScore - a.rerankPoolScore)
       .slice(0, rerankCfg.top_k)
       .map((e) => e.slug);
     if (topSlugs.length > 0) {
-      inPoolSet = new Set(topSlugs);
       const [userScores, assistantScores] = await rerankCandidates(
         [userText, assistantText],
         topSlugs,
         config,
       );
       throwIfAborted(signal);
+      // Build the pool from slugs the cross-encoder actually scored, so a
+      // backend failure (which yields empty maps) doesn't mislabel candidates
+      // as `inRerankPool` in the inspector.
+      inPoolSet = new Set([...userScores.keys(), ...assistantScores.keys()]);
       userRerankBoost = normalizeRerankScores(userScores, rerankCfg.alpha);
       assistantRerankBoost = normalizeRerankScores(
         assistantScores,

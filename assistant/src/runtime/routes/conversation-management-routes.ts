@@ -19,7 +19,6 @@
 
 import { z } from "zod";
 
-import { loadConfig } from "../../config/loader.js";
 import { destroyActiveConversation } from "../../daemon/conversation-store.js";
 import {
   cancelGeneration,
@@ -28,7 +27,6 @@ import {
   switchConversation,
   undoLastMessage,
 } from "../../daemon/handlers/conversations.js";
-import type { ConversationListInvalidatedReason } from "../../daemon/message-types/conversations.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
   archiveConversation,
@@ -37,7 +35,6 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
-  setConversationInferenceProfile,
   unarchiveConversation,
   updateConversationTitle,
   wipeConversation,
@@ -51,10 +48,14 @@ import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
+import {
+  publishConversationListAndMetadataChanged,
+  publishConversationListChanged,
+  publishConversationTitleChanged,
+} from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("conversation-management-routes");
@@ -67,24 +68,6 @@ function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
   if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
   return id;
-}
-
-function publishListInvalidated(
-  reason: ConversationListInvalidatedReason,
-): void {
-  assistantEventHub
-    .publish(
-      buildAssistantEvent({
-        type: "conversation_list_invalidated",
-        reason,
-      }),
-    )
-    .catch((err) => {
-      log.warn(
-        { err },
-        `Failed to publish conversation_list_invalidated (${reason})`,
-      );
-    });
 }
 
 function cancelScheduleIfLast(conversationId: string): void {
@@ -109,6 +92,7 @@ function handleCreateConversation({ body = {} }: RouteHandlerArgs) {
   });
   if (result.created) {
     updateConversationTitle(result.conversationId, "New Conversation");
+    publishConversationListAndMetadataChanged("created", result.conversationId);
   }
   log.info(
     {
@@ -152,6 +136,7 @@ async function handleForkConversation({ body = {} }: RouteHandlerArgs) {
         `Forked conversation ${forkedConversation.id} could not be loaded`,
       );
     }
+    publishConversationListAndMetadataChanged("created", forkedConversation.id);
     return { conversation: detail.conversation };
   } catch (err) {
     if (err instanceof UserError) {
@@ -183,16 +168,10 @@ async function handleSwitchConversation({ body = {} }: RouteHandlerArgs) {
   };
 }
 
-function handleSetInferenceProfile({
+async function handleSetInferenceProfile({
   pathParams = {},
   body = {},
 }: RouteHandlerArgs) {
-  const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
-  const conversation = getConversation(resolvedId);
-  if (!conversation) {
-    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
-  }
-
   if (
     body.profile !== null &&
     (typeof body.profile !== "string" || (body.profile as string).length === 0)
@@ -200,38 +179,14 @@ function handleSetInferenceProfile({
     throw new BadRequestError("profile must be a non-empty string or null");
   }
 
-  const profile = body.profile as string | null;
-  if (profile !== null) {
-    const profiles = loadConfig().llm?.profiles ?? {};
-    if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
-      throw new BadRequestError(
-        `Profile "${profile}" is not defined in llm.profiles`,
-      );
-    }
-  }
+  const result = await setInferenceProfileSession({
+    conversationId: pathParams.id!,
+    profile: body.profile as string | null,
+    ttlSeconds: body.ttlSeconds as number | null | undefined,
+    sessionId: body.sessionId as string | undefined,
+  });
 
-  if (conversation.inferenceProfile !== profile) {
-    setConversationInferenceProfile(resolvedId, profile);
-    assistantEventHub
-      .publish(
-        buildAssistantEvent(
-          {
-            type: "conversation_inference_profile_updated",
-            conversationId: resolvedId,
-            profile,
-          },
-          resolvedId,
-        ),
-      )
-      .catch((err) => {
-        log.warn(
-          { err, conversationId: resolvedId },
-          "Failed to publish conversation_inference_profile_updated event",
-        );
-      });
-  }
-
-  return { conversationId: resolvedId, profile };
+  return result;
 }
 
 function handleRenameConversation({
@@ -248,25 +203,7 @@ function handleRenameConversation({
   }
   updateConversationTitle(pathParams.id!, name, 0);
 
-  assistantEventHub
-    .publish(
-      buildAssistantEvent(
-        {
-          type: "conversation_title_updated",
-          conversationId: pathParams.id!,
-          title: name,
-        },
-        pathParams.id!,
-      ),
-    )
-    .catch((err) => {
-      log.warn(
-        { err, conversationId: pathParams.id },
-        "Failed to publish conversation_title_updated",
-      );
-    });
-
-  publishListInvalidated("renamed");
+  publishConversationTitleChanged(pathParams.id!, name);
 
   return { ok: true };
 }
@@ -280,6 +217,7 @@ function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
     );
   }
   clearAllConversations();
+  publishConversationListChanged("deleted");
   return undefined;
 }
 
@@ -310,6 +248,7 @@ function handleWipeConversation({ pathParams = {} }: RouteHandlerArgs) {
     },
     "Wiped conversation and reverted memory changes",
   );
+  publishConversationListAndMetadataChanged("deleted", resolvedId);
   return {
     wiped: true,
     unsupersededItems: 0,
@@ -339,7 +278,7 @@ function handleDeleteConversation({ pathParams = {} }: RouteHandlerArgs) {
   }
   log.info({ conversationId: resolvedId }, "Deleted conversation");
 
-  publishListInvalidated("deleted");
+  publishConversationListAndMetadataChanged("deleted", resolvedId);
 
   return undefined;
 }
@@ -350,6 +289,7 @@ function handleArchiveConversation({ pathParams = {} }: RouteHandlerArgs) {
   if (!archived) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }
+  publishConversationListAndMetadataChanged("reordered", resolvedId);
   return { ok: true, conversationId: resolvedId };
 }
 
@@ -359,13 +299,14 @@ function handleUnarchiveConversation({ pathParams = {} }: RouteHandlerArgs) {
   if (!unarchived) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }
+  publishConversationListAndMetadataChanged("reordered", resolvedId);
   return { ok: true, conversationId: resolvedId };
 }
 
 function handleCancelGeneration({ pathParams = {} }: RouteHandlerArgs) {
   const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
-  cancelGeneration(resolvedId);
-  return undefined;
+  const cancelled = cancelGeneration(resolvedId);
+  return { ok: true, cancelled, conversationId: resolvedId };
 }
 
 async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
@@ -418,7 +359,10 @@ function handleReorderConversations({ body = {} }: RouteHandlerArgs) {
       groupId: u.groupId,
     })),
   );
-  publishListInvalidated("reordered");
+  publishConversationListAndMetadataChanged(
+    "reordered",
+    updates.map((u) => u.conversationId),
+  );
   return { ok: true };
 }
 
@@ -500,15 +444,28 @@ export const ROUTES: RouteDefinition[] = [
     policyKey: "conversations/inference-profile",
     summary: "Set conversation inference profile",
     description:
-      "Override the LLM inference profile for a single conversation.",
+      "Override the LLM inference profile for a single conversation. " +
+      "Optionally supply ttlSeconds to create a session-backed (expiring) override.",
     tags: ["conversations"],
     pathParams: [{ name: "id", type: "uuid" }],
     requestBody: z.object({
       profile: z.string().nullable(),
+      ttlSeconds: z.number().positive().nullable().optional(),
+      sessionId: z.string().uuid().optional(),
     }),
     responseBody: z.object({
       conversationId: z.string(),
       profile: z.string().nullable(),
+      sessionId: z.string().nullable(),
+      expiresAt: z.number().nullable(),
+      ttlSeconds: z.number().nullable().optional(),
+      replaced: z
+        .object({
+          profile: z.string().nullable(),
+          sessionId: z.string().nullable(),
+          expiresAt: z.number().nullable(),
+        })
+        .nullable(),
     }),
     handler: handleSetInferenceProfile,
   },
@@ -600,6 +557,11 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["conversations"],
     pathParams: [{ name: "id" }],
     responseStatus: "202",
+    responseBody: z.object({
+      ok: z.boolean(),
+      cancelled: z.boolean(),
+      conversationId: z.string(),
+    }),
     handler: handleCancelGeneration,
   },
   {

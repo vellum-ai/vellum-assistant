@@ -76,9 +76,22 @@ public struct InlineSurfaceRouter: View {
         return false
     }
 
+    /// True when this surface is currently displayed in the floating task-progress overlay.
+    /// Suppress the inline rendering so the same widget doesn't show in two places.
+    private var isPoppedOut: Bool {
+        #if os(macOS)
+        if case .card(let data) = surface.data, data.template == "task_progress" {
+            return TaskProgressOverlayManager.shared.activeSurfaceId == surface.id
+        }
+        #endif
+        return false
+    }
+
     public var body: some View {
         Group {
-        if case .strippedFailed = surface.data {
+        if isPoppedOut {
+            EmptyView()
+        } else if case .strippedFailed = surface.data {
             strippedFailedPlaceholder
         } else if case .stripped = surface.data {
             strippedPlaceholder

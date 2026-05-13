@@ -33,6 +33,7 @@ interface TestState {
   countResult: number;
   listPagesResult: string[];
   enqueueCalls: Array<{ type: string; payload: Record<string, unknown> }>;
+  clearSentinelCallCount: number;
 }
 
 const state: TestState = {
@@ -46,6 +47,7 @@ const state: TestState = {
   countResult: 0,
   listPagesResult: [],
   enqueueCalls: [],
+  clearSentinelCallCount: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -66,6 +68,9 @@ mock.module("../memory/v2/qdrant.js", () => ({
     return state.ensureCollectionResult;
   },
   countConceptPagePoints: async (): Promise<number> => state.countResult,
+  clearReembedSentinel: async (): Promise<void> => {
+    state.clearSentinelCallCount += 1;
+  },
   // The rebuild gate does not call this, but the seed gate's fire-and-forget
   // chain imports it; provide a no-op so the dynamic import resolves.
   dropLegacySkillsCollection: async (): Promise<void> => {},
@@ -88,6 +93,11 @@ mock.module("../memory/jobs-store.js", () => ({
 
 mock.module("../util/platform.js", () => ({
   getWorkspaceDir: () => "/tmp/test-workspace",
+  // qdrant.ts (mocked away in this file) reads `getDataDir` for the reembed
+  // sentinel path; bun mocks share the same module record across files, so
+  // include it here too so a peer test importing `getDataDir` doesn't see
+  // `undefined` after this mock evaluates.
+  getDataDir: () => "/tmp/test-workspace/data",
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -148,6 +158,7 @@ function resetState(): void {
   state.countResult = 0;
   state.listPagesResult = [];
   state.enqueueCalls = [];
+  state.clearSentinelCallCount = 0;
 }
 
 describe("maybeSeedMemoryV2Skills (daemon startup gate)", () => {
@@ -202,6 +213,10 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
     expect(state.enqueueCalls).toEqual([
       { type: "memory_v2_reembed", payload: {} },
     ]);
+    // After the reembed is queued, the on-disk sentinel that the qdrant
+    // ensure-path may have written is cleared so it does not re-trigger on
+    // the next startup.
+    expect(state.clearSentinelCallCount).toBe(1);
     // Migrated path skips the count probe — drift detection is the trigger.
     // (The mock's countConceptPagePoints would silently return 0 either way,
     // but keeping the path conditional keeps the lifecycle hook predictable.)

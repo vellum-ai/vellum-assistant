@@ -63,11 +63,11 @@ mock.module("../security/secure-keys.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     llm: mockLlmConfig,
-    services: { inference: { mode: "your-own" } },
+    services: { inference: {} },
   }),
 }));
 
-import { LLMSchema } from "../config/schemas/llm.js";
+import { type LLMConfigBase, LLMSchema } from "../config/schemas/llm.js";
 import type { ProvidersConfig } from "../providers/registry.js";
 import {
   getProvider,
@@ -77,9 +77,10 @@ import {
 } from "../providers/registry.js";
 
 function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
+  const baseLlm = LLMSchema.parse({});
   return {
     services: {
-      inference: { mode: "your-own" },
+      inference: {},
       "image-generation": {
         mode: "your-own",
         provider: "gemini",
@@ -87,7 +88,14 @@ function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
       },
       "web-search": { mode: "your-own", provider: "inference-provider-native" },
     },
-    llm: { default: { provider, model } },
+    llm: {
+      ...baseLlm,
+      default: {
+        ...baseLlm.default,
+        provider: provider as LLMConfigBase["provider"],
+        model,
+      },
+    },
   };
 }
 

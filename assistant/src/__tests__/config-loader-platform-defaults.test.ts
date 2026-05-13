@@ -92,7 +92,6 @@ function readConfig(): Record<string, unknown> {
 }
 
 const MANAGED_SERVICES = [
-  "inference",
   "image-generation",
   "web-search",
   "google-oauth",
@@ -126,7 +125,7 @@ describe("platform-managed config defaults", () => {
     }
   });
 
-  test("IS_PLATFORM=true, no config file → all 8 service modes written as 'managed'", () => {
+  test("IS_PLATFORM=true, no config file → all 7 managed service modes written as 'managed'", () => {
     process.env.IS_PLATFORM = "true";
 
     loadConfig();
@@ -140,7 +139,7 @@ describe("platform-managed config defaults", () => {
     }
   });
 
-  test("IS_PLATFORM=false, no config file → service modes default to 'your-own'", () => {
+  test("IS_PLATFORM=false, no config file → managed service modes default to 'your-own'", () => {
     process.env.IS_PLATFORM = "false";
 
     loadConfig();
@@ -154,7 +153,7 @@ describe("platform-managed config defaults", () => {
     }
   });
 
-  test("IS_PLATFORM unset, no config file → service modes default to 'your-own'", () => {
+  test("IS_PLATFORM unset, no config file → managed service modes default to 'your-own'", () => {
     delete process.env.IS_PLATFORM;
 
     loadConfig();
@@ -171,13 +170,13 @@ describe("platform-managed config defaults", () => {
   test("IS_PLATFORM=true, config file already exists → existing service mode values are preserved", () => {
     process.env.IS_PLATFORM = "true";
 
-    // Write an existing config with inference mode explicitly set to "your-own"
+    // Write an existing config with image-generation mode explicitly set to "your-own"
     writeFileSync(
       CONFIG_PATH,
       JSON.stringify(
         {
           services: {
-            inference: { mode: "your-own" },
+            "image-generation": { mode: "your-own" },
           },
         },
         null,
@@ -191,13 +190,11 @@ describe("platform-managed config defaults", () => {
     expect(written.services).toBeDefined();
     // The existing value must be preserved — backfill path, not fresh-write path
     expect(
-      (written.services!["inference"] as { mode?: string })?.mode,
+      (written.services!["image-generation"] as { mode?: string })?.mode,
     ).toBe("your-own");
     // ...and the in-memory config must mirror the explicit user choice (the
     // fill-defaults pass must not override an explicit "your-own").
-    expect(
-      (config.services.inference as { mode: string }).mode,
-    ).toBe("your-own");
+    expect(config.services["image-generation"].mode).toBe("your-own");
   });
 
   test("IS_PLATFORM=true, config file exists without a services key → in-memory config has all managed modes", () => {
@@ -367,15 +364,15 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
     }
   });
 
-  test("IS_PLATFORM=true, raw config has explicit services.inference.mode='your-own' → preserved", () => {
+  test("IS_PLATFORM=true, raw config has explicit services.image-generation.mode='your-own' → preserved", () => {
     process.env.IS_PLATFORM = "true";
 
-    // User has explicitly chosen "your-own" via the macOS Save flow.
-    // The patch handler persisted that to disk; the fill pass must not
-    // override an explicit user choice.
+    // User has explicitly chosen "your-own" for image-generation via the macOS
+    // Save flow. The patch handler persisted that to disk; the fill pass must
+    // not override an explicit user choice.
     const raw: Record<string, unknown> = {
       services: {
-        inference: { mode: "your-own" },
+        "image-generation": { mode: "your-own" },
       },
     };
 
@@ -384,10 +381,12 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
       unknown
     >;
     const services = result["services"] as Record<string, { mode: string }>;
-    expect(services["inference"]!.mode).toBe("your-own");
-    // Other services were missing entirely → context defaults fill them in.
-    expect(services["image-generation"]!.mode).toBe("managed");
+    expect(services["image-generation"]!.mode).toBe("your-own");
+    // web-search was missing → fill.
     expect(services["web-search"]!.mode).toBe("managed");
+    // inference.mode is a legacy backwards-compat wire field — synthesized
+    // here for old macOS clients (SettingsStore.swift) that still read it.
+    expect(services["inference"]!.mode).toBe("managed");
   });
 
   test("IS_PLATFORM=false, raw config has no services key → response is unchanged", () => {
@@ -408,12 +407,12 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
     expect(result["services"]).toBeUndefined();
   });
 
-  test("IS_PLATFORM=true, raw config has partial services.inference subtree → preserves user fields, fills missing mode", () => {
+  test("IS_PLATFORM=true, raw config has partial services subtree → preserves user fields, fills missing mode", () => {
     process.env.IS_PLATFORM = "true";
 
-    // User set image-generation.provider but never chose a mode for any
-    // service. The fill pass adds the missing modes without clobbering
-    // the user-supplied provider.
+    // User set image-generation.provider but never chose a mode.
+    // The fill pass adds the missing mode without clobbering the user-supplied
+    // provider.
     const raw: Record<string, unknown> = {
       services: {
         "image-generation": { provider: "openai" },
@@ -430,8 +429,63 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
     >;
     expect(services["image-generation"]!.mode).toBe("managed");
     expect(services["image-generation"]!.provider).toBe("openai");
-    // Inference, which was missing entirely, picks up the context default.
+    // services.inference.mode is synthesized as a legacy wire-only field for
+    // older macOS clients during the rollout window (Phase 1.2 schema removal
+    // landed before the macOS Providers UI ships).
     expect(services["inference"]!.mode).toBe("managed");
+  });
+
+  test("IS_PLATFORM=true, raw config has no inference subtree → synthesizes legacy mode='managed'", () => {
+    process.env.IS_PLATFORM = "true";
+
+    const raw: Record<string, unknown> = {
+      llm: {
+        profiles: {
+          balanced: { provider: "anthropic", model: "claude-sonnet-4.5" },
+        },
+      },
+    };
+
+    const result = applyContextDefaultsToRawConfig(raw) as Record<
+      string,
+      unknown
+    >;
+    const services = result["services"] as Record<string, { mode: string }>;
+    expect(services["inference"]!.mode).toBe("managed");
+  });
+
+  test("IS_PLATFORM=true, raw config has explicit services.inference.mode='your-own' → preserved (legacy override)", () => {
+    process.env.IS_PLATFORM = "true";
+
+    // Pre-migration upgrade: workspace config still carries the legacy
+    // mode value. The synthesis only fills when absent, so an explicit
+    // disk value wins until migration 076 strips it.
+    const raw: Record<string, unknown> = {
+      services: {
+        inference: { mode: "your-own" },
+      },
+    };
+
+    const result = applyContextDefaultsToRawConfig(raw) as Record<
+      string,
+      unknown
+    >;
+    const services = result["services"] as Record<string, { mode: string }>;
+    expect(services["inference"]!.mode).toBe("your-own");
+  });
+
+  test("IS_PLATFORM=false, raw config has no inference subtree → no synthesis", () => {
+    process.env.IS_PLATFORM = "false";
+
+    const raw: Record<string, unknown> = {
+      llm: {},
+    };
+
+    const result = applyContextDefaultsToRawConfig(raw) as Record<
+      string,
+      unknown
+    >;
+    expect(result["services"]).toBeUndefined();
   });
 
   // -------------------------------------------------------------------------

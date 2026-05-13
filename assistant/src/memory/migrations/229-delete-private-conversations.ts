@@ -47,6 +47,10 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
   database.run(/*sql*/ `
     DELETE FROM scoped_approval_grants
     WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+       OR call_session_id IN (
+        SELECT id FROM call_sessions
+        WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+      )
   `);
   database.run(/*sql*/ `
     DELETE FROM guardian_action_deliveries
@@ -192,6 +196,14 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
   database.run(/*sql*/ `
     DELETE FROM messages
     WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM attachments
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM message_attachments ma
+      WHERE ma.attachment_id = attachments.id
+    )
   `);
   database.run(/*sql*/ `
     DELETE FROM memory_summaries

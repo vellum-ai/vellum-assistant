@@ -734,14 +734,27 @@ final class ChatActionHandler {
                 callback("Response complete")
             }
         }
-        // Signal turn completion to observers (e.g. the `task_complete` sound).
-        // Cancel-acknowledgements are user-initiated aborts, not real turn ends,
-        // so they stay silent. Auxiliary `message_complete` events (call
-        // transcript updates, summaries, watch notifiers) are tagged with
-        // `source == "aux"` and must not be counted as turn ends. Absent
-        // source is treated as main for backwards compatibility.
+        // Signal turn completion to observers. Cancel-acknowledgements are
+        // user-initiated aborts, not real turn ends, so they stay silent.
+        // Auxiliary `message_complete` events (call transcript updates,
+        // summaries, watch notifiers) are tagged with `source == "aux"` and
+        // must not be counted as turn ends. Absent source is treated as main
+        // for backwards compatibility.
+        //
+        // `turnCompletionTick` fires for every real main-turn completion —
+        // it drives type-agnostic side effects like the inactive-app local
+        // notification (which has its own conversationType-based
+        // suppression). `interactiveTurnCompletionTick` only bumps when a
+        // user-typed send from this client was awaiting completion, gating
+        // the `task_complete` chime to turns the user actually initiated
+        // here (and silencing daemon-initiated wakes, scheduled jobs,
+        // watcher ticks, and subagent dispatches).
         if !wasCancelAck && complete.source != "aux" {
             vm.messageManager.turnCompletionTick &+= 1
+            if vm.messageManager.pendingUserTurnCount > 0 {
+                vm.messageManager.pendingUserTurnCount -= 1
+                vm.messageManager.interactiveTurnCompletionTick &+= 1
+            }
         }
     }
 
@@ -786,13 +799,22 @@ final class ChatActionHandler {
             vm.requestIdToMessageId = [:]
             vm.activeRequestIdToMessageId = [:]
             vm.pendingLocalDeletions.removeAll()
+            vm.messageManager.pendingUserTurnCount = 0
             for i in vm.messages.indices {
                 if case .queued = vm.messages[i].status, vm.messages[i].role == .user {
                     vm.messages[i].status = .sent
                 }
             }
-        } else if vm.pendingQueuedCount == 0 {
-            vm.isSending = false
+        } else {
+            // Per-message cancel from the daemon (e.g. queue eviction). The
+            // matching `message_complete` will never arrive, so decrement the
+            // pending counter to keep the interactive-tick gate accurate.
+            if vm.messageManager.pendingUserTurnCount > 0 {
+                vm.messageManager.pendingUserTurnCount -= 1
+            }
+            if vm.pendingQueuedCount == 0 {
+                vm.isSending = false
+            }
         }
         vm.messageManager.batchUpdateMessages { msgs in
             if let existingId = vm.currentAssistantMessageId {

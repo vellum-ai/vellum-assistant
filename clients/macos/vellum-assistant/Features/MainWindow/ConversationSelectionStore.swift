@@ -42,6 +42,7 @@ final class ConversationSelectionStore {
             // on unrelated conversation switches.
             if let anchorConversation = pendingAnchorConversationId, anchorConversation != activeConversationId {
                 pendingAnchorMessageId = nil
+                pendingAnchorDaemonMessageId = nil
                 pendingAnchorConversationId = nil
             }
         }
@@ -105,6 +106,14 @@ final class ConversationSelectionStore {
 
     /// Pending anchor message ID for scroll-to behavior on notification deep links.
     var pendingAnchorMessageId: UUID?
+
+    /// Pending anchor message ID expressed as a daemon (server-side) message ID,
+    /// for callers that don't have the client-side `UUID` (e.g. cross-conversation
+    /// deep links from settings panes such as Bookmarks). The MessageListView
+    /// resolver maps this to the matching client `UUID` once the messages list
+    /// contains a message with that `daemonMessageId`, then triggers the existing
+    /// `pendingAnchorMessageId` scroll-and-flash path.
+    var pendingAnchorDaemonMessageId: String?
 
     /// Message ID to visually highlight after an anchor scroll completes.
     var highlightedMessageId: UUID?

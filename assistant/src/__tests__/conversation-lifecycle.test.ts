@@ -368,4 +368,128 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages).toHaveLength(2);
     expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
   });
+
+  test("historical user row rehydrates memoryV2StaticBlock between memory and system_reminder", async () => {
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          memoryInjectedBlock: "mem payload",
+          memoryV2StaticBlock:
+            "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+          pkbSystemReminderBlock:
+            "<system_reminder>\npkb payload\n</system_reminder>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].role).toBe("user");
+    expect(messages[0].content).toEqual([
+      { type: "text", text: "<memory>\nmem payload\n</memory>" },
+      {
+        type: "text",
+        text: "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
+      },
+      {
+        type: "text",
+        text: "<system_reminder>\npkb payload\n</system_reminder>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("tail user row skips memoryV2StaticBlock", async () => {
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First" }]),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        metadata: JSON.stringify({
+          memoryV2StaticBlock: "<memory>\n## Essentials\n\nleak\n</memory>",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    expect(messages[2].role).toBe("user");
+    // Tail row receives fresh injection on the next turn — the persisted
+    // static block must not rehydrate here.
+    expect(messages[2].content).toEqual([{ type: "text", text: "Tail" }]);
+  });
+
+  test("untrusted-actor view does not rehydrate memoryV2StaticBlock", async () => {
+    mockConversation = defaultConv();
+    // Rows with `trusted_contact` / `unknown` provenance survive the
+    // untrusted-actor row filter, so this isolates the rehydrate gate.
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First" }]),
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV2StaticBlock:
+            "<memory>\n## Essentials\n\nprivate memory\n</memory>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        metadata: JSON.stringify({ provenanceTrustClass: "unknown" }),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "telegram",
+    });
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    // The historical row survives row-level filtering but the rehydrate gate
+    // suppresses the personal-memory block.
+    expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
+  });
 });

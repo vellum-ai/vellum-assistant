@@ -140,8 +140,12 @@ public final class ChatGreetingState {
     }
 
     public func removeConversationStarter(_ starter: ConversationStarter) {
+        guard let removedIndex = conversationStarters.firstIndex(where: { $0.id == starter.id }) else {
+            return
+        }
+        let removedStarter = conversationStarters[removedIndex]
         removedConversationStarterIds.insert(starter.id)
-        conversationStarters.removeAll { $0.id == starter.id }
+        conversationStarters.remove(at: removedIndex)
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -149,6 +153,10 @@ public final class ChatGreetingState {
             guard !Task.isCancelled else { return }
             if !deleted {
                 self.removedConversationStarterIds.remove(starter.id)
+                if !self.conversationStarters.contains(where: { $0.id == removedStarter.id }) {
+                    let insertAt = min(removedIndex, self.conversationStarters.count)
+                    self.conversationStarters.insert(removedStarter, at: insertAt)
+                }
                 self.fetchConversationStarters()
             }
         }

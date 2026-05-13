@@ -27,8 +27,15 @@ struct DocumentEditorPanelView: View {
                         .background(VColor.surfaceLift)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.chip))
                 }
-                if documentManager.isSaving {
-                    ProgressView().controlSize(.small).scaleEffect(0.7)
+                if documentManager.isSaving || documentManager.isExportingPDF {
+                    HStack(spacing: VSpacing.sm) {
+                        ProgressView().controlSize(.small).scaleEffect(0.7)
+                        if documentManager.isExportingPDF {
+                            Text("Exporting PDF…")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                    }
                 } else {
                     VSplitButton(
                         label: "Export",

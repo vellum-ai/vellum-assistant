@@ -30,11 +30,13 @@ You'll know they've succeeded once they're able to see a "Client ID" and "Client
 
 Once your user has gone through the setup process and has a Client ID and Client Secret handy, you're ready to register the OAuth app for use.
 
-**Step 1:**
-Prompt the user to enter the Client ID conversationally through chat. This is safe because Client ID is not a secret value.
+**Step 1: Collect Client ID and Client Secret together**
 
-**Step 2:**
-Securely collect the Client Secret using:
+Present BOTH the conversational Client ID request AND the `credential_store prompt` for the Client Secret in the same turn. Do not wait for the Client ID before showing the secret form. Output the chat text first asking for the Client ID, then invoke the `credential_store prompt` tool call in the same turn.
+
+Presenting both inputs together lets the user fill them in while the provider's credentials page is still open, instead of requiring a round-trip between each field.
+
+In your message, ask the user to paste the Client ID in chat (this is safe — Client ID is not a secret value), and simultaneously open the secure prompt for the Client Secret:
 
 ```
 credential_store prompt:
@@ -47,8 +49,9 @@ credential_store prompt:
 
 Do NOT collect the client secret conversationally.
 
-**Step 3:**
-Create the app using the CLI, subbing out values for `<provider-key>` and `<client-id>`:
+**Step 2: Register the app**
+
+After both values are collected, create the app using the CLI, subbing out values for `<provider-key>` and `<client-id>`:
 
 ```bash
 assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "<provider-key>:client_secret"

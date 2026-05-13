@@ -1,23 +1,34 @@
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { type LLMConfig } from "../config/schemas/llm.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
-import { AnthropicProvider } from "./anthropic/client.js";
-import { FireworksProvider } from "./fireworks/client.js";
-import { GeminiProvider } from "./gemini/client.js";
+import { getLogger } from "../util/logger.js";
+import {
+  buildProviderAdapter,
+  createAdapterFromConnection,
+} from "./inference/adapter-factory.js";
+// ---------------------------------------------------------------------------
+// Per-connection provider cache (mix-and-match support)
+// ---------------------------------------------------------------------------
+import type { ProviderConnection } from "./inference/auth.js";
+import { resolveAuth } from "./inference/resolve-auth.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "./managed-proxy/context.js";
-import { isModelInCatalog } from "./model-catalog.js";
+import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
-import { OllamaProvider } from "./ollama/client.js";
-import { OpenAIResponsesProvider } from "./openai/client.js";
-import { OpenRouterProvider } from "./openrouter/client.js";
 import { RetryProvider } from "./retry.js";
 import type { Provider } from "./types.js";
 import { UsageTrackingProvider } from "./usage-tracking.js";
 
+const log = getLogger("provider-registry");
+
 const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
+
+/** Per-connection provider cache, keyed by connection name. */
+const connectionProviders = new Map<string, Provider>();
 
 function registerProvider(name: string, provider: Provider): void {
   providers.set(name, new UsageTrackingProvider(provider));
@@ -43,9 +54,7 @@ export function getProviderRoutingSource(
 
 export interface ProvidersConfig {
   services: {
-    inference: {
-      mode: "managed" | "your-own";
-    };
+    inference: Record<string, never>;
     "image-generation": {
       mode: "managed" | "your-own";
       provider: string;
@@ -56,25 +65,15 @@ export interface ProvidersConfig {
       provider: string;
     };
   };
-  llm: {
-    default: {
-      provider: string;
-      model: string;
-    };
-  };
+  llm: LLMConfig;
   timeouts?: { providerStreamTimeoutSec?: number };
 }
 
 function resolveModel(config: ProvidersConfig, providerName: string): string {
-  const inferenceProvider = config.llm.default.provider;
-  const inferenceModel = config.llm.default.model;
+  const resolved = resolveCallSiteConfig("mainAgent", config.llm);
+  const inferenceProvider = resolved.provider;
+  const inferenceModel = resolved.model;
   if (inferenceProvider === providerName) {
-    // If a non-Anthropic provider is selected but the configured model is
-    // still an Anthropic catalog model (current or previous default), use a
-    // provider-appropriate fallback instead. Checking the full Anthropic
-    // catalog rather than only the current default prevents stale persisted
-    // defaults (e.g. claude-opus-4-6) from being sent to non-Anthropic APIs
-    // after the catalog default changes.
     if (
       providerName !== "anthropic" &&
       isModelInCatalog("anthropic", inferenceModel)
@@ -87,50 +86,27 @@ function resolveModel(config: ProvidersConfig, providerName: string): string {
 }
 
 /**
- * Resolve provider credentials using mode-aware logic.
- * In "managed" mode, routes through the platform proxy.
- * In "your-own" mode, uses the user's API key.
+ * Resolve provider credentials. User key takes precedence; managed proxy is
+ * used as a fallback when platform prerequisites are available.
+ *
+ * The routing decision is now derived from credential availability rather than
+ * the removed `services.inference.mode` config field.
  */
 async function resolveProviderCredentials(
   providerName: string,
-  mode: "managed" | "your-own",
 ): Promise<{
   apiKey: string;
   baseURL?: string;
   source: "user-key" | "managed-proxy";
 } | null> {
-  if (mode === "managed") {
-    // In managed mode, try managed proxy first, then fall back to user key
-    const managedBaseUrl = await buildManagedBaseUrl(providerName);
-    if (managedBaseUrl) {
-      const ctx = await resolveManagedProxyContext();
-      return {
-        apiKey: ctx.assistantApiKey,
-        baseURL: managedBaseUrl,
-        source: "managed-proxy",
-      };
-    }
-    // Managed proxy unavailable for this provider; fall back to user key
-    const userKey = await getProviderKeyAsync(providerName);
-    if (userKey) {
-      return { apiKey: userKey, source: "user-key" };
-    }
-    return null;
-  }
-  // "your-own" mode: check user key first, then try managed proxy fallback
   const userKey = await getProviderKeyAsync(providerName);
   if (userKey) {
     return { apiKey: userKey, source: "user-key" };
   }
-  // Fall back to managed proxy even in your-own mode (backwards compat)
   const managedBaseUrl = await buildManagedBaseUrl(providerName);
   if (managedBaseUrl) {
     const ctx = await resolveManagedProxyContext();
-    return {
-      apiKey: ctx.assistantApiKey,
-      baseURL: managedBaseUrl,
-      source: "managed-proxy",
-    };
+    return { apiKey: ctx.assistantApiKey, baseURL: managedBaseUrl, source: "managed-proxy" };
   }
   return null;
 }
@@ -140,126 +116,134 @@ export async function initializeProviders(
 ): Promise<void> {
   providers.clear();
   routingSources.clear();
+  connectionProviders.clear();
 
   const streamTimeoutMs =
     (config.timeouts?.providerStreamTimeoutSec ?? 1800) * 1000;
-  const inferenceMode = config.services.inference.mode;
   const useNativeWebSearch =
     config.services["web-search"].provider === "inference-provider-native";
+  const mainAgentProvider = resolveCallSiteConfig("mainAgent", config.llm)
+    .provider;
 
-  // Anthropic
-  const anthropicCreds = await resolveProviderCredentials(
-    "anthropic",
-    inferenceMode,
-  );
-  if (anthropicCreds) {
-    const model = resolveModel(config, "anthropic");
+  for (const entry of PROVIDER_CATALOG) {
+    const isKeyless = entry.setupMode === "keyless";
+
+    // Credential resolution: user key first, managed proxy second. Keyless
+    // providers (e.g. ollama) skip both — they only need to be configured as
+    // the mainAgent provider, or have a key present (rare keyed-mode), to
+    // boot. Boot order matches catalog order; routingSources tracks which
+    // credential surface served each provider.
+    let apiKey = "";
+    let baseURL: string | undefined;
+    let source: "user-key" | "managed-proxy" = "user-key";
+    if (isKeyless) {
+      const key = await getProviderKeyAsync(entry.id);
+      const isConfiguredMainAgent = mainAgentProvider === entry.id;
+      if (!key && !isConfiguredMainAgent) continue;
+      apiKey = key ?? "";
+    } else {
+      const creds = await resolveProviderCredentials(entry.id);
+      if (!creds) continue;
+      apiKey = creds.apiKey;
+      baseURL = creds.baseURL;
+      source = creds.source;
+    }
+
+    const model = resolveModel(config, entry.id);
+    const adapter = buildProviderAdapter(entry.id, {
+      apiKey,
+      model,
+      streamTimeoutMs,
+      baseURL,
+      useNativeWebSearch,
+    });
+    if (!adapter) {
+      // Catalog declares a provider with no factory entry. The parity guard
+      // in adapter-factory.ts catches this at module load, so reaching here
+      // means a future refactor regressed the invariant.
+      log.error(
+        { providerId: entry.id },
+        "Catalog entry has no adapter factory — skipping",
+      );
+      continue;
+    }
+
     registerProvider(
-      "anthropic",
-      new RetryProvider(
-        new AnthropicProvider(anthropicCreds.apiKey, model, {
-          useNativeWebSearch,
-          streamTimeoutMs,
-          ...(anthropicCreds.baseURL
-            ? { baseURL: anthropicCreds.baseURL }
-            : {}),
-        }),
-        {
-          forwardUsageAttributionHeaders:
-            anthropicCreds.source === "managed-proxy",
-        },
-      ),
+      entry.id,
+      new RetryProvider(adapter, {
+        forwardUsageAttributionHeaders: source === "managed-proxy",
+      }),
     );
-    routingSources.set("anthropic", anthropicCreds.source);
+    routingSources.set(entry.id, source);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-connection provider resolution (mix-and-match support)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a provider instance for a named `provider_connection`.
+ *
+ * Results are cached in `connectionProviders` for the lifetime of the
+ * current `initializeProviders` invocation (cleared on next boot). This
+ * prevents redundant vault reads for repeated calls to the same connection.
+ *
+ * Returns null when:
+ *   - The connection doesn't exist in the DB
+ *   - Auth resolution fails (missing credential, platform unavailable, v2 type)
+ *   - The provider/auth combination yields no usable adapter
+ */
+export async function resolveProviderFromConnection(
+  connection: ProviderConnection,
+  config: ProvidersConfig,
+): Promise<Provider | null> {
+  const cached = connectionProviders.get(connection.name);
+  if (cached) return cached;
+
+  const authResult = await resolveAuth(connection.auth, connection.provider);
+  if (!authResult.ok) {
+    const err = authResult.error;
+    if (err.code === "not_implemented") {
+      log.warn(
+        { connectionName: connection.name, authType: err.authType },
+        `Auth type '${err.authType}' is not yet implemented (v2). ` +
+          "Update the connection to use 'api_key', 'platform', or 'none'.",
+      );
+    } else if (err.code === "credential_not_found") {
+      log.warn(
+        { connectionName: connection.name, credential: err.credential },
+        `Credential '${err.credential}' not found in vault for connection '${connection.name}'.`,
+      );
+    } else {
+      log.warn(
+        { connectionName: connection.name },
+        `Platform auth unavailable for connection '${connection.name}'.`,
+      );
+    }
+    return null;
   }
 
-  // OpenAI
-  const openaiCreds = await resolveProviderCredentials("openai", inferenceMode);
-  if (openaiCreds) {
-    const model = resolveModel(config, "openai");
-    registerProvider(
-      "openai",
-      new RetryProvider(
-        new OpenAIResponsesProvider(openaiCreds.apiKey, model, {
-          useNativeWebSearch,
-          streamTimeoutMs,
-          ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
-        }),
-        {
-          forwardUsageAttributionHeaders:
-            openaiCreds.source === "managed-proxy",
-        },
-      ),
-    );
-    routingSources.set("openai", openaiCreds.source);
+  const streamTimeoutMs =
+    (config.timeouts?.providerStreamTimeoutSec ?? 1800) * 1000;
+  const useNativeWebSearch =
+    config.services["web-search"].provider === "inference-provider-native";
+  const model = resolveModel(config, connection.provider);
+
+  const provider = createAdapterFromConnection(connection, authResult.resolved, {
+    model,
+    streamTimeoutMs,
+    useNativeWebSearch,
+  });
+
+  if (provider) {
+    connectionProviders.set(connection.name, provider);
   }
 
-  // Gemini
-  const geminiCreds = await resolveProviderCredentials("gemini", inferenceMode);
-  if (geminiCreds) {
-    const model = resolveModel(config, "gemini");
-    registerProvider(
-      "gemini",
-      new RetryProvider(
-        new GeminiProvider(geminiCreds.apiKey, model, {
-          streamTimeoutMs,
-          ...(geminiCreds.baseURL
-            ? { managedBaseUrl: geminiCreds.baseURL }
-            : {}),
-        }),
-        {
-          forwardUsageAttributionHeaders:
-            geminiCreds.source === "managed-proxy",
-        },
-      ),
-    );
-    routingSources.set("gemini", geminiCreds.source);
-  }
+  return provider;
+}
 
-  // Ollama (keyless provider — always init when configured or key present)
-  const ollamaKey = await getProviderKeyAsync("ollama");
-  if (config.llm.default.provider === "ollama" || ollamaKey) {
-    const model = resolveModel(config, "ollama");
-    registerProvider(
-      "ollama",
-      new RetryProvider(
-        new OllamaProvider(model, {
-          apiKey: ollamaKey ?? undefined,
-          streamTimeoutMs,
-        }),
-      ),
-    );
-    routingSources.set("ollama", "user-key");
-  }
-
-  // Fireworks
-  const fireworksKey = await getProviderKeyAsync("fireworks");
-  if (fireworksKey) {
-    const model = resolveModel(config, "fireworks");
-    registerProvider(
-      "fireworks",
-      new RetryProvider(
-        new FireworksProvider(fireworksKey, model, {
-          streamTimeoutMs,
-        }),
-      ),
-    );
-    routingSources.set("fireworks", "user-key");
-  }
-
-  // OpenRouter
-  const openrouterKey = await getProviderKeyAsync("openrouter");
-  if (openrouterKey) {
-    const model = resolveModel(config, "openrouter");
-    registerProvider(
-      "openrouter",
-      new RetryProvider(
-        new OpenRouterProvider(openrouterKey, model, {
-          useNativeWebSearch,
-          streamTimeoutMs,
-        }),
-      ),
-    );
-    routingSources.set("openrouter", "user-key");
-  }
+/** Clear per-connection provider cache (called by initializeProviders on boot). */
+export function clearConnectionProviderCache(): void {
+  connectionProviders.clear();
 }

@@ -17,6 +17,7 @@ import type {
   OperationField,
 } from "../../browser/types.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ── Naming helpers ───────────────────────────────────────────────────
@@ -164,21 +165,30 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
       session?: string;
       json?: boolean;
       browserMode?: string;
+      targetClientId?: string;
     };
     const sessionId = parentOpts.session ?? "default";
     const jsonMode = parentOpts.json ?? false;
     const conversationId = resolveContextConversationId();
 
     // Map Commander camelCase options back to snake_case input keys,
-    // filtering out parent-level options (session, json, browserMode)
-    // and screenshot ergonomics (output).
+    // filtering out parent-level options (session, json, browserMode,
+    // targetClientId) and screenshot ergonomics (output).
     const input: Record<string, unknown> = {};
-    const excludeKeys = new Set(["session", "json", "output", "browserMode"]);
+    const excludeKeys = new Set([
+      "session",
+      "json",
+      "output",
+      "browserMode",
+      "targetClientId",
+    ]);
 
-    // Inject parent-level --browser-mode into the operation input so
-    // the backend receives the mode override for backend pinning.
+    // Inject parent-level flags into the operation input.
     if (parentOpts.browserMode) {
       input.browser_mode = parentOpts.browserMode;
+    }
+    if (parentOpts.targetClientId) {
+      input.target_client_id = parentOpts.targetClientId;
     }
 
     for (const [key, value] of Object.entries(opts)) {
@@ -348,9 +358,12 @@ const BROWSER_MODES = [
 ] as const;
 
 export function registerBrowserCommand(program: Command): void {
-  const browser = program
-    .command("browser")
-    .description("Control the browser via the running assistant.")
+  registerCommand(program, {
+    name: "browser",
+    transport: "ipc",
+    description: "Control the browser via the running assistant.",
+    build: (browser) => {
+      browser
     .option(
       "--session <id>",
       "Session ID to preserve browser state across invocations.",
@@ -362,6 +375,10 @@ export function registerBrowserCommand(program: Command): void {
         "--browser-mode <mode>",
         "Browser backend to use. Overrides automatic selection.",
       ).choices([...BROWSER_MODES]),
+    )
+    .option(
+      "--target-client-id <id>",
+      "Route browser operations to a specific client. Obtain IDs from `assistant clients list --capability host_browser`.",
     );
 
   browser.addHelpText(
@@ -395,4 +412,6 @@ Examples:
   for (const meta of BROWSER_OPERATION_META) {
     buildSubcommand(browser, meta);
   }
+    },
+  });
 }

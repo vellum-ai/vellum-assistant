@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  conversationMessagesSyncTag,
+  SYNC_TAGS,
+} from "../daemon/message-types/sync.js";
+
 // ── Mock state ──────────────────────────────────────────────────────────
 
 // Provider mock
@@ -51,9 +56,15 @@ mock.module("../providers/provider-send-message.js", () => ({
 
 // rawAll mock
 let rawAllRows: Array<{ role: string; content: string }> = [];
+let rawAllLastSql = "";
+let rawAllLastArgs: unknown[] = [];
 
 mock.module("../memory/raw-query.js", () => ({
-  rawAll: () => rawAllRows,
+  rawAll: (sql: string, ...args: unknown[]) => {
+    rawAllLastSql = sql;
+    rawAllLastArgs = args;
+    return rawAllRows;
+  },
   rawRun: () => 0,
 }));
 
@@ -279,6 +290,8 @@ function resetState() {
   copyResponse = "";
   providerSendCalls = [];
   rawAllRows = [];
+  rawAllLastSql = "";
+  rawAllLastArgs = [];
   bootstrapCalls = [];
   processMessageCalls = [];
   processMessageShouldThrow = false;
@@ -645,7 +658,7 @@ describe("runProactiveArtifactJob", () => {
   });
 
   describe("Transcript collection", () => {
-    test("dual-condition transcript query uses userMessageCutoff and assistantMessageId", async () => {
+    test("transcript query is scoped to the triggering conversation", async () => {
       rawAllRows = defaultTranscript;
       decisionResponse = decisionNo;
 
@@ -656,8 +669,8 @@ describe("runProactiveArtifactJob", () => {
         broadcastMessage: mockBroadcast,
       });
 
-      // The rawAll mock captures all calls; verify the decision was called
-      // (proving transcript was collected and passed to decision)
+      expect(rawAllLastSql).toContain("AND m.conversation_id = ?");
+      expect(rawAllLastArgs).toEqual(["conv-1", 5000, "asst-msg-99"]);
       expect(
         providerSendCalls.some(
           (c) => c.callSite === "proactiveArtifactDecision",
@@ -683,7 +696,7 @@ describe("runProactiveArtifactJob", () => {
 });
 
 describe("injectAuxAssistantMessage", () => {
-  test("idle conversation: persists with skipIndexing, pushes to getMessages(), broadcasts delta + complete(aux) + list_invalidated", async () => {
+  test("idle conversation: persists with skipIndexing, pushes to getMessages(), broadcasts delta + complete(aux) + list sync", async () => {
     const messages: unknown[] = [];
     mockConversations.set("conv-inject-1", {
       processing: false,
@@ -706,7 +719,7 @@ describe("injectAuxAssistantMessage", () => {
     // Pushed to in-memory messages
     expect(messages).toHaveLength(1);
 
-    // Broadcasts: delta, complete(aux), list_invalidated
+    // Broadcasts: delta, complete(aux), list invalidation + sync tag
     const deltaMsg = broadcastCalls.find(
       (c) => c.type === "assistant_text_delta",
     );
@@ -726,6 +739,15 @@ describe("injectAuxAssistantMessage", () => {
     );
     expect(listMsg).toBeDefined();
     expect(listMsg!.reason).toBe("reordered");
+
+    const syncMsg = broadcastCalls.find((c) => c.type === "sync_changed");
+    expect(syncMsg).toEqual({
+      type: "sync_changed",
+      tags: [
+        SYNC_TAGS.conversationsList,
+        conversationMessagesSyncTag("conv-inject-1"),
+      ],
+    });
   });
 
   test("processing → idle: waits for processing to become false before persisting", async () => {
@@ -816,13 +838,22 @@ describe("injectAuxAssistantMessage", () => {
       broadcastCalls.filter((c) => c.type === "message_complete"),
     ).toHaveLength(0);
 
-    // But list_invalidated IS sent (always sent regardless of processing state)
+    // But list invalidation + sync tag ARE sent regardless of processing state.
     expect(
       broadcastCalls.filter((c) => c.type === "conversation_list_invalidated"),
     ).toHaveLength(1);
+    expect(broadcastCalls.filter((c) => c.type === "sync_changed")).toEqual([
+      {
+        type: "sync_changed",
+        tags: [
+          SYNC_TAGS.conversationsList,
+          conversationMessagesSyncTag("conv-inject-3"),
+        ],
+      },
+    ]);
   });
 
-  test("inactive/unloaded conversation: persists + list_invalidated only", async () => {
+  test("inactive/unloaded conversation: persists + list sync only", async () => {
     // No conversation in the store
     await injectAuxAssistantMessage({
       conversationId: "conv-inject-4",
@@ -842,10 +873,19 @@ describe("injectAuxAssistantMessage", () => {
       broadcastCalls.filter((c) => c.type === "message_complete"),
     ).toHaveLength(0);
 
-    // But list_invalidated IS sent
+    // But list invalidation + sync tag ARE sent
     expect(
       broadcastCalls.filter((c) => c.type === "conversation_list_invalidated"),
     ).toHaveLength(1);
+    expect(broadcastCalls.filter((c) => c.type === "sync_changed")).toEqual([
+      {
+        type: "sync_changed",
+        tags: [
+          SYNC_TAGS.conversationsList,
+          conversationMessagesSyncTag("conv-inject-4"),
+        ],
+      },
+    ]);
   });
 });
 

@@ -743,6 +743,72 @@ paths:
               required:
                 - preview
               additionalProperties: false
+  /v1/apps/{id}/publish:
+    post:
+      operationId: apps_by_id_publish_post
+      summary: Publish app to Vercel
+      description: Deploy the app's HTML to Vercel and store the deployment record.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  publicUrl:
+                    type: string
+                  deploymentId:
+                    type: string
+                  errorCode:
+                    type: string
+                  error:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/apps/{id}/publish-status:
+    get:
+      operationId: apps_by_id_publishstatus_get
+      summary: Get app publish status
+      description: Return the current Vercel deployment state for an app.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  published:
+                    type: boolean
+                  publicUrl:
+                    type: string
+                  deploymentId:
+                    type: string
+                  publishedAt:
+                    type: number
+                required:
+                  - published
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/apps/{id}/restore:
     post:
       operationId: apps_by_id_restore_post
@@ -796,6 +862,34 @@ paths:
                   - success
                   - shareToken
                   - shareUrl
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/apps/{id}/unpublish:
+    post:
+      operationId: apps_by_id_unpublish_post
+      summary: Unpublish app from Vercel
+      description: Mark the active Vercel deployment as inactive.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - success
                 additionalProperties: false
       parameters:
         - name: id
@@ -870,6 +964,66 @@ paths:
               required:
                 - galleryAppId
               additionalProperties: false
+  /v1/apps/import-bundle:
+    post:
+      operationId: apps_importbundle_post
+      summary: Import a .vbundle file
+      description: Upload, validate, and install a .vbundle archive as a new local app.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  appId:
+                    type: string
+                  name:
+                    type: string
+                  scanResult:
+                    type: object
+                    properties:
+                      passed:
+                        type: boolean
+                      blocked:
+                        type: array
+                        items:
+                          type: string
+                      warnings:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - passed
+                      - blocked
+                      - warnings
+                    additionalProperties: false
+                  signatureResult:
+                    type: object
+                    properties:
+                      trustTier:
+                        type: string
+                      signerKeyId:
+                        type: string
+                      signerDisplayName:
+                        type: string
+                      signerAccount:
+                        type: string
+                    required:
+                      - trustTier
+                    additionalProperties: false
+                required:
+                  - success
+                  - appId
+                  - name
+                  - scanResult
+                  - signatureResult
+                additionalProperties: false
   /v1/apps/open-bundle:
     post:
       operationId: apps_openbundle_post
@@ -1317,6 +1471,77 @@ paths:
           required: true
           schema:
             type: string
+  /v1/audit:
+    get:
+      operationId: audit_get
+      summary: List recent tool invocations
+      description: Returns recent tool invocation records from the audit log, ordered by most recent first.
+      tags:
+        - audit
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invocations:
+                    type: array
+                    items: {}
+                    description: Tool invocation records
+                required:
+                  - invocations
+                additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of entries to return (default 20)
+  /v1/auth/info:
+    get:
+      operationId: auth_info_get
+      summary: Get authentication status
+      description: Returns platform identity and authentication status for this assistant.
+      tags:
+        - auth
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  platformUrl:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  assistantId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  organizationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  userId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  authenticated:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - platformUrl
+                  - assistantId
+                  - organizationId
+                  - userId
+                  - authenticated
+                additionalProperties: false
   /v1/avatar/character-components:
     get:
       operationId: avatar_charactercomponents_get
@@ -1327,11 +1552,90 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/avatar/character/ascii:
+    get:
+      operationId: avatar_character_ascii_get
+      summary: Render character as ASCII art
+      description: Render the current native character as ASCII art.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ascii:
+                    type: string
+                required:
+                  - ascii
+                additionalProperties: false
+      parameters:
+        - name: width
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Width in characters (default 60)
+  /v1/avatar/generate:
+    post:
+      operationId: avatar_generate_post
+      summary: Generate AI avatar
+      description: Generate an AI avatar from a text description and save it.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - ok
+                  - message
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  type: string
+              required:
+                - description
+              additionalProperties: false
+  /v1/avatar/get:
+    get:
+      operationId: avatar_get_get
+      summary: Get current avatar
+      description: Retrieve the current avatar as a file path or base64 string.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+          description: '"path" or "base64"'
   /v1/avatar/notify-updated:
     post:
       operationId: avatar_notifyupdated_post
       summary: Notify avatar updated
-      description: Publish an avatar_updated SSE event to connected clients.
+      description: Publish avatar change notifications to connected clients.
       tags:
         - avatar
       responses:
@@ -1346,6 +1650,29 @@ paths:
                     type: boolean
                 required:
                   - ok
+                additionalProperties: false
+  /v1/avatar/remove:
+    post:
+      operationId: avatar_remove_post
+      summary: Remove custom avatar
+      description: Remove the custom avatar image and restore the character default.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  hadAvatar:
+                    type: boolean
+                required:
+                  - ok
+                  - hadAvatar
                 additionalProperties: false
   /v1/avatar/render-from-traits:
     post:
@@ -1384,6 +1711,38 @@ paths:
                 - bodyShape
                 - eyeStyle
                 - color
+              additionalProperties: false
+  /v1/avatar/set:
+    post:
+      operationId: avatar_set_post
+      summary: Set avatar from image file
+      description: Copy an image file to the avatar location.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                imagePath:
+                  type: string
+              required:
+                - imagePath
               additionalProperties: false
   /v1/background-tools:
     get:
@@ -1464,6 +1823,304 @@ paths:
               required:
                 - id
               additionalProperties: false
+  /v1/backup/destinations:
+    get:
+      operationId: backup_destinations_get
+      summary: List configured offsite backup destinations
+      description:
+        Returns the current offsite destinations array, materializing the iCloud Drive default when no explicit
+        array is configured.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destinations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        encrypt:
+                          type: boolean
+                      required:
+                        - path
+                        - encrypt
+                      additionalProperties: false
+                required:
+                  - destinations
+                additionalProperties: false
+  /v1/backup/destinations/add:
+    post:
+      operationId: backup_destinations_add_post
+      summary: Add an offsite backup destination
+      description:
+        Appends a new destination. Materializes the iCloud default first if destinations is currently null. Errors
+        if the path already exists.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destinations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        encrypt:
+                          type: boolean
+                      required:
+                        - path
+                        - encrypt
+                      additionalProperties: false
+                required:
+                  - destinations
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+                  description: Absolute path to the destination directory
+                encrypt:
+                  description: Encrypt snapshots at this destination (default true)
+                  type: boolean
+              required:
+                - path
+              additionalProperties: false
+  /v1/backup/destinations/remove:
+    post:
+      operationId: backup_destinations_remove_post
+      summary: Remove an offsite backup destination
+      description: Removes the destination matching the given path. Errors if no matching destination exists.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destinations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        encrypt:
+                          type: boolean
+                      required:
+                        - path
+                        - encrypt
+                      additionalProperties: false
+                required:
+                  - destinations
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+                  description: Exact path match of the destination to remove
+              required:
+                - path
+              additionalProperties: false
+  /v1/backup/destinations/set-encrypt:
+    post:
+      operationId: backup_destinations_setencrypt_post
+      summary: Toggle encryption for an existing destination
+      description: Updates the encrypt flag for a destination. Errors if no destination with the given path exists.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destination:
+                    type: object
+                    properties:
+                      path:
+                        type: string
+                      encrypt:
+                        type: boolean
+                    required:
+                      - path
+                      - encrypt
+                    additionalProperties: false
+                required:
+                  - destination
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+                  description: Exact path match of an existing destination
+                encrypt:
+                  type: boolean
+                  description: true to encrypt future snapshots, false for plaintext
+              required:
+                - path
+                - encrypt
+              additionalProperties: false
+  /v1/backup/disable:
+    post:
+      operationId: backup_disable_post
+      summary: Disable automated backups
+      description: Sets backup.enabled = false. Existing snapshots are untouched.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    const: false
+                required:
+                  - enabled
+                additionalProperties: false
+  /v1/backup/enable:
+    post:
+      operationId: backup_enable_post
+      summary: Enable automated backups
+      description: Sets backup.enabled = true. Optionally overrides intervalHours (1-168), retention (1-100), and offsiteEnabled.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                intervalHours:
+                  type: integer
+                  minimum: 1
+                  maximum: 168
+                retention:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                offsiteEnabled:
+                  type: boolean
+              additionalProperties: false
+  /v1/backup/status:
+    get:
+      operationId: backup_status_get
+      summary: Show backup status and next-run timing
+      description:
+        Reports enabled/disabled state, interval and retention, last-run and next-run timing from the
+        backup:last_run_at checkpoint, local snapshot count, and per-destination reachability and snapshot counts. When
+        `backup.offsite.enabled` is false the `offsite` array is empty and `offsiteEnabled` is false.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  intervalHours:
+                    type: number
+                  retention:
+                    type: number
+                  lastRunAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  nextRunAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  localDir:
+                    type: string
+                  localSnapshotCount:
+                    type: number
+                  offsiteEnabled:
+                    type: boolean
+                  offsite:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        encrypt:
+                          type: boolean
+                        reachable:
+                          type: boolean
+                        snapshotCount:
+                          type: number
+                      required:
+                        - path
+                        - encrypt
+                        - reachable
+                        - snapshotCount
+                      additionalProperties: false
+                required:
+                  - enabled
+                  - intervalHours
+                  - retention
+                  - lastRunAt
+                  - nextRunAt
+                  - localDir
+                  - localSnapshotCount
+                  - offsiteEnabled
+                  - offsite
+                additionalProperties: false
   /v1/backups:
     get:
       operationId: backups_get
@@ -1630,6 +2287,141 @@ paths:
               required:
                 - path
               additionalProperties: false
+  /v1/bookmarks:
+    get:
+      operationId: bookmarks_get
+      summary: List bookmarks
+      description: Return all bookmarks (newest first), joined with their parent message and conversation.
+      tags:
+        - bookmarks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookmarks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        messageId:
+                          type: string
+                        conversationId:
+                          type: string
+                        conversationTitle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        messagePreview:
+                          type: string
+                        messageRole:
+                          type: string
+                        messageCreatedAt:
+                          type: number
+                        createdAt:
+                          type: number
+                      required:
+                        - id
+                        - messageId
+                        - conversationId
+                        - conversationTitle
+                        - messagePreview
+                        - messageRole
+                        - messageCreatedAt
+                        - createdAt
+                      additionalProperties: false
+                required:
+                  - bookmarks
+                additionalProperties: false
+    post:
+      operationId: bookmarks_post
+      summary: Create a bookmark
+      description: Bookmark the given message. Idempotent on `messageId` — calling twice returns the same bookmark.
+      tags:
+        - bookmarks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  messageId:
+                    type: string
+                  conversationId:
+                    type: string
+                  conversationTitle:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  messagePreview:
+                    type: string
+                  messageRole:
+                    type: string
+                  messageCreatedAt:
+                    type: number
+                  createdAt:
+                    type: number
+                required:
+                  - id
+                  - messageId
+                  - conversationId
+                  - conversationTitle
+                  - messagePreview
+                  - messageRole
+                  - messageCreatedAt
+                  - createdAt
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                messageId:
+                  type: string
+                conversationId:
+                  type: string
+              required:
+                - messageId
+                - conversationId
+              additionalProperties: false
+  /v1/bookmarks/by-message/{messageId}:
+    delete:
+      operationId: bookmarks_bymessage_by_messageId_delete
+      summary: Delete a bookmark by message id
+      description: Delete the bookmark (if any) attached to the given message. Succeeds even if no row matched.
+      tags:
+        - bookmarks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/brain-graph:
     get:
       operationId: braingraph_get
@@ -1759,8 +2551,6 @@ paths:
                   minLength: 1
               required:
                 - operation
-                - input
-                - sessionId
               additionalProperties: false
   /v1/btw:
     post:
@@ -2285,6 +3075,42 @@ paths:
           schema:
             type: string
           description: Optional channel ID filter
+  /v1/channels/available:
+    get:
+      operationId: channels_available_get
+      summary: Get available channels
+      description:
+        Return the channel ids this assistant can surface to clients. Today this is a fixed base list plus `email`
+        when an inbox is registered; will become plugin/skill-driven in future.
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  channels:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - telegram
+                        - phone
+                        - vellum
+                        - whatsapp
+                        - slack
+                        - email
+                        - platform
+                    description: Channel ids in display order
+                required:
+                  - success
+                  - channels
+                additionalProperties: false
   /v1/channels/conversation:
     delete:
       operationId: channels_conversation_delete
@@ -2499,6 +3325,18 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/config/allowlist/validate:
+    get:
+      operationId: config_allowlist_validate_get
+      summary: Validate secret-allowlist.json regex patterns
+      description:
+        "Compile each regex pattern in secret-allowlist.json and return any syntax errors. Returns { exists: false
+        } if no file is present."
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
   /v1/config/embeddings:
     get:
       operationId: config_embeddings_get
@@ -2604,6 +3442,37 @@ paths:
               required:
                 - baseUrl
               additionalProperties: false
+  /v1/config/schema:
+    get:
+      operationId: config_schema_get
+      summary: Get config JSON Schema
+      description:
+        Return the JSON Schema for the assistant config, optionally scoped to a dotted-path sub-schema (e.g.
+        ?path=calls).
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: path
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional dotted path to a config sub-key
+  /v1/config/set:
+    post:
+      operationId: config_set_post
+      summary: Set a single config path
+      description:
+        Assign a value at a dotted config path with direct-replacement semantics (preserves explicit null, replaces
+        object subtrees instead of merging). Used by the `assistant config set <key> <value>` CLI command.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
   /v1/confirm:
     post:
       operationId: confirm_post
@@ -2832,59 +3701,6 @@ paths:
           schema:
             type: string
           description: Filter by channel type
-    post:
-      operationId: contacts_post
-      summary: Create or update a contact
-      description: Create a new contact or update an existing one. Supports upsert by contactId or channel handle.
-      tags:
-        - contacts
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  contact:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
-                    description: Created or updated contact
-                required:
-                  - ok
-                  - contact
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                contactId:
-                  type: string
-                  description: Existing contact ID (for update)
-                displayName:
-                  type: string
-                  description: Display name
-                channels:
-                  type: array
-                  items: {}
-                  description: Channel objects with channelId, handle, displayName
-                assistantMetadata:
-                  type: object
-                  properties: {}
-                  additionalProperties: {}
-                  description: Assistant-side metadata
-              required:
-                - contactId
-                - displayName
-                - channels
-                - assistantMetadata
-              additionalProperties: false
   /v1/contacts/{id}:
     get:
       operationId: contacts_by_id_get
@@ -3250,8 +4066,6 @@ paths:
                     - guardian
                     - trusted-contact
                     - unknown
-              required:
-                - role
               additionalProperties: false
   /v1/contacts/search:
     post:
@@ -3511,6 +4325,22 @@ paths:
       responses:
         "202":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  cancelled:
+                    type: boolean
+                  conversationId:
+                    type: string
+                required:
+                  - ok
+                  - cancelled
+                  - conversationId
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -3521,7 +4351,9 @@ paths:
     put:
       operationId: conversations_by_id_inferenceprofile_put
       summary: Set conversation inference profile
-      description: Override the LLM inference profile for a single conversation.
+      description:
+        Override the LLM inference profile for a single conversation. Optionally supply ttlSeconds to create a
+        session-backed (expiring) override.
       tags:
         - conversations
       responses:
@@ -3538,9 +4370,46 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  sessionId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  expiresAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  ttlSeconds:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  replaced:
+                    anyOf:
+                      - type: object
+                        properties:
+                          profile:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          sessionId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          expiresAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        required:
+                          - profile
+                          - sessionId
+                          - expiresAt
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - conversationId
                   - profile
+                  - sessionId
+                  - expiresAt
+                  - replaced
                 additionalProperties: false
       parameters:
         - name: id
@@ -3559,6 +4428,15 @@ paths:
                   anyOf:
                     - type: string
                     - type: "null"
+                ttlSeconds:
+                  anyOf:
+                    - type: number
+                      exclusiveMinimum: 0
+                    - type: "null"
+                sessionId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
               required:
                 - profile
               additionalProperties: false
@@ -3826,6 +4704,152 @@ paths:
           schema:
             type: number
           description: Cursor for pagination (timestamp)
+  /v1/conversations/cli/clear:
+    post:
+      operationId: conversations_cli_clear_post
+      summary: Clear all conversations (CLI)
+      description:
+        Tear down all active conversations and clear the database. The confirmation prompt is handled client-side
+        by the CLI.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleared:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - cleared
+                additionalProperties: false
+  /v1/conversations/cli/create:
+    post:
+      operationId: conversations_cli_create_post
+      summary: Create a conversation (CLI)
+      description: Create a new conversation with an optional title.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  title:
+                    type: string
+                required:
+                  - id
+                  - title
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+              additionalProperties: false
+  /v1/conversations/cli/export:
+    post:
+      operationId: conversations_cli_export_post
+      summary: Export a conversation (CLI)
+      description: Export a conversation as markdown or JSON. Returns the formatted output string.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  output:
+                    type: string
+                  conversationId:
+                    type: string
+                required:
+                  - output
+                  - conversationId
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                format:
+                  default: md
+                  type: string
+                  enum:
+                    - md
+                    - json
+              additionalProperties: false
+  /v1/conversations/cli/list:
+    post:
+      operationId: conversations_cli_list_post
+      summary: List conversations (CLI)
+      description: Simplified conversation list for CLI output — returns id, title, updatedAt.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        title:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        updatedAt:
+                          type: number
+                      required:
+                        - id
+                        - title
+                        - updatedAt
+                      additionalProperties: false
+                required:
+                  - conversations
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                includeArchived:
+                  type: boolean
+              additionalProperties: false
   /v1/conversations/fork:
     post:
       operationId: conversations_fork_post
@@ -3851,6 +4875,304 @@ paths:
               required:
                 - conversationId
               additionalProperties: false
+  /v1/conversations/import:
+    post:
+      operationId: conversations_import_post
+      summary: Import conversations
+      description: Import conversations from a standard JSON payload.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  imported:
+                    type: number
+                  skipped:
+                    type: number
+                  messages:
+                    type: number
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index:
+                          type: number
+                        sourceKey:
+                          type: string
+                        error:
+                          type: string
+                      required:
+                        - index
+                        - error
+                      additionalProperties: false
+                required:
+                  - ok
+                  - imported
+                  - skipped
+                  - messages
+                  - errors
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversations:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      sourceKey:
+                        type: string
+                      title:
+                        type: string
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
+                      messages:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            role:
+                              type: string
+                            content:
+                              anyOf:
+                                - type: string
+                                - type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      type:
+                                        type: string
+                                      text:
+                                        type: string
+                                    required:
+                                      - type
+                                      - text
+                                    additionalProperties: false
+                            createdAt:
+                              type: number
+                          required:
+                            - role
+                            - content
+                          additionalProperties: false
+                    required:
+                      - title
+                      - messages
+                    additionalProperties: false
+              required:
+                - conversations
+              additionalProperties: false
+  /v1/conversations/inference-profile-session:
+    post:
+      operationId: conversations_inferenceprofilesession_post
+      summary: Open an inference-profile session
+      description:
+        Open (or replace) a session-backed inference-profile override for a conversation. Supports an optional TTL
+        — omit for a sticky (non-expiring) override.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  profile:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  sessionId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  expiresAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  ttlSeconds:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  replaced:
+                    anyOf:
+                      - type: object
+                        properties:
+                          profile:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          sessionId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          expiresAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        required:
+                          - profile
+                          - sessionId
+                          - expiresAt
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - conversationId
+                  - profile
+                  - sessionId
+                  - expiresAt
+                  - replaced
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                profile:
+                  type: string
+                  minLength: 1
+                ttlSeconds:
+                  anyOf:
+                    - type: number
+                      exclusiveMinimum: 0
+                    - type: "null"
+                sessionId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+              required:
+                - conversationId
+                - profile
+              additionalProperties: false
+  /v1/conversations/inference-profile-session/close:
+    post:
+      operationId: conversations_inferenceprofilesession_close_post
+      summary: Close an inference-profile session
+      description:
+        Close the active session-backed inference-profile override for a conversation. Only closes session-backed
+        overrides; sticky overrides are left untouched.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  closed:
+                    anyOf:
+                      - type: object
+                        properties:
+                          profile:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          sessionId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - profile
+                          - sessionId
+                        additionalProperties: false
+                      - type: "null"
+                  noop:
+                    type: boolean
+                required:
+                  - conversationId
+                  - closed
+                  - noop
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+              required:
+                - conversationId
+              additionalProperties: false
+  /v1/conversations/inference-profile-sessions:
+    get:
+      operationId: conversations_inferenceprofilesessions_get
+      summary: List active inference-profile sessions
+      description: List all active (non-expired) session-backed inference-profile overrides, optionally filtered by conversationId.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        conversationId:
+                          type: string
+                        conversationTitle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        profile:
+                          type: string
+                        sessionId:
+                          type: string
+                        expiresAt:
+                          type: number
+                        remainingSeconds:
+                          type: number
+                      required:
+                        - conversationId
+                        - conversationTitle
+                        - profile
+                        - sessionId
+                        - expiresAt
+                        - remainingSeconds
+                      additionalProperties: false
+                required:
+                  - sessions
+                additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional conversation ID filter
   /v1/conversations/rename:
     post:
       operationId: conversations_rename_post
@@ -4052,7 +5374,6 @@ paths:
               required:
                 - conversationId
                 - hint
-                - source
               additionalProperties: false
   /v1/conversations/wipe:
     post:
@@ -4095,6 +5416,135 @@ paths:
                   minLength: 1
               required:
                 - conversationId
+              additionalProperties: false
+  /v1/credentials/delete:
+    post:
+      operationId: credentials_delete_post
+      summary: Delete a credential
+      description: Remove a secret, its metadata, and any associated OAuth connection from the vault.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                  field:
+                    type: string
+                required:
+                  - service
+                  - field
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                  description: Service namespace
+                field:
+                  type: string
+                  description: Field name
+              required:
+                - service
+                - field
+              additionalProperties: false
+  /v1/credentials/inspect:
+    post:
+      operationId: credentials_inspect_post
+      summary: Inspect a credential
+      description: Return metadata and a masked preview of a stored credential. Does not reveal the plaintext value.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                  field:
+                    type: string
+                  credentialId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  scrubbedValue:
+                    type: string
+                  hasSecret:
+                    type: boolean
+                required:
+                  - service
+                  - field
+                  - credentialId
+                  - scrubbedValue
+                  - hasSecret
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  description: Service namespace
+                  type: string
+                field:
+                  description: Field name
+                  type: string
+                id:
+                  description: Credential UUID for lookup by ID
+                  type: string
+              additionalProperties: false
+  /v1/credentials/list:
+    post:
+      operationId: credentials_list_post
+      summary: List all credentials with metadata
+      description: Return all stored credentials with metadata, OAuth connection info, and platform-managed credentials.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials:
+                    type: array
+                    items: {}
+                    description: Local credentials with metadata
+                  managedCredentials:
+                    type: array
+                    items: {}
+                    description: Platform-managed credentials
+                required:
+                  - credentials
+                  - managedCredentials
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                search:
+                  description: Filter by substring match
+                  type: string
               additionalProperties: false
   /v1/credentials/prompt:
     post:
@@ -4178,6 +5628,122 @@ paths:
                 - field
                 - label
               additionalProperties: false
+  /v1/credentials/reveal:
+    post:
+      operationId: credentials_reveal_post
+      summary: Reveal a credential's plaintext value
+      description: Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  value:
+                    type: string
+                    description: The plaintext credential value
+                required:
+                  - value
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  description: Service namespace
+                  type: string
+                field:
+                  description: Field name
+                  type: string
+                id:
+                  description: Credential UUID for lookup by ID
+                  type: string
+              additionalProperties: false
+  /v1/credentials/set:
+    post:
+      operationId: credentials_set_post
+      summary: Store a credential with metadata
+      description: Store a secret value and create or update its metadata (label, description, allowed tools).
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentialId:
+                    type: string
+                  service:
+                    type: string
+                  field:
+                    type: string
+                required:
+                  - credentialId
+                  - service
+                  - field
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                  description: Service namespace (e.g. google)
+                field:
+                  type: string
+                  description: Field name (e.g. client_secret)
+                value:
+                  type: string
+                  description: Secret value to store
+                label:
+                  description: Human-friendly label
+                  type: string
+                description:
+                  description: What this credential is used for
+                  type: string
+                allowedTools:
+                  description: Tool names that may use this credential
+                  type: array
+                  items:
+                    type: string
+              required:
+                - service
+                - field
+                - value
+              additionalProperties: false
+  /v1/credentials/status:
+    get:
+      operationId: credentials_status_get
+      summary: Credential backend status
+      description: Return the active credential storage backend and its configuration details.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backend:
+                    type: string
+                required:
+                  - backend
+                additionalProperties: false
   /v1/debug:
     get:
       operationId: debug_get
@@ -4901,6 +6467,334 @@ paths:
           required: true
           schema:
             type: string
+  /v1/domain/register:
+    post:
+      operationId: domain_register_post
+      summary: Register a subdomain for this assistant
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
+  /v1/domain/status:
+    get:
+      operationId: domain_status_get
+      summary: Show domain registration and health
+      tags:
+        - domain
+      responses:
+        "200":
+          description: Successful response
+  /v1/email/attachment-get:
+    get:
+      operationId: email_attachmentget_get
+      summary: Stream-download an email attachment
+      description:
+        Download the binary content of a specific email attachment as a chunked stream. Response headers include
+        content-type from the upstream and x-filename derived from content-disposition.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: messageId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Email message ID
+        - name: attachmentId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Attachment ID
+  /v1/email/attachment-list:
+    get:
+      operationId: email_attachmentlist_get
+      summary: List attachments for an email message
+      description:
+        Return attachment metadata (id, filename, content_type, size_bytes, content_id, created_at) for all
+        attachments on a given email message.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        filename:
+                          type: string
+                        content_type:
+                          type: string
+                        size_bytes:
+                          type: number
+                        content_id:
+                          type: string
+                        created_at:
+                          type: string
+                      required:
+                        - id
+                        - filename
+                        - content_type
+                        - size_bytes
+                        - content_id
+                        - created_at
+                      additionalProperties: false
+                required:
+                  - results
+                additionalProperties: false
+      parameters:
+        - name: messageId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Email message ID
+  /v1/email/download:
+    get:
+      operationId: email_download_get
+      summary: Download a specific email message
+      description: Download a specific email message by ID.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema: {}
+      parameters:
+        - name: messageId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Email message ID
+  /v1/email/list:
+    get:
+      operationId: email_list_get
+      summary: List email messages
+      description: List received and sent emails for this assistant, with optional filtering.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items: {}
+                  count:
+                    type: number
+                required:
+                  - results
+                  - count
+                additionalProperties: false
+      parameters:
+        - name: direction
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter by direction: inbound, outbound, or all"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Maximum number of results
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Only show messages since this date (ISO 8601)
+  /v1/email/register:
+    post:
+      operationId: email_register_post
+      summary: Register an email address
+      description: Register a new email address on the Vellum platform for the current assistant.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  address:
+                    type: string
+                  created_at:
+                    type: string
+                required:
+                  - id
+                  - address
+                  - created_at
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  minLength: 1
+                  description: The local part of the email address
+              required:
+                - username
+              additionalProperties: false
+  /v1/email/send:
+    post:
+      operationId: email_send_post
+      summary: Send an email
+      description: Send an email from the assistant's registered email address via the Vellum runtime proxy.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  delivery_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                  - delivery_id
+                  - status
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                to:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+                  description: Recipient email address(es)
+                text:
+                  type: string
+                  minLength: 1
+                  description: Email body (plain text)
+                subject:
+                  description: Subject line
+                  type: string
+                html:
+                  description: HTML body (auto-generated from text if omitted)
+                  type: string
+                cc:
+                  description: CC recipients
+                  type: array
+                  items:
+                    type: string
+                bcc:
+                  description: BCC recipients
+                  type: array
+                  items:
+                    type: string
+                reply_to:
+                  description: Reply-to email ID
+                  type: string
+              required:
+                - to
+                - text
+              additionalProperties: false
+  /v1/email/status:
+    get:
+      operationId: email_status_get
+      summary: Get email address status and usage
+      description: Show the email address registered for this assistant along with current usage and quota information.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address:
+                    type: string
+                  status:
+                    type: string
+                  created_at:
+                    type: string
+                  usage:
+                    type: object
+                    properties:
+                      sent_today:
+                        type: number
+                      daily_limit:
+                        type: number
+                      received_today:
+                        type: number
+                      sent_this_month:
+                        type: number
+                      received_this_month:
+                        type: number
+                    required:
+                      - sent_today
+                      - daily_limit
+                      - received_today
+                      - sent_this_month
+                      - received_this_month
+                    additionalProperties: false
+                required:
+                  - address
+                  - status
+                  - created_at
+                  - usage
+                additionalProperties: false
+  /v1/email/unregister:
+    post:
+      operationId: email_unregister_post
+      summary: Unregister the email address
+      description: Remove the email address currently registered for this assistant.
+      tags:
+        - email
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unregistered:
+                    type: string
+                required:
+                  - unregistered
+                additionalProperties: false
   /v1/events:
     get:
       operationId: events_get
@@ -5854,11 +7748,7 @@ paths:
                           type: string
                         type:
                           type: string
-                          enum:
-                            - nudge
-                            - digest
-                            - action
-                            - thread
+                          const: notification
                         priority:
                           type: integer
                           minimum: 0
@@ -5867,14 +7757,6 @@ paths:
                           type: string
                         summary:
                           type: string
-                        source:
-                          type: string
-                          enum:
-                            - gmail
-                            - slack
-                            - calendar
-                            - assistant
-                            - telegram
                         timestamp:
                           type: string
                         status:
@@ -5887,10 +7769,6 @@ paths:
                             - dismissed
                         expiresAt:
                           type: string
-                        minTimeAway:
-                          type: integer
-                          minimum: 0
-                          maximum: 9007199254740991
                         actions:
                           type: array
                           items:
@@ -5931,11 +7809,6 @@ paths:
                           required:
                             - kind
                           additionalProperties: false
-                        author:
-                          type: string
-                          enum:
-                            - assistant
-                            - platform
                         createdAt:
                           type: string
                       required:
@@ -5946,7 +7819,6 @@ paths:
                         - summary
                         - timestamp
                         - status
-                        - author
                         - createdAt
                       additionalProperties: false
                   updatedAt:
@@ -5991,27 +7863,11 @@ paths:
                         - prompt
                         - source
                       additionalProperties: false
-                  lowPriorityCollapsed:
-                    type: object
-                    properties:
-                      count:
-                        type: integer
-                        minimum: 0
-                        maximum: 9007199254740991
-                      itemIds:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - count
-                      - itemIds
-                    additionalProperties: false
                 required:
                   - items
                   - updatedAt
                   - contextBanner
                   - suggestedPrompts
-                  - lowPriorityCollapsed
                 additionalProperties: false
       parameters:
         - name: timeAwaySeconds
@@ -6019,9 +7875,7 @@ paths:
           required: true
           schema:
             type: integer
-          description:
-            Seconds since the user was last active in the client. Used to filter items with a `minTimeAway` gate and to
-            compute the context-banner relative-time label.
+          description: Seconds since the user was last active in the client. Used to compute the context-banner relative-time label.
   /v1/home/feed/{id}:
     patch:
       operationId: home_feed_by_id_patch
@@ -6043,11 +7897,7 @@ paths:
                     type: string
                   type:
                     type: string
-                    enum:
-                      - nudge
-                      - digest
-                      - action
-                      - thread
+                    const: notification
                   priority:
                     type: integer
                     minimum: 0
@@ -6056,14 +7906,6 @@ paths:
                     type: string
                   summary:
                     type: string
-                  source:
-                    type: string
-                    enum:
-                      - gmail
-                      - slack
-                      - calendar
-                      - assistant
-                      - telegram
                   timestamp:
                     type: string
                   status:
@@ -6076,10 +7918,6 @@ paths:
                       - dismissed
                   expiresAt:
                     type: string
-                  minTimeAway:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
                   actions:
                     type: array
                     items:
@@ -6120,11 +7958,6 @@ paths:
                     required:
                       - kind
                     additionalProperties: false
-                  author:
-                    type: string
-                    enum:
-                      - assistant
-                      - platform
                   createdAt:
                     type: string
                 required:
@@ -6135,7 +7968,6 @@ paths:
                   - summary
                   - timestamp
                   - status
-                  - author
                   - createdAt
                 additionalProperties: false
         "404":
@@ -6344,6 +8176,12 @@ paths:
                 required:
                   - accepted
                 additionalProperties: false
+        "400":
+          description: x-vellum-client-id header is missing for a targeted host app-control request.
+        "403":
+          description:
+            Submitting client does not match the targeted client, or the submitting actor's principal does not match
+            the target client's actor.
       requestBody:
         required: true
         content:
@@ -6784,6 +8622,753 @@ paths:
                 required:
                   - text
                 additionalProperties: false
+  /v1/image-generation/generate:
+    post:
+      operationId: imagegeneration_generate_post
+      summary: Generate or edit images using AI
+      description: Calls the configured image-generation provider (Gemini or OpenAI) to produce one or more images.
+      tags:
+        - image-generation
+      responses:
+        "200":
+          description: Successful response
+  /v1/inference/provider-connections:
+    get:
+      operationId: inference_providerconnections_get
+      summary: List provider connections
+      description: Return all provider connections. Optionally filter by provider with ?provider=<name>.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        provider:
+                          type: string
+                          enum:
+                            - anthropic
+                            - openai
+                            - gemini
+                            - ollama
+                            - fireworks
+                            - openrouter
+                        auth:
+                          oneOf:
+                            - type: object
+                              properties:
+                                type:
+                                  type: string
+                                  const: api_key
+                                credential:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - type
+                                - credential
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                type:
+                                  type: string
+                                  const: platform
+                              required:
+                                - type
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                type:
+                                  type: string
+                                  const: none
+                              required:
+                                - type
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                type:
+                                  type: string
+                                  const: oauth_subscription
+                                credential:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - type
+                                - credential
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                type:
+                                  type: string
+                                  const: service_account
+                                credential:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - type
+                                - credential
+                              additionalProperties: false
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - disabled
+                        label:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                            - type: "null"
+                        createdAt:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        updatedAt:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        isManaged:
+                          type: boolean
+                      required:
+                        - name
+                        - provider
+                        - auth
+                        - status
+                        - label
+                        - createdAt
+                        - updatedAt
+                        - isManaged
+                      additionalProperties: false
+                required:
+                  - connections
+                additionalProperties: false
+      parameters:
+        - name: provider
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter"
+    post:
+      operationId: inference_providerconnections_post
+      summary: Create a provider connection
+      description: Create a new named provider connection. Fails with 409 if a connection with this name already exists.
+      tags:
+        - inference
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                  provider:
+                    type: string
+                    enum:
+                      - anthropic
+                      - openai
+                      - gemini
+                      - ollama
+                      - fireworks
+                      - openrouter
+                  auth:
+                    oneOf:
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: api_key
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: platform
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: none
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: oauth_subscription
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: service_account
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                  status:
+                    type: string
+                    enum:
+                      - active
+                      - disabled
+                  label:
+                    anyOf:
+                      - type: string
+                        minLength: 1
+                      - type: "null"
+                  createdAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  updatedAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  isManaged:
+                    type: boolean
+                required:
+                  - name
+                  - provider
+                  - auth
+                  - status
+                  - label
+                  - createdAt
+                  - updatedAt
+                  - isManaged
+                additionalProperties: false
+        "400":
+          description: Invalid provider or auth schema
+        "409":
+          description: Connection name already exists
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                provider:
+                  type: string
+                  enum:
+                    - anthropic
+                    - openai
+                    - gemini
+                    - ollama
+                    - fireworks
+                    - openrouter
+                auth:
+                  oneOf:
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: api_key
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: platform
+                      required:
+                        - type
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: none
+                      required:
+                        - type
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: oauth_subscription
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: service_account
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+                label:
+                  type: string
+                  minLength: 1
+                status:
+                  type: string
+                  enum:
+                    - active
+                    - disabled
+              required:
+                - name
+                - provider
+                - auth
+              additionalProperties: false
+  /v1/inference/provider-connections/{name}:
+    delete:
+      operationId: inference_providerconnections_by_name_delete
+      summary: Delete a provider connection
+      description:
+        Delete a provider connection. Fails with 400 for managed connections (anthropic-managed, openai-managed,
+        gemini-managed) which are re-seeded on boot. Fails with 409 if any profile or call-site references the
+        connection.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          description: Connection is a Vellum-managed connection and cannot be deleted
+        "404":
+          description: Connection not found
+        "409":
+          description: Connection is referenced by profile(s) or call site(s)
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+    get:
+      operationId: inference_providerconnections_by_name_get
+      summary: Get a provider connection
+      description: Return a single provider connection by name.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                  provider:
+                    type: string
+                    enum:
+                      - anthropic
+                      - openai
+                      - gemini
+                      - ollama
+                      - fireworks
+                      - openrouter
+                  auth:
+                    oneOf:
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: api_key
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: platform
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: none
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: oauth_subscription
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: service_account
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                  status:
+                    type: string
+                    enum:
+                      - active
+                      - disabled
+                  label:
+                    anyOf:
+                      - type: string
+                        minLength: 1
+                      - type: "null"
+                  createdAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  updatedAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  isManaged:
+                    type: boolean
+                required:
+                  - name
+                  - provider
+                  - auth
+                  - status
+                  - label
+                  - createdAt
+                  - updatedAt
+                  - isManaged
+                additionalProperties: false
+        "404":
+          description: Connection not found
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: inference_providerconnections_by_name_patch
+      summary: Update a provider connection
+      description:
+        Update an existing connection. Cannot rename or change the provider. For managed connections
+        (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label and status remain
+        editable.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                  provider:
+                    type: string
+                    enum:
+                      - anthropic
+                      - openai
+                      - gemini
+                      - ollama
+                      - fireworks
+                      - openrouter
+                  auth:
+                    oneOf:
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: api_key
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: platform
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: none
+                        required:
+                          - type
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: oauth_subscription
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          type:
+                            type: string
+                            const: service_account
+                          credential:
+                            type: string
+                            minLength: 1
+                        required:
+                          - type
+                          - credential
+                        additionalProperties: false
+                  status:
+                    type: string
+                    enum:
+                      - active
+                      - disabled
+                  label:
+                    anyOf:
+                      - type: string
+                        minLength: 1
+                      - type: "null"
+                  createdAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  updatedAt:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  isManaged:
+                    type: boolean
+                required:
+                  - name
+                  - provider
+                  - auth
+                  - status
+                  - label
+                  - createdAt
+                  - updatedAt
+                  - isManaged
+                additionalProperties: false
+        "400":
+          description: Invalid auth schema, or attempt to change auth on a managed connection
+        "404":
+          description: Connection not found
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                auth:
+                  oneOf:
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: api_key
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: platform
+                      required:
+                        - type
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: none
+                      required:
+                        - type
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: oauth_subscription
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        type:
+                          type: string
+                          const: service_account
+                        credential:
+                          type: string
+                          minLength: 1
+                      required:
+                        - type
+                        - credential
+                      additionalProperties: false
+                status:
+                  type: string
+                  enum:
+                    - active
+                    - disabled
+                label:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
+              required:
+                - auth
+              additionalProperties: false
+  /v1/inference/send:
+    post:
+      operationId: inference_send_post
+      summary: Send a message to the configured LLM
+      description:
+        Send a user message to the configured LLM provider and return the model response. Optionally specify a
+        system prompt, model override, named profile, or max tokens.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: string
+                  model:
+                    type: string
+                  usage:
+                    type: object
+                    properties:
+                      inputTokens:
+                        type: number
+                      outputTokens:
+                        type: number
+                    required:
+                      - inputTokens
+                      - outputTokens
+                    additionalProperties: false
+                required:
+                  - response
+                  - model
+                  - usage
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  minLength: 1
+                systemPrompt:
+                  type: string
+                model:
+                  type: string
+                profile:
+                  type: string
+                maxTokens:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - message
+              additionalProperties: false
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get
@@ -7053,6 +9638,43 @@ paths:
           required: true
           schema:
             type: string
+  /v1/internal/mcp/add:
+    post:
+      operationId: internal_mcp_add_post
+      summary: Add an MCP server configuration
+      description: Writes a new MCP server entry to config.json and triggers a reload.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                transportType:
+                  type: string
+                url:
+                  type: string
+                command:
+                  type: string
+                args:
+                  type: array
+                  items:
+                    type: string
+                risk:
+                  type: string
+                disabled:
+                  type: boolean
+              required:
+                - name
+                - transportType
+              additionalProperties: false
   /v1/internal/mcp/auth/start:
     post:
       operationId: internal_mcp_auth_start_post
@@ -7093,6 +9715,16 @@ paths:
           required: true
           schema:
             type: string
+  /v1/internal/mcp/list:
+    get:
+      operationId: internal_mcp_list_get
+      summary: List MCP servers with health status
+      description: Returns configured MCP servers with live health-check results (connected, needs auth, error, disabled).
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
   /v1/internal/mcp/reload:
     post:
       operationId: internal_mcp_reload_post
@@ -7103,6 +9735,28 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/internal/mcp/remove:
+    post:
+      operationId: internal_mcp_remove_post
+      summary: Remove an MCP server configuration
+      description: Removes an MCP server from config.json, cleans up OAuth credentials, and triggers a reload.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required:
+                - name
+              additionalProperties: false
   /v1/internal/oauth/callback:
     post:
       operationId: internal_oauth_callback_post
@@ -7165,7 +9819,6 @@ paths:
                     type: string
               required:
                 - service
-                - clientId
                 - callbackTransport
               additionalProperties: false
   /v1/internal/oauth/connect/status/{state}:
@@ -7574,77 +10227,6 @@ paths:
               required:
                 - slug
               additionalProperties: false
-  /v1/memory/v2/explain-similarity:
-    post:
-      operationId: memory_v2_explainsimilarity_post
-      summary: Diagnose dense vs sparse similarity score distributions
-      description:
-        Read-only diagnostic. Embeds the supplied text(s), runs hybrid dense + sparse queries against the
-        concept-page collection, and returns per-slug raw dense, raw sparse, normalized sparse, and fused scores plus
-        per-channel summary stats. Used to investigate score-compression at the head of the activation distribution.
-      tags:
-        - memory
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userText:
-                  type: string
-                  minLength: 1
-                assistantText:
-                  type: string
-                nowText:
-                  type: string
-                top:
-                  default: 25
-                  type: integer
-                  minimum: 1
-                  maximum: 9007199254740991
-              required:
-                - userText
-                - top
-              additionalProperties: false
-  /v1/memory/v2/fit-anisotropy:
-    post:
-      operationId: memory_v2_fitanisotropy_post
-      summary: Fit the embedding anisotropy correction for memory v2
-      description:
-        Samples stored dense vectors from the concept-page Qdrant collection, fits a corpus mean + top-k principal
-        components (Mu & Viswanath 'all-but-the-top'), and persists the calibration so subsequent embeds and queries
-        apply the correction. Run `assistant memory v2 reembed` after fitting so stored vectors are written under the
-        new calibration — until then, queries (corrected) and stored vectors (uncorrected) live in different spaces.
-      tags:
-        - memory
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                k:
-                  default: 1
-                  type: integer
-                  minimum: 1
-                  maximum: 16
-                sample:
-                  default: 5000
-                  type: integer
-                  minimum: 1
-                  maximum: 100000
-              required:
-                - k
-                - sample
-              additionalProperties: false
   /v1/memory/v2/list-concept-pages:
     post:
       operationId: memory_v2_listconceptpages_post
@@ -7652,28 +10234,6 @@ paths:
       description:
         Returns slugs, body sizes, edge counts, and last-modified timestamps for every concept page on disk.
         Read-only; used by the desktop About → Memories surface to render a browse-able list.
-      tags:
-        - memory
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties: {}
-              additionalProperties: false
-  /v1/memory/v2/rebuild-corpus-stats:
-    post:
-      operationId: memory_v2_rebuildcorpusstats_post
-      summary: Rebuild the BM25 corpus statistics for memory v2
-      description:
-        Walks every concept page on disk, recomputes the document-frequency table and average document length used
-        by the BM25 sparse channel, and atomically swaps the in-memory stats. Run after bulk content imports or to
-        recover from a rebuild that errored at startup. Does not reembed individual page sparse vectors — pair with
-        `assistant memory v2 reembed` when document-side weights need refreshing.
       tags:
         - memory
       responses:
@@ -7709,7 +10269,9 @@ paths:
     post:
       operationId: memory_v2_validate_post
       summary: Validate memory v2 workspace state
-      description: Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse failures.
+      description:
+        Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse
+        failures. Runnable regardless of memory.v2.enabled so operators can dry-run validation before flipping the flag.
       tags:
         - memory
       responses:
@@ -7851,6 +10413,10 @@ paths:
                       - background
                       - background_memory_consolidation
                       - scheduled
+                  conversationTotalEstimatedCostUsd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   logs:
                     type: array
                     items: {}
@@ -7869,6 +10435,7 @@ paths:
                 required:
                   - messageId
                   - conversationKind
+                  - conversationTotalEstimatedCostUsd
                   - logs
                   - memoryRecall
                   - memoryV2Activation
@@ -8262,30 +10829,6 @@ paths:
       responses:
         "200":
           description: Successful response
-    put:
-      operationId: model_put
-      summary: Set LLM model
-      description: Change the active LLM model and optionally its provider.
-      tags:
-        - config
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                modelId:
-                  type: string
-                provider:
-                  type: string
-                  description: Optional provider override
-              required:
-                - modelId
-              additionalProperties: false
   /v1/model/image-gen:
     put:
       operationId: model_imagegen_put
@@ -8436,6 +10979,12 @@ paths:
                     - single_channel
                     - multi_channel
                     - all_channels
+                conversationAffinityHint:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: string
                 dedupeKey:
                   type: string
                 throwOnError:
@@ -8576,6 +11125,45 @@ paths:
           required: true
           schema:
             type: string
+  /v1/oauth/apps/lookup:
+    get:
+      operationId: oauth_apps_lookup_get
+      summary: Get OAuth app
+      description: Look up a single OAuth app by ID, provider + client_id, or provider (most recent).
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: App UUID
+        - name: provider
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Provider key
+        - name: client_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: OAuth client ID (requires provider)
+  /v1/oauth/apps/upsert:
+    post:
+      operationId: oauth_apps_upsert_post
+      summary: Upsert OAuth app
+      description: Create or return an existing OAuth app registration. Updates client secret if provided.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
   /v1/oauth/connections/{id}:
     delete:
       operationId: oauth_connections_by_id_delete
@@ -8592,6 +11180,79 @@ paths:
           required: true
           schema:
             type: string
+  /v1/oauth/disconnect:
+    post:
+      operationId: oauth_disconnect_post
+      summary: Disconnect OAuth provider
+      description: Disconnect an OAuth provider and remove associated credentials (BYO or managed).
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+  /v1/oauth/managed-connect/poll:
+    get:
+      operationId: oauth_managedconnect_poll_get
+      summary: Poll managed OAuth connections
+      description: Fetch active platform connections for a provider (used to detect new connections after managed connect).
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Provider key
+  /v1/oauth/managed-connect/start:
+    post:
+      operationId: oauth_managedconnect_start_post
+      summary: Start managed OAuth connect
+      description: Start a managed (platform) OAuth connect flow and return the connect URL.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+  /v1/oauth/mode:
+    get:
+      operationId: oauth_mode_get
+      summary: Get OAuth mode
+      description: Get the current OAuth mode (managed or your-own) for a provider.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Provider key
+    post:
+      operationId: oauth_mode_post
+      summary: Set OAuth mode
+      description: Set the OAuth mode (managed or your-own) for a provider.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+  /v1/oauth/ping:
+    post:
+      operationId: oauth_ping_post
+      summary: Ping OAuth provider
+      description: Verify an OAuth token is valid by hitting the provider's configured health-check endpoint.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
   /v1/oauth/providers:
     get:
       operationId: oauth_providers_get
@@ -8609,7 +11270,31 @@ paths:
           schema:
             type: string
           description: Filter by managed mode support (true/false)
+    post:
+      operationId: oauth_providers_post
+      summary: Register OAuth provider
+      description: Register a new OAuth provider configuration.
+      tags:
+        - oauth
+      responses:
+        "201":
+          description: Successful response
   /v1/oauth/providers/{providerKey}:
+    delete:
+      operationId: oauth_providers_by_providerKey_delete
+      summary: Delete OAuth provider
+      description: Delete a custom OAuth provider and optionally cascade-delete its apps and connections.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: providerKey
+          in: path
+          required: true
+          schema:
+            type: string
     get:
       operationId: oauth_providers_by_providerKey_get
       summary: Get OAuth provider
@@ -8625,6 +11310,31 @@ paths:
           required: true
           schema:
             type: string
+    patch:
+      operationId: oauth_providers_by_providerKey_patch
+      summary: Update OAuth provider
+      description: Update an existing custom OAuth provider configuration.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: providerKey
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/oauth/request:
+    post:
+      operationId: oauth_request_post
+      summary: Make authenticated OAuth request
+      description: Make an authenticated HTTP request through an OAuth connection (supports curl-like interface).
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
   /v1/oauth/start:
     post:
       operationId: oauth_start_post
@@ -8651,6 +11361,33 @@ paths:
                 - service
                 - requestedScopes
               additionalProperties: false
+  /v1/oauth/status:
+    get:
+      operationId: oauth_status_get
+      summary: Get OAuth status
+      description: Show OAuth connection status for a specified provider (BYO or managed).
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Provider key
+  /v1/oauth/token:
+    post:
+      operationId: oauth_token_post
+      summary: Get OAuth token
+      description: Retrieve a valid OAuth access token for a BYO-mode provider.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
   /v1/pages/{appId}:
     get:
       operationId: pages_by_appId_get
@@ -8729,6 +11466,56 @@ paths:
           schema:
             type: string
           description: Conversation ID (optional)
+  /v1/platform/callback-routes:
+    get:
+      operationId: platform_callbackroutes_get
+      summary: List registered platform callback routes
+      description: Lists all callback routes registered with the platform for this assistant.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+  /v1/platform/callback-routes/register:
+    post:
+      operationId: platform_callbackroutes_register_post
+      summary: Register a platform callback route
+      description: Registers a callback route with the platform gateway for inbound provider webhooks.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+  /v1/platform/connect:
+    post:
+      operationId: platform_connect_post
+      summary: Connect to the Vellum Platform
+      description: Checks existing credentials and emits the show_platform_login signal for connected clients to show a login UI.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+  /v1/platform/disconnect:
+    post:
+      operationId: platform_disconnect_post
+      summary: Disconnect from the Vellum Platform
+      description: Deletes stored platform credentials and emits platform_disconnected signal to connected clients.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+  /v1/platform/status:
+    get:
+      operationId: platform_status_get
+      summary: Get platform deployment context and connection status
+      description: Aggregates platform context, credentials, assistant ID, webhook secret, and Velay tunnel status.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
   /v1/playground/seed-conversation:
     post:
       operationId: playground_seedconversation_post
@@ -8759,7 +11546,6 @@ paths:
                   maxLength: 120
               required:
                 - turns
-                - avgTokensPerTurn
               additionalProperties: false
   /v1/playground/seeded-conversations:
     delete:
@@ -9260,6 +12046,59 @@ paths:
           schema:
             type: string
           description: When 'true', include deferred schedules that are normally hidden.
+    post:
+      operationId: schedules_post
+      summary: Create schedule
+      description: Create a new recurring schedule. Currently restricted to mode='execute'.
+      tags:
+        - schedules
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedules:
+                    type: array
+                    items: {}
+                    description: Updated schedule list
+                required:
+                  - schedules
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Display name
+                expression:
+                  type: string
+                  description: Cron or RRULE expression
+                message:
+                  type: string
+                  description: Message body to execute on each fire
+                timezone:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description: IANA timezone, e.g. America/New_York
+                enabled:
+                  type: boolean
+                  description: Whether the schedule starts active (default true)
+                mode:
+                  type: string
+                  description: Currently must be 'execute'
+              required:
+                - name
+                - expression
+                - message
+              additionalProperties: false
   /v1/schedules/{id}:
     delete:
       operationId: schedules_by_id_delete
@@ -9775,6 +12614,172 @@ paths:
                 - type
                 - name
               additionalProperties: false
+  /v1/sequences/cancel-enrollment:
+    post:
+      operationId: sequences_cancelenrollment_post
+      summary: Cancel a specific enrollment
+      description: Cancel a specific enrollment, stopping all future step deliveries for that contact.
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enrollmentId:
+                  type: string
+                  minLength: 1
+              required:
+                - enrollmentId
+              additionalProperties: false
+  /v1/sequences/get:
+    post:
+      operationId: sequences_get_post
+      summary: Get sequence details
+      description: Get sequence details with enrollment stats, including step-by-step breakdown and enrollment status counts.
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  minLength: 1
+              required:
+                - id
+              additionalProperties: false
+  /v1/sequences/guardrails:
+    get:
+      operationId: sequences_guardrails_get
+      summary: Show guardrail configuration
+      description:
+        "Display the current guardrail configuration: daily send cap, hourly rate, step delay, max enrollments,
+        duplicate check, and cooldown period."
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: sequences_guardrails_post
+      summary: Update a guardrail setting
+      description:
+        "Update a single guardrail setting by key. Valid keys: dailySendCap, perSequenceHourlyRate,
+        minimumStepDelaySec, maxActiveEnrollments, duplicateEnrollmentCheck, cooldownPeriodMs, cooldown_days."
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                  minLength: 1
+                value:
+                  type: string
+                  minLength: 1
+              required:
+                - key
+                - value
+              additionalProperties: false
+  /v1/sequences/list:
+    post:
+      operationId: sequences_list_post
+      summary: List sequences
+      description: List all sequences, optionally filtered by status (active, paused, archived).
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - active
+                    - paused
+                    - archived
+              additionalProperties: false
+  /v1/sequences/pause:
+    post:
+      operationId: sequences_pause_post
+      summary: Pause a sequence
+      description: Pause a sequence, halting all scheduled step deliveries. No-op if already paused.
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  minLength: 1
+              required:
+                - id
+              additionalProperties: false
+  /v1/sequences/resume:
+    post:
+      operationId: sequences_resume_post
+      summary: Resume a paused sequence
+      description: Resume a paused sequence, re-enabling scheduled step deliveries. No-op if already active.
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  minLength: 1
+              required:
+                - id
+              additionalProperties: false
+  /v1/sequences/stats:
+    get:
+      operationId: sequences_stats_get
+      summary: Overall sequence stats
+      description: "Returns aggregate statistics: total/active sequence counts and total/active enrollment counts."
+      tags:
+        - sequences
+      responses:
+        "200":
+          description: Successful response
   /v1/settings/avatar/generate:
     post:
       operationId: settings_avatar_generate_post
@@ -10607,6 +13612,24 @@ paths:
           required: true
           schema:
             type: string
+  /v1/skills/{id}/local-inspect:
+    get:
+      operationId: skills_by_id_localinspect_get
+      summary: Local skill inspect
+      description:
+        Return full local detail for an installed or bundled skill, including featureFlag, toolManifest,
+        installMeta, configEntry, and directoryPath.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/skills/{id}/update:
     post:
       operationId: skills_by_id_update_post
@@ -10725,6 +13748,14 @@ paths:
                   enum:
                     - clawhub
                     - skillssh
+                overwrite:
+                  description: Replace an existing install. Defaults to true for back-compat with the legacy in-process API.
+                  type: boolean
+                catalogOnly:
+                  description:
+                    When true, restrict to bundled and Vellum catalog skills only — do not fall through to community
+                    registries.
+                  type: boolean
               required:
                 - slug
                 - url
@@ -10948,6 +13979,12 @@ paths:
           schema:
             type: string
           description: Search query (required)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Max community results to fetch (default 25)
   /v1/slack/channels:
     get:
       operationId: slack_channels_get
@@ -11055,6 +14092,47 @@ paths:
               required:
                 - audioBase64
                 - mimeType
+              additionalProperties: false
+  /v1/stt/transcribe-file:
+    post:
+      operationId: stt_transcribefile_post
+      summary: Transcribe audio/video file to text
+      description:
+        Transcribe an audio or video file to text using the configured STT provider. Handles ffmpeg conversion,
+        large-file chunking, and sequential chunk transcription.
+      tags:
+        - stt
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transcript:
+                    type: string
+                  provider:
+                    type: string
+                  durationSeconds:
+                    type: number
+                required:
+                  - transcript
+                  - provider
+                  - durationSeconds
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filePath:
+                  type: string
+                  description: Absolute path to the audio or video file
+              required:
+                - filePath
               additionalProperties: false
   /v1/subagents/{id}:
     get:
@@ -12079,6 +15157,53 @@ paths:
               required:
                 - text
               additionalProperties: false
+  /v1/tts/synthesize-cli:
+    post:
+      operationId: tts_synthesizecli_post
+      summary: Synthesize text to speech (CLI)
+      description: Synthesize arbitrary text to audio. Returns base64-encoded audio + content type for CLI consumption.
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  audioBase64:
+                    type: string
+                    description: Base64-encoded audio bytes
+                  contentType:
+                    type: string
+                    description: MIME type of the audio (e.g. audio/mpeg)
+                required:
+                  - audioBase64
+                  - contentType
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: Text to synthesize into speech
+                useCase:
+                  default: message-playback
+                  type: string
+                  enum:
+                    - message-playback
+                    - phone-call
+                voiceId:
+                  description: Provider-specific voice identifier override
+                  type: string
+              required:
+                - text
+              additionalProperties: false
   /v1/ui/request:
     post:
       operationId: ui_request_post
@@ -12317,6 +15442,39 @@ paths:
           schema:
             type: integer
           description: End epoch millis (required)
+  /v1/user-routes/inspect:
+    post:
+      operationId: userroutes_inspect_post
+      summary: Inspect a user-defined route handler
+      description: Load a specific handler file and return its exported methods, description, file path, public URL, and metadata.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+              required:
+                - path
+              additionalProperties: false
+  /v1/user-routes/list:
+    get:
+      operationId: userroutes_list_get
+      summary: List user-defined route handlers
+      description: Scan workspace routes directory for handler files and return discovered routes with methods and public URLs.
+      tags:
+        - user-routes
+      responses:
+        "200":
+          description: Successful response
   /v1/watchers/create:
     post:
       operationId: watchers_create_post
@@ -12428,9 +15586,6 @@ paths:
                   type: integer
                   exclusiveMinimum: 0
                   maximum: 9007199254740991
-              required:
-                - hours
-                - limit
               additionalProperties: false
   /v1/watchers/list:
     post:
@@ -12460,8 +15615,6 @@ paths:
                 enabled_only:
                   default: false
                   type: boolean
-              required:
-                - enabled_only
               additionalProperties: false
   /v1/watchers/update:
     post:
@@ -12507,6 +15660,28 @@ paths:
               required:
                 - watcher_id
               additionalProperties: false
+  /v1/webhooks:
+    get:
+      operationId: webhooks_get
+      summary: List registered webhook callback routes
+      description: Lists all webhook callback routes registered with the platform for this assistant.
+      tags:
+        - webhooks
+      responses:
+        "200":
+          description: Successful response
+  /v1/webhooks/register:
+    post:
+      operationId: webhooks_register_post
+      summary: Register a webhook callback URL
+      description:
+        Resolves a stable callback URL for a webhook type. On platform-managed assistants, registers the route with
+        the platform gateway. On self-hosted assistants, uses the configured ingress.publicBaseUrl.
+      tags:
+        - webhooks
+      responses:
+        "200":
+          description: Successful response
   /v1/work-items:
     get:
       operationId: workitems_get

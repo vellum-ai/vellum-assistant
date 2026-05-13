@@ -789,23 +789,492 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertEqual(cancelCalls, 0)
     }
 
-    // MARK: - Provider dropdown filtering
+    // MARK: - View-mode change detection (managed-profile policy edit)
 
-    func testManagedModeShowsOnlyManagedCapableProviders() {
-        store.inferenceMode = "managed"
-        let (editor, _) = makeEditor(profile: InferenceProfile(name: "draft"))
-        XCTAssertEqual(
-            Set(editor.availableProviderIds),
-            Set(["anthropic", "openai", "gemini"])
-        )
-        XCTAssertFalse(editor.availableProviderIds.contains("openrouter"))
+    /// Sanity: `isStatusActive` collapses the three "active" shapes
+    /// (`nil`, empty string, literal `"active"`) into the same bucket
+    /// and treats only literal `"disabled"` as inactive. Round-trips
+    /// through the daemon can flip between any of the three active
+    /// shapes, so the editor must not treat that as a user-visible
+    /// change.
+    func testIsStatusActiveNormalizesActiveShapes() {
+        XCTAssertTrue(InferenceProfileEditor.isStatusActive(nil))
+        XCTAssertTrue(InferenceProfileEditor.isStatusActive(""))
+        XCTAssertTrue(InferenceProfileEditor.isStatusActive("active"))
+        XCTAssertFalse(InferenceProfileEditor.isStatusActive("disabled"))
     }
 
-    func testYourOwnModeShowsAllCatalogProviders() {
-        store.inferenceMode = "your-own"
-        let (editor, _) = makeEditor(profile: InferenceProfile(name: "draft"))
-        XCTAssertTrue(editor.availableProviderIds.contains("openrouter"),
-            "your-own mode should expose all catalog providers including openrouter")
-        XCTAssertEqual(editor.availableProviderIds.count, store.dynamicProviderIds.count)
+    /// Editing a managed profile's label from "Managed" to "Renamed"
+    /// must register as a view-mode change so Save is enabled.
+    func testViewModeHasChangesDetectsLabelEdit() {
+        XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Renamed",
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+    }
+
+    /// Toggling status from active to disabled must register as a
+    /// view-mode change. Uses `nil` as the initial active shape because
+    /// that's what the daemon-seeded managed profiles arrive as.
+    func testViewModeHasChangesDetectsStatusFlipFromActiveToDisabled() {
+        XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: "disabled",
+            initialStatus: nil
+        ))
+    }
+
+    /// And back: from disabled to active. The `initialStatus` here is
+    /// `"disabled"` because that's what the editor would have captured
+    /// from the seed profile.
+    func testViewModeHasChangesDetectsStatusFlipFromDisabledToActive() {
+        XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: "active",
+            initialStatus: "disabled"
+        ))
+    }
+
+    /// Identical snapshots — no change. Save must stay disabled.
+    func testViewModeHasChangesReturnsFalseWhenLabelAndStatusUntouched() {
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+    }
+
+    /// `nil` vs `"active"` vs `""` are all the same "active" bucket.
+    /// Toggling between them via daemon round-trips must NOT register
+    /// as a change — otherwise the Save button would flicker on after
+    /// a no-op refresh.
+    func testViewModeHasChangesIgnoresActiveShapeRoundTrip() {
+        // nil ↔ "active"
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: "active",
+            initialStatus: nil
+        ))
+        // nil ↔ ""
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: "",
+            initialStatus: nil
+        ))
+        // "active" ↔ ""
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed",
+            initialLabel: "Managed",
+            currentStatus: "active",
+            initialStatus: ""
+        ))
+    }
+
+    /// Trailing/leading whitespace on the label is trimmed before
+    /// comparison — a stray space from copy-paste or auto-fill must
+    /// not enable Save.
+    func testViewModeHasChangesTrimsLabelWhitespace() {
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "  Managed  ",
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "Managed\n",
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+    }
+
+    /// Clearing the label (nil or empty) when the initial was set
+    /// counts as a real change in local state.
+    func testViewModeHasChangesDetectsLabelClearing() {
+        XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: nil,
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+        XCTAssertTrue(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "",
+            initialLabel: "Managed",
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+    }
+
+    /// `nil` label and `""` label both normalize to empty — toggling
+    /// between them must NOT register as a change.
+    func testViewModeHasChangesTreatsNilAndEmptyLabelAsEqual() {
+        XCTAssertFalse(InferenceProfileEditor.viewModeHasChanges(
+            currentLabel: "",
+            initialLabel: nil,
+            currentStatus: nil,
+            initialStatus: nil
+        ))
+    }
+
+    /// Instance-level guard: in edit mode (not read-only),
+    /// `hasViewModeChanges` is always false — even if the profile
+    /// happens to differ from the (uncaptured) initial snapshot.
+    /// View-mode change tracking only applies to the managed-profile
+    /// read path.
+    func testHasViewModeChangesIsAlwaysFalseInEditMode() {
+        let (editor, _) = makeEditor(profile: InferenceProfile(
+            name: "draft",
+            status: "disabled",
+            label: "Anything"
+        ))
+        XCTAssertFalse(editor.isReadOnly)
+        XCTAssertFalse(
+            editor.hasViewModeChanges,
+            "Edit mode must never report view-mode changes — only the read-only managed-profile path tracks them"
+        )
+    }
+
+    // MARK: - Connection sub-dropdown (audit finding #5)
+
+    /// Two active openai connections + one disabled + one of a different
+    /// provider. With provider == "openai" the filter must yield exactly
+    /// the two active openai rows in input order.
+    func testAvailableConnectionsForProviderFiltersByProviderAndStatus() {
+        let connections: [ProviderConnection] = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", status: .active, label: "Personal"),
+            Self.makeConnection(name: "work-openai", provider: "openai", status: .active, label: "Work"),
+            Self.makeConnection(name: "legacy-openai", provider: "openai", status: .disabled, label: "Legacy"),
+            Self.makeConnection(name: "anthropic-main", provider: "anthropic", status: .active, label: "Main"),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft", provider: "openai")),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        let available = editor.availableConnectionsForProvider
+        XCTAssertEqual(available.map { $0.name }, ["personal-openai", "work-openai"])
+    }
+
+    /// When no provider is selected, no connections are surfaced — the
+    /// daemon's dispatcher has nothing to bind against until the user
+    /// picks a provider, so the dropdown stays hidden.
+    func testAvailableConnectionsForProviderIsEmptyWhenProviderUnset() {
+        let connections = [
+            Self.makeConnection(name: "openai", provider: "openai", status: .active),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft", provider: nil)),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertTrue(editor.availableConnectionsForProvider.isEmpty)
+    }
+
+    /// Empty `connections` (the default — e.g. the daemon predates the
+    /// connections API) must not crash the filter.
+    func testAvailableConnectionsForProviderIsEmptyWhenConnectionsEmpty() {
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft", provider: "openai")),
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertTrue(editor.availableConnectionsForProvider.isEmpty)
+    }
+
+    /// Display label prefers the human-readable `label` (e.g. "Personal")
+    /// over the internal `name`. Falls back to `name` when label is nil OR
+    /// empty so a daemon that sends `""` for the label doesn't render an
+    /// invisible row.
+    func testConnectionDisplayNamePrefersLabel() {
+        let withLabel = Self.makeConnection(name: "personal-openai", label: "Personal")
+        XCTAssertEqual(InferenceProfileEditor.connectionDisplayName(withLabel), "Personal")
+
+        let withoutLabel = Self.makeConnection(name: "personal-openai", label: nil)
+        XCTAssertEqual(InferenceProfileEditor.connectionDisplayName(withoutLabel), "personal-openai")
+
+        let emptyLabel = Self.makeConnection(name: "personal-openai", label: "")
+        XCTAssertEqual(InferenceProfileEditor.connectionDisplayName(emptyLabel), "personal-openai")
+    }
+
+    /// Stale binding detection: a saved `providerConnection` that points
+    /// at a name not present in the active-for-provider set surfaces as
+    /// `staleProviderConnection`. Gates the "Not found" badge + the extra
+    /// dropdown option that lets the user clear it.
+    func testStaleProviderConnectionReturnsNameWhenBindingMissing() {
+        let connections = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", status: .active),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: "ghost-openai"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertEqual(editor.staleProviderConnection, "ghost-openai")
+    }
+
+    /// A disabled-status connection with a matching name is NOT in the
+    /// active-for-provider set, so the binding is "stale" from the
+    /// editor's POV (the daemon would skip it on dispatch). User can clear
+    /// or pick a different one.
+    func testStaleProviderConnectionReturnsNameWhenBindingMatchesDisabled() {
+        let connections = [
+            Self.makeConnection(name: "legacy-openai", provider: "openai", status: .disabled),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: "legacy-openai"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertEqual(editor.staleProviderConnection, "legacy-openai")
+    }
+
+    /// Binding resolves cleanly to an active row → `nil`, picker renders
+    /// in its non-stale shape.
+    func testStaleProviderConnectionNilWhenBindingMatches() {
+        let connections = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", status: .active),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: "personal-openai"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNil(editor.staleProviderConnection)
+    }
+
+    /// Empty / nil binding → `nil`. Picker renders in its default shape
+    /// when there are active matches; hides entirely when there are none.
+    func testStaleProviderConnectionNilWhenBindingEmpty() {
+        let connections = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", status: .active),
+        ]
+        let unboundEditor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: nil
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNil(unboundEditor.staleProviderConnection)
+
+        let emptyBindingEditor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: ""
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNil(emptyBindingEditor.staleProviderConnection)
+    }
+
+    /// Body must still build when the saved binding is stale — the new
+    /// codepath constructs an extended options list with the "(not found)"
+    /// entry, and any type-inference regression there would break the
+    /// SwiftUI compile. Safety net for the picker's stale-state UI.
+    func testEditorBodyBuildsWithStaleBinding() {
+        let connections = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", status: .active),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                providerConnection: "ghost-openai",
+                model: "gpt-5"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNotNil(editor.body)
+    }
+
+    /// The editor must still build when a `connections:` list is passed in
+    /// alongside other knobs — body construction is the safety net for any
+    /// SwiftUI type-inference regression we'd otherwise miss until a
+    /// snapshot build.
+    func testEditorBodyBuildsWithConnections() {
+        let connections = [
+            Self.makeConnection(name: "personal-openai", provider: "openai", label: "Personal"),
+            Self.makeConnection(name: "work-openai", provider: "openai", label: "Work"),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "personal",
+                provider: "openai",
+                providerConnection: "personal-openai",
+                model: "gpt-5"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNotNil(editor.body)
+    }
+
+    // MARK: - Provider picker filter (iter3 QA issue #1, parity with web PR #6509)
+
+    /// Only providers with at least one ACTIVE connection are surfaced in
+    /// the picker. A provider whose only connection is disabled (openai
+    /// below) must not appear, because binding a profile to it would
+    /// route through a credential the daemon will skip on dispatch.
+    func testAvailableProviderIdsHidesProvidersWithoutActiveConnection() {
+        let connections: [ProviderConnection] = [
+            Self.makeConnection(name: "active-anthropic", provider: "anthropic", status: .active),
+            Self.makeConnection(name: "disabled-openai", provider: "openai", status: .disabled),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft")),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertEqual(editor.availableProviderIds, ["anthropic"])
+    }
+
+    /// Stale binding recovery: the editor is opened on a profile whose
+    /// `provider` value no longer has any active connection. The bound
+    /// provider must still appear in the picker so the user can see it
+    /// (and pick a different one) instead of finding an empty trigger.
+    func testAvailableProviderIdsKeepsCurrentBoundProvider() {
+        let connections: [ProviderConnection] = [
+            Self.makeConnection(name: "active-anthropic", provider: "anthropic", status: .active),
+            Self.makeConnection(name: "disabled-openai", provider: "openai", status: .disabled),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                model: "gpt-5"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        // Order follows store.dynamicProviderIds catalog order, which
+        // happens to put anthropic before openai in the test fixture.
+        XCTAssertEqual(editor.availableProviderIds, ["anthropic", "openai"])
+    }
+
+    /// Pre-load fallback: when `connections` is nil (the parent sheet's
+    /// `.task` hasn't completed its first `listProviderConnections`
+    /// fetch yet, or the daemon predates the connections API), the
+    /// picker shows the full catalog so the user isn't faced with an
+    /// empty trigger during the network round-trip. Once connections
+    /// load — even to `[]` — the active-only filter kicks in.
+    ///
+    /// This is the half of the "nil vs []" distinction. The other half
+    /// is `testAvailableProviderIdsIsEmptyWhenConnectionsLoadedButEmpty`
+    /// below.
+    func testAvailableProviderIdsFallsBackToFullCatalogWhenConnectionsAreNil() {
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft")),
+            onSave: {},
+            onCancel: {}
+        )
+        // Default `connections` is nil — the pre-load state.
+        XCTAssertEqual(editor.availableProviderIds, store.dynamicProviderIds)
+        XCTAssertFalse(editor.availableProviderIds.isEmpty)
+    }
+
+    /// Loaded-but-empty: the daemon confirmed zero connections (fresh
+    /// workspace). This MUST NOT fall back to the full catalog — that
+    /// would let the user save a profile bound to a non-dispatchable
+    /// provider, which is the exact trap this PR is closing. The picker
+    /// renders empty; the empty-state hint elsewhere in the editor
+    /// steers the user to the Providers surface.
+    ///
+    /// Codex P1 (PR #30330): the original `guard !connections.isEmpty`
+    /// fallback conflated this case with pre-load and re-introduced the
+    /// QA trap for fresh workspaces. The fix is the nil/empty split.
+    func testAvailableProviderIdsIsEmptyWhenConnectionsLoadedButEmpty() {
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft")),
+            connections: [],
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertTrue(editor.availableProviderIds.isEmpty)
+    }
+
+    /// All-disabled connections + no bound provider → the filter yields
+    /// empty. The picker still renders (the empty-state hint below it
+    /// drives the user to Providers), but no provider rows appear.
+    func testAvailableProviderIdsIsEmptyWhenOnlyDisabledConnectionsAndNoBoundProvider() {
+        let connections = [
+            Self.makeConnection(name: "disabled-openai", provider: "openai", status: .disabled),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(name: "draft")),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertTrue(editor.availableProviderIds.isEmpty)
+    }
+
+    /// Test helper mirroring `ProvidersSheetTests.makeConnection` so the
+    /// two surfaces use identical fixture shapes.
+    private static func makeConnection(
+        name: String = "my-conn",
+        provider: String = "openai",
+        authType: String = "api_key",
+        status: ConnectionStatus = .active,
+        label: String? = nil
+    ) -> ProviderConnection {
+        ProviderConnection(
+            name: name,
+            provider: provider,
+            auth: ProviderConnectionAuth(type: authType, credential: "sk-test"),
+            status: status,
+            label: label,
+            createdAt: 0,
+            updatedAt: 0
+        )
     }
 }

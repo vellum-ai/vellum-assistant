@@ -1,9 +1,28 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 
+// Per-suite tmp data dir so the reembed sentinel never lands in the
+// developer's real ~/.vellum workspace.
+const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), "memory-v2-qdrant-test-"));
+const REEMBED_SENTINEL_PATH = join(
+  TEST_DATA_DIR,
+  ".memory-v2-reembed-required",
+);
+
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
+}));
+
+mock.module("../../../util/platform.js", () => ({
+  getDataDir: () => TEST_DATA_DIR,
+  // Bun shares mocked modules across test files; some peer tests import
+  // `getWorkspaceDir` from this same module, so re-export it here to avoid
+  // an `undefined` if this mock is the one that wins evaluation order.
+  getWorkspaceDir: () => TEST_DATA_DIR,
 }));
 
 // Stub getConfig — only the qdrant.url / vectorSize / onDisk fields matter.
@@ -184,6 +203,7 @@ const {
   deleteConceptPageEmbedding,
   hybridQueryConceptPages,
   countConceptPagePoints,
+  clearReembedSentinel,
   MEMORY_V2_COLLECTION,
   _resetMemoryV2QdrantForTests,
 } = await import("../qdrant.js");
@@ -209,6 +229,11 @@ function resetState(): void {
   state.countCalls = 0;
   state.upsertThrowQueue.length = 0;
   _resetMemoryV2QdrantForTests();
+  // Drop any sentinel a prior test left behind so the no-drift default path
+  // doesn't accidentally report `migrated: true`.
+  if (existsSync(REEMBED_SENTINEL_PATH)) {
+    rmSync(REEMBED_SENTINEL_PATH);
+  }
 }
 
 describe("memory v2 qdrant — collection lifecycle", () => {
@@ -359,6 +384,53 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     expect(state.deleteCollectionCalls).toEqual([]);
     expect(state.createCollectionCalls).toBe(0);
     expect(result).toEqual({ migrated: false });
+  });
+
+  test("preserves the reembed signal across calls when createCollection fails after delete", async () => {
+    // Pre-#29823 schema triggers the destructive recreate path.
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: { dense: { size: 384 } },
+          sparse_vectors: { sparse: {} },
+        },
+      },
+    };
+    state.createCollectionThrows = new Error("Qdrant transient failure");
+
+    let firstError: unknown = null;
+    try {
+      await ensureConceptPageCollection();
+    } catch (err) {
+      firstError = err;
+    }
+    expect(firstError).not.toBeNull();
+    // The sentinel must outlive the failed call so the retry knows data was lost.
+    expect(existsSync(REEMBED_SENTINEL_PATH)).toBe(true);
+
+    // Simulate a follow-up call after the transient failure clears. The
+    // collection no longer exists (delete succeeded earlier) so the ensure
+    // path falls through to createCollection without re-entering the drift
+    // branch — but the sentinel must still surface as `migrated: true` so
+    // the lifecycle hook enqueues reembed.
+    state.createCollectionThrows = null;
+    _resetMemoryV2QdrantForTests();
+    const result = await ensureConceptPageCollection();
+
+    expect(result).toEqual({ migrated: true });
+
+    // Lifecycle hook clears the sentinel after enqueueing the reembed job.
+    await clearReembedSentinel();
+    expect(existsSync(REEMBED_SENTINEL_PATH)).toBe(false);
+  });
+
+  test("clearReembedSentinel is a no-op when no sentinel exists", async () => {
+    // Idempotent: missing-file does not throw, so the lifecycle hook can
+    // call it unconditionally without guarding.
+    expect(existsSync(REEMBED_SENTINEL_PATH)).toBe(false);
+    await clearReembedSentinel();
+    expect(existsSync(REEMBED_SENTINEL_PATH)).toBe(false);
   });
 
   test("concurrent ensure during a schema rebuild only deletes/creates once", async () => {

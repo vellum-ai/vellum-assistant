@@ -12,6 +12,7 @@ import { homedir } from "os";
 import { join } from "path";
 
 export const CLI_INTERFACE_ID = "cli";
+export const WEB_INTERFACE_ID = "web";
 
 let cached: string | null = null;
 

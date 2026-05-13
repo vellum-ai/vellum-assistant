@@ -269,6 +269,11 @@ public final class MainWindow {
     public let windowState = MainWindowState()
     let documentManager = DocumentManager()
     private let assistantFeatureFlagStore: AssistantFeatureFlagStore
+    /// Long-lived store mirroring the daemon's bookmark list. Owned by
+    /// ``AppServices`` and passed through here so ``MainWindowView`` /
+    /// ``PanelCoordinator`` / ``SettingsPanel`` can observe the same
+    /// instance — UI consumers land in PRs 9-12.
+    private let bookmarkStore: BookmarkStore
     var onMicrophoneToggle: (() -> Void)?
     let liveVoiceChannelManager: LiveVoiceChannelManager
     let voiceModeManager: VoiceModeManager
@@ -327,6 +332,7 @@ public final class MainWindow {
         self.services = services
         self.updateManager = updateManager
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
+        self.bookmarkStore = services.bookmarkStore
         self.initialAssistantName = initialAssistantName
         let liveVoiceChannelManager = LiveVoiceChannelManager()
         self.liveVoiceChannelManager = liveVoiceChannelManager
@@ -472,7 +478,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, connectionManager: connectionManager, eventStreamClient: eventStreamClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, assistantFeatureFlagStore: assistantFeatureFlagStore, diskPressureStatusStore: services.diskPressureStatusStore, documentManager: documentManager, acpSessionStore: services.acpSessionStore, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback, initialAssistantName: initialAssistantName)
+        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, connectionManager: connectionManager, eventStreamClient: eventStreamClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, assistantFeatureFlagStore: assistantFeatureFlagStore, bookmarkStore: bookmarkStore, diskPressureStatusStore: services.diskPressureStatusStore, documentManager: documentManager, acpSessionStore: services.acpSessionStore, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback, initialAssistantName: initialAssistantName)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

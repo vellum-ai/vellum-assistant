@@ -101,8 +101,22 @@ export async function handleGuardianReplyIntercept(
   // When delivery-scoped matches exist, union them with any identity-
   // based pending requests so that requests without delivery rows (e.g.
   // tool_approval requests created inline) are not silently excluded.
-  // Pass undefined (not []) when there are zero combined results so the
-  // router's own identity-based fallback stays active.
+  //
+  // On Slack, when no delivery-scoped results exist for the current
+  // chat, pass [] (empty array) instead of undefined. This prevents the
+  // router's identity-based fallback from intercepting unrelated
+  // messages in other channels/threads — a cross-chat hijacking vector
+  // unique to Slack where a single guardian is active in many threaded
+  // contexts. Explicit callbacks (apr:<id>:<action>) and request codes
+  // still work cross-chat because they carry specific request
+  // identifiers and bypass the pendingRequests list.
+  //
+  // Non-Slack channels (Telegram, WhatsApp) keep undefined so the
+  // identity-based fallback stays active. On those channels, delivery
+  // rows are created asynchronously (fire-and-forget .then()) so the
+  // guardian can reply before the row is persisted. Cross-chat
+  // contamination is unlikely there because each chat is a distinct
+  // conversation with no thread concept.
   const deliveryScopedPendingRequests =
     listPendingCanonicalGuardianRequestsByDestinationChat(
       sourceChannel,
@@ -121,6 +135,10 @@ export async function handleGuardianReplyIntercept(
       deliveryIds.add(r.id);
     }
     pendingRequestIds = [...deliveryIds];
+  } else if (sourceChannel === "slack") {
+    // Block identity-based fallback on Slack to prevent cross-chat
+    // NL/free-text interception. See comment above for rationale.
+    pendingRequestIds = [];
   }
 
   const routerResult = await routeGuardianReply({
@@ -168,13 +186,13 @@ export async function handleGuardianReplyIntercept(
     }
 
     return {
-      response: ({
+      response: {
         accepted: true,
         duplicate: false,
         eventId,
         canonicalRouter: routerResult.type,
         requestId: routerResult.requestId,
-      }),
+      },
       skipApprovalInterception: false,
     };
   }

@@ -120,6 +120,13 @@ const STREAMING_ERROR_PATTERNS = [
 ];
 
 // User-initiated cancellation patterns — these should NOT produce conversation_error
+// Image-input validation patterns — Anthropic 400s with this message when an image
+// block exceeds the per-side pixel cap. Distinct classification matters because
+// retrying with the same oversized image is futile; the user needs to resize.
+const IMAGE_DIMENSIONS_TOO_LARGE_PATTERNS = [
+  /image dimensions? exceeds? max allowed size/i,
+];
+
 const CANCEL_PATTERNS = [/abort/i, /cancel/i];
 
 /**
@@ -370,6 +377,15 @@ function classifyCore(
           errorCategory: "provider_not_configured",
         };
       }
+      if (isImageDimensionsTooLarge(message)) {
+        return {
+          code: "IMAGE_TOO_LARGE",
+          userMessage:
+            "An attached image is too large for the AI provider — image dimensions must be under 8000 pixels per side. Resize the image and try again.",
+          retryable: false,
+          errorCategory: "image_dimensions_too_large",
+        };
+      }
       return {
         code: "PROVIDER_API",
         userMessage: "The AI provider rejected the request.",
@@ -386,6 +402,11 @@ function classifyCore(
 /** Check whether an error message indicates a context-too-large failure. */
 export function isContextTooLarge(message: string): boolean {
   return CONTEXT_TOO_LARGE_PATTERNS.some((p) => p.test(message));
+}
+
+/** Check whether an error message indicates an image-input dimension failure. */
+function isImageDimensionsTooLarge(message: string): boolean {
+  return IMAGE_DIMENSIONS_TOO_LARGE_PATTERNS.some((p) => p.test(message));
 }
 
 /** Check whether an error message indicates a web-search-specific ordering failure. */

@@ -453,7 +453,6 @@ describe("overflow-reduce pipeline", () => {
         manifest: {
           name: "spy-overflow",
           version: "0.0.1",
-          requires: { pluginRuntime: "v1", overflowReduceApi: "v1" },
         },
         middleware: { overflowReduce: spy },
       };
@@ -512,7 +511,6 @@ describe("overflow-reduce pipeline", () => {
         manifest: {
           name: "short-circuit-overflow",
           version: "0.0.1",
-          requires: { pluginRuntime: "v1", overflowReduceApi: "v1" },
         },
         middleware: { overflowReduce: shortCircuit },
       });

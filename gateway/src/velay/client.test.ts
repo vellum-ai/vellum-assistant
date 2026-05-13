@@ -13,6 +13,7 @@ import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
+import { VELAY_ALLOWED_PATHS_HEADER_VALUE } from "./allowed-paths.js";
 import {
   FakeWebSocket,
   makeFakeWebSocketConstructor,
@@ -180,6 +181,7 @@ function makeClient(
               closeAll: () => {},
             }) as never,
     reconnect: { baseDelayMs: 10, maxDelayMs: 10, jitterRatio: 0 },
+    heartbeat: { intervalMs: 0, readTimeoutMs: 0 },
     timerApi: makeTimerApi(reconnectDelays),
   });
 }
@@ -290,7 +292,10 @@ describe("VelayTunnelClient", () => {
     expect(sockets[0].url).toBe("ws://velay.example.test/v1/register");
     expect(sockets[0].options).toEqual({
       protocols: [VELAY_TUNNEL_SUBPROTOCOL],
-      headers: { Authorization: "Api-Key api-key-123" },
+      headers: {
+        Authorization: "Api-Key api-key-123",
+        "X-Vellum-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
+      },
     });
 
     sockets[0].readyState = WS_OPEN;
@@ -481,6 +486,7 @@ describe("VelayTunnelClient", () => {
       configFile: makeConfigFileCache({ count: 0 }),
       webSocketConstructor: makeFakeWebSocketConstructor(sockets),
       reconnect: { baseDelayMs: 10, maxDelayMs: 80, jitterRatio: 0 },
+      heartbeat: { intervalMs: 0, readTimeoutMs: 0 },
       timerApi: makeManualTimerApi(reconnectDelays, reconnectCallbacks),
     });
 
@@ -935,5 +941,159 @@ describe("VelayTunnelClient", () => {
     ]);
     expect(closeAllCount).toBe(1);
     expect(reconnectDelays).toEqual([]);
+  });
+
+  test("sends heartbeat frames periodically while connected", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    writeConfig({ ingress: { publicBaseUrl: "https://ngrok.example.test" } });
+    const client = new VelayTunnelClient({
+      velayBaseUrl: "http://velay.example.test",
+      gatewayLoopbackBaseUrl: "http://127.0.0.1:7830",
+      credentials: makeCredentials({
+        [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+        [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
+      }),
+      configFile: makeConfigFileCache({ count: 0 }),
+      webSocketConstructor: makeFakeWebSocketConstructor(sockets),
+      reconnect: { baseDelayMs: 10, maxDelayMs: 10, jitterRatio: 0 },
+      heartbeat: { intervalMs: 100, readTimeoutMs: 1000 },
+      timerApi: makeManualTimerApi(delays, callbacks),
+    });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sockets[0].emit("open");
+    await flushPromises();
+
+    expect(delays).toEqual([100]);
+
+    callbacks[0]();
+    await flushPromises();
+    expect(sockets[0].sent).toEqual([
+      JSON.stringify({ type: VELAY_FRAME_TYPES.heartbeat }),
+    ]);
+    expect(delays).toEqual([100, 100]);
+
+    await client.stop();
+  });
+
+  test("force-closes the tunnel when the read-timeout expires", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    writeConfig({ ingress: { publicBaseUrl: "https://ngrok.example.test" } });
+    const client = new VelayTunnelClient({
+      velayBaseUrl: "http://velay.example.test",
+      gatewayLoopbackBaseUrl: "http://127.0.0.1:7830",
+      credentials: makeCredentials({
+        [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+        [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
+      }),
+      configFile: makeConfigFileCache({ count: 0 }),
+      webSocketConstructor: makeFakeWebSocketConstructor(sockets),
+      reconnect: { baseDelayMs: 10, maxDelayMs: 10, jitterRatio: 0 },
+      heartbeat: { intervalMs: 100, readTimeoutMs: 1000 },
+      timerApi: makeManualTimerApi(delays, callbacks),
+    });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sockets[0].emit("open");
+    await flushPromises();
+    expect(delays).toEqual([100]);
+
+    sendFrame(sockets[0], { type: VELAY_FRAME_TYPES.heartbeat });
+    await flushPromises();
+    expect(delays).toEqual([100, 1000]);
+
+    callbacks[1]();
+    await flushPromises();
+
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "heartbeat read timeout" },
+    ]);
+    expect(delays).toEqual([100, 1000, 10]);
+  });
+
+  test("resets the read-timeout when an inbound frame arrives", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    writeConfig({ ingress: { publicBaseUrl: "https://ngrok.example.test" } });
+    const client = new VelayTunnelClient({
+      velayBaseUrl: "http://velay.example.test",
+      gatewayLoopbackBaseUrl: "http://127.0.0.1:7830",
+      credentials: makeCredentials({
+        [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+        [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
+      }),
+      configFile: makeConfigFileCache({ count: 0 }),
+      webSocketConstructor: makeFakeWebSocketConstructor(sockets),
+      reconnect: { baseDelayMs: 10, maxDelayMs: 10, jitterRatio: 0 },
+      heartbeat: { intervalMs: 100, readTimeoutMs: 1000 },
+      timerApi: makeManualTimerApi(delays, callbacks),
+    });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sockets[0].emit("open");
+    await flushPromises();
+    expect(delays).toEqual([100]);
+
+    sendFrame(sockets[0], { type: VELAY_FRAME_TYPES.heartbeat });
+    await flushPromises();
+    expect(delays).toEqual([100, 1000]);
+
+    sendFrame(sockets[0], { type: VELAY_FRAME_TYPES.heartbeat });
+    await flushPromises();
+
+    expect(delays).toEqual([100, 1000, 1000]);
+    expect(sockets[0].closes).toEqual([]);
+
+    await client.stop();
+  });
+
+  test("does not start the read-timeout until the peer echoes a heartbeat", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    writeConfig({ ingress: { publicBaseUrl: "https://ngrok.example.test" } });
+    const client = new VelayTunnelClient({
+      velayBaseUrl: "http://velay.example.test",
+      gatewayLoopbackBaseUrl: "http://127.0.0.1:7830",
+      credentials: makeCredentials({
+        [credentialKey("vellum", "assistant_api_key")]: "api-key-123",
+        [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
+      }),
+      configFile: makeConfigFileCache({ count: 0 }),
+      webSocketConstructor: makeFakeWebSocketConstructor(sockets),
+      reconnect: { baseDelayMs: 10, maxDelayMs: 10, jitterRatio: 0 },
+      heartbeat: { intervalMs: 100, readTimeoutMs: 1000 },
+      timerApi: makeManualTimerApi(delays, callbacks),
+    });
+
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    sockets[0].emit("open");
+    await flushPromises();
+
+    // Only the heartbeat send is scheduled; read-timeout stays gated.
+    expect(delays).toEqual([100]);
+
+    callbacks[0]();
+    await flushPromises();
+    callbacks[1]();
+    await flushPromises();
+
+    expect(delays).toEqual([100, 100, 100]);
+    expect(sockets[0].closes).toEqual([]);
+
+    await client.stop();
   });
 });

@@ -27,11 +27,6 @@ mock.module("../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: mockWakeAgentForOpportunity,
 }));
 
-const mockEmitFeedEvent = mock(() => Promise.resolve());
-mock.module("../home/emit-feed-event.js", () => ({
-  emitFeedEvent: mockEmitFeedEvent,
-}));
-
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
@@ -82,7 +77,6 @@ describe("scheduler wake mode", () => {
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     mockWakeAgentForOpportunity.mockClear();
-    mockEmitFeedEvent.mockClear();
   });
 
   test("wake schedule calls wakeAgentForOpportunity with correct args", async () => {
@@ -206,63 +200,6 @@ describe("scheduler wake mode", () => {
       .query("SELECT status FROM cron_jobs WHERE id = ?")
       .get(schedule.id) as { status: string } | null;
     expect(row?.status).toBe("active");
-  });
-
-  test("quiet: true suppresses feed event", async () => {
-    // GIVEN a one-shot wake schedule with quiet: true
-    const schedule = createSchedule({
-      name: "Wake Quiet",
-      message: "Quiet wake",
-      mode: "wake",
-      wakeConversationId: "conv-quiet",
-      quiet: true,
-      nextRunAt: Date.now() - 1000,
-    });
-    forceScheduleDue(schedule.id);
-
-    // WHEN the scheduler fires
-    const scheduler = startScheduler(
-      mock(() => Promise.resolve()),
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
-
-    // THEN wakeAgentForOpportunity is called
-    expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
-
-    // AND no feed event is emitted
-    expect(mockEmitFeedEvent).not.toHaveBeenCalled();
-  });
-
-  test("quiet: false emits feed event on success", async () => {
-    // GIVEN a one-shot wake schedule with quiet: false (default)
-    const schedule = createSchedule({
-      name: "Wake Loud",
-      message: "Loud wake",
-      mode: "wake",
-      wakeConversationId: "conv-loud",
-      nextRunAt: Date.now() - 1000,
-    });
-    forceScheduleDue(schedule.id);
-
-    // WHEN the scheduler fires
-    const scheduler = startScheduler(
-      mock(() => Promise.resolve()),
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
-
-    // THEN a feed event IS emitted
-    expect(mockEmitFeedEvent).toHaveBeenCalledTimes(1);
-    expect(mockEmitFeedEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        source: "assistant",
-        title: "Wake Loud",
-        summary: "Deferred wake fired.",
-      }),
-    );
   });
 
   test("retries wake when wakeAgentForOpportunity returns timeout", async () => {

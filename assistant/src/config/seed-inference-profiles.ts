@@ -1,26 +1,44 @@
+import type { DrizzleDb } from "../memory/db-connection.js";
+import {
+  createConnection,
+  disableManagedConnectionsForByokHatch,
+  getConnection,
+} from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
 import type { ModelIntent } from "../providers/types.js";
+import { credentialKey } from "../security/credential-key.js";
+import { getLogger } from "../util/logger.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   type ProfileEntry,
 } from "./schemas/llm.js";
 
+const log = getLogger("seed-inference-profiles");
+
+const MANAGED_CONNECTION_NAME = "anthropic-managed";
+const MANAGED_PROFILE_PROVIDER: NonNullable<ProfileEntry["provider"]> =
+  "anthropic";
+
 /**
  * Template for a daemon-managed inference profile. The profile's model is
  * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
  * single source of truth for "which model does this intent map to?".
  */
-type ManagedProfileTemplate = Omit<ProfileEntry, "provider" | "model"> & {
+type ManagedProfileTemplate = Omit<
+  ProfileEntry,
+  "provider" | "model" | "provider_connection"
+> & {
   intent: ModelIntent;
 };
 
 /**
- * Anthropic-managed profiles. Always seeded so users can target Anthropic via
- * their own key, even when the resolved default provider is something else.
+ * Managed Anthropic profiles. Overwritten on every daemon boot so Vellum can
+ * push model/config updates to customers in new releases. Platform overlays
+ * (`preserveProfileNames`) take precedence when present.
  */
-const ANTHROPIC_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
+const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   balanced: {
     intent: "balanced",
     source: "managed",
@@ -54,15 +72,15 @@ const ANTHROPIC_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
 };
 
 /**
- * Custom-provider profile templates. Materialized at seed time when the
- * resolved default provider is non-Anthropic, using `resolveModelIntent` to
- * pick the model.
+ * User profile templates. Materialized at hatch time for off-platform
+ * installations. Each points at the user's personal provider connection
+ * (backed by their API key in CES).
  */
-const CUSTOM_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
+const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   "custom-balanced": {
     intent: "balanced",
     source: "user",
-    label: "Balanced (Custom Provider)",
+    label: "Balanced",
     description: "Good balance of quality, cost, and speed",
     maxTokens: 16000,
     effort: "high",
@@ -72,7 +90,7 @@ const CUSTOM_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   "custom-quality-optimized": {
     intent: "quality-optimized",
     source: "user",
-    label: "Quality (Custom Provider)",
+    label: "Quality",
     description: "Best results with the most capable model",
     maxTokens: 32000,
     effort: "max",
@@ -82,7 +100,7 @@ const CUSTOM_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   "custom-cost-optimized": {
     intent: "latency-optimized",
     source: "user",
-    label: "Speed (Custom Provider)",
+    label: "Speed",
     description: "Fastest responses at lower cost",
     maxTokens: 8192,
     effort: "low",
@@ -92,41 +110,37 @@ const CUSTOM_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
 };
 
 export const MANAGED_PROFILE_NAMES = new Set(
-  Object.keys(ANTHROPIC_PROFILE_TEMPLATES),
+  Object.keys(MANAGED_PROFILE_TEMPLATES),
 );
-
-const SEEDED_PROFILE_NAMES = new Set([
-  ...Object.keys(ANTHROPIC_PROFILE_TEMPLATES),
-  ...Object.keys(CUSTOM_PROFILE_TEMPLATES),
-]);
-
-const KNOWN_PROVIDERS = new Set(PROVIDER_CATALOG.map((entry) => entry.id));
 
 export type SeedInferenceProfilesOptions = {
   /**
-   * Managed profile names supplied by the platform/default overlay for this
-   * startup. Those entries are already on disk by the time seeding runs and
-   * should remain authoritative for this boot.
+   * Profile names supplied by the platform/default overlay for this startup.
+   * Those entries are already on disk and should remain authoritative.
    */
   preserveProfileNames?: Iterable<string>;
   preserveActiveProfile?: boolean;
+  /** True when a hatch overlay was consumed this startup. */
+  isHatch?: boolean;
+  /** DB handle for creating user provider connections at hatch time. */
+  db?: DrizzleDb;
 };
 
 /**
- * Seed managed inference profiles into the workspace config.
+ * Seed inference profiles into the workspace config.
  *
- * Called on every daemon startup after workspace migrations and default-config
- * overlay merge, but before the first `loadConfig()`. The 3 Anthropic-managed
- * profiles (`balanced`, `quality-optimized`, `cost-optimized`) are always
- * written so users can target Anthropic via their own key. When the resolved
- * default provider is non-Anthropic, the 3 `custom-*` profiles are also
- * materialized using `resolveModelIntent` against that provider, and
- * `custom-balanced` becomes the active profile for fresh hatches.
+ * Runs on every daemon startup. Two responsibilities:
  *
- * Default-config overlays can provide their own profile fragments and active
- * profile. Lifecycle passes those explicit fields in `options`, letting local
- * hatches still receive managed defaults while platform-owned profile choices
- * remain authoritative.
+ * 1. **Managed profiles** (`balanced`, `quality-optimized`, `cost-optimized`):
+ *    overwritten on every boot so Vellum can push model/config updates to
+ *    customers. Each carries `provider_connection: "anthropic-managed"`.
+ *    Platform overlays (`preserveProfileNames`) take precedence.
+ *
+ * 2. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
+ *    `custom-cost-optimized`): materialized once at hatch time for
+ *    off-platform installations. Each points at a personal provider
+ *    connection backed by the user's API key in CES. Subsequent boots
+ *    leave these untouched — the user owns them.
  */
 export function seedInferenceProfiles(
   options: SeedInferenceProfilesOptions = {},
@@ -144,56 +158,131 @@ export function seedInferenceProfiles(
   }
   const profiles = llm.profiles as Record<string, Record<string, unknown>>;
 
-  const requestedProvider =
-    readString(readObject(llm.default)?.provider) ?? "anthropic";
-  const isKnownProvider = KNOWN_PROVIDERS.has(requestedProvider);
-  const resolvedProvider: NonNullable<ProfileEntry["provider"]> =
-    isKnownProvider
-      ? (requestedProvider as NonNullable<ProfileEntry["provider"]>)
-      : "anthropic";
-  const isAnthropicDefault = resolvedProvider === "anthropic";
+  const isPlatform =
+    process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
 
-  // Persist the resolved provider when the overlay supplied an unrecognized
-  // value, so the on-disk config doesn't keep emitting Zod warnings for
-  // `unknownprov` on every load.
-  if (!isKnownProvider) {
-    const defaultBlock = (readObject(llm.default) ?? {}) as Record<
-      string,
-      unknown
-    >;
-    defaultBlock.provider = resolvedProvider;
-    llm.default = defaultBlock;
-  }
+  // BYOK mode = off-platform installs. The user is bringing their own provider
+  // API key; managed profile labels get a " (Managed)" suffix to disambiguate
+  // from the personal "custom-*" profiles that share base labels. Managed
+  // profile + connection status is initially "disabled" so the picker doesn't
+  // offer an unusable platform-auth option on day one — but ONLY at hatch
+  // time, and ONLY when the entry isn't already in the user's config (i.e.
+  // first materialization). Post-hatch user toggles survive every subsequent
+  // boot.
+  const isByokMode = !isPlatform;
 
-  for (const [name, template] of Object.entries(ANTHROPIC_PROFILE_TEMPLATES)) {
+  // 1. Managed profiles. Off-platform: overwrite on every boot so Vellum can
+  //    push model/config updates in new releases. On-platform: insert only if
+  //    absent — the platform controls profiles through overlays, and the
+  //    overlay fragment is authoritative even when it omits fields the local
+  //    template carries (e.g. an overlay supplying only provider/model/label
+  //    must not get its maxTokens/thinking polluted from the template). The
+  //    legacy migration-052 backfill that seeds label-less Anthropic
+  //    defaults is healed by workspace migration 082
+  //    (`backfill-managed-profile-labels`) rather than the seeder, so
+  //    this skip path stays simple.
+  //
+  //    Two user-editable fields survive the overwrite: `label` (display
+  //    rename) and `status` (active/disabled toggle). The PUT route
+  //    `/v1/config/llm/profiles/:name` lets users patch these on managed
+  //    profiles without duplicating; we have to honor those edits across
+  //    reseeds or they'd silently revert on every boot. Carry by
+  //    key-presence rather than truthiness so an explicit `null` (user
+  //    cleared the label) survives too. Codex P1 finding on PR #30362.
+  //
+  //    BYOK seed defaults (off-platform only):
+  //      • label: " (Managed)" suffix disambiguates managed profile labels
+  //        from personal "custom-*" profiles that share base labels.
+  //        Upgrade migration: existing installs that already have the bare
+  //        template label ("Balanced" / "Quality" / "Speed") on disk get
+  //        rewritten to the suffixed form. Any other previous label value
+  //        (user-set custom string, explicit null, already-suffixed) is
+  //        preserved as-is.
+  //      • status: "disabled" on fresh materialization at hatch only —
+  //        gated on (isHatch && !previous) so post-hatch boots and existing
+  //        installs are never auto-disabled. A user re-enable persists
+  //        across boots via the key-presence preservation below.
+  for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
     if (preservedProfileNames.has(name)) continue;
-    // Preserve a previously overlay-supplied profile whose provider matches
-    // the resolved default — that's the platform-managed case where the
-    // overlay file has already been consumed and archived. Only valid for
-    // non-Anthropic resolutions; when the default is Anthropic the daemon
-    // owns these names and re-seeds with Anthropic data so a stale openai
-    // `balanced` doesn't keep routing through the wrong provider after a
-    // re-hatch back to Anthropic.
-    const existing = readObject(profiles[name]);
-    const existingProvider = readString(existing?.provider);
-    if (
-      existing !== null &&
-      !isAnthropicDefault &&
-      existingProvider === resolvedProvider
-    ) {
-      continue;
+    if (isPlatform && readObject(profiles[name]) !== null) continue;
+
+    const previous = readObject(profiles[name]);
+    const effectiveTemplate: ManagedProfileTemplate = isByokMode
+      ? { ...template, label: `${template.label} (Managed)` }
+      : template;
+    const next = materializeProfile(
+      effectiveTemplate,
+      MANAGED_PROFILE_PROVIDER,
+      MANAGED_CONNECTION_NAME,
+    ) as Record<string, unknown>;
+    if (isByokMode && options.isHatch && !previous) {
+      next.status = "disabled";
     }
-    profiles[name] = materializeProfile(template, "anthropic");
+    if (previous) {
+      // Preserve user overrides on these whitelisted fields. The label path
+      // also runs the BYOK upgrade migration described above: if the on-disk
+      // label exactly equals the bare template default and we're in BYOK
+      // mode, rewrite to the suffixed effective label so existing installs
+      // get the disambiguation, not just fresh hatches.
+      if ("label" in previous) {
+        next.label =
+          isByokMode && previous.label === template.label
+            ? effectiveTemplate.label
+            : previous.label;
+      }
+      if ("status" in previous) next.status = previous.status;
+    }
+    profiles[name] = next as ProfileEntry;
   }
 
-  if (!isAnthropicDefault) {
-    for (const [name, template] of Object.entries(CUSTOM_PROFILE_TEMPLATES)) {
-      if (preservedProfileNames.has(name)) continue;
-      if (readObject(profiles[name]) !== null) continue;
-      profiles[name] = materializeProfile(template, resolvedProvider);
+  // 2. User profiles — only at hatch time for off-platform installations.
+  let userConnectionName: string | undefined;
+  if (options.isHatch && !isPlatform) {
+    // BYOK hatch: disable the three canonical managed connections so the
+    // picker doesn't surface unusable platform-auth options on day one.
+    // Runs only here, only at hatch — `seedCanonicalConnections` leaves
+    // `status` alone on subsequent boots so a post-hatch user re-enable
+    // persists.
+    if (options.db) {
+      disableManagedConnectionsForByokHatch(options.db);
+    }
+
+    const hatchProvider = readString(readObject(llm.default)?.provider);
+    if (hatchProvider && hatchProvider !== "ollama") {
+      userConnectionName = `${hatchProvider}-personal`;
+
+      if (options.db) {
+        if (!getConnection(options.db, userConnectionName)) {
+          const credName = credentialKey(hatchProvider, "api_key");
+          const result = createConnection(options.db, {
+            name: userConnectionName,
+            provider: hatchProvider,
+            auth: { type: "api_key", credential: credName },
+            label: personalConnectionLabel(hatchProvider),
+          });
+          if (!result.ok) {
+            log.warn(
+              { provider: hatchProvider, error: result.error },
+              "Failed to create personal connection during hatch seeding",
+            );
+          }
+        }
+      }
+
+      const provider =
+        hatchProvider as NonNullable<ProfileEntry["provider"]>;
+      for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
+        if (preservedProfileNames.has(name)) continue;
+        profiles[name] = materializeProfile(
+          template,
+          provider,
+          userConnectionName,
+        );
+      }
     }
   }
 
+  // Active profile resolution.
   const requestedActiveProfile = readString(llm.activeProfile);
   const requestedActiveEntry =
     requestedActiveProfile !== undefined
@@ -203,80 +292,37 @@ export function seedInferenceProfiles(
   const shouldPreserveActiveProfile =
     options.preserveActiveProfile === true && requestedActiveExists;
 
-  // Decide whether the existing active profile is still appropriate. A managed
-  // profile whose provider no longer matches the resolved default goes stale
-  // (e.g. re-hatching anthropic→openai leaves `balanced` pointing at anthropic;
-  // re-hatching openai→anthropic leaves `custom-balanced` pointing at openai).
-  // Either direction should land the user on the new default's `balanced`
-  // counterpart rather than routing the main agent to a stale provider.
-  // User-created profiles are left alone — those are the user's choice.
-  let keepActiveProfile = shouldPreserveActiveProfile;
-  if (!keepActiveProfile && requestedActiveExists) {
-    const isSeededName = SEEDED_PROFILE_NAMES.has(requestedActiveProfile!);
-    const activeProvider = readString(requestedActiveEntry?.provider);
-    const managedActiveProviderMismatch =
-      isSeededName && activeProvider !== resolvedProvider;
-    keepActiveProfile = !managedActiveProviderMismatch;
-  }
-
-  let activeProfileName: string;
-  if (keepActiveProfile) {
-    activeProfileName = requestedActiveProfile!;
-  } else {
-    activeProfileName = isAnthropicDefault ? "balanced" : "custom-balanced";
-    llm.activeProfile = activeProfileName;
-  }
-
-  // Sync `llm.default.model` to the active profile's model so the providers
-  // registry sees a coherent provider/model pair. Only writes when the on-disk
-  // default model is missing or unambiguously belongs to a *different*
-  // provider's catalog (e.g. `claude-opus-4-7` paired with `provider: openai`).
-  // A user-supplied model not listed in any provider's catalog is preserved —
-  // ollama and openrouter expose far more models than `PROVIDER_CATALOG` lists,
-  // and silently overwriting `codellama`/`phi3`/etc. on every restart would
-  // break those users' configs. Skipped when the overlay owns the active
-  // profile (platform mode).
   if (!shouldPreserveActiveProfile) {
-    const activeEntry = readObject(profiles[activeProfileName]);
-    const activeModel = readString(activeEntry?.model);
-    if (activeModel !== undefined) {
-      const defaultBlock = (readObject(llm.default) ?? {}) as Record<
-        string,
-        unknown
-      >;
-      const currentModel = readString(defaultBlock.model);
-      const modelBelongsToOtherProvider =
-        currentModel !== undefined &&
-        PROVIDER_CATALOG.some(
-          (p) =>
-            p.id !== resolvedProvider &&
-            p.models.some((m) => m.id === currentModel),
-        );
-      const shouldOverwriteDefaultModel =
-        currentModel === undefined || modelBelongsToOtherProvider;
-      if (shouldOverwriteDefaultModel) {
-        defaultBlock.model = activeModel;
-        llm.default = defaultBlock;
-      }
+    if (options.isHatch) {
+      // Hatch = fresh setup. Pick the right default based on platform mode.
+      llm.activeProfile = userConnectionName ? "custom-balanced" : "balanced";
+    } else if (!requestedActiveExists) {
+      llm.activeProfile = "balanced";
     }
   }
 
+  // Profile ordering — ensure all seeded profiles appear in the order array.
   const profileOrder = Array.isArray(llm.profileOrder)
     ? (llm.profileOrder as string[])
     : [];
   const orderSet = new Set(profileOrder);
-  const seededOrder = [
-    ...Object.keys(ANTHROPIC_PROFILE_TEMPLATES),
-    ...(isAnthropicDefault ? [] : Object.keys(CUSTOM_PROFILE_TEMPLATES)),
-  ];
-  for (const name of seededOrder) {
+  for (const name of Object.keys(MANAGED_PROFILE_TEMPLATES)) {
     if (!orderSet.has(name)) {
       profileOrder.push(name);
       orderSet.add(name);
     }
   }
+  if (userConnectionName) {
+    for (const name of Object.keys(USER_PROFILE_TEMPLATES)) {
+      if (!orderSet.has(name)) {
+        profileOrder.push(name);
+        orderSet.add(name);
+      }
+    }
+  }
   llm.profileOrder = profileOrder;
 
+  // Tag any remaining profiles without a source as user-created.
   for (const [name, profile] of Object.entries(profiles)) {
     if (MANAGED_PROFILE_NAMES.has(name)) continue;
     if (
@@ -294,11 +340,13 @@ export function seedInferenceProfiles(
 function materializeProfile(
   template: ManagedProfileTemplate,
   provider: NonNullable<ProfileEntry["provider"]>,
+  connectionName: string,
 ): ProfileEntry {
   const { intent, ...rest } = template;
   return {
     ...rest,
     provider,
+    provider_connection: connectionName,
     model: resolveModelIntent(provider, intent),
   };
 }
@@ -311,4 +359,17 @@ function readObject(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Format the human-readable label seeded onto a personal provider connection
+ * at hatch time, e.g. `"Anthropic (Personal)"`. The display name is sourced
+ * from `PROVIDER_CATALOG` so it tracks the canonical provider directory; an
+ * unrecognised provider id falls back to the raw id with the suffix.
+ */
+function personalConnectionLabel(providerId: string): string {
+  const displayName =
+    PROVIDER_CATALOG.find((p) => p.id === providerId)?.displayName ??
+    providerId;
+  return `${displayName} (Personal)`;
 }

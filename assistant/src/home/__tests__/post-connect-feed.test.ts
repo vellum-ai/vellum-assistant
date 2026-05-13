@@ -44,7 +44,7 @@ afterEach(() => {
 // ─── Tests ─────────────────────────────────────────────────────────────
 
 describe("emitPostConnectNudge", () => {
-  test("emits a nudge feed item for google", async () => {
+  test("emits a notification feed item for google", async () => {
     await emitPostConnectNudge("google");
 
     const feed = readHomeFeed();
@@ -52,14 +52,12 @@ describe("emitPostConnectNudge", () => {
 
     const item = feed.items[0]!;
     expect(item.id).toBe("connect-nudge:google");
-    expect(item.type).toBe("nudge");
-    expect(item.source).toBe("gmail");
+    expect(item.type).toBe("notification");
     expect(item.title).toContain("Gmail connected");
     expect(item.actions).toHaveLength(2);
     expect(item.actions![0]!.label).toBe("Triage my inbox");
     expect(item.actions![1]!.label).toBe("Set up daily digest");
     expect(item.expiresAt).toBeDefined();
-    expect(item.author).toBe("platform");
   });
 
   test("no-ops for non-email services", async () => {
@@ -71,20 +69,19 @@ describe("emitPostConnectNudge", () => {
     expect(feed.items).toHaveLength(0);
   });
 
-  test("reconnecting appends a second nudge (same-author nudges don't deduplicate)", async () => {
+  test("reconnecting replaces the existing notification in place (deterministic id)", async () => {
     await emitPostConnectNudge("google");
     await emitPostConnectNudge("google");
 
     const feed = readHomeFeed();
-    // Same-author (platform) same-source nudges both persist —
-    // the feed writer's author-resolution only handles cross-author
-    // replacement. In practice, reconnects are rare and the 7-day
-    // expiry prevents buildup.
-    expect(feed.items).toHaveLength(2);
-    expect(feed.items.every((i) => i.id === "connect-nudge:google")).toBe(true);
+    // The deterministic `connect-nudge:<service>` id triggers the v2
+    // writer's "same id replaces in place" rule, so reconnecting
+    // produces a single feed entry rather than appending a duplicate.
+    expect(feed.items).toHaveLength(1);
+    expect(feed.items[0]!.id).toBe("connect-nudge:google");
   });
 
-  test("nudge expires after 7 days", async () => {
+  test("notification expires after 7 days", async () => {
     await emitPostConnectNudge("google");
 
     const feed = readHomeFeed();

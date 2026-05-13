@@ -41,6 +41,19 @@ if (before === null) {
 }
 
 if (before !== after) {
+  // Print the first few differing lines for easier debugging.
+  const beforeLines = before.split("\n");
+  const afterLines = after.split("\n");
+  const max = Math.max(beforeLines.length, afterLines.length);
+  let printed = 0;
+  for (let i = 0; i < max && printed < 12; i++) {
+    if (beforeLines[i] !== afterLines[i]) {
+      console.error(`@@ line ${i + 1}`);
+      console.error(`- ${beforeLines[i] ?? ""}`);
+      console.error(`+ ${afterLines[i] ?? ""}`);
+      printed++;
+    }
+  }
   // Restore the original so the working tree stays clean
   writeFileSync(CATALOG_PATH, before, "utf-8");
   console.error(

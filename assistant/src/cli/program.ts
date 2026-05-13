@@ -10,12 +10,12 @@ import { APP_VERSION } from "../version.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
-import { registerAutonomyCommand } from "./commands/autonomy.js";
 import { registerAvatarCommand } from "./commands/avatar.js";
 import { registerBackupCommand } from "./commands/backup.js";
 import { registerBashCommand } from "./commands/bash.js";
 import { registerBrowserCommand } from "./commands/browser.js";
 import { registerCacheCommand } from "./commands/cache.js";
+import { registerChangelogCommand } from "./commands/changelog.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
 import { registerClientsCommand } from "./commands/clients.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
@@ -32,7 +32,6 @@ import { registerImageGenerationCommand } from "./commands/image-generation.js";
 import { registerInferenceCommand } from "./commands/inference.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
-import { registerMemoryCommand } from "./commands/memory.js";
 import { registerMemoryV2Command } from "./commands/memory-v2.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
@@ -80,12 +79,12 @@ Examples:
   registerAttachmentCommand(program);
   registerAuditCommand(program);
   registerAuthCommand(program);
-  registerAutonomyCommand(program);
   registerAvatarCommand(program);
   registerBackupCommand(program);
   registerBashCommand(program);
   registerBrowserCommand(program);
   registerCacheCommand(program);
+  registerChangelogCommand(program);
   registerChannelVerificationSessionsCommand(program);
   registerClientsCommand(program);
   registerCompletionsCommand(program);
@@ -103,7 +102,6 @@ Examples:
   registerInferenceCommand(program);
   registerKeysCommand(program);
   registerMcpCommand(program);
-  registerMemoryCommand(program);
   registerMemoryV2Command(program);
   registerNotificationsCommand(program);
   registerOAuthCommand(program);
@@ -128,9 +126,28 @@ Examples:
   // remain available even without a workspace.
   // Workspace-independent commands are exempt:
   //   completions — pure shell-script generation, no workspace files needed
-  const workspaceExemptCommands = new Set(["completions", "status"]);
+  //   status     — diagnostic; should run even when the workspace is broken
+  //   changelog  — pure read-only network surface backed by GitHub Releases;
+  //                its on-disk cache is best-effort and tolerates a missing
+  //                workspace dir (see changelog.ts:writeCache)
+  const workspaceExemptCommands = new Set([
+    "completions",
+    "status",
+    "changelog",
+  ]);
+  // An action command's `.name()` returns the leaf (e.g. "show" for
+  // `changelog show <ver>`), so we walk up the parent chain to see whether
+  // any ancestor — typically the top-level subcommand — is exempt.
+  const isExemptFromWorkspaceCheck = (command: Command): boolean => {
+    let current: Command | null | undefined = command;
+    while (current && current !== program) {
+      if (workspaceExemptCommands.has(current.name())) return true;
+      current = current.parent;
+    }
+    return false;
+  };
   program.hook("preAction", (_thisCommand, actionCommand) => {
-    if (workspaceExemptCommands.has(actionCommand.name())) {
+    if (isExemptFromWorkspaceCheck(actionCommand)) {
       return;
     }
     const workspaceDir = getWorkspaceDir();

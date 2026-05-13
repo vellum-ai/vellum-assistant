@@ -14,12 +14,13 @@
  * shared rate-limit timestamps, broadcast).
  */
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
+import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
+import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
-import { getProvider } from "../providers/registry.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
@@ -222,14 +223,20 @@ export async function getOrCreateConversation(
 
     const createPromise = (async () => {
       const config = getConfig();
-      let provider = getProvider(config.llm.default.provider);
-      provider = new CallSiteRoutingProvider(provider, (name) => {
-        try {
-          return getProvider(name);
-        } catch {
-          return undefined;
-        }
-      });
+      // Connection-aware default-provider resolution. Throws
+      // `ConnectionResolutionError` when the default profile's
+      // `provider_connection` is unset / unknown / mismatched (config
+      // bugs). Returns null on soft credential failures (handled below
+      // as "default provider not registered").
+      const baseProvider = await resolveDefaultProvider(config);
+      if (!baseProvider) {
+        throw new Error(
+          `Conversation: default provider '${resolveCallSiteConfig("mainAgent", config.llm).provider}' is not registered`,
+        );
+      }
+      // Per-call `callSite` routing layered on top, with connection-awareness
+      // for alternate profiles (matches the canonical dispatch path).
+      let provider = wrapWithCallSiteRouting(baseProvider, config);
       const { rateLimit } = config;
       if (rateLimit.maxRequestsPerMinute > 0) {
         provider = new RateLimitProvider(

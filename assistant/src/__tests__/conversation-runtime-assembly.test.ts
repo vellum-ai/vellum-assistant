@@ -1879,7 +1879,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     },
   ];
 
-  const FLAT_REMINDER = buildPkbReminder([]);
+  const FLAT_REMINDER = buildPkbReminder([], false);
 
   // Use a platform-agnostic absolute workspace root so the tests work on
   // macOS and Linux runners alike. `pkbRoot` sits under `pkbWorkingDir` to
@@ -2135,7 +2135,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       role: "user",
       content: [
         { type: "text", text: "hello" },
-        { type: "text", text: buildPkbReminder([]) },
+        { type: "text", text: buildPkbReminder([], false) },
       ],
     };
     const hintedMessage: Message = {
@@ -2144,7 +2144,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
         { type: "text", text: "hello" },
         {
           type: "text",
-          text: buildPkbReminder(["topics/alpha.md", "topics/beta.md"]),
+          text: buildPkbReminder(["topics/alpha.md", "topics/beta.md"], false),
         },
       ],
     };
@@ -4760,7 +4760,7 @@ describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
       mode: "full",
     });
 
-    const expected = buildPkbReminder([]);
+    const expected = buildPkbReminder([], false);
     expect(blocks.pkbSystemReminder).toBe(expected);
   });
 

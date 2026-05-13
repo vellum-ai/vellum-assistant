@@ -660,4 +660,283 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertNil(setPayloadEntry?["effort"])
         XCTAssertNil(setPayloadEntry?["thinking"])
     }
+
+    // MARK: - setManagedProfilePolicy (managed-profile view-mode policy edit)
+
+    /// View-mode Save on a managed profile must (a) send only `{label,
+    /// status}` over the wire — the daemon's
+    /// `handleReplaceInferenceProfile` rejects any other field for managed
+    /// names with a 400 — and (b) preserve every seed-owned field on the
+    /// local profile copy, since the partial overlay on disk only touches
+    /// the two policy keys.
+    func testSetManagedProfilePolicySendsOnlyLabelAndStatusAndPreservesSeedFieldsLocally() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profiles": [
+                    "balanced": [
+                        "source": "managed",
+                        "label": "Balanced",
+                        "provider": "anthropic",
+                        "model": "claude-opus-4-7",
+                        "maxTokens": 32000,
+                        "effort": "max",
+                        "thinking": ["enabled": true, "streamThinking": true],
+                    ]
+                ]
+            ]
+        ])
+
+        let success = await store.setManagedProfilePolicy(
+            name: "balanced",
+            label: "My Default",
+            status: "disabled"
+        )
+        XCTAssertTrue(success)
+
+        // Wire payload: ONLY label and status. The daemon route would
+        // reject any other field for a managed name.
+        XCTAssertEqual(mockSettingsClient.replaceInferenceProfileCalls.count, 1)
+        let call = mockSettingsClient.replaceInferenceProfileCalls[0]
+        XCTAssertEqual(call.name, "balanced")
+        XCTAssertEqual(call.fragment["label"] as? String, "My Default")
+        XCTAssertEqual(call.fragment["status"] as? String, "disabled")
+        XCTAssertNil(call.fragment["provider"])
+        XCTAssertNil(call.fragment["model"])
+        XCTAssertNil(call.fragment["maxTokens"])
+        XCTAssertNil(call.fragment["effort"])
+        XCTAssertNil(call.fragment["thinking"])
+        XCTAssertEqual(call.fragment.count, 2, "Fragment should contain only label and status keys")
+
+        // Local cache: label/status updated, seed-owned fields preserved
+        // (the daemon does a partial overlay so the local copy must
+        // mirror that — if we replaced the full record, the cached
+        // provider/model would vanish until the next config push).
+        let stored = store.profiles.first(where: { $0.name == "balanced" })
+        XCTAssertEqual(stored?.label, "My Default")
+        XCTAssertEqual(stored?.status, "disabled")
+        XCTAssertEqual(stored?.provider, "anthropic")
+        XCTAssertEqual(stored?.model, "claude-opus-4-7")
+        XCTAssertEqual(stored?.maxTokens, 32000)
+        XCTAssertEqual(stored?.effort, "max")
+        XCTAssertEqual(stored?.thinkingEnabled, true)
+        XCTAssertEqual(stored?.source, "managed")
+    }
+
+    /// `nil` / whitespace-only `label` and `status` → wire serializes as
+    /// `NSNull` (= JSON null) so the daemon's `patchManagedProfileFields`
+    /// route applies the null-clear sentinel from #30362, deleting the
+    /// `label` / `status` key on disk. The daemon schema change in #30387
+    /// (`.nullable()` on both fields) is what makes this reachable
+    /// end-to-end.
+    func testSetManagedProfilePolicySendsNullForClearedLabelAndStatus() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profiles": [
+                    "balanced": [
+                        "source": "managed",
+                        "label": "Balanced",
+                        "status": "disabled",
+                        "provider": "anthropic",
+                        "model": "claude-opus-4-7",
+                    ]
+                ]
+            ]
+        ])
+
+        let success = await store.setManagedProfilePolicy(
+            name: "balanced",
+            label: nil,
+            status: nil
+        )
+        XCTAssertTrue(success)
+
+        let call = mockSettingsClient.replaceInferenceProfileCalls[0]
+        XCTAssertTrue(
+            call.fragment["label"] is NSNull,
+            "nil label must serialize as NSNull so the daemon clears it"
+        )
+        XCTAssertTrue(
+            call.fragment["status"] is NSNull,
+            "nil status must serialize as NSNull so the daemon clears it (active-by-absence)"
+        )
+        XCTAssertEqual(call.fragment.count, 2, "Fragment should contain both label and status keys (both NSNull)")
+
+        let stored = store.profiles.first(where: { $0.name == "balanced" })
+        XCTAssertNil(stored?.label, "Label must be cleared locally when NSNull sent on the wire")
+        XCTAssertNil(stored?.status, "Status must be cleared locally when NSNull sent on the wire")
+        // Seed fields preserved.
+        XCTAssertEqual(stored?.provider, "anthropic")
+        XCTAssertEqual(stored?.model, "claude-opus-4-7")
+    }
+
+    /// Status passes through verbatim for the two valid enum values.
+    /// `nil` / `""` both serialize as `NSNull` (clear sentinel) — same
+    /// shape as a never-set status, which renders active-by-absence.
+    func testSetManagedProfilePolicyStatusPassThroughAndClearShapes() async {
+        store.loadInferenceProfiles(config: [
+            "llm": ["profiles": ["balanced": ["source": "managed"]]]
+        ])
+
+        _ = await store.setManagedProfilePolicy(name: "balanced", label: "L", status: "active")
+        _ = await store.setManagedProfilePolicy(name: "balanced", label: "L", status: "disabled")
+        _ = await store.setManagedProfilePolicy(name: "balanced", label: "L", status: nil)
+        _ = await store.setManagedProfilePolicy(name: "balanced", label: "L", status: "")
+
+        let calls = mockSettingsClient.replaceInferenceProfileCalls
+        XCTAssertEqual(calls[0].fragment["status"] as? String, "active",
+                       "Explicit \"active\" must pass through verbatim")
+        XCTAssertEqual(calls[1].fragment["status"] as? String, "disabled",
+                       "Explicit \"disabled\" must pass through verbatim")
+        XCTAssertTrue(calls[2].fragment["status"] is NSNull,
+                      "nil status must serialize as NSNull (clear sentinel)")
+        XCTAssertTrue(calls[3].fragment["status"] is NSNull,
+                      "Empty-string status must serialize as NSNull (clear sentinel)")
+    }
+
+    /// Wire-format invariants across (nil, "", whitespace, real value)
+    /// for both inputs: label and status are NSNull when empty/nil,
+    /// String when non-empty. Symmetric clear semantics — no field-specific
+    /// normalization on either side.
+    func testSetManagedProfilePolicyWireFormatInvariants() async {
+        store.loadInferenceProfiles(config: [
+            "llm": ["profiles": ["balanced": ["source": "managed"]]]
+        ])
+
+        let labelInputs: [String?] = [nil, "", "   ", "Quality"]
+        let statusInputs: [String?] = [nil, "", "active", "disabled"]
+        for label in labelInputs {
+            for status in statusInputs {
+                _ = await store.setManagedProfilePolicy(
+                    name: "balanced",
+                    label: label,
+                    status: status
+                )
+            }
+        }
+
+        for (idx, call) in mockSettingsClient.replaceInferenceProfileCalls.enumerated() {
+            let labelIsEmpty = idx / statusInputs.count < 3 // nil, "", "   "
+            // Status input cycles within each label row. Indices 0/1 in
+            // a row are nil / "" (clear); 2/3 are "active" / "disabled".
+            let statusIsCleared = idx % statusInputs.count < 2
+
+            if labelIsEmpty {
+                XCTAssertTrue(
+                    call.fragment["label"] is NSNull,
+                    "Call #\(idx): empty/nil label must be NSNull"
+                )
+            } else {
+                XCTAssertTrue(
+                    call.fragment["label"] is String,
+                    "Call #\(idx): non-empty label must be a String"
+                )
+            }
+
+            if statusIsCleared {
+                XCTAssertTrue(
+                    call.fragment["status"] is NSNull,
+                    "Call #\(idx): empty/nil status must be NSNull (clear sentinel)"
+                )
+            } else {
+                XCTAssertTrue(
+                    call.fragment["status"] is String,
+                    "Call #\(idx): non-empty status must be a String"
+                )
+            }
+        }
+    }
+
+    /// Label whitespace is trimmed before comparison and storage. A
+    /// whitespace-only input sends `NSNull()` to clear the label on the
+    /// daemon and locally.
+    func testSetManagedProfilePolicyTrimsLabelWhitespaceAndClearsWhitespaceOnly() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profiles": [
+                    "balanced": ["source": "managed", "label": "Balanced"]
+                ]
+            ]
+        ])
+
+        _ = await store.setManagedProfilePolicy(
+            name: "balanced",
+            label: "  Quality  ",
+            status: nil
+        )
+        XCTAssertEqual(
+            mockSettingsClient.replaceInferenceProfileCalls[0].fragment["label"] as? String,
+            "Quality"
+        )
+        XCTAssertEqual(
+            store.profiles.first(where: { $0.name == "balanced" })?.label,
+            "Quality"
+        )
+
+        _ = await store.setManagedProfilePolicy(
+            name: "balanced",
+            label: "   ",
+            status: nil
+        )
+        XCTAssertTrue(
+            mockSettingsClient.replaceInferenceProfileCalls[1].fragment["label"] is NSNull,
+            "Whitespace-only label must serialize as NSNull to clear on the daemon"
+        )
+        XCTAssertNil(
+            store.profiles.first(where: { $0.name == "balanced" })?.label,
+            "Whitespace-only label input must clear the local label"
+        )
+    }
+
+    /// Daemon-side failure must NOT mutate the local cache — the user
+    /// retries from a consistent state and the surfaced `actionError`
+    /// (from `commitEditor`) is the recovery affordance.
+    func testSetManagedProfilePolicyFailureLeavesLocalStateUntouched() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profiles": [
+                    "balanced": [
+                        "source": "managed",
+                        "label": "Balanced",
+                        "provider": "anthropic",
+                        "model": "claude-opus-4-7",
+                    ]
+                ]
+            ]
+        ])
+
+        mockSettingsClient.replaceInferenceProfileResponse = false
+
+        let success = await store.setManagedProfilePolicy(
+            name: "balanced",
+            label: "My Default",
+            status: "disabled"
+        )
+        XCTAssertFalse(success)
+
+        let stored = store.profiles.first(where: { $0.name == "balanced" })
+        XCTAssertEqual(stored?.label, "Balanced", "Label should be unchanged on failure")
+        XCTAssertNil(stored?.status, "Status should be unchanged on failure")
+        XCTAssertEqual(stored?.provider, "anthropic")
+        XCTAssertEqual(stored?.model, "claude-opus-4-7")
+    }
+
+    /// `setManagedProfilePolicy` is technically callable on any name —
+    /// the daemon route does the managed-vs-user dispatch. When the local
+    /// profile cache has no matching entry (e.g. concurrent removal), the
+    /// method still completes successfully but skips the local update;
+    /// the next daemon config push reconciles state.
+    func testSetManagedProfilePolicySkipsLocalUpdateWhenProfileNotCached() async {
+        // No profile loaded; cache is empty.
+        let success = await store.setManagedProfilePolicy(
+            name: "balanced",
+            label: "Quality",
+            status: "disabled"
+        )
+        XCTAssertTrue(success)
+        XCTAssertEqual(mockSettingsClient.replaceInferenceProfileCalls.count, 1)
+        XCTAssertTrue(
+            store.profiles.first(where: { $0.name == "balanced" }) == nil,
+            "Method should not synthesize a new profile entry when none exists locally"
+        )
+    }
 }

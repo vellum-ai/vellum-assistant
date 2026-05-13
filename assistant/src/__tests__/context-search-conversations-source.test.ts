@@ -68,7 +68,7 @@ describe("searchConversationSource", () => {
     ]);
   });
 
-  test("does not return derived subagent or auto-analysis conversations", async () => {
+  test("does not return derived subagent, auto-analysis, or notification conversations", async () => {
     const visible = await seedConversation({
       title: "User conversation",
       content: "derivedtoken belongs to a user-authored conversation.",
@@ -83,6 +83,11 @@ describe("searchConversationSource", () => {
       source: "auto-analysis",
       content: "derivedtoken should not include auto-analysis output.",
     });
+    await seedConversation({
+      title: "Notification conversation",
+      source: "notification",
+      content: "derivedtoken should not include notification seed output.",
+    });
 
     const result = await searchConversationSource(
       "derivedtoken",
@@ -95,22 +100,43 @@ describe("searchConversationSource", () => {
     ]);
   });
 
-  test("does not return legacy private conversations through the FTS path", async () => {
+  test("excludes the current conversation from recall results", async () => {
+    const other = await seedConversation({
+      title: "Other conversation",
+      content: "currenttoken appears in another conversation.",
+    });
+    const current = await seedConversation({
+      title: "Current conversation",
+      content: "currenttoken appears in the active conversation.",
+    });
+
+    const result = await searchConversationSource(
+      "currenttoken",
+      makeContext({ conversationId: current.conversation.id }),
+      10,
+    );
+
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      `${other.conversation.id}#${other.message.id}`,
+    ]);
+  });
+
+  test("excludes legacy private conversations as defense-in-depth", async () => {
     const visible = await seedConversation({
       title: "Visible conversation",
-      content: "privatesecret belongs to a normal conversation.",
+      content: "privatetoken belongs to a normal conversation.",
     });
-    const hidden = await seedConversation({
-      title: "Private conversation",
-      content: "privatesecret belongs to a private conversation.",
+    const legacyPrivate = await seedConversation({
+      title: "Legacy private conversation",
+      content: "privatetoken belongs to legacy private history.",
     });
     rawRun(
       "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
-      hidden.conversation.id,
+      legacyPrivate.conversation.id,
     );
 
     const result = await searchConversationSource(
-      "privatesecret",
+      "privatetoken",
       makeContext(),
       10,
     );
@@ -120,21 +146,21 @@ describe("searchConversationSource", () => {
     ]);
   });
 
-  test("does not return legacy private conversations through the LIKE path", async () => {
+  test("excludes legacy private conversations through the LIKE fallback", async () => {
     const visible = await seedConversation({
-      title: "Visible short query conversation",
-      content: "zz appears in a normal conversation.",
+      title: "Visible non-ASCII conversation",
+      content: "東京 appears in a normal conversation.",
     });
-    const hidden = await seedConversation({
-      title: "Private short query conversation",
-      content: "zz appears in a private conversation.",
+    const legacyPrivate = await seedConversation({
+      title: "Legacy private non-ASCII conversation",
+      content: "東京 appears in a private conversation.",
     });
     rawRun(
       "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
-      hidden.conversation.id,
+      legacyPrivate.conversation.id,
     );
 
-    const result = await searchConversationSource("zz", makeContext(), 10);
+    const result = await searchConversationSource("東京", makeContext(), 10);
 
     expect(result.evidence.map((item) => item.locator)).toEqual([
       `${visible.conversation.id}#${visible.message.id}`,

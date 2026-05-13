@@ -55,8 +55,11 @@ export async function maybeRebuildMemoryV2Concepts(
   if (!config.memory.v2.enabled) return;
 
   try {
-    const { ensureConceptPageCollection, countConceptPagePoints } =
-      await import("../memory/v2/qdrant.js");
+    const {
+      ensureConceptPageCollection,
+      countConceptPagePoints,
+      clearReembedSentinel,
+    } = await import("../memory/v2/qdrant.js");
     const { hasConceptPages } = await import("../memory/v2/page-store.js");
     const { enqueueMemoryJob } = await import("../memory/jobs-store.js");
 
@@ -76,6 +79,10 @@ export async function maybeRebuildMemoryV2Concepts(
         { jobId, collectionMigrated: migrated },
         "Memory v2 collection rebuild required — enqueued reembed job",
       );
+      // Clear the on-disk sentinel that the qdrant ensure-path writes before
+      // delete: now that reembed is queued, the cross-call signal can retire.
+      // If the sentinel never existed this is a no-op.
+      await clearReembedSentinel();
     }
   } catch (err) {
     log.warn(

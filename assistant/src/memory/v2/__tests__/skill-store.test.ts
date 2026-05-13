@@ -39,11 +39,13 @@ interface UpsertCall {
   dense: number[];
   sparse: { indices: number[]; values: number[] };
   updatedAt: number;
+  kind?: string;
 }
 
 interface PruneCall {
   prefix: string;
   activeSuffixes: readonly string[];
+  options?: { kind?: string };
 }
 
 interface TestState {
@@ -118,8 +120,9 @@ mock.module("../qdrant.js", () => ({
   pruneSlugsWithPrefixExcept: async (
     prefix: string,
     activeSuffixes: readonly string[],
+    options?: { kind?: string },
   ) => {
-    state.pruneCalls.push({ prefix, activeSuffixes });
+    state.pruneCalls.push({ prefix, activeSuffixes, options });
   },
 }));
 
@@ -131,8 +134,12 @@ mock.module("../../../skills/catalog-cache.js", () => ({
 }));
 
 // Imported AFTER all mocks are wired so the module under test sees the stubs.
-const { seedV2SkillEntries, getSkillCapability, _resetSkillStoreForTests } =
-  await import("../skill-store.js");
+const {
+  seedV2SkillEntries,
+  getSkillCapability,
+  listSkillEntries,
+  _resetSkillStoreForTests,
+} = await import("../skill-store.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -465,5 +472,53 @@ describe("getSkillCapability", () => {
     await seedV2SkillEntries();
 
     expect(getSkillCapability("does-not-exist")).toBeNull();
+  });
+});
+
+describe("listSkillEntries", () => {
+  test("returns [] when the cache is empty (pre-seed)", () => {
+    expect(listSkillEntries()).toEqual([]);
+  });
+
+  test("returns entries sorted by id after seeding", async () => {
+    // Insert in non-sorted order to prove the sort happens on read.
+    const skillB = makeSummary({ id: "example-skill-b" });
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillB, skillA];
+    state.resolved = [
+      { summary: skillB, state: "enabled" },
+      { summary: skillA, state: "enabled" },
+    ];
+    state.embedReturn = [
+      [0.1, 0.2, 0.3],
+      [0.4, 0.5, 0.6],
+    ];
+
+    await seedV2SkillEntries();
+
+    const list = listSkillEntries();
+    expect(list).toHaveLength(2);
+    expect(list.map((e) => e.id)).toEqual([
+      "example-skill-a",
+      "example-skill-b",
+    ]);
+  });
+
+  test("mutating the returned array does not affect subsequent calls", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    const first = listSkillEntries();
+    expect(first).toHaveLength(1);
+    first.length = 0;
+    first.push({ id: "injected", content: "junk" });
+
+    const second = listSkillEntries();
+    expect(second).toHaveLength(1);
+    expect(second[0].id).toBe("example-skill-a");
   });
 });

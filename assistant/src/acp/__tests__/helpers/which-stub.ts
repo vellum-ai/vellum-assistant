@@ -11,7 +11,8 @@
  * in `afterAll` so the swap doesn't leak into other files.
  */
 
-type WhichStub = (command: string) => string | null;
+type WhichOptions = { PATH?: string; cwd?: string };
+type WhichStub = (command: string, options?: WhichOptions) => string | null;
 
 /**
  * Installs a process-global stub for Bun.which. Returns helpers to drive and
@@ -30,7 +31,8 @@ export function installWhichStub(): {
   const originalWhich = Bun.which;
   let whichStub: WhichStub = () => null;
 
-  (Bun as unknown as { which: WhichStub }).which = (cmd) => whichStub(cmd);
+  (Bun as unknown as { which: WhichStub }).which = (cmd, options) =>
+    whichStub(cmd, options);
 
   function setWhich(arg: Record<string, string | null> | WhichStub): void {
     whichStub = typeof arg === "function" ? arg : (cmd) => arg[cmd] ?? null;

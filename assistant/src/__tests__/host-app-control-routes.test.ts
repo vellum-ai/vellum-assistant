@@ -14,9 +14,17 @@ mock.module("../config/env.js", () => ({
   hasUngatedHttpAuthDisabled: () => false,
 }));
 
+// local-actor-identity reads the contacts table; stub it to a passthrough so
+// the resolver returns whatever header value the test provides.
+mock.module("../runtime/local-actor-identity.js", () => ({
+  resolveActorPrincipalIdForLocalGuardian: (raw: string | undefined) => raw,
+}));
+
 interface PendingEntry {
   conversationId: string;
   kind: string;
+  targetClientId?: string;
+  targetActorPrincipalId?: string;
 }
 
 const pending = new Map<string, PendingEntry>();
@@ -45,7 +53,7 @@ mock.module("../daemon/conversation-store.js", () => ({
 
 // ── Real imports (after mocks) ───────────────────────────────────────
 
-import { BadRequestError } from "../runtime/routes/errors.js";
+import { BadRequestError, ForbiddenError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/host-app-control-routes.js";
 
 afterAll(() => {
@@ -259,5 +267,243 @@ describe("handleHostAppControlResult", () => {
     expect(Object.prototype.hasOwnProperty.call(payload, "windowBounds")).toBe(
       false,
     );
+  });
+});
+
+// ── Same-actor guard ───────────────────────────────────────────────────
+
+describe("handleHostAppControlResult — same-actor guard", () => {
+  beforeEach(() => {
+    pending.clear();
+    conversations.clear();
+  });
+
+  function setupConversation(
+    conversationId: string,
+    resolveCalls: Array<{ requestId: string; payload: unknown }>,
+  ) {
+    conversations.set(conversationId, {
+      conversationId,
+      hostAppControlProxy: {
+        resolve(rid, payload) {
+          resolveCalls.push({ requestId: rid, payload });
+        },
+      },
+    });
+  }
+
+  // ── Non-targeted (backward compat) → 200 ──────────────────────────────
+
+  test("non-targeted (no targetClientId): resolves normally without header check", async () => {
+    const requestId = "ac-req-untargeted";
+    const conversationId = "conv-untargeted";
+    pending.set(requestId, { conversationId, kind: "host_app_control" });
+    const resolveCalls: Array<{ requestId: string; payload: unknown }> = [];
+    setupConversation(conversationId, resolveCalls);
+
+    const result = await handleHostAppControlResult({
+      body: { requestId, state: "running" },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(resolveCalls).toHaveLength(1);
+  });
+
+  // ── Targeted + correct headers → 200 ─────────────────────────────────
+
+  test("targeted + matching client id and actor principal: returns 200", async () => {
+    const requestId = "ac-req-targeted-match";
+    const conversationId = "conv-targeted";
+    pending.set(requestId, {
+      conversationId,
+      kind: "host_app_control",
+      targetClientId: "client-A",
+      targetActorPrincipalId: "user-1",
+    });
+    const resolveCalls: Array<{ requestId: string; payload: unknown }> = [];
+    setupConversation(conversationId, resolveCalls);
+
+    const result = await handleHostAppControlResult({
+      body: { requestId, state: "running" },
+      headers: {
+        "x-vellum-client-id": "client-A",
+        "x-vellum-actor-principal-id": "user-1",
+      },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(resolveCalls).toHaveLength(1);
+    expect(resolveCalls[0].requestId).toBe(requestId);
+  });
+
+  test("targeted + correct headers: trims whitespace from client-id before comparing", async () => {
+    const requestId = "ac-req-targeted-trim";
+    const conversationId = "conv-trim";
+    pending.set(requestId, {
+      conversationId,
+      kind: "host_app_control",
+      targetClientId: "client-A",
+      targetActorPrincipalId: "user-1",
+    });
+    const resolveCalls: Array<{ requestId: string; payload: unknown }> = [];
+    setupConversation(conversationId, resolveCalls);
+
+    const result = await handleHostAppControlResult({
+      body: { requestId, state: "running" },
+      headers: {
+        "x-vellum-client-id": "  client-A  ",
+        "x-vellum-actor-principal-id": "user-1",
+      },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(resolveCalls).toHaveLength(1);
+  });
+
+  // ── Targeted + missing x-vellum-client-id → 400 ──────────────────────
+
+  test("targeted + missing x-vellum-client-id: throws BadRequestError", () => {
+    const requestId = "ac-req-targeted-no-header";
+    pending.set(requestId, {
+      conversationId: "conv-1",
+      kind: "host_app_control",
+      targetClientId: "client-A",
+      targetActorPrincipalId: "user-1",
+    });
+
+    expect(() =>
+      handleHostAppControlResult({
+        body: { requestId, state: "running" },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("targeted + whitespace-only x-vellum-client-id: throws BadRequestError", () => {
+    const requestId = "ac-req-targeted-empty-header";
+    pending.set(requestId, {
+      conversationId: "conv-1",
+      kind: "host_app_control",
+      targetClientId: "client-A",
+      targetActorPrincipalId: "user-1",
+    });
+
+    expect(() =>
+      handleHostAppControlResult({
+        body: { requestId, state: "running" },
+        headers: { "x-vellum-client-id": "   " },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("targeted + missing header: interaction is NOT consumed (still pending)", () => {
+    const requestId = "ac-req-targeted-no-header-stays";
+    pending.set(requestId, {
+      conversationId: "conv-1",
+      kind: "host_app_control",
+      targetClientId: "client-A",
+      targetActorPrincipalId: "user-1",
+    });
+
+    try {
+      handleHostAppControlResult({
+        body: { requestId, state: "running" },
+      });
+    } catch {
+      // expected
+    }
+
+    expect(pending.has(requestId)).toBe(true);
+  });
+
+  // ── Targeted + mismatched client id → 403 ────────────────────────────
+
+  test("targeted + wrong client id: throws ForbiddenError", () => {
+    const requestId = "ac-req-targeted-wrong-client";
+    pending.set(requestId, {
+      conversationId: "conv-1",
+      kind: "host_app_control",
+      targetClientId: "client-A",
+      targetActorPrincipalId: "user-1",
+    });
+
+    expect(() =>
+      handleHostAppControlResult({
+        body: { requestId, state: "running" },
+        headers: {
+          "x-vellum-client-id": "client-B",
+          "x-vellum-actor-principal-id": "user-1",
+        },
+      }),
+    ).toThrow(ForbiddenError);
+  });
+
+  test("targeted + wrong client id: interaction is NOT consumed", () => {
+    const requestId = "ac-req-targeted-wrong-client-stays";
+    pending.set(requestId, {
+      conversationId: "conv-1",
+      kind: "host_app_control",
+      targetClientId: "client-A",
+      targetActorPrincipalId: "user-1",
+    });
+
+    try {
+      handleHostAppControlResult({
+        body: { requestId, state: "running" },
+        headers: {
+          "x-vellum-client-id": "client-B",
+          "x-vellum-actor-principal-id": "user-1",
+        },
+      });
+    } catch {
+      // expected
+    }
+
+    expect(pending.has(requestId)).toBe(true);
+  });
+
+  // ── Targeted + mismatched actor principal → 403 ───────────────────────
+
+  test("targeted + wrong actor principal: throws ForbiddenError", () => {
+    const requestId = "ac-req-targeted-wrong-actor";
+    pending.set(requestId, {
+      conversationId: "conv-1",
+      kind: "host_app_control",
+      targetClientId: "client-A",
+      targetActorPrincipalId: "user-1",
+    });
+
+    expect(() =>
+      handleHostAppControlResult({
+        body: { requestId, state: "running" },
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "user-2",
+        },
+      }),
+    ).toThrow(ForbiddenError);
+  });
+
+  test("targeted + wrong actor principal: interaction is NOT consumed", () => {
+    const requestId = "ac-req-targeted-wrong-actor-stays";
+    pending.set(requestId, {
+      conversationId: "conv-1",
+      kind: "host_app_control",
+      targetClientId: "client-A",
+      targetActorPrincipalId: "user-1",
+    });
+
+    try {
+      handleHostAppControlResult({
+        body: { requestId, state: "running" },
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "user-2",
+        },
+      });
+    } catch {
+      // expected
+    }
+
+    expect(pending.has(requestId)).toBe(true);
   });
 });

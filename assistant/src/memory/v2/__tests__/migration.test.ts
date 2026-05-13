@@ -403,7 +403,11 @@ describe("synthesizeConceptPage", () => {
     );
     const page = await synthesizeConceptPage(cluster, null, provider);
     expect(page.slug).toBe("alice-ides");
-    expect(page.frontmatter).toEqual({ edges: [], ref_files: [] });
+    expect(page.frontmatter).toEqual({
+      edges: [],
+      ref_files: [],
+      ref_urls: [],
+    });
     expect(page.body).toContain("VS Code");
     expect(page.body.endsWith("\n")).toBe(true);
   });
@@ -625,7 +629,7 @@ describe("collapseEdges", () => {
 
 describe("enqueueEmbeds", () => {
   test("enqueues one embed_concept_page job per slug", () => {
-    expect(enqueueEmbeds(["alice", "bob", "carol"])).toBe(3);
+    expect(enqueueEmbeds(["alice", "bob", "carol"], database)).toBe(3);
     expect(enqueuedJobs).toEqual([
       { type: "embed_concept_page", payload: { slug: "alice" } },
       { type: "embed_concept_page", payload: { slug: "bob" } },
@@ -634,7 +638,7 @@ describe("enqueueEmbeds", () => {
   });
 
   test("empty list is a no-op", () => {
-    expect(enqueueEmbeds([])).toBe(0);
+    expect(enqueueEmbeds([], database)).toBe(0);
     expect(enqueuedJobs).toEqual([]);
   });
 });

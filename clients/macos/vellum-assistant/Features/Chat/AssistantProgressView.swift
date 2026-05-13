@@ -1088,9 +1088,10 @@ struct ToolCallStepDetailRow: View {
     /// ``ACPSessionStore`` and re-renders as the daemon streams status
     /// updates for this session, so an inline block transitions
     /// running → completed/failed without the user expanding it. When the
-    /// store has no entry for the session id (history cleared, daemon
-    /// restarted) the dot falls back to the static tool-call result so a
-    /// successful spawn still reads as "completed".
+    /// store has no entry for the session id (spawn-event race window or
+    /// history-cleared) the dot falls back to a muted indeterminate glyph
+    /// rather than a positive check, so the resolver never claims a
+    /// terminal state we can't prove.
     @ViewBuilder
     private func acpSpawnDeepLinkRow(acpSessionId: String) -> some View {
         Button {

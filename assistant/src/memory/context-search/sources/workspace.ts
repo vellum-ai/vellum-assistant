@@ -23,7 +23,6 @@ const PATH_LITERAL_PATTERN =
 
 const WORKSPACE_BUCKETS: readonly WorkspaceBucket[] = [
   { name: "root", relativePath: "", budget: 100, rootFilesOnly: true },
-  { name: "pkb", relativePath: "pkb", budget: 500 },
   { name: "memory", relativePath: "memory", budget: 500 },
   { name: "journal", relativePath: "journal", budget: 250 },
   { name: "scratch", relativePath: "scratch", budget: 500 },
@@ -65,6 +64,9 @@ const SECRET_SEGMENT_NAMES = new Set([
   "gateway-security",
   "ces-security",
 ]);
+
+const SECRET_TOKEN_PATTERN =
+  /(?:^|[-_.])(?:keys?|secrets?|tokens?)(?:[-_.]|$)/i;
 
 const QUERY_STOP_WORDS = new Set([
   "a",
@@ -591,8 +593,13 @@ async function maybeSearchResolvedFile(
   matches: WorkspaceMatch[],
   state: WalkState,
 ): Promise<void> {
+  if (state.scannedRelativePaths.has(relativePath)) {
+    return;
+  }
+  state.scannedRelativePaths.add(relativePath);
+  state.scannedFiles += 1;
+
   if (
-    state.scannedRelativePaths.has(relativePath) ||
     shouldSkipWorkspaceFile(relativePath) ||
     shouldSkipFilePath(relativePath) ||
     fileSizeBytes > WORKSPACE_SOURCE_MAX_FILE_SIZE_BYTES
@@ -600,8 +607,6 @@ async function maybeSearchResolvedFile(
     return;
   }
 
-  state.scannedRelativePaths.add(relativePath);
-  state.scannedFiles += 1;
   matches.push(
     ...(await searchFile(realPath, relativePath, fileSizeBytes, queryTerms)),
   );
@@ -1049,8 +1054,6 @@ function getPathPriorityBoost(relativePath: string): number {
   if (relativePath.startsWith("scratch/")) return 0.35;
   if (relativePath.startsWith("users/")) return 0.3;
   if (relativePath.startsWith("journal/")) return 0.25;
-  if (relativePath.startsWith("pkb/archive/")) return -0.15;
-  if (relativePath.startsWith("pkb/")) return 0.2;
   if (relativePath.startsWith("memory/concepts/")) return 0.4;
   if (relativePath.startsWith("memory/")) return 0.2;
   if (
@@ -1181,15 +1184,15 @@ function shouldSkipSegmentName(name: string): boolean {
   return (
     GENERATED_OR_DEPENDENCY_DIR_NAMES.has(lowerName) ||
     lowerName.startsWith(".env") ||
-    lowerName.includes("key") ||
-    lowerName.includes("secret") ||
-    lowerName.includes("token") ||
+    SECRET_TOKEN_PATTERN.test(lowerName) ||
     lowerName.startsWith("credentials") ||
     SECRET_SEGMENT_NAMES.has(lowerName)
   );
 }
 
-function normalizeWorkspacePathLiteral(pathLiteral: string): string | null {
+export function normalizeWorkspacePathLiteral(
+  pathLiteral: string,
+): string | null {
   const trimmed = pathLiteral
     .trim()
     .replace(/^["'`]+|["'`.,;:)>\]}]+$/g, "")

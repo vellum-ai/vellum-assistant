@@ -66,8 +66,6 @@ describe("plugin core types", () => {
     const manifest: PluginManifest = {
       name: "sample-plugin",
       version: "0.1.0",
-      provides: { sampleApi: "v1" },
-      requires: { pluginRuntime: "v1" },
       requiresCredential: ["SAMPLE_API_KEY"],
       requiresFlag: ["sample-feature"],
       config: { parse: (input: unknown) => input },
@@ -228,17 +226,18 @@ describe("plugin core types", () => {
 
     const plugin = {
       manifest,
-      async init(ctx: PluginInitContext) {
-        // Touch every field so refactors that rename any of them break here.
-        void ctx.config;
-        void ctx.credentials;
-        void ctx.logger;
-        void ctx.pluginStorageDir;
-        void ctx.assistantVersion;
-        void ctx.apiVersions;
-      },
-      async onShutdown() {
-        // no-op
+      hooks: {
+        async init(ctx: PluginInitContext) {
+          // Touch every field so refactors that rename any of them break here.
+          void ctx.config;
+          void ctx.credentials;
+          void ctx.logger;
+          void ctx.pluginStorageDir;
+          void ctx.assistantVersion;
+        },
+        async shutdown() {
+          // no-op
+        },
       },
       tools: [sampleTool],
       routes: [

@@ -2023,14 +2023,6 @@ export async function surfaceProxyResolver(
 
   // Route app-control proxy tools (all app_control_* tool variants)
   if (toolName.startsWith("app_control_")) {
-    if (!ctx.hostAppControlProxy || !ctx.hostAppControlProxy.isAvailable()) {
-      return {
-        content:
-          "App control is not available — enable the `app-control` feature flag and connect a macOS client.",
-        isError: true,
-      };
-    }
-
     // `app_control_stop` resolves immediately: tear down the proxy without
     // a client round-trip. Mirrors CU's terminal-tool short-circuit
     // (`computer_use_done` / `computer_use_respond`). Clear the
@@ -2039,13 +2031,83 @@ export async function surfaceProxyResolver(
     // instead of dispatching against a torn-down proxy, and so a sibling
     // conversation can acquire the released singleton lock without the
     // disposed proxy still being addressable.
+    //
+    // Run this BEFORE the isAvailable() gate so a disconnected client
+    // doesn't strand the singleton lock — stop is local-only.
     if (toolName === "app_control_stop") {
-      if (ctx.setHostAppControlProxy) {
-        ctx.setHostAppControlProxy(undefined);
-      } else {
-        ctx.hostAppControlProxy.dispose();
+      if (ctx.hostAppControlProxy) {
+        if (ctx.setHostAppControlProxy) {
+          ctx.setHostAppControlProxy(undefined);
+        } else {
+          ctx.hostAppControlProxy.dispose();
+        }
       }
       return { content: "App control stopped.", isError: false };
+    }
+
+    if (!ctx.hostAppControlProxy || !ctx.hostAppControlProxy.isAvailable()) {
+      return {
+        content:
+          "App control is not available — enable the `app-control` feature flag and connect a macOS client.",
+        isError: true,
+      };
+    }
+
+    // Resolve target client. Mirrors the host_cu block above: validate
+    // explicit target_client_id (existence, capability, same-actor), then
+    // multi-client guard when no target is supplied. App-control is
+    // single-client-only at the host (one active session per macOS
+    // machine), so a broadcast across multiple capable clients would fire
+    // the same input on every machine.
+    let targetClientId: string | undefined =
+      typeof input.target_client_id === "string" &&
+      input.target_client_id !== ""
+        ? input.target_client_id
+        : undefined;
+
+    const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
+    if (targetClientId != null) {
+      const client = assistantEventHub.getClientById(targetClientId);
+      if (!client) {
+        return {
+          content: `No connected client with id '${targetClientId}'. Run \`assistant clients list --capability host_app_control\` to see available clients.`,
+          isError: true,
+        };
+      }
+      if (!client.capabilities.includes("host_app_control")) {
+        return {
+          content: `Client '${targetClientId}' does not support host_app_control. Run \`assistant clients list --capability host_app_control\` to see available clients.`,
+          isError: true,
+        };
+      }
+      const rejection = enforceSameActorOrErrorResult({
+        hub: assistantEventHub,
+        sourceActorPrincipalId,
+        targetClientId,
+        op: "host_app_control",
+      });
+      if (rejection) return rejection;
+    }
+
+    if (targetClientId == null) {
+      const allAcClients =
+        assistantEventHub.listClientsByCapability("host_app_control");
+      const sameUserAcClients = allAcClients.filter(
+        (c) => c.actorPrincipalId === sourceActorPrincipalId,
+      );
+      if (sameUserAcClients.length > 1) {
+        return {
+          content: `Error: multiple clients support host_app_control. Specify which client to target with \`target_client_id\`. Run \`assistant clients list --capability host_app_control\` to see client IDs and labels.`,
+          isError: true,
+        };
+      }
+      // When cross-user host_app_control clients are connected, auto-
+      // resolve to the unique same-user client. Otherwise the proxy would
+      // dispatch untargeted and the action could reach a cross-user
+      // client. Belt-and-suspenders: the proxy re-checks same-user.
+      if (sameUserAcClients.length === 1 && allAcClients.length > 1) {
+        targetClientId = sameUserAcClients[0].clientId;
+      }
     }
 
     // The TS `HostAppControlInput` (and the Swift mirror) is a discriminated
@@ -2066,6 +2128,8 @@ export async function surfaceProxyResolver(
       inputWithTool,
       ctx.conversationId,
       signal ?? new AbortController().signal,
+      sourceActorPrincipalId,
+      targetClientId,
     );
   }
 

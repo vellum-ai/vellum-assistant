@@ -73,9 +73,9 @@ async function syncVoiceApprovals(): Promise<void> {
             AND updated_at > ?`,
     mode: "query",
     bind: [since],
-  })) as DbProxyResult | undefined;
+  })) as DbProxyResult;
 
-  if (!result?.rows?.length) {
+  if (!result.rows?.length) {
     lastSyncAt = now;
     return;
   }

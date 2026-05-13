@@ -4,7 +4,6 @@
  * context inspection, and queued message deletion.
  *
  * GET    /v1/model                      — current model info
- * PUT    /v1/model                      — set model
  * PUT    /v1/model/image-gen            — set image-gen model
  * GET    /v1/config/embeddings          — current embedding config
  * PUT    /v1/config/embeddings          — set embedding provider/model
@@ -28,10 +27,12 @@ import {
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
+  setNestedValue,
 } from "../../config/loader.js";
+import { AssistantConfigSchema } from "../../config/schema.js";
+import { getSchemaAtPath } from "../../config/schema-utils.js";
 import { ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
-import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
   getEmbeddingConfigInfo,
@@ -41,7 +42,6 @@ import {
   getModelInfo,
   type ModelSetContext,
   setImageGenModel,
-  setModel,
 } from "../../daemon/handlers/config-model.js";
 import {
   getMessageContent,
@@ -58,14 +58,12 @@ import {
   getMessageById,
 } from "../../memory/conversation-crud.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
-import {
-  getRequestLogById,
-  getRequestLogsByMessageId,
-} from "../../memory/llm-request-log-store.js";
+import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import { initializeProviders } from "../../providers/registry.js";
+import { validateAllowlistFile } from "../../security/secret-allowlist.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
@@ -74,7 +72,6 @@ import {
 } from "./llm-context-normalization.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-const validProviderSet = new Set<string>(VALID_INFERENCE_PROVIDERS);
 const validEmbeddingProviderSet = new Set<string>(
   VALID_MEMORY_EMBEDDING_PROVIDERS,
 );
@@ -95,8 +92,15 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 
 import { MANAGED_PROFILE_NAMES } from "../../config/seed-inference-profiles.js";
 
+const RESERVED_PROFILE_NAMES = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
+
 const INFERENCE_PROFILE_UI_KEYS = new Set([
   "provider",
+  "provider_connection",
   "model",
   "maxTokens",
   "effort",
@@ -239,33 +243,6 @@ async function handleGetModel() {
   return getModelInfo();
 }
 
-async function handleSetModel({ body }: RouteHandlerArgs) {
-  if (!body || typeof body !== "object") {
-    throw new BadRequestError("Request body is required");
-  }
-  const { modelId, provider } = body as {
-    modelId?: string;
-    provider?: string;
-  };
-  if (!modelId || typeof modelId !== "string") {
-    throw new BadRequestError("Missing required field: modelId");
-  }
-  if (
-    provider !== undefined &&
-    (typeof provider !== "string" || !validProviderSet.has(provider))
-  ) {
-    throw new BadRequestError(
-      `Invalid provider "${provider}". Valid providers: ${[...validProviderSet].join(", ")}`,
-    );
-  }
-  try {
-    return await setModel(modelId, getModelSetContext(), provider);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new InternalError(`Failed to set model: ${message}`);
-  }
-}
-
 async function handleSetImageGenModel({ body }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
@@ -320,11 +297,11 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
  * already layers these defaults for daemon-internal consumers; the GET
  * response needs the same treatment so external clients (macOS, web, CLI)
  * see the effective value rather than `undefined` when the daemon hasn't
- * persisted an explicit choice yet. Without this, macOS's
- * `loadServiceModes(config:)` short-circuits when `services.inference.mode`
- * is missing and falls back to the SwiftUI `@Published` default of
- * "your-own", which renders the wrong segment selection on freshly-hatched
- * platform-managed assistants.
+ * persisted an explicit choice yet. For example, on a freshly-hatched
+ * platform-managed assistant, `services.image-generation.mode` may be absent
+ * from disk (only `llm.profiles` was written by `seedInferenceProfiles`); the
+ * fill pass ensures clients receive `"managed"` rather than falling back to
+ * their own defaults.
  *
  * Guards against `loadRawConfig()` handing us a value that is technically
  * valid JSON but not a plain object (e.g. literal `null`, a number, or an
@@ -352,7 +329,50 @@ export function applyContextDefaultsToRawConfig(raw: unknown): unknown {
     raw as Record<string, unknown>,
     contextDefaults,
   );
+  synthesizeLegacyInferenceModeForPlatform(raw as Record<string, unknown>);
   return raw;
+}
+
+/**
+ * Backwards-compat wire field for `GET /v1/config`. PR removed
+ * `services.inference.mode` from the typed schema (routing is now governed
+ * by `provider_connections` rows + `llm.default.provider_connection`), but
+ * the macOS settings client (`SettingsStore.swift:loadServiceModes`) still
+ * reads this field and falls back to its `@Published` default of "your-own"
+ * when absent. On a platform-managed assistant served by a newer daemon and
+ * an older macOS client, that fallback would show the wrong mode in the UI
+ * until the user explicitly saved. Synthesize the value here so the wire
+ * shape stays compatible during the rollout window. Remove once the macOS
+ * Providers UI (the follow-up PR that retires this field on the client) has
+ * shipped to the majority of installs.
+ *
+ * The synthesis is wire-only: it never persists to disk and never reaches
+ * the typed `AssistantConfig` consumed by daemon-internal code. The on-disk
+ * config is stripped of `mode` by workspace migration 076.
+ *
+ * Only runs when this function is reached, which is guarded by
+ * `getDeploymentContextDefaults()` returning non-empty (IS_PLATFORM=true).
+ */
+function synthesizeLegacyInferenceModeForPlatform(
+  root: Record<string, unknown>,
+): void {
+  const services = readPlainObject(root.services);
+  if (!services) return;
+  let inference = readPlainObject(services.inference);
+  if (!inference) {
+    inference = {};
+    services.inference = inference;
+  }
+  if (inference.mode === undefined) {
+    inference.mode = "managed";
+  }
+}
+
+function readPlainObject(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 function handleGetConfig() {
@@ -362,6 +382,38 @@ function handleGetConfig() {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to read config: ${message}`);
   }
+}
+
+/**
+ * Return the JSON Schema for the assistant config (full or scoped).
+ *
+ * The schema is derived from `AssistantConfigSchema` at runtime via
+ * `z.toJSONSchema()`. Pure read; no daemon state involved.
+ */
+function handleGetConfigSchema({ queryParams = {} }: RouteHandlerArgs) {
+  const rawPath = queryParams.path;
+  const path = typeof rawPath === "string" ? rawPath.trim() : "";
+
+  if (!path) {
+    return {
+      schema: z.toJSONSchema(AssistantConfigSchema, {
+        unrepresentable: "any",
+        io: "input",
+      }),
+    };
+  }
+
+  const subSchema = getSchemaAtPath(AssistantConfigSchema, path);
+  if (!subSchema) {
+    throw new BadRequestError(`No schema found at path: ${path}`);
+  }
+
+  return {
+    schema: z.toJSONSchema(subSchema, {
+      unrepresentable: "any",
+      io: "input",
+    }),
+  };
 }
 
 function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
@@ -381,6 +433,59 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Persist a mutated raw config object to disk and synchronize the running
+ * daemon (file-watcher, embedding cache, provider registry).
+ *
+ * Shared by `handlePatchConfig` and `handleSetConfig` so both write paths get
+ * identical post-write side effects.
+ */
+async function commitConfigWrite(
+  raw: Record<string, unknown>,
+  opLabel: string,
+): Promise<void> {
+  // Suppress the file-watcher callback for the duration of the debounce
+  // window. Without this, the ConfigWatcher detects the config.json write
+  // ~200ms later, sees a stale fingerprint, and calls initializeProviders a
+  // second time - starting with providers.clear() which races with the
+  // explicit reinit below. The watcher also fires onConversationEvict(),
+  // which would evict all cached conversations on every write. Mirror the
+  // suppress/reset pattern used in setImageGenModel (config-model.ts).
+  const configWatcher = getConfigWatcher();
+  const wasSuppressed = configWatcher.suppressConfigReload;
+  configWatcher.suppressConfigReload = true;
+  try {
+    saveRawConfig(raw);
+  } catch (err) {
+    configWatcher.suppressConfigReload = wasSuppressed;
+    const message = err instanceof Error ? err.message : String(err);
+    throw new InternalError(`Failed to ${opLabel} config: ${message}`);
+  }
+  configWatcher.timers.schedule(
+    "__suppress_reset__",
+    () => {
+      configWatcher.suppressConfigReload = false;
+    },
+    CONFIG_RELOAD_DEBOUNCE_MS,
+  );
+
+  clearEmbeddingBackendCache();
+  invalidateConfigCache();
+  // Reinitialize providers so the live registry reflects the new config
+  // (e.g. a mode flip between managed and your-own). Isolated try/catch so
+  // a provider reinit failure doesn't mask the successful config save.
+  // Only advance the config fingerprint on success - if reinit failed, leave
+  // it stale so the watcher can detect the saved config on the next event
+  // and retry provider initialization.
+  try {
+    await initializeProviders(getConfig());
+    configWatcher.updateFingerprint();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, `${opLabel} config: provider reinit failed: ${message}`);
+  }
+}
+
 async function handlePatchConfig({ body }: RouteHandlerArgs) {
   if (
     !body ||
@@ -396,47 +501,80 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   const patch = body as Record<string, unknown>;
   deepMergeOverwrite(raw, patch);
 
-  // Suppress the file-watcher callback for the duration of the debounce
-  // window. Without this, the ConfigWatcher detects the config.json write
-  // ~200ms later, sees a stale fingerprint, and calls initializeProviders a
-  // second time — starting with providers.clear() which races with the
-  // explicit reinit below. The watcher also fires onConversationEvict(),
-  // which would evict all cached conversations on every PATCH. Mirror the
-  // suppress/reset pattern used in setModel (config-model.ts).
-  const configWatcher = getConfigWatcher();
-  const wasSuppressed = configWatcher.suppressConfigReload;
-  configWatcher.suppressConfigReload = true;
-  try {
-    saveRawConfig(raw);
-  } catch (err) {
-    configWatcher.suppressConfigReload = wasSuppressed;
-    const message = err instanceof Error ? err.message : String(err);
-    throw new InternalError(`Failed to patch config: ${message}`);
-  }
-  configWatcher.timers.schedule(
-    "__suppress_reset__",
-    () => {
-      configWatcher.suppressConfigReload = false;
-    },
-    CONFIG_RELOAD_DEBOUNCE_MS,
-  );
-
-  clearEmbeddingBackendCache();
-  invalidateConfigCache();
-  // Reinitialize providers so the live registry reflects the new config
-  // (e.g. a mode flip between managed and your-own). Isolated try/catch so
-  // a provider reinit failure doesn't mask the successful config save.
-  // Only advance the config fingerprint on success — if reinit failed, leave
-  // it stale so the watcher can detect the saved config on the next event
-  // and retry provider initialization.
-  try {
-    await initializeProviders(getConfig());
-    configWatcher.updateFingerprint();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, `handlePatchConfig: provider reinit failed: ${message}`);
-  }
+  await commitConfigWrite(raw, "patch");
   return { ok: true };
+}
+
+/**
+ * Direct path assignment - replaces `config_patch` for the `assistant
+ * config set <key> <value>` CLI path.
+ *
+ * `config_patch` uses `deepMergeOverwrite` semantics, which strips `null`
+ * leaves when the target subtree doesn't exist and merges (rather than
+ * replaces) object subtrees. That's correct for partial updates (embedding
+ * config, profile patches) but breaks single-key `set` semantics, where the
+ * user expects:
+ *   - `set heartbeat.activeHoursStart null` to persist explicit `null`
+ *   - `set llm {}` to replace `llm`, not merge into it
+ *
+ * `config_set` performs `setNestedValue` directly on the loaded raw config
+ * (no merge), then runs the same post-write side effects as patch.
+ */
+async function handleSetConfig({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new BadRequestError(
+      "Body must be a JSON object with `path` and `value`",
+    );
+  }
+  const bodyRecord = body as Record<string, unknown>;
+  const { path, value } = bodyRecord as { path?: unknown; value?: unknown };
+  if (typeof path !== "string" || path.length === 0) {
+    throw new BadRequestError("`path` must be a non-empty string");
+  }
+  // `value` must be present (use explicit `null` to clear a key). Without
+  // this check, `undefined` flows into `setNestedValue` and gets dropped by
+  // `JSON.stringify` at save time, silently removing the key - which is
+  // distinct from the documented "set to null" semantics.
+  if (!("value" in bodyRecord)) {
+    throw new BadRequestError(
+      "`value` is required (use `null` to clear a key)",
+    );
+  }
+  // Build the equivalent patch shape so the managed-profile guard can
+  // inspect the touched subtree.
+  const patchShape: Record<string, unknown> = {};
+  setNestedValue(patchShape, path, value);
+  rejectManagedProfileDeletion(patchShape);
+
+  const raw = loadRawConfig();
+  setNestedValue(raw, path, value);
+
+  await commitConfigWrite(raw, "set");
+  return { ok: true };
+}
+
+/**
+ * Validate the regex patterns inside the workspace's
+ * `secret-allowlist.json` file.
+ *
+ * Pure read: opens the file, attempts to compile each pattern, returns
+ * structured errors. The handler returns `{ exists: false }` if the file is
+ * absent, or `{ exists: true, errors: [...] }` otherwise.
+ */
+function handleValidateAllowlist() {
+  try {
+    const errors = validateAllowlistFile();
+    if (errors == null) return { exists: false } as const;
+    return { exists: true, errors } as const;
+  } catch (err) {
+    // `validateAllowlistFile` does a raw `JSON.parse` on
+    // `secret-allowlist.json` and can throw on malformed JSON. Surface
+    // that as a structured `parseError` in the response payload instead
+    // of letting it propagate as a 500. Preserves the pre-IPC CLI
+    // behavior, which printed a user-readable failure and exited 1.
+    const message = err instanceof Error ? err.message : String(err);
+    return { exists: true, parseError: message, errors: [] } as const;
+  }
 }
 
 function handleReplaceInferenceProfile({
@@ -450,9 +588,9 @@ function handleReplaceInferenceProfile({
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new BadRequestError("Body must be a JSON object");
   }
-  if (MANAGED_PROFILE_NAMES.has(name)) {
+  if (RESERVED_PROFILE_NAMES.has(name)) {
     throw new BadRequestError(
-      `Cannot edit managed profile "${name}". Duplicate it to create a custom profile.`,
+      `Profile name "${name}" is reserved and cannot be used.`,
     );
   }
   const parsed = ProfileEntry.safeParse(body);
@@ -460,19 +598,89 @@ function handleReplaceInferenceProfile({
     const detail = parsed.error.issues.map((issue) => issue.message).join("; ");
     throw new BadRequestError(`Invalid profile fragment: ${detail}`);
   }
+  const isManaged = MANAGED_PROFILE_NAMES.has(name);
+  if (isManaged) {
+    // Managed profiles are daemon-seeded — provider, model, advanced params,
+    // and the connection binding all belong to the seed contract and can't
+    // be reshaped by the user. The two fields that ARE user policy (display
+    // label and enabled status) are allowed through so users can rename a
+    // managed profile or temporarily disable it without duplicating it.
+    const requestedKeys = Object.keys(parsed.data);
+    const disallowed = requestedKeys.filter(
+      (k) => k !== "label" && k !== "status",
+    );
+    if (disallowed.length > 0) {
+      throw new BadRequestError(
+        `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ` +
+          `Only label and status may be edited; duplicate to a custom profile to change other fields.`,
+      );
+    }
+  }
   try {
     const raw = loadRawConfig();
-    replaceInferenceProfileConfig(
-      raw,
-      name,
-      parsed.data as Record<string, unknown>,
-    );
+    if (isManaged) {
+      // Partial overlay: keep every existing key intact, only update label
+      // and/or status from the fragment. Using `replaceInferenceProfileConfig`
+      // here would wipe the UI-owned seed fields (provider, model, advanced
+      // params) because that function assumes the body carries the full UI
+      // surface.
+      patchManagedProfileFields(
+        raw,
+        name,
+        parsed.data as Record<string, unknown>,
+      );
+    } else {
+      replaceInferenceProfileConfig(
+        raw,
+        name,
+        parsed.data as Record<string, unknown>,
+      );
+    }
     saveRawConfig(raw);
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to replace inference profile: ${message}`);
   }
+}
+
+/**
+ * Apply a `{label?, status?}` patch to a managed profile entry, preserving
+ * every other field already on disk (provider, model, advanced params, etc).
+ * Caller is responsible for having already restricted the fragment to the
+ * managed-allowed keys.
+ */
+function patchManagedProfileFields(
+  raw: Record<string, unknown>,
+  name: string,
+  fragment: Record<string, unknown>,
+): void {
+  const existingLlm = asMutablePlainObject(raw.llm);
+  const llm = existingLlm ?? {};
+  if (!existingLlm) raw.llm = llm;
+
+  const existingProfiles = asMutablePlainObject(llm.profiles);
+  const profiles = existingProfiles ?? {};
+  if (!existingProfiles) llm.profiles = profiles;
+
+  const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
+  const nextProfile: Record<string, unknown> = { ...existingProfile };
+  // Send `null` to clear; omit to leave untouched.
+  if ("label" in fragment) {
+    if (fragment.label === null) {
+      delete nextProfile.label;
+    } else {
+      nextProfile.label = fragment.label;
+    }
+  }
+  if ("status" in fragment) {
+    if (fragment.status === null) {
+      delete nextProfile.status;
+    } else {
+      nextProfile.status = fragment.status;
+    }
+  }
+  profiles[name] = nextProfile;
 }
 
 function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {
@@ -527,12 +735,13 @@ function resolveConversationKind(
   return "user";
 }
 
-function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
+async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   const messageId = pathParams.id;
   if (!messageId) {
     throw new BadRequestError("message id is required");
   }
-  const logs = getRequestLogsByMessageId(messageId);
+  const source = await getLlmRequestLogSource();
+  const logs = await source.getRequestLogsByMessageId(messageId);
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
   const memoryRecallLog = getMemoryRecallLogByMessageIds(turnMessageIds);
   const memoryV2Activation =
@@ -545,9 +754,15 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
         conversation.conversationType,
       )
     : "user";
+  // Running total of estimated USD cost across every priced LLM call in
+  // the conversation. Maintained by `updateConversationUsage` whenever a
+  // turn finishes — see `assistant/src/memory/conversation-crud.ts`.
+  const conversationTotalEstimatedCostUsd =
+    conversation?.totalEstimatedCost ?? null;
   return {
     messageId,
     conversationKind,
+    conversationTotalEstimatedCostUsd,
     logs: logs.map((log) => {
       let requestPayload: unknown;
       try {
@@ -583,12 +798,15 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
-function handleGetLlmRequestLogPayload({ pathParams = {} }: RouteHandlerArgs) {
+async function handleGetLlmRequestLogPayload({
+  pathParams = {},
+}: RouteHandlerArgs) {
   const logId = pathParams.id;
   if (!logId) {
     throw new BadRequestError("log id is required");
   }
-  const log = getRequestLogById(logId);
+  const source = await getLlmRequestLogSource();
+  const log = await source.getRequestLogById(logId);
   if (!log) {
     throw new NotFoundError("log not found");
   }
@@ -642,20 +860,6 @@ export const ROUTES: RouteDefinition[] = [
       "Return the active LLM model ID, provider, and available models.",
     tags: ["config"],
     handler: handleGetModel,
-  },
-  {
-    operationId: "model_set",
-    endpoint: "model",
-    method: "PUT",
-    policyKey: "model",
-    summary: "Set LLM model",
-    description: "Change the active LLM model and optionally its provider.",
-    tags: ["config"],
-    requestBody: z.object({
-      modelId: z.string(),
-      provider: z.string().describe("Optional provider override").optional(),
-    }),
-    handler: handleSetModel,
   },
   {
     operationId: "model_image_gen_set",
@@ -713,6 +917,49 @@ export const ROUTES: RouteDefinition[] = [
       "Deep-merge a partial JSON object into the settings.json configuration.",
     tags: ["config"],
     handler: handlePatchConfig,
+  },
+  {
+    operationId: "config_set",
+    endpoint: "config/set",
+    method: "POST",
+    policyKey: "config/set",
+    summary: "Set a single config path",
+    description:
+      "Assign a value at a dotted config path with direct-replacement semantics " +
+      "(preserves explicit null, replaces object subtrees instead of merging). " +
+      "Used by the `assistant config set <key> <value>` CLI command.",
+    tags: ["config"],
+    handler: handleSetConfig,
+  },
+  {
+    operationId: "config_allowlist_validate",
+    endpoint: "config/allowlist/validate",
+    method: "GET",
+    policyKey: "config/allowlist/validate",
+    summary: "Validate secret-allowlist.json regex patterns",
+    description:
+      "Compile each regex pattern in secret-allowlist.json and return any " +
+      "syntax errors. Returns { exists: false } if no file is present.",
+    tags: ["config"],
+    handler: handleValidateAllowlist,
+  },
+  {
+    operationId: "config_schema_get",
+    endpoint: "config/schema",
+    method: "GET",
+    policyKey: "config/schema",
+    summary: "Get config JSON Schema",
+    description:
+      "Return the JSON Schema for the assistant config, optionally scoped to a dotted-path sub-schema (e.g. ?path=calls).",
+    tags: ["config"],
+    queryParams: [
+      {
+        name: "path",
+        schema: { type: "string" },
+        description: "Optional dotted path to a config sub-key",
+      },
+    ],
+    handler: handleGetConfigSchema,
   },
   {
     operationId: "config_llm_profiles_replace",
@@ -787,6 +1034,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       messageId: z.string(),
       conversationKind: z.enum(CONVERSATION_KINDS),
+      conversationTotalEstimatedCostUsd: z.number().nullable(),
       logs: z.array(z.unknown()),
       memoryRecall: z.object({}).passthrough().nullable(),
       memoryV2Activation: z.object({}).passthrough().nullable(),

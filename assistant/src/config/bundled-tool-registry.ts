@@ -49,7 +49,6 @@ import * as computerUseWait from "./bundled-skills/computer-use/tools/computer-u
 // ── contacts ───────────────────────────────────────────────────────────────────
 import * as contactMerge from "./bundled-skills/contacts/tools/contact-merge.js";
 import * as contactSearch from "./bundled-skills/contacts/tools/contact-search.js";
-import * as contactUpsert from "./bundled-skills/contacts/tools/contact-upsert.js";
 import * as googleContacts from "./bundled-skills/contacts/tools/google-contacts.js";
 // ── document ───────────────────────────────────────────────────────────────────
 import * as documentCreate from "./bundled-skills/document/tools/document-create.js";
@@ -163,7 +162,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["computer-use:tools/computer-use-respond.ts", computerUseRespond],
 
   // contacts
-  ["contacts:tools/contact-upsert.ts", contactUpsert],
   ["contacts:tools/contact-search.ts", contactSearch],
   ["contacts:tools/contact-merge.ts", contactMerge],
   ["contacts:tools/google-contacts.ts", googleContacts],

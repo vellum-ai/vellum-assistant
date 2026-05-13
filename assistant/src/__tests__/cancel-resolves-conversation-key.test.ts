@@ -57,6 +57,7 @@ mock.module("../daemon/handlers/conversations.js", () => ({
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { initializeDb } from "../memory/db-init.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
+import { routeDefinitionsToHTTPRoutes } from "../runtime/routes/http-adapter.js";
 
 initializeDb();
 
@@ -73,27 +74,67 @@ describe("POST /v1/conversations/:id/cancel", () => {
 
     expect(internalId).not.toBe(conversationKey);
 
-    cancelRoute.handler({
+    const result = cancelRoute.handler({
       pathParams: { id: conversationKey },
       body: {},
       headers: {},
-
     });
 
     expect(cancelledId!).toBe(internalId);
+    expect(result).toEqual({
+      ok: true,
+      cancelled: true,
+      conversationId: internalId,
+    });
   });
 
   test("falls back to raw ID when key is not in the mapping", () => {
     cancelledId = undefined;
     const directId = "direct-conversation-id";
 
-    cancelRoute.handler({
+    const result = cancelRoute.handler({
       pathParams: { id: directId },
       body: {},
       headers: {},
-
     });
 
     expect(cancelledId!).toBe(directId);
+    expect(result).toEqual({
+      ok: true,
+      cancelled: true,
+      conversationId: directId,
+    });
+  });
+
+  test("HTTP adapter returns a serializable 202 response", async () => {
+    cancelledId = undefined;
+    const directId = "direct-http-conversation-id";
+    const [httpRoute] = routeDefinitionsToHTTPRoutes([cancelRoute]);
+    const url = new URL(`http://localhost/v1/conversations/${directId}/cancel`);
+
+    const response = await httpRoute.handler({
+      req: new Request(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+      url,
+      params: { id: directId },
+      authContext: {} as never,
+      server: {} as never,
+    });
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      cancelled: true,
+      conversationId: directId,
+    });
+    expect(cancelledId!).toBe(directId);
+  });
+
+  test("route definition advertises the cancellation response body", () => {
+    expect(cancelRoute.responseStatus).toBe("202");
+    expect(cancelRoute.responseBody).toBeDefined();
   });
 });

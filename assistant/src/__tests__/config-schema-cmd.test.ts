@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Mocks — declared before imports that depend on platform/logger
+// Mocks - declared before imports that depend on platform/logger/ipc
 // ---------------------------------------------------------------------------
 
 const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
@@ -45,28 +45,38 @@ mock.module("../util/logger.js", () => ({
   getCliLogger: () => makeLoggerStub(),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
+// ---------------------------------------------------------------------------
+// Mocks - ipc/cli-client
+//
+// The `config` CLI is IPC-tagged, so all schema lookups go through the
+// daemon. Mock cliIpcCall so we can drive the response in each test and
+// assert on exit behavior without spinning up a daemon socket.
+// ---------------------------------------------------------------------------
+
+let mockIpcResult: {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  statusCode?: number;
+} = { ok: true, result: { schema: {} } };
+
+mock.module("../ipc/cli-client.js", () => ({
+  cliIpcCall: async () => mockIpcResult,
+  exitFromIpcResult: (r: {
+    error?: string;
+    statusCode?: number;
+  }) => {
+    process.stderr.write((r.error ?? "Unknown error") + "\n");
+    if (r.statusCode === undefined) {
+      process.exit(10);
+    } else if (r.statusCode >= 500) {
+      process.exit(3);
+    } else if (r.statusCode >= 400) {
+      process.exit(2);
+    } else {
+      process.exit(1);
+    }
+  },
 }));
 
 import { Command } from "commander";
@@ -259,30 +269,54 @@ describe("z.toJSONSchema integration", () => {
 
 // ---------------------------------------------------------------------------
 // Tests: CLI schema command error path
+//
+// The CLI now routes `config schema <path>` through the daemon. When the
+// daemon throws a BadRequestError for an unknown path, the IPC layer
+// returns statusCode=400, and exitFromIpcResult maps that to process exit
+// code 2 (per the matrix in cli-client.ts:exitFromIpcResult).
 // ---------------------------------------------------------------------------
 
 describe("CLI schema command", () => {
-  test("nonexistent path prints error and exits with code 1", () => {
+  test("daemon error for nonexistent path surfaces via exitFromIpcResult", async () => {
+    // Drive the IPC mock to return a BadRequest as the daemon would
+    mockIpcResult = {
+      ok: false,
+      error: "No schema found at path: nonexistent",
+      statusCode: 400,
+    };
+
     const program = new Command();
-    program.exitOverride(); // throw instead of calling process.exit
+    program.exitOverride();
     registerConfigCommand(program);
 
     const origExit = process.exit;
-    // Replace process.exit to capture the exit code without killing the test
+    const origStderrWrite = process.stderr.write.bind(process.stderr);
     let exitCode: number | undefined;
     process.exit = ((code?: number) => {
       exitCode = code;
       throw new Error(`process.exit(${code})`);
     }) as never;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
 
     try {
-      program.parse(["node", "test", "config", "schema", "nonexistent"]);
+      await program.parseAsync([
+        "node",
+        "test",
+        "config",
+        "schema",
+        "nonexistent",
+      ]);
     } catch {
-      // Expected: either Commander's exitOverride or our process.exit stub throws
+      // Expected: process.exit stub throws
     } finally {
       process.exit = origExit;
+      process.stderr.write = origStderrWrite;
     }
 
-    expect(exitCode).toBe(1);
+    // 400 → exit 2 (per exitFromIpcResult matrix)
+    expect(exitCode).toBe(2);
+
+    // Restore default
+    mockIpcResult = { ok: true, result: { schema: {} } };
   });
 });

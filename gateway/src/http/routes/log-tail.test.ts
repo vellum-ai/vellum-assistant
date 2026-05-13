@@ -43,6 +43,7 @@ mock.module("../../logger.js", () => {
     getLogger: () => noopLogger,
     initLogger: noop,
     LOG_FILE_PATTERN: /^gateway-(\d{4}-\d{2}-\d{2})\.log$/,
+    LOG_FILE_JSON_PATTERN: /^gateway-(\d{4}-\d{2}-\d{2})\.jsonl$/,
   };
 });
 
@@ -137,7 +138,7 @@ describe("log-tail handler", () => {
       makeLogLine(30, "entry 4"),
       makeLogLine(30, "entry 5"),
     ];
-    writeFileSync(join(tmpDir, "gateway-2026-05-04.log"), lines.join("\n"));
+    writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), lines.join("\n"));
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
@@ -161,7 +162,7 @@ describe("log-tail handler", () => {
       makeLogLine(50, "error msg"),
       makeLogLine(60, "fatal msg"),
     ];
-    writeFileSync(join(tmpDir, "gateway-2026-05-04.log"), lines.join("\n"));
+    writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), lines.join("\n"));
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
@@ -184,7 +185,7 @@ describe("log-tail handler", () => {
       makeLogLine(30, "trust message", { module: "trust" }),
       makeLogLine(30, "another mcp", { module: "mcp" }),
     ];
-    writeFileSync(join(tmpDir, "gateway-2026-05-04.log"), lines.join("\n"));
+    writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), lines.join("\n"));
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
@@ -205,7 +206,7 @@ describe("log-tail handler", () => {
       makeLogLine(30, "valid entry"),
       "{broken json",
     ];
-    writeFileSync(join(tmpDir, "gateway-2026-05-04.log"), lines.join("\n"));
+    writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), lines.join("\n"));
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
@@ -225,7 +226,7 @@ describe("log-tail handler", () => {
       makeLogLine(30, "entry 3"),
       makeLogLine(30, "entry 4"),
     ];
-    writeFileSync(join(tmpDir, "gateway-2026-05-04.log"), lines.join("\n"));
+    writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), lines.join("\n"));
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
@@ -244,7 +245,7 @@ describe("log-tail handler", () => {
       makeLogLine(30, "entry 2"),
       makeLogLine(30, "entry 3"),
     ];
-    writeFileSync(join(tmpDir, "gateway-2026-05-04.log"), lines.join("\n"));
+    writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), lines.join("\n"));
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
@@ -264,11 +265,11 @@ describe("log-tail handler", () => {
       makeLogLine(30, "yesterday 2"),
       makeLogLine(30, "yesterday 3"),
     ];
-    writeFileSync(join(tmpDir, "gateway-2026-05-03.log"), yesterdayLines.join("\n"));
+    writeFileSync(join(tmpDir, "gateway-2026-05-03.jsonl"), yesterdayLines.join("\n"));
 
     // Today file: 1 entry
     const todayLines = [makeLogLine(30, "today 1")];
-    writeFileSync(join(tmpDir, "gateway-2026-05-04.log"), todayLines.join("\n"));
+    writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), todayLines.join("\n"));
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
@@ -296,7 +297,7 @@ describe("log-tail handler", () => {
   test("n=1001 in querystring → returns successfully (clamped to 1000)", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "gw-log-tail-test-"));
 
-    writeFileSync(join(tmpDir, "gateway-2026-05-04.log"), makeLogLine(30, "entry"));
+    writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), makeLogLine(30, "entry"));
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);

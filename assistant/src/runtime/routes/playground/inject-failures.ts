@@ -17,6 +17,7 @@
 
 import { z } from "zod";
 
+import { resolveCallSiteConfig } from "../../../config/llm-resolver.js";
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
@@ -115,7 +116,7 @@ export interface CompactionStateResponse {
 function buildCompactionState(
   conversation: Conversation,
 ): CompactionStateResponse {
-  const ctxConfig = getConfig().llm.default.contextWindow;
+  const ctxConfig = resolveCallSiteConfig("mainAgent", getConfig().llm).contextWindow;
   const maxInputTokens = ctxConfig.maxInputTokens;
   const compactThresholdRatio = ctxConfig.compactThreshold;
   const isCompactionEnabled = ctxConfig.enabled;

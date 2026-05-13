@@ -176,11 +176,10 @@ describe("039-drop-legacy-llm-keys migration", () => {
     expect(config.contextWindow).toBeUndefined();
     expect(config.pricingOverrides).toBeUndefined();
 
-    // services.inference: provider/model stripped, mode preserved
+    // services.inference: provider/model stripped
     const services = config.services as { inference: Record<string, unknown> };
     expect(services.inference.provider).toBeUndefined();
     expect(services.inference.model).toBeUndefined();
-    expect(services.inference.mode).toBe("your-own");
 
     // heartbeat / filing
     const heartbeat = config.heartbeat as Record<string, unknown>;
@@ -248,29 +247,10 @@ describe("039-drop-legacy-llm-keys migration", () => {
     expect(config.speed).toBeUndefined();
     const services = config.services as { inference: Record<string, unknown> };
     expect(services.inference.provider).toBeUndefined();
-    expect(services.inference.mode).toBe("managed");
     expect(
       (config.notifications as Record<string, unknown>).decisionModelIntent,
     ).toBeUndefined();
     expect(config.maxStepsPerSession).toBe(50);
-  });
-
-  // ─── services.inference.mode preservation ──────────────────────────────
-
-  test("preserves services.inference.mode while stripping provider/model", () => {
-    writeConfig({
-      services: {
-        inference: { mode: "your-own", provider: "openai", model: "gpt-5.4" },
-      },
-    });
-
-    dropLegacyLlmKeysMigration.run(workspaceDir);
-
-    const config = readConfig();
-    const services = config.services as { inference: Record<string, unknown> };
-    expect(services.inference.mode).toBe("your-own");
-    expect(services.inference.provider).toBeUndefined();
-    expect(services.inference.model).toBeUndefined();
   });
 
   // ─── Idempotency ───────────────────────────────────────────────────────

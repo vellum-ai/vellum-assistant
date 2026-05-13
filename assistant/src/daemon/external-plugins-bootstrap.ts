@@ -61,7 +61,6 @@ import {
   unregisterPluginSkills,
 } from "../plugins/plugin-skill-contributions.js";
 import {
-  ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
   unregisterPlugin,
 } from "../plugins/registry.js";
@@ -69,6 +68,7 @@ import {
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
+  type PluginShutdownContext,
   type PluginSkillRegistration,
 } from "../plugins/types.js";
 import {
@@ -218,8 +218,16 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // server), the latter drops the plugin's entry from the Map (so
   // `getMiddlewaresFor` / `getInjectors` don't re-enter an uninitialized
   // plugin on the next pipeline invocation).
+  // Shutdown context is identical for every plugin in this boot — construct
+  // once and reuse across the bootstrap-failure rollback and the normal
+  // shutdown hook below. Only `assistantVersion` is exposed today; future
+  // additions live on {@link PluginShutdownContext}.
+  const shutdownContext: PluginShutdownContext = {
+    assistantVersion: ctx.assistantVersion,
+  };
+
   async function rollbackPlugin(active: ActivePlugin): Promise<void> {
-    await teardownPlugin(active, "bootstrap-failed");
+    await teardownPlugin(active, "bootstrap-failed", shutdownContext);
     unregisterPlugin(active.plugin.manifest.name);
   }
 
@@ -306,12 +314,11 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
         logger: log.child({ plugin: name }),
         pluginStorageDir,
         assistantVersion: ctx.assistantVersion,
-        apiVersions: ASSISTANT_API_VERSIONS,
       };
 
-      if (plugin.init) {
+      if (plugin.hooks?.init) {
         try {
-          await plugin.init(initContext);
+          await plugin.hooks.init(initContext);
         } catch (err) {
           throw new PluginExecutionError(
             `plugin ${name} init() failed: ${
@@ -445,7 +452,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   const shutdownSnapshot: ActivePlugin[] = [...activePlugins];
   registerShutdownHook("plugins", async (reason) => {
     for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
-      await teardownPlugin(shutdownSnapshot[i]!, reason);
+      await teardownPlugin(shutdownSnapshot[i]!, reason, shutdownContext);
     }
   });
 }
@@ -473,6 +480,7 @@ interface ActivePlugin {
 async function teardownPlugin(
   active: ActivePlugin,
   reason: string,
+  shutdownContext: PluginShutdownContext,
 ): Promise<void> {
   const { plugin, routeHandles } = active;
   const name = plugin.manifest.name;
@@ -504,17 +512,17 @@ async function teardownPlugin(
     );
   }
 
-  if (plugin.onShutdown) {
+  if (plugin.hooks?.shutdown) {
     try {
-      await plugin.onShutdown();
+      await plugin.hooks.shutdown(shutdownContext);
     } catch (err) {
-      // Swallow — we want every plugin's onShutdown to get a chance to run
+      // Swallow — we want every plugin's shutdown to get a chance to run
       // even when an earlier one throws. The outer runShutdownHooks already
       // logs at hook level, but the plugin-name attribution here is what
       // operators read first.
       log.warn(
         { err, plugin: name, reason },
-        "plugin onShutdown failed (continuing with remaining plugins)",
+        "plugin shutdown hook failed (continuing with remaining plugins)",
       );
     }
   }

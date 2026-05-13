@@ -21,6 +21,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are starting this app"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_app_control; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_app_control`."
           }
         },
         "required": ["app", "reasoning"]
@@ -43,6 +47,10 @@
           "settle_ms": {
             "type": "integer",
             "description": "Milliseconds to wait before capturing so the target app and the WindowServer can flush pending input + composite a fresh frame. Default ~200ms (sized for emulator-class apps at 60fps). Pass 0 for static UIs; raise for slow-feedback apps."
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_app_control; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_app_control`."
           }
         },
         "required": ["app"]
@@ -78,6 +86,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are pressing this key"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_app_control; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_app_control`."
           }
         },
         "required": ["app", "key", "reasoning"]
@@ -109,6 +121,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are pressing this combo"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_app_control; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_app_control`."
           }
         },
         "required": ["app", "keys", "reasoning"]
@@ -158,6 +174,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what this sequence does and why"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_app_control; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_app_control`."
           }
         },
         "required": ["app", "steps", "reasoning"]
@@ -184,6 +204,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are typing and why"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_app_control; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_app_control`."
           }
         },
         "required": ["app", "text", "reasoning"]
@@ -223,6 +247,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you see and why you are clicking here"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_app_control; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_app_control`."
           }
         },
         "required": ["app", "x", "y", "reasoning"]
@@ -266,6 +294,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are dragging and why"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_app_control; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_app_control`."
           }
         },
         "required": ["app", "from_x", "from_y", "to_x", "to_y", "reasoning"]

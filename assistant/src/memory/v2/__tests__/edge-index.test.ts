@@ -36,7 +36,7 @@ afterEach(() => {
 function makePage(slug: string, edges: string[] = [], body = ""): ConceptPage {
   return {
     slug,
-    frontmatter: { edges, ref_files: [] },
+    frontmatter: { edges, ref_files: [], ref_urls: [] },
     body,
   };
 }

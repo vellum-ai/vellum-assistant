@@ -82,15 +82,44 @@ export async function save(
  * The child row inherits everInjected as-is so previously-attached slugs are
  * not re-injected on the child's first turn — matching the v1 semantics where
  * a fork carries over all in-context memories.
+ *
+ * Synchronous so it can run inside the bun:sqlite transaction that wraps
+ * `forkConversation()` — keeping the state copy atomic with the message and
+ * attachment copies.
  */
-export async function fork(
+export function forkActivationState(
   database: DrizzleDb,
   parentConversationId: string,
   newConversationId: string,
-): Promise<void> {
-  const parent = await hydrate(database, parentConversationId);
-  if (!parent) return;
-  await save(database, newConversationId, parent);
+): void {
+  const row = database
+    .select()
+    .from(activationState)
+    .where(eq(activationState.conversationId, parentConversationId))
+    .get();
+  if (!row) return;
+
+  database
+    .insert(activationState)
+    .values({
+      conversationId: newConversationId,
+      messageId: row.messageId,
+      stateJson: row.stateJson,
+      everInjectedJson: row.everInjectedJson,
+      currentTurn: row.currentTurn,
+      updatedAt: row.updatedAt,
+    })
+    .onConflictDoUpdate({
+      target: activationState.conversationId,
+      set: {
+        messageId: row.messageId,
+        stateJson: row.stateJson,
+        everInjectedJson: row.everInjectedJson,
+        currentTurn: row.currentTurn,
+        updatedAt: row.updatedAt,
+      },
+    })
+    .run();
 }
 
 /**

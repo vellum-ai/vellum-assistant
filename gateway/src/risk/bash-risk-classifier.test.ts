@@ -995,6 +995,30 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
+  test("assistant inference session open balanced --ttl 30m → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant inference session open balanced --ttl 30m",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("assistant inference session close → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant inference session close",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("assistant inference session list → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant inference session list",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
   test("assistant bash ls → high", async () => {
     const result = await classifier.classify({
       command: "assistant bash ls",

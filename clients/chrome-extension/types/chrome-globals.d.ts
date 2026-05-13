@@ -115,12 +115,34 @@ interface ChromeRuntimeManifest {
   [key: string]: unknown;
 }
 
+interface ChromeRuntimeOnInstalledDetails {
+  reason: "install" | "update" | "chrome_update" | "shared_module_update";
+  previousVersion?: string;
+  id?: string;
+}
+
+interface ChromeRuntimeOnInstalledEvent {
+  addListener(
+    listener: (details: ChromeRuntimeOnInstalledDetails) => void,
+  ): void;
+  removeListener(
+    listener: (details: ChromeRuntimeOnInstalledDetails) => void,
+  ): void;
+}
+
+interface ChromeRuntimeOnStartupEvent {
+  addListener(listener: () => void): void;
+  removeListener(listener: () => void): void;
+}
+
 interface ChromeRuntimeNamespace {
   /** The ID of the extension. */
   readonly id: string;
   readonly lastError: ChromeRuntimeLastError | undefined;
   connectNative(application: string): ChromeRuntimePort;
   onMessage: ChromeRuntimeOnMessageEvent;
+  onInstalled: ChromeRuntimeOnInstalledEvent;
+  onStartup: ChromeRuntimeOnStartupEvent;
   // Generic over the response type so callers can narrow the callback
   // argument without casting. Matches the de-facto shape used by the
   // official @types/chrome package.
@@ -131,6 +153,30 @@ interface ChromeRuntimeNamespace {
   getManifest(): ChromeRuntimeManifest;
   /** Resolve a path relative to the extension root into an absolute chrome-extension:// URL. */
   getURL(path: string): string;
+}
+
+interface ChromeAlarm {
+  name: string;
+  scheduledTime: number;
+  periodInMinutes?: number;
+}
+
+interface ChromeAlarmCreateInfo {
+  when?: number;
+  delayInMinutes?: number;
+  periodInMinutes?: number;
+}
+
+interface ChromeAlarmsOnAlarmEvent {
+  addListener(listener: (alarm: ChromeAlarm) => void): void;
+  removeListener(listener: (alarm: ChromeAlarm) => void): void;
+}
+
+interface ChromeAlarmsNamespace {
+  create(name: string, alarmInfo: ChromeAlarmCreateInfo): Promise<void>;
+  get(name: string): Promise<ChromeAlarm | undefined>;
+  clear(name: string): Promise<boolean>;
+  onAlarm: ChromeAlarmsOnAlarmEvent;
 }
 
 interface ChromeTab {
@@ -276,6 +322,7 @@ interface ChromeActionNamespace {
 
 interface ChromeGlobal {
   action: ChromeActionNamespace;
+  alarms: ChromeAlarmsNamespace;
   storage: ChromeStorageNamespace;
   identity: ChromeIdentityNamespace;
   runtime: ChromeRuntimeNamespace;

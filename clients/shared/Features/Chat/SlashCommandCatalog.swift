@@ -19,6 +19,7 @@ public enum ChatSlashCommandSelectionBehavior: Hashable {
 public enum ChatSlashCommandSendPathMatchRule: Hashable {
     case exact
     case commandWithArgument
+    case exactOrWithArgument
 }
 
 public struct ChatSlashCommandDescriptor: Hashable {
@@ -105,6 +106,17 @@ public enum ChatSlashCommandCatalog {
             pickerPlatforms: allPlatforms,
             helpBubblePlatforms: allPlatforms,
             sendPathPlatforms: allPlatforms
+        ),
+        ChatSlashCommandDescriptor(
+            name: "model",
+            description: "List or switch inference profile",
+            icon: "cpu",
+            selectionBehavior: .insertTrailingSpace,
+            sendPathMatchRule: .exactOrWithArgument,
+            pickerPlatforms: allPlatforms,
+            helpBubblePlatforms: allPlatforms,
+            sendPathPlatforms: allPlatforms,
+            refreshesModelMetadata: true
         ),
         ChatSlashCommandDescriptor(
             name: "models",
@@ -223,6 +235,16 @@ public enum ChatSlashCommandCatalog {
                 let argument = String(trimmed.dropFirst(slashName.count + 1))
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 return !argument.isEmpty
+            case .exactOrWithArgument:
+                if trimmed == slashName {
+                    return true
+                }
+                guard trimmed.hasPrefix("\(slashName) ") else {
+                    return false
+                }
+                let argument = String(trimmed.dropFirst(slashName.count + 1))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return !argument.isEmpty
             }
         }
     }
@@ -244,10 +266,6 @@ public enum ChatSlashCommandCatalog {
         }
 
         let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed == "/model" || (trimmed.hasPrefix("/model ") && trimmed != "/models") {
-            return true
-        }
-
         guard trimmed.hasPrefix("/") else { return false }
         guard let commandToken = trimmed.dropFirst().split(whereSeparator: \.isWhitespace).first else {
             return false

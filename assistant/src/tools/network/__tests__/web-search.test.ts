@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 let mockWebSearchProvider: string | undefined = "perplexity";
 let mockBraveSecureKey: string | undefined;
 let mockPerplexitySecureKey: string | undefined;
+let mockTavilySecureKey: string | undefined;
 
 // Capture the registered tool
 let capturedTool: any = null;
@@ -26,6 +27,7 @@ mock.module("../../../security/secure-keys.js", () => ({
   getProviderKeyAsync: async (provider: string) => {
     if (provider === "brave") return mockBraveSecureKey;
     if (provider === "perplexity") return mockPerplexitySecureKey;
+    if (provider === "tavily") return mockTavilySecureKey;
     return undefined;
   },
 }));
@@ -52,6 +54,7 @@ describe("web_search tool", () => {
     mockWebSearchProvider = "perplexity";
     mockBraveSecureKey = undefined;
     mockPerplexitySecureKey = undefined;
+    mockTavilySecureKey = undefined;
   });
 
   afterEach(() => {
@@ -347,6 +350,125 @@ describe("web_search tool", () => {
     expect(callCount).toBe(4);
   });
 
+  // ---- Tavily provider ----------------------------------------------------
+
+  test("executes Tavily search successfully", async () => {
+    mockWebSearchProvider = "tavily";
+    mockTavilySecureKey = "tvly-test-key";
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: "Tavily Result 1",
+              url: "https://example.com/tavily-1",
+              content: "First Tavily result",
+              score: 0.91,
+            },
+            {
+              title: "Tavily Result 2",
+              url: "https://example.com/tavily-2",
+              content: "Second Tavily result",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "what is TypeScript" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Tavily Result 1");
+    expect(result.content).toContain("https://example.com/tavily-1");
+    expect(result.content).toContain("Score: 0.910");
+  });
+
+  test("Tavily sends correct request format", async () => {
+    mockWebSearchProvider = "tavily";
+    mockTavilySecureKey = "tvly-test-key";
+    let capturedUrl = "";
+    let capturedBody: any = null;
+    let capturedHeaders: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(init?.body as string);
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    await execute({ query: "test query", count: 50, freshness: "pm" });
+    expect(capturedUrl).toContain("api.tavily.com/search");
+    expect(capturedBody.query).toBe("test query");
+    expect(capturedBody.search_depth).toBe("advanced");
+    expect(capturedBody.max_results).toBe(20);
+    expect(capturedBody.time_range).toBe("month");
+    expect(capturedHeaders.get("authorization")).toBe("Bearer tvly-test-key");
+  });
+
+  test("Tavily skips invalid freshness values", async () => {
+    mockWebSearchProvider = "tavily";
+    mockTavilySecureKey = "tvly-key";
+    let capturedBody: any = null;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      capturedBody = JSON.parse(init?.body as string);
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    await execute({ query: "test", freshness: "invalid" });
+    expect(capturedBody.time_range).toBeUndefined();
+  });
+
+  test("Tavily returns no results message when response is empty", async () => {
+    mockWebSearchProvider = "tavily";
+    mockTavilySecureKey = "tvly-key";
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "obscure query" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("No results found");
+  });
+
+  test.each([401, 403])("Tavily handles %d auth error", async (status) => {
+    mockWebSearchProvider = "tavily";
+    mockTavilySecureKey = "bad-key";
+    globalThis.fetch = (async () => {
+      return new Response("Auth error", { status });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Invalid or expired Tavily API key");
+  });
+
+  test("Tavily handles 429 rate limit after max retries", async () => {
+    mockWebSearchProvider = "tavily";
+    mockTavilySecureKey = "tvly-key";
+    let callCount = 0;
+    globalThis.fetch = (async () => {
+      callCount++;
+      return new Response("Too Many Requests", {
+        status: 429,
+        headers: { "retry-after": "0" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("rate limit exceeded");
+    expect(callCount).toBe(4);
+  });
+
   // ---- Provider fallback --------------------------------------------------
 
   test("falls back from perplexity to brave when perplexity has no key", async () => {
@@ -376,6 +498,40 @@ describe("web_search tool", () => {
         JSON.stringify({
           choices: [{ message: { content: "fallback result" } }],
         }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "fallback test" });
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toContain("perplexity");
+  });
+
+  test("falls back to tavily when earlier providers have no key", async () => {
+    mockWebSearchProvider = "perplexity";
+    mockTavilySecureKey = "tvly-fallback-key";
+    let capturedUrl = "";
+    globalThis.fetch = (async (url: string) => {
+      capturedUrl = url;
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "fallback test" });
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toContain("tavily");
+  });
+
+  test("falls back from tavily to perplexity when tavily has no key", async () => {
+    mockWebSearchProvider = "tavily";
+    mockPerplexitySecureKey = "pplx-fallback-key";
+    let capturedUrl = "";
+    globalThis.fetch = (async (url: string) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: "fallback" } }] }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
     }) as any;

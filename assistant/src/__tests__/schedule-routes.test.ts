@@ -334,6 +334,110 @@ describe("schedule runs list — limit handling", () => {
   });
 });
 
+// ── POST /schedules — create ─────────────────────────────────────────────
+
+describe("POST /schedules — create", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  function postCreate(body: Record<string, unknown>) {
+    const route = findRoute("schedules", "POST");
+    return route.handler({ body }) as { schedules: Array<{ id: string }> };
+  }
+
+  test("creates a recurring execute schedule with defaults", () => {
+    const result = postCreate({
+      name: "Morning ping",
+      expression: "0 9 * * *",
+      message: "good morning",
+    });
+    expect(result.schedules).toHaveLength(1);
+    const job = listSchedules()[0];
+    expect(job.name).toBe("Morning ping");
+    expect(job.mode).toBe("execute");
+    expect(job.expression).toBe("0 9 * * *");
+    expect(job.syntax).toBe("cron");
+    expect(job.enabled).toBe(true);
+    expect(job.timezone).toBeNull();
+  });
+
+  test("trims whitespace and accepts an explicit timezone", () => {
+    postCreate({
+      name: "  Trimmed  ",
+      expression: "  0 9 * * *  ",
+      message: "hi",
+      timezone: " America/New_York ",
+    });
+    const job = listSchedules()[0];
+    expect(job.name).toBe("Trimmed");
+    expect(job.expression).toBe("0 9 * * *");
+    expect(job.timezone).toBe("America/New_York");
+  });
+
+  test("accepts an rrule expression and detects syntax", () => {
+    const expression = "DTSTART:20260101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO";
+    postCreate({
+      name: "Weekly",
+      expression,
+      message: "monday wake",
+    });
+    const job = listSchedules()[0];
+    expect(job.syntax).toBe("rrule");
+    expect(job.expression).toBe(expression);
+  });
+
+  test("rejects missing required fields", () => {
+    expect(() => postCreate({ expression: "* * * * *", message: "hi" })).toThrow(
+      "name is required",
+    );
+    expect(() => postCreate({ name: "x", message: "hi" })).toThrow(
+      "expression is required",
+    );
+    expect(() => postCreate({ name: "x", expression: "* * * * *" })).toThrow(
+      "message is required",
+    );
+  });
+
+  test("rejects non-execute modes", () => {
+    expect(() =>
+      postCreate({
+        name: "x",
+        expression: "* * * * *",
+        message: "hi",
+        mode: "notify",
+      }),
+    ).toThrow("Only 'execute' mode is supported");
+  });
+
+  test("rejects an unparseable expression", () => {
+    expect(() =>
+      postCreate({ name: "x", expression: "not-a-cron", message: "hi" }),
+    ).toThrow("could not be parsed");
+  });
+
+  test("surfaces invalid-cron errors from the store as 400s", () => {
+    expect(() =>
+      postCreate({
+        name: "x",
+        expression: "99 99 99 99 99",
+        message: "hi",
+      }),
+    ).toThrow();
+  });
+
+  test("respects enabled=false", () => {
+    postCreate({
+      name: "Off",
+      expression: "0 9 * * *",
+      message: "hi",
+      enabled: false,
+    });
+    const job = listSchedules()[0];
+    expect(job.enabled).toBe(false);
+  });
+});
+
 // ── Wake mode support ─────────────────────────────────────────────────────
 
 describe("wake mode in schedule routes", () => {

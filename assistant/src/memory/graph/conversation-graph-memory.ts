@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
+import { z } from "zod";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
@@ -19,6 +20,8 @@ import type {
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getDb } from "../db-connection.js";
+import { embedWithRetry } from "../embed.js";
+import { generateSparseEmbedding } from "../embedding-backend.js";
 import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
@@ -388,8 +391,15 @@ export class ConversationGraphMemory {
 
       return await this.runPerTurn(messages, config, abortSignal);
     } catch (err) {
+      const errCode =
+        err instanceof z.ZodError ? err.issues[0]?.code : undefined;
       log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
+        {
+          err: err instanceof Error ? err.message : String(err),
+          conversationId: this.conversationId,
+          turn: this.tracker.getTurn(),
+          errCode,
+        },
         "Memory retrieval failed (non-fatal)",
       );
       return noopResult;
@@ -422,10 +432,19 @@ export class ConversationGraphMemory {
       "",
       signal,
     );
-    this.initialized = true;
-    this.needsReload = false;
 
     if (v2.routed) {
+      // Surface a user-query embedding so PKB hint search still runs on v2
+      // turns. v1's `loadContextMemory` produced these as a side effect of
+      // hybrid retrieval; the v2 path skips that retrieval, so embed
+      // explicitly here.
+      const userQueryEmbed = await this.computeQueryVectors(
+        rawUserText ?? userQuery ?? "",
+        config,
+        signal,
+      );
+      this.initialized = true;
+      this.needsReload = false;
       this.lastInjectedBlock = v2.injectedBlockText;
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
@@ -438,6 +457,8 @@ export class ConversationGraphMemory {
         mode: "context-load" as const,
         injectedBlockText: v2.injectedBlockText,
         metrics: null,
+        userQueryVector: userQueryEmbed.dense,
+        userQuerySparseVector: userQueryEmbed.sparse,
       };
     }
 
@@ -449,6 +470,12 @@ export class ConversationGraphMemory {
       config,
       signal,
     });
+    // Set initialized only after v1 retrieval succeeds. If `loadContextMemory`
+    // throws (transient DB/Qdrant failure), `prepareMemory` catches and
+    // returns noop, but we want the next turn to retry the bootstrap path
+    // rather than be stuck in per-turn mode.
+    this.initialized = true;
+    this.needsReload = false;
 
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
@@ -569,6 +596,14 @@ export class ConversationGraphMemory {
       signal,
     );
     if (v2.routed) {
+      // Surface a per-turn query embedding so PKB hint search still runs
+      // on v2 turns. v1's `retrieveForTurn` produced these as a side effect;
+      // the v2 path skips that retrieval, so embed explicitly here.
+      const perTurnEmbed = await this.computeQueryVectors(
+        userLast,
+        config,
+        signal,
+      );
       this.lastInjectedBlock = v2.injectedBlockText;
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
@@ -581,6 +616,8 @@ export class ConversationGraphMemory {
         mode: "per-turn" as const,
         injectedBlockText: v2.injectedBlockText,
         metrics: null,
+        queryVector: perTurnEmbed.dense,
+        sparseVector: perTurnEmbed.sparse,
       };
     }
 
@@ -653,6 +690,35 @@ export class ConversationGraphMemory {
   }
 
   /**
+   * Embed a query string for PKB hint search on v2 turns. v1 retrieval
+   * produced these vectors as a side effect; on v2 we skip retrieval, so
+   * the agent loop loses the dense/sparse pair it needs to drive
+   * `buildPkbReminderWithHints`. Failures here degrade PKB hints to the
+   * static fallback rather than blocking the turn.
+   */
+  private async computeQueryVectors(
+    text: string,
+    config: AssistantConfig,
+    signal: AbortSignal,
+  ): Promise<{ dense?: number[]; sparse?: QdrantSparseVector }> {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return {};
+    let dense: number[] | undefined;
+    try {
+      const result = await embedWithRetry(config, [trimmed], { signal });
+      dense = result.vectors[0];
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Failed to embed query for PKB hints on v2 path",
+      );
+    }
+    const sparseRaw = generateSparseEmbedding(trimmed);
+    const sparse = sparseRaw.indices.length > 0 ? sparseRaw : undefined;
+    return { dense, sparse };
+  }
+
+  /**
    * Run the v2 activation pipeline when the workspace config
    * (`memory.v2.enabled`) is on.
    *
@@ -716,7 +782,11 @@ export class ConversationGraphMemory {
  * Count the leading content blocks on a user message that were added by
  * `injectMemoryBlock`. Memory-injected images use a 3-block pattern
  * (opening `<memory_image>` text + image + closing `</memory_image>` text),
- * followed by a `<memory>…</memory>` text block (legacy `<memory __injected>` is also accepted). A legacy
+ * followed by a `<memory>…</memory>` text block (legacy `<memory __injected>` is also accepted).
+ * The bare `<memory>` form is matched only when the block also ends with
+ * `\n</memory>`, so user-authored content that happens to begin with
+ * `<memory>` (for example, a message discussing the XML-like markup) is not
+ * mistaken for an injected prefix and stripped on re-injection. A legacy
  * 2-block image pattern (no closing tag) is also accepted for backward
  * compatibility. The injection prefix is always contiguous at the start,
  * so we stop at the first non-memory block.
@@ -729,7 +799,8 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
     const block = content[firstNonMemory];
     if (
       block.type === "text" &&
-      (block.text.startsWith("<memory>\n") ||
+      ((block.text.startsWith("<memory>\n") &&
+        block.text.endsWith("\n</memory>")) ||
         block.text.startsWith("<memory __injected>\n"))
     ) {
       firstNonMemory++;

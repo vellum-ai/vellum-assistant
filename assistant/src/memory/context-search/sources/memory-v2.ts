@@ -28,7 +28,6 @@ import { extname, isAbsolute, join, relative } from "node:path";
 
 import { getLogger } from "../../../util/logger.js";
 import { embedWithRetry } from "../../embed.js";
-import { generateSparseEmbedding } from "../../embedding-backend.js";
 import { spreadActivation } from "../../v2/activation.js";
 import { getEdgeIndex } from "../../v2/edge-index.js";
 import {
@@ -37,7 +36,8 @@ import {
   slugFromConceptPath,
 } from "../../v2/page-store.js";
 import { hybridQueryConceptPages } from "../../v2/qdrant.js";
-import { clampUnitInterval } from "../../validation.js";
+import { fuseHalf } from "../../v2/sim.js";
+import { generateBm25QueryEmbedding } from "../../v2/sparse-bm25.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
@@ -173,7 +173,7 @@ async function activationEvidence(
   });
   const denseVector = denseResult.vectors[0];
   if (!denseVector || denseVector.length === 0) return [];
-  const sparseVector = generateSparseEmbedding(trimmedQuery);
+  const sparseVector = generateBm25QueryEmbedding(trimmedQuery);
 
   const annLimit =
     context.config.memory.v2.ann_candidate_limit ??
@@ -188,24 +188,43 @@ async function activationEvidence(
   const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
     context.config.memory.v2;
 
-  let maxSparse = 0;
+  // Mirror sim.ts: normalize body and summary sparse channels against their
+  // own per-batch maxima, fuse each half via clamp01(dense·w_d + sparse·w_s),
+  // then take max(body, summary) per slug. Pages without a summary embedding
+  // return undefined for both summary scores; the max collapses cleanly to
+  // the body score so legacy pages keep their pre-summary ranking.
+  let maxBodySparse = 0;
+  let maxSummarySparse = 0;
   for (const hit of hits) {
-    if (hit.sparseScore !== undefined && hit.sparseScore > maxSparse) {
-      maxSparse = hit.sparseScore;
+    if (hit.sparseScore !== undefined && hit.sparseScore > maxBodySparse) {
+      maxBodySparse = hit.sparseScore;
+    }
+    if (
+      hit.summarySparseScore !== undefined &&
+      hit.summarySparseScore > maxSummarySparse
+    ) {
+      maxSummarySparse = hit.summarySparseScore;
     }
   }
 
   const ownActivation = new Map<string, number>();
   for (const hit of hits) {
-    const dense = hit.denseScore ?? 0;
-    const sparseNormalized =
-      hit.sparseScore !== undefined && maxSparse > 0
-        ? hit.sparseScore / maxSparse
-        : 0;
-    ownActivation.set(
-      hit.slug,
-      clampUnitInterval(denseWeight * dense + sparseWeight * sparseNormalized),
+    const bodyScore = fuseHalf(
+      hit.denseScore,
+      hit.sparseScore,
+      maxBodySparse,
+      denseWeight,
+      sparseWeight,
     );
+    const summaryScore = fuseHalf(
+      hit.summaryDenseScore,
+      hit.summarySparseScore,
+      maxSummarySparse,
+      denseWeight,
+      sparseWeight,
+    );
+    const score = Math.max(bodyScore ?? 0, summaryScore ?? bodyScore ?? 0);
+    ownActivation.set(hit.slug, score);
   }
 
   const edgeIndex = await getEdgeIndex(context.workingDir);
@@ -295,11 +314,13 @@ async function lexicalEvidence(
   if (!conceptsRoot) return [];
 
   const matches: MemoryV2LexicalMatch[] = [];
+  const visitedDirectories = new Set<string>([conceptsRoot]);
   await walkConceptsDirectory(
     conceptsRoot,
     conceptsRoot,
     queryTerms,
     matches,
+    visitedDirectories,
     context.signal,
   );
 
@@ -330,6 +351,7 @@ async function walkConceptsDirectory(
   conceptsRoot: string,
   queryTerms: ReadonlySet<string>,
   matches: MemoryV2LexicalMatch[],
+  visitedDirectories: Set<string>,
   signal: AbortSignal | undefined,
 ): Promise<void> {
   throwIfAborted(signal);
@@ -364,11 +386,14 @@ async function walkConceptsDirectory(
     }
 
     if (entryStats.isDirectory()) {
+      if (visitedDirectories.has(entryRealPath)) continue;
+      visitedDirectories.add(entryRealPath);
       await walkConceptsDirectory(
         entryRealPath,
         conceptsRoot,
         queryTerms,
         matches,
+        visitedDirectories,
         signal,
       );
       continue;

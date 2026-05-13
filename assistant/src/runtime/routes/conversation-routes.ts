@@ -47,7 +47,10 @@ import {
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
-import { preactivateHostProxySkills } from "../../daemon/host-proxy-preactivation.js";
+import {
+  preactivateHostProxySkills,
+  shouldAttachHostProxyForCapability,
+} from "../../daemon/host-proxy-preactivation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -98,7 +101,6 @@ import {
   getWorkspacePromptPath,
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
-import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
@@ -111,6 +113,10 @@ import type {
 } from "../http-types.js";
 import { resolveLocalTrustContext } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
+import {
+  publishConversationListAndMetadataChanged,
+  publishConversationMessagesChanged,
+} from "../sync/resource-sync-events.js";
 import {
   resolveTrustContext,
   withSourceChannel,
@@ -336,6 +342,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       });
       onEvent({ type: "message_complete", conversationId: conversationId });
     }
+    publishConversationMessagesChanged(conversationId);
   } catch (err) {
     log.warn(
       { err, conversationId },
@@ -1006,6 +1013,7 @@ function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 }
 
 /**
+/**
  * Persist the pre-chat onboarding payload to disk.
  *
  * Runs only on the very first message of a fresh conversation. Four
@@ -1243,6 +1251,15 @@ export async function handleSendMessage(
     );
   }
 
+  // Reject the legacy "private" mode explicitly rather than silently coercing
+  // it to "standard" — clients that still populate this field expect privacy
+  // semantics that no longer exist.
+  if (body.conversationType === "private") {
+    throw new BadRequestError(
+      "Private conversations are no longer supported. Update your client to omit conversationType or send 'standard'.",
+    );
+  }
+
   // Desktop messages are always from the guardian — reset the heartbeat
   // timer so the next heartbeat is a full interval after this interaction.
   HeartbeatService.getInstance()?.resetTimer();
@@ -1280,16 +1297,10 @@ export async function handleSendMessage(
   // that other clients don't yet know about.
   if (mapping.conversationType === "standard") {
     if (!hasMessages(mapping.conversationId)) {
-      smDeps.assistantEventHub
-        .publish(
-          buildAssistantEvent({
-            type: "conversation_list_invalidated",
-            reason: "created",
-          }),
-        )
-        .catch((err) => {
-          log.warn({ err }, "Failed to publish conversation_list_invalidated");
-        });
+      publishConversationListAndMetadataChanged(
+        "created",
+        mapping.conversationId,
+      );
     }
   }
 
@@ -1397,7 +1408,7 @@ export async function handleSendMessage(
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).
-  if (supportsHostProxy(sourceInterface, "host_cu")) {
+  if (shouldAttachHostProxyForCapability("host_cu", sourceInterface)) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
@@ -1406,11 +1417,11 @@ export async function handleSendMessage(
   }
   // App-control mirrors CU's per-conversation lifecycle: the proxy owns a
   // singleton lock plus per-session loop tracking. Instantiation is
-  // unconditional when the client supports the capability — feature-flag
-  // gating lives in the skill-projection layer (which reads the
-  // `feature-flag: app-control` declaration in SKILL.md frontmatter), so
-  // an attached proxy is harmless when the flag resolves to off.
-  if (supportsHostProxy(sourceInterface, "host_app_control")) {
+  // unconditional when the capability is reachable — feature-flag gating
+  // lives in the skill-projection layer (which reads the `feature-flag:
+  // app-control` declaration in SKILL.md frontmatter), so an attached proxy
+  // is harmless when the flag resolves to off.
+  if (shouldAttachHostProxyForCapability("host_app_control", sourceInterface)) {
     if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
       conversation.setHostAppControlProxy(
         new HostAppControlProxy(mapping.conversationId),
@@ -1512,6 +1523,7 @@ export async function handleSendMessage(
           conversationId,
         });
         broadcastMessage({ type: "message_complete", conversationId });
+        publishConversationMessagesChanged(conversationId);
         conversation.processing = false;
         silentlyWithLog(
           conversation.drainQueue(),
@@ -1815,6 +1827,7 @@ export async function handleSendMessage(
           type: "message_complete",
           conversationId: conversationId,
         });
+        publishConversationMessagesChanged(conversationId);
         conversation.processing = false;
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
       }, 0);
@@ -1856,6 +1869,7 @@ export async function handleSendMessage(
     // forceCompact() makes an LLM call that can exceed the client's
     // HTTP timeout on large contexts, causing a false "Failed to send".
     (async () => {
+      let assistantMessagePersisted = false;
       try {
         broadcastMessage({
           type: "user_message_echo",
@@ -1864,12 +1878,15 @@ export async function handleSendMessage(
           messageId: persisted.id,
           clientMessageId,
         });
+        publishConversationMessagesChanged(conversationId);
         conversation.emitActivityState(
           "thinking",
           "context_compacting",
           "assistant_turn",
         );
-        const result = await conversation.forceCompact();
+        const result = await conversation.forceCompact({
+          targetInputTokensOverride: slashResult.targetInputTokensOverride,
+        });
         const responseText = formatCompactResult(result);
 
         const assistantMsg = createAssistantMessage(responseText);
@@ -1879,6 +1896,7 @@ export async function handleSendMessage(
           JSON.stringify(assistantMsg.content),
           channelMeta,
         );
+        assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);
 
         broadcastMessage({
@@ -1887,7 +1905,11 @@ export async function handleSendMessage(
           conversationId,
         });
         broadcastMessage({ type: "message_complete", conversationId });
+        publishConversationMessagesChanged(conversationId);
       } catch (err) {
+        if (assistantMessagePersisted) {
+          publishConversationMessagesChanged(conversationId);
+        }
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({
           type: "conversation_error",
@@ -1935,6 +1957,7 @@ export async function handleSendMessage(
     requestId,
     clientMessageId,
   });
+  publishConversationMessagesChanged(mapping.conversationId);
 
   // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
   conversation
@@ -2009,7 +2032,7 @@ async function generateLlmSuggestion(
     systemPrompt,
     {
       config: {
-        callSite: "conversationStarters",
+        callSite: "replySuggestion",
         max_tokens: 60,
         stop_sequences: ["</reply>"],
         temperature: 0.7,
@@ -2138,7 +2161,7 @@ export async function handleGetSuggestion(
     }
 
     // Try LLM suggestion using the configured provider
-    const provider = await getConfiguredProvider("conversationStarters");
+    const provider = await getConfiguredProvider("replySuggestion");
     if (provider) {
       try {
         // Deduplicate concurrent requests

@@ -12,7 +12,6 @@ public protocol SettingsClientProtocol {
     func saveVercelConfig(apiToken: String) async -> VercelApiConfigResponseMessage?
     func deleteVercelConfig() async -> VercelApiConfigResponseMessage?
     func fetchModelInfo() async -> ModelInfoMessage?
-    func setModel(model: String, provider: String?) async -> ModelInfoMessage?
     func setImageGenModel(modelId: String) async -> ModelInfoMessage?
     func fetchEmbeddingConfig() async -> EmbeddingConfigMessage?
     func setEmbeddingConfig(provider: String, model: String?) async -> EmbeddingConfigMessage?
@@ -126,25 +125,6 @@ public struct SettingsClient: SettingsClientProtocol {
             return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
         } catch {
             log.error("fetchModelInfo error: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
-
-    public func setModel(model: String, provider: String? = nil) async -> ModelInfoMessage? {
-        do {
-            var body: [String: Any] = ["modelId": model]
-            if let provider { body["provider"] = provider }
-            let response = try await GatewayHTTPClient.put(
-                path: "model", json: body, timeout: 10
-            )
-            guard response.isSuccess else {
-                log.error("setModel failed (HTTP \(response.statusCode))")
-                return nil
-            }
-            let patched = injectType("model_info", into: response.data)
-            return try JSONDecoder().decode(ModelInfoMessage.self, from: patched)
-        } catch {
-            log.error("setModel error: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

@@ -734,6 +734,40 @@ public struct ConversationListInvalidatedMessage: Decodable, Sendable {
     public let reason: String
 }
 
+/// Generic persisted-state invalidation event.
+///
+/// Tags name stale resources and intentionally do not carry resource data.
+/// Routing/refetch behavior is added separately by the native sync router.
+public struct SyncChangedMessage: Decodable, Sendable {
+    public let tags: [String]
+
+    public init(tags: [String]) {
+        self.tags = tags
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tags
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard var tagContainer = try? container.nestedUnkeyedContainer(forKey: .tags) else {
+            tags = []
+            return
+        }
+
+        var decodedTags: [String] = []
+        while !tagContainer.isAtEnd {
+            if let tag = try? tagContainer.decode(String.self) {
+                decodedTags.append(tag)
+            } else {
+                _ = try? tagContainer.decode(AnyCodable.self)
+            }
+        }
+        tags = decodedTags
+    }
+}
+
 /// Conversation title update push message emitted after first-turn auto-titling.
 /// Backed by generated `ConversationTitleUpdated`.
 public typealias ConversationTitleUpdatedMessage = ConversationTitleUpdated
@@ -2258,6 +2292,41 @@ public struct MeetSpeakingEndedMessage: Decodable, Sendable, Equatable {
     }
 }
 
+// MARK: - Bookmark events
+//
+// Wire-compatible mirror of `assistant/src/daemon/message-types/bookmarks.ts`.
+// Emitted by `bookmark-routes.ts` after every mutation so other connected
+// clients (e.g. a second macOS window) can refresh their bookmark cache in
+// lock-step. The dotted `type` strings (`bookmark.created` / `bookmark.deleted`)
+// match the daemon's serialization. Each platform client decides how to react
+// — see the platform-specific event subscriber for the translation
+// (e.g. `AppDelegate+ConnectionSetup.swift` on macOS posts a
+// `.bookmarkDidChange` NotificationCenter event).
+
+/// A new bookmark was created on the daemon.
+public struct BookmarkCreatedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let bookmark: BookmarkSummary
+
+    public init(type: String, bookmark: BookmarkSummary) {
+        self.type = type
+        self.bookmark = bookmark
+    }
+}
+
+/// An existing bookmark was deleted on the daemon, identified by the message
+/// it was attached to. Clients typically just refresh their bookmark list on
+/// receipt; the id is included for clients that index by message.
+public struct BookmarkDeletedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let messageId: String
+
+    public init(type: String, messageId: String) {
+        self.type = type
+        self.messageId = messageId
+    }
+}
+
 /// Payload posted back to the daemon with the result of a host CU action execution.
 public struct HostCuResultPayload: Codable, Sendable {
     public let requestId: String
@@ -2601,16 +2670,6 @@ extension ModelGetRequest {
     }
 }
 
-/// Set the active model.
-/// Backed by generated `ModelSetRequest`.
-public typealias ModelSetRequestMessage = ModelSetRequest
-
-extension ModelSetRequest {
-    public init(model: String) {
-        self.init(type: "model_set", model: model)
-    }
-}
-
 /// Set the active image generation model.
 /// Backed by generated `ImageGenModelSetRequest`.
 public typealias ImageGenModelSetRequestMessage = ImageGenModelSetRequest
@@ -2832,6 +2891,7 @@ public enum ServerMessage: Decodable, Sendable {
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
     case conversationListInvalidated(ConversationListInvalidatedMessage)
+    case syncChanged(SyncChangedMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
     case memoryRecalled(MemoryRecalledMessage)
@@ -2986,6 +3046,8 @@ public enum ServerMessage: Decodable, Sendable {
     case meetError(MeetErrorMessage)
     case meetSpeakingStarted(MeetSpeakingStartedMessage)
     case meetSpeakingEnded(MeetSpeakingEndedMessage)
+    case bookmarkCreated(BookmarkCreatedMessage)
+    case bookmarkDeleted(BookmarkDeletedMessage)
     case contextCompacted(ContextCompacted)
     case usageUpdate(UsageUpdate)
     case compactionCircuitOpen(CompactionCircuitOpen)
@@ -3353,6 +3415,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_list_invalidated":
             let message = try ConversationListInvalidatedMessage(from: decoder)
             self = .conversationListInvalidated(message)
+        case "sync_changed":
+            let message = try SyncChangedMessage(from: decoder)
+            self = .syncChanged(message)
         case "schedule_conversation_created":
             let message = try ScheduleConversationCreated(from: decoder)
             self = .scheduleConversationCreated(message)
@@ -3542,6 +3607,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "meet.speaking_ended":
             let message = try MeetSpeakingEndedMessage(from: decoder)
             self = .meetSpeakingEnded(message)
+        case "bookmark.created":
+            let message = try BookmarkCreatedMessage(from: decoder)
+            self = .bookmarkCreated(message)
+        case "bookmark.deleted":
+            let message = try BookmarkDeletedMessage(from: decoder)
+            self = .bookmarkDeleted(message)
         case "relationship_state_updated":
             let payloadContainer = try decoder.container(keyedBy: InlinePayloadKeys.self)
             let updatedAt = try payloadContainer.decode(String.self, forKey: .updatedAt)

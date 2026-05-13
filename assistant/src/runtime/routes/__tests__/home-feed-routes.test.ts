@@ -63,28 +63,8 @@ mock.module("../../../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
 }));
 
-// Stub the rollup producer so the on-visit refresh trigger inside
-// handleGetHomeFeed doesn't try to resolve a real provider or touch
-// relationship state. The route calls the producer fire-and-forget,
-// so tests observe the trigger via call-count on this spy rather
-// than awaiting a return value.
-//
-// Default skip reason is `empty_items` — a real LLM attempt that
-// returned nothing to consolidate. Using a real-run skip means the
-// debounce gate holds firm in the default case (matching production
-// semantics); individual tests override with `no_provider` etc. to
-// exercise the rollback path.
-const rollupProducerSpy = mock<() => Promise<unknown>>(async () => ({
-  wroteCount: 0,
-  skippedReason: "empty_items",
-}));
-mock.module("../../../home/rollup-producer.js", () => ({
-  runRollupProducer: rollupProducerSpy,
-}));
-
 // Dynamic imports so module mocks are wired before evaluation.
 const {
-  __resetOnVisitRefreshStateForTests,
   computeGreeting,
   formatRelativeTime,
   handleGetHomeFeed: _handleGetHomeFeed,
@@ -167,17 +147,14 @@ function homeFeedRouteDefinitions() {
 
 type FeedItemFixture = {
   id: string;
-  type: "nudge" | "digest" | "action" | "thread";
+  type: "notification";
   priority: number;
   title: string;
   summary: string;
-  source?: "gmail" | "slack" | "calendar" | "assistant";
   timestamp: string;
   status: "new" | "seen" | "acted_on";
   expiresAt?: string;
-  minTimeAway?: number;
   actions?: Array<{ id: string; label: string; prompt: string }>;
-  author: "assistant" | "platform";
   createdAt: string;
 };
 
@@ -185,13 +162,12 @@ function makeItem(
   overrides: Partial<FeedItemFixture> & { id: string },
 ): FeedItemFixture {
   return {
-    type: "nudge",
+    type: "notification",
     priority: 50,
     title: "Test",
     summary: "Test summary",
     timestamp: "2026-04-14T12:00:00.000Z",
     status: "new",
-    author: "platform",
     createdAt: "2026-04-14T12:00:00.000Z",
     ...overrides,
   };
@@ -204,7 +180,7 @@ function writeFeedFile(items: FeedItemFixture[]): void {
     path,
     JSON.stringify(
       {
-        version: 1,
+        version: 2,
         updatedAt: "2026-04-14T12:00:00.000Z",
         items,
       },
@@ -223,8 +199,6 @@ beforeEach(() => {
   origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   publishSpy.mockClear();
-  rollupProducerSpy.mockClear();
-  __resetOnVisitRefreshStateForTests();
   createdConversations.length = 0;
   addedMessages.length = 0;
   createConversationShouldThrow = false;
@@ -372,18 +346,12 @@ describe("handleGetHomeFeed", () => {
     expect(typeof body.contextBanner.greeting).toBe("string");
   });
 
-  test("filters out items whose minTimeAway exceeds timeAwaySeconds", async () => {
-    writeFeedFile([
-      makeItem({
-        id: "gated",
-        type: "nudge",
-        minTimeAway: 3600,
-      }),
-      makeItem({
-        id: "ungated",
-        type: "nudge",
-      }),
-    ]);
+  test("returns every item regardless of timeAwaySeconds (v2 dropped minTimeAway gating)", async () => {
+    // The v2 schema no longer carries `minTimeAway`, and the route
+    // handler no longer gates on it — every item flows through. The
+    // `timeAwaySeconds` query parameter survives only because the
+    // context banner's relative-time label is derived from it.
+    writeFeedFile([makeItem({ id: "a" }), makeItem({ id: "b" })]);
 
     const res = await handleGetHomeFeed(
       new Request("http://localhost/v1/home/feed?timeAwaySeconds=60"),
@@ -393,20 +361,13 @@ describe("handleGetHomeFeed", () => {
       items: Array<{ id: string }>;
       contextBanner: { newCount: number };
     };
-    const ids = body.items.map((i) => i.id);
-    expect(ids).toContain("ungated");
-    expect(ids).not.toContain("gated");
-    expect(body.contextBanner.newCount).toBe(1);
+    const ids = body.items.map((i) => i.id).sort();
+    expect(ids).toEqual(["a", "b"]);
+    expect(body.contextBanner.newCount).toBe(2);
   });
 
-  test("includes items when timeAwaySeconds >= minTimeAway", async () => {
-    writeFeedFile([
-      makeItem({
-        id: "gated",
-        type: "nudge",
-        minTimeAway: 3600,
-      }),
-    ]);
+  test("contextBanner.timeAwayLabel reflects the supplied timeAwaySeconds", async () => {
+    writeFeedFile([makeItem({ id: "any" })]);
 
     const res = await handleGetHomeFeed(
       new Request("http://localhost/v1/home/feed?timeAwaySeconds=7200"),
@@ -417,88 +378,9 @@ describe("handleGetHomeFeed", () => {
       contextBanner: { newCount: number; timeAwayLabel: string };
     };
     expect(body.items).toHaveLength(1);
-    expect(body.items[0]!.id).toBe("gated");
+    expect(body.items[0]!.id).toBe("any");
     expect(body.contextBanner.newCount).toBe(1);
     expect(body.contextBanner.timeAwayLabel).toBe("2 hours ago");
-  });
-
-  test("fires the rollup producer fire-and-forget on the first GET", async () => {
-    const res = await handleGetHomeFeed(
-      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
-    );
-    expect(res.status).toBe(200);
-    // Yield a microtask so the fire-and-forget call reaches its
-    // first await point.
-    await Promise.resolve();
-    expect(rollupProducerSpy).toHaveBeenCalledTimes(1);
-  });
-
-  test("does NOT refire the rollup when the debounce window has not elapsed", async () => {
-    await handleGetHomeFeed(
-      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
-    );
-    await Promise.resolve();
-    expect(rollupProducerSpy).toHaveBeenCalledTimes(1);
-
-    // A second GET milliseconds later should NOT re-trigger the
-    // rollup — the 10-minute debounce prevents aggressive pollers or
-    // multiple panels from firing repeat refreshes.
-    await handleGetHomeFeed(
-      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
-    );
-    await handleGetHomeFeed(
-      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
-    );
-    await Promise.resolve();
-    expect(rollupProducerSpy).toHaveBeenCalledTimes(1);
-  });
-
-  test("debounce is rolled back when the producer skips before the LLM call", async () => {
-    // Simulate the daemon-boot race: the first GET fires the
-    // producer but the provider registry isn't ready yet, so the
-    // producer short-circuits with `no_provider`. A second GET a
-    // moment later must still be allowed to fire — otherwise Home
-    // stays stale for the full 10-minute debounce window while the
-    // user is actively trying to refresh.
-    rollupProducerSpy.mockImplementationOnce(async () => ({
-      wroteCount: 0,
-      skippedReason: "no_provider",
-    }));
-
-    await handleGetHomeFeed(
-      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
-    );
-    // Let the fire-and-forget `.then()` that performs the rollback
-    // run before we issue the second GET. Two microtask ticks
-    // because the chain is runRollupProducer -> .then handler.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(rollupProducerSpy).toHaveBeenCalledTimes(1);
-
-    // Second GET — producer is now ready. Gate must have been
-    // rolled back so this GET re-fires the producer.
-    await handleGetHomeFeed(
-      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
-    );
-    await Promise.resolve();
-    expect(rollupProducerSpy).toHaveBeenCalledTimes(2);
-  });
-
-  test("rollup producer failure does not turn the GET into an error", async () => {
-    // Even if the rollup producer rejects, the GET must still return
-    // 200 with the cached feed — the refresh is fire-and-forget.
-    rollupProducerSpy.mockImplementationOnce(async () => {
-      throw new Error("synthetic rollup failure");
-    });
-
-    const res = await handleGetHomeFeed(
-      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
-    );
-    expect(res.status).toBe(200);
-    // Drain the rejected promise so it doesn't leak into the next
-    // test as an unhandled rejection.
-    await Promise.resolve();
-    await Promise.resolve();
   });
 
   test("newCount counts only status=new after filtering", async () => {
@@ -597,7 +479,6 @@ describe("handlePostFeedAction", () => {
     writeFeedFile([
       makeItem({
         id: "item-1",
-        type: "action",
         actions: [
           {
             id: "reply",
@@ -648,7 +529,6 @@ describe("handlePostFeedAction", () => {
     writeFeedFile([
       makeItem({
         id: "item-2",
-        type: "action",
         actions: [{ id: "reply", label: "Reply", prompt: "hi" }],
       }),
     ]);
@@ -668,7 +548,6 @@ describe("handlePostFeedAction", () => {
     writeFeedFile([
       makeItem({
         id: "item-3",
-        type: "action",
         actions: [{ id: "reply", label: "Reply", prompt: "hi" }],
       }),
     ]);

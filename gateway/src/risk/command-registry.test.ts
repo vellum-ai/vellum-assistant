@@ -540,7 +540,6 @@ describe("command-registry", () => {
         "attachment",
         "audit",
         "auth",
-        "autonomy",
         "avatar",
         "backup",
         "bash",
@@ -593,6 +592,9 @@ describe("command-registry", () => {
       expect(getAssistantPath("conversations clear").baseRisk).toBe("medium");
       expect(getAssistantPath("conversations wipe").baseRisk).toBe("high");
       expect(getAssistantPath("backup restore").baseRisk).toBe("high");
+      expect(getAssistantPath("inference session open").baseRisk).toBe("low");
+      expect(getAssistantPath("inference session close").baseRisk).toBe("low");
+      expect(getAssistantPath("inference session list").baseRisk).toBe("low");
     });
   });
 

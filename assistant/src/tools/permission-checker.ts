@@ -9,7 +9,11 @@ import {
 } from "../permissions/checker.js";
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
-import type { ApprovalMode, ApprovalReason, RiskThreshold } from "../permissions/types.js";
+import type {
+  ApprovalMode,
+  ApprovalReason,
+  RiskThreshold,
+} from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
@@ -160,9 +164,11 @@ export class PermissionChecker {
       );
       const riskThreshold = conversationThreshold as RiskThreshold;
 
-      // Some callers force prompting for side-effect tools even when a
-      // trust/allow rule would auto-allow. Deny decisions are preserved -
-      // only allow → prompt promotion happens here.
+      // Non-interactive callers (e.g. non-guardian phone voice) force
+      // prompting for side-effect tools even when a trust/allow rule would
+      // auto-allow, so their auto-deny handler always sees a
+      // confirmation_request. Deny decisions are preserved — only
+      // allow → prompt promotion happens here.
       if (
         context.forcePromptSideEffects &&
         result.decision === "allow" &&
@@ -200,7 +206,9 @@ export class PermissionChecker {
           reason: result.reason,
           durationMs,
         });
-        const provenance = mapApprovalProvenance("denied", { matchedTrustRuleId });
+        const provenance = mapApprovalProvenance("denied", {
+          matchedTrustRuleId,
+        });
         return {
           allowed: false,
           decision: "denied",

@@ -9,6 +9,7 @@ import type {
 } from "../qdrant-client.js";
 import { getQdrantClient } from "../qdrant-client.js";
 import { memorySegments, memorySummaries } from "../schema.js";
+import { mapCosineToUnit } from "../validation.js";
 // ── Types (inlined from deleted types.ts) ──────────────────────────
 
 type CandidateType = "segment" | "item" | "summary" | "media";
@@ -234,8 +235,4 @@ function buildHybridFilter(
     must: mustConditions,
     must_not: mustNotConditions,
   };
-}
-
-function mapCosineToUnit(value: number): number {
-  return Math.max(0, Math.min(1, (value + 1) / 2));
 }

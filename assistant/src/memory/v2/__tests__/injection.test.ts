@@ -41,6 +41,7 @@ import {
 } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { z } from "zod";
 
 import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../../../config/types.js";
@@ -153,6 +154,11 @@ mock.module("../skill-store.js", () => ({
   isSkillSlug: (slug: string) => slug.startsWith("skills/"),
   SKILL_SLUG_PREFIX: "skills/",
   skillSlugFor: (id: string) => `skills/${id}`,
+  // PR 4 added `listSkillEntries`; `page-index.ts` (transitively imported
+  // via `page-store.ts` and `skill-store.ts`) consumes it at module-init
+  // time. Tests stage skill content via `skillState.entries`; expose them
+  // here so the page-index loader sees a consistent view.
+  listSkillEntries: () => Array.from(skillState.entries.values()),
 }));
 
 // ---------------------------------------------------------------------------
@@ -176,6 +182,93 @@ mock.module("../../memory-v2-activation-log-store.js", () => ({
       throw new Error("simulated telemetry write failure");
     }
     telemetryState.recordCalls.push(params);
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Page-store mock — pass-through with optional per-slug failure injection
+// ---------------------------------------------------------------------------
+//
+// Most tests want the real `readPage` (it walks the temp workspace seeded in
+// `beforeAll`). The error-isolation tests stage a slug whose `readPage` call
+// must throw — typically a Zod validation error mimicking the real-world
+// "unrecognized frontmatter key" failure that motivated this work. Tests
+// stage entries via `pageStoreState.failingSlugs` and reset in `resetState`.
+//
+// Bun's `mock.module` mutates the module's exports object in place, so
+// `realPageStore.readPage` AFTER the mock applies would resolve to the mock
+// itself — calling it would recurse. We capture the original function value
+// (not a property lookup) before installing the mock so the pass-through
+// path has a real reference to the underlying implementation.
+
+const realPageStoreModule = await import("../page-store.js");
+const realReadPage = realPageStoreModule.readPage;
+const pageStoreState = {
+  failingSlugs: new Map<string, Error>(),
+};
+mock.module("../page-store.js", () => ({
+  ...realPageStoreModule,
+  readPage: async (workspaceDir: string, slug: string) => {
+    const err = pageStoreState.failingSlugs.get(slug);
+    if (err) throw err;
+    return realReadPage(workspaceDir, slug);
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Router mock — programmable per-call result
+// ---------------------------------------------------------------------------
+//
+// PR 10 wires `runRouter` into `injectMemoryV2Block` behind the
+// `memory.v2.router.enabled` flag. The activation-mode tests above never
+// flip the flag, so the default mock returns a no-op result and the router
+// branch is never exercised. Router-mode tests set `routerState.nextResult`
+// to stage a deterministic outcome before each call.
+
+interface RouterResultStub {
+  selectedSlugs: string[];
+  failureReason: string | null;
+}
+
+const routerState = {
+  nextResult: null as RouterResultStub | null,
+  callCount: 0,
+};
+
+mock.module("../router.js", () => ({
+  runRouter: async () => {
+    routerState.callCount++;
+    return (
+      routerState.nextResult ?? {
+        selectedSlugs: [],
+        failureReason: null,
+      }
+    );
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Activation-store mock — pass-through with optional `save` failure injection
+// ---------------------------------------------------------------------------
+//
+// One regression test forces `save` to throw to exercise the
+// `injectMemoryV2Block` outer try/finally — telemetry must still be flushed
+// (with `mode: "errored"`) and the error must propagate. Default behavior
+// delegates to the real activation-store so the rest of the suite stays
+// untouched. Same pre-mock function-capture trick as `readPage` above.
+
+const realActivationStoreModule = await import("../activation-store.js");
+const realSave = realActivationStoreModule.save;
+const activationStoreState = {
+  saveShouldThrow: false,
+};
+mock.module("../activation-store.js", () => ({
+  ...realActivationStoreModule,
+  save: async (...args: Parameters<typeof realSave>) => {
+    if (activationStoreState.saveShouldThrow) {
+      throw new Error("simulated activation-store save failure");
+    }
+    return realSave(...args);
   },
 }));
 
@@ -299,8 +392,10 @@ function makeConfig(
     epsilon: number;
     dense_weight: number;
     sparse_weight: number;
+    router: { enabled: boolean; max_page_ids?: number };
   }> = {},
 ): AssistantConfig {
+  const { router, ...rest } = overrides;
   return {
     memory: {
       v2: {
@@ -314,7 +409,8 @@ function makeConfig(
         epsilon: 0.01,
         dense_weight: 1.0,
         sparse_weight: 0.0,
-        ...overrides,
+        router: { enabled: false, max_page_ids: 25, ...(router ?? {}) },
+        ...rest,
       },
     },
   } as unknown as AssistantConfig;
@@ -390,6 +486,10 @@ function resetState(): void {
   skillState.entries.clear();
   telemetryState.recordCalls.length = 0;
   telemetryState.recordShouldThrow = false;
+  pageStoreState.failingSlugs.clear();
+  activationStoreState.saveShouldThrow = false;
+  routerState.nextResult = null;
+  routerState.callCount = 0;
   // The qdrant module caches its client; the cached client may be a
   // MockQdrantClient instance from a sibling test file. Reset to force a
   // fresh `new QdrantClient()` against this file's mock.
@@ -712,11 +812,13 @@ describe("injectMemoryV2Block", () => {
   });
 
   test("persists sparse state — only slugs above epsilon survive", async () => {
-    // Carol scores high; alice/bob essentially zero. After saving, only
-    // carol should appear in the persisted state map.
+    // Carol scores high; alice essentially zero. After saving, only carol
+    // should appear in the persisted state map. denseScore is the raw
+    // Qdrant cosine in [-1, 1]; alice uses -1 so the post `(x+1)/2`
+    // unit-mapping pins her fused score to 0 — below epsilon.
     stageTurn([
       { slug: "carol-jazz", denseScore: 1.0 },
-      { slug: "alice-vscode", denseScore: 0.0 },
+      { slug: "alice-vscode", denseScore: -1.0 },
     ]);
     await injectMemoryV2Block({
       database: db,
@@ -907,9 +1009,10 @@ describe("injectMemoryV2Block", () => {
 
   test("skill slugs whose entry is missing from the cache are dropped silently", async () => {
     // The skill ranks into top-K but the in-process cache no longer knows
-    // its content (skill uninstalled mid-run). The render path drops it
-    // without surfacing it as a `missingSlugs` page-missing event — that
-    // status is reserved for on-disk concept pages, not catalog-derived
+    // its content (skill uninstalled mid-run, or a startup race where the
+    // Qdrant row landed before the skill cache was seeded). The render path
+    // drops it without surfacing it as a `missingSlugs` page-missing event —
+    // that status is reserved for on-disk concept pages, not catalog-derived
     // skill entries.
     stageTurn([{ slug: "skills/missing-skill", denseScore: 0.9 }]);
     // No `stageSkills` call — cache stays empty.
@@ -925,10 +1028,16 @@ describe("injectMemoryV2Block", () => {
       config: makeConfig(),
     });
 
-    // `toInject` still records the slug (it ranked into top-K) but the
-    // block collapses to null because the only entry was a cache miss.
-    expect(result.toInject).toEqual(["skills/missing-skill"]);
+    // The skill is excluded from `toInject` (and `everInjected`) so future
+    // per-turn runs re-attempt the attach once the cache is populated.
+    // `block` collapses to null because the only candidate was a cache miss.
+    expect(result.toInject).toEqual([]);
     expect(result.block).toBeNull();
+
+    // Persisted `everInjected` must not record the missing skill — that
+    // would block retry on a later turn until compaction-driven eviction.
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([]);
   });
 
   test("returns null when both concept pages and skills are empty", async () => {
@@ -1286,5 +1395,514 @@ describe("injectMemoryV2Block", () => {
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 1 },
     ]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-page error isolation + on-throw telemetry
+  // ---------------------------------------------------------------------------
+
+  test("one slug's page-read failing isolates the error — other slugs still render and the corrupt slug records `status: corrupt`", async () => {
+    // Two slugs rank into top-K together. Carol's page reads cleanly; alice's
+    // `readPage` throws a ZodError mimicking the real "unrecognized
+    // frontmatter key" failure that motivated this work. Before the fix, the
+    // bare `Promise.all` rejected and the entire turn lost its block AND its
+    // activation log row. With per-page isolation, carol still renders and
+    // the activation log row marks alice as `corrupt` (telemetry remains
+    // observable for triage).
+    const zodErr = z.object({ x: z.string() }).safeParse({ x: 1 }).error!;
+    pageStoreState.failingSlugs.set("alice-vscode", zodErr);
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.95 },
+      { slug: "carol-jazz", denseScore: 0.9 },
+    ]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "music and editors",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // (a) Block is non-null and contains content from the OTHER slug; alice
+    // is dropped from the rendered block but does not poison the batch.
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain("# memory/concepts/carol-jazz.md");
+    expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
+
+    // (b) Activation log row exists with carol `injected` and alice
+    // `corrupt`. Status `corrupt` is reserved for read-time throws and is
+    // distinct from `page_missing` (which is null-return / file vanished).
+    expect(telemetryState.recordCalls.length).toBe(1);
+    const row = telemetryState.recordCalls[0] as {
+      mode: string;
+      concepts: Array<{ slug: string; status: string }>;
+    };
+    expect(row.mode).toBe("per-turn");
+    const byslug = new Map(row.concepts.map((c) => [c.slug, c]));
+    expect(byslug.get("alice-vscode")!.status).toBe("corrupt");
+    expect(byslug.get("carol-jazz")!.status).toBe("injected");
+
+    // (c) Both slugs land in `toInject` and `everInjected` — same handling
+    // as `page_missing` (see the phantom-slug test): the slug was attempted
+    // this turn, telemetry records the outcome, and we don't keep re-trying
+    // a stale Qdrant / edge-index entry on every subsequent turn.
+    expect(new Set(result.toInject)).toEqual(
+      new Set(["alice-vscode", "carol-jazz"]),
+    );
+    const persisted = await hydrate(db, "conv-1");
+    const everInjectedSlugs = persisted!.everInjected.map((e) => e.slug);
+    expect(new Set(everInjectedSlugs)).toEqual(
+      new Set(["alice-vscode", "carol-jazz"]),
+    );
+  });
+
+  test("a throw before renderInjectionBlock still flushes telemetry as `mode: errored` and re-throws", async () => {
+    // The activation-state save throws — the most realistic non-render
+    // failure mode (transient SQLite write error mid-injection). The
+    // `injectMemoryV2Block` outer try/finally must (a) flush an activation
+    // log row tagged `mode: "errored"` so silent failures stay observable
+    // in the database, and (b) re-throw so callers (e.g. `prepareMemory`'s
+    // outer catch) see the original error and can degrade gracefully.
+    activationStoreState.saveShouldThrow = true;
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    let threw: unknown = undefined;
+    try {
+      await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-1",
+        currentTurn: 1,
+        userMessage: "Alice's editor",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig(),
+      });
+    } catch (err) {
+      threw = err;
+    }
+
+    // The original error propagates to the caller.
+    expect(threw).toBeInstanceOf(Error);
+    expect((threw as Error).message).toContain(
+      "simulated activation-store save failure",
+    );
+
+    // A telemetry row was still written, tagged `errored`. `concepts` is
+    // empty because the throw fired before the row-builder ran — that's
+    // expected and documented as part of the contract.
+    expect(telemetryState.recordCalls.length).toBe(1);
+    const row = telemetryState.recordCalls[0] as {
+      mode: string;
+      conversationId: string;
+      turn: number;
+      concepts: unknown[];
+    };
+    expect(row.mode).toBe("errored");
+    expect(row.conversationId).toBe("conv-1");
+    expect(row.turn).toBe(1);
+    expect(row.concepts).toEqual([]);
+  });
+
+  test("activation pipeline routes through `finalizeInjection` — telemetry shape and config snapshot match the contract", async () => {
+    // Pure-refactor regression check: `injectMemoryV2Block` now delegates the
+    // tail (state save + render + telemetry finalization + log write) to a
+    // private `finalizeInjection` helper. This test asserts the helper is
+    // exercised by verifying `recordMemoryV2ActivationLog` is called with the
+    // same arg shape as before — same conversationId/turn/mode, same config
+    // snapshot, and a fully populated concept row whose status was finalized
+    // to `"injected"` on the freshly-attached slug.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-finalize",
+      currentTurn: 7,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-finalize",
+      config: makeConfig(),
+    });
+
+    // The helper rendered + persisted just like the original tail did.
+    expect(result.block).toContain("alice-vscode");
+    expect(result.toInject).toEqual(["alice-vscode"]);
+
+    expect(telemetryState.recordCalls.length).toBe(1);
+    const row = telemetryState.recordCalls[0] as {
+      conversationId: string;
+      turn: number;
+      mode: string;
+      concepts: Array<{
+        slug: string;
+        status: string;
+        finalActivation: number;
+      }>;
+      config: {
+        d: number;
+        c_user: number;
+        c_assistant: number;
+        c_now: number;
+        k: number;
+        hops: number;
+        top_k: number;
+        epsilon: number;
+      };
+    };
+    expect(row.conversationId).toBe("conv-finalize");
+    expect(row.turn).toBe(7);
+    expect(row.mode).toBe("per-turn");
+    // Config snapshot must include all eight tunables — proves the helper is
+    // pulling from `config.memory.v2` rather than synthesizing a partial.
+    expect(Object.keys(row.config).sort()).toEqual(
+      [
+        "c_assistant",
+        "c_now",
+        "c_user",
+        "d",
+        "epsilon",
+        "hops",
+        "k",
+        "top_k",
+      ].sort(),
+    );
+    // Status finalization ran inside the helper — alice was selected and
+    // rendered, so its row reads `injected`.
+    const aliceRow = row.concepts.find((c) => c.slug === "alice-vscode");
+    expect(aliceRow?.status).toBe("injected");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Router mode (flag-gated)
+  // ---------------------------------------------------------------------------
+
+  describe("router mode", () => {
+    test("flag-on: router-selected slugs render and append to everInjected", async () => {
+      // Router picks alice. The activation pipeline never runs — we don't
+      // stage any qdrant responses here, and that's intentional. The
+      // candidate set comes straight from the router's `selectedSlugs`.
+      routerState.nextResult = {
+        selectedSlugs: ["alice-vscode"],
+        failureReason: null,
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-1",
+        currentTurn: 1,
+        userMessage: "Tell me about Alice",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      expect(routerState.callCount).toBe(1);
+      expect(result.toInject).toEqual(["alice-vscode"]);
+      expect(result.block).not.toBeNull();
+      expect(result.block).toContain("# memory/concepts/alice-vscode.md");
+
+      const persisted = await hydrate(db, "conv-router-1");
+      expect(persisted!.everInjected).toEqual([
+        { slug: "alice-vscode", turn: 1 },
+      ]);
+      // Router mode persists an empty sparse activation map — the router
+      // does not compute spreading-activation scores.
+      expect(persisted!.state).toEqual({});
+
+      // Telemetry: success rows get `mode: "router"` and `source: "router"`,
+      // with all activation fields zeroed.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        concepts: Array<{
+          slug: string;
+          source: string;
+          status: string;
+          finalActivation: number;
+          ownActivation: number;
+        }>;
+      };
+      expect(row.mode).toBe("router");
+      const aliceRow = row.concepts.find((c) => c.slug === "alice-vscode");
+      expect(aliceRow).toBeDefined();
+      expect(aliceRow!.source).toBe("router");
+      expect(aliceRow!.status).toBe("injected");
+      expect(aliceRow!.finalActivation).toBe(0);
+      expect(aliceRow!.ownActivation).toBe(0);
+    });
+
+    test("flag-on: router failure logs warn, writes mode:`errored` telemetry, returns null block", async () => {
+      routerState.nextResult = {
+        selectedSlugs: [],
+        failureReason: "api_error",
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-fail",
+        currentTurn: 3,
+        userMessage: "anything",
+        assistantMessage: "ok",
+        nowText: "Now",
+        messageId: "msg-fail",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      expect(result.block).toBeNull();
+      expect(result.toInject).toEqual([]);
+
+      // Stub state still advanced.
+      const persisted = await hydrate(db, "conv-router-fail");
+      expect(persisted).not.toBeNull();
+      expect(persisted!.currentTurn).toBe(3);
+      expect(persisted!.messageId).toBe("msg-fail");
+      expect(persisted!.state).toEqual({});
+      expect(persisted!.everInjected).toEqual([]);
+
+      // Single telemetry row with `mode: "errored"` (not `"router"`).
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        conversationId: string;
+        turn: number;
+        concepts: unknown[];
+      };
+      expect(row.mode).toBe("errored");
+      expect(row.conversationId).toBe("conv-router-fail");
+      expect(row.turn).toBe(3);
+      expect(row.concepts).toEqual([]);
+    });
+
+    test("flag-on: router abstention (empty selectedSlugs, no failure) writes mode:`router` row with no injected pages", async () => {
+      routerState.nextResult = {
+        selectedSlugs: [],
+        failureReason: null,
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-abstain",
+        currentTurn: 1,
+        userMessage: "small talk",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-abstain",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      expect(result.block).toBeNull();
+      expect(result.toInject).toEqual([]);
+
+      // No prior everInjected to dedup against, so toInject is empty and
+      // nothing renders. State still advanced.
+      const persisted = await hydrate(db, "conv-router-abstain");
+      expect(persisted!.everInjected).toEqual([]);
+      expect(persisted!.currentTurn).toBe(1);
+
+      // Telemetry: `mode: "router"` row with zero injected pages.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        concepts: Array<{ slug: string; status: string }>;
+      };
+      expect(row.mode).toBe("router");
+      const injectedCount = row.concepts.filter(
+        (c) => c.status === "injected",
+      ).length;
+      expect(injectedCount).toBe(0);
+    });
+
+    test("flag-on: router-selected slug whose page is missing on disk records `page_missing` and is NOT added to everInjected", async () => {
+      routerState.nextResult = {
+        selectedSlugs: ["phantom-router-slug"],
+        failureReason: null,
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-missing",
+        currentTurn: 1,
+        userMessage: "phantom",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-missing",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      // No backing page → block collapses to null.
+      expect(result.block).toBeNull();
+      // toInject mirrors `newlyInjected` from `finalizeInjection` — the
+      // missing slug still flowed through `slugsToRender` so it's recorded
+      // here (matching the activation-mode phantom-slug contract).
+      expect(result.toInject).toEqual(["phantom-router-slug"]);
+
+      // Activation-mode parity: the phantom slug DOES land in everInjected
+      // so we don't infinite-retry it. (This matches the behavior the
+      // existing `returns null block when toInject slugs all reference
+      // missing pages` test asserts for activation mode.)
+      const persisted = await hydrate(db, "conv-router-missing");
+      expect(persisted!.everInjected).toEqual([
+        { slug: "phantom-router-slug", turn: 1 },
+      ]);
+
+      // Telemetry: `status: "page_missing"` for the phantom slug.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        concepts: Array<{ slug: string; status: string; source: string }>;
+      };
+      expect(row.mode).toBe("router");
+      const phantom = row.concepts.find(
+        (c) => c.slug === "phantom-router-slug",
+      );
+      expect(phantom).toBeDefined();
+      expect(phantom!.status).toBe("page_missing");
+      expect(phantom!.source).toBe("router");
+    });
+
+    test("flag-on: router re-picking a prior-everInjected slug does NOT re-render it; non-overlapping picks render and append to everInjected", async () => {
+      // Turn 1: router picks alice. Standard append.
+      routerState.nextResult = {
+        selectedSlugs: ["alice-vscode"],
+        failureReason: null,
+      };
+      const turn1 = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-dedup",
+        currentTurn: 1,
+        userMessage: "Tell me about Alice",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+      expect(turn1.toInject).toEqual(["alice-vscode"]);
+
+      // Turn 2: router re-picks alice (the "re-anchor" prompt branch) AND
+      // adds bob. The block must NOT contain alice's body — her cached
+      // attachment from turn 1 is still on the prior user message — but
+      // must contain bob's.
+      telemetryState.recordCalls.length = 0;
+      routerState.nextResult = {
+        selectedSlugs: ["alice-vscode", "bob-coffee"],
+        failureReason: null,
+      };
+      const turn2 = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-dedup",
+        currentTurn: 2,
+        userMessage: "And Bob?",
+        assistantMessage: "Sure",
+        nowText: "Now",
+        messageId: "msg-2",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      // Re-picked alice was deduped; only bob is freshly injected.
+      expect(turn2.toInject).toEqual(["bob-coffee"]);
+      expect(turn2.block).not.toBeNull();
+      expect(turn2.block).toContain("# memory/concepts/bob-coffee.md");
+      expect(turn2.block).toContain("Bob takes his coffee");
+      expect(turn2.block).not.toContain("VS Code");
+      expect(turn2.block).not.toContain("# memory/concepts/alice-vscode.md");
+
+      // everInjected only gained bob — alice was already there.
+      const persisted = await hydrate(db, "conv-router-dedup");
+      expect(persisted!.everInjected).toEqual([
+        { slug: "alice-vscode", turn: 1 },
+        { slug: "bob-coffee", turn: 2 },
+      ]);
+    });
+
+    test("flag-on: telemetry distinguishes `source: router` (router picks) from `source: carry_over` (prior-everInjected slugs the router did not re-pick)", async () => {
+      // Turn 1: seed everInjected with alice.
+      routerState.nextResult = {
+        selectedSlugs: ["alice-vscode"],
+        failureReason: null,
+      };
+      await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-source",
+        currentTurn: 1,
+        userMessage: "Alice",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+      telemetryState.recordCalls.length = 0;
+
+      // Turn 2: router picks bob only. alice is still in everInjected but
+      // not re-picked — her telemetry row must read `source: carry_over`,
+      // not `source: router`.
+      routerState.nextResult = {
+        selectedSlugs: ["bob-coffee"],
+        failureReason: null,
+      };
+      await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-router-source",
+        currentTurn: 2,
+        userMessage: "Bob",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-2",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        concepts: Array<{ slug: string; source: string; status: string }>;
+      };
+      expect(row.mode).toBe("router");
+      const aliceRow = row.concepts.find((c) => c.slug === "alice-vscode");
+      const bobRow = row.concepts.find((c) => c.slug === "bob-coffee");
+      expect(aliceRow).toBeDefined();
+      expect(bobRow).toBeDefined();
+      expect(aliceRow!.source).toBe("carry_over");
+      expect(aliceRow!.status).toBe("in_context");
+      expect(bobRow!.source).toBe("router");
+      expect(bobRow!.status).toBe("injected");
+    });
+
+    test("flag-off (default): activation pipeline still runs unchanged", async () => {
+      // Regression check — with the router flag explicitly off (the
+      // production default), `runRouter` must never be called and the
+      // activation pipeline drives the selection just like before.
+      stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+      routerState.nextResult = {
+        selectedSlugs: ["should-not-be-used"],
+        failureReason: null,
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-flag-off",
+        currentTurn: 1,
+        userMessage: "Alice's editor",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        config: makeConfig({ router: { enabled: false } }),
+      });
+
+      // Router was not called.
+      expect(routerState.callCount).toBe(0);
+      // Activation pipeline produced its normal result.
+      expect(result.toInject).toEqual(["alice-vscode"]);
+      expect(result.block).toContain("# memory/concepts/alice-vscode.md");
+
+      // Telemetry row carries the activation mode, not router.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as { mode: string };
+      expect(row.mode).toBe("per-turn");
+    });
   });
 });

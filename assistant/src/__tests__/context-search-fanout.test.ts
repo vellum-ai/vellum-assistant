@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
 import { formatDeterministicRecallAnswer } from "../memory/context-search/format.js";
-import { RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE } from "../memory/context-search/limits.js";
 import { runDeterministicRecallSearch } from "../memory/context-search/search.js";
 import type {
   RecallEvidence,
@@ -48,170 +47,37 @@ function makeAdapter(
 }
 
 describe("runDeterministicRecallSearch", () => {
-  test("runs only selected source adapters and includes PKB context evidence", async () => {
+  test("runs only selected source adapters", async () => {
     const calls: RecallSource[] = [];
     const result = await runDeterministicRecallSearch(
-      { query: "launch notes", sources: ["pkb", "workspace"], max_results: 5 },
+      {
+        query: "launch notes",
+        sources: ["memory", "workspace"],
+        max_results: 5,
+      },
       makeContext(),
       {
         adapters: [
-          makeAdapter("memory", [makeEvidence("memory")], calls),
           makeAdapter(
-            "pkb",
-            [makeEvidence("pkb", { id: "pkb:search" })],
+            "memory",
+            [makeEvidence("memory", { id: "memory:search" })],
             calls,
           ),
+          makeAdapter("conversations", [makeEvidence("conversations")], calls),
           makeAdapter("workspace", [makeEvidence("workspace")], calls),
-        ],
-        readPkbContextEvidence: () => [
-          makeEvidence("pkb", {
-            id: "pkb:auto-inject",
-            title: "PKB auto-injected context",
-            locator: "pkb:auto-inject",
-            excerpt: "Pinned launch plan from context.",
-          }),
-          makeEvidence("pkb", {
-            id: "pkb:NOW.md",
-            title: "NOW.md",
-            locator: "NOW.md",
-            excerpt: "Current launch focus.",
-          }),
         ],
       },
     );
 
-    expect(calls).toEqual(["pkb", "workspace"]);
+    expect(calls).toEqual(["memory", "workspace"]);
     expect(result.searchedSources.map((note) => note.source)).toEqual([
-      "pkb",
+      "memory",
       "workspace",
     ]);
     expect(result.evidence.map((item) => item.id)).toEqual([
-      "pkb:search",
+      "memory:search",
       "workspace:evidence",
-      "pkb:NOW.md",
-      "pkb:auto-inject",
     ]);
-  });
-
-  test("does not let PKB auto-injected context displace concrete evidence", async () => {
-    const result = await runDeterministicRecallSearch(
-      { query: "launch notes", sources: ["pkb", "workspace"], max_results: 1 },
-      makeContext(),
-      {
-        adapters: [
-          makeAdapter("pkb", [
-            makeEvidence("pkb", {
-              id: "pkb:search",
-              score: 0.99,
-              excerpt: "High scoring indexed PKB result.",
-            }),
-          ]),
-          makeAdapter("workspace", [
-            makeEvidence("workspace", {
-              id: "workspace:search",
-              score: 1,
-              excerpt: "High scoring workspace result.",
-            }),
-          ]),
-        ],
-        readPkbContextEvidence: () => [
-          makeEvidence("pkb", {
-            id: "pkb:auto-inject",
-            title: "PKB auto-injected context",
-            locator: "pkb:auto-inject",
-            excerpt: "Pinned launch plan from context.",
-          }),
-          makeEvidence("pkb", {
-            id: "pkb:NOW.md",
-            title: "NOW.md",
-            locator: "NOW.md",
-            excerpt: "Current launch focus.",
-          }),
-        ],
-      },
-    );
-
-    expect(result.evidence.map((item) => item.id)).toEqual([
-      "workspace:search",
-    ]);
-    expect(result.searchedSources).toEqual([
-      { source: "pkb", status: "searched", evidenceCount: 0 },
-      { source: "workspace", status: "searched", evidenceCount: 1 },
-    ]);
-  });
-
-  test("uses PKB auto-injected context when no concrete evidence is available", async () => {
-    const result = await runDeterministicRecallSearch(
-      { query: "launch notes", sources: ["pkb"], max_results: 1 },
-      makeContext(),
-      {
-        adapters: [makeAdapter("pkb", [])],
-        readPkbContextEvidence: () => [
-          makeEvidence("pkb", {
-            id: "pkb:auto-inject",
-            title: "PKB auto-injected context",
-            locator: "pkb:auto-inject",
-            score: 1,
-            excerpt: "A".repeat(RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE * 2),
-          }),
-          makeEvidence("pkb", {
-            id: "pkb:NOW.md",
-            title: "NOW.md",
-            locator: "NOW.md",
-            score: 0.9,
-            excerpt: "Current launch focus.",
-          }),
-        ],
-      },
-    );
-
-    expect(result.evidence.map((item) => item.id)).toEqual(["pkb:auto-inject"]);
-    for (const item of result.evidence) {
-      expect(item.excerpt.length).toBeGreaterThan(0);
-    }
-  });
-
-  test("auto-injected PKB context leaves excerpt budget for exact PKB hits", async () => {
-    const result = await runDeterministicRecallSearch(
-      { query: "where does alice live", sources: ["pkb"], max_results: 3 },
-      makeContext(),
-      {
-        adapters: [
-          makeAdapter("pkb", [
-            makeEvidence("pkb", {
-              id: "pkb:lexical:people/alice.md:5",
-              score: 0.2,
-              excerpt:
-                "5: - Lives at Bob's parents' house in Katy and has her own room.",
-              metadata: { retrieval: "lexical" },
-            }),
-          ]),
-        ],
-        readPkbContextEvidence: () => [
-          makeEvidence("pkb", {
-            id: "pkb:auto-inject",
-            title: "PKB auto-injected context",
-            locator: "pkb:auto-inject",
-            excerpt: "A".repeat(RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE * 2),
-          }),
-          makeEvidence("pkb", {
-            id: "pkb:NOW.md",
-            title: "NOW.md",
-            locator: "NOW.md",
-            excerpt: "B".repeat(RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE * 2),
-          }),
-        ],
-      },
-    );
-
-    expect(result.evidence.map((item) => item.id)).toContain(
-      "pkb:lexical:people/alice.md:5",
-    );
-    expect(
-      result.evidence.find(
-        (item) => item.id === "pkb:lexical:people/alice.md:5",
-      )?.excerpt,
-    ).toContain("Lives at Bob's parents' house in Katy");
   });
 
   test("searches every source by default", async () => {
@@ -219,14 +85,12 @@ describe("runDeterministicRecallSearch", () => {
     await runDeterministicRecallSearch({ query: "deployment" }, makeContext(), {
       adapters: [
         makeAdapter("memory", [], calls),
-        makeAdapter("pkb", [], calls),
         makeAdapter("conversations", [], calls),
         makeAdapter("workspace", [], calls),
       ],
-      readPkbContextEvidence: () => [],
     });
 
-    expect(calls).toEqual(["memory", "pkb", "conversations", "workspace"]);
+    expect(calls).toEqual(["memory", "conversations", "workspace"]);
   });
 
   test("isolates adapter failures and reports degraded source notes", async () => {
@@ -304,7 +168,7 @@ describe("runDeterministicRecallSearch", () => {
     const result = await runDeterministicRecallSearch(
       {
         query: "priority",
-        sources: ["workspace", "memory", "pkb"],
+        sources: ["workspace", "memory", "conversations"],
         max_results: 3,
       },
       makeContext(),
@@ -329,26 +193,25 @@ describe("runDeterministicRecallSearch", () => {
               timestampMs: 50,
             }),
           ]),
-          makeAdapter("pkb", [
-            makeEvidence("pkb", {
-              id: "pkb:newer-same-score",
+          makeAdapter("conversations", [
+            makeEvidence("conversations", {
+              id: "conversations:newer-same-score",
               score: 0.7,
               timestampMs: 200,
             }),
-            makeEvidence("pkb", {
-              id: "pkb:source-priority",
+            makeEvidence("conversations", {
+              id: "conversations:source-priority",
               score: 0.4,
               timestampMs: 100,
             }),
           ]),
         ],
-        readPkbContextEvidence: () => [],
       },
     );
 
     expect(result.evidence.map((item) => item.id)).toEqual([
       "workspace:older-high",
-      "pkb:newer-same-score",
+      "conversations:newer-same-score",
       "memory:same-score",
     ]);
   });

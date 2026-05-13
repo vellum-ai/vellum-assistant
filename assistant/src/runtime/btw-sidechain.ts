@@ -76,6 +76,7 @@ export async function runBtwSidechain(
       ? params.conversation.systemPrompt
       : buildSystemPrompt({
           excludeBootstrap: true,
+          excludeCustomPrefix: true,
           userPersona: params.userPersona,
           channelPersona: params.channelPersona,
           userSlug: params.userSlug,

@@ -16,8 +16,9 @@ COPY packages/service-contracts ./packages/service-contracts
 COPY packages/slack-text ./packages/slack-text
 COPY packages/twilio-client ./packages/twilio-client
 
-# Install deps for shared packages that have their own file: dependencies.
+# Install deps for shared packages whose source is loaded at runtime.
 RUN cd /app/packages/ces-client && bun install --frozen-lockfile
+RUN cd /app/packages/service-contracts && bun install --frozen-lockfile
 
 # Install gateway dependencies first for cache reuse
 COPY gateway/package.json gateway/bun.lock ./gateway/

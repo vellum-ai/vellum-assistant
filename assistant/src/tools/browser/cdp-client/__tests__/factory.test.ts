@@ -248,13 +248,13 @@ describe("getCdpClient", () => {
     );
     expect(result).toEqual({ ok: true, via: "extension" });
     expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
-    // Call signature includes optional cdpSessionId and sourceActorPrincipalId
-    // (both undefined here — no pinned session id, no actor binding in this
-    // legacy ctx). The `sourceActorPrincipalId` param exists so the proxy
-    // can refuse cross-user dispatch under cross-client exposure.
+    // Call signature includes optional cdpSessionId, sourceActorPrincipalId,
+    // and targetClientId (all undefined here — no pinned session id, no actor
+    // binding, no explicit client target in this legacy ctx).
     expect(createExtensionCdpClientMock).toHaveBeenCalledWith(
       fakeProxy,
       "test-convo",
+      undefined,
       undefined,
       undefined,
     );
@@ -700,7 +700,81 @@ describe("getCdpClient", () => {
       "actor-bound",
       undefined,
       "user-actor-1",
+      undefined,
     );
+  });
+
+  test("threads targetClientId from options into createExtensionCdpClient", async () => {
+    const fakeProxy = makeAvailableProxy();
+    mockSingletonProxy = fakeProxy;
+    const ctx = makeContext({
+      conversationId: "targeted-client",
+      sourceActorPrincipalId: "user-actor-1",
+    });
+
+    const client = getCdpClient(ctx, { targetClientId: "specific-ext-client" });
+    await client.send("Page.navigate");
+
+    expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createExtensionCdpClientMock).toHaveBeenCalledWith(
+      fakeProxy,
+      "targeted-client",
+      undefined,
+      "user-actor-1",
+      "specific-ext-client",
+    );
+  });
+
+  // ── auto mode + targetClientId: no fallback (Fix 2) ─────────────────
+
+  test("auto mode + targetClientId + no extension → throws targeting error, does not fall through to local", () => {
+    // No extension connected — without targetClientId, local would be the
+    // fallback. With targetClientId, the factory must fail immediately.
+    const ctx = makeContext({ conversationId: "auto-targeted-no-ext" });
+
+    expect(() =>
+      getCdpClient(ctx, { mode: "auto", targetClientId: "specific-host-client" }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "transport_error",
+        message: expect.stringContaining("specific-host-client"),
+      }),
+    );
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+  });
+
+  test("auto mode + targetClientId + extension available → routes only to extension, no other backends tried", async () => {
+    cdpInspectEnabled = true; // cdp-inspect would normally be in the candidate list
+    const fakeProxy = makeAvailableProxy();
+    mockSingletonProxy = fakeProxy;
+    const ctx = makeContext({
+      conversationId: "auto-targeted-ext-available",
+      sourceActorPrincipalId: "actor-42",
+    });
+
+    const client = getCdpClient(ctx, {
+      mode: "auto",
+      targetClientId: "specific-host-client",
+    });
+    expect(client.kind).toBe("extension");
+
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "extension" });
+
+    expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createExtensionCdpClientMock).toHaveBeenCalledWith(
+      fakeProxy,
+      "auto-targeted-ext-available",
+      undefined,
+      "actor-42",
+      "specific-host-client",
+    );
+    // cdp-inspect and local must NOT have been tried — no fallback.
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
   });
 });
 
@@ -791,6 +865,62 @@ describe("buildCandidateList", () => {
 
     expect(candidates.length).toBe(1);
     expect(candidates[0].kind).toBe("local");
+  });
+
+  // ── targetClientId: no-fallback single-extension list (Fix 2) ────────
+
+  test("targetClientId: returns a single extension candidate when extension is available", () => {
+    const fakeProxy = makeAvailableProxy();
+    mockSingletonProxy = fakeProxy;
+    const ctx = makeContext({ conversationId: "target-with-ext" });
+
+    const candidates = buildCandidateList(ctx, "host-client-42");
+
+    // Must be exactly one candidate — no cdp-inspect or local fallbacks.
+    expect(candidates.length).toBe(1);
+    expect(candidates[0].kind).toBe("extension");
+    expect(candidates[0].reason).toContain("host-client-42");
+  });
+
+  test("targetClientId: throws transport_error immediately when no Chrome Extension is connected", () => {
+    // No extension — local would normally be the fallback, but targeting
+    // requires the proxy path and must fail loudly instead of routing elsewhere.
+    const ctx = makeContext({ conversationId: "target-no-ext" });
+
+    expect(() => buildCandidateList(ctx, "host-client-42")).toThrow(
+      expect.objectContaining({
+        code: "transport_error",
+        message: expect.stringContaining("host-client-42"),
+      }),
+    );
+    // Verify we did NOT silently fall through to a local candidate.
+    expect(createLocalCdpClientMock).not.toHaveBeenCalled();
+  });
+
+  test("targetClientId: threads targetClientId into the extension candidate's create() call", async () => {
+    const fakeProxy = makeAvailableProxy();
+    mockSingletonProxy = fakeProxy;
+    const ctx = makeContext({
+      conversationId: "target-threads-id",
+      sourceActorPrincipalId: "actor-1",
+    });
+
+    const candidates = buildCandidateList(ctx, "host-client-99");
+    expect(candidates.length).toBe(1);
+
+    // Clear accumulated calls from prior tests in this describe block before
+    // materialising the candidate so the call count is unambiguous.
+    createExtensionCdpClientMock.mockClear();
+    candidates[0].create();
+
+    expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createExtensionCdpClientMock).toHaveBeenCalledWith(
+      fakeProxy,
+      "target-threads-id",
+      undefined,
+      "actor-1",
+      "host-client-99",
+    );
   });
 });
 

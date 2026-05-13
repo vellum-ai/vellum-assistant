@@ -18,12 +18,8 @@ import {
   mergeContacts,
   searchContacts,
   updateChannelStatus,
-  upsertAssistantContactMetadata,
-  upsertContact,
-  validateSpeciesMetadata,
 } from "../../contacts/contact-store.js";
 import type {
-  AssistantSpecies,
   ChannelPolicy,
   ChannelStatus,
   ContactRole,
@@ -58,10 +54,6 @@ function withGuardianNameOverride<
 }
 
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
-const VALID_ASSISTANT_SPECIES: readonly AssistantSpecies[] = [
-  "vellum",
-  "openclaw",
-];
 
 const VALID_CHANNEL_STATUSES: readonly ChannelStatus[] = [
   "active",
@@ -78,10 +70,6 @@ const VALID_CHANNEL_POLICIES: readonly ChannelPolicy[] = [
 
 function isContactType(value: string): value is ContactType {
   return (VALID_CONTACT_TYPES as readonly string[]).includes(value);
-}
-
-function isAssistantSpecies(value: string): value is AssistantSpecies {
-  return (VALID_ASSISTANT_SPECIES as readonly string[]).includes(value);
 }
 
 function isChannelStatus(value: string): value is ChannelStatus {
@@ -490,34 +478,6 @@ export const ROUTES: RouteDefinition[] = [
       handleGetContact(pathParams!.id),
   },
   {
-    operationId: "upsert_contact",
-    endpoint: "contacts",
-    method: "POST",
-    summary: "Create or update a contact",
-    description:
-      "Create a new contact or update an existing one. Supports upsert by contactId or channel handle.",
-    tags: ["contacts"],
-    requestBody: z.object({
-      contactId: z.string().describe("Existing contact ID (for update)"),
-      displayName: z.string().describe("Display name"),
-      channels: z
-        .array(z.unknown())
-        .describe("Channel objects with channelId, handle, displayName"),
-      assistantMetadata: z
-        .object({})
-        .passthrough()
-        .describe("Assistant-side metadata"),
-    }),
-    responseBody: z.object({
-      ok: z.boolean(),
-      contact: z
-        .object({})
-        .passthrough()
-        .describe("Created or updated contact"),
-    }),
-    handler: (args: RouteHandlerArgs) => handleUpsertContactRoute(args),
-  },
-  {
     operationId: "merge_contacts",
     endpoint: "contacts/merge",
     method: "POST",
@@ -575,126 +535,6 @@ function handleMergeContactsRoute(args: RouteHandlerArgs) {
 
   try {
     const contact = mergeContacts(keepId, mergeId);
-    return { ok: true, contact: withGuardianNameOverride(contact) };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new BadRequestError(message);
-  }
-}
-
-function handleUpsertContactRoute(args: RouteHandlerArgs) {
-  const body = (args.body ?? {}) as {
-    id?: string;
-    displayName?: string;
-    notes?: string;
-    role?: string;
-    contactType?: string;
-    assistantMetadata?: {
-      species: string;
-      metadata?: Record<string, unknown>;
-    };
-    channels?: Array<{
-      type: string;
-      address: string;
-      isPrimary?: boolean;
-      status?: string;
-      policy?: string;
-      externalUserId?: string;
-      externalChatId?: string;
-    }>;
-  };
-
-  if (
-    !body.displayName ||
-    typeof body.displayName !== "string" ||
-    body.displayName.trim().length === 0
-  ) {
-    throw new BadRequestError(
-      "displayName is required and must be a non-empty string",
-    );
-  }
-
-  if (body.contactType !== undefined && !isContactType(body.contactType)) {
-    throw new BadRequestError(
-      `Invalid contactType "${body.contactType}". Must be one of: ${VALID_CONTACT_TYPES.join(", ")}`,
-    );
-  }
-
-  if (body.contactType === "assistant") {
-    if (!body.assistantMetadata) {
-      throw new BadRequestError(
-        'assistantMetadata is required when contactType is "assistant"',
-      );
-    }
-    if (!isAssistantSpecies(body.assistantMetadata.species)) {
-      throw new BadRequestError(
-        `Invalid species "${body.assistantMetadata.species}". Must be one of: ${VALID_ASSISTANT_SPECIES.join(", ")}`,
-      );
-    }
-    try {
-      validateSpeciesMetadata(
-        body.assistantMetadata.species as AssistantSpecies,
-        body.assistantMetadata.metadata ?? null,
-      );
-    } catch (err) {
-      throw new BadRequestError(
-        err instanceof Error ? err.message : String(err),
-      );
-    }
-  }
-
-  if (body.contactType === "human" && body.assistantMetadata) {
-    throw new BadRequestError(
-      'assistantMetadata must not be provided when contactType is "human"',
-    );
-  }
-
-  if (body.assistantMetadata && !body.contactType) {
-    throw new BadRequestError(
-      'contactType must be "assistant" when assistantMetadata is provided',
-    );
-  }
-
-  if (body.channels) {
-    if (!Array.isArray(body.channels)) {
-      throw new BadRequestError("channels must be an array");
-    }
-    for (const ch of body.channels) {
-      if (ch.status !== undefined && !isChannelStatus(ch.status)) {
-        throw new BadRequestError(
-          `Invalid channel status "${ch.status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
-        );
-      }
-      if (ch.policy !== undefined && !isChannelPolicy(ch.policy)) {
-        throw new BadRequestError(
-          `Invalid channel policy "${ch.policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
-        );
-      }
-    }
-  }
-
-  try {
-    const contact = upsertContact({
-      id: body.id,
-      displayName: body.displayName.trim(),
-      notes: body.notes,
-      role: body.role as ContactRole | undefined,
-      contactType: body.contactType as ContactType | undefined,
-      channels: body.channels?.map((ch) => ({
-        ...ch,
-        status: ch.status as ChannelStatus | undefined,
-        policy: ch.policy as ChannelPolicy | undefined,
-      })),
-    });
-
-    if (body.assistantMetadata) {
-      upsertAssistantContactMetadata({
-        contactId: contact.id,
-        species: body.assistantMetadata.species as AssistantSpecies,
-        metadata: body.assistantMetadata.metadata ?? null,
-      });
-    }
-
     return { ok: true, contact: withGuardianNameOverride(contact) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

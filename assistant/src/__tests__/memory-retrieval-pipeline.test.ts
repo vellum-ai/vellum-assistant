@@ -273,7 +273,6 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
       manifest: {
         name: "custom-memory-retrieval",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1", memoryApi: "v1" },
       },
       middleware: { memoryRetrieval: customMiddleware },
     };
@@ -318,7 +317,6 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
       manifest: {
         name: "hanging-memory-plugin",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1", memoryApi: "v1" },
       },
       middleware: { memoryRetrieval: hanging },
     };

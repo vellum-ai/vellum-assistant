@@ -1,10 +1,6 @@
 import type { Command } from "commander";
 
-import {
-  resolveOAuthConnection,
-  type ResolveOAuthConnectionOptions,
-} from "../../../oauth/connection-resolver.js";
-import { getProvider } from "../../../oauth/oauth-store.js";
+import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -50,136 +46,32 @@ Examples:
         const jsonMode = shouldOutputJson(cmd);
 
         try {
-          // -----------------------------------------------------------------
-          // 1. Validate provider exists
-          // -----------------------------------------------------------------
-          const providerRow = getProvider(provider);
-          if (!providerRow) {
-            writeOutput(cmd, {
-              ok: false,
-              error:
-                `Unknown provider "${provider}". ` +
-                `Run 'assistant oauth providers list' to see available providers.`,
-            });
-            process.exitCode = 1;
-            return;
-          }
+          const body: Record<string, unknown> = { provider };
+          if (opts.account) body.account = opts.account;
+          if (opts.clientId) body.client_id = opts.clientId;
 
-          // -----------------------------------------------------------------
-          // 3. Validate ping URL
-          // -----------------------------------------------------------------
-          if (!providerRow.pingUrl) {
-            writeOutput(cmd, {
-              ok: false,
-              error:
-                `No ping URL configured for "${provider}". ` +
-                `Register one with 'assistant oauth providers register --ping-url <url>'.`,
-            });
-            process.exitCode = 1;
-            return;
-          }
+          const r = await cliIpcCall<{
+            ok: boolean;
+            provider: string;
+            status: number;
+            error?: string;
+            hint?: string;
+          }>("oauth_ping", { body });
 
-          const pingUrl = providerRow.pingUrl as string;
-          const parsed = new URL(pingUrl);
-          const baseUrl = `${parsed.protocol}//${parsed.host}`;
-          const path = parsed.pathname;
+          if (!r.ok) return exitFromIpcResult(r);
 
-          // Preserve query parameters from the configured ping URL
-          const query: Record<string, string> = {};
-          for (const [key, value] of parsed.searchParams) {
-            query[key] = value;
-          }
+          const result = r.result!;
 
-          // -----------------------------------------------------------------
-          // 4. Resolve connection (auto-detects managed vs BYO)
-          // -----------------------------------------------------------------
-          const resolveOptions: ResolveOAuthConnectionOptions = {};
-          if (opts.account) {
-            resolveOptions.account = opts.account;
-          }
-          if (opts.clientId) {
-            resolveOptions.clientId = opts.clientId;
-          }
-
-          let connection;
-          try {
-            connection = await resolveOAuthConnection(provider, resolveOptions);
-          } catch (resolveErr) {
-            const resolveMessage =
-              resolveErr instanceof Error
-                ? resolveErr.message
-                : String(resolveErr);
-
-            writeOutput(cmd, {
-              ok: false,
-              error: resolveMessage,
-              hint:
-                `Run 'assistant oauth status ${provider}' to check connection health. ` +
-                `To reconnect, run 'assistant oauth connect --help'.`,
-            });
-            process.exitCode = 1;
-            return;
-          }
-
-          // -----------------------------------------------------------------
-          // 5. Make the ping request
-          // -----------------------------------------------------------------
-          const method = (providerRow.pingMethod as string | null) ?? "GET";
-
-          // Parse provider-configured ping headers (JSON string -> Record)
-          const pingHeaders: Record<string, string> = providerRow.pingHeaders
-            ? JSON.parse(providerRow.pingHeaders as string)
-            : {};
-
-          // Parse provider-configured ping body (JSON string -> unknown)
-          const pingBody: unknown = providerRow.pingBody
-            ? JSON.parse(providerRow.pingBody as string)
-            : undefined;
-
-          const response = await connection.request({
-            method,
-            path,
-            baseUrl,
-            ...(Object.keys(query).length > 0 ? { query } : {}),
-            ...(Object.keys(pingHeaders).length > 0
-              ? { headers: pingHeaders }
-              : {}),
-            ...(pingBody !== undefined ? { body: pingBody } : {}),
-          });
-
-          // -----------------------------------------------------------------
-          // 6. Handle response
-          // -----------------------------------------------------------------
-          if (response.status >= 200 && response.status < 300) {
-            // Success
+          if (result.ok) {
             if (!jsonMode) {
-              log.info(`${provider}: OK (HTTP ${response.status})`);
+              log.info(`${provider}: OK (HTTP ${result.status})`);
             }
-            writeOutput(cmd, {
-              ok: true,
-              provider: provider,
-              status: response.status,
-            });
+            writeOutput(cmd, result);
           } else {
-            // Non-2xx failure
-            const payload: Record<string, unknown> = {
-              ok: false,
-              provider: provider,
-              status: response.status,
-              error: `Ping failed with HTTP ${response.status}`,
-            };
-
-            if (response.status === 401 || response.status === 403) {
-              payload.hint =
-                `Run 'assistant oauth status ${provider}' to check connection health. ` +
-                `To reconnect, run 'assistant oauth connect --help'.`;
-            }
-
-            writeOutput(cmd, payload);
+            writeOutput(cmd, result);
             process.exitCode = 1;
           }
         } catch (err) {
-          // Network failure or other unexpected error
           const message = err instanceof Error ? err.message : String(err);
 
           writeOutput(cmd, {

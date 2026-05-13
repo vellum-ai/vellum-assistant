@@ -43,6 +43,9 @@ struct ChatBubble: View, Equatable {
             && lhs.hideInlineAvatar == rhs.hideInlineAvatar
             && lhs.activeSurfaceId == rhs.activeSurfaceId
             && lhs.searchQuery == rhs.searchQuery
+            && (lhs.onToggleBookmark != nil) == (rhs.onToggleBookmark != nil)
+            && lhs.bookmarkStore === rhs.bookmarkStore
+            && lhs.bookmarkConversationId == rhs.bookmarkConversationId
     }
     let message: ChatMessage
     /// Decided confirmation from the next message, rendered as a compact chip at the bottom.
@@ -53,6 +56,14 @@ struct ChatBubble: View, Equatable {
     var onForkFromMessage: ((String) -> Void)?
     var showInspectButton: Bool = false
     var onInspectMessage: ((String?) -> Void)?
+    /// Toggle a bookmark for a daemon message. Receives `(daemonMessageId, conversationId)`.
+    var onToggleBookmark: ((String, String) -> Void)?
+    /// Observable bookmark store used by the overflow menu to render the
+    /// filled/outlined icon state. `nil` outside the macOS app surface.
+    var bookmarkStore: BookmarkStore?
+    /// Daemon-side conversation ID forwarded to ``ChatBubbleOverflowMenu`` so
+    /// the bookmark toggle has a conversation to attach to.
+    var bookmarkConversationId: String?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
     var onSurfaceRefetch: ((String, String) -> Void)?
     /// Called when expanding a tool call with truncated content to fetch the full text.
@@ -138,6 +149,9 @@ struct ChatBubble: View, Equatable {
         showInspectButton: Bool = false,
         isTTSEnabled: Bool = false,
         onInspectMessage: ((String?) -> Void)? = nil,
+        onToggleBookmark: ((String, String) -> Void)? = nil,
+        bookmarkStore: BookmarkStore? = nil,
+        bookmarkConversationId: String? = nil,
         onSurfaceRefetch: ((String, String) -> Void)? = nil,
         onRehydrate: (() -> Void)? = nil,
         mediaEmbedSettings: MediaEmbedResolverSettings? = nil,
@@ -166,6 +180,9 @@ struct ChatBubble: View, Equatable {
         self.showInspectButton = showInspectButton
         self.isTTSEnabled = isTTSEnabled
         self.onInspectMessage = onInspectMessage
+        self.onToggleBookmark = onToggleBookmark
+        self.bookmarkStore = bookmarkStore
+        self.bookmarkConversationId = bookmarkConversationId
         self.onSurfaceRefetch = onSurfaceRefetch
         self.onRehydrate = onRehydrate
         self.mediaEmbedSettings = mediaEmbedSettings
@@ -420,7 +437,10 @@ struct ChatBubble: View, Equatable {
                     isTTSEnabled: isTTSEnabled,
                     showInspectButton: showInspectButton,
                     onForkFromMessage: onForkFromMessage,
-                    onInspectMessage: onInspectMessage
+                    onInspectMessage: onInspectMessage,
+                    bookmarkStore: bookmarkStore,
+                    onToggleBookmark: onToggleBookmark,
+                    conversationId: bookmarkConversationId
                 )
             }
             // Give this content priority so LazyVStack doesn't compress it,

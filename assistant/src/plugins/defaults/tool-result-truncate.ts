@@ -55,10 +55,6 @@ export const defaultToolResultTruncatePlugin: Plugin = {
   manifest: {
     name: "default-tool-result-truncate",
     version: "1.0.0",
-    requires: {
-      pluginRuntime: "v1",
-      toolResultTruncateApi: "v1",
-    },
   },
   middleware: {
     toolResultTruncate: passthrough,

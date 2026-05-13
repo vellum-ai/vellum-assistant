@@ -35,7 +35,14 @@ struct ACPSessionDetailView: View {
     /// Pop-to-list callback fired after a successful "Delete from history".
     /// Hosting view (the panel's `NavigationStack`) is responsible for the
     /// actual back-pop; we just signal that the underlying row is gone.
+    /// When unset, we fall back to the environment's `dismiss` action so a
+    /// successful delete always returns the user to the list.
     var onDismiss: (() -> Void)? = nil
+
+    /// Fallback dismiss action used when no explicit `onDismiss` callback is
+    /// wired by the host. Resolves to the enclosing `NavigationStack`'s
+    /// pop action when this view is pushed via `navigationDestination`.
+    @Environment(\.dismiss) private var dismissEnvironment
 
     /// True while a cancel HTTP request is in flight. Disables the button and
     /// shows an inline spinner so the user can't double-tap.
@@ -306,7 +313,12 @@ struct ACPSessionDetailView: View {
                 .onPreferenceChange(ACPSessionDetailScrollOffsetKey.self) { contentMinY in
                     handleScrollOffsetChange(contentMinY)
                 }
-                .onChange(of: session.events.count) {
+                .onChange(of: session.events.last?.id) {
+                    // `events.count` plateaus at `ACPSessionStore.eventsCapPerSession`
+                    // (the ring buffer trims oldest entries on append), so a count-keyed
+                    // `.onChange` would silently stop firing for long sessions. Observe
+                    // the last event's id instead — each `ACPSessionUpdateMessage`
+                    // carries a unique UUID, so this fires on every append.
                     if autoScrollEnabled {
                         // .easeOut keeps the jump readable when many events
                         // arrive at once.
@@ -314,6 +326,27 @@ struct ACPSessionDetailView: View {
                             proxy.scrollTo(Self.bottomAnchorId, anchor: .bottom)
                         }
                     }
+                }
+                .onChange(of: session.events.first?.id) {
+                    // Oldest event changed — content was trimmed from the head of
+                    // the ring buffer, which shrinks total content height and shifts
+                    // the offset baseline. Without resetting the watermark here,
+                    // `returnedToBottom` would never be satisfied again (the stored
+                    // max stays beyond the new actual bottom) and auto-scroll would
+                    // permanently lock out. The next offset reading re-establishes
+                    // both values for the now-shorter content.
+                    lastMaxScrollOffset = 0
+                    lastScrollOffset = 0
+                }
+                .onChange(of: showThoughts) {
+                    // Toggling thought visibility shrinks/grows the timeline,
+                    // which moves the bottom offset. Reset the watermark for
+                    // the same reason as the ring-buffer trim above and
+                    // re-engage auto-scroll so users who flip the toggle while
+                    // parked at the bottom keep getting new events pinned.
+                    lastMaxScrollOffset = 0
+                    lastScrollOffset = 0
+                    autoScrollEnabled = true
                 }
                 .onAppear {
                     // First-paint: park at the bottom so the user lands on
@@ -349,12 +382,17 @@ struct ACPSessionDetailView: View {
         let currentOffset = -contentMinY
         defer { lastScrollOffset = currentOffset }
 
+        let movedUp = currentOffset < lastScrollOffset - Self.scrollAtBottomTolerance
+        // Evaluate against the *prior* high-water mark, before bumping it.
+        // If we updated the mark first, any offset that exceeds it (e.g. the
+        // user scrolling partway down into newly-arrived content) would
+        // immediately satisfy `abs(0) < tolerance` and re-engage auto-scroll
+        // — yanking the user away from where they were reading.
+        let returnedToBottom = abs(currentOffset - lastMaxScrollOffset) < Self.scrollAtBottomTolerance
+
         if currentOffset > lastMaxScrollOffset {
             lastMaxScrollOffset = currentOffset
         }
-
-        let movedUp = currentOffset < lastScrollOffset - Self.scrollAtBottomTolerance
-        let returnedToBottom = abs(currentOffset - lastMaxScrollOffset) < Self.scrollAtBottomTolerance
 
         if movedUp {
             autoScrollEnabled = false
@@ -510,11 +548,11 @@ struct ACPSessionDetailView: View {
         HStack(spacing: 0) {
             HStack(alignment: .top, spacing: VSpacing.xs) {
                 VIconView(.lightbulb, size: 12)
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .padding(.top, 2)
                 Text(content)
                     .font(VFont.bodyMediumDefault.italic())
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .textSelection(.enabled)
             }
             .padding(VSpacing.sm)
@@ -593,7 +631,21 @@ struct ACPSessionDetailView: View {
         // (`acp/:id/steer`) accepts and the store keys its dictionary by.
         // `state.acpSessionId` is the protocol-level handle and would
         // miss the lookup for any session past initialization.
-        Task { await store.steer(id: session.state.id, instruction: instruction) }
+        let id = session.state.id
+        let acpSessionId = session.state.acpSessionId
+        Task { @MainActor in
+            let result = await store.steer(id: id, instruction: instruction)
+            // Surface a failure follow-up so the optimistic "→ steered: …"
+            // row above isn't misread as confirmation when the daemon
+            // rejected the instruction (transport error, session ended, etc.).
+            if case .failure = result {
+                session.appendEvent(ACPSessionUpdateMessage(
+                    acpSessionId: acpSessionId,
+                    updateType: .userMessageChunk,
+                    content: "→ steer failed — the session may have ended."
+                ))
+            }
+        }
     }
 
     // MARK: - Delete Footer
@@ -643,7 +695,11 @@ struct ACPSessionDetailView: View {
             // to react if the daemon reports a 409 (still active) or other
             // failure — the row stays put and the button re-enables.
             if case .success = result {
-                onDismiss?()
+                if let onDismiss {
+                    onDismiss()
+                } else {
+                    dismissEnvironment()
+                }
             }
         }
     }

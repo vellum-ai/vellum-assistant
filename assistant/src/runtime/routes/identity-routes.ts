@@ -449,6 +449,10 @@ export const ROUTES: RouteDefinition[] = [
       "Returns runtime health including version, disk, memory, CPU, and migration status.",
     tags: ["system"],
     responseBody: detailedHealthSchema,
+    // Clients (notably the macOS app) poll this every few seconds; the
+    // first handful of 200s confirm the route works and every line after
+    // is just noise. Non-2xx still logs.
+    logging: { silenceSuccessAfter: 5 },
   },
   {
     operationId: "healthz",
@@ -461,6 +465,7 @@ export const ROUTES: RouteDefinition[] = [
       "Alias for /v1/health. Returns runtime health including version, disk, memory, CPU, and migration status.",
     tags: ["system"],
     responseBody: detailedHealthSchema,
+    logging: { silenceSuccessAfter: 5 },
   },
   {
     operationId: "identity",

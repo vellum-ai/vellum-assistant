@@ -1641,12 +1641,15 @@ const RUNTIME_INJECTION_PREFIXES = [
   // blocks persist in history so the assistant retains temporal/actor grounding.
   "<memory_context __injected>",
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
-  // NOTE: `<memory>` blocks (both the dynamic activation block from
-  // `injectTextBlock` and the static `memory-v2-static` injector) are
-  // intentionally NOT stripped — memory injections persist in history so
-  // the assistant retains intra-turn memory state. The activation pipeline
-  // dedupes via `everInjected`, and compaction handles aggregate growth, so
+  // The static `memory-v2-static` block (opens `<memory>\n…`) IS stripped
+  // so each compaction re-injects the freshest essentials/threads/recent/
+  // buffer view, matching the `<knowledge_base>` cadence. The dynamic
+  // activation block (opens `<memory __injected>…`) is intentionally NOT
+  // stripped — `startsWith("<memory>\n")` does not match it — so per-turn
+  // memory activations persist in history. The activation pipeline dedupes
+  // via `everInjected`, and compaction handles aggregate growth, so
   // accumulation does not cause unbounded context growth.
+  "<memory>\n",
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
   // NOTE: <workspace> is intentionally NOT stripped — workspace context
@@ -1736,6 +1739,7 @@ export interface RuntimeInjectionBlocks {
   workspaceBlock?: string;
   nowScratchpadBlock?: string;
   pkbContextBlock?: string;
+  memoryV2StaticBlock?: string;
   /**
    * Composed output of every plugin-registered {@link Injector}, concatenated
    * in ascending `order`. Empty string when every injector opted out (returned
@@ -2153,6 +2157,7 @@ export async function applyRuntimeInjections(
   let nowScratchpadCaptured: string | undefined;
   let pkbContextCaptured: string | undefined;
   let pkbSystemReminderCaptured: string | undefined;
+  let memoryV2StaticCaptured: string | undefined;
   const initialTail = runMessages[runMessages.length - 1];
   const initialTailIsUser = !!initialTail && initialTail.role === "user";
   if (initialTailIsUser) {
@@ -2172,6 +2177,9 @@ export async function applyRuntimeInjections(
           break;
         case "pkb-reminder":
           pkbSystemReminderCaptured = block.text;
+          break;
+        case "memory-v2-static":
+          memoryV2StaticCaptured = block.text;
           break;
       }
     }
@@ -2354,6 +2362,7 @@ export async function applyRuntimeInjections(
       workspaceBlock: workspaceCaptured,
       nowScratchpadBlock: nowScratchpadCaptured,
       pkbContextBlock: pkbContextCaptured,
+      memoryV2StaticBlock: memoryV2StaticCaptured,
       injectorChainBlock,
     },
   };
