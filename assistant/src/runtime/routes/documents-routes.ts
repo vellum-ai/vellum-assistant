@@ -6,8 +6,12 @@
  */
 import { z } from "zod";
 
-import { saveDocument } from "../../documents/document-store.js";
-import { rawAll, rawGet } from "../../memory/raw-query.js";
+import {
+  getDocumentById,
+  getDocumentsForConversation,
+  saveDocument,
+} from "../../documents/document-store.js";
+import { rawAll } from "../../memory/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { renderMarkdownToPDF } from "./document-pdf-renderer.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
@@ -16,65 +20,16 @@ import { RouteResponse } from "./types.js";
 
 const log = getLogger("documents-routes");
 
-interface DocumentRow {
+interface DocumentListRow {
   surface_id: string;
   conversation_id: string;
   title: string;
-  content: string;
   word_count: number;
   created_at: number;
   updated_at: number;
 }
 
-type DocumentListRow = Omit<DocumentRow, "content">;
-
-function loadDocument(surfaceId: string):
-  | {
-      success: true;
-      surfaceId: string;
-      conversationId: string;
-      title: string;
-      content: string;
-      wordCount: number;
-      createdAt: number;
-      updatedAt: number;
-    }
-  | { success: false; error: string } {
-  try {
-    const result = rawGet<DocumentRow>(
-      /*sql*/ `
-      SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at
-      FROM documents
-      WHERE surface_id = ?
-    `,
-      surfaceId,
-    );
-
-    if (result) {
-      log.info({ surfaceId }, "Loaded document");
-      return {
-        success: true,
-        surfaceId: result.surface_id,
-        conversationId: result.conversation_id,
-        title: result.title,
-        content: result.content,
-        wordCount: result.word_count,
-        createdAt: result.created_at,
-        updatedAt: result.updated_at,
-      };
-    }
-    log.info({ surfaceId }, "Document not found");
-    return { success: false, error: "Document not found" };
-  } catch (error) {
-    log.error({ err: error, surfaceId }, "Load error");
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
-
-function listDocuments(conversationId?: string): Array<{
+function listAllDocuments(): Array<{
   surfaceId: string;
   conversationId: string;
   title: string;
@@ -83,29 +38,11 @@ function listDocuments(conversationId?: string): Array<{
   updatedAt: number;
 }> {
   try {
-    let results: DocumentListRow[];
-
-    if (conversationId) {
-      // Query via junction table so we return the *matched* conversation_id
-      // (not the origin conversation_id from the documents table).
-      results = rawAll<DocumentListRow>(
-        /*sql*/ `
-        SELECT d.surface_id, dc.conversation_id AS conversation_id,
-               d.title, d.word_count, d.created_at, d.updated_at
-        FROM documents d
-        INNER JOIN document_conversations dc ON d.surface_id = dc.surface_id
-        WHERE dc.conversation_id = ?
-        ORDER BY d.updated_at DESC
-        `,
-        conversationId,
-      );
-    } else {
-      results = rawAll<DocumentListRow>(/*sql*/ `
-        SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
-        FROM documents
-        ORDER BY updated_at DESC
-        `);
-    }
+    const results = rawAll<DocumentListRow>(/*sql*/ `
+      SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
+      FROM documents
+      ORDER BY updated_at DESC
+      `);
 
     log.info({ count: results.length }, "Listed documents");
     return results.map((row) => ({
@@ -148,7 +85,9 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: ({ queryParams }) => {
       const conversationId = queryParams?.conversationId ?? undefined;
-      const documents = listDocuments(conversationId);
+      const documents = conversationId
+        ? getDocumentsForConversation(conversationId)
+        : listAllDocuments();
       return { documents };
     },
   },
@@ -173,11 +112,11 @@ export const ROUTES: RouteDefinition[] = [
       updatedAt: z.number(),
     }),
     handler: ({ pathParams }) => {
-      const result = loadDocument(pathParams!.id);
-      if (!result.success) {
-        throw new NotFoundError(result.error);
+      const doc = getDocumentById(pathParams!.id);
+      if (!doc) {
+        throw new NotFoundError("Document not found");
       }
-      return result;
+      return { success: true, ...doc };
     },
   },
 
@@ -252,13 +191,13 @@ export const ROUTES: RouteDefinition[] = [
     description: "Render a document to PDF and return the binary content.",
     tags: ["documents"],
     handler: async ({ pathParams }) => {
-      const result = loadDocument(pathParams!.id);
-      if (!result.success) {
-        throw new NotFoundError(result.error);
+      const doc = getDocumentById(pathParams!.id);
+      if (!doc) {
+        throw new NotFoundError("Document not found");
       }
-      const pdfBuffer = await renderMarkdownToPDF(result.title, result.content);
+      const pdfBuffer = await renderMarkdownToPDF(doc.title, doc.content);
       const filename =
-        result.title
+        doc.title
           .replace(/[^a-zA-Z0-9_-]/g, "-")
           .replace(/-+/g, "-")
           .replace(/^-|-$/g, "") || "document";
