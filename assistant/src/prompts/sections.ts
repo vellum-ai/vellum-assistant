@@ -35,6 +35,21 @@ export function getWorkspaceSystemPromptDir(): string {
 }
 
 /**
+ * Inclusive numeric range applied to section ids.  Range bounds compare
+ * against the leading integer in each id (`"03-cli-reference"` → `3`).
+ * Used by `buildSystemPrompt` to bracket the still-code-rendered middle
+ * sections during incremental migration; once every section lives in the
+ * workspace the caller can drop the range and emit the whole directory in
+ * one shot.
+ */
+export interface RenderRange {
+  /** Inclusive lower bound on numeric prefix (e.g. `"03"` or `3`). */
+  from?: string | number;
+  /** Inclusive upper bound on numeric prefix (e.g. `"04"` or `4`). */
+  to?: string | number;
+}
+
+/**
  * Render every `<NN-name>.md` file under `<workspace>/prompts/system/` in
  * filename order, returning the trimmed body of each enabled section.
  *
@@ -59,8 +74,15 @@ export function getWorkspaceSystemPromptDir(): string {
  * order automatically.  The numeric prefix is load-bearing for sort order;
  * pick a number that places the section where it should appear in the final
  * prompt.
+ *
+ * When `range` is provided, only sections whose numeric prefix falls within
+ * the inclusive bounds are emitted.  Files without a leading integer prefix
+ * are skipped entirely when a range filter is active.
  */
-export function renderWorkspaceSections(ctx: SectionRenderContext): string[] {
+export function renderWorkspaceSections(
+  ctx: SectionRenderContext,
+  range?: RenderRange,
+): string[] {
   const dir = getWorkspaceSystemPromptDir();
   if (!existsSync(dir)) {
     log.debug({ dir }, "Workspace system prompt directory missing");
@@ -78,6 +100,7 @@ export function renderWorkspaceSections(ctx: SectionRenderContext): string[] {
   const ids = entries
     .filter((name) => name.endsWith(".md"))
     .map((name) => name.slice(0, -".md".length))
+    .filter((id) => withinRange(id, range))
     .sort();
 
   const out: string[] = [];
@@ -86,6 +109,21 @@ export function renderWorkspaceSections(ctx: SectionRenderContext): string[] {
     if (rendered) out.push(rendered);
   }
   return out;
+}
+
+function withinRange(id: string, range: RenderRange | undefined): boolean {
+  if (!range) return true;
+  const match = id.match(/^(\d+)/);
+  if (!match) return false;
+  const n = Number.parseInt(match[1]!, 10);
+  if (range.from !== undefined && n < toNumber(range.from)) return false;
+  if (range.to !== undefined && n > toNumber(range.to)) return false;
+  return true;
+}
+
+function toNumber(value: string | number): number {
+  if (typeof value === "number") return value;
+  return Number.parseInt(value, 10);
 }
 
 function renderSection(id: string, ctx: SectionRenderContext): string | null {
