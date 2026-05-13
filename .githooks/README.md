@@ -62,7 +62,7 @@ Runs the same generic-examples patterns as `pre-commit`, but against the commit 
 **Behavior:**
 
 - Comment lines (lines starting with `#`) are stripped before scanning when `commit.cleanup` is `default`, `strip`, or `scissors` (the modes that drop them from the recorded commit). Under `verbatim` or `whitespace`, comment lines are scanned because git keeps them.
-- Content below the `# ------------------------ >8 ------------------------` scissors line (used by `git commit -v`) is ignored when `commit.cleanup` is `default`, `strip`, or `scissors` (the modes that drop it from the recorded commit). Under `verbatim` or `whitespace`, content below the scissors line is scanned because git keeps it.
+- Content below the `# ------------------------ >8 ------------------------` scissors line (used by `git commit -v`) is always ignored. Git strips that region — which holds the verbose diff — from the recorded commit message regardless of cleanup mode, so scanning it would produce false positives on staged code rather than commit text.
 <!-- generic-examples:ignore-next-line — illustrative example of what the rule flags -->
 - Patterns are quote-anchored — they catch quoted/back-ticked emails and phone numbers (e.g., `Updated "alice@gmail.com" to be hashed`), not bare prose. Angle-bracketed trailers like `Co-Authored-By: Claude <noreply@anthropic.com>` are not flagged.
 - Suppression: `generic-examples:ignore-line` on the flagged line itself works (note that the marker survives into the recorded message). `generic-examples:ignore-next-line` is intentionally not supported here, since the marker line would also survive into the recorded message — use the same-line form instead.
