@@ -737,7 +737,7 @@ public struct ConversationListInvalidatedMessage: Decodable, Sendable {
 /// Generic persisted-state invalidation event.
 ///
 /// Tags name stale resources and intentionally do not carry resource data.
-/// Routing/refetch behavior is added separately by the native sync router.
+/// Routing/refetch behavior is handled separately by `SyncTagRouter`.
 public struct SyncChangedMessage: Decodable, Sendable {
     public let tags: [String]
 

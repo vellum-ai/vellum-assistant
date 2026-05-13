@@ -169,6 +169,7 @@ extension AppDelegate {
 
         // Subscribe to SSE event stream for UI event routing.
         startEventSubscription()
+        startSyncBroadRefreshObservers()
 
         Task {
             // Import guardian token from CLI file before connecting, so the
@@ -372,6 +373,8 @@ extension AppDelegate {
                     SoundManager.shared.handleSoundsConfigBroadcast()
                 case .configChanged:
                     NotificationCenter.default.post(name: .configChanged, object: nil)
+                case .syncChanged(let msg):
+                    self.handleSyncChanged(msg)
                 case .featureFlagsChanged:
                     let flagReloadTask = self.featureFlagStore.reloadFromGateway()
                     Task { @MainActor [weak self] in
@@ -546,6 +549,84 @@ extension AppDelegate {
                 default:
                     break
                 }
+            }
+        }
+    }
+
+    private func startSyncBroadRefreshObservers() {
+        if let observer = syncAppActivationObserver {
+            NotificationCenter.default.removeObserver(observer)
+            syncAppActivationObserver = nil
+        }
+        if let observer = syncEventStreamReconnectObserver {
+            NotificationCenter.default.removeObserver(observer)
+            syncEventStreamReconnectObserver = nil
+        }
+
+        syncAppActivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleSyncBroadRefresh()
+            }
+        }
+
+        syncEventStreamReconnectObserver = NotificationCenter.default.addObserver(
+            forName: .eventStreamDidReconnect,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleSyncBroadRefresh()
+            }
+        }
+    }
+
+    private func handleSyncChanged(_ message: SyncChangedMessage) {
+        applySyncRoutes(SyncTagRouter.routes(for: message.tags))
+    }
+
+    private func scheduleSyncBroadRefresh() {
+        syncBroadRefreshTask?.cancel()
+        syncBroadRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard let self, !Task.isCancelled, self.connectionManager.isConnected else { return }
+            let activeConversationId = self.mainWindow?.conversationManager.activeConversation?.conversationId
+            self.applySyncRoutes(
+                SyncTagRouter.broadRefreshRoutes(activeConversationId: activeConversationId)
+            )
+        }
+    }
+
+    private func applySyncRoutes(_ routes: [SyncTagRoute]) {
+        guard !routes.isEmpty else { return }
+
+        let conversationRoutes = routes.filter { route in
+            switch route {
+            case .conversationList, .conversationMetadata(_), .conversationMessages(_):
+                return true
+            case .assistantAvatar, .assistantIdentity, .assistantConfig, .assistantSounds:
+                return false
+            }
+        }
+        if !conversationRoutes.isEmpty {
+            mainWindow?.conversationManager.handleSyncRoutes(conversationRoutes)
+        }
+
+        for route in routes {
+            switch route {
+            case .assistantAvatar:
+                AvatarAppearanceManager.shared.reloadAvatar()
+            case .assistantIdentity:
+                NotificationCenter.default.post(name: .identityChanged, object: nil)
+            case .assistantConfig:
+                services.settingsStore.refreshForSyncInvalidation()
+            case .assistantSounds:
+                SoundManager.shared.handleSoundsConfigBroadcast()
+            case .conversationList, .conversationMetadata(_), .conversationMessages(_):
+                continue
             }
         }
     }

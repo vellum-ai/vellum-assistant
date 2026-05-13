@@ -427,6 +427,13 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.applyAssistantAttention(from: item, into: &conversation)
     }
 
+    func handleSyncRoutes(_ routes: [SyncTagRoute]) {
+        conversationRestorer.handleSyncRoutes(
+            routes,
+            activeConversationId: activeConversation?.conversationId
+        )
+    }
+
     func restoreLastActiveConversation() {
         selectionStore.restoreLastActiveConversation()
     }
