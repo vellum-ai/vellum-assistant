@@ -313,14 +313,19 @@ public final class SettingsStore: ObservableObject {
     @Published var yourOwnOAuthConnectingAppId: String? = nil
     @Published var yourOwnOAuthProviderMetadata: [String: OAuthProviderMetadata] = [:]
 
-    static let availableWebSearchProviders = ["inference-provider-native", "perplexity", "brave", "tavily"]
+    /// Available web-search provider identifiers, in catalog order.
+    /// Derived from the bundled `web-search-provider-catalog.json` via
+    /// `WebSearchProviderRegistry` — adding a provider upstream lights it
+    /// up here automatically.
+    static var availableWebSearchProviders: [String] {
+        WebSearchProviderRegistry.providerIds
+    }
 
-    static let webSearchProviderDisplayNames: [String: String] = [
-        "inference-provider-native": "Provider Native",
-        "perplexity": "Perplexity",
-        "brave": "Brave",
-        "tavily": "Tavily",
-    ]
+    /// Display names keyed by web-search provider id. Derived from
+    /// `WebSearchProviderRegistry`; see `availableWebSearchProviders`.
+    static var webSearchProviderDisplayNames: [String: String] {
+        WebSearchProviderRegistry.displayNamesById
+    }
 
     // MARK: - Managed Assistant Recovery Mode State
 
