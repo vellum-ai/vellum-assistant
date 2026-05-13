@@ -416,6 +416,40 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(store.profiles.map(\.name).sorted(), store.profileOrder)
     }
 
+    /// Regression: when the follow-up `profileOrder` PATCH fails, the
+    /// rebuilt local order must preserve any user-defined ordering of
+    /// existing profiles instead of collapsing to alphabetical. A retry
+    /// of `replaceProfile` computes `nextProfileOrderAfterSaving` from
+    /// local state and would otherwise persist the alphabetic order back
+    /// to the daemon, silently overwriting the user's prior ordering.
+    func testReplaceProfileFailedOrderPatchPreservesCustomOrder() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profileOrder": ["zeta", "alpha", "mike"],
+                "profiles": [
+                    "alpha": ["model": "claude-sonnet-4-6"],
+                    "mike": ["model": "claude-sonnet-4-6"],
+                    "zeta": ["model": "claude-sonnet-4-6"],
+                ],
+            ]
+        ])
+        mockSettingsClient.patchConfigResponse = false
+
+        let newProfile = InferenceProfile(
+            name: "bravo",
+            provider: "anthropic",
+            model: "claude-opus-4-7"
+        )
+        let success = await store.replaceProfile(name: "bravo", fragment: newProfile)
+        XCTAssertFalse(success)
+
+        // Custom order of existing profiles must survive; only the new
+        // name is appended (alphabetically after preserved entries).
+        XCTAssertEqual(store.profileOrder, ["zeta", "alpha", "mike", "bravo"])
+        XCTAssertEqual(Set(store.profileOrder), Set(store.profiles.map(\.name)))
+        XCTAssertEqual(store.profiles.map(\.name), store.profileOrder)
+    }
+
     // MARK: - deleteProfile blocked-by-active
 
     func testDeleteProfileBlockedByActive() async {

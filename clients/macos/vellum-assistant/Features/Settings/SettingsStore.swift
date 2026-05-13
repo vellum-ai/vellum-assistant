@@ -3589,13 +3589,20 @@ public final class SettingsStore: ObservableObject {
             ])
             guard orderSuccess else {
                 log.error("Failed to patch llm.profileOrder after replacing llm.profiles.\(name, privacy: .public)")
-                // Server-side replace already succeeded and `profiles`
-                // includes the new entry, but the follow-up order patch
-                // failed. Without rebuilding `profileOrder`, a caller
-                // retry hits a stuck "already exists" collision and
-                // `reorderPublishedProfiles` silently drops the unlisted
-                // name on the next refresh.
-                let rebuiltOrder = profiles.map(\.name).sorted()
+                // Server-side replace already succeeded, so `profiles`
+                // has the new entry but `profileOrder` lacks it. Without
+                // reconciliation a caller retry hits a stuck "already
+                // exists" collision and `reorderPublishedProfiles`
+                // silently drops the unlisted name. Reconcile against
+                // the existing order (not an alphabetic resort) so a
+                // user-defined custom order survives — a retry's
+                // `nextProfileOrderAfterSaving` reads local state and
+                // would otherwise persist alphabetical order back to
+                // the daemon.
+                let rebuiltOrder = Self.normalizedProfileOrder(
+                    profileNames: profiles.map(\.name),
+                    storedOrder: profileOrder
+                )
                 profileOrder = rebuiltOrder
                 reorderPublishedProfiles(to: rebuiltOrder)
                 return false
