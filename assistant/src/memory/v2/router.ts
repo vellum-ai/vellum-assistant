@@ -275,22 +275,22 @@ export async function runRouter(
     );
   }
 
-  const truncated = inRangeIds.length > maxPageIds;
-  const finalIds = truncated ? inRangeIds.slice(0, maxPageIds) : inRangeIds;
+  // De-duplicate BEFORE applying the cap — otherwise a duplicate-heavy
+  // model output like `[1, 1, 2]` with `max=2` slices to `[1, 1]` and
+  // dedupes to `[1]`, under-filling the cap.
+  const dedupedIds = Array.from(new Set(inRangeIds));
+
+  const truncated = dedupedIds.length > maxPageIds;
+  const finalIds = truncated ? dedupedIds.slice(0, maxPageIds) : dedupedIds;
   if (truncated) {
     log.warn(
-      { returned: inRangeIds.length, max: maxPageIds },
+      { returned: dedupedIds.length, max: maxPageIds },
       "Router returned more page IDs than max_page_ids; truncating",
     );
   }
 
-  // De-duplicate while preserving order — the index lookup alone wouldn't
-  // catch repeats from the model.
-  const seen = new Set<number>();
   const selectedSlugs: string[] = [];
   for (const id of finalIds) {
-    if (seen.has(id)) continue;
-    seen.add(id);
     const entry = pageIndex.byId.get(id);
     if (!entry) continue;
     selectedSlugs.push(entry.slug);

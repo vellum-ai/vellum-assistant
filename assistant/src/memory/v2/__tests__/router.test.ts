@@ -460,6 +460,21 @@ describe("runRouter — failure modes", () => {
     expect(warnSeen).toBe(true);
   });
 
+  test("duplicate-heavy IDs are deduped before the cap is applied", async () => {
+    // [1, 1, 2] with max=2 must yield two distinct slugs, not collapse to one
+    // after a pre-dedupe slice trims away the only other unique ID.
+    providerStub = makeProvider(toolUseResponse([1, 1, 2]));
+
+    const result = await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ maxPageIds: 2 }),
+    });
+
+    expect(result.failureReason).toBeNull();
+    expect(result.selectedSlugs).toEqual(["alpha", "bravo"]);
+  });
+
   test("more than max_page_ids → truncated with warn", async () => {
     providerStub = makeProvider(toolUseResponse([1, 2, 3]));
 
