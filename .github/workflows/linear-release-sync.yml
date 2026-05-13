@@ -16,9 +16,12 @@
 #
 # Filtering: only true production releases (clean semver tags such as
 # `v0.5.3`) advance the pipeline. The repo's release workflow also publishes
-# `-staging.N` pre-release tags (`v0.7.4-staging.2`) via `gh release create`;
-# those are skipped so Linear issues don't get marked as shipped to production
-# before they actually are.
+# `-staging.N` pre-release tags (`v0.7.4-staging.2`) via `gh release create`,
+# and future workflows could plausibly publish other pre-release variants
+# (`-rc.N`, `-beta.N`, `-alpha.N`). All such tags share the property that the
+# semver-string contains a hyphen, so any tag with `-` in the suffix is
+# skipped. This keeps Linear issues from being marked as shipped to
+# production before they actually are.
 #
 # Setup prerequisites (one-time, in Linear and GitHub UIs):
 #   1. Create a Scheduled release pipeline in Linear:
@@ -52,14 +55,18 @@ jobs:
   sync:
     name: Sync Linear release
     runs-on: ubuntu-latest
-    # Skip on forks (the secret isn't available there) and on pre-release tags
-    # such as `v0.7.4-staging.2`. The repo's release workflow publishes
-    # staging tags through the same `gh release create` path as production but
-    # encodes the channel in the tag suffix; matching on `-staging.` keeps
+    # Skip on forks (the secret isn't available there) and on any pre-release
+    # tag (`vX.Y.Z-staging.N`, `vX.Y.Z-rc.N`, `vX.Y.Z-beta.N`, …). The repo's
+    # current release workflow publishes staging tags through the same
+    # `gh release create` path as production but encodes the channel in the
+    # tag suffix; the `prerelease` flag on the GitHub Release object is *not*
+    # set (no `--prerelease`), so we can't rely on
+    # `github.event.release.prerelease`. Filtering on a hyphen in the tag
+    # catches every pre-release shape semver allows and keeps
     # Scheduled-pipeline releases aligned with actual production launches.
     if: >-
       github.repository == 'vellum-ai/vellum-assistant' &&
-      !contains(github.event.release.tag_name, '-staging.')
+      !contains(github.event.release.tag_name, '-')
     steps:
       - name: Checkout release tag
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -85,3 +92,10 @@ jobs:
           # started/planned state. See "Command targeting" in the action's
           # README.
           version: ${{ github.event.release.tag_name }}
+          # Pin the underlying Linear Release CLI version. The action's input
+          # defaults to `latest`, which would let every production run pull a
+          # newer CLI build with potentially-changed behavior or flags. To
+          # upgrade: look up the new CLI tag at
+          # https://github.com/linear/linear-release/releases and bump the
+          # value below in the same PR as the action SHA bump.
+          cli_version: v0.10.0
