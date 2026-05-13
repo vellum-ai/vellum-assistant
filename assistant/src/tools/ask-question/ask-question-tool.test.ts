@@ -243,7 +243,7 @@ describe("AskQuestionTool batched input", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("accepts a multi-question batch up to 5", async () => {
+  test("runtime guard rejects a 5-entry batch even though the schema cap allows it", async () => {
     const { tool, calls } = makeToolWithStub({
       decision: "option",
       optionId: "a",
@@ -252,9 +252,30 @@ describe("AskQuestionTool batched input", () => {
 
     const result = await tool.execute({ questions: five }, makeContext());
 
-    // Only the head is forwarded until the prompter learns to batch.
-    expect(calls).toHaveLength(1);
-    expect(result.isError).toBe(false);
+    // Schema validation passes (the 1..5 cap holds), but the runtime guard
+    // refuses to forward anything because the prompter can't broadcast a
+    // batch yet — see the TODO in `execute()`.
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Batched questions");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("rejects a 2-entry batch with the documented guard message", async () => {
+    const { tool, calls } = makeToolWithStub({
+      decision: "option",
+      optionId: "a",
+    });
+
+    const result = await tool.execute(
+      { questions: [singleQ, singleQ] },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(
+      "Batched questions (more than one entry in `questions`) are not yet supported by this assistant build. Call ask_question once per clarification for now.",
+    );
+    expect(calls).toHaveLength(0);
   });
 
   test("rejects batches with 6+ questions", async () => {
@@ -377,7 +398,12 @@ describe("AskQuestionTool definition (batched schema)", () => {
     expect(schema.properties.freeTextPlaceholder?.type).toBe("string");
 
     // No top-level `required` array — the choice between batched and flat
-    // is enforced at runtime by Zod.
+    // is enforced at runtime by Zod's `.refine`, which is the source of
+    // truth. The "accepts a single-element `questions` batch",
+    // "normalizes legacy flat input into a one-element batch",
+    // "rejects input missing both `questions` and flat fields", and
+    // "rejects legacy `question` without `options`" tests above exercise
+    // every branch of that refine.
     expect(schema.required).toBeUndefined();
   });
 });

@@ -225,6 +225,19 @@ export class AskQuestionTool implements Tool {
       };
     }
 
+    // TODO: remove this guard once PR 3 wires the prompter to handle batches.
+    // The schema accepts up to MAX_QUESTIONS_PER_BATCH entries so PR 3 doesn't
+    // have to re-extend it, but until the prompter can broadcast multi-question
+    // batches we must reject them explicitly — otherwise extra entries would
+    // be silently dropped and the caller would receive an incomplete answer.
+    if (parsed.data.questions && parsed.data.questions.length > 1) {
+      return {
+        content:
+          "Batched questions (more than one entry in `questions`) are not yet supported by this assistant build. Call ask_question once per clarification for now.",
+        isError: true,
+      };
+    }
+
     // Normalize legacy flat input into a one-element `questions` batch so
     // downstream code only has to deal with the batched shape. The refine
     // above guarantees `question` and `options` are present whenever
@@ -238,9 +251,9 @@ export class AskQuestionTool implements Tool {
       },
     ];
 
-    // The prompter currently handles one question at a time; multi-question
-    // batches are accepted at the schema layer but only the head is sent
-    // until the prompter learns to broadcast batches.
+    // The prompter currently handles one question at a time. Multi-question
+    // batches are rejected by the guard above, so `questions` is guaranteed
+    // to hold exactly one entry here.
     const head = questions[0]!;
     const { question, description, options, freeTextPlaceholder } = head;
 
