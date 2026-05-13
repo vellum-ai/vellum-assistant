@@ -48,6 +48,11 @@ interface PruneCall {
   options?: { kind?: string };
 }
 
+interface BackfillCall {
+  prefix: string;
+  kind: string;
+}
+
 interface TestState {
   catalog: SkillSummary[];
   resolved: ResolvedSkill[];
@@ -60,6 +65,10 @@ interface TestState {
   upsertCalls: UpsertCall[];
   pruneCalls: PruneCall[];
   upsertThrows: Error | null;
+  backfillCalls: BackfillCall[];
+  backfillReturn: number;
+  backfillThrows: Error | null;
+  callSequence: Array<"upsert" | "prune" | "backfill">;
 }
 
 const state: TestState = {
@@ -74,6 +83,10 @@ const state: TestState = {
   upsertCalls: [],
   pruneCalls: [],
   upsertThrows: null,
+  backfillCalls: [],
+  backfillReturn: 0,
+  backfillThrows: null,
+  callSequence: [],
 };
 
 // Stub config so resolveSkillStates / mcp augmentation have something to read.
@@ -115,6 +128,7 @@ mock.module("../../embedding-backend.js", () => ({
 mock.module("../qdrant.js", () => ({
   upsertConceptPageEmbedding: async (params: UpsertCall) => {
     if (state.upsertThrows) throw state.upsertThrows;
+    state.callSequence.push("upsert");
     state.upsertCalls.push(params);
   },
   pruneSlugsWithPrefixExcept: async (
@@ -122,7 +136,14 @@ mock.module("../qdrant.js", () => ({
     activeSuffixes: readonly string[],
     options?: { kind?: string },
   ) => {
+    state.callSequence.push("prune");
     state.pruneCalls.push({ prefix, activeSuffixes, options });
+  },
+  backfillKindOnPointsWithPrefix: async (prefix: string, kind: string) => {
+    if (state.backfillThrows) throw state.backfillThrows;
+    state.callSequence.push("backfill");
+    state.backfillCalls.push({ prefix, kind });
+    return state.backfillReturn;
   },
 }));
 
@@ -170,6 +191,10 @@ function resetState(): void {
   state.upsertCalls.length = 0;
   state.pruneCalls.length = 0;
   state.upsertThrows = null;
+  state.backfillCalls.length = 0;
+  state.backfillReturn = 0;
+  state.backfillThrows = null;
+  state.callSequence.length = 0;
   _resetSkillStoreForTests();
 }
 
@@ -442,6 +467,86 @@ describe("seedV2SkillEntries", () => {
     expect(state.pruneCalls).toHaveLength(1);
     expect(state.pruneCalls[0].prefix).toBe("skills/");
     expect([...state.pruneCalls[0].activeSuffixes]).toEqual(["remote-only"]);
+  });
+
+  test("passes kind: 'skill' to upsert and prune so legacy skill rows stay scoped to the skill kind", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    expect(state.upsertCalls).toHaveLength(1);
+    expect(state.upsertCalls[0].kind).toBe("skill");
+    expect(state.pruneCalls).toHaveLength(1);
+    expect(state.pruneCalls[0].options).toEqual({ kind: "skill" });
+  });
+
+  test("runs the legacy kind backfill before pruning so kindless skill points become prunable", async () => {
+    // Simulates an install carrying legacy skill points written before the
+    // kind discriminator existed: the backfill must run before prune so the
+    // kind-scoped prune can see and delete the orphans.
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+    state.backfillReturn = 3;
+
+    await seedV2SkillEntries();
+
+    expect(state.backfillCalls).toEqual([{ prefix: "skills/", kind: "skill" }]);
+    expect(state.pruneCalls).toHaveLength(1);
+    expect(state.pruneCalls[0].options).toEqual({ kind: "skill" });
+    expect(state.callSequence.filter((s) => s !== "upsert")).toEqual([
+      "backfill",
+      "prune",
+    ]);
+  });
+
+  test("backfill only runs once per process across repeated seed runs", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+    expect(state.backfillCalls).toHaveLength(1);
+
+    // A second seed should not re-scan: new upserts already carry kind, so
+    // there's nothing for the backfill to do.
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+    await seedV2SkillEntries();
+    expect(state.backfillCalls).toHaveLength(1);
+    expect(state.pruneCalls).toHaveLength(2);
+  });
+
+  test("backfill failure is non-fatal — prune still runs and lastSeedError stays clean", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+    state.backfillThrows = new Error("qdrant scroll exploded");
+
+    await expect(
+      seedV2SkillEntries({ throwOnError: true }),
+    ).resolves.toBeUndefined();
+
+    // Prune still ran despite the backfill failure — we don't want to block
+    // the steady-state prune when the legacy scan trips.
+    expect(state.pruneCalls).toHaveLength(1);
   });
 
   test("skips pruning when catalog fetch returns empty (network failure guard)", async () => {
