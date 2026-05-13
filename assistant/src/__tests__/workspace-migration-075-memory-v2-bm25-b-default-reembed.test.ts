@@ -2,8 +2,10 @@
  * Tests for workspace migration `075-memory-v2-bm25-b-default-reembed`.
  *
  * The migration enqueues a one-shot `memory_v2_reembed` job so existing
- * concept pages pick up the new `bm25_b` default. It must be gated on
- * `memory.v2.enabled` so v1-only workspaces don't run an unnecessary pass.
+ * concept pages pick up the new `bm25_b` default. It is gated on whether
+ * the workspace already has concept pages on disk so a workspace that
+ * disabled v2 (but kept its pages) still gets the queued reembed when v2
+ * is re-enabled later.
  */
 
 import {
@@ -14,7 +16,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
@@ -53,6 +55,12 @@ afterEach(() => {
   }
 });
 
+function seedConceptPage(relativePath: string): void {
+  const fullPath = join(workspaceDir, "memory", "concepts", relativePath);
+  mkdirSync(dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, "---\nedges: []\n---\nbody\n", "utf-8");
+}
+
 function countReembedJobs(): number {
   const db = new Database(dbPath);
   try {
@@ -68,37 +76,49 @@ function countReembedJobs(): number {
 }
 
 describe("075-memory-v2-bm25-b-default-reembed migration", () => {
-  test("enqueues memory_v2_reembed when config.json is absent (v2 enabled by default)", () => {
+  test("skips enqueue when memory/concepts/ does not exist", () => {
+    memoryV2Bm25BDefaultReembedMigration.run(workspaceDir);
+    expect(countReembedJobs()).toBe(0);
+  });
+
+  test("skips enqueue when memory/concepts/ is empty", () => {
+    mkdirSync(join(workspaceDir, "memory", "concepts"), { recursive: true });
+    memoryV2Bm25BDefaultReembedMigration.run(workspaceDir);
+    expect(countReembedJobs()).toBe(0);
+  });
+
+  test("enqueues when a top-level concept page exists", () => {
+    seedConceptPage("alice.md");
     memoryV2Bm25BDefaultReembedMigration.run(workspaceDir);
     expect(countReembedJobs()).toBe(1);
   });
 
-  test("enqueues memory_v2_reembed when memory.v2.enabled is explicitly true", () => {
-    writeFileSync(
-      join(workspaceDir, "config.json"),
-      JSON.stringify({ memory: { v2: { enabled: true } } }),
-      "utf-8",
-    );
+  test("enqueues when only a nested concept page exists", () => {
+    seedConceptPage("people/alice.md");
     memoryV2Bm25BDefaultReembedMigration.run(workspaceDir);
     expect(countReembedJobs()).toBe(1);
   });
 
-  test("skips enqueue when memory.v2.enabled is explicitly false", () => {
+  test("enqueues even when memory.v2.enabled is explicitly false (pages may be reembedded once v2 is re-enabled)", () => {
+    seedConceptPage("alice.md");
     writeFileSync(
       join(workspaceDir, "config.json"),
       JSON.stringify({ memory: { v2: { enabled: false } } }),
       "utf-8",
     );
     memoryV2Bm25BDefaultReembedMigration.run(workspaceDir);
-    expect(countReembedJobs()).toBe(0);
+    expect(countReembedJobs()).toBe(1);
   });
 
-  test("enqueues when config.json is malformed (falls back to default-enabled)", () => {
-    writeFileSync(
-      join(workspaceDir, "config.json"),
-      "{not valid json",
-      "utf-8",
+  test("does not duplicate when a pending reembed job already exists", () => {
+    seedConceptPage("alice.md");
+    const db = new Database(dbPath);
+    db.run(
+      `INSERT INTO memory_jobs
+         (id, type, payload, status, attempts, deferrals, run_after, last_error, created_at, updated_at)
+       VALUES ('pre-existing', 'memory_v2_reembed', '{}', 'pending', 0, 0, 0, NULL, 0, 0)`,
     );
+    db.close();
     memoryV2Bm25BDefaultReembedMigration.run(workspaceDir);
     expect(countReembedJobs()).toBe(1);
   });
