@@ -867,14 +867,16 @@ while IFS= read -r -d '' FILE; do
             if [ -z "$line" ]; then
                 continue
             fi
-            LINENO="${line%%:*}"
+            MATCH_LINENO="${line%%:*}"
             CONTENT="${line#*:}"
             # Context-aware patterns need the line that follows the match
             # in the staged blob (e.g. to confirm a bare `clientSecret:` key
             # sits in an OpenAPI schema). Compute lazily — only when needed.
+            # Note: do not use the name `LINENO` here — it shadows bash's
+            # built-in, which always reports the current script line.
             NEXT_LINE=""
-            if [[ "$LINENO" =~ ^[0-9]+$ ]] && [[ "$FILE" =~ \.(yaml|yml)$ ]]; then
-                NEXT_LINE=$(git show ":$FILE" 2>/dev/null | sed -n "$((LINENO + 1))p")
+            if [[ "$MATCH_LINENO" =~ ^[0-9]+$ ]] && [[ "$FILE" =~ \.(yaml|yml)$ ]]; then
+                NEXT_LINE=$(git show ":$FILE" 2>/dev/null | sed -n "$((MATCH_LINENO + 1))p")
             fi
             if matches_safe_line_pattern "$CONTENT" "$FILE" "$NEXT_LINE"; then
                 # Strip safe-line portions and re-check: a real secret
