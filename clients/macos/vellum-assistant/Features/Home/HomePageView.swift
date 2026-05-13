@@ -263,6 +263,9 @@ struct HomePageView<DetailPanel: View>: View {
         }
         let filtered = sorted.filter { item in
             guard item.status != .dismissed else { return false }
+            // High/critical urgency items are surfaced as macOS system
+            // notifications instead of appearing in the feed.
+            if item.urgency == .high || item.urgency == .critical { return false }
             // When a category filter is active, include items that match the
             // filter OR items with no category (backward compat — legacy items
             // that predate the category field should always remain visible).
