@@ -136,6 +136,7 @@ function buildDmRequest(
 function readPersistedSlackRows(): Array<{
   role: string;
   content: string;
+  rawContent: string;
   metadata: string | null;
 }> {
   const db = getDb();
@@ -146,7 +147,20 @@ function readPersistedSlackRows(): Array<{
       metadata: messages.metadata,
     })
     .from(messages)
-    .all();
+    .all()
+    .map((row) => ({
+      ...row,
+      content: unwrapExternalContent(row.content),
+      rawContent: row.content,
+    }));
+}
+
+const EXTERNAL_CONTENT_WRAPPER =
+  /^<external_content[^>]*>\n([\s\S]*?)\n<\/external_content>$/;
+
+function unwrapExternalContent(content: string): string {
+  const match = content.match(EXTERNAL_CONTENT_WRAPPER);
+  return match ? match[1] : content;
 }
 
 function makeBackfilledMessage(overrides: Partial<Message> = {}): Message {

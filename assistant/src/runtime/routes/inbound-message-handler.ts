@@ -1505,8 +1505,8 @@ async function persistBackfilledSlackMessage(params: {
   // Hydrate image attachments inline so the model receives them as
   // `type: "image"` content blocks instead of only seeing the text marker
   // `[attached file: <name>, <mimetype>]` produced by the transcript
-  // renderer. Non-image files keep the marker; Aaron explicitly scoped
-  // this fix to images.
+  // renderer. Non-image files keep the marker; this path is explicitly
+  // scoped to images.
   const imageFiles = slackFilesWithUrls.filter(
     (f) =>
       (f.urlPrivateDownload || f.urlPrivate) &&
@@ -1572,8 +1572,7 @@ async function persistBackfilledSlackMessage(params: {
  * Transient view of `slackFiles` that preserves the download URLs added by
  * `mapSlackFiles` on the in-flight `ProviderMessage`. These URLs never reach
  * persisted storage — see `slackFileMetadataSchema`. The backfill image
- * hydration path is the only consumer; readers of the persisted DB row use
- * `readSlackFilesFromProviderMetadata` which strips them.
+ * hydration path is the only consumer; URLs are absent from persisted rows.
  */
 interface SlackFileWithUrls extends SlackFileMetadata {
   urlPrivateDownload?: string;

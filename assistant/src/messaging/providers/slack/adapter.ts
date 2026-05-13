@@ -113,11 +113,11 @@ export async function withSlackBotToken<T>(
   account: string | undefined,
   fn: (token: string) => Promise<T>,
 ): Promise<T | null> {
-  // Populate the cache if cold; resolveConnection handles both modes.
-  if (!_cachedSlackWriteAuth) {
-    await slackProvider.resolveConnection?.(account);
-  }
-  const auth = _cachedSlackWriteAuth;
+  // Resolve for this call's account even when the process cache is warm.
+  // Multi-workspace backfills can interleave, so use the returned connection
+  // directly instead of accepting any previously cached workspace token.
+  const resolvedAuth = await slackProvider.resolveConnection?.(account);
+  const auth = resolvedAuth ?? _cachedSlackWriteAuth;
   if (!auth) return null;
   if (typeof auth === "string") return fn(auth);
   return auth.withToken(fn);
