@@ -250,11 +250,14 @@ struct SubagentDetailPanel: View {
 
     @ViewBuilder
     private func timelineCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text(title)
-                .font(VFont.bodyMediumEmphasised)
-                .foregroundStyle(VColor.contentEmphasized)
-            content()
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text(title)
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(VColor.contentEmphasized)
+                content()
+            }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.top, VSpacing.md)
@@ -390,6 +393,7 @@ struct SubagentDetailPanel: View {
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
+            Spacer(minLength: 0)
         }
         .padding(VSpacing.md)
         .background(
