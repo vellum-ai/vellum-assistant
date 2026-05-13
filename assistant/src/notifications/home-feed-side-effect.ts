@@ -12,6 +12,8 @@
  */
 import {
   type FeedItem,
+  type FeedItemCategory,
+  type FeedItemDetailPanelKind,
   feedItemSchema,
   type FeedItemUrgency,
 } from "../home/feed-types.js";
@@ -61,6 +63,15 @@ export async function writeHomeFeedItemForSignal(
     : undefined;
   const now = new Date().toISOString();
 
+  const category = deriveCategory(signal);
+  const panelKind = deriveDetailPanelKind(signal);
+  const metadata =
+    signal.contextPayload &&
+    typeof signal.contextPayload === "object" &&
+    !Array.isArray(signal.contextPayload)
+      ? (signal.contextPayload as Record<string, unknown>)
+      : undefined;
+
   const item: FeedItem = {
     id: `notif:${signal.signalId}`,
     type: "notification",
@@ -70,8 +81,11 @@ export async function writeHomeFeedItemForSignal(
     timestamp: now,
     createdAt: now,
     status: "new",
+    category,
     ...(urgency ? { urgency } : {}),
     ...(conversationId ? { conversationId } : {}),
+    ...(panelKind ? { detailPanel: { kind: panelKind } } : {}),
+    ...(metadata ? { metadata } : {}),
   };
 
   try {
@@ -86,6 +100,47 @@ export async function writeHomeFeedItemForSignal(
 
   await appendFeedItem(item);
   return item;
+}
+
+// ── Category & detail-panel derivation ────────────────────────────────
+
+const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
+  "credential.health_alert": "security",
+  "activity.failed": "background",
+  "activity.complete": "background",
+  "heartbeat.alert": "system",
+  "watcher.notification": "system",
+  "schedule.notify": "scheduling",
+  "guardian.question": "security",
+  "guardian.channel_activation": "security",
+  "ingress.access_request": "security",
+  "ingress.escalation": "security",
+};
+
+function deriveCategory(signal: NotificationSignal): FeedItemCategory {
+  return EVENT_CATEGORY_MAP[signal.sourceEventName] ?? "system";
+}
+
+function deriveDetailPanelKind(
+  signal: NotificationSignal,
+): FeedItemDetailPanelKind | undefined {
+  if (signal.sourceEventName === "credential.health_alert") {
+    return "toolPermission";
+  }
+
+  if (signal.sourceEventName === "guardian.question") {
+    const payload = signal.contextPayload;
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "requestKind" in payload &&
+      (payload as Record<string, unknown>).requestKind === "tool_approval"
+    ) {
+      return "permissionChat";
+    }
+  }
+
+  return undefined;
 }
 
 /**
