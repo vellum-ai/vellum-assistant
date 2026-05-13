@@ -126,7 +126,11 @@ export const ingressInvites = sqliteTable(
   {
     id: text("id").primaryKey(),
     sourceChannel: text("source_channel").notNull(),
-    inviteCodeHash: text("invite_code_hash").notNull(),
+    // Long-form invite token hash (primary lookup for token-based redemption).
+    tokenHash: text("token_hash").notNull(),
+    // Origin conversation, for backreference. NULL for invites not created
+    // from a conversation context.
+    sourceConversationId: text("source_conversation_id"),
     note: text("note"),
     maxUses: integer("max_uses").notNull().default(1),
     useCount: integer("use_count").notNull().default(0),
@@ -135,6 +139,16 @@ export const ingressInvites = sqliteTable(
     redeemedByExternalUserId: text("redeemed_by_external_user_id"),
     redeemedByExternalChatId: text("redeemed_by_external_chat_id"),
     redeemedAt: integer("redeemed_at"),
+    // Voice invite fields (NULL for non-voice invites).
+    expectedExternalUserId: text("expected_external_user_id"),
+    voiceCodeHash: text("voice_code_hash"),
+    voiceCodeDigits: integer("voice_code_digits"),
+    // 6-digit invite code hash (NULL for voice invites, which use
+    // voiceCodeHash instead).
+    inviteCodeHash: text("invite_code_hash"),
+    // Display metadata for personalized voice prompts (NULL for non-voice).
+    friendName: text("friend_name"),
+    guardianName: text("guardian_name"),
     contactId: text("contact_id")
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
@@ -142,8 +156,13 @@ export const ingressInvites = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
+    index("idx_ingress_invites_token_lookup").on(table.tokenHash),
     index("idx_ingress_invites_code_lookup").on(
       table.inviteCodeHash,
+      table.sourceChannel,
+    ),
+    index("idx_ingress_invites_voice_lookup").on(
+      table.voiceCodeHash,
       table.sourceChannel,
     ),
     index("idx_ingress_invites_contact").on(table.contactId),

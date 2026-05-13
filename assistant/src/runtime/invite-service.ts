@@ -10,6 +10,7 @@
 
 import { startInviteCall } from "../calls/call-domain.js";
 import { isChannelId } from "../channels/types.js";
+import { ipcCall } from "../ipc/gateway-client.js";
 import {
   createInvite,
   findById,
@@ -26,6 +27,7 @@ import {
   DEFAULT_USER_REFERENCE,
   resolveGuardianName,
 } from "../prompts/user-reference.js";
+import { getLogger } from "../util/logger.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import {
@@ -38,6 +40,49 @@ import {
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
   type VoiceRedemptionOutcome,
 } from "./invite-redemption-service.js";
+
+const log = getLogger("invite-service");
+
+/**
+ * Mirror an authoritative daemon-side invite row to the gateway's
+ * `ingress_invites` table via IPC. Best-effort: logs a warn on failure
+ * and never throws — the daemon's own write is the source of truth during
+ * Track B PR-B-1.
+ *
+ * See: memory/concepts/workstreams/track-b-invite-redemption.md
+ */
+async function mirrorInviteToGateway(invite: IngressInvite): Promise<void> {
+  try {
+    await ipcCall("mirror_invite_create", {
+      id: invite.id,
+      sourceChannel: invite.sourceChannel,
+      tokenHash: invite.tokenHash,
+      sourceConversationId: invite.sourceConversationId,
+      note: invite.note,
+      maxUses: invite.maxUses,
+      useCount: invite.useCount,
+      expiresAt: invite.expiresAt,
+      status: invite.status,
+      redeemedByExternalUserId: invite.redeemedByExternalUserId,
+      redeemedByExternalChatId: invite.redeemedByExternalChatId,
+      redeemedAt: invite.redeemedAt,
+      expectedExternalUserId: invite.expectedExternalUserId,
+      voiceCodeHash: invite.voiceCodeHash,
+      voiceCodeDigits: invite.voiceCodeDigits,
+      inviteCodeHash: invite.inviteCodeHash,
+      friendName: invite.friendName,
+      guardianName: invite.guardianName,
+      contactId: invite.contactId,
+      createdAt: invite.createdAt,
+      updatedAt: invite.updatedAt,
+    });
+  } catch (err) {
+    log.warn(
+      { err, inviteId: invite.id, contactId: invite.contactId },
+      "createIngressInvite: gateway mirror dual-write failed (best-effort)",
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Response shapes — used by both HTTP routes and message handlers
@@ -231,6 +276,13 @@ export async function createIngressInvite(params: {
         }
       : { inviteCodeHash }),
   });
+
+  // Dual-write to the gateway's mirror table. Best-effort during Track B
+  // PR-B-1 — gateway DB is the future source of truth, assistant DB is the
+  // present-day source of truth, and the daemon owns invite creation today
+  // (LLM-generated guardian-instruction + channel-adapter resolution stay
+  // daemon-side for now). PR-B-2 will flip redemption gateway-native.
+  await mirrorInviteToGateway(invite);
 
   // Build invite instruction for non-voice invites via LLM generation
   let guardianInstruction: string | undefined;
