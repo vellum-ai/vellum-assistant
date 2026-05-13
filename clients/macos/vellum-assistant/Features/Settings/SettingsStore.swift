@@ -3308,37 +3308,30 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Persists `llm.activeProfile` so the daemon's resolver layers the
-    /// named profile into every callsite resolution. The mock client
-    /// captures the patch payload for assertion in tests.
+    /// named profile into every callsite resolution. Optimistically updates
+    /// `self.activeProfile` synchronously so SwiftUI bindings render the new
+    /// value without waiting for the round-trip.
     ///
-    /// Optimistically updates `self.activeProfile` synchronously before
-    /// the await so SwiftUI bindings reading the published value (e.g.
-    /// the dropdown selection in `InferenceServiceCard`) see the new
-    /// value on the next render cycle without waiting for the network
-    /// round-trip. Reverts on failure to `lastConfirmedActiveProfile` —
-    /// the last daemon-confirmed value — so a failed pick never reverts
-    /// to a sibling optimistic value that itself never landed on the
-    /// daemon. The current-value guard ensures a newer call that has
-    /// already overwritten the published state is not stomped by a
-    /// stale revert. On success, also resyncs `self.activeProfile` to
-    /// the confirmed name so a late-arriving success (after a competing
-    /// later pick failed and reverted) lands the UI on the
-    /// daemon-persisted value rather than leaving it stuck on the prior
-    /// confirmed profile.
+    /// Both branches gate post-PATCH state mutation on `self.activeProfile
+    /// == name` — i.e. apply only if the published state still reflects
+    /// this call's pick. Guards against stale async completions when picks
+    /// resolve out of order: e.g. user picks A then B; B succeeds first; A's
+    /// delayed success then arrives and would otherwise stomp the newer
+    /// confirmed value.
     @discardableResult
     func setActiveProfile(_ name: String) async -> Bool {
         self.activeProfile = name
         let success = await settingsClient.patchConfig([
             "llm": ["activeProfile": name]
         ])
+        if !success {
+            log.error("Failed to patch config for llm.activeProfile")
+        }
+        guard self.activeProfile == name else { return success }
         if success {
             lastConfirmedActiveProfile = name
-            self.activeProfile = name
         } else {
-            if self.activeProfile == name {
-                self.activeProfile = lastConfirmedActiveProfile
-            }
-            log.error("Failed to patch config for llm.activeProfile")
+            self.activeProfile = lastConfirmedActiveProfile
         }
         return success
     }

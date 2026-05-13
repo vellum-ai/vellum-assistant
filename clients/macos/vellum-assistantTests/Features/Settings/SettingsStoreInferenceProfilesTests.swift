@@ -188,6 +188,52 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         )
     }
 
+    /// When two `setActiveProfile` calls are in flight and responses resolve
+    /// out of order, the late-arriving success must not overwrite the newer
+    /// in-flight pick. The user picks A then B; B's PATCH succeeds first
+    /// (UI and daemon become B); A's delayed success then arrives. The
+    /// current-value guard must prevent the success branch from resetting
+    /// `activeProfile` back to A.
+    func testSetActiveProfileIgnoresStaleSuccessFromOlderInflightCall() async {
+        var continuationA: CheckedContinuation<Bool, Never>?
+        var continuationB: CheckedContinuation<Bool, Never>?
+        let bothSuspended = expectation(description: "both PATCH calls suspended")
+        bothSuspended.expectedFulfillmentCount = 2
+        mockSettingsClient.patchConfigHandler = { partial in
+            let name = (partial["llm"] as? [String: Any])?["activeProfile"] as? String
+            return await withCheckedContinuation { cont in
+                if name == "A" {
+                    continuationA = cont
+                } else {
+                    continuationB = cont
+                }
+                bothSuspended.fulfill()
+            }
+        }
+
+        async let resultA: Bool = store.setActiveProfile("A")
+        async let resultB: Bool = store.setActiveProfile("B")
+
+        await fulfillment(of: [bothSuspended], timeout: 1.0)
+
+        // Optimistic writes ran synchronously; the later pick (B) is current.
+        XCTAssertEqual(store.activeProfile, "B")
+
+        // Resolve B first — daemon-confirmed value becomes B.
+        continuationB?.resume(returning: true)
+        XCTAssertTrue(await resultB)
+        XCTAssertEqual(store.activeProfile, "B")
+
+        // Resolve A's late success. The guard must drop the stale write.
+        continuationA?.resume(returning: true)
+        XCTAssertTrue(await resultA)
+        XCTAssertEqual(
+            store.activeProfile,
+            "B",
+            "Late success of an older pick must not overwrite a newer confirmed pick"
+        )
+    }
+
     // MARK: - setProfile
 
     func testSetProfileRoundTripsAndUpdatesPublishedState() async {
