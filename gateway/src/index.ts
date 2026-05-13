@@ -334,6 +334,28 @@ async function main() {
     return true;
   }
 
+  async function readTwilioCredentialsForVelayStartup(): Promise<Record<
+    string,
+    string
+  > | null> {
+    try {
+      const [accountSid, authToken] = await Promise.all([
+        credentialCache.get(credentialKey("twilio", "account_sid")),
+        credentialCache.get(credentialKey("twilio", "auth_token")),
+      ]);
+      if (!accountSid?.trim() || !authToken?.trim()) {
+        return null;
+      }
+      return { account_sid: accountSid, auth_token: authToken };
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to read Twilio credentials before Velay startup gate",
+      );
+      return null;
+    }
+  }
+
   const twilioValidationCaches = {
     credentials: credentialCache,
     configFile: configFileCache,
@@ -2079,15 +2101,18 @@ async function main() {
     }
   });
 
-  // The credential watcher callback handles credential-backed startup side
-  // effects during the initial poll. Velay also checks persisted Twilio config
-  // so previously-started setup without currently loaded credentials is honored.
-  await credentialWatcher.start();
-  if (!maybeStartVelayTunnelForTwilio("startup") && velayTunnelClient) {
-    clearManagedPublicBaseUrl(configFileCache).catch((err) => {
-      log.error({ err }, "Failed to clear inactive Velay public URL");
+  const twilioStartupCredentials = await readTwilioCredentialsForVelayStartup();
+  if (velayTunnelClient) {
+    await clearManagedPublicBaseUrl(configFileCache).catch((err) => {
+      log.error({ err }, "Failed to clear stale Velay public URL");
     });
   }
+  maybeStartVelayTunnelForTwilio("startup", twilioStartupCredentials);
+
+  // The credential watcher callback handles credential-backed startup side
+  // effects during the initial poll. Stale Velay-owned ingress is already
+  // cleared before those side effects can register external callbacks.
+  await credentialWatcher.start();
 
   // Start watching avatar directory for changes after credential watcher
   // so channel syncers are already registered before the first file event.
