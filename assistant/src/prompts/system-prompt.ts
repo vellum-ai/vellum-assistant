@@ -28,6 +28,19 @@ import {
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
+// Body content for the access-preference section (slot 05).  The section
+// template ships at `templates/system/05-access-preference.md` with a
+// `{{accessPolicy}}` placeholder; the runtime variant is chosen here based
+// on whether the conversation has a connected client.  Keeping the two
+// blocks as code constants matches the plan in
+// `/workspace/data/plan-system-prompt-workspace.md` — we don't bleed runtime
+// logic into markdown.
+const ACCESS_POLICY_NO_CLIENT =
+  "Priority: (1) sandbox `bash` — install tools yourself; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).";
+
+const ACCESS_POLICY_WITH_CLIENT =
+  "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).";
+
 const BOOTSTRAP_VOICE_BLOCKS: Record<string, string> = {
   grounded:
     "## Voice\nCalm, direct, precise. No filler. Lead with the thing, explain if needed. Opinions stated plainly.",
@@ -310,9 +323,11 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     ...options,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
+    accessPolicy: hasNoClient
+      ? ACCESS_POLICY_NO_CLIENT
+      : ACCESS_POLICY_WITH_CLIENT,
   };
   const staticParts: string[] = [...renderWorkspaceSections(ctx)];
-  staticParts.push(buildAccessPreferenceSection(hasNoClient));
   staticParts.push(buildCredentialSecuritySection());
   staticParts.push(buildExternalContentSection());
   if (options?.isBackgroundConversation) {
@@ -420,22 +435,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const dynamic = dynamicParts.join("\n\n");
 
   return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
-}
-
-function buildAccessPreferenceSection(hasNoClient: boolean): string {
-  if (hasNoClient) {
-    return [
-      "## External Service Access",
-      "",
-      "Priority: (1) sandbox `bash` — install tools yourself; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).",
-    ].join("\n");
-  }
-
-  return [
-    "## External Service Access",
-    "",
-    "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).",
-  ].join("\n");
 }
 
 function buildCredentialSecuritySection(): string {

@@ -211,12 +211,6 @@ describe("buildSystemPrompt", () => {
     expect(result).not.toContain("## Available Skills");
   });
 
-  test("includes external service access section", () => {
-    const result = buildSystemPrompt();
-    expect(result).toContain("## External Service Access");
-    expect(result).toContain("browser automation as last resort");
-  });
-
   test("does not include removed sections", () => {
     const result = buildSystemPrompt();
     expect(result).not.toContain("## External Communications Identity");
@@ -749,6 +743,56 @@ describe("buildSystemPrompt", () => {
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
         const result = buildSystemPrompt();
         expect(result).not.toContain("## Assistant CLI");
+      });
+    });
+
+    describe("access-preference section (slot 05)", () => {
+      const ACCESS_FILE = join(SYSTEM_PROMPTS_DIR, "05-access-preference.md");
+      const TEMPLATE_BODY = "## External Service Access\n\n{{accessPolicy}}\n";
+
+      test("with-client (default) renders the three-tier priority list", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
+        const result = buildSystemPrompt();
+        expect(result).toContain("## External Service Access");
+        expect(result).toContain("`host_bash` with CLIs");
+        expect(result).toContain("browser automation as last resort");
+        // Section lives in the static (cached) block.
+        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        expect(boundaryIdx).toBeGreaterThan(-1);
+        const staticBlock = result.slice(0, boundaryIdx);
+        expect(staticBlock).toContain("## External Service Access");
+      });
+
+      test("hasNoClient=true renders the two-tier (no host_bash) priority list", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
+        const result = buildSystemPrompt({ hasNoClient: true });
+        expect(result).toContain("## External Service Access");
+        expect(result).toContain("browser automation as last resort");
+        // The host_bash tier must be absent in the no-client variant.
+        expect(result).not.toContain("`host_bash` with CLIs");
+      });
+
+      test("omits the section when the workspace file is missing", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("## External Service Access");
+      });
+
+      test("renders after the attachment section to preserve original order", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          join(SYSTEM_PROMPTS_DIR, "04-attachment.md"),
+          "## Sending Files to the User\n\nbody.\n",
+        );
+        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
+        const result = buildSystemPrompt();
+        const attachmentIdx = result.indexOf("## Sending Files to the User");
+        const accessIdx = result.indexOf("## External Service Access");
+        expect(attachmentIdx).toBeGreaterThan(-1);
+        expect(accessIdx).toBeGreaterThan(-1);
+        expect(attachmentIdx).toBeLessThan(accessIdx);
       });
     });
 
