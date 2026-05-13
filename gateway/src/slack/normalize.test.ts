@@ -509,6 +509,52 @@ describe("DM threading", () => {
   });
 });
 
+describe("Slack text rendering in normalized message content", () => {
+  it("renders channel refs from render context channel labels", () => {
+    const config = makeConfig();
+    const event = makeAppMentionEvent({
+      text: "<@UBOT> please continue in <#CFEEDBACK>",
+    });
+
+    const result = normalizeSlackAppMention(
+      event,
+      "evt-channel-label",
+      config,
+      "UBOT",
+      undefined,
+      {
+        userLabels: { UBOT: "assistant" },
+        channelLabels: { CFEEDBACK: "user-feedback" },
+      },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe(
+      "@assistant please continue in #user-feedback",
+    );
+    expect(result!.event.message.content).not.toContain("CFEEDBACK");
+  });
+
+  it("falls back to unknown-channel when no channel label is available", () => {
+    const config = makeConfig();
+    const event = makeChannelEvent({
+      text: "please continue in <#CUNKNOWN>",
+    });
+
+    const result = normalizeSlackChannelMessage(
+      event,
+      "evt-channel-fallback",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe(
+      "please continue in #unknown-channel",
+    );
+    expect(result!.event.message.content).not.toContain("CUNKNOWN");
+  });
+});
+
 // --- Attachment extraction tests ---
 
 function makeSlackFile(overrides?: Partial<SlackFile>): SlackFile {

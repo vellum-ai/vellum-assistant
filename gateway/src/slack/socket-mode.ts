@@ -1,4 +1,7 @@
-import { buildSlackUserLabelMap } from "@vellumai/slack-text";
+import {
+  buildSlackChannelLabelMap,
+  buildSlackUserLabelMap,
+} from "@vellumai/slack-text";
 import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
@@ -20,6 +23,7 @@ import {
   normalizeSlackBlockActions,
   normalizeSlackReactionAdded,
   normalizeSlackReactionRemoved,
+  resolveSlackChannel,
   resolveSlackUser,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
@@ -30,6 +34,7 @@ import {
   type SlackReactionAddedEvent,
   type SlackReactionRemovedEvent,
   type NormalizedSlackEvent,
+  type SlackTextRenderContext,
 } from "./normalize.js";
 
 const log = getLogger("slack-socket-mode");
@@ -39,7 +44,7 @@ const MAX_BACKOFF_MS = 30_000;
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const ACTIVE_THREAD_TTL_MS = 24 * 60 * 60 * 1_000;
-const USER_RESOLVE_TIMEOUT_MS = 3_000;
+const SLACK_RESOLVE_TIMEOUT_MS = 3_000;
 
 /**
  * Reconnect catch-up bounds.
@@ -756,13 +761,40 @@ export class SlackSocketModeClient {
         const userInfo = await Promise.race([
           resolveSlackUser(id, this.config.botToken),
           new Promise<undefined>((resolve) =>
-            setTimeout(resolve, USER_RESOLVE_TIMEOUT_MS),
+            setTimeout(resolve, SLACK_RESOLVE_TIMEOUT_MS),
           ),
         ]);
         if (!userInfo) return undefined;
         return userInfo.displayName || userInfo.username;
       },
     );
+  }
+
+  private async resolveChannelLabelsForText(
+    text: string,
+  ): Promise<Record<string, string>> {
+    return buildSlackChannelLabelMap(
+      [text],
+      async (id): Promise<string | undefined> => {
+        const channelInfo = await Promise.race([
+          resolveSlackChannel(id, this.config.botToken),
+          new Promise<undefined>((resolve) =>
+            setTimeout(resolve, SLACK_RESOLVE_TIMEOUT_MS),
+          ),
+        ]);
+        return channelInfo?.name;
+      },
+    );
+  }
+
+  private async resolveTextRenderContext(
+    text: string,
+  ): Promise<SlackTextRenderContext> {
+    const [userLabels, channelLabels] = await Promise.all([
+      this.resolveMentionLabelsForText(text),
+      this.resolveChannelLabelsForText(text),
+    ]);
+    return { userLabels, channelLabels };
   }
 
   private enqueueNormalizeAndEmit(
@@ -874,8 +906,8 @@ export class SlackSocketModeClient {
     isDm: boolean,
   ): Promise<void> {
     const text = this.extractTextBearingContent(event);
-    const userLabels = text ? await this.resolveMentionLabelsForText(text) : {};
-    const renderContext = { userLabels };
+    const renderContext = text ? await this.resolveTextRenderContext(text) : {};
+    const userLabels = renderContext.userLabels ?? {};
 
     let normalized: NormalizedSlackEvent | null;
     if (isReactionAdded) {
@@ -982,7 +1014,7 @@ export class SlackSocketModeClient {
       const userInfo = await Promise.race([
         resolveSlackUser(actor.actorExternalId, this.config.botToken),
         new Promise<undefined>((resolve) =>
-          setTimeout(resolve, USER_RESOLVE_TIMEOUT_MS),
+          setTimeout(resolve, SLACK_RESOLVE_TIMEOUT_MS),
         ),
       ]);
       if (userInfo) {
