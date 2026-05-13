@@ -232,10 +232,7 @@ describe('e2e coffee run', () => {
       // maria should also have awaiting_human_input_stale
       const mariaHitlStates = hitlEvents
         .filter((e) => e.data.peer === 'peer-maria')
-        .map((e) => {
-          const hitlState = e.data.hitlState as Record<string, unknown> | null;
-          return hitlState?.hitl_state;
-        });
+        .map((e) => e.data.hitlState as string | null);
       expect(mariaHitlStates).toContain('awaiting_human_input');
       expect(mariaHitlStates).toContain('awaiting_human_input_stale');
 
@@ -248,7 +245,7 @@ describe('e2e coffee run', () => {
       expect(protocolWithTaskId.length).toBeGreaterThan(0);
 
       // Extension payloads should be present (events carry full prettified event data)
-      const protocolWithEvent = protocolEvents.filter((e) => e.data.event != null);
+      const protocolWithEvent = protocolEvents.filter((e) => e.data.sdkEvent != null);
       expect(protocolWithEvent.length).toBeGreaterThan(0);
 
       // --- Assert task_sent events include method: 'message/stream' ---

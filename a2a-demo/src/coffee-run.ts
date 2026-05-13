@@ -47,6 +47,7 @@ export async function runCoffeeScenario(options: CoffeeRunOptions): Promise<void
         const message = err instanceof Error ? err.message : String(err);
         eventBus.broadcast('task_error', {
           peer: conn.peer_assistant_id,
+          taskId: null,
           error: `Failed to discover agent card: ${message}`,
         });
         return;
@@ -58,6 +59,7 @@ export async function runCoffeeScenario(options: CoffeeRunOptions): Promise<void
         console.warn(`Peer ${conn.peer_assistant_id} does not support x-vellum-social-v1, skipping`);
         eventBus.broadcast('task_error', {
           peer: conn.peer_assistant_id,
+          taskId: null,
           error: 'peer does not support x-vellum-social-v1',
         });
         return;
@@ -100,9 +102,9 @@ export async function runCoffeeScenario(options: CoffeeRunOptions): Promise<void
             if (taskId) {
               eventBus.broadcast('protocol_event', {
                 peer: conn.peer_assistant_id,
-                type: 'task_assigned',
+                eventType: 'task_assigned',
                 taskId,
-                event: prettifyEvent(event),
+                sdkEvent: prettifyEvent(event),
               });
             }
           }
@@ -111,9 +113,9 @@ export async function runCoffeeScenario(options: CoffeeRunOptions): Promise<void
           const eventRecord = event as unknown as Record<string, unknown>;
           eventBus.broadcast('protocol_event', {
             peer: conn.peer_assistant_id,
-            type: event.kind,
+            eventType: event.kind,
             taskId: eventRecord.taskId ?? null,
-            event: prettifyEvent(event),
+            sdkEvent: prettifyEvent(event),
           });
 
           // Handle TaskArtifactUpdateEvent — cache the artifact
@@ -132,7 +134,7 @@ export async function runCoffeeScenario(options: CoffeeRunOptions): Promise<void
               eventBus.broadcast('hitl_update', {
                 peer: conn.peer_assistant_id,
                 taskId: statusEvent.taskId,
-                hitlState: socialData,
+                hitlState: socialData && 'hitl_state' in socialData ? socialData.hitl_state : null,
                 sdkEvent: prettifyEvent(event),
               });
             }
@@ -171,6 +173,7 @@ export async function runCoffeeScenario(options: CoffeeRunOptions): Promise<void
         const message = err instanceof Error ? err.message : String(err);
         eventBus.broadcast('task_error', {
           peer: conn.peer_assistant_id,
+          taskId: null,
           error: message,
         });
       }
