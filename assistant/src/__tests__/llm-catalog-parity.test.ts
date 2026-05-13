@@ -29,6 +29,19 @@ function getRepoRoot(): string {
   return join(process.cwd(), "..");
 }
 
+const META_JSON_PATH = join(
+  getRepoRoot(),
+  "meta",
+  "llm-provider-catalog.json",
+);
+const SWIFTPM_MIRROR_PATH = join(
+  getRepoRoot(),
+  "clients",
+  "shared",
+  "Resources",
+  "llm-provider-catalog.json",
+);
+
 interface ClientCatalogCredentialsGuide {
   description: string;
   url: string;
@@ -82,8 +95,7 @@ interface ClientCatalog {
 }
 
 function loadClientCatalog(): ClientCatalog {
-  const catalogPath = join(getRepoRoot(), "meta", "llm-provider-catalog.json");
-  const raw = readFileSync(catalogPath, "utf-8");
+  const raw = readFileSync(META_JSON_PATH, "utf-8");
   return JSON.parse(raw);
 }
 
@@ -406,5 +418,20 @@ describe("LLM catalog parity: daemon vs client", () => {
       longContextPricingThresholdTokens: 200000,
       longContextMode: "native-model",
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // Mirror byte-equality
+  // -----------------------------------------------------------------------
+
+  test("SwiftPM mirror is byte-identical to meta/ copy", () => {
+    // `sync-llm-catalog.ts` writes both files from the same serializer; this
+    // guard catches any case where one copy is regenerated without the other.
+    // Byte equality is required because SwiftPM bundles the resource verbatim
+    // into `VellumAssistantShared` while the meta/ JSON is consumed as a
+    // cross-package artifact (web codegen, etc.).
+    const metaBytes = readFileSync(META_JSON_PATH);
+    const swiftPmBytes = readFileSync(SWIFTPM_MIRROR_PATH);
+    expect(swiftPmBytes.equals(metaBytes)).toBe(true);
   });
 });
