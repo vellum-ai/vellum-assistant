@@ -153,7 +153,6 @@ public enum HistoryReconstructionService {
             }
 
             if role == .assistant {
-                lastAssistantMsgId = chatMsg.id
                 for tc in toolCalls where tc.toolName == "subagent_spawn" {
                     if let result = tc.result,
                        let data = result.data(using: .utf8),
@@ -176,6 +175,10 @@ public enum HistoryReconstructionService {
                 info.error = notification.error
                 reconstructedSubagents.append(info)
                 chatMsg.isSubagentNotification = true
+            }
+
+            if role == .assistant && !chatMsg.isSubagentNotification {
+                lastAssistantMsgId = chatMsg.id
             }
 
             chatMessages.append(chatMsg)
