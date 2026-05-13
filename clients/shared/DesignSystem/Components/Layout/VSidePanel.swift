@@ -9,6 +9,8 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
     @ViewBuilder public let pinnedContent: () -> PinnedContent
     @ViewBuilder public let content: () -> Content
 
+    @State private var scrollViewWidth: CGFloat = 0
+
     public init(title: String, titleFont: Font = VFont.titleLarge, uppercased: Bool = false, contentPadding: EdgeInsets = EdgeInsets(top: VSpacing.lg, leading: VSpacing.lg, bottom: VSpacing.lg, trailing: VSpacing.lg), onClose: (() -> Void)? = nil, @ViewBuilder pinnedContent: @escaping () -> PinnedContent, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.titleFont = titleFont
@@ -43,24 +45,30 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
             // Scrollable content — lower priority so pinnedContent's
             // own ScrollView (e.g. TraceTimelineView) isn't starved.
             //
-            // `.containerRelativeFrame(.horizontal)` (rather than
-            // `.frame(maxWidth: .infinity, alignment: .top)`) sizes the
-            // padded content to the ScrollView's visible width without
-            // emitting `_FlexFrameLayout`. A FlexFrame here would query
-            // `explicitAlignment` recursively on every descendant — when
-            // `content()` is a `LazyVStack` of streaming events the
-            // cascade walks every realized cell on every layout pass,
-            // O(n × depth), which has caused multi-second hangs in
-            // sibling surfaces (see clients/macos/AGENTS.md
-            // "No `_FlexFrameLayout` ... in LazyVStack" and the
-            // matching `.containerRelativeFrame` adoption in
-            // `HomeDetailPanel`).
+            // The content width is measured from the ScrollView's actual
+            // frame via onGeometryChange and applied as a fixed-width
+            // `.frame(width:)`. This avoids two pitfalls:
             //
-            // Reference: https://developer.apple.com/documentation/swiftui/view/containerrelativeframe(_:alignment:)
+            //  1. `.frame(maxWidth: .infinity)` emits `_FlexFrameLayout`
+            //     which queries `explicitAlignment` recursively on every
+            //     descendant — when `content()` is a `LazyVStack` of
+            //     streaming events the cascade walks every realized cell
+            //     on every layout pass, O(n × depth), causing hangs.
+            //
+            //  2. `.containerRelativeFrame(.horizontal)` can resolve to
+            //     the window instead of the ScrollView in certain layout
+            //     hierarchies (e.g. when the ScrollView is inside a
+            //     VStack with `.frame(width:)` from VSplitView), making
+            //     the content wider than the panel.
             ScrollView {
                 content()
                     .padding(contentPadding)
-                    .containerRelativeFrame(.horizontal, alignment: .top)
+                    .frame(width: scrollViewWidth > 0 ? scrollViewWidth : nil, alignment: .top)
+            }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { newWidth in
+                scrollViewWidth = newWidth
             }
             .layoutPriority(-1)
         }

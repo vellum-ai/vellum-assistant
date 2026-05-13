@@ -27,39 +27,12 @@ struct SubagentDetailPanel: View {
     /// instead of the default `chatBubbleMaxWidth` (760pt).
     @State private var panelContentWidth: CGFloat = 0
 
-    /// Raw panel width measured from the pinnedContent area. Used to
-    /// apply an explicit `.frame(width:)` constraint on the pinned body
-    /// so its content cannot exceed the panel bounds. VSidePanel's
-    /// VStack only *proposes* this width — it does not enforce it — so
-    /// without the hard constraint the pinned body can overflow.
-    @State private var pinnedAreaWidth: CGFloat = 0
-
     var body: some View {
         VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.titleSmall, onClose: onClose, pinnedContent: {
-            // Measure the raw panel width so we can enforce it as a
-            // hard constraint on pinnedBody. VSidePanel's VStack only
-            // *proposes* this width to children; it does not clamp
-            // them, so without an explicit frame the pinned content
-            // can exceed the panel bounds.
-            Color.clear
-                .frame(height: 0)
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.width
-                } action: { newWidth in
-                    pinnedAreaWidth = newWidth
-                }
-
             pinnedBody
-                .frame(width: pinnedAreaWidth > 0 ? pinnedAreaWidth : nil, alignment: .leading)
-                .clipped()
 
             Divider().background(VColor.borderBase)
         }) {
-            // Measure the usable content width after VSidePanel applies
-            // contentPadding + containerRelativeFrame. This probe lives
-            // inside the scroll content closure so panelContentWidth
-            // reflects the actual available width for child views, not
-            // the raw panel width.
             Color.clear
                 .frame(height: 0)
                 .onGeometryChange(for: CGFloat.self) { proxy in
