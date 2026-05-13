@@ -239,6 +239,7 @@ export function searchConversations(
 ): ConversationSearchResult[] {
   if (!query.trim()) return [];
 
+  ensureGroupMigration();
   const db = getDb();
   const limit = opts?.limit ?? 20;
   const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
@@ -268,7 +269,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND c.archived_at IS NULL
+        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND COALESCE(c.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled') AND c.archived_at IS NULL
         LIMIT 1000
       `,
         ftsMatch,
@@ -293,7 +294,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND c.archived_at IS NULL
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND COALESCE(c.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled') AND c.archived_at IS NULL
       LIMIT 1000
     `,
       likePattern,
@@ -308,6 +309,7 @@ export function searchConversations(
     .where(
       and(
         sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
+        sql`COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`,
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
         sql`${conversations.archivedAt} IS NULL`,
       ),
