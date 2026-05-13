@@ -208,7 +208,7 @@ export const feedItemSchema = z.object({
   conversationId: z.string().optional(),
   detailPanel: feedItemDetailPanelSchema.optional(),
   category: feedItemCategorySchema.optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   createdAt: z.string(),
 });
 
