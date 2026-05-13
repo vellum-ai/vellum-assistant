@@ -28,7 +28,7 @@ public enum HistoryReconstructionService {
         var chatMessages: [ChatMessage] = []
         var reconstructedSubagents: [SubagentInfo] = []
         var spawnParentMap: [String: UUID] = [:]
-        var lastAssistantMsgId: UUID?
+        var lastSpawnMsgId: UUID?
 
         for item in historyMessages {
             let role: ChatRole = item.role == "assistant" ? .assistant : .user
@@ -153,7 +153,11 @@ public enum HistoryReconstructionService {
             }
 
             if role == .assistant {
-                for tc in toolCalls where tc.toolName == "subagent_spawn" {
+                let spawnCalls = toolCalls.filter { $0.toolName == "subagent_spawn" }
+                if !spawnCalls.isEmpty {
+                    lastSpawnMsgId = chatMsg.id
+                }
+                for tc in spawnCalls {
                     if let result = tc.result,
                        let data = result.data(using: .utf8),
                        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -164,7 +168,7 @@ public enum HistoryReconstructionService {
             }
 
             if let notification = item.subagentNotification {
-                let parentId = spawnParentMap[notification.subagentId] ?? lastAssistantMsgId
+                let parentId = spawnParentMap[notification.subagentId] ?? lastSpawnMsgId
                 var info = SubagentInfo(
                     id: notification.subagentId,
                     label: notification.label,
@@ -175,10 +179,6 @@ public enum HistoryReconstructionService {
                 info.error = notification.error
                 reconstructedSubagents.append(info)
                 chatMsg.isSubagentNotification = true
-            }
-
-            if role == .assistant && !chatMsg.isSubagentNotification {
-                lastAssistantMsgId = chatMsg.id
             }
 
             chatMessages.append(chatMsg)
