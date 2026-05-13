@@ -136,11 +136,14 @@ struct HomePageView<DetailPanel: View>: View {
                 )
 
                 if groupedFeed.isEmpty, activeFilter != nil {
-                    Text("No notifications")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, VSpacing.xxl)
+                    HStack {
+                        Spacer(minLength: 0)
+                        Text("No notifications")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, VSpacing.xxl)
                 }
 
                 ForEach(Array(groupedFeed.enumerated()), id: \.element.group) { _, bucket in

@@ -50,35 +50,37 @@ struct HomeAuthDetailCard: View {
     // MARK: - Structured layout
 
     private var structuredContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Merchant name
-            Text(merchant ?? "")
-                .font(VFont.titleMedium)
-                .foregroundStyle(VColor.contentDefault)
+        HStack {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                // Merchant name
+                Text(merchant ?? "")
+                    .font(VFont.titleMedium)
+                    .foregroundStyle(VColor.contentDefault)
 
-            // Amount — prominent display
-            Text(amount ?? "")
-                .font(VFont.titleLarge)
-                .foregroundStyle(VColor.contentEmphasized)
+                // Amount — prominent display
+                Text(amount ?? "")
+                    .font(VFont.titleLarge)
+                    .foregroundStyle(VColor.contentEmphasized)
 
-            // Card info (secondary)
-            if let last4 = cardLast4 {
-                HStack(spacing: VSpacing.xs) {
-                    Text("Card ending in")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text(last4)
-                        .font(VFont.bodyMediumEmphasised)
-                        .foregroundStyle(VColor.contentSecondary)
+                // Card info (secondary)
+                if let last4 = cardLast4 {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Card ending in")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                        Text(last4)
+                            .font(VFont.bodyMediumEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+                    }
+                }
+
+                // Status badge
+                if let statusText = status {
+                    statusBadge(statusText)
                 }
             }
-
-            // Status badge
-            if let statusText = status {
-                statusBadge(statusText)
-            }
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
     }
 

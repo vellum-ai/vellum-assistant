@@ -54,38 +54,40 @@ struct HomePermissionDetailCard: View {
     // MARK: - Structured layout
 
     private var structuredContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Provider name
-            Text(provider ?? "")
-                .font(VFont.titleMedium)
-                .foregroundStyle(VColor.contentDefault)
+        HStack {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                // Provider name
+                Text(provider ?? "")
+                    .font(VFont.titleMedium)
+                    .foregroundStyle(VColor.contentDefault)
 
-            // Account info
-            if let account = accountInfo {
-                Text(account)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-            }
+                // Account info
+                if let account = accountInfo {
+                    Text(account)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
 
-            // Status indicator
-            if let statusText = status {
-                statusRow(statusText)
-            }
+                // Status indicator
+                if let statusText = status {
+                    statusRow(statusText)
+                }
 
-            // Details text
-            if let detailsText = details {
-                Text(detailsText)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+                // Details text
+                if let detailsText = details {
+                    Text(detailsText)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-            // Missing scopes list
-            if let scopes = missingScopes, !scopes.isEmpty {
-                missingScopesList(scopes)
+                // Missing scopes list
+                if let scopes = missingScopes, !scopes.isEmpty {
+                    missingScopesList(scopes)
+                }
             }
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
     }
 
