@@ -64,7 +64,6 @@ struct HomeDetailPanel<Content: View>: View {
 
             Spacer(minLength: 0)
         }
-        .frame(width: Self.defaultWidth)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         .overlay(
