@@ -3,8 +3,8 @@
 Vite + React Router v7 SPA scaffold for the vellum-assistant web app
 surfaces (assistant + docs). This is a landing-zone shell only — the
 actual platform code is ported in
-[LUM-1543](https://linear.app/vellum/issue/LUM-1543/), and the
-CI/scripts/env/Sentry porting belongs to
+[LUM-1543](https://linear.app/vellum/issue/LUM-1543/), and the fuller
+env/Sentry/scripts wiring belongs to
 [LUM-1545](https://linear.app/vellum/issue/LUM-1545/). Tracked under
 [LUM-1542](https://linear.app/vellum/issue/LUM-1542/).
 
@@ -24,9 +24,15 @@ Includes:
 Explicitly not included:
 
 - Any platform web code (LUM-1543).
-- CI workflows or env/Sentry wiring (LUM-1545).
+- Env/Sentry wiring or the fuller release/deploy scripts (LUM-1545).
 - Real auth, data fetching, or state management.
 - Capacitor/iOS wrapper bits (LUM-1544).
+
+CI coverage for this directory lives in
+[`.github/workflows/pr-web.yaml`](../../.github/workflows/pr-web.yaml)
+and
+[`.github/workflows/ci-main-web.yaml`](../../.github/workflows/ci-main-web.yaml)
+(lint + typecheck + build on `apps/web/**`).
 
 ## Why Vite + React Router v7 library mode?
 
