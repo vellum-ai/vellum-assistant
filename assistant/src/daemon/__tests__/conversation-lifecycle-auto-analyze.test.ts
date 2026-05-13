@@ -62,8 +62,11 @@ const autoAnalysisConversations = new Set<string>();
 // flip this to true.
 let v2Enabled = false;
 
+const realLoader = await import("../../config/loader.js");
 mock.module("../../config/loader.js", () => ({
+  ...realLoader,
   getConfig: () => ({ memory: { v2: { enabled: v2Enabled } } }),
+  loadConfig: () => ({ memory: { v2: { enabled: v2Enabled } } }),
 }));
 
 mock.module("../../memory/auto-analysis-guard.js", () => ({
@@ -81,7 +84,10 @@ mock.module("../../memory/jobs-store.js", () => ({
   },
 }));
 
+const realAutoAnalysisEnqueue =
+  await import("../../memory/auto-analysis-enqueue.js");
 mock.module("../../memory/auto-analysis-enqueue.js", () => ({
+  ...realAutoAnalysisEnqueue,
   enqueueAutoAnalysisIfEnabled: (args: {
     conversationId: string;
     trigger: "batch" | "idle" | "lifecycle";
@@ -114,15 +120,23 @@ mock.module("../../memory/memory-retrospective-enqueue.js", () => ({
 
 // Stub all side-effecting cleanup helpers that disposeConversation chains
 // into after the enqueue block. We assert on enqueue behavior only.
+const realBrowserScreencast =
+  await import("../../tools/browser/browser-screencast.js");
 mock.module("../../tools/browser/browser-screencast.js", () => ({
+  ...realBrowserScreencast,
   unregisterConversationSender: () => {},
 }));
 
+const realConversationNotifiers = await import("../conversation-notifiers.js");
 mock.module("../conversation-notifiers.js", () => ({
+  ...realConversationNotifiers,
   unregisterCallNotifiers: () => {},
 }));
 
+const realConversationSkillTools =
+  await import("../conversation-skill-tools.js");
 mock.module("../conversation-skill-tools.js", () => ({
+  ...realConversationSkillTools,
   resetSkillToolProjection: () => {},
 }));
 
