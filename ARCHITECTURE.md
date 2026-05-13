@@ -8,8 +8,8 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Assistant runtime                           | [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)                                           |
 | Gateway ingress/webhooks                    | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)                                               |
-| Clients (macOS, browser extension)          | [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md)                                               |
-| Apps (end-user surfaces, scaffold)          | [`apps/README.md`](apps/README.md)                                                                 |
+| Clients (macOS native, shared Swift)        | [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md)                                               |
+| Apps (end-user surfaces)                    | [`apps/README.md`](apps/README.md)                                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
 | Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |

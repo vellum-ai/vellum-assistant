@@ -33,7 +33,7 @@ const ALLOWLIST = new Set([
   "playwright/agent/fixtures.ts", // daemon health-check during test setup
 
   // --- Chrome extension (local relay communication, not gateway API consumption) ---
-  "clients/chrome-extension/background/worker.ts",
+  "apps/chrome-extension/background/worker.ts",
   // --- Documentation and comments that mention the port for explanatory purposes ---
   "AGENTS.md", // documents the gateway-only rule itself
   "ARCHITECTURE.md", // architecture overview with port references

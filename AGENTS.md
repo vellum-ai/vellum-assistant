@@ -4,10 +4,10 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `apps/` — End-user app surfaces (web, iOS, macOS/Electron, Chrome extension). Scaffolding-only today; surfaces will move here in follow-up PRs. See `apps/AGENTS.md`.
+- `apps/` — End-user app surfaces (Chrome extension; web/iOS/macOS surfaces will land here). See `apps/AGENTS.md`.
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
-- `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
+- `clients/` — Native macOS client and shared Swift code. See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `packages/` — Shared internal packages (e.g. `service-contracts` for CES wire-protocol schemas)
 - `scripts/` — Utility scripts
@@ -266,7 +266,7 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 - **Local mode**: Use the credential store (`assistant credentials`) or `GATEWAY_SECURITY_DIR` (resolved by `getGatewaySecurityDir()` in `gateway/src/paths.ts`) for sensitive data. Do **not** create new secrets in the daemon's `protected/` directory — that directory is being phased out; all new security-sensitive files belong in the gateway security dir or CES.
 - **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`), capability-token secrets, and other gateway-owned security material live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
 - **The daemon must never read from `GATEWAY_SECURITY_DIR`** or any gateway-owned directory. Any data the daemon needs from the gateway (e.g. capability token verification, feature flags, trust rules) must flow through IPC or HTTP APIs.
-- **Do not access the user's `~/.vellum` directory from client packages** (`clients/chrome-extension/`, `clients/macos/`). Clients should read configuration from their own package directory or from `GATEWAY_SECURITY_DIR`. Existing `~/.vellum` references in client code are legacy and should be removed.
+- **Do not access the user's `~/.vellum` directory from client packages** (`apps/chrome-extension/`, `clients/macos/`). Clients should read configuration from their own package directory or from `GATEWAY_SECURITY_DIR`. Existing `~/.vellum` references in client code are legacy and should be removed.
 
 ## Release Update Hygiene
 

@@ -186,7 +186,7 @@ Handshake:
    step is needed.
 2. The service worker calls
    `chrome.runtime.connectNative("com.vellum.daemon")`, which spawns
-   `clients/chrome-extension/native-host/` (a tiny CLI helper bundled
+   `apps/chrome-extension/native-host/` (a tiny CLI helper bundled
    into the macOS `.app` at
    `Contents/MacOS/vellum-chrome-native-host`).
 3. The helper:
@@ -246,14 +246,14 @@ The new modules that implement Phase 2:
   per-invocation manager for each browser tool call, which is the single
   choke point for CDP backend selection, session lifetime, and future
   session-invalidation handling.
-- **`clients/chrome-extension/background/cdp-proxy.ts`** — CDP JSON-RPC
+- **`apps/chrome-extension/background/cdp-proxy.ts`** — CDP JSON-RPC
   wrapper around `chrome.debugger`. Tracks attach state per target so
   concurrent commands don't double-attach.
-- **`clients/chrome-extension/background/host-browser-dispatcher.ts`** —
+- **`apps/chrome-extension/background/host-browser-dispatcher.ts`** —
   Consumes `host_browser_request` envelopes, drives the `cdp-proxy`, and
   hands results to the worker for relay-aware delivery (WS first, HTTP
   fallback in self-hosted mode).
-- **`clients/chrome-extension/background/relay-connection.ts`** —
+- **`apps/chrome-extension/background/relay-connection.ts`** —
   Long-lived WebSocket relay with keepalive heartbeat (20 s interval to
   prevent MV3 idle suspension), exponential-backoff reconnect (1 s base,
   30 s cap), structured reconnect-with-refresh lifecycle (token rotation
@@ -261,12 +261,12 @@ The new modules that implement Phase 2:
   `onReconnect` hook supports three outcomes: `keep` (reuse token),
   `refreshed` (swap in a new token), or `abort` (stop reconnecting and
   surface auth error to popup).
-- **`clients/chrome-extension/background/cloud-reconnect-decision.ts`** —
+- **`apps/chrome-extension/background/cloud-reconnect-decision.ts`** —
   Pure decision function for cloud reconnect strategy. Distinguishes
   auth-failure closes (4001/4002/4003/1008) from transient 1006 closes
   and manages a refresh-attempt budget to avoid silently hammering the
   gateway. Covered by direct unit tests.
-- **`clients/chrome-extension/native-host/`** — Native messaging helper
+- **`apps/chrome-extension/native-host/`** — Native messaging helper
   binary that bootstraps the self-hosted capability token. Invoked
   automatically by the service worker during connect, reconnect, and
   auto-connect flows; manual invocation via the popup's Troubleshooting

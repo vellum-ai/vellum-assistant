@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Build the Chrome extension using Bun.
-# Output goes to clients/chrome-extension/dist/.
+# Output goes to apps/chrome-extension/dist/.
 #
 # Usage:
-#   cd clients/chrome-extension && bash build.sh [command]
+#   cd apps/chrome-extension && bash build.sh [command]
 #
 # Commands:
 #   build (default)   Build the extension for distribution

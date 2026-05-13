@@ -46,12 +46,12 @@ jobs:
           chrome-version: stable
 
       - name: Install chrome-extension dependencies
-        working-directory: clients/chrome-extension
+        working-directory: apps/chrome-extension
         run: bun install --frozen-lockfile
 
       - name: Resolve version
         id: resolve-version
-        working-directory: clients/chrome-extension
+        working-directory: apps/chrome-extension
         run: |
           INPUT_VERSION="${{ inputs.version }}"
           if [ -n "$INPUT_VERSION" ]; then
@@ -67,21 +67,21 @@ jobs:
           CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
         run: |
           if [ -n "$CRX_PRIVATE_KEY" ]; then
-            echo "$CRX_PRIVATE_KEY" > clients/chrome-extension/privatekey.pem
-            chmod 600 clients/chrome-extension/privatekey.pem
+            echo "$CRX_PRIVATE_KEY" > apps/chrome-extension/privatekey.pem
+            chmod 600 apps/chrome-extension/privatekey.pem
           else
             echo "::warning::CRX_PRIVATE_KEY secret not set — CRX signing will be skipped"
           fi
 
       - name: Build extension
-        working-directory: clients/chrome-extension
+        working-directory: apps/chrome-extension
         env:
           VERSION: ${{ steps.resolve-version.outputs.version }}
           VELLUM_ENVIRONMENT: ${{ inputs.environment }}
         run: bash build.sh
 
       - name: Verify manifest version
-        working-directory: clients/chrome-extension
+        working-directory: apps/chrome-extension
         run: |
           EXPECTED="${{ steps.resolve-version.outputs.version }}"
           # build.sh strips prerelease suffixes (e.g. "0.6.0-staging.3" -> "0.6.0")
@@ -95,19 +95,19 @@ jobs:
 
       - name: Clean up signing key
         if: always()
-        run: rm -f clients/chrome-extension/privatekey.pem
+        run: rm -f apps/chrome-extension/privatekey.pem
 
       - name: Upload extension CRX
-        if: hashFiles('clients/chrome-extension/vellum-browser-relay.crx') != ''
+        if: hashFiles('apps/chrome-extension/vellum-browser-relay.crx') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chrome-extension-crx
-          path: clients/chrome-extension/vellum-browser-relay.crx
+          path: apps/chrome-extension/vellum-browser-relay.crx
           retention-days: 90
 
       - name: Upload extension zip
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chrome-extension-zip
-          path: clients/chrome-extension/vellum-browser-relay.zip
+          path: apps/chrome-extension/vellum-browser-relay.zip
           retention-days: 90

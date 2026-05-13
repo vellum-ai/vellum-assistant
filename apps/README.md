@@ -1,14 +1,13 @@
 # apps/
 
 Home for end-user app surfaces of the Vellum assistant — browser, mobile, and
-desktop wrappers that users interact with directly. This directory is part of
-the ongoing Web App Repo Move; surfaces will be migrated here incrementally in
-follow-up PRs.
+desktop wrappers that users interact with directly.
 
 ## What belongs here
 
-- End-user app surfaces (e.g. the Chrome extension, future web app, iOS
-  Capacitor wrapper, macOS/Electron wrapper).
+- End-user app surfaces. Today: `chrome-extension/`. Additional surfaces (web,
+  iOS Capacitor wrapper, macOS/Electron wrapper) will be added here as they
+  land.
 
 ## What does not belong here
 
@@ -29,10 +28,3 @@ follow-up PRs.
   `bun install`. Exact version pinning (see root [`AGENTS.md`](../AGENTS.md)).
 - When a new app is added under `apps/`, add corresponding `paths:` globs to
   any relevant PR/CI workflows in `.github/workflows/`.
-
-## Planned moves
-
-The current Chrome extension at `clients/chrome-extension/` is the first
-candidate for relocation under this directory. That move is intentionally
-scoped to a separate follow-up PR so its impact on Chrome Web Store release
-workflows can be reviewed in isolation.

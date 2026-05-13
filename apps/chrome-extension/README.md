@@ -23,7 +23,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 ### Build & Load
 
 ```bash
-cd clients/chrome-extension
+cd apps/chrome-extension
 bash build.sh
 ```
 
@@ -31,14 +31,14 @@ Then in Chrome:
 1. Open `chrome://extensions`
 2. Enable **Developer mode**
 3. Click **Load unpacked**
-4. Select `clients/chrome-extension/dist`
+4. Select `apps/chrome-extension/dist`
 
 ### Dev Loop
 
 After editing extension code:
 
 ```bash
-cd clients/chrome-extension
+cd apps/chrome-extension
 bash build.sh
 ```
 
@@ -49,7 +49,7 @@ Then in `chrome://extensions`, click **Reload** on the unpacked extension.
 To create a zip for manual upload to the [Chrome Web Store developer dashboard](https://chrome.google.com/webstore/devconsole):
 
 ```bash
-cd clients/chrome-extension
+cd apps/chrome-extension
 bash build.sh
 cd dist && zip -r ../vellum-browser-relay.zip .
 ```
@@ -124,7 +124,7 @@ Each environment also gets its own icon set (under `icons/<env>/`), making it ea
 Extension:
 
 ```bash
-cd clients/chrome-extension
+cd apps/chrome-extension
 bunx tsc --noEmit
 bun test background/__tests__/self-hosted-auth.test.ts
 bun test background/__tests__/worker-selected-assistant-connect.test.ts

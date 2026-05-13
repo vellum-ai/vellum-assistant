@@ -33,8 +33,10 @@ clients/
 │   ├── vellum-assistant-app/  # Executable entry point
 │   ├── build.sh               # Build script (wraps SPM → .app → codesign)
 │   └── AGENTS.md              # Agent development guidance (macOS-specific)
-└── chrome-extension/          # Chrome browser extension
 ```
+
+The Chrome browser extension lives in
+[`apps/chrome-extension/`](../apps/chrome-extension/).
 
 The iOS app is a Capacitor shell that lives in
 [`vellum-assistant-platform/web/ios/`](https://github.com/vellum-ai/vellum-assistant-platform);

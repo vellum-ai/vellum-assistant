@@ -5,8 +5,8 @@
 # Checks:
 # 1. Swift build (clients/) — when .swift files changed (macOS SPM)
 # 2. TypeScript type check (assistant/) — when .ts/.tsx files changed
-# 3. TypeScript type check (clients/chrome-extension/) — when .ts/.tsx files changed
-# 4. Lint (assistant/, cli/, gateway/, clients/chrome-extension/) — eslint on changed .ts/.tsx/.js/.jsx/.mjs files
+# 3. TypeScript type check (apps/chrome-extension/) — when .ts/.tsx files changed
+# 4. Lint (assistant/, cli/, gateway/, apps/chrome-extension/) — eslint on changed .ts/.tsx/.js/.jsx/.mjs files
 # 5. Related test discovery and execution — via dependency graph + filename heuristics
 #
 # Skip Swift build only:  SKIP_SWIFT_BUILD=1 git push
@@ -285,12 +285,12 @@ if [ -n "$CHANGED_FILES" ]; then
         _debug_log "tsc --noEmit done (passed)"
     fi
 
-    # --- TypeScript type check for clients/chrome-extension/ ---
+    # --- TypeScript type check for apps/chrome-extension/ ---
     # Mirrors the assistant/ type check above. Chrome-extension has its own
     # tsconfig.json and a bun-test-shim.d.ts for test types.
     CHROME_EXT_TS_CHANGED=0
     while IFS= read -r file; do
-        if [[ "$file" == clients/chrome-extension/*.ts ]] || [[ "$file" == clients/chrome-extension/*.tsx ]]; then
+        if [[ "$file" == apps/chrome-extension/*.ts ]] || [[ "$file" == apps/chrome-extension/*.tsx ]]; then
             CHROME_EXT_TS_CHANGED=1
             break
         fi
@@ -298,26 +298,26 @@ if [ -n "$CHANGED_FILES" ]; then
 
     if [ $CHROME_EXT_TS_CHANGED -eq 1 ]; then
         echo ""
-        echo "🔍 Type-checking clients/chrome-extension/..."
-        _debug_log "clients/chrome-extension: tsc start"
-        if ! (cd "${REPO_ROOT}/clients/chrome-extension" && "$BUN" run typecheck) 2>&1; then
+        echo "🔍 Type-checking apps/chrome-extension/..."
+        _debug_log "apps/chrome-extension: tsc start"
+        if ! (cd "${REPO_ROOT}/apps/chrome-extension" && "$BUN" run typecheck) 2>&1; then
             echo ""
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}TypeScript type errors in clients/chrome-extension/ — push blocked${NC}"
+            echo -e "${RED}TypeScript type errors in apps/chrome-extension/ — push blocked${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo ""
             echo "Fix the type errors or push with --no-verify to skip."
-            _debug_log "clients/chrome-extension: tsc done (FAILED)"
+            _debug_log "apps/chrome-extension: tsc done (FAILED)"
             exit 1
         fi
-        echo -e "  ${GREEN}✅ Type check OK in clients/chrome-extension/${NC}"
-        _debug_log "clients/chrome-extension: tsc done (passed)"
+        echo -e "  ${GREEN}✅ Type check OK in apps/chrome-extension/${NC}"
+        _debug_log "apps/chrome-extension: tsc done (passed)"
     fi
 
-    # --- Lint check for assistant/, cli/, gateway/, clients/chrome-extension/ ---
+    # --- Lint check for assistant/, cli/, gateway/, apps/chrome-extension/ ---
     # Runs eslint on changed files to catch import-sort, unused-vars, and other
     # lint issues that tsc doesn't cover. Scoped to only the changed files for speed.
-    LINT_PACKAGES=("assistant" "cli" "gateway" "clients/chrome-extension")
+    LINT_PACKAGES=("assistant" "cli" "gateway" "apps/chrome-extension")
     for lint_pkg in "${LINT_PACKAGES[@]}"; do
         lint_files=()
         while IFS= read -r file; do
@@ -360,7 +360,7 @@ if [ -n "$CHANGED_FILES" ]; then
     # readFileSync (invisible to the import graph). For a changed source file like
     # `src/foo/bar-baz.ts`, looks for `bar-baz.test.ts` or `bar-baz-*.test.ts`.
 
-    PACKAGES=("assistant" "cli" "gateway" "clients/chrome-extension")
+    PACKAGES=("assistant" "cli" "gateway" "apps/chrome-extension")
     overall_exit=0
 
     for pkg in "${PACKAGES[@]}"; do

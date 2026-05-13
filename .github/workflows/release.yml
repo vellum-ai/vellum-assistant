@@ -146,7 +146,7 @@ jobs:
         env:
           BASE_VERSION: ${{ steps.extract.outputs.base_version }}
         run: |
-          # Compare clients/chrome-extension/ against the previous release tag.
+          # Compare apps/chrome-extension/ against the previous release tag.
           # Exclude the current version's tag so retries after tagging still
           # detect minor/major bumps correctly.
           # If no prior tag exists (first release), always build.
@@ -162,9 +162,9 @@ jobs:
               echo "Major/minor version changed ($PREV_MAJOR_MINOR -> $CURR_MAJOR_MINOR) — forcing extension build"
               exit 0
             fi
-            CHANGED=$(git diff --name-only "$PREV_TAG"..HEAD -- clients/chrome-extension/ \
-              ':!clients/chrome-extension/manifest.json' \
-              ':!clients/chrome-extension/package.json' | wc -l | tr -d ' ')
+            CHANGED=$(git diff --name-only "$PREV_TAG"..HEAD -- apps/chrome-extension/ \
+              ':!apps/chrome-extension/manifest.json' \
+              ':!apps/chrome-extension/package.json' | wc -l | tr -d ' ')
           else
             CHANGED=1
           fi
@@ -276,7 +276,7 @@ jobs:
           chrome-version: stable
 
       - name: Install chrome-extension dependencies
-        working-directory: clients/chrome-extension
+        working-directory: apps/chrome-extension
         run: bun install --frozen-lockfile
 
       - name: Write CRX signing key
@@ -284,21 +284,21 @@ jobs:
           CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
         run: |
           if [ -n "$CRX_PRIVATE_KEY" ]; then
-            echo "$CRX_PRIVATE_KEY" > clients/chrome-extension/privatekey.pem
-            chmod 600 clients/chrome-extension/privatekey.pem
+            echo "$CRX_PRIVATE_KEY" > apps/chrome-extension/privatekey.pem
+            chmod 600 apps/chrome-extension/privatekey.pem
           else
             echo "::warning::CRX_PRIVATE_KEY secret not set — CRX signing will be skipped"
           fi
 
       - name: Build extension
-        working-directory: clients/chrome-extension
+        working-directory: apps/chrome-extension
         env:
           VERSION: ${{ needs.extract-version.outputs.version }}
           VELLUM_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
         run: bash build.sh
 
       - name: Verify manifest version
-        working-directory: clients/chrome-extension
+        working-directory: apps/chrome-extension
         run: |
           EXPECTED="${{ needs.extract-version.outputs.version }}"
           # build.sh strips prerelease suffixes (e.g. "0.6.0-staging.3" -> "0.6.0")
@@ -312,21 +312,21 @@ jobs:
 
       - name: Clean up signing key
         if: always()
-        run: rm -f clients/chrome-extension/privatekey.pem
+        run: rm -f apps/chrome-extension/privatekey.pem
 
       - name: Upload extension CRX
-        if: hashFiles('clients/chrome-extension/vellum-browser-relay.crx') != ''
+        if: hashFiles('apps/chrome-extension/vellum-browser-relay.crx') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chrome-extension-crx
-          path: clients/chrome-extension/vellum-browser-relay.crx
+          path: apps/chrome-extension/vellum-browser-relay.crx
           retention-days: 90
 
       - name: Upload extension zip
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chrome-extension-zip
-          path: clients/chrome-extension/vellum-browser-relay.zip
+          path: apps/chrome-extension/vellum-browser-relay.zip
           retention-days: 90
 
   publish-chrome-extension:
@@ -341,12 +341,12 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: clients/chrome-extension/extension-environments.json
+          sparse-checkout: apps/chrome-extension/extension-environments.json
           sparse-checkout-cone-mode: false
 
       - name: Read CWS extension ID
         id: read-extension-id
-        run: echo "id=$(jq -r '.production.extensionId' clients/chrome-extension/extension-environments.json)" >> "$GITHUB_OUTPUT"
+        run: echo "id=$(jq -r '.production.extensionId' apps/chrome-extension/extension-environments.json)" >> "$GITHUB_OUTPUT"
 
       - name: Download extension zip
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0

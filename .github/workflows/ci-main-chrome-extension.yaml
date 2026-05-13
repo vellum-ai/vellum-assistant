@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'clients/chrome-extension/**'
+      - 'apps/chrome-extension/**'
       - '.github/workflows/ci-main-chrome-extension.yaml'
 
 jobs:
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: clients/chrome-extension
+        working-directory: apps/chrome-extension
 
     steps:
       - name: Checkout

@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [synchronize, opened, reopened]
     paths:
-      - 'clients/chrome-extension/**'
+      - 'apps/chrome-extension/**'
       - '.github/workflows/pr-chrome-extension.yaml'
 
 concurrency:
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: clients/chrome-extension
+        working-directory: apps/chrome-extension
 
     steps:
       - name: Checkout

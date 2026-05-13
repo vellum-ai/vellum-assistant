@@ -321,7 +321,7 @@ describe("parseImageDimensions", () => {
       const pngPath = join(
         import.meta.dir,
         "../../..",
-        "clients/chrome-extension/icons/production/icon16.png",
+        "apps/chrome-extension/icons/production/icon16.png",
       );
       const pngData = readFileSync(pngPath);
       const base64 = pngData.toString("base64");

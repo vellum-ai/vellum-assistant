@@ -30,8 +30,7 @@ jobs:
           - cli
           - credential-executor
           - gateway
-          - clients/chrome-extension
-          - clients/chrome-extension/native-host
+          - apps/chrome-extension
           - packages/ces-contracts
           - packages/credential-storage
           - packages/egress-proxy

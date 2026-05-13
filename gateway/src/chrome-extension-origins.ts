@@ -3,12 +3,12 @@
  *
  * Chrome extension IDs are deterministic per environment: non-production
  * builds embed a fixed public key in the manifest (injected at build time by
- * `clients/chrome-extension/build.sh`), and the production build uses the
+ * `apps/chrome-extension/build.sh`), and the production build uses the
  * stable Chrome Web Store signing key. All four IDs are therefore stable and
  * enumerable — no need for a catch-all regex.
  *
  * The canonical mapping of env → extensionId lives in:
- *   clients/chrome-extension/extension-environments.json
+ *   apps/chrome-extension/extension-environments.json
  *
  * If a new environment is added or an ID changes, update both files.
  *
