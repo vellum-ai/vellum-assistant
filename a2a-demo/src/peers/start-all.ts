@@ -84,5 +84,16 @@ function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-// Keep the process alive by awaiting all children
-await Promise.all(children.map((child) => child.exited));
+// Keep the process alive — fail fast if any peer exits non-zero
+await Promise.all(
+  children.map(async (child, i) => {
+    const code = await child.exited;
+    if (code !== 0) {
+      console.error(`[${peers[i].label}] exited with code ${code} — shutting down remaining peers`);
+      for (const c of children) {
+        c.kill();
+      }
+      process.exit(code ?? 1);
+    }
+  }),
+);

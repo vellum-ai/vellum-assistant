@@ -19,12 +19,12 @@ export interface PeerServer {
 }
 
 export function createPeerServer(options: CreatePeerServerOptions): PeerServer {
-  const { name, port, config } = options;
+  const { name, port, assistantId, config } = options;
 
   const card: VellumAgentCard = {
     name: `${name}'s Assistant`,
     url: `http://localhost:${port}/a2a/jsonrpc`,
-    description: `Mock peer for A2A demo — exercises ${config.strategy}`,
+    description: `Mock peer [${assistantId}] for A2A demo — exercises ${config.strategy}`,
     protocolVersion: '0.3.0',
     version: '0.1.0',
     capabilities: { streaming: true },
