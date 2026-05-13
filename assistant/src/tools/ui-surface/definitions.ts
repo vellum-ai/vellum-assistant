@@ -82,6 +82,11 @@ export const uiShowTool: Tool = {
                   enum: ["primary", "secondary", "destructive"],
                   description: "Visual style of the button",
                 },
+                data: {
+                  type: "object",
+                  description:
+                    "Optional payload sent back when the action is clicked. Use _action for built-in client actions such as navigate_settings.",
+                },
               },
               required: ["id", "label"],
             },

@@ -55,6 +55,21 @@ describe("Tool definition includes dynamic_page", () => {
     const definition = uiShowTool.getDefinition();
     expect(definition.description).toContain("dynamic_page");
   });
+
+  test("action schema documents data payloads", () => {
+    const definition = uiShowTool.getDefinition();
+    const actionProperties = (
+      definition.input_schema as {
+        properties: {
+          actions: {
+            items: { properties: Record<string, { type?: string }> };
+          };
+        };
+      }
+    ).properties.actions.items.properties;
+
+    expect(actionProperties.data.type).toBe("object");
+  });
 });
 
 // ---------------------------------------------------------------------------

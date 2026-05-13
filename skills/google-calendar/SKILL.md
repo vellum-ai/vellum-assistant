@@ -45,8 +45,56 @@ bun scripts/gcal.ts rsvp --event-id "abc123" --response accepted
 
 ## Connection Setup
 
-1. **Check connection health first.** Run `assistant oauth status google`. This checks whether the user's Google account is connected and the token is valid. Google Calendar shares the same OAuth connection as Gmail — if the user already connected Gmail, calendar access is included.
-2. **If no connection is found or the status check fails:** Load the `vellum-oauth-integrations` skill. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
+1. **Check connection health first.** Run `assistant oauth status google`. This checks whether the user's Google account is connected and the token is valid. Google Calendar shares the same OAuth connection as Gmail -- if the user already connected Gmail, calendar access is included.
+2. **If no connection is found or the status check fails:** Render one inline setup card and end the turn. Do not load the settings or OAuth setup skills until the user clicks a button.
+
+```json
+{
+  "surface_type": "card",
+  "display": "inline",
+  "await_action": false,
+  "data": {
+    "title": "Connect Google",
+    "body": "Connect Google once to use Google Calendar and Gmail."
+  },
+  "actions": [
+    {
+      "id": "setup_google_here",
+      "label": "Set Up Here",
+      "style": "primary",
+      "data": {
+        "provider": "google",
+        "intent": "connect_in_chat",
+        "setupMode": "managed_preferred",
+        "services": ["google-calendar", "gmail"]
+      }
+    },
+    {
+      "id": "open_integrations_settings",
+      "label": "Open Settings",
+      "style": "secondary",
+      "data": {
+        "_action": "navigate_settings",
+        "tab": "Integrations"
+      }
+    },
+    {
+      "id": "setup_google_own_app",
+      "label": "Use Own App",
+      "style": "secondary",
+      "data": {
+        "provider": "google",
+        "intent": "connect_in_chat",
+        "setupMode": "your_own_app",
+        "services": ["google-calendar", "gmail"]
+      }
+    }
+  ]
+}
+```
+
+3. **If the user chooses Set Up Here or Use Own App:** Load the `vellum-oauth-integrations` skill and follow the selected setup mode. Use the "your-own" Google Cloud app path only when `setupMode` is `your_own_app` or the user explicitly asks for it.
+4. **Fallback:** If inline UI is unavailable, briefly offer to open Settings > Integrations or continue setup in chat. Load `vellum-oauth-integrations` only if they choose the conversational path or the settings path fails.
 
 ## Scheduling Playbook
 
@@ -83,6 +131,6 @@ Confidence scores for medium-risk operations:
 When a calendar script fails with a token or authorization error:
 
 1. **Try to reconnect silently.** Run `assistant oauth ping google`. This often resolves expired tokens automatically.
-2. **If reconnection fails, go straight to setup.** Don't present options, ask which route the user prefers, or explain what went wrong technically. Just tell the user briefly (e.g., "Google Calendar needs to be reconnected - let me set that up") and immediately load the `vellum-oauth-integrations` skill. The user came to you to get something done, not to troubleshoot - make it seamless.
+2. **If reconnection fails, go straight to the inline setup card.** Don't ask which route the user prefers or explain what went wrong technically. Briefly say Google Calendar needs to be reconnected, render the card from Connection Setup, and stop. Load `vellum-oauth-integrations` only after the user chooses a chat-based setup action.
 3. **Never try alternative approaches.** Don't use curl, browser automation, or any workaround. If the scripts can't do it, the reconnection flow is the answer.
 4. **Never expose error details.** The user doesn't need to see error messages about tokens, OAuth, or API failures. Translate errors into plain language.

@@ -1250,6 +1250,24 @@ export async function handleSurfaceAction(
     return { accepted: true, conversationId };
   }
 
+  if (
+    data &&
+    typeof data === "object" &&
+    (data as Record<string, unknown>)._action === "navigate_settings"
+  ) {
+    const payload = data as Record<string, unknown>;
+    const tab = typeof payload.tab === "string" ? payload.tab : "";
+    if (!tab) {
+      return { accepted: false, error: "missing_tab" };
+    }
+    ctx.pendingSurfaceActions.delete(surfaceId);
+    ctx.sendToClient({
+      type: "navigate_settings",
+      tab,
+    });
+    return { accepted: true, conversationId: ctx.conversationId };
+  }
+
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
 
   // When surfaces are restored from history (e.g. onboarding cards), there is

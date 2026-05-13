@@ -209,6 +209,47 @@ describe("per-surface state isolation", () => {
   });
 });
 
+describe("navigate_settings surface action", () => {
+  test("opens settings directly without enqueueing a model follow-up", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext({ sent });
+    ctx.pendingSurfaceActions.set("surface-settings", { surfaceType: "card" });
+
+    const result = await handleSurfaceAction(
+      ctx,
+      "surface-settings",
+      "open_integrations_settings",
+      { _action: "navigate_settings", tab: "Integrations" },
+    );
+
+    expect(result).toEqual({
+      accepted: true,
+      conversationId: "test-session",
+    });
+    expect(sent).toEqual([{ type: "navigate_settings", tab: "Integrations" }]);
+    expect(ctx.pendingSurfaceActions.has("surface-settings")).toBe(false);
+    expect(ctx.enqueueCalls).toHaveLength(0);
+    expect(ctx.processCalls).toHaveLength(0);
+  });
+
+  test("rejects navigate_settings actions without a tab", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext({ sent });
+
+    const result = await handleSurfaceAction(
+      ctx,
+      "surface-settings",
+      "open_integrations_settings",
+      { _action: "navigate_settings" },
+    );
+
+    expect(result).toEqual({ accepted: false, error: "missing_tab" });
+    expect(sent).toHaveLength(0);
+    expect(ctx.enqueueCalls).toHaveLength(0);
+    expect(ctx.processCalls).toHaveLength(0);
+  });
+});
+
 describe("cleanup on dismiss", () => {
   test("ui_dismiss clears accumulated state for the surface", async () => {
     const ctx = makeContext();

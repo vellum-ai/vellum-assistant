@@ -20,6 +20,24 @@ You are provided with the `assistant oauth` CLI for performing all necessary oau
 
 **Important:** When in doubt how a command works or how to do something, read the references at the bottom. Never guess at how the CLI works. Read references and use the `--help` flag for any command you're about to run.
 
+## Prefer Embedded Setup Entry Points for Routine Connections
+
+For common providers that already appear in the desktop app's Integrations settings, do not walk the user through repetitive setup steps conversationally by default. The preferred entrypoint is an inline setup card in chat with:
+
+- A primary action that lets the user continue setup here
+- A secondary action with `data: { "_action": "navigate_settings", "tab": "Integrations" }`
+- A manual/custom-app action only when that path is relevant
+
+Settings must be optional, not mandatory. Only continue with this skill's conversational OAuth setup when:
+
+- The user clicks the inline setup card's "set up here" style action
+- No inline UI is available
+- The embedded/static setup UI fails or cannot represent the needed provider/mode
+- The user explicitly wants a "your-own" OAuth app or custom provider setup
+- A provider-specific skill explicitly requires this flow
+
+For Google, the inline card should be the default entrypoint. One Google connection covers Gmail and Google Calendar.
+
 ## Viewing Available OAuth Providers
 
 Vellum assistants can natively integrate with any application that supports OAuth 2.0. Many OAuth providers come pre-configured and ready to use. You can view them by running:

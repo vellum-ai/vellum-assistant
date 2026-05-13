@@ -60,6 +60,7 @@
             "enum": [
               "General",
               "Models & Services",
+              "Integrations",
               "Voice",
               "Sounds",
               "Permissions & Privacy",

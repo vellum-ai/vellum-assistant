@@ -57,7 +57,55 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 ### Gmail
 
 1. **Try connecting directly first.** Run `assistant oauth status google`. This will show whether or not the user had previously connected their google account. If so, they are ready to go.
-2. **If no connections are found:** Call `skill_load` with `skill: "vellum-oauth-integrations"`. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
+2. **If no connections are found:** Render one inline setup card and end the turn. Do not load the settings or OAuth setup skills until the user clicks a button. Google is one shared connection for Gmail and Google Calendar.
+
+```json
+{
+  "surface_type": "card",
+  "display": "inline",
+  "await_action": false,
+  "data": {
+    "title": "Connect Google",
+    "body": "Connect Google once to use Gmail and Google Calendar."
+  },
+  "actions": [
+    {
+      "id": "setup_google_here",
+      "label": "Set Up Here",
+      "style": "primary",
+      "data": {
+        "provider": "google",
+        "intent": "connect_in_chat",
+        "setupMode": "managed_preferred",
+        "services": ["gmail", "google-calendar"]
+      }
+    },
+    {
+      "id": "open_integrations_settings",
+      "label": "Open Settings",
+      "style": "secondary",
+      "data": {
+        "_action": "navigate_settings",
+        "tab": "Integrations"
+      }
+    },
+    {
+      "id": "setup_google_own_app",
+      "label": "Use Own App",
+      "style": "secondary",
+      "data": {
+        "provider": "google",
+        "intent": "connect_in_chat",
+        "setupMode": "your_own_app",
+        "services": ["gmail", "google-calendar"]
+      }
+    }
+  ]
+}
+```
+
+3. **If the user chooses Set Up Here or Use Own App:** Call `skill_load` with `skill: "vellum-oauth-integrations"` and follow the selected setup mode. Use the "your-own" Google Cloud app path only when `setupMode` is `your_own_app` or the user explicitly asks for it.
+4. **Fallback:** If inline UI is unavailable, briefly offer to open Settings > Integrations or continue setup in chat. Load `vellum-oauth-integrations` only if they choose the conversational path or the settings path fails.
 
 ### Outlook
 
@@ -93,7 +141,7 @@ The guardian-verify-setup skill handles the full outbound verification flow for 
 When a messaging tool fails with a token or authorization error:
 
 1. **Try to reconnect silently.** Run `assistant oauth ping <provider>`. This often resolves expired tokens automatically.
-2. **If reconnection fails, go straight to setup.** Don't present options, ask which route the user prefers, or explain what went wrong technically. Just tell the user briefly (e.g., "Gmail needs to be reconnected - let me set that up") and immediately load **vellum-oauth-integrations**. The user came to you to get something done, not to troubleshoot OAuth - make it seamless.
+2. **If reconnection fails, go straight to the inline setup card.** Don't ask which route the user prefers or explain what went wrong technically. Briefly say Gmail needs to be reconnected, render the Gmail setup card above, and stop. Load **vellum-oauth-integrations** only after the user chooses a chat-based setup action.
 3. **Never try alternative approaches.** Don't use bash, curl, browser automation, or any workaround. If the messaging tools can't do it, the reconnection flow is the answer.
 4. **Never expose error details.** The user doesn't need to see error messages about tokens, OAuth, or API failures. Translate errors into plain language.
 
@@ -179,7 +227,7 @@ When a user asks to declutter, clean up, or organize their email:
 
 - **Gmail connected**: Load the **gmail** skill, which has the full decluttering workflow with sender-digest scanning, batch archiving, unsubscribe support, and filter management.
 - **Non-Gmail email connected**: Use the generic tools (`messaging_sender_digest`, `messaging_archive_by_sender`) - they work with any provider that supports these operations. Skip unsubscribe and filter offers since they are Gmail-specific.
-- **Nothing connected**: Ask which email provider they use. If it's Gmail, go straight into the Gmail connection flow. For other providers, let the user know only Gmail is supported right now and offer to set up Gmail instead. Don't present a menu of options or explain what OAuth is.
+- **Nothing connected**: Ask which email provider they use. If it's Gmail, go straight into the Gmail connection flow, which should render the inline setup card first. For other providers, let the user know only Gmail is supported right now and offer to set up Gmail instead. Don't present a menu of options or explain what OAuth is.
 
 ### Non-Gmail Decluttering Workflow
 

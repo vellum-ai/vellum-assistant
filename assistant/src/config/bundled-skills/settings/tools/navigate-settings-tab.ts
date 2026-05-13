@@ -6,6 +6,7 @@ import type {
 const SETTINGS_TABS = [
   "General",
   "Models & Services",
+  "Integrations",
   "Voice",
   "Sounds",
   "Permissions & Privacy",

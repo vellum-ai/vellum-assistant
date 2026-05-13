@@ -10,6 +10,7 @@ function makeContext(sendToClient?: (msg: unknown) => void): ToolContext {
 const CANONICAL_TABS = [
   "General",
   "Models & Services",
+  "Integrations",
   "Voice",
   "Sounds",
   "Permissions & Privacy",

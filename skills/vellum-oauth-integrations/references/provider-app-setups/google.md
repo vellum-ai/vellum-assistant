@@ -2,6 +2,8 @@ You are helping your user set up Google Cloud OAuth credentials so Gmail and Goo
 
 The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Google-specific steps.
 
+**Use this guide only for the "your-own" Google Cloud OAuth app path.** For routine desktop setup, prefer the inline Google setup card instead of walking the user through Google Cloud Console conversationally. The card should let the user set up here, open Settings > Integrations, or choose the custom-app path. One Google connection covers Gmail and Google Calendar.
+
 ## Provider Details
 
 - **Provider key:** `google`
