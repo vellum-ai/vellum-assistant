@@ -84,6 +84,14 @@ struct SubagentDetailPanel: View {
                 onRequestDetail?()
             }
         }
+        .onChange(of: subagentInfo?.conversationId) { _, newConversationId in
+            // Safety net: if conversationId becomes available after the panel is
+            // already visible (e.g. history reconstruction merges it after .onAppear
+            // already fired with conversationId == nil), trigger the lazy-load.
+            if events.isEmpty, newConversationId != nil {
+                onRequestDetail?()
+            }
+        }
     }
 
     // MARK: - Pinned Content
