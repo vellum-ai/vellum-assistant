@@ -27,7 +27,6 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
 import { getLogger } from "../../../util/logger.js";
-import { getWorkspaceDir } from "../../../util/platform.js";
 
 const log = getLogger("memory-v2-router-prompt");
 
@@ -102,7 +101,7 @@ export function renderRouterPrompt(opts: RenderRouterPromptOpts): string {
  * referenced by `memory.v2.router.router_prompt_path`, then substitute the
  * standard placeholders. Path-resolution rules mirror the consolidation
  * prompt override: absolute paths used as-is, leading `~/` expanded to home,
- * relative paths resolved under the workspace root.
+ * relative paths resolved under `workspaceDir`.
  *
  * Failure handling is intentionally permissive — missing file, read error,
  * oversized file, or empty/whitespace-only body all log a warning and fall
@@ -111,11 +110,12 @@ export function renderRouterPrompt(opts: RenderRouterPromptOpts): string {
  */
 export function resolveRouterPrompt(
   overridePath: string | null,
+  workspaceDir: string,
   opts: RenderRouterPromptOpts,
 ): string {
   if (overridePath === null) return renderRouterPrompt(opts);
 
-  const resolvedPath = resolveOverridePath(overridePath);
+  const resolvedPath = resolveOverridePath(overridePath, workspaceDir);
   let contents: string;
   try {
     const stat = lstatSync(resolvedPath);
@@ -183,10 +183,13 @@ function substitutePlaceholders(
     .replaceAll(PAGE_INDEX_PLACEHOLDER, () => opts.pageIndexBlock);
 }
 
-function resolveOverridePath(overridePath: string): string {
+function resolveOverridePath(
+  overridePath: string,
+  workspaceDir: string,
+): string {
   if (overridePath.startsWith("~/")) {
     return join(homedir(), overridePath.slice(2));
   }
   if (isAbsolute(overridePath)) return overridePath;
-  return join(getWorkspaceDir(), overridePath);
+  return join(workspaceDir, overridePath);
 }
