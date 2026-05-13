@@ -64,8 +64,8 @@ struct SubagentDetailPanel: View {
     @ViewBuilder
     private var pinnedBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Status + abort row
-            HStack {
+            // Status badge + Stop button row (matches Figma header layout)
+            HStack(spacing: VSpacing.sm) {
                 statusBadge
                 Spacer()
                 if isRunning {
@@ -89,7 +89,12 @@ struct SubagentDetailPanel: View {
                 }
             }
 
-            // Objective
+            // Usage metrics row (above objective per Figma mock)
+            if let usage {
+                usageMetrics(usage)
+            }
+
+            // Objective card
             if let objective, !objective.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("Objective")
@@ -103,11 +108,6 @@ struct SubagentDetailPanel: View {
                 .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.md, bottom: VSpacing.lg, trailing: VSpacing.md))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceOverlay)
-            }
-
-            // Usage metrics row
-            if let usage {
-                usageMetrics(usage)
             }
 
             // Error banner
