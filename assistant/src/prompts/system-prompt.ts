@@ -28,19 +28,6 @@ import {
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
-// Body content for the access-preference section (slot 05).  The section
-// template ships at `templates/system/05-access-preference.md` with a
-// `{{accessPolicy}}` placeholder; the runtime variant is chosen here based
-// on whether the conversation has a connected client.  Keeping the two
-// blocks as code constants matches the plan in
-// `/workspace/data/plan-system-prompt-workspace.md` — we don't bleed runtime
-// logic into markdown.
-const ACCESS_POLICY_NO_CLIENT =
-  "Priority: (1) sandbox `bash` — install tools yourself; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).";
-
-const ACCESS_POLICY_WITH_CLIENT =
-  "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).";
-
 const BOOTSTRAP_VOICE_BLOCKS: Record<string, string> = {
   grounded:
     "## Voice\nCalm, direct, precise. No filler. Lead with the thing, explain if needed. Opinions stated plainly.",
@@ -308,24 +295,23 @@ export interface BuildSystemPromptOptions {
  * files change between turns.
  */
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
-  const hasNoClient = options?.hasNoClient ?? false;
-
   // ── Static instruction sections (stable across turns) ──
   // These sections are deterministic within a process lifetime.  They form
   // the first cache block so they remain cached even when workspace files
   // (IDENTITY.md, SOUL.md, users/<slug>.md, etc.) are edited between turns.
   //
   // Section render context.  Workspace section frontmatter `enabled:`
-  // predicates and `{{key}}` body interpolation both resolve against this
-  // map, so anything the renderer needs to see (runtime gates, paths) must
-  // be lifted onto `ctx` rather than branched on at the call site.
+  // predicates and `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation
+  // both resolve against this map, so anything the renderer needs to see
+  // (runtime gates, paths) must be lifted onto `ctx` rather than branched
+  // on at the call site.  `hasNoClient` is normalized to a defined boolean
+  // here so the `{{#hasNoClient}}` / `{{^hasNoClient}}` conditionals in
+  // `05-access-preference.md` always resolve (never warn-literal).
   const ctx = {
     ...options,
+    hasNoClient: options?.hasNoClient ?? false,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
-    accessPolicy: hasNoClient
-      ? ACCESS_POLICY_NO_CLIENT
-      : ACCESS_POLICY_WITH_CLIENT,
   };
   const staticParts: string[] = [...renderWorkspaceSections(ctx)];
   staticParts.push(buildCredentialSecuritySection());

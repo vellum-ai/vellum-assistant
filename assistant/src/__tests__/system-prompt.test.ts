@@ -748,7 +748,20 @@ describe("buildSystemPrompt", () => {
 
     describe("access-preference section (slot 05)", () => {
       const ACCESS_FILE = join(SYSTEM_PROMPTS_DIR, "05-access-preference.md");
-      const TEMPLATE_BODY = "## External Service Access\n\n{{accessPolicy}}\n";
+      // Mirrors the bundled `templates/system/05-access-preference.md` — both
+      // variants live in the markdown body and the renderer picks one via
+      // mustache-style `{{#hasNoClient}}` / `{{^hasNoClient}}` conditionals.
+      const TEMPLATE_BODY = [
+        "## External Service Access",
+        "",
+        "{{#hasNoClient}}",
+        "Priority: (1) sandbox `bash` — install tools yourself; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).",
+        "{{/hasNoClient}}",
+        "{{^hasNoClient}}",
+        "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).",
+        "{{/hasNoClient}}",
+        "",
+      ].join("\n");
 
       test("with-client (default) renders the three-tier priority list", () => {
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
@@ -757,6 +770,9 @@ describe("buildSystemPrompt", () => {
         expect(result).toContain("## External Service Access");
         expect(result).toContain("`host_bash` with CLIs");
         expect(result).toContain("browser automation as last resort");
+        // The no-client body (em-dash separator after sandbox `bash`) must
+        // not leak when the with-client variant is active.
+        expect(result).not.toContain("install tools yourself; (2) browser");
         // Section lives in the static (cached) block.
         const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
         expect(boundaryIdx).toBeGreaterThan(-1);
@@ -772,6 +788,25 @@ describe("buildSystemPrompt", () => {
         expect(result).toContain("browser automation as last resort");
         // The host_bash tier must be absent in the no-client variant.
         expect(result).not.toContain("`host_bash` with CLIs");
+        // The no-client body uses an em-dash + semicolon separator after
+        // sandbox `bash`; the with-client body uses a comma — guard against
+        // the wrong variant leaking through.
+        expect(result).toContain("install tools yourself; (2) browser");
+        expect(result).not.toContain(
+          "only fall back to host when you need local files/auth",
+        );
+      });
+
+      test("standalone tag lines do not bleed extra blank lines into output", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
+        const result = buildSystemPrompt();
+        // The heading and the active variant body should sit on adjacent
+        // lines separated by exactly one blank line — no triple-newline
+        // artifacts from the section markers.
+        expect(result).toMatch(
+          /## External Service Access\n\nPriority: \(1\) sandbox `bash` -/,
+        );
       });
 
       test("omits the section when the workspace file is missing", () => {
@@ -793,6 +828,100 @@ describe("buildSystemPrompt", () => {
         expect(attachmentIdx).toBeGreaterThan(-1);
         expect(accessIdx).toBeGreaterThan(-1);
         expect(attachmentIdx).toBeLessThan(accessIdx);
+      });
+    });
+
+    describe("mustache section interpolation", () => {
+      // Reuse slot 00 (prefix) — its default-on `enabled` predicate is
+      // already covered by other tests; here we only care about body
+      // interpolation shape.
+      const SECTION_FILE = join(SYSTEM_PROMPTS_DIR, "00-prefix.md");
+      const FRONTMATTER = '---\nenabled: "!excludeCustomPrefix"\n---\n';
+
+      test("{{#flag}}body{{/flag}} renders body when ctx[flag] is truthy", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "before {{#hasNoClient}}YES{{/hasNoClient}} after\n",
+        );
+        const result = buildSystemPrompt({ hasNoClient: true });
+        expect(result).toContain("before YES after");
+      });
+
+      test("{{#flag}}body{{/flag}} omits body when ctx[flag] is falsy", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "before {{#hasNoClient}}YES{{/hasNoClient}} after\n",
+        );
+        const result = buildSystemPrompt({ hasNoClient: false });
+        expect(result).toContain("before  after");
+        expect(result).not.toContain("YES");
+      });
+
+      test("{{^flag}}body{{/flag}} renders body when ctx[flag] is falsy", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "before {{^hasNoClient}}NO{{/hasNoClient}} after\n",
+        );
+        const result = buildSystemPrompt({ hasNoClient: false });
+        expect(result).toContain("before NO after");
+      });
+
+      test("{{^flag}}body{{/flag}} omits body when ctx[flag] is truthy", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "before {{^hasNoClient}}NO{{/hasNoClient}} after\n",
+        );
+        const result = buildSystemPrompt({ hasNoClient: true });
+        expect(result).toContain("before  after");
+        expect(result).not.toContain("NO");
+      });
+
+      test("paired {{#flag}} + {{^flag}} acts as if/else", () => {
+        // Use long unique markers — single letters collide with substrings
+        // in the rest of the system prompt (e.g. "B" lives inside
+        // SYSTEM_PROMPT_CACHE_BOUNDARY, "A" inside "API keys").
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER +
+            "{{#hasNoClient}}NO_CLIENT_BRANCH_MARKER{{/hasNoClient}}{{^hasNoClient}}WITH_CLIENT_BRANCH_MARKER{{/hasNoClient}}\n",
+        );
+        const onTrue = buildSystemPrompt({ hasNoClient: true });
+        expect(onTrue).toContain("NO_CLIENT_BRANCH_MARKER");
+        expect(onTrue).not.toContain("WITH_CLIENT_BRANCH_MARKER");
+        const onFalse = buildSystemPrompt({ hasNoClient: false });
+        expect(onFalse).toContain("WITH_CLIENT_BRANCH_MARKER");
+        expect(onFalse).not.toContain("NO_CLIENT_BRANCH_MARKER");
+      });
+
+      test("section body may contain a {{variable}} substitution", () => {
+        // Gate on `hasNoClient` (passed explicitly, so we don't depend on
+        // ambient test-env state for `isContainerized`).  The section body
+        // includes a `{{workspaceDir}}` interpolation that should resolve
+        // to the test workspace path.
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER +
+            "{{#hasNoClient}}cwd={{workspaceDir}}{{/hasNoClient}}\n",
+        );
+        const result = buildSystemPrompt({ hasNoClient: true });
+        expect(result).toMatch(/cwd=\S+/);
+        expect(result).not.toContain("{{workspaceDir}}");
+      });
+
+      test("unresolved section key is left as a literal", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "{{#noSuchFlag}}hidden{{/noSuchFlag}}\n",
+        );
+        const result = buildSystemPrompt();
+        expect(result).toContain("{{#noSuchFlag}}hidden{{/noSuchFlag}}");
       });
     });
 

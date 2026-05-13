@@ -113,36 +113,94 @@ function renderSection(id: string, ctx: SectionRenderContext): string | null {
 const IDENT_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 /**
- * Substitute `{{key}}` placeholders in the section body with stringified
- * `ctx[key]` values.  Keys are restricted to JS-identifier characters so
- * the syntax stays readable in markdown — `{{workspaceDir}}` interpolates,
- * `{{ some expression }}` or `{{a.b}}` does not.
+ * Apply mustache-style interpolation to `body` against `ctx`, in this order:
  *
- * Unresolved keys (ctx value is `null`/`undefined`) are left as literal
- * `{{key}}` text and logged at warn level so authors notice the typo
- * rather than seeing silently empty prose.  Plain `String(value)` is used
- * for the substitution, so non-string ctx values (numbers, booleans) work
- * too.
+ *   1. **Standalone-tag normalization.** A section open/close tag occupying
+ *      its own line (only whitespace on either side) absorbs the trailing
+ *      newline.  This lets authors write block-style templates without
+ *      orphan blank lines bleeding through into the rendered output.
+ *   2. **Sections** — `{{#flag}}body{{/flag}}` renders `body` when
+ *      `ctx[flag]` is truthy, empty otherwise.  **Inverted sections** —
+ *      `{{^flag}}body{{/flag}}` — render the opposite.  The close tag's
+ *      name must match the open tag's; bodies are matched non-greedily so
+ *      sibling sections stay independent.  Nested same-named sections are
+ *      *not* supported (no use case yet).
+ *   3. **Variables** — `{{key}}` substitutes `String(ctx[key])`.
+ *
+ * Section *keys* are valid JS identifiers (`[A-Za-z_$][A-Za-z0-9_$]*`) so
+ * the construct can't be confused with code-block braces in the markdown.
+ * Section keys whose `ctx` value is `undefined` leave the entire construct
+ * as a literal — this surfaces author typos at the warn log instead of
+ * silently swallowing the body.  Variable keys whose `ctx` value is
+ * `undefined` or `null` likewise stay literal.  `null` and `false` as
+ * section values are treated as falsy (so callers can pass through
+ * runtime gates without normalizing to plain booleans first).
  */
 function interpolateVariables(
   body: string,
   ctx: SectionRenderContext,
 ): string {
-  return body.replace(
-    /\{\{([A-Za-z_$][A-Za-z0-9_$]*)\}\}/g,
-    (match, key: string) => {
+  // Collapse standalone tag lines so multiline section templates render
+  // without phantom blank lines from the layout markers.
+  const collapsed = body.replace(STANDALONE_TAG_LINE, "$1");
+
+  // Evaluate `{{#flag}}` / `{{^flag}}` blocks before variables, so a
+  // section body may itself contain `{{var}}` substitutions.
+  const sectionsResolved = collapsed.replace(
+    SECTION,
+    (match, kind: string, key: string, sectionBody: string) => {
       const value = ctx[key];
-      if (value === undefined || value === null) {
+      if (value === undefined) {
         log.warn(
-          { key },
-          "Unresolved {{variable}} in workspace system prompt section; leaving literal",
+          { key, kind },
+          "Unresolved {{#section}} key in workspace system prompt; leaving literal",
         );
         return match;
       }
-      return String(value);
+      const truthy = Boolean(value);
+      const include = kind === "#" ? truthy : !truthy;
+      return include ? sectionBody : "";
     },
   );
+
+  return sectionsResolved.replace(VARIABLE, (match, key: string) => {
+    const value = ctx[key];
+    if (value === undefined || value === null) {
+      log.warn(
+        { key },
+        "Unresolved {{variable}} in workspace system prompt section; leaving literal",
+      );
+      return match;
+    }
+    return String(value);
+  });
 }
+
+const IDENT_PATTERN = "[A-Za-z_$][A-Za-z0-9_$]*";
+
+/**
+ * Matches a section open/close tag that sits alone on its line (optional
+ * whitespace on either side, followed by a line terminator or end of
+ * input).  The replacement keeps the tag itself and discards the
+ * surrounding whitespace + newline.
+ */
+const STANDALONE_TAG_LINE = new RegExp(
+  `^[ \\t]*(\\{\\{[#^/]${IDENT_PATTERN}\\}\\})[ \\t]*(?:\\r?\\n|$)`,
+  "gm",
+);
+
+/**
+ * Matches a section block `{{#name}}body{{/name}}` or its inverted form
+ * `{{^name}}body{{/name}}`.  The backreference forces the close tag to
+ * name the same key as the open tag; `[\s\S]*?` lets the body span
+ * multiple lines without greedy-matching across sibling sections.
+ */
+const SECTION = new RegExp(
+  `\\{\\{([#^])(${IDENT_PATTERN})\\}\\}([\\s\\S]*?)\\{\\{\\/\\2\\}\\}`,
+  "g",
+);
+
+const VARIABLE = new RegExp(`\\{\\{(${IDENT_PATTERN})\\}\\}`, "g");
 
 /**
  * Evaluate an `enabled:` frontmatter value.  Supported shapes:
