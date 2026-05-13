@@ -256,7 +256,7 @@ struct GuardianChannelsDetailView: View {
         } else if (isGuardian && store?.channelVerificationState(for: type).verified == true)
             || (!existingChannels.isEmpty && !dismissedChannels.contains(type))
             || setupExpanded.contains(type) {
-            if !isGuardian, let channel = existingChannels.first {
+            if showCardBorders && !isGuardian, let channel = existingChannels.first {
                 VButton(label: "Mark Verified", style: .outlined, isDisabled: actionInProgress != nil) {
                     verifyChannel(channelId: channel.id, type: type)
                 }
