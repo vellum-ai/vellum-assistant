@@ -3,9 +3,8 @@
  * `<workspaceDir>/plugins/`.
  *
  * Gated by the `external-plugins` feature flag (see
- * {@link ../../plugins/feature-gate}). Today the only subcommand is
- * `install`, which delegates the heavy lifting to
- * {@link ../../plugins/install-from-github}.
+ * {@link ../../plugins/feature-gate}). Subcommands delegate the heavy
+ * lifting to dedicated modules under {@link ../lib}.
  */
 
 import type { Command } from "commander";
@@ -13,10 +12,16 @@ import type { Command } from "commander";
 import {
   DEFAULT_PLUGIN_REF,
   installPlugin,
+  InvalidPluginNameError,
   PluginAlreadyInstalledError,
   PluginNotFoundError,
-} from "../../plugins/install-from-github.js";
+} from "../lib/install-from-github.js";
+import { listInstalledPlugins } from "../lib/list-installed-plugins.js";
 import { registerCommand } from "../lib/register-command.js";
+import {
+  PluginNotInstalledError,
+  uninstallPlugin,
+} from "../lib/uninstall-plugin.js";
 import { getCliLogger } from "../logger.js";
 
 const log = getCliLogger("plugins");
@@ -33,7 +38,10 @@ export function registerPluginsCommand(program: Command): void {
 Examples:
   $ assistant plugins install simple-memory
   $ assistant plugins install simple-memory --force
-  $ assistant plugins install simple-memory --ref my-feature-branch`,
+  $ assistant plugins install simple-memory --ref my-feature-branch
+  $ assistant plugins list
+  $ assistant plugins list --json
+  $ assistant plugins uninstall simple-memory`,
       );
 
       plugins
@@ -85,6 +93,115 @@ Examples:
             process.exitCode = 1;
           }
         });
+
+      plugins
+        .command("list")
+        .description("List plugins installed under <workspaceDir>/plugins/")
+        .option("--json", "Emit machine-readable JSON instead of a table")
+        .action((opts: { json?: boolean }) => {
+          const installed = listInstalledPlugins();
+
+          if (opts.json) {
+            process.stdout.write(JSON.stringify(installed, null, 2) + "\n");
+            return;
+          }
+
+          if (installed.length === 0) {
+            console.log("No plugins installed.");
+            return;
+          }
+
+          const rows = installed.map((p) => ({
+            name: p.name,
+            version: p.packageJson?.version ?? "—",
+            status: p.issues.length === 0 ? "ok" : p.issues.join("; "),
+          }));
+          const nameW = Math.max(4, ...rows.map((r) => r.name.length));
+          const versionW = Math.max(7, ...rows.map((r) => r.version.length));
+          const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
+          console.log(
+            `${pad("NAME", nameW)}  ${pad("VERSION", versionW)}  STATUS`,
+          );
+          for (const r of rows) {
+            console.log(
+              `${pad(r.name, nameW)}  ${pad(r.version, versionW)}  ${r.status}`,
+            );
+          }
+          console.log("");
+          console.log(
+            `${installed.length} plugin${installed.length === 1 ? "" : "s"} installed.`,
+          );
+        });
+
+      plugins
+        .command("uninstall <name>")
+        .description("Remove a plugin from <workspaceDir>/plugins/<name>/")
+        .option("--force", "Skip the confirmation prompt")
+        .action(async (name: string, opts: { force?: boolean }) => {
+          try {
+            if (!opts.force) {
+              const confirmed = await confirmUninstall(name);
+              if (!confirmed) {
+                console.log("Uninstall cancelled.");
+                return;
+              }
+            }
+            const result = uninstallPlugin({ name });
+            log.info(
+              { name: result.name, target: result.target },
+              "external plugin uninstalled",
+            );
+            console.log(
+              `Uninstalled plugin "${result.name}" from ${result.target}`,
+            );
+            console.log("Restart the assistant to drop the plugin.");
+          } catch (err) {
+            if (err instanceof InvalidPluginNameError) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            if (err instanceof PluginNotInstalledError) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin uninstall failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
     },
   });
+}
+
+/**
+ * Prompt the user to confirm an uninstall. Returns `true` on `y`/`yes`,
+ * `false` on `n`/`no` or EOF. Non-interactive stdin (no TTY) is treated
+ * as a refusal — callers must pass `--force` in that case, which avoids
+ * accidental destruction from a hung shell pipeline.
+ */
+async function confirmUninstall(name: string): Promise<boolean> {
+  if (!process.stdin.isTTY) {
+    console.error(
+      `Refusing to uninstall "${name}" non-interactively. Pass --force to confirm.`,
+    );
+    return false;
+  }
+  process.stdout.write(`Uninstall plugin "${name}"? [y/N] `);
+  const answer = await new Promise<string>((resolve) => {
+    let buf = "";
+    const onData = (chunk: Buffer) => {
+      buf += chunk.toString("utf8");
+      const nl = buf.indexOf("\n");
+      if (nl >= 0) {
+        process.stdin.off("data", onData);
+        process.stdin.pause();
+        resolve(buf.slice(0, nl).trim());
+      }
+    };
+    process.stdin.resume();
+    process.stdin.on("data", onData);
+  });
+  return /^(y|yes)$/i.test(answer);
 }

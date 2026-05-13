@@ -254,6 +254,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "email attachment",
   "plugins",
   "plugins install",
+  "plugins list",
+  "plugins uninstall",
 ] as const;
 
 interface AssistantRiskOverride {
@@ -497,6 +499,11 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "plugins install",
     risk: "high",
     reason: "Fetches and installs external plugin code from GitHub",
+  },
+  {
+    path: "plugins uninstall",
+    risk: "medium",
+    reason: "Removes an installed plugin and all its files from the workspace",
   },
   { path: "skills install", risk: "high" },
   { path: "skills uninstall", risk: "medium" },
