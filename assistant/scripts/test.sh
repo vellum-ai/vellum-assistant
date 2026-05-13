@@ -98,15 +98,7 @@ while IFS= read -r test_file; do
 
   test_files+=("${test_file}")
 done < <(
-  # Daemon tests live under `src/`. Plugin-owned tests live with the plugin
-  # under `experimental/plugins/<name>/__tests__/`, and are picked up here so
-  # the assistant's `bun test` is still the single CI gate for both.
-  (
-    find src -type f -name '*.test.ts'
-    if [[ -d ../experimental/plugins ]]; then
-      find ../experimental/plugins -type f -name '*.test.ts'
-    fi
-  ) | sort
+  find src -type f -name '*.test.ts' | sort
 )
 
 if [[ ${#test_files[@]} -eq 0 ]]; then

@@ -75,22 +75,25 @@ export { RiskLevel } from "@vellumai/skill-host-contracts";
 // Assistant-side concrete overlays
 // ---------------------------------------------------------------------------
 
-export interface ToolExecutionResult {
+/**
+ * Public, narrow subset of {@link ToolExecutionResult} that plugin-authored
+ * tools are responsible for producing. Re-exported from
+ * `@vellumai/plugin-api` as `ToolExecutionResult` — the type name plugin
+ * authors actually import. The daemon-internal version below extends
+ * this and adds runtime-only fields (risk metadata, approval
+ * bookkeeping, sensitive-output bindings, etc.) that the executor
+ * populates around the call — plugins MUST NOT set those.
+ *
+ * Adding fields here is a non-breaking change; renaming or removing
+ * fields is breaking and gated on a major bump of `@vellumai/plugin-api`.
+ */
+export interface PluginToolExecutionResult {
+  /** Textual result shown to the model in the tool-result block. Empty string is valid. */
   content: string;
+  /** When true, the agent loop treats `content` as an error and may surface it / retry. */
   isError: boolean;
-  diff?: DiffInfo;
-  /** Optional status message for display (e.g. timeout, truncation). */
+  /** Optional short status message for client display (e.g. `"truncated"`, `"timed out"`). */
   status?: string;
-  /** Optional rich content blocks (e.g. images) to include alongside text in the tool result. */
-  contentBlocks?: ContentBlock[];
-  /**
-   * Runtime-internal sensitive output bindings (placeholder -> real value).
-   * Populated by the executor when tool output contains
-   * `<vellum-sensitive-output>` directives. The agent loop merges these
-   * into a per-run substitution map for deterministic post-generation
-   * replacement. MUST NOT be emitted in client-facing events or logs.
-   */
-  sensitiveBindings?: SensitiveOutputBinding[];
   /**
    * When true, the agent loop should yield control back to the user after
    * returning this result — tool results are pushed to history and the loop
@@ -101,6 +104,20 @@ export interface ToolExecutionResult {
    * the LLM voluntarily end its turn.
    */
   yieldToUser?: boolean;
+}
+
+export interface ToolExecutionResult extends PluginToolExecutionResult {
+  diff?: DiffInfo;
+  /** Optional rich content blocks (e.g. images) to include alongside text in the tool result. */
+  contentBlocks?: ContentBlock[];
+  /**
+   * Runtime-internal sensitive output bindings (placeholder -> real value).
+   * Populated by the executor when tool output contains
+   * `<vellum-sensitive-output>` directives. The agent loop merges these
+   * into a per-run substitution map for deterministic post-generation
+   * replacement. MUST NOT be emitted in client-facing events or logs.
+   */
+  sensitiveBindings?: SensitiveOutputBinding[];
   /** Risk level from the classifier (populated during permission check). */
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
@@ -190,19 +207,37 @@ export type ToolLifecycleEventHandler = (
   event: ToolLifecycleEvent,
 ) => void | Promise<void>;
 
-export interface ToolContext {
-  workingDir: string;
+/**
+ * Public, narrow subset of {@link ToolContext} handed to plugin-authored
+ * tools. Re-exported from `@vellumai/plugin-api` as `ToolContext` — the
+ * type name plugin authors actually import. The daemon-internal version
+ * below extends this and adds host-only fields (CES client, trust class,
+ * lifecycle handlers, requester metadata, host-bash proxy, etc.). Plugin
+ * tools see this shape only — the runtime still hands them the full
+ * {@link ToolContext} value, but the structural extension here guarantees
+ * the assignment without a manual cast.
+ *
+ * Adding fields here is a non-breaking change; renaming or removing
+ * fields is breaking and gated on a major bump of `@vellumai/plugin-api`.
+ */
+export interface PluginToolContext {
+  /** Identifier of the conversation this tool invocation belongs to. */
   conversationId: string;
+  /** Working directory the daemon was launched from. */
+  workingDir: string;
+  /** Per-turn request id for cross-component log correlation. */
+  requestId?: string;
+  /** Cooperative cancellation signal for long-running tools. Tools should check `signal.aborted` periodically (or forward `signal` to fetch / child-process options). */
+  signal?: AbortSignal;
+  /** Optional incremental-output callback for streaming tools. Streaming tools should fall back to returning the full result in `content` when this is absent. */
+  onOutput?: (chunk: string) => void;
+}
+
+export interface ToolContext extends PluginToolContext {
   /** Logical assistant scope for multi-assistant routing. */
   assistantId?: string;
   /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
-  /** Per-message request ID for log correlation across conversation/connection boundaries. */
-  requestId?: string;
-  /** Optional callback for streaming incremental output to the client. */
-  onOutput?: (chunk: string) => void;
-  /** Abort signal for cooperative cancellation. Tools should check this periodically. */
-  signal?: AbortSignal;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */
