@@ -78,10 +78,17 @@ struct SidebarConversationItem: View, Equatable {
             onStartRename()
         }
 
+        // Archive stays available for channel-bound (read-only) conversations:
+        // it's an organizational action that moves the thread out of the
+        // active sidebar, not a write back to the source channel. Channel
+        // conversations accumulate faster than native ones (every Slack
+        // webhook spins one up), so users need a tidy-up affordance.
+        // Mark-as-read/unread + Analyze stay gated on `isChannelConversation`.
+        VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
+            onArchive()
+        }
+
         if !conversation.isChannelConversation {
-            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
-                onArchive()
-            }
             if canMarkRead {
                 VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark as read") {
                     onMarkRead()
