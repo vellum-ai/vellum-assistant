@@ -53,7 +53,6 @@ jobs:
           echo "Latest release branch: $LATEST_BRANCH"
 
       - name: Cherry-pick and create PR
-        id: cherry_pick
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
@@ -92,17 +91,13 @@ jobs:
             EXISTING_PR=$(gh pr list --head "$CHERRY_PICK_BRANCH" --base "$RELEASE_BRANCH" --json number --jq '.[0].number // empty')
             if [ -n "$EXISTING_PR" ]; then
               echo "Cherry-pick pushed to existing PR #${EXISTING_PR}"
-              echo "cherry_pick_pr=${EXISTING_PR}" >> "$GITHUB_OUTPUT"
             else
               PR_URL=$(gh pr create \
                 --title "Cherry-picks for ${RELEASE_BRANCH}" \
                 --body "Automated cherry-picks onto \`${RELEASE_BRANCH}\`." \
                 --base "$RELEASE_BRANCH" \
                 --head "$CHERRY_PICK_BRANCH")
-
-              NEW_PR=$(gh pr list --head "$CHERRY_PICK_BRANCH" --base "$RELEASE_BRANCH" --json number --jq '.[0].number // empty')
-              echo "Created cherry-pick PR: $PR_URL (#${NEW_PR})"
-              echo "cherry_pick_pr=${NEW_PR}" >> "$GITHUB_OUTPUT"
+              echo "Created cherry-pick PR: $PR_URL"
             fi
           else
             # Cherry-pick failed — abort and notify on the original PR
@@ -124,34 +119,3 @@ jobs:
             echo "::warning::Cherry-pick of #${PR_NUMBER} to ${RELEASE_BRANCH} failed due to conflicts. Commented on the original PR."
           fi
 
-      # Rebuild the cherry-pick PR body's "Linear refs" block so the squash
-      # commit carries every cherry-picked PR's Linear identifiers in the
-      # magic-word format the Linear Release CLI scans for. Best-effort: a
-      # failure here never blocks the cherry-pick itself.
-      #
-      # The previous step left the working tree on the cherry-pick branch,
-      # which is based on the release branch — a branch that pre-dates this
-      # script. Load the script from origin/main into /tmp so it's always
-      # available regardless of which release branch is being cherry-picked
-      # to. The script itself only reads git refs (via `git log`,
-      # `git rev-parse`, etc.) so the current working directory is fine.
-      #
-      # See: .github/scripts/enrich-cherry-pick-pr.py
-      - name: Enrich cherry-pick PR with Linear refs
-        if: steps.cherry_pick.outputs.cherry_pick_pr != ''
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
-          CHERRY_PICK_PR_NUMBER: ${{ steps.cherry_pick.outputs.cherry_pick_pr }}
-          # Optional: when set, the script also queries Linear's GraphQL
-          # `attachmentsForURL` to discover issues linked via Linear's
-          # Development panel (catches PRs that don't mention an identifier
-          # in their body). Configure as the repo secret `LINEAR_API_KEY` —
-          # a workspace-scoped Linear API key, distinct from the pipeline
-          # access key.
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-        run: |
-          git fetch origin main --quiet
-          git show origin/main:.github/scripts/enrich-cherry-pick-pr.py > /tmp/enrich-cherry-pick-pr.py
-          python3 /tmp/enrich-cherry-pick-pr.py
