@@ -72,10 +72,6 @@ export type SingleQuestion = z.infer<typeof SingleQuestionSchema>;
 export type AskQuestionInput = z.infer<typeof InputSchema>;
 
 // ── Tool description ────────────────────────────────────────────────
-// The input schema accepts a single `question` + `options` payload only.
-// Do not advertise a batched `questions` shape here — the executor will
-// reject it as invalid input. (Batching is planned but lives behind a
-// schema extension that has not landed yet.)
 
 const DESCRIPTION = [
   "Use this tool whenever the user's request is ambiguous and can be resolved",
@@ -89,6 +85,9 @@ const DESCRIPTION = [
   "are two plausible Alice contacts, ask which Alice with options like",
   '`{id: "alice_work", label: "Alice (work)"}` and',
   '`{id: "alice_personal", label: "Alice (personal)"}`.',
+  "",
+  "Batch related clarifications into one call by passing multiple entries in",
+  "`questions` (up to 5). Each question gets its own page with a Skip button.",
   "",
   "When NOT to use this tool:",
   "- The answer is obvious from context or recent conversation.",
@@ -237,19 +236,6 @@ export class AskQuestionTool implements Tool {
       };
     }
 
-    // TODO: remove this guard once PR 3 wires the prompter to handle batches.
-    // The schema accepts up to MAX_QUESTIONS_PER_BATCH entries so PR 3 doesn't
-    // have to re-extend it, but until the prompter can broadcast multi-question
-    // batches we must reject them explicitly — otherwise extra entries would
-    // be silently dropped and the caller would receive an incomplete answer.
-    if (parsed.data.questions && parsed.data.questions.length > 1) {
-      return {
-        content:
-          "Batched questions (more than one entry in `questions`) are not yet supported by this assistant build. Call ask_question once per clarification for now.",
-        isError: true,
-      };
-    }
-
     // Normalize legacy flat input into a one-element `questions` batch so
     // downstream code only has to deal with the batched shape. The refine
     // above guarantees `question` and `options` are present whenever
@@ -263,35 +249,44 @@ export class AskQuestionTool implements Tool {
       },
     ];
 
-    // The prompter currently handles one question at a time. Multi-question
-    // batches are rejected by the guard above, so `questions` is guaranteed
-    // to hold exactly one entry here.
-    const head = questions[0]!;
-    const { question, description, options, freeTextPlaceholder } = head;
-
     const prompter = this.prompterFactory();
     const result = await prompter.prompt({
       conversationId: context.conversationId,
-      question,
-      description,
-      options,
-      freeTextPlaceholder,
+      questions: questions.map((q) => ({
+        question: q.question,
+        description: q.description,
+        options: q.options,
+        freeTextPlaceholder: q.freeTextPlaceholder,
+      })),
       toolUseId: context.toolUseId,
       signal: context.signal,
     });
 
-    switch (result.decision) {
-      case "option": {
-        const chosen = options.find((o) => o.id === result.optionId);
+    // Format the aggregated transcript. Each line is keyed by the original
+    // question text (not the daemon-assigned id) — the LLM never sees those
+    // ids, and human-readable labels read better in the result content.
+    const lines = result.entries.map((entry, i) => {
+      const q = questions[i]!;
+      const prefix = `Question "${q.question}" →`;
+      if (entry.decision === "option") {
+        const chosen = q.options.find((o) => o.id === entry.optionId);
         const label = chosen?.label ?? "(unknown)";
-        return {
-          content: `Option: ${result.optionId}\nLabel: ${label}`,
-          isError: false,
-        };
+        return `${prefix} Option: ${entry.optionId} (${label})`;
       }
-      case "free_text": {
+      if (entry.decision === "free_text") {
+        return `${prefix} Free text: ${entry.text ?? ""}`;
+      }
+      return `${prefix} Skipped`;
+    });
+
+    switch (result.overall) {
+      case "completed":
+        return { content: lines.join("\n"), isError: false };
+      case "closed": {
+        const summary =
+          "User closed the question card without answering. All questions skipped.";
         return {
-          content: `Free text: ${result.text ?? ""}`,
+          content: [summary, ...lines].join("\n"),
           isError: false,
         };
       }

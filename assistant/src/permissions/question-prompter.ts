@@ -12,26 +12,133 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("question-prompter");
 
-export interface QuestionPromptResult {
-  decision: "option" | "free_text" | "timed_out" | "aborted";
+/**
+ * Thrown when a batched submission fails validation (unknown questionId,
+ * missing entries, unknown optionId, duplicate questionId). The route layer
+ * maps this to a 400.
+ */
+export class QuestionBatchValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "QuestionBatchValidationError";
+  }
+}
+
+/**
+ * One per-question entry in a batched question result.
+ *
+ * `decision` records how the user responded to that specific question:
+ *  - `"option"` / `"free_text"` — direct answer.
+ *  - `"skipped"` — the user explicitly skipped this question, or the card
+ *    was closed before any answer was submitted.
+ *  - `"timed_out"` — the prompt timer fired before the client submitted.
+ *
+ * `questionId` matches the daemon-assigned id (`q1`, `q2`...) that the
+ * prompter attached to the broadcast.
+ */
+export interface QuestionPromptEntryResult {
+  questionId: string;
+  decision: "option" | "free_text" | "skipped" | "timed_out";
   optionId?: string;
   text?: string;
 }
 
-export interface QuestionPromptParams {
-  conversationId: string;
+/**
+ * Aggregate result for a single `prompt()` call. `entries` is ordered to
+ * match the original `questions` array; `overall` summarizes how the
+ * card lifecycle ended.
+ */
+export interface QuestionPromptResult {
+  entries: QuestionPromptEntryResult[];
+  overall: "completed" | "closed" | "timed_out" | "aborted";
+}
+
+export interface QuestionPromptParamsEntry {
   question: string;
   description?: string;
   options: QuestionOption[];
-  allowFreeText?: boolean;
   freeTextPlaceholder?: string;
+}
+
+export interface QuestionPromptParams {
+  conversationId: string;
+  /** One or more clarifying questions to broadcast as a single card. */
+  questions: QuestionPromptParamsEntry[];
   toolUseId?: string;
   signal?: AbortSignal;
 }
 
-export type QuestionResponse =
-  | { kind: "option"; optionId: string }
-  | { kind: "free_text"; text: string };
+/** One per-question submission inside a batch from the client. */
+export type QuestionBatchSubmission =
+  | { questionId: string; kind: "option"; optionId: string }
+  | { questionId: string; kind: "free_text"; text: string }
+  | { questionId: string; kind: "skip" };
+
+/**
+ * Validate a batched submission against the original ordered ids and per-id
+ * option-id sets, and return the ordered per-entry result. The lookup helpers
+ * are passed in so callers can back the metadata with whatever container
+ * they prefer (Set/Map, plain Record, etc.).
+ *
+ * Throws {@link QuestionBatchValidationError} if validation fails.
+ */
+export function buildBatchEntries(
+  orderedIds: readonly string[],
+  isKnownOption: (questionId: string, optionId: string) => boolean,
+  knownQuestionIds: ReadonlySet<string>,
+  submissions: readonly QuestionBatchSubmission[],
+): QuestionPromptEntryResult[] {
+  const submittedIds = new Set<string>();
+  for (const s of submissions) {
+    if (!knownQuestionIds.has(s.questionId)) {
+      throw new QuestionBatchValidationError(
+        `Unknown questionId in batch: ${s.questionId}`,
+      );
+    }
+    if (submittedIds.has(s.questionId)) {
+      throw new QuestionBatchValidationError(
+        `Duplicate questionId in batch: ${s.questionId}`,
+      );
+    }
+    submittedIds.add(s.questionId);
+    if (s.kind === "option" && !isKnownOption(s.questionId, s.optionId)) {
+      throw new QuestionBatchValidationError(
+        `Unknown optionId "${s.optionId}" for question ${s.questionId}`,
+      );
+    }
+  }
+  for (const id of orderedIds) {
+    if (!submittedIds.has(id)) {
+      throw new QuestionBatchValidationError(
+        `Missing response for questionId ${id}`,
+      );
+    }
+  }
+
+  const byId = new Map<string, QuestionBatchSubmission>();
+  for (const s of submissions) byId.set(s.questionId, s);
+
+  return orderedIds.map((id) => {
+    const s = byId.get(id)!;
+    if (s.kind === "option") {
+      return { questionId: id, decision: "option", optionId: s.optionId };
+    }
+    if (s.kind === "free_text") {
+      return { questionId: id, decision: "free_text", text: s.text };
+    }
+    return { questionId: id, decision: "skipped" };
+  });
+}
+
+/**
+ * Shape of the per-batch bookkeeping stashed on `PendingInteraction.metadata`.
+ * The route reads this to validate batched submissions without needing a
+ * reference to the prompter that registered them.
+ */
+interface QuestionBatchMetadata {
+  orderedIds: string[];
+  optionsById: Record<string, string[]>;
+}
 
 /**
  * Broadcast an ask-question request to all connected clients and wait for the
@@ -39,6 +146,13 @@ export type QuestionResponse =
  * patterns: lifecycle state (rpcResolve, rpcReject, timer) lives in
  * pendingInteractions; this class only tracks ownership so dispose can scope
  * cleanup to a single conversation.
+ *
+ * Batching: a single `prompt()` call broadcasts one or more questions, and
+ * the prompter waits for exactly one resolution call carrying the full
+ * ordered response array. The web UI collects per-question answers
+ * locally, lets the user revise freely while the card is open, and POSTs
+ * the whole batch to `/v1/question-response` when the user is done — no
+ * per-question accumulator, no partial state machine.
  *
  * Timeout reuses `getConfig().timeouts.permissionTimeoutSec` (default 5 min) —
  * questions are user-prompts in the same UX family as permission prompts and
@@ -52,30 +166,60 @@ export class QuestionPrompter {
   ) {}
 
   async prompt(params: QuestionPromptParams): Promise<QuestionPromptResult> {
-    const {
-      conversationId,
-      question,
-      description,
-      options,
-      freeTextPlaceholder,
-      toolUseId,
-      signal,
-    } = params;
+    const { conversationId, questions, toolUseId, signal } = params;
 
-    if (signal?.aborted) return { decision: "aborted" };
+    if (questions.length === 0) {
+      throw new AssistantError(
+        "QuestionPrompter.prompt requires at least one question",
+        ErrorCode.INTERNAL_ERROR,
+      );
+    }
+
+    // Assign per-question ids (`q1`, `q2`, ...) — daemon-side only; the LLM
+    // never sees these. Build the on-wire entries in the same pass.
+    const entries = questions.map((q, i) => ({
+      id: `q${i + 1}`,
+      question: q.question,
+      description: q.description,
+      options: q.options,
+      freeTextPlaceholder: q.freeTextPlaceholder,
+    }));
+    const orderedIds = entries.map((e) => e.id);
+    const optionsById: Record<string, string[]> = {};
+    for (const e of entries) {
+      optionsById[e.id] = e.options.map((o) => o.id);
+    }
+
+    if (signal?.aborted) {
+      return {
+        entries: orderedIds.map((id) => ({
+          questionId: id,
+          decision: "skipped",
+        })),
+        overall: "aborted",
+      };
+    }
 
     const requestId = uuid();
 
-    return new Promise((resolve, reject) => {
+    return new Promise<QuestionPromptResult>((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
 
       const timer = setTimeout(() => {
         pendingInteractions.resolve(requestId);
         this.ownedIds.delete(requestId);
         log.warn({ requestId, conversationId }, "Question prompt timed out");
-        resolve({ decision: "timed_out" });
+        resolve({
+          entries: orderedIds.map((id) => ({
+            questionId: id,
+            decision: "timed_out",
+          })),
+          overall: "timed_out",
+        });
       }, timeoutMs);
 
+      // Stash the per-question metadata on the interaction so the route can
+      // validate batched submissions without holding a prompter reference.
       pendingInteractions.register(requestId, {
         conversationId,
         kind: "question",
@@ -83,6 +227,7 @@ export class QuestionPrompter {
         rpcReject: reject,
         timer,
         toolUseId,
+        metadata: { orderedIds, optionsById } satisfies QuestionBatchMetadata,
       });
       this.ownedIds.add(requestId);
 
@@ -91,7 +236,13 @@ export class QuestionPrompter {
           if (this.ownedIds.has(requestId)) {
             pendingInteractions.resolve(requestId);
             this.ownedIds.delete(requestId);
-            resolve({ decision: "aborted" });
+            resolve({
+              entries: orderedIds.map((id) => ({
+                questionId: id,
+                decision: "skipped",
+              })),
+              overall: "aborted",
+            });
           }
         };
         signal.addEventListener("abort", onAbort, { once: true });
@@ -100,22 +251,15 @@ export class QuestionPrompter {
       // Populate both shapes on the wire: `questions[]` is the canonical
       // batched payload, and the flat fields mirror `questions[0]` for
       // backwards compat with clients that haven't adopted `questions[]`.
+      const head = entries[0]!;
       const msg: QuestionRequest = {
         type: "question_request",
         requestId,
-        questions: [
-          {
-            id: "q1",
-            question,
-            description,
-            options,
-            freeTextPlaceholder,
-          },
-        ],
-        question,
-        description,
-        options,
-        freeTextPlaceholder,
+        questions: entries,
+        question: head.question,
+        description: head.description,
+        options: head.options,
+        freeTextPlaceholder: head.freeTextPlaceholder,
         conversationId,
         toolUseId,
       };
@@ -128,20 +272,47 @@ export class QuestionPrompter {
     return this.ownedIds.has(requestId);
   }
 
-  resolveQuestion(requestId: string, response: QuestionResponse): void {
-    if (!this.ownedIds.has(requestId)) {
-      log.warn({ requestId }, "No pending prompt for question response");
-      return;
-    }
-    const interaction = pendingInteractions.resolve(requestId);
-    this.ownedIds.delete(requestId);
-    const result: QuestionPromptResult =
-      response.kind === "option"
-        ? { decision: "option", optionId: response.optionId }
-        : { decision: "free_text", text: response.text };
-    (interaction?.rpcResolve as
-      | ((v: QuestionPromptResult) => void)
-      | undefined)?.(result);
+  /**
+   * Resolve a pending request with a complete batched submission. Validates
+   * that every original questionId is covered exactly once, no unknown
+   * questionId appears, and each `"option"` entry's optionId is one of
+   * the question's options.
+   *
+   * Throws {@link QuestionBatchValidationError} on validation failure so the
+   * route can map it to a 400. Returns `false` if no request matches.
+   */
+  submitQuestionBatch(
+    requestId: string,
+    submissions: QuestionBatchSubmission[],
+  ): boolean {
+    const meta = this.getOwnedBatchMetadata(requestId);
+    if (!meta) return false;
+
+    const entries = buildBatchEntries(
+      meta.orderedIds,
+      (qid, oid) => (meta.optionsById[qid] ?? []).includes(oid),
+      new Set(Object.keys(meta.optionsById)),
+      submissions,
+    );
+    this.resolveOwned(requestId, { entries, overall: "completed" });
+    return true;
+  }
+
+  /**
+   * Resolve a pending request as "closed" — the user dismissed the card
+   * without answering. Every entry is reported as `skipped` and the overall
+   * status is `closed`. Returns `false` if no request matches.
+   */
+  closeQuestion(requestId: string): boolean {
+    const meta = this.getOwnedBatchMetadata(requestId);
+    if (!meta) return false;
+
+    const entries: QuestionPromptEntryResult[] = meta.orderedIds.map((id) => ({
+      questionId: id,
+      decision: "skipped",
+    }));
+    this.resolveOwned(requestId, { entries, overall: "closed" });
+    return true;
   }
 
   dispose(): void {
@@ -152,5 +323,29 @@ export class QuestionPrompter {
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
       );
     }
+  }
+
+  // ── Internals ──────────────────────────────────────────────────────
+
+  /** Read batch metadata for an owned requestId, or null/log-warn otherwise. */
+  private getOwnedBatchMetadata(
+    requestId: string,
+  ): QuestionBatchMetadata | null {
+    if (!this.ownedIds.has(requestId)) {
+      log.warn({ requestId }, "No pending prompt for this requestId");
+      return null;
+    }
+    const interaction = pendingInteractions.get(requestId);
+    const meta = interaction?.metadata as QuestionBatchMetadata | undefined;
+    return meta ?? null;
+  }
+
+  /** Resolve an owned request: deregister, drop ownership, fire rpcResolve. */
+  private resolveOwned(requestId: string, value: QuestionPromptResult): void {
+    const interaction = pendingInteractions.resolve(requestId);
+    this.ownedIds.delete(requestId);
+    (interaction?.rpcResolve as
+      | ((v: QuestionPromptResult) => void)
+      | undefined)?.(value);
   }
 }
