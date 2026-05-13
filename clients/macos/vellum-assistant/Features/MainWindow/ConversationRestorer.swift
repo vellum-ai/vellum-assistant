@@ -282,6 +282,36 @@ final class ConversationRestorer {
         drainReconnectHistoryQueue()
     }
 
+    func handleSyncRoutes(_ routes: [SyncTagRoute], activeConversationId: String?) {
+        var shouldRefetchConversationList = false
+
+        for route in routes {
+            switch route {
+            case .conversationList:
+                shouldRefetchConversationList = true
+            case .conversationMetadata(let conversationId):
+                guard activeConversationId == conversationId else { continue }
+                shouldRefetchConversationList = true
+            case .conversationMessages(let conversationId):
+                guard activeConversationId == conversationId else { continue }
+                requestReconnectHistory(conversationId: conversationId)
+            case .assistantAvatar, .assistantIdentity, .assistantConfig, .assistantSounds:
+                continue
+            }
+        }
+
+        if shouldRefetchConversationList {
+            scheduleInvalidationRefetch()
+        }
+    }
+
+    func handleBroadSyncRefresh(activeConversationId: String?) {
+        handleSyncRoutes(
+            SyncTagRouter.broadRefreshRoutes(activeConversationId: activeConversationId),
+            activeConversationId: activeConversationId
+        )
+    }
+
     /// Process queued reconnect history requests one at a time. Yields between
     /// each request so user-input events can interleave with heavy history loads.
     private func drainReconnectHistoryQueue() {

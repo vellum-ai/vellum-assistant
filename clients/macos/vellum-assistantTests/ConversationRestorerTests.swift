@@ -109,6 +109,19 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     }
 }
 
+private struct NoopConversationHistoryClient: ConversationHistoryClientProtocol {
+    func fetchHistory(
+        conversationId: String,
+        limit: Int?,
+        beforeTimestamp: Double?,
+        mode: String?,
+        maxTextChars: Int?,
+        maxToolResultChars: Int?
+    ) async -> HistoryResponse? {
+        nil
+    }
+}
+
 // MARK: - Helpers
 
 /// Build a ConversationListResponseMessage via JSON round-trip.
@@ -846,5 +859,51 @@ struct ConversationRestorerTests {
         // THEN the conversation state is unchanged (debounce hasn't fired yet)
         #expect(delegate.conversations.count == 1)
         #expect(delegate.conversations[0].id == conversation.id)
+    }
+
+    @Test @MainActor
+    func syncMessageRouteQueuesActiveConversationHistoryOnly() {
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(
+            connectionManager: dc,
+            eventStreamClient: dc.eventStreamClient,
+            conversationHistoryClient: NoopConversationHistoryClient()
+        )
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        let active = ConversationModel(title: "Active", conversationId: "conv-active")
+        let inactive = ConversationModel(title: "Inactive", conversationId: "conv-inactive")
+        delegate.conversations = [active, inactive]
+
+        restorer.handleSyncRoutes(
+            [
+                .conversationMessages(conversationId: "conv-active"),
+                .conversationMessages(conversationId: "conv-inactive"),
+            ],
+            activeConversationId: "conv-active"
+        )
+
+        #expect(restorer.pendingHistoryByConversationId["conv-active"] == active.id)
+        #expect(restorer.pendingHistoryByConversationId["conv-inactive"] == nil)
+    }
+
+    @Test @MainActor
+    func broadSyncRefreshQueuesActiveConversationHistory() {
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(
+            connectionManager: dc,
+            eventStreamClient: dc.eventStreamClient,
+            conversationHistoryClient: NoopConversationHistoryClient()
+        )
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        let active = ConversationModel(title: "Active", conversationId: "conv-active")
+        delegate.conversations = [active]
+
+        restorer.handleBroadSyncRefresh(activeConversationId: "conv-active")
+
+        #expect(restorer.pendingHistoryByConversationId["conv-active"] == active.id)
     }
 }

@@ -4689,6 +4689,12 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    func refreshForSyncInvalidation() {
+        refreshModelInfo()
+        refreshDaemonConfig()
+        refreshCallSiteCatalog(force: true)
+    }
+
     private func refreshCallSiteCatalog(force: Bool = false) {
         callSiteCatalogRefreshTask?.cancel()
         callSiteCatalogRefreshTask = Task { @MainActor [weak self] in
