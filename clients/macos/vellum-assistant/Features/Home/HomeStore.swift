@@ -19,8 +19,11 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HomeS
 /// network blip should not blank the Home page. `isLoading` reflects the
 /// in-flight state of `load()` so views can show a spinner on first fetch.
 ///
-/// `hasUnseenChanges` and `isHomeTabVisible` are stubs declared here so the
-/// public surface is in place; PR 16 drives the unseen-changes logic.
+/// `hasUnseenChanges` is raised by either ``HomeStore+SSE`` (on
+/// `relationshipStateUpdated`) or ``HomeFeedStore+SSE`` (on
+/// `homeFeedUpdated`) when the user is not currently looking at the Home
+/// tab. ``setHomeTabVisible(_:)`` is the single funnel that flips
+/// visibility from the panel host and clears the badge on focus.
 @MainActor
 @Observable
 public final class HomeStore {
@@ -30,14 +33,17 @@ public final class HomeStore {
     public private(set) var state: RelationshipState?
     public private(set) var isLoading: Bool = false
 
-    /// Set when the daemon emits a `relationshipStateUpdated` SSE event while
-    /// the Home tab is not currently visible. Drives a badge on the tab.
-    /// PR 16 wires the producer side; this PR only declares the property.
+    /// Set when the daemon emits an SSE event that affects something
+    /// rendered on the Home tab while the user is currently elsewhere.
+    /// Drives the unread dot on the Home toolbar button. Producers go
+    /// through ``flagUnseenChanges()`` (same-module-only) so the field
+    /// stays read-only at the public API boundary.
     public private(set) var hasUnseenChanges: Bool = false
 
-    /// Toggled by the Home tab host to track visibility for the unseen-changes
-    /// badge logic in PR 16. This PR only declares the property.
-    public var isHomeTabVisible: Bool = false
+    /// Tracks whether the Home tab is currently the active panel. Mutated
+    /// only via ``setHomeTabVisible(_:)`` so the visibility flip and the
+    /// badge clear stay in lockstep.
+    public private(set) var isHomeTabVisible: Bool = false
 
     // MARK: - Non-reactive Bookkeeping
 
@@ -102,19 +108,31 @@ public final class HomeStore {
     }
 
     /// Producer-side flip for the unseen-changes badge. Invoked by the SSE
-    /// handler when an update arrives while the Home tab is not visible.
-    /// Kept at `internal` so the `HomeStore+SSE` extension can drive it
-    /// without exposing it to the rest of the app.
+    /// handlers (``HomeStore+SSE`` and the cross-store callback wired into
+    /// ``HomeFeedStore``) when an update arrives while the Home tab is not
+    /// visible. Kept at `internal` so producers in the same module can drive
+    /// it without exposing the setter to the rest of the app.
     func flagUnseenChanges() {
         hasUnseenChanges = true
     }
 
-    /// Clears the unseen-changes badge. Called by the Home tab host when the
-    /// user navigates to the Home tab. PR 16 will drive the producer side;
-    /// the clearer is exposed here so the acceptance-criteria surface is
-    /// complete.
+    /// Clears the unseen-changes badge. Called by ``setHomeTabVisible(_:)``
+    /// when the user navigates to the Home tab and exposed publicly so
+    /// fixtures and edge-case callers can reset the flag explicitly.
     public func markSeen() {
         hasUnseenChanges = false
+    }
+
+    /// Single funnel for visibility changes. The Home tab host calls this
+    /// from `.onAppear` / `.onDisappear` so the visibility flip and the
+    /// badge clear stay coupled — clearing the badge on focus is the
+    /// behaviour we want every time the tab becomes visible, so encoding
+    /// it here keeps callers from forgetting one of the two steps.
+    public func setHomeTabVisible(_ visible: Bool) {
+        isHomeTabVisible = visible
+        if visible {
+            markSeen()
+        }
     }
 
     // MARK: - Foreground Refresh

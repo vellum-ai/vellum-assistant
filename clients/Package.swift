@@ -1,7 +1,7 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
-let appVersion = "0.8.0"
+let appVersion = "0.8.1"
 
 let package = Package(
     name: "vellum-assistant",
@@ -53,6 +53,8 @@ let package = Package(
                 .copy("Resources/IntegrationLogos"),
                 .copy("Resources/INTEGRATION-LOGOS-LICENSE"),
                 .copy("Resources/integration-logos-manifest.json"),
+                .copy("Resources/llm-provider-catalog.json"),
+                .copy("Resources/web-search-provider-catalog.json"),
             ],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),

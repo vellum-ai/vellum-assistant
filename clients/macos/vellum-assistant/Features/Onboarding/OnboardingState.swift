@@ -82,7 +82,7 @@ final class OnboardingState {
     var sshHost: String = ""
     var sshUser: String = ""
     var sshPrivateKey: String = ""
-    var selectedProvider: String = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
+    var selectedProvider: String = LLMProviderRegistry.defaultProvider.id
 
     /// Provider API keys typed during onboarding, keyed by provider id.
     /// Held in-memory only — never persisted to UserDefaults or to the local
@@ -238,15 +238,16 @@ final class OnboardingState {
         // hatch completes, but a previous successful hatch followed by a
         // retry could have left state behind).
         let providerToDelete = selectedProvider
+        let defaultProviderId = LLMProviderRegistry.defaultProvider.id
         providerKeys = [:]
         Task {
-            if providerToDelete != "anthropic" {
+            if providerToDelete != defaultProviderId {
                 await APIKeyManager.deleteKey(for: providerToDelete)
             }
-            await APIKeyManager.deleteKey(for: "anthropic")
+            await APIKeyManager.deleteKey(for: defaultProviderId)
         }
 
-        selectedProvider = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
+        selectedProvider = defaultProviderId
 
         // Reset hosting selection and cloud credentials
         selectedHostingMode = .vellumCloud

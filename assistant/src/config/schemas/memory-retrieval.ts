@@ -284,6 +284,21 @@ const MemoryInjectionConfigSchema = z
     "Controls how many memory items are injected at conversation start and per turn",
   );
 
+const ScratchpadInjectionConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({
+        error: "memory.retrieval.scratchpadInjection.enabled must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "Whether NOW.md scratchpad content is injected into the conversation prompt. Injection occurs on the first turn and post-compaction; flipping this off takes effect on the next conversation or compaction.",
+      ),
+  })
+  .describe(
+    "Controls whether the user-maintained NOW.md scratchpad is injected into prompts",
+  );
+
 export const MemoryRetrievalConfigSchema = z
   .object({
     maxInjectTokens: z
@@ -311,6 +326,9 @@ export const MemoryRetrievalConfigSchema = z
     ),
     injection: MemoryInjectionConfigSchema.default(
       MemoryInjectionConfigSchema.parse({}),
+    ),
+    scratchpadInjection: ScratchpadInjectionConfigSchema.default(
+      ScratchpadInjectionConfigSchema.parse({}),
     ),
   })
   .describe(

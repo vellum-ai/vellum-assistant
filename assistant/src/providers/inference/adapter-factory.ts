@@ -1,14 +1,27 @@
 /**
- * Creates provider adapter instances from a resolved auth + connection.
+ * Provider adapter construction.
  *
- * Adapters are created per-call when dispatching through a named
- * `provider_connection`, enabling mix-and-match auth (e.g. managed and
- * your-own Anthropic connections coexisting in the same registry).
+ * One catalog-keyed factory table feeds two construction paths:
+ *
+ *   - `buildProviderAdapter` returns a raw `Provider` instance for a given
+ *     provider id + options. The caller wraps with `RetryProvider` /
+ *     `UsageTrackingProvider` to match the boot-time vs per-connection
+ *     wrapping conventions in `registry.ts`.
+ *   - `createAdapterFromConnection` is the per-call dispatcher entry point.
+ *     It resolves a `ResolvedAuth` into `AdapterCreateOpts`, validates
+ *     keyless/keyed compatibility, and returns a fully-wrapped
+ *     `Provider | null`.
+ *
+ * Adding a new provider:
+ *   1. Add an entry to `PROVIDER_CATALOG` in `model-catalog.ts`.
+ *   2. Implement the client in `src/providers/<id>/client.ts`.
+ *   3. Register the client in `ADAPTER_FACTORIES` below.
  */
 
 import { AnthropicProvider } from "../anthropic/client.js";
 import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
+import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { OllamaProvider } from "../ollama/client.js";
 import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
 import { OpenRouterProvider } from "../openrouter/client.js";
@@ -18,10 +31,101 @@ import { UsageTrackingProvider } from "../usage-tracking.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
 
-export interface AdapterOptions {
+/** Unified construction opts. Adapters ignore fields they don't consume. */
+export interface AdapterCreateOpts {
+  apiKey: string;
   model: string;
-  streamTimeoutMs?: number;
-  useNativeWebSearch?: boolean;
+  streamTimeoutMs: number;
+  /** Set when an explicit base URL override or managed proxy is in play. */
+  baseURL?: string;
+  /** Forwarded to providers that wire native provider-side web search. */
+  useNativeWebSearch: boolean;
+}
+
+type AdapterFactory = (opts: AdapterCreateOpts) => Provider;
+
+/**
+ * Catalog-keyed factory table. Each entry takes a unified
+ * `AdapterCreateOpts` and constructs the underlying provider client. The
+ * `id` field must match the corresponding `ProviderCatalogEntry.id` in
+ * `PROVIDER_CATALOG` — `PROVIDER_CATALOG_FACTORY_PARITY` enforces this at
+ * module-load time.
+ */
+const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
+  anthropic: ({ apiKey, model, streamTimeoutMs, baseURL, useNativeWebSearch }) =>
+    new AnthropicProvider(apiKey, model, {
+      useNativeWebSearch,
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  openai: ({ apiKey, model, streamTimeoutMs, baseURL, useNativeWebSearch }) =>
+    new OpenAIResponsesProvider(apiKey, model, {
+      useNativeWebSearch,
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  gemini: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new GeminiProvider(apiKey, model, {
+      streamTimeoutMs,
+      // Gemini routes managed proxies through `managedBaseUrl`, not `baseURL`.
+      ...(baseURL ? { managedBaseUrl: baseURL } : {}),
+    }),
+  ollama: ({ apiKey, model, streamTimeoutMs }) =>
+    new OllamaProvider(model, {
+      // Empty string means keyless — Ollama's client treats undefined as
+      // "no key provided" and defaults its internal placeholder.
+      apiKey: apiKey || undefined,
+      streamTimeoutMs,
+    }),
+  fireworks: ({ apiKey, model, streamTimeoutMs }) =>
+    new FireworksProvider(apiKey, model, { streamTimeoutMs }),
+  openrouter: ({ apiKey, model, streamTimeoutMs, useNativeWebSearch }) =>
+    new OpenRouterProvider(apiKey, model, {
+      useNativeWebSearch,
+      streamTimeoutMs,
+    }),
+};
+
+/**
+ * Module-load parity guard. Surfaces a clear startup error if someone adds
+ * a catalog entry without a matching factory (or vice versa).
+ */
+const PROVIDER_CATALOG_FACTORY_PARITY = (() => {
+  const catalogIds = new Set(PROVIDER_CATALOG.map((entry) => entry.id));
+  const factoryIds = new Set(Object.keys(ADAPTER_FACTORIES));
+  const missingFactories = [...catalogIds].filter((id) => !factoryIds.has(id));
+  const orphanFactories = [...factoryIds].filter((id) => !catalogIds.has(id));
+  if (missingFactories.length > 0 || orphanFactories.length > 0) {
+    const parts: string[] = [];
+    if (missingFactories.length > 0) {
+      parts.push(`missing adapter factories: ${missingFactories.join(", ")}`);
+    }
+    if (orphanFactories.length > 0) {
+      parts.push(`orphan adapter factories: ${orphanFactories.join(", ")}`);
+    }
+    throw new Error(
+      `PROVIDER_CATALOG / ADAPTER_FACTORIES drift: ${parts.join("; ")}`,
+    );
+  }
+  return true;
+})();
+
+// Reference the parity guard so unused-variable lint doesn't strip it.
+void PROVIDER_CATALOG_FACTORY_PARITY;
+
+/**
+ * Build a raw `Provider` instance from a provider id and unified opts.
+ *
+ * Returns null when no factory exists for the given provider id. The
+ * caller is responsible for wrapping (RetryProvider, UsageTrackingProvider).
+ */
+export function buildProviderAdapter(
+  providerId: string,
+  opts: AdapterCreateOpts,
+): Provider | null {
+  const factory = ADAPTER_FACTORIES[providerId];
+  if (!factory) return null;
+  return factory(opts);
 }
 
 /**
@@ -34,106 +138,33 @@ export interface AdapterOptions {
 export function createAdapterFromConnection(
   connection: ProviderConnection,
   resolvedAuth: ResolvedAuth,
-  opts: AdapterOptions,
+  opts: { model: string; streamTimeoutMs?: number; useNativeWebSearch?: boolean },
 ): Provider | null {
   const { provider } = connection;
-  const { model, streamTimeoutMs = 1_800_000, useNativeWebSearch = false } = opts;
+  const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
+  if (!entry) return null;
+  const isKeyless = entry.setupMode === "keyless";
 
-  let adapter: Provider | null = null;
+  // Keyed providers can't operate without a credential.
+  if (!isKeyless && resolvedAuth.kind === "none") return null;
 
-  switch (provider) {
-    case "anthropic": {
-      if (resolvedAuth.kind === "none") return null;
-      const apiKey =
-        resolvedAuth.kind === "header"
-          ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
-          : "";
-      adapter = new AnthropicProvider(apiKey, model, {
-        useNativeWebSearch,
-        streamTimeoutMs,
-        ...(resolvedAuth.kind === "header" && resolvedAuth.baseUrl
-          ? { baseURL: resolvedAuth.baseUrl }
-          : {}),
-      });
-      break;
-    }
+  const apiKey =
+    resolvedAuth.kind === "header"
+      ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
+      : "";
+  const baseURL =
+    resolvedAuth.kind === "header" ? resolvedAuth.baseUrl : undefined;
 
-    case "openai": {
-      if (resolvedAuth.kind === "none") return null;
-      const apiKey =
-        resolvedAuth.kind === "header"
-          ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
-          : "";
-      adapter = new OpenAIResponsesProvider(apiKey, model, {
-        useNativeWebSearch,
-        streamTimeoutMs,
-        ...(resolvedAuth.kind === "header" && resolvedAuth.baseUrl
-          ? { baseURL: resolvedAuth.baseUrl }
-          : {}),
-      });
-      break;
-    }
-
-    case "gemini": {
-      if (resolvedAuth.kind === "none") return null;
-      const apiKey =
-        resolvedAuth.kind === "header"
-          ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
-          : "";
-      adapter = new GeminiProvider(apiKey, model, {
-        streamTimeoutMs,
-        ...(resolvedAuth.kind === "header" && resolvedAuth.baseUrl
-          ? { managedBaseUrl: resolvedAuth.baseUrl }
-          : {}),
-      });
-      break;
-    }
-
-    case "ollama": {
-      // Ollama supports no-auth operation; header auth is also accepted (API key param).
-      const apiKey =
-        resolvedAuth.kind === "header"
-          ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
-          : undefined;
-      adapter = new OllamaProvider(model, {
-        apiKey: apiKey ?? undefined,
-        streamTimeoutMs,
-      });
-      break;
-    }
-
-    case "fireworks": {
-      if (resolvedAuth.kind === "none") return null;
-      const apiKey =
-        resolvedAuth.kind === "header"
-          ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
-          : "";
-      adapter = new FireworksProvider(apiKey, model, { streamTimeoutMs });
-      break;
-    }
-
-    case "openrouter": {
-      if (resolvedAuth.kind === "none") return null;
-      const apiKey =
-        resolvedAuth.kind === "header"
-          ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
-          : "";
-      adapter = new OpenRouterProvider(apiKey, model, {
-        useNativeWebSearch,
-        streamTimeoutMs,
-      });
-      break;
-    }
-
-    default:
-      return null;
-  }
-
+  const adapter = buildProviderAdapter(provider, {
+    apiKey,
+    model: opts.model,
+    streamTimeoutMs: opts.streamTimeoutMs ?? 1_800_000,
+    baseURL,
+    useNativeWebSearch: opts.useNativeWebSearch ?? false,
+  });
   if (!adapter) return null;
 
-  const isProxy =
-    resolvedAuth.kind === "header" && resolvedAuth.baseUrl !== undefined;
-
+  const isProxy = baseURL !== undefined;
   return new UsageTrackingProvider(
     new RetryProvider(adapter, {
       forwardUsageAttributionHeaders: isProxy,

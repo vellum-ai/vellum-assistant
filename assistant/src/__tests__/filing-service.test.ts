@@ -7,6 +7,13 @@ import { LLMSchema } from "../config/schemas/llm.js";
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
+// Default the warm-pool gate to OPEN for existing tests — they predate
+// the gate and expect filing's runOnce() to fire on every tick.
+mock.module("../runtime/pre-first-message-gate.js", () => ({
+  hasReceivedUserMessage: () => true,
+  _resetPreFirstMessageGateCacheForTests: () => {},
+}));
+
 // Mock config loader. Filing's `runOnce()` reads `getConfig().filing`, and
 // `executeRun()` no longer reads `config.speed` (PR 8) — the call site is
 // hardcoded to 'filingAgent' and the resolver picks up `llm.callSites.filingAgent`
@@ -35,8 +42,12 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Mock conversation store
-const createdConversations: Array<{ title: string; conversationType: string }> =
-  [];
+const createdConversations: Array<{
+  title: string;
+  conversationType: string;
+  source?: string;
+  groupId?: string;
+}> = [];
 let conversationIdCounter = 0;
 
 mock.module("../memory/conversation-crud.js", () => ({
@@ -63,7 +74,12 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  createConversation: (opts: { title: string; conversationType: string }) => {
+  createConversation: (opts: {
+    title: string;
+    conversationType: string;
+    source?: string;
+    groupId?: string;
+  }) => {
     createdConversations.push(opts);
     return { id: `conv-${++conversationIdCounter}`, ...opts };
   },
@@ -220,6 +236,10 @@ describe("FilingService", () => {
     expect(createdConversations).toHaveLength(1);
     expect(createdConversations[0].title).toBe("Generating title...");
     expect(createdConversations[0].conversationType).toBe("background");
+    // Confirms FilingService routes through runBackgroundJob:
+    //   source="filing" + runner-default groupId="system:background".
+    expect(createdConversations[0].source).toBe("filing");
+    expect(createdConversations[0].groupId).toBe("system:background");
   });
 
   describe("runCompactionOnce()", () => {

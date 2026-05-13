@@ -114,6 +114,19 @@ struct ChatView: View {
     @State private var dragEndLocalMonitor: Any?
     @State private var dragEndGlobalMonitor: Any?
 
+    // MARK: - Discord Community Nudge
+    @Environment(\.openURL) private var openURL
+    @AppStorage(DiscordNudge.joinedKey) private var discordJoined: Bool = false
+    @AppStorage(DiscordNudge.bannerDismissedKey) private var discordBannerDismissed: Bool = false
+    @AppStorage(GitHubNudge.starredKey) private var githubStarred: Bool = false
+
+    private var shouldShowDiscordBanner: Bool {
+        !discordJoined
+            && !discordBannerDismissed
+            && githubStarred
+            && (conversationManager?.listStore.hasMultipleConversations ?? false)
+    }
+
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
     @State private var searchQuery = ""
@@ -413,6 +426,20 @@ struct ChatView: View {
                 .animation(nil, value: queuedMessages.isEmpty)
             }
 
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .invalidApiKeyBanner {
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    InvalidApiKeyBanner(
+                        connectionName: error.connectionName,
+                        profileName: error.profileName,
+                        onOpenSettings: { onOpenModelsAndServices?() },
+                        onDismiss: { viewModel.dismissConversationError() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
             if let until = viewModel.compactionCircuitOpenUntil, until > Date() {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     // CompactionCircuitOpenBanner is natural-width; spacers center it
@@ -437,6 +464,22 @@ struct ChatView: View {
                         onResumeAssistant: { onResumeAssistant?() },
                         onOpenSSHSettings: { onOpenSSHSettings?() },
                         isExiting: isRecoveryModeExiting
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if shouldShowDiscordBanner {
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    DiscordCommunityBanner(
+                        onJoin: {
+                            discordJoined = true
+                            openURL(AppURLs.discordInviteURL)
+                        },
+                        onDismiss: {
+                            discordBannerDismissed = true
+                        }
                     )
                 }
                 .padding(.bottom, -VSpacing.sm)

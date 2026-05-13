@@ -13,8 +13,9 @@ import { describe, expect, test } from "bun:test";
  *
  * These guards fail CI if:
  * 1. The Responses provider file contains `chat.completions.create(` calls.
- * 2. The provider registry wires `openai` to anything other than
- *    `OpenAIResponsesProvider`.
+ * 2. The adapter factory wires `openai` to anything other than
+ *    `OpenAIResponsesProvider`. (Catalog-driven adapter construction lives
+ *    in `inference/adapter-factory.ts`; `registry.ts` only orchestrates it.)
  * 3. A new file appears in `providers/openai/` that introduces
  *    `chat.completions.create(` calls.
  *
@@ -40,6 +41,11 @@ import { describe, expect, test } from "bun:test";
 
 const PROVIDERS_DIR = join(import.meta.dir, "..", "providers");
 const OPENAI_PROVIDERS_DIR = join(PROVIDERS_DIR, "openai");
+const ADAPTER_FACTORY_PATH = join(
+  PROVIDERS_DIR,
+  "inference",
+  "adapter-factory.ts",
+);
 
 describe("OpenAI Responses API cutover guard", () => {
   test("responses-provider.ts does not contain chat.completions.create() calls", () => {
@@ -60,32 +66,34 @@ describe("OpenAI Responses API cutover guard", () => {
     ).toBe(false);
   });
 
-  test("registry.ts wires the 'openai' provider to OpenAIResponsesProvider", () => {
-    const source = readFileSync(join(PROVIDERS_DIR, "registry.ts"), "utf-8");
+  test("adapter-factory.ts wires the 'openai' provider to OpenAIResponsesProvider", () => {
+    // Catalog-driven adapter construction lives in `adapter-factory.ts`.
+    // `registry.ts` only orchestrates and wraps the adapter; the only place
+    // that names a provider class for the "openai" id is the factory table.
+    const source = readFileSync(ADAPTER_FACTORY_PATH, "utf-8");
 
-    // The registry should import OpenAIResponsesProvider
+    // The factory must import OpenAIResponsesProvider.
     expect(
       source.includes("OpenAIResponsesProvider"),
-      "registry.ts must import OpenAIResponsesProvider for the openai provider.",
+      "adapter-factory.ts must import OpenAIResponsesProvider for the openai provider.",
     ).toBe(true);
 
-    // The registry should instantiate OpenAIResponsesProvider for the "openai" key.
-    // Look for `new OpenAIResponsesProvider(` near the openai registration block.
+    // The factory must instantiate OpenAIResponsesProvider.
     const hasResponsesInstantiation = source.includes(
       "new OpenAIResponsesProvider(",
     );
     expect(
       hasResponsesInstantiation,
       [
-        "registry.ts must instantiate OpenAIResponsesProvider for the 'openai' provider.",
+        "adapter-factory.ts must instantiate OpenAIResponsesProvider for the 'openai' provider.",
         "OpenAI inference uses the Responses API, not chat completions.",
       ].join("\n"),
     ).toBe(true);
 
-    // The registry should NOT instantiate OpenAIChatCompletionsProvider or
+    // The factory must NOT instantiate OpenAIChatCompletionsProvider or
     // OpenAIProvider (the backward-compatible alias) for the "openai" key.
     // Chat-completions classes may appear in imports but should not be
-    // instantiated in the openai registration block.
+    // instantiated in the openai factory entry.
     const chatCompletionsInstantiations = [
       ...source.matchAll(/new\s+OpenAIChatCompletionsProvider\s*\(/g),
       ...source.matchAll(/new\s+OpenAIProvider\s*\(/g),
@@ -93,10 +101,23 @@ describe("OpenAI Responses API cutover guard", () => {
     expect(
       chatCompletionsInstantiations.length,
       [
-        "registry.ts must NOT instantiate OpenAIChatCompletionsProvider or",
+        "adapter-factory.ts must NOT instantiate OpenAIChatCompletionsProvider or",
         "OpenAIProvider (legacy alias). Use OpenAIResponsesProvider for openai.",
       ].join("\n"),
     ).toBe(0);
+
+    // The factory's "openai" entry must specifically map to OpenAIResponsesProvider.
+    // Match `openai:` followed (within ~400 chars) by `new OpenAIResponsesProvider(`
+    // to confirm wiring at the entry level, not just an unrelated reference.
+    const openaiEntryWiring =
+      /openai\s*:\s*\([^)]*\)\s*=>\s*[\s\S]{0,400}?new\s+OpenAIResponsesProvider\s*\(/;
+    expect(
+      openaiEntryWiring.test(source),
+      [
+        "adapter-factory.ts ADAPTER_FACTORIES['openai'] entry must construct",
+        "OpenAIResponsesProvider. If the factory shape changed, update this guard.",
+      ].join("\n"),
+    ).toBe(true);
   });
 
   test("no files in providers/openai/ introduce chat.completions.create() calls", () => {

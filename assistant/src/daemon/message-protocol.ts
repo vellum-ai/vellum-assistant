@@ -43,6 +43,7 @@ export * from "./message-types/shared.js";
 export * from "./message-types/skills.js";
 export * from "./message-types/subagents.js";
 export * from "./message-types/surfaces.js";
+export * from "./message-types/sync.js";
 export * from "./message-types/upgrades.js";
 export * from "./message-types/work-items.js";
 export * from "./message-types/workspace.js";
@@ -131,6 +132,7 @@ import type {
   _SurfacesClientMessages,
   _SurfacesServerMessages,
 } from "./message-types/surfaces.js";
+import type { _SyncInvalidationServerMessages } from "./message-types/sync.js";
 import type { _UpgradesServerMessages } from "./message-types/upgrades.js";
 import type {
   _WorkItemsClientMessages,
@@ -147,6 +149,7 @@ import type {
 export interface SubagentEvent {
   type: "subagent_event";
   subagentId: string;
+  conversationId: string;
   event: ServerMessage;
 }
 
@@ -190,6 +193,7 @@ export type ServerMessage =
   | _SubagentsServerMessages
   | _DocumentsServerMessages
   | _GuardianActionsServerMessages
+  | _SyncInvalidationServerMessages
   | _HomeServerMessages
   | _HostAppControlServerMessages
   | _HostBashServerMessages

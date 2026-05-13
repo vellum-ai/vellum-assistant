@@ -80,7 +80,6 @@ function wrapInPlugin(name: string, injectors: Injector[]): Plugin {
     manifest: {
       name,
       version: "0.0.1",
-      requires: { pluginRuntime: "v1" },
     },
     injectors,
   };

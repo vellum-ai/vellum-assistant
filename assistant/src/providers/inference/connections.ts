@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../memory/db-connection.js";
 import { providerConnections } from "../../memory/schema/inference.js";
@@ -245,10 +245,15 @@ export function deleteConnection(
 // Seed canonical connections (upsert, used at boot time)
 // ---------------------------------------------------------------------------
 
-const CANONICAL_CONNECTIONS: Array<{ name: string; provider: string; auth: Auth }> = [
-  { name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" } },
-  { name: "openai-managed",    provider: "openai",    auth: { type: "platform" } },
-  { name: "gemini-managed",    provider: "gemini",    auth: { type: "platform" } },
+const CANONICAL_CONNECTIONS: Array<{
+  name: string;
+  provider: string;
+  auth: Auth;
+  label: string;
+}> = [
+  { name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" }, label: "Anthropic" },
+  { name: "openai-managed",    provider: "openai",    auth: { type: "platform" }, label: "OpenAI" },
+  { name: "gemini-managed",    provider: "gemini",    auth: { type: "platform" }, label: "Google Gemini" },
 ];
 
 /**
@@ -260,8 +265,10 @@ const CANONICAL_CONNECTIONS: Array<{ name: string; provider: string; auth: Auth 
  *   - PATCH that changes `auth` is blocked (auth is locked to `{type:"platform"}`
  *     so any other value would be reverted on the next boot upsert).
  *   - PATCH that changes `label` and/or `status` is allowed — users may legitimately
- *     disable or relabel the managed connection. Status/label are not touched by
- *     the boot upsert (see `seedCanonicalConnections`).
+ *     disable or relabel the managed connection. `status` is never touched by the
+ *     boot upsert. `label` is seeded on initial INSERT and backfilled when null
+ *     on subsequent boots so pre-seed installs pick up the default; a non-null
+ *     user-customized label is preserved (see `seedCanonicalConnections`).
  *
  * Mirrors `MANAGED_PROFILE_NAMES` (config/seed-inference-profiles.ts).
  */
@@ -273,15 +280,31 @@ export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
  * Upsert the three canonical connections on every boot. Existing rows are
  * updated to the latest provider/auth values so Vellum can push connection
  * changes to customers in new releases.
+ *
+ * Label handling: the default label is seeded on initial INSERT so new
+ * installs render a human-friendly name in the connections list. The boot
+ * upsert deliberately leaves `label` alone on existing rows so user
+ * customization is preserved; the separate backfill step below assigns the
+ * default only when the existing row has `label IS NULL`, covering installs
+ * that pre-date the label seed.
+ *
+ * Status handling: the upsert never touches `status` so user customization
+ * is preserved across reboots. New rows default to `status: "active"` via the
+ * column default. Off-platform installs flip the three canonical rows to
+ * `status: "disabled"` ONCE at hatch time via
+ * `disableManagedConnectionsForByokHatch` (called from `seedInferenceProfiles`
+ * when `isHatch && !isPlatform`); subsequent boots leave whatever the user
+ * has chosen alone, so a post-hatch re-enable persists.
  */
 export function seedCanonicalConnections(db: DrizzleDb): void {
   const now = Date.now();
-  for (const { name, provider, auth } of CANONICAL_CONNECTIONS) {
+  for (const { name, provider, auth, label } of CANONICAL_CONNECTIONS) {
     db.insert(providerConnections)
       .values({
         name,
         provider,
         auth: JSON.stringify(auth),
+        label,
         createdAt: now,
         updatedAt: now,
       })
@@ -293,6 +316,41 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
           updatedAt: now,
         },
       })
+      .run();
+
+    // Backfill the default label on rows that pre-date label seeding so
+    // existing installs pick up the friendly name. Does not overwrite a
+    // user-set label.
+    db.update(providerConnections)
+      .set({ label, updatedAt: now })
+      .where(and(eq(providerConnections.name, name), isNull(providerConnections.label)))
+      .run();
+  }
+}
+
+/**
+ * Flip the three canonical managed connections to `status: "disabled"` at
+ * hatch time on BYOK (off-platform) installs.
+ *
+ * Why hatch-time only: managed connections need platform auth that a fresh
+ * BYOK user doesn't have yet, so surfacing them as enabled in the picker
+ * would let users pick an unusable option on day one. But this is a
+ * first-time-only default — the moment the user explicitly flips one
+ * back to active (e.g. after logging into Vellum), we never want a daemon
+ * restart to revert that. `seedCanonicalConnections` leaves `status` alone
+ * on the UPDATE path, and this helper is invoked ONLY from
+ * `seedInferenceProfiles`'s `isHatch && !isPlatform` branch. Subsequent
+ * non-hatch boots never call it.
+ *
+ * Idempotent: a second hatch (workspace reset) re-disables the rows, which
+ * is the right call — re-hatch means re-onboard.
+ */
+export function disableManagedConnectionsForByokHatch(db: DrizzleDb): void {
+  const now = Date.now();
+  for (const name of MANAGED_CONNECTION_NAMES) {
+    db.update(providerConnections)
+      .set({ status: "disabled", updatedAt: now })
+      .where(eq(providerConnections.name, name))
       .run();
   }
 }

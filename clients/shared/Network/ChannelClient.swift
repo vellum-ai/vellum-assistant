@@ -3,9 +3,60 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChannelClient")
 
-/// Focused client for channel readiness operations routed through the gateway.
+/// Focused client for channel readiness + availability operations routed through the gateway.
 public protocol ChannelClientProtocol {
     func fetchChannelReadiness() async -> [String: ChannelReadinessInfo]
+
+    /// Channels this assistant can surface to clients, in display order,
+    /// each carrying the display metadata the UI needs (label, subtitle,
+    /// icon, verification capability, setup-message copy).
+    ///
+    /// Returns `nil` when the gateway can't be reached so callers can
+    /// fall back to a static default; never block the UI on availability
+    /// failures.
+    func fetchChannelAvailability() async -> [ChannelInfo]?
+}
+
+/// Per-channel display metadata returned by the gateway alongside the
+/// channel id. Mirrors the `ChannelInfo` interface in
+/// `assistant/src/channels/types.ts` — the gateway is the source of
+/// truth for labels, icons, and verification capability so clients never
+/// need their own per-channel switches.
+public struct ChannelInfo: Sendable, Decodable, Equatable {
+    public let id: String
+    public let label: String
+    public let subtitle: String
+    /// Lucide icon name without the `lucide-` prefix (e.g. `"mail"`,
+    /// `"hash"`). Resolve to `VIcon` via `VIcon(rawValue: "lucide-\(icon)")`.
+    public let icon: String
+    public let supportsVerification: Bool
+    public let setupMessages: SetupMessages
+
+    public struct SetupMessages: Sendable, Decodable, Equatable {
+        public let guardian: String
+        public let contact: String
+
+        public init(guardian: String, contact: String) {
+            self.guardian = guardian
+            self.contact = contact
+        }
+    }
+
+    public init(
+        id: String,
+        label: String,
+        subtitle: String,
+        icon: String,
+        supportsVerification: Bool,
+        setupMessages: SetupMessages
+    ) {
+        self.id = id
+        self.label = label
+        self.subtitle = subtitle
+        self.icon = icon
+        self.supportsVerification = supportsVerification
+        self.setupMessages = setupMessages
+    }
 }
 
 /// Per-channel readiness state returned by the gateway.
@@ -90,6 +141,27 @@ public struct ChannelClient: ChannelClientProtocol {
         } catch {
             log.error("fetchChannelReadiness error: \(error.localizedDescription)")
             return [:]
+        }
+    }
+
+    private struct AvailabilityResponse: Decodable {
+        let channels: [ChannelInfo]
+    }
+
+    public func fetchChannelAvailability() async -> [ChannelInfo]? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "channels/available", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchChannelAvailability failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let decoded = try JSONDecoder().decode(AvailabilityResponse.self, from: response.data)
+            return decoded.channels
+        } catch {
+            log.error("fetchChannelAvailability error: \(error.localizedDescription)")
+            return nil
         }
     }
 }

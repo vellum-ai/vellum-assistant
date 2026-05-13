@@ -52,6 +52,7 @@ export interface FileContext {
   protectedDir: string;
   deprecatedDir: string;
   hooksDir: string;
+  pluginsDir: string;
   actorTokenSigningKeyPath: string;
   skillSourceDirs: string[];
 }
@@ -92,4 +93,6 @@ export interface ClassifyRiskParams {
   skillMetadata?: SkillMetadata;
   /** Tool registry default risk level for unknown tools. */
   registryDefaultRisk?: string;
+  /** Number of credential references attached to this tool invocation. */
+  credentialRefCount?: number;
 }

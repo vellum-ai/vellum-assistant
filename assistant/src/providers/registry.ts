@@ -3,24 +3,21 @@ import { type LLMConfig } from "../config/schemas/llm.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { AnthropicProvider } from "./anthropic/client.js";
-import { FireworksProvider } from "./fireworks/client.js";
-import { GeminiProvider } from "./gemini/client.js";
-import { createAdapterFromConnection } from "./inference/adapter-factory.js";
+import {
+  buildProviderAdapter,
+  createAdapterFromConnection,
+} from "./inference/adapter-factory.js";
 // ---------------------------------------------------------------------------
 // Per-connection provider cache (mix-and-match support)
 // ---------------------------------------------------------------------------
 import type { ProviderConnection } from "./inference/auth.js";
 import { resolveAuth } from "./inference/resolve-auth.js";
+import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
+import { getProviderDefaultModel } from "./model-intents.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
-} from "./managed-proxy/context.js";
-import { isModelInCatalog } from "./model-catalog.js";
-import { getProviderDefaultModel } from "./model-intents.js";
-import { OllamaProvider } from "./ollama/client.js";
-import { OpenAIResponsesProvider } from "./openai/client.js";
-import { OpenRouterProvider } from "./openrouter/client.js";
+} from "./platform-proxy/context.js";
 import { RetryProvider } from "./retry.js";
 import type { Provider } from "./types.js";
 import { UsageTrackingProvider } from "./usage-tracking.js";
@@ -125,105 +122,59 @@ export async function initializeProviders(
     (config.timeouts?.providerStreamTimeoutSec ?? 1800) * 1000;
   const useNativeWebSearch =
     config.services["web-search"].provider === "inference-provider-native";
+  const mainAgentProvider = resolveCallSiteConfig("mainAgent", config.llm)
+    .provider;
 
-  // Anthropic
-  const anthropicCreds = await resolveProviderCredentials("anthropic");
-  if (anthropicCreds) {
-    const model = resolveModel(config, "anthropic");
-    registerProvider(
-      "anthropic",
-      new RetryProvider(
-        new AnthropicProvider(anthropicCreds.apiKey, model, {
-          useNativeWebSearch,
-          streamTimeoutMs,
-          ...(anthropicCreds.baseURL ? { baseURL: anthropicCreds.baseURL } : {}),
-        }),
-        { forwardUsageAttributionHeaders: anthropicCreds.source === "managed-proxy" },
-      ),
-    );
-    routingSources.set("anthropic", anthropicCreds.source);
-  }
+  for (const entry of PROVIDER_CATALOG) {
+    const isKeyless = entry.setupMode === "keyless";
 
-  // OpenAI
-  const openaiCreds = await resolveProviderCredentials("openai");
-  if (openaiCreds) {
-    const model = resolveModel(config, "openai");
-    registerProvider(
-      "openai",
-      new RetryProvider(
-        new OpenAIResponsesProvider(openaiCreds.apiKey, model, {
-          useNativeWebSearch,
-          streamTimeoutMs,
-          ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
-        }),
-        { forwardUsageAttributionHeaders: openaiCreds.source === "managed-proxy" },
-      ),
-    );
-    routingSources.set("openai", openaiCreds.source);
-  }
+    // Credential resolution: user key first, managed proxy second. Keyless
+    // providers (e.g. ollama) skip both — they only need to be configured as
+    // the mainAgent provider, or have a key present (rare keyed-mode), to
+    // boot. Boot order matches catalog order; routingSources tracks which
+    // credential surface served each provider.
+    let apiKey = "";
+    let baseURL: string | undefined;
+    let source: "user-key" | "managed-proxy" = "user-key";
+    if (isKeyless) {
+      const key = await getProviderKeyAsync(entry.id);
+      const isConfiguredMainAgent = mainAgentProvider === entry.id;
+      if (!key && !isConfiguredMainAgent) continue;
+      apiKey = key ?? "";
+    } else {
+      const creds = await resolveProviderCredentials(entry.id);
+      if (!creds) continue;
+      apiKey = creds.apiKey;
+      baseURL = creds.baseURL;
+      source = creds.source;
+    }
 
-  // Gemini
-  const geminiCreds = await resolveProviderCredentials("gemini");
-  if (geminiCreds) {
-    const model = resolveModel(config, "gemini");
-    registerProvider(
-      "gemini",
-      new RetryProvider(
-        new GeminiProvider(geminiCreds.apiKey, model, {
-          streamTimeoutMs,
-          ...(geminiCreds.baseURL ? { managedBaseUrl: geminiCreds.baseURL } : {}),
-        }),
-        { forwardUsageAttributionHeaders: geminiCreds.source === "managed-proxy" },
-      ),
-    );
-    routingSources.set("gemini", geminiCreds.source);
-  }
+    const model = resolveModel(config, entry.id);
+    const adapter = buildProviderAdapter(entry.id, {
+      apiKey,
+      model,
+      streamTimeoutMs,
+      baseURL,
+      useNativeWebSearch,
+    });
+    if (!adapter) {
+      // Catalog declares a provider with no factory entry. The parity guard
+      // in adapter-factory.ts catches this at module load, so reaching here
+      // means a future refactor regressed the invariant.
+      log.error(
+        { providerId: entry.id },
+        "Catalog entry has no adapter factory — skipping",
+      );
+      continue;
+    }
 
-  // Ollama (keyless provider — always init when configured or key present)
-  const ollamaKey = await getProviderKeyAsync("ollama");
-  if (resolveCallSiteConfig("mainAgent", config.llm).provider === "ollama" || ollamaKey) {
-    const model = resolveModel(config, "ollama");
     registerProvider(
-      "ollama",
-      new RetryProvider(
-        new OllamaProvider(model, {
-          apiKey: ollamaKey ?? undefined,
-          streamTimeoutMs,
-        }),
-      ),
+      entry.id,
+      new RetryProvider(adapter, {
+        forwardUsageAttributionHeaders: source === "managed-proxy",
+      }),
     );
-    routingSources.set("ollama", "user-key");
-  }
-
-  // Fireworks
-  const fireworksKey = await getProviderKeyAsync("fireworks");
-  if (fireworksKey) {
-    const model = resolveModel(config, "fireworks");
-    registerProvider(
-      "fireworks",
-      new RetryProvider(
-        new FireworksProvider(fireworksKey, model, {
-          streamTimeoutMs,
-        }),
-      ),
-    );
-    routingSources.set("fireworks", "user-key");
-  }
-
-  // OpenRouter
-  const openrouterKey = await getProviderKeyAsync("openrouter");
-  if (openrouterKey) {
-    const model = resolveModel(config, "openrouter");
-    registerProvider(
-      "openrouter",
-      new RetryProvider(
-        new OpenRouterProvider(openrouterKey, model, {
-          useNativeWebSearch,
-          streamTimeoutMs,
-        }),
-      ),
-    );
-    routingSources.set("openrouter", "user-key");
+    routingSources.set(entry.id, source);
   }
 }
 

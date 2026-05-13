@@ -270,4 +270,116 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         XCTAssertNil(setPatch.entry["provider"])
         XCTAssertNil(setPatch.entry["model"])
     }
+
+    // MARK: - visibleProfilesForPicker
+
+    /// Active profiles (no `status` set) must always appear in the picker.
+    func testVisibleProfilesIncludesActiveProfiles() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "quality"),
+        ]
+        let visible = CallSiteOverrideRow.visibleProfilesForPicker(profiles)
+        XCTAssertEqual(visible.map(\.name), ["balanced", "quality"])
+    }
+
+    /// Disabled profiles must be hidden when they're not the current selection.
+    /// Mirrors web's `visibleProfilesForPicker(orderedProfiles, [selectedProfile])`
+    /// in `CallSiteOverridesModal.tsx`.
+    func testVisibleProfilesHidesDisabledProfilesNotSelected() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "legacy-quality", status: "disabled"),
+            InferenceProfile(name: "fast"),
+        ]
+        let visible = CallSiteOverrideRow.visibleProfilesForPicker(profiles)
+        XCTAssertEqual(
+            visible.map(\.name),
+            ["balanced", "fast"],
+            "Disabled profiles must not appear in the picker as fresh options"
+        )
+    }
+
+    /// A row already pointing at a disabled profile must keep it in the picker
+    /// — otherwise the dropdown would silently render a different value than
+    /// the row actually references.
+    func testVisibleProfilesKeepsSelectedDisabledProfile() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "legacy-quality", status: "disabled"),
+            InferenceProfile(name: "fast"),
+        ]
+        let visible = CallSiteOverrideRow.visibleProfilesForPicker(
+            profiles,
+            keepSelected: ["legacy-quality"]
+        )
+        XCTAssertEqual(
+            visible.map(\.name),
+            ["balanced", "legacy-quality", "fast"],
+            "The currently-selected profile must be retained even when disabled"
+        )
+    }
+
+    /// `keepSelected` entries that are empty strings or the Custom sentinel
+    /// must not accidentally retain a disabled profile — those values never
+    /// match a real profile name, so all disabled profiles still drop out.
+    func testVisibleProfilesIgnoresEmptyAndSentinelSelections() {
+        let profiles = [
+            InferenceProfile(name: "balanced"),
+            InferenceProfile(name: "legacy-quality", status: "disabled"),
+        ]
+        let emptySel = CallSiteOverrideRow.visibleProfilesForPicker(
+            profiles,
+            keepSelected: [""]
+        )
+        XCTAssertEqual(emptySel.map(\.name), ["balanced"])
+
+        let sentinelSel = CallSiteOverrideRow.visibleProfilesForPicker(
+            profiles,
+            keepSelected: [CallSiteOverrideRow.customSentinel]
+        )
+        XCTAssertEqual(sentinelSel.map(\.name), ["balanced"])
+    }
+
+    // MARK: - Toggle-on profile seeding
+
+    /// When the user toggles a call-site override ON, the row must seed the
+    /// draft from the same filtered list the picker shows — not from
+    /// `profiles.first` which can be disabled. Codex P1 / Devin finding on
+    /// PR #30349.
+    func testToggleOnSkipsDisabledProfileWhenActivesExist() {
+        // Disabled profile sorts first; an active profile follows.
+        let profiles = [
+            InferenceProfile(name: "legacy", status: "disabled"),
+            InferenceProfile(name: "balanced"),
+        ]
+
+        let candidates = CallSiteOverrideRow.visibleProfilesForPicker(profiles)
+        XCTAssertEqual(
+            candidates.first?.name,
+            "balanced",
+            "toggle-on must skip disabled profiles even when they sort first"
+        )
+    }
+
+    /// When every profile is disabled the picker yields nothing, so the
+    /// toggle-on path falls back to `profiles.first` rather than silently
+    /// dropping into a custom fragment the user never asked for.
+    func testToggleOnFallsBackToFirstWhenAllProfilesDisabled() {
+        let allDisabled = [
+            InferenceProfile(name: "legacy", status: "disabled"),
+            InferenceProfile(name: "old", status: "disabled"),
+        ]
+
+        let candidates = CallSiteOverrideRow.visibleProfilesForPicker(allDisabled)
+        XCTAssertTrue(
+            candidates.isEmpty,
+            "all-disabled pool must yield empty picker candidates"
+        )
+        XCTAssertEqual(
+            allDisabled.first?.name,
+            "legacy",
+            "fallback path requires profiles.first to be non-nil"
+        )
+    }
 }

@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.8.0
+  version: 0.8.1
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -743,6 +743,72 @@ paths:
               required:
                 - preview
               additionalProperties: false
+  /v1/apps/{id}/publish:
+    post:
+      operationId: apps_by_id_publish_post
+      summary: Publish app to Vercel
+      description: Deploy the app's HTML to Vercel and store the deployment record.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  publicUrl:
+                    type: string
+                  deploymentId:
+                    type: string
+                  errorCode:
+                    type: string
+                  error:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/apps/{id}/publish-status:
+    get:
+      operationId: apps_by_id_publishstatus_get
+      summary: Get app publish status
+      description: Return the current Vercel deployment state for an app.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  published:
+                    type: boolean
+                  publicUrl:
+                    type: string
+                  deploymentId:
+                    type: string
+                  publishedAt:
+                    type: number
+                required:
+                  - published
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/apps/{id}/restore:
     post:
       operationId: apps_by_id_restore_post
@@ -796,6 +862,34 @@ paths:
                   - success
                   - shareToken
                   - shareUrl
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/apps/{id}/unpublish:
+    post:
+      operationId: apps_by_id_unpublish_post
+      summary: Unpublish app from Vercel
+      description: Mark the active Vercel deployment as inactive.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                required:
+                  - success
                 additionalProperties: false
       parameters:
         - name: id
@@ -1541,7 +1635,7 @@ paths:
     post:
       operationId: avatar_notifyupdated_post
       summary: Notify avatar updated
-      description: Publish an avatar_updated SSE event to connected clients.
+      description: Publish avatar change notifications to connected clients.
       tags:
         - avatar
       responses:
@@ -2981,6 +3075,70 @@ paths:
           schema:
             type: string
           description: Optional channel ID filter
+  /v1/channels/available:
+    get:
+      operationId: channels_available_get
+      summary: Get available channels
+      description:
+        Return the channels this assistant can surface to clients, with display metadata (label, icon, verification
+        capability, setup copy). Today this is a fixed base list plus `email` when an inbox is registered; will become
+        plugin/skill-driven in future.
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          enum:
+                            - telegram
+                            - phone
+                            - vellum
+                            - whatsapp
+                            - slack
+                            - email
+                            - platform
+                        label:
+                          type: string
+                        subtitle:
+                          type: string
+                        icon:
+                          type: string
+                        supportsVerification:
+                          type: boolean
+                        setupMessages:
+                          type: object
+                          properties:
+                            guardian:
+                              type: string
+                            contact:
+                              type: string
+                          required:
+                            - guardian
+                            - contact
+                          additionalProperties: false
+                      required:
+                        - id
+                        - label
+                        - subtitle
+                        - icon
+                        - supportsVerification
+                        - setupMessages
+                      additionalProperties: false
+                    description: Available channels in display order
+                required:
+                  - channels
+                additionalProperties: false
   /v1/channels/conversation:
     delete:
       operationId: channels_conversation_delete
@@ -7618,11 +7776,7 @@ paths:
                           type: string
                         type:
                           type: string
-                          enum:
-                            - nudge
-                            - digest
-                            - action
-                            - thread
+                          const: notification
                         priority:
                           type: integer
                           minimum: 0
@@ -7631,14 +7785,6 @@ paths:
                           type: string
                         summary:
                           type: string
-                        source:
-                          type: string
-                          enum:
-                            - gmail
-                            - slack
-                            - calendar
-                            - assistant
-                            - telegram
                         timestamp:
                           type: string
                         status:
@@ -7651,10 +7797,6 @@ paths:
                             - dismissed
                         expiresAt:
                           type: string
-                        minTimeAway:
-                          type: integer
-                          minimum: 0
-                          maximum: 9007199254740991
                         actions:
                           type: array
                           items:
@@ -7695,11 +7837,6 @@ paths:
                           required:
                             - kind
                           additionalProperties: false
-                        author:
-                          type: string
-                          enum:
-                            - assistant
-                            - platform
                         createdAt:
                           type: string
                       required:
@@ -7710,7 +7847,6 @@ paths:
                         - summary
                         - timestamp
                         - status
-                        - author
                         - createdAt
                       additionalProperties: false
                   updatedAt:
@@ -7755,27 +7891,11 @@ paths:
                         - prompt
                         - source
                       additionalProperties: false
-                  lowPriorityCollapsed:
-                    type: object
-                    properties:
-                      count:
-                        type: integer
-                        minimum: 0
-                        maximum: 9007199254740991
-                      itemIds:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - count
-                      - itemIds
-                    additionalProperties: false
                 required:
                   - items
                   - updatedAt
                   - contextBanner
                   - suggestedPrompts
-                  - lowPriorityCollapsed
                 additionalProperties: false
       parameters:
         - name: timeAwaySeconds
@@ -7783,9 +7903,7 @@ paths:
           required: true
           schema:
             type: integer
-          description:
-            Seconds since the user was last active in the client. Used to filter items with a `minTimeAway` gate and to
-            compute the context-banner relative-time label.
+          description: Seconds since the user was last active in the client. Used to compute the context-banner relative-time label.
   /v1/home/feed/{id}:
     patch:
       operationId: home_feed_by_id_patch
@@ -7807,11 +7925,7 @@ paths:
                     type: string
                   type:
                     type: string
-                    enum:
-                      - nudge
-                      - digest
-                      - action
-                      - thread
+                    const: notification
                   priority:
                     type: integer
                     minimum: 0
@@ -7820,14 +7934,6 @@ paths:
                     type: string
                   summary:
                     type: string
-                  source:
-                    type: string
-                    enum:
-                      - gmail
-                      - slack
-                      - calendar
-                      - assistant
-                      - telegram
                   timestamp:
                     type: string
                   status:
@@ -7840,10 +7946,6 @@ paths:
                       - dismissed
                   expiresAt:
                     type: string
-                  minTimeAway:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
                   actions:
                     type: array
                     items:
@@ -7884,11 +7986,6 @@ paths:
                     required:
                       - kind
                     additionalProperties: false
-                  author:
-                    type: string
-                    enum:
-                      - assistant
-                      - platform
                   createdAt:
                     type: string
                 required:
@@ -7899,7 +7996,6 @@ paths:
                   - summary
                   - timestamp
                   - status
-                  - author
                   - createdAt
                 additionalProperties: false
         "404":
@@ -10761,30 +10857,6 @@ paths:
       responses:
         "200":
           description: Successful response
-    put:
-      operationId: model_put
-      summary: Set LLM model
-      description: Change the active LLM model and optionally its provider.
-      tags:
-        - config
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                modelId:
-                  type: string
-                provider:
-                  type: string
-                  description: Optional provider override
-              required:
-                - modelId
-              additionalProperties: false
   /v1/model/image-gen:
     put:
       operationId: model_imagegen_put

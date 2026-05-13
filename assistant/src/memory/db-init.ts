@@ -47,6 +47,7 @@ import {
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateBackfillInlineAttachmentsToDisk,
+  migrateBackfillProviderConnectionLabel,
   migrateBackfillUsageCacheAccounting,
   migrateCallSessionInviteMetadata,
   migrateCallSessionMode,
@@ -115,6 +116,7 @@ import {
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
+  migrateMemoryRetrospectiveState,
   migrateMemoryV2ActivationLogs,
   migrateMessageBookmarks,
   migrateMessagesConversationCreatedAtIndex,
@@ -420,6 +422,8 @@ export function initializeDb(): void {
     migrateMessageBookmarks,
     migrateCreateProviderConnections,
     migrateProviderConnectionStatusLabel,
+    migrateMemoryRetrospectiveState,
+    migrateBackfillProviderConnectionLabel,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -9,6 +9,7 @@
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
+import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context.js";
 import { updateDeliveredSegmentCount } from "../../../memory/delivery-channels.js";
 import { linkMessage } from "../../../memory/delivery-crud.js";
@@ -135,13 +136,12 @@ export function processChannelMessageInBackground(
         )
       : undefined;
 
-    // Set Slack Assistants API "is thinking..." status indicator
-    const clearSlackThinkingStatus = shouldEmitSlackReaction(
+    const slackThinkingStatus = createSlackThinkingStatusController({
       sourceChannel,
       replyCallbackUrl,
-    )
-      ? setSlackThinkingStatus(replyCallbackUrl!, externalChatId, assistantId)
-      : undefined;
+      chatId: externalChatId,
+      assistantId,
+    });
     const stopApprovalWatcher = replyCallbackUrl
       ? startPendingApprovalPromptWatcher({
           conversationId,
@@ -226,6 +226,12 @@ export function processChannelMessageInBackground(
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
           ...(slackRuntimeContextNotice ? { slackRuntimeContextNotice } : {}),
           ...(slackInbound ? { slackInbound } : {}),
+          ...(slackThinkingStatus
+            ? {
+                onEvent: (msg: ServerMessage) =>
+                  slackThinkingStatus.observeEvent(msg),
+              }
+            : {}),
         },
         sourceChannel,
         sourceInterface,
@@ -274,7 +280,7 @@ export function processChannelMessageInBackground(
       recordProcessingFailure(eventId, err);
     } finally {
       stopTypingHeartbeat?.();
-      clearSlackThinkingStatus?.();
+      slackThinkingStatus?.stop();
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
@@ -341,7 +347,36 @@ function startTelegramTypingHeartbeat(
 // Slack Assistants API thinking status indicator
 // ---------------------------------------------------------------------------
 
-function shouldEmitSlackReaction(
+type SlackThinkingStatusController = {
+  observeEvent: (msg: ServerMessage) => void;
+  stop: () => void;
+};
+
+const NO_RESPONSE_RE = /^\s*<no_response\s*\/?>\s*$/i;
+const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/gi;
+const NO_RESPONSE_SENTINEL_FORMS = [
+  "<no_response/>",
+  "<no_response />",
+  "<no_response>",
+] as const;
+
+function isPotentialNoResponsePrefix(text: string): boolean {
+  const lower = text.toLowerCase();
+  return NO_RESPONSE_SENTINEL_FORMS.some((sentinel) =>
+    sentinel.startsWith(lower),
+  );
+}
+
+export function shouldStartSlackThinkingStatusForText(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  if (NO_RESPONSE_RE.test(trimmed)) return false;
+  if (isPotentialNoResponsePrefix(trimmed)) return false;
+
+  return trimmed.replace(NO_RESPONSE_INLINE_RE, "").trim().length > 0;
+}
+
+function shouldEmitSlackThinkingStatus(
   sourceChannel: ChannelId,
   replyCallbackUrl?: string,
 ): boolean {
@@ -351,6 +386,51 @@ function shouldEmitSlackReaction(
   } catch {
     return replyCallbackUrl.endsWith("/deliver/slack");
   }
+}
+
+function createSlackThinkingStatusController(params: {
+  sourceChannel: ChannelId;
+  replyCallbackUrl?: string;
+  chatId: string;
+  assistantId?: string;
+}): SlackThinkingStatusController | undefined {
+  const { sourceChannel, replyCallbackUrl, chatId, assistantId } = params;
+  if (
+    !replyCallbackUrl ||
+    !shouldEmitSlackThinkingStatus(sourceChannel, replyCallbackUrl)
+  ) {
+    return undefined;
+  }
+  const callbackUrl = replyCallbackUrl;
+
+  let stopped = false;
+  let clearSlackThinkingStatus: (() => void) | undefined;
+  let observedAssistantText = "";
+
+  const start = (): void => {
+    if (stopped || clearSlackThinkingStatus) return;
+    clearSlackThinkingStatus = setSlackThinkingStatus(
+      callbackUrl,
+      chatId,
+      assistantId,
+    );
+  };
+
+  return {
+    observeEvent(msg) {
+      if (stopped || clearSlackThinkingStatus) return;
+      if (msg.type !== "assistant_text_delta") return;
+
+      observedAssistantText += msg.text;
+      if (shouldStartSlackThinkingStatusForText(observedAssistantText)) {
+        start();
+      }
+    },
+    stop() {
+      stopped = true;
+      clearSlackThinkingStatus?.();
+    },
+  };
 }
 
 const SLACK_THINKING_MAX_DURATION_MS = 120_000;

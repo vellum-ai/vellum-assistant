@@ -4,7 +4,6 @@
  * context inspection, and queued message deletion.
  *
  * GET    /v1/model                      — current model info
- * PUT    /v1/model                      — set model
  * PUT    /v1/model/image-gen            — set image-gen model
  * GET    /v1/config/embeddings          — current embedding config
  * PUT    /v1/config/embeddings          — set embedding provider/model
@@ -34,7 +33,6 @@ import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import { ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
-import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
   getEmbeddingConfigInfo,
@@ -44,7 +42,6 @@ import {
   getModelInfo,
   type ModelSetContext,
   setImageGenModel,
-  setModel,
 } from "../../daemon/handlers/config-model.js";
 import {
   getMessageContent,
@@ -61,10 +58,7 @@ import {
   getMessageById,
 } from "../../memory/conversation-crud.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
-import {
-  getRequestLogById,
-  getRequestLogsByMessageId,
-} from "../../memory/llm-request-log-store.js";
+import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
@@ -78,7 +72,6 @@ import {
 } from "./llm-context-normalization.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-const validProviderSet = new Set<string>(VALID_INFERENCE_PROVIDERS);
 const validEmbeddingProviderSet = new Set<string>(
   VALID_MEMORY_EMBEDDING_PROVIDERS,
 );
@@ -107,6 +100,7 @@ const RESERVED_PROFILE_NAMES = new Set([
 
 const INFERENCE_PROFILE_UI_KEYS = new Set([
   "provider",
+  "provider_connection",
   "model",
   "maxTokens",
   "effort",
@@ -247,33 +241,6 @@ function getModelSetContext(): ModelSetContext {
 
 async function handleGetModel() {
   return getModelInfo();
-}
-
-async function handleSetModel({ body }: RouteHandlerArgs) {
-  if (!body || typeof body !== "object") {
-    throw new BadRequestError("Request body is required");
-  }
-  const { modelId, provider } = body as {
-    modelId?: string;
-    provider?: string;
-  };
-  if (!modelId || typeof modelId !== "string") {
-    throw new BadRequestError("Missing required field: modelId");
-  }
-  if (
-    provider !== undefined &&
-    (typeof provider !== "string" || !validProviderSet.has(provider))
-  ) {
-    throw new BadRequestError(
-      `Invalid provider "${provider}". Valid providers: ${[...validProviderSet].join(", ")}`,
-    );
-  }
-  try {
-    return await setModel(modelId, getModelSetContext(), provider);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new InternalError(`Failed to set model: ${message}`);
-  }
 }
 
 async function handleSetImageGenModel({ body }: RouteHandlerArgs) {
@@ -483,7 +450,7 @@ async function commitConfigWrite(
   // second time - starting with providers.clear() which races with the
   // explicit reinit below. The watcher also fires onConversationEvict(),
   // which would evict all cached conversations on every write. Mirror the
-  // suppress/reset pattern used in setModel (config-model.ts).
+  // suppress/reset pattern used in setImageGenModel (config-model.ts).
   const configWatcher = getConfigWatcher();
   const wasSuppressed = configWatcher.suppressConfigReload;
   configWatcher.suppressConfigReload = true;
@@ -610,7 +577,7 @@ function handleValidateAllowlist() {
   }
 }
 
-function handleReplaceInferenceProfile({
+async function handleReplaceInferenceProfile({
   pathParams = {},
   body,
 }: RouteHandlerArgs) {
@@ -626,29 +593,98 @@ function handleReplaceInferenceProfile({
       `Profile name "${name}" is reserved and cannot be used.`,
     );
   }
-  if (MANAGED_PROFILE_NAMES.has(name)) {
-    throw new BadRequestError(
-      `Cannot edit managed profile "${name}". Duplicate it to create a custom profile.`,
-    );
-  }
   const parsed = ProfileEntry.safeParse(body);
   if (!parsed.success) {
     const detail = parsed.error.issues.map((issue) => issue.message).join("; ");
     throw new BadRequestError(`Invalid profile fragment: ${detail}`);
   }
-  try {
-    const raw = loadRawConfig();
+  const isManaged = MANAGED_PROFILE_NAMES.has(name);
+  if (isManaged) {
+    // Managed profiles are daemon-seeded — provider, model, advanced params,
+    // and the connection binding all belong to the seed contract and can't
+    // be reshaped by the user. The two fields that ARE user policy (display
+    // label and enabled status) are allowed through so users can rename a
+    // managed profile or temporarily disable it without duplicating it.
+    const requestedKeys = Object.keys(parsed.data);
+    const disallowed = requestedKeys.filter(
+      (k) => k !== "label" && k !== "status",
+    );
+    if (disallowed.length > 0) {
+      throw new BadRequestError(
+        `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ` +
+          `Only label and status may be edited; duplicate to a custom profile to change other fields.`,
+      );
+    }
+  }
+  const raw = loadRawConfig();
+  if (isManaged) {
+    // Partial overlay: keep every existing key intact, only update label
+    // and/or status from the fragment. Using `replaceInferenceProfileConfig`
+    // here would wipe the UI-owned seed fields (provider, model, advanced
+    // params) because that function assumes the body carries the full UI
+    // surface.
+    patchManagedProfileFields(
+      raw,
+      name,
+      parsed.data as Record<string, unknown>,
+    );
+  } else {
     replaceInferenceProfileConfig(
       raw,
       name,
       parsed.data as Record<string, unknown>,
     );
-    saveRawConfig(raw);
-    return { ok: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new InternalError(`Failed to replace inference profile: ${message}`);
   }
+  // Route through `commitConfigWrite` so profile edits flow through the
+  // post-write side effects shared with `handlePatchConfig` /
+  // `handleSetConfig`: file-watcher suppression so the in-process reload
+  // doesn't race the explicit reinit, embedding backend cache clear,
+  // in-process `getConfig` cache invalidation, and provider registry
+  // reinitialization. `status: "disabled"` on a managed profile (and any
+  // `provider` / `model` / `provider_connection` change on a custom
+  // profile) must take effect immediately rather than waiting for the
+  // next watcher tick.
+  await commitConfigWrite(raw, "replace inference profile");
+  return { ok: true };
+}
+
+/**
+ * Apply a `{label?, status?}` patch to a managed profile entry, preserving
+ * every other field already on disk (provider, model, advanced params, etc).
+ * Caller is responsible for having already restricted the fragment to the
+ * managed-allowed keys.
+ */
+function patchManagedProfileFields(
+  raw: Record<string, unknown>,
+  name: string,
+  fragment: Record<string, unknown>,
+): void {
+  const existingLlm = asMutablePlainObject(raw.llm);
+  const llm = existingLlm ?? {};
+  if (!existingLlm) raw.llm = llm;
+
+  const existingProfiles = asMutablePlainObject(llm.profiles);
+  const profiles = existingProfiles ?? {};
+  if (!existingProfiles) llm.profiles = profiles;
+
+  const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
+  const nextProfile: Record<string, unknown> = { ...existingProfile };
+  // Send `null` to clear; omit to leave untouched.
+  if ("label" in fragment) {
+    if (fragment.label === null) {
+      delete nextProfile.label;
+    } else {
+      nextProfile.label = fragment.label;
+    }
+  }
+  if ("status" in fragment) {
+    if (fragment.status === null) {
+      delete nextProfile.status;
+    } else {
+      nextProfile.status = fragment.status;
+    }
+  }
+  profiles[name] = nextProfile;
 }
 
 function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {
@@ -703,12 +739,13 @@ function resolveConversationKind(
   return "user";
 }
 
-function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
+async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   const messageId = pathParams.id;
   if (!messageId) {
     throw new BadRequestError("message id is required");
   }
-  const logs = getRequestLogsByMessageId(messageId);
+  const source = await getLlmRequestLogSource();
+  const logs = await source.getRequestLogsByMessageId(messageId);
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
   const memoryRecallLog = getMemoryRecallLogByMessageIds(turnMessageIds);
   const memoryV2Activation =
@@ -765,12 +802,15 @@ function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
-function handleGetLlmRequestLogPayload({ pathParams = {} }: RouteHandlerArgs) {
+async function handleGetLlmRequestLogPayload({
+  pathParams = {},
+}: RouteHandlerArgs) {
   const logId = pathParams.id;
   if (!logId) {
     throw new BadRequestError("log id is required");
   }
-  const log = getRequestLogById(logId);
+  const source = await getLlmRequestLogSource();
+  const log = await source.getRequestLogById(logId);
   if (!log) {
     throw new NotFoundError("log not found");
   }
@@ -824,20 +864,6 @@ export const ROUTES: RouteDefinition[] = [
       "Return the active LLM model ID, provider, and available models.",
     tags: ["config"],
     handler: handleGetModel,
-  },
-  {
-    operationId: "model_set",
-    endpoint: "model",
-    method: "PUT",
-    policyKey: "model",
-    summary: "Set LLM model",
-    description: "Change the active LLM model and optionally its provider.",
-    tags: ["config"],
-    requestBody: z.object({
-      modelId: z.string(),
-      provider: z.string().describe("Optional provider override").optional(),
-    }),
-    handler: handleSetModel,
   },
   {
     operationId: "model_image_gen_set",

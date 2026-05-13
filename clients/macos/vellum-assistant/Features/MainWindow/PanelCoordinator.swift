@@ -265,42 +265,6 @@ extension MainWindowView {
             isDetailPanelVisible: activeHomeDetailPanel != nil,
             detailPanel: {
                 switch activeHomeDetailPanel {
-                case .scheduled(let item):
-                    let details = HomeScheduledDetails.placeholder
-                    // Surface the tapped item's title so distinct scheduled
-                    // rows render distinct panel headers while the rest of
-                    // the schedule metadata still uses placeholder data
-                    // (Devin feedback on PR #27475).
-                    // TODO: replace placeholder data with real schedule
-                    // metadata when the daemon surfaces scheduled-item
-                    // fields on FeedItem (home-feed-groups follow-up).
-                    HomeScheduledDetailPanel(
-                        title: item.title,
-                        description: details.description,
-                        rows: details.displayRows().map { row in
-                            HomeScheduledDetailPanel.DetailRow(key: row.key, value: row.value)
-                        },
-                        primaryActionLabel: "Action",
-                        secondaryActionLabel: "Action",
-                        onClose: { activeHomeDetailPanel = nil },
-                        onPrimaryAction: { activeHomeDetailPanel = nil },
-                        onSecondaryAction: { activeHomeDetailPanel = nil }
-                    )
-                case .nudge(let item):
-                    HomeNudgeDetailPanel(
-                        title: item.title,
-                        icon: .heart,
-                        iconForeground: VColor.feedNudgeStrong,
-                        iconBackground: VColor.feedNudgeWeak,
-                        description: "Found some issues.",
-                        cards: HomeNudgeDetailPanelPlaceholders.sampleCards,
-                        primaryActionLabel: "Resolve All",
-                        secondaryActionLabel: "Clear All",
-                        onClose: { activeHomeDetailPanel = nil },
-                        onPrimaryAction: { activeHomeDetailPanel = nil },
-                        onSecondaryAction: { activeHomeDetailPanel = nil },
-                        onCardAction: { _, _ in }
-                    )
                 case .emailDraft(let item):
                     HomeDetailPanel(
                         icon: nil,
@@ -385,11 +349,10 @@ extension MainWindowView {
             }
         )
         .onAppear {
-            homeStore.isHomeTabVisible = true
-            homeStore.markSeen()
+            homeStore.setHomeTabVisible(true)
         }
         .onDisappear {
-            homeStore.isHomeTabVisible = false
+            homeStore.setHomeTabVisible(false)
             // Codex P2 feedback (#27467): clear the detail panel so
             // re-entering Home doesn't show a stale split layout when the
             // user leaves Home through routes other than the detail panel's
@@ -940,31 +903,23 @@ extension MainWindowView {
 
 // MARK: - Feed Item Icon Helpers
 
-private func iconForFeedItem(_ item: FeedItem) -> VIcon {
-    switch item.type {
-    case .nudge:   return .heart
-    case .action:  return .arrowLeft
-    case .digest:  return .bell
-    case .thread:  return .calendar
-    }
+/// With the v2 schema collapsed to a single `.notification` type these
+/// helpers no longer per-type-dispatch — every feed item uses the same
+/// generic glyph. A per-item visual language driven by `urgency` or
+/// `detailPanel.kind` is a future iteration. The `FeedItem` parameter is
+/// retained (named `_` internally to flag intentionally unused) so a
+/// future per-urgency / per-detail-panel-kind dispatch can re-thread it
+/// without touching every call site.
+private func iconForFeedItem(_: FeedItem) -> VIcon {
+    .bell
 }
 
-private func iconForegroundForFeedItem(_ item: FeedItem) -> Color {
-    switch item.type {
-    case .nudge:   return VColor.feedNudgeStrong
-    case .action:  return VColor.systemInfoStrong
-    case .digest:  return VColor.feedDigestStrong
-    case .thread:  return VColor.feedThreadStrong
-    }
+private func iconForegroundForFeedItem(_: FeedItem) -> Color {
+    VColor.feedDigestStrong
 }
 
-private func iconBackgroundForFeedItem(_ item: FeedItem) -> Color {
-    switch item.type {
-    case .nudge:   return VColor.feedNudgeWeak
-    case .action:  return VColor.systemInfoWeak
-    case .digest:  return VColor.feedDigestWeak
-    case .thread:  return VColor.feedThreadWeak
-    }
+private func iconBackgroundForFeedItem(_: FeedItem) -> Color {
+    VColor.feedDigestWeak
 }
 
 // MARK: - Wrapper Views

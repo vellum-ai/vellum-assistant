@@ -75,6 +75,12 @@ import { dropDeprecatedSecretDetectionKeysMigration } from "./074-drop-deprecate
 import { memoryV2Bm25BDefaultReembedMigration } from "./075-memory-v2-bm25-b-default-reembed.js";
 import { dropServicesInferenceModeMigration } from "./076-drop-services-inference-mode.js";
 import { seedMemoryRouterCallsiteMigration } from "./077-seed-memory-router-callsite.js";
+import { releaseNotesTavilyWebSearchMigration } from "./078-release-notes-tavily-web-search.js";
+import { homeFeedNotificationOnlyMigration } from "./079-home-feed-notification-only.js";
+import { restrictVercelApiTokenMetadataMigration } from "./080-restrict-vercel-api-token-metadata.js";
+import { backfillBashAllowedToolsForInjectionCredentialsMigration } from "./081-backfill-bash-allowed-tools-for-injection-credentials.js";
+import { backfillManagedProfileLabelsMigration } from "./082-backfill-managed-profile-labels.js";
+import { systemPromptPrefixToFileMigration } from "./083-system-prompt-prefix-to-file.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -161,4 +167,10 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   memoryV2Bm25BDefaultReembedMigration,
   dropServicesInferenceModeMigration,
   seedMemoryRouterCallsiteMigration,
+  releaseNotesTavilyWebSearchMigration,
+  homeFeedNotificationOnlyMigration,
+  restrictVercelApiTokenMetadataMigration,
+  backfillBashAllowedToolsForInjectionCredentialsMigration,
+  backfillManagedProfileLabelsMigration,
+  systemPromptPrefixToFileMigration,
 ];

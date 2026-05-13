@@ -134,6 +134,17 @@ describe("AssistantConfigSchema", () => {
     expect(result.auditLog).toEqual({ retentionDays: 0 });
   });
 
+  test("accepts Tavily as a web search provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "web-search": { mode: "your-own", provider: "tavily" },
+      },
+    });
+
+    expect(result.services["web-search"].provider).toBe("tavily");
+    expect(result.services["web-search"].mode).toBe("your-own");
+  });
+
   test("accepts valid complete config", () => {
     const input = {
       llm: {
@@ -348,6 +359,27 @@ describe("AssistantConfigSchema", () => {
       maxInjectTokens: 16000,
       targetHeadroomTokens: 10000,
     });
+  });
+
+  test("scratchpad injection defaults to enabled", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.retrieval.scratchpadInjection).toEqual({
+      enabled: true,
+    });
+  });
+
+  test("scratchpad injection accepts disabled override", () => {
+    const result = AssistantConfigSchema.parse({
+      memory: { retrieval: { scratchpadInjection: { enabled: false } } },
+    });
+    expect(result.memory.retrieval.scratchpadInjection.enabled).toBe(false);
+  });
+
+  test("scratchpad injection rejects non-boolean enabled", () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { retrieval: { scratchpadInjection: { enabled: "yes" } } },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("applies memory.cleanup defaults", () => {

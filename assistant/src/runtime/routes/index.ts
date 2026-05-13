@@ -25,6 +25,7 @@ import { ROUTES as BROWSER_ROUTES } from "./browser-routes.js";
 import { ROUTES as BTW_ROUTES } from "./btw-routes.js";
 import { ROUTES as CACHE_ROUTES } from "./cache-routes.js";
 import { ROUTES as CALL_ROUTES } from "./call-routes.js";
+import { ROUTES as CHANNEL_AVAILABILITY_ROUTES } from "./channel-availability-routes.js";
 import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.js";
 import { CHANNEL_ROUTES } from "./channel-route-definitions.js";
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
@@ -95,6 +96,7 @@ import { ROUTES as PLATFORM_ROUTES } from "./platform-routes.js";
 import { ROUTES as PLAYGROUND_ROUTES } from "./playground/index.js";
 import { ROUTES as PROFILER_ROUTES } from "./profiler-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
+import { ROUTES as PUBLISH_ROUTES } from "./publish-routes.js";
 import { ROUTES as QUESTION_ROUTES } from "./question-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
@@ -144,6 +146,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CALL_ROUTES,
   ...CHANNEL_ROUTES,
   ...CHANNEL_VERIFICATION_ROUTES,
+  ...CHANNEL_AVAILABILITY_ROUTES,
   ...CHANNEL_READINESS_ROUTES,
   ...BROWSER_ROUTES,
   ...BTW_ROUTES,
@@ -210,6 +213,7 @@ export const ROUTES: RouteDefinition[] = [
   ...PLAYGROUND_ROUTES,
   ...PROFILER_ROUTES,
   ...PS_ROUTES,
+  ...PUBLISH_ROUTES,
   ...QUESTION_ROUTES,
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,

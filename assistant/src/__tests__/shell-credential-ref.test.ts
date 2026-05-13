@@ -93,6 +93,7 @@ afterAll(() => {
 describe("shell tool credential ref resolution", () => {
   test("service/field ref resolves to UUID and reaches session creation", async () => {
     const meta = upsertCredentialMetadata("fal", "api_key", {
+      allowedTools: ["bash"],
       injectionTemplates: [
         {
           hostPattern: "*.fal.ai",
@@ -120,7 +121,9 @@ describe("shell tool credential ref resolution", () => {
   });
 
   test("UUID ref remains supported", async () => {
-    const meta = upsertCredentialMetadata("github", "token");
+    const meta = upsertCredentialMetadata("github", "token", {
+      allowedTools: ["bash"],
+    });
 
     await shellTool.execute(
       {
@@ -156,7 +159,9 @@ describe("shell tool credential ref resolution", () => {
   });
 
   test("mixed known+unknown refs fails fast (no partial execution)", async () => {
-    upsertCredentialMetadata("fal", "api_key");
+    upsertCredentialMetadata("fal", "api_key", {
+      allowedTools: ["bash"],
+    });
 
     const result = await shellTool.execute(
       {
@@ -175,7 +180,9 @@ describe("shell tool credential ref resolution", () => {
   });
 
   test("duplicate refs are deduped", async () => {
-    const meta = upsertCredentialMetadata("fal", "api_key");
+    const meta = upsertCredentialMetadata("fal", "api_key", {
+      allowedTools: ["bash"],
+    });
 
     await shellTool.execute(
       {
@@ -207,6 +214,91 @@ describe("shell tool credential ref resolution", () => {
 
     // Should not fail — credential resolution only happens in proxied mode
     expect(result.isError).toBeFalsy();
+    expect(mockGetOrStartSession).not.toHaveBeenCalled();
+  });
+
+  test("credential with allowedTools excluding bash is denied for proxied shell", async () => {
+    upsertCredentialMetadata("vercel", "api_token", {
+      allowedTools: ["publish_page"],
+      injectionTemplates: [
+        {
+          hostPattern: "api.vercel.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ],
+    });
+
+    const result = await shellTool.execute(
+      {
+        command: "curl https://api.vercel.com/v1/projects",
+        activity: "test",
+        network_mode: "proxied",
+        credential_ids: ["vercel/api_token"],
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("credential tool policy denied");
+    expect(result.content).toContain("not bash");
+    // Must not call getOrStartSession — policy denial happens before session creation
+    expect(mockGetOrStartSession).not.toHaveBeenCalled();
+  });
+
+  test("credential with allowedTools including bash starts proxied session", async () => {
+    const meta = upsertCredentialMetadata("deploy_svc", "api_key", {
+      allowedTools: ["bash"],
+      injectionTemplates: [
+        {
+          hostPattern: "*.deploy-svc.io",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ],
+    });
+
+    await shellTool.execute(
+      {
+        command: "echo deploy",
+        activity: "test",
+        network_mode: "proxied",
+        credential_ids: ["deploy_svc/api_key"],
+      },
+      ctx,
+    );
+
+    // Session should be created with the resolved credential ID
+    expect(mockGetOrStartSession).toHaveBeenCalledTimes(1);
+    const callArgs = mockGetOrStartSession.mock.calls[0];
+    expect(callArgs[1]).toEqual([meta.credentialId]);
+  });
+
+  test("mixed allowed and denied credentials fail the whole command before session creation", async () => {
+    upsertCredentialMetadata("allowed_svc", "token", {
+      allowedTools: ["bash"],
+    });
+    upsertCredentialMetadata("denied_svc", "token", {
+      allowedTools: ["publish_page"],
+    });
+
+    const result = await shellTool.execute(
+      {
+        command: "echo mixed",
+        activity: "test",
+        network_mode: "proxied",
+        credential_ids: ["allowed_svc/token", "denied_svc/token"],
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("credential tool policy denied");
+    expect(result.content).toContain("denied_svc/token");
+    expect(result.content).toContain("not bash");
+    // Must not call getOrStartSession — even one denied credential blocks the whole command
     expect(mockGetOrStartSession).not.toHaveBeenCalled();
   });
 });

@@ -3,7 +3,10 @@
  * revoked or blocked channels.
  */
 
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import "./test-preload.js";
 
@@ -18,10 +21,18 @@ type ExistingRow = {
 };
 
 let queryRows: ExistingRow[] = [];
+const queryCalls: { sql: string; params: unknown[] }[] = [];
 const runCalls: { sql: string; params: unknown[] }[] = [];
+const TEST_SOCKET_PATH = join(
+  tmpdir(),
+  `vellum-upsert-contact-channel-test-${process.pid}.sock`,
+);
 
 mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: async (_sql: string, _params: unknown[]) => queryRows,
+  assistantDbQuery: async (sql: string, params: unknown[]) => {
+    queryCalls.push({ sql, params });
+    return queryRows;
+  },
   assistantDbRun: async (sql: string, params: unknown[]) => {
     runCalls.push({ sql, params });
   },
@@ -50,17 +61,22 @@ mock.module("../verification/identity.js", () => ({
 }));
 
 mock.module("../ipc/socket-path.js", () => ({
-  resolveIpcSocketPath: () => ({ path: "/tmp/test.sock" }),
+  resolveIpcSocketPath: () => ({ path: TEST_SOCKET_PATH }),
 }));
 
 // Import after mocks
-const { upsertVerifiedContactChannel } = await import(
-  "../verification/contact-helpers.js"
-);
+const { upsertContactChannel, upsertVerifiedContactChannel } =
+  await import("../verification/contact-helpers.js");
 
 beforeEach(() => {
   queryRows = [];
+  queryCalls.length = 0;
   runCalls.length = 0;
+  writeFileSync(TEST_SOCKET_PATH, "");
+});
+
+afterEach(() => {
+  rmSync(TEST_SOCKET_PATH, { force: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -169,5 +185,32 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
 
     const inserts = runCalls.filter((c) => c.sql.includes("INSERT"));
     expect(inserts).toHaveLength(2);
+  });
+});
+
+describe("upsertContactChannel — channel address casing", () => {
+  test("preserves Slack actor ID casing when seeding an inbound contact channel", async () => {
+    queryRows = [];
+
+    await upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "U123EXAMPLE",
+      externalChatId: "D123EXAMPLE",
+    });
+
+    const channelInsert = runCalls.find((c) =>
+      c.sql.includes("INSERT OR IGNORE INTO contact_channels"),
+    );
+    expect(channelInsert).toBeTruthy();
+    expect(channelInsert!.params[3]).toBe("U123EXAMPLE");
+    expect(channelInsert!.params[4]).toBe("U123EXAMPLE");
+
+    expect(queryCalls[0]!.sql).toContain("CASE WHEN cc.address = ?");
+    expect(queryCalls[0]!.params).toEqual([
+      "slack",
+      "U123EXAMPLE",
+      "U123EXAMPLE",
+      "U123EXAMPLE",
+    ]);
   });
 });

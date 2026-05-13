@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfigReadOnly } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
+import { isExternalPluginsEnabled } from "../plugins/feature-gate.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
@@ -15,6 +16,7 @@ import { registerBackupCommand } from "./commands/backup.js";
 import { registerBashCommand } from "./commands/bash.js";
 import { registerBrowserCommand } from "./commands/browser.js";
 import { registerCacheCommand } from "./commands/cache.js";
+import { registerChangelogCommand } from "./commands/changelog.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
 import { registerClientsCommand } from "./commands/clients.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
@@ -36,6 +38,7 @@ import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPendingCommand } from "./commands/pending.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
+import { registerPluginsCommand } from "./commands/plugins.js";
 import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSkillsCommand } from "./commands/skills.js";
@@ -83,6 +86,7 @@ Examples:
   registerBashCommand(program);
   registerBrowserCommand(program);
   registerCacheCommand(program);
+  registerChangelogCommand(program);
   registerChannelVerificationSessionsCommand(program);
   registerClientsCommand(program);
   registerCompletionsCommand(program);
@@ -105,6 +109,9 @@ Examples:
   registerOAuthCommand(program);
   registerPendingCommand(program);
   registerPlatformCommand(program);
+  if (isExternalPluginsEnabled(getConfigReadOnly())) {
+    registerPluginsCommand(program);
+  }
   registerRoutesCommand(program);
   registerSequenceCommand(program);
   registerStatusCommand(program);
@@ -124,9 +131,28 @@ Examples:
   // remain available even without a workspace.
   // Workspace-independent commands are exempt:
   //   completions — pure shell-script generation, no workspace files needed
-  const workspaceExemptCommands = new Set(["completions", "status"]);
+  //   status     — diagnostic; should run even when the workspace is broken
+  //   changelog  — pure read-only network surface backed by GitHub Releases;
+  //                its on-disk cache is best-effort and tolerates a missing
+  //                workspace dir (see changelog.ts:writeCache)
+  const workspaceExemptCommands = new Set([
+    "completions",
+    "status",
+    "changelog",
+  ]);
+  // An action command's `.name()` returns the leaf (e.g. "show" for
+  // `changelog show <ver>`), so we walk up the parent chain to see whether
+  // any ancestor — typically the top-level subcommand — is exempt.
+  const isExemptFromWorkspaceCheck = (command: Command): boolean => {
+    let current: Command | null | undefined = command;
+    while (current && current !== program) {
+      if (workspaceExemptCommands.has(current.name())) return true;
+      current = current.parent;
+    }
+    return false;
+  };
   program.hook("preAction", (_thisCommand, actionCommand) => {
-    if (workspaceExemptCommands.has(actionCommand.name())) {
+    if (isExemptFromWorkspaceCheck(actionCommand)) {
       return;
     }
     const workspaceDir = getWorkspaceDir();

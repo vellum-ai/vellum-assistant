@@ -734,6 +734,40 @@ public struct ConversationListInvalidatedMessage: Decodable, Sendable {
     public let reason: String
 }
 
+/// Generic persisted-state invalidation event.
+///
+/// Tags name stale resources and intentionally do not carry resource data.
+/// Routing/refetch behavior is added separately by the native sync router.
+public struct SyncChangedMessage: Decodable, Sendable {
+    public let tags: [String]
+
+    public init(tags: [String]) {
+        self.tags = tags
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tags
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard var tagContainer = try? container.nestedUnkeyedContainer(forKey: .tags) else {
+            tags = []
+            return
+        }
+
+        var decodedTags: [String] = []
+        while !tagContainer.isAtEnd {
+            if let tag = try? tagContainer.decode(String.self) {
+                decodedTags.append(tag)
+            } else {
+                _ = try? tagContainer.decode(AnyCodable.self)
+            }
+        }
+        tags = decodedTags
+    }
+}
+
 /// Conversation title update push message emitted after first-turn auto-titling.
 /// Backed by generated `ConversationTitleUpdated`.
 public typealias ConversationTitleUpdatedMessage = ConversationTitleUpdated
@@ -1431,6 +1465,7 @@ public enum ConversationErrorCode: String, CaseIterable, Codable, Sendable {
     case regenerateFailed = "REGENERATE_FAILED"
     case authenticationRequired = "AUTHENTICATION_REQUIRED"
     case providerNotConfigured = "PROVIDER_NOT_CONFIGURED"
+    case providerInvalidKey = "PROVIDER_INVALID_KEY"
     case managedKeyInvalid = "MANAGED_KEY_INVALID"
     case unknown = "UNKNOWN"
 
@@ -1457,8 +1492,17 @@ public struct ConversationErrorMessage: Decodable, Sendable {
     /// Contains the message content that failed to send, used to mark
     /// the specific user message as `.sendFailed` in the chat.
     public let failedMessageContent: String?
+    /// Optional `provider_connections.name` for credential-related errors
+    /// (`PROVIDER_INVALID_KEY`, `PROVIDER_NOT_CONFIGURED`). The
+    /// `InvalidApiKeyBanner` / `MissingApiKeyBanner` reads this so the
+    /// surface can name the exact connection to fix.
+    public let connectionName: String?
+    /// Optional name of the resolved profile (`llm.activeProfile` /
+    /// per-call override) in play when the error occurred. Surfaced
+    /// alongside `connectionName` for chat banners.
+    public let profileName: String?
 
-    public init(conversationId: String, code: ConversationErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil) {
+    public init(conversationId: String, code: ConversationErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil, connectionName: String? = nil, profileName: String? = nil) {
         self.conversationId = conversationId
         self.code = code
         self.userMessage = userMessage
@@ -1466,6 +1510,8 @@ public struct ConversationErrorMessage: Decodable, Sendable {
         self.debugDetails = debugDetails
         self.errorCategory = errorCategory
         self.failedMessageContent = failedMessageContent
+        self.connectionName = connectionName
+        self.profileName = profileName
     }
 }
 
@@ -2636,16 +2682,6 @@ extension ModelGetRequest {
     }
 }
 
-/// Set the active model.
-/// Backed by generated `ModelSetRequest`.
-public typealias ModelSetRequestMessage = ModelSetRequest
-
-extension ModelSetRequest {
-    public init(model: String) {
-        self.init(type: "model_set", model: model)
-    }
-}
-
 /// Set the active image generation model.
 /// Backed by generated `ImageGenModelSetRequest`.
 public typealias ImageGenModelSetRequestMessage = ImageGenModelSetRequest
@@ -2849,6 +2885,7 @@ public struct SubagentAbortMessage: Encodable, Sendable {
 /// Wire type: `"subagent_event"`
 public struct SubagentEventMessage: Decodable, Sendable {
     public let subagentId: String
+    public let conversationId: String?
     public let event: ServerMessage
 }
 
@@ -2867,6 +2904,7 @@ public enum ServerMessage: Decodable, Sendable {
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
     case conversationListInvalidated(ConversationListInvalidatedMessage)
+    case syncChanged(SyncChangedMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
     case memoryRecalled(MemoryRecalledMessage)
@@ -3390,6 +3428,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_list_invalidated":
             let message = try ConversationListInvalidatedMessage(from: decoder)
             self = .conversationListInvalidated(message)
+        case "sync_changed":
+            let message = try SyncChangedMessage(from: decoder)
+            self = .syncChanged(message)
         case "schedule_conversation_created":
             let message = try ScheduleConversationCreated(from: decoder)
             self = .scheduleConversationCreated(message)

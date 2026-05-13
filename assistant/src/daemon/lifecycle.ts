@@ -31,10 +31,6 @@ import {
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import {
-  type FeedSchedulerHandle,
-  startFeedScheduler,
-} from "../home/feed-scheduler.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
@@ -58,11 +54,12 @@ import {
 } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { installPluginRuntime } from "../plugins/external-api.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
@@ -652,6 +649,12 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
+    // Install the `globalThis.__vellumPluginRuntime` bridge before scanning
+    // for user plugins. Plugins that touch the bridge from their module body
+    // would throw without this — see `plugins/external-api.ts` for the
+    // rationale (compiled-binary module identity).
+    installPluginRuntime();
+
     // Populate the registry with user plugins from `<workspaceDir>/plugins/*`
     // AFTER first-party plugins have already registered via their static
     // side-effect imports. User plugins may fail to load individually; a
@@ -993,24 +996,6 @@ export async function runDaemon(): Promise<void> {
           dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
         });
       },
-      (params) => {
-        void emitNotificationSignal({
-          sourceEventName: "watcher.escalation",
-          sourceChannel: "watcher",
-          sourceContextId: `watcher-escalation-${Date.now()}`,
-          attentionHints: {
-            requiresAction: true,
-            urgency: "high",
-            isAsyncBackground: false,
-            visibleInSourceNow: false,
-          },
-          contextPayload: {
-            title: params.title,
-            body: params.body,
-          },
-          dedupeKey: `watcher:escalation:${crypto.randomUUID()}`,
-        });
-      },
       (info) => {
         broadcastMessage({
           type: "schedule_conversation_created",
@@ -1020,19 +1005,6 @@ export async function runDaemon(): Promise<void> {
         });
       },
     );
-
-    // Home activity feed scheduler — drives the assistant reflection
-    // loop + the platform Gmail digest. Fire-and-forget; a startup
-    // failure must never block the rest of daemon boot (CLAUDE.md).
-    let feedScheduler: FeedSchedulerHandle | null = null;
-    try {
-      feedScheduler = startFeedScheduler();
-    } catch (err) {
-      log.warn(
-        { err },
-        "Failed to start home feed scheduler — continuing startup",
-      );
-    }
 
     // Start the runtime HTTP server for optional REST API access.
     // Defaults to port 7821.
@@ -1373,7 +1345,6 @@ export async function runDaemon(): Promise<void> {
       filing,
       runtimeHttp,
       scheduler,
-      feedScheduler,
       getMemoryWorker: () => bgRefs.memoryWorker,
       getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,

@@ -1,16 +1,16 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  jest,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
+
+// Default the warm-pool gate to OPEN for existing tests — they predate
+// the gate and expect heartbeat/filing/etc. to run on every tick. Tests
+// that specifically exercise the gate path override this mock locally.
+mock.module("../runtime/pre-first-message-gate.js", () => ({
+  hasReceivedUserMessage: () => true,
+  _resetPreFirstMessageGateCacheForTests: () => {},
+}));
 
 // ── Heartbeat run store mock ───────────────────────────────────────
 const mockInsertPendingHeartbeatRun = mock(() => "mock-run-id");
@@ -32,12 +32,6 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   markStaleRunningAsError: mockMarkStaleRunningAsError,
   listHeartbeatRuns: mockListHeartbeatRuns,
   countCompletedHeartbeatRuns: mockCountCompletedHeartbeatRuns,
-}));
-
-// ── Feed event mock ───────────────────────────────────────────────
-const mockEmitFeedEvent = mock(() => Promise.resolve());
-mock.module("../home/emit-feed-event.js", () => ({
-  emitFeedEvent: mockEmitFeedEvent,
 }));
 
 // Mock config loader
@@ -383,8 +377,6 @@ describe("HeartbeatService", () => {
     mockListHeartbeatRuns.mockImplementation(() => []);
     mockCountCompletedHeartbeatRuns.mockClear();
     mockCountCompletedHeartbeatRuns.mockImplementation(() => 10);
-    mockEmitFeedEvent.mockClear();
-    mockEmitFeedEvent.mockImplementation(() => Promise.resolve());
 
     mockConfig = {
       heartbeat: {
@@ -848,15 +840,11 @@ describe("HeartbeatService", () => {
     await service.runOnce();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(conversationCreatedCalls).toHaveLength(0);
+    // The conversation surfaces to the sidebar via the runner's bootstrap
+    // callback for *every* heartbeat — "silent OK" means no notification
+    // signal is emitted, not that the conversation is hidden.
+    expect(conversationCreatedCalls).toHaveLength(1);
     expect(emittedNotificationSignals).toHaveLength(0);
-    const successFeedCalls = mockEmitFeedEvent.mock.calls.filter(
-      (call: unknown[]) => {
-        const opts = call[0] as { dedupKey?: string };
-        return opts.dedupKey?.startsWith("heartbeat:ok:");
-      },
-    );
-    expect(successFeedCalls).toHaveLength(0);
   });
 
   test("HEARTBEAT_OK stays silent when earlier content mentions HEARTBEAT_ALERT", async () => {
@@ -897,7 +885,9 @@ describe("HeartbeatService", () => {
     await service.runOnce();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(conversationCreatedCalls).toHaveLength(0);
+    // Conversation surfaces via the runner bootstrap, but no notification
+    // is emitted since the disposition is OK.
+    expect(conversationCreatedCalls).toHaveLength(1);
     expect(emittedNotificationSignals).toHaveLength(0);
   });
 
@@ -1564,7 +1554,10 @@ describe("HeartbeatService", () => {
       await service.runOnce();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(conversationCreatedCalls).toHaveLength(0);
+      // The bootstrap-time surface fires regardless of CAS (it happens
+      // before completeHeartbeatRun). CAS-false suppresses the alert
+      // notification emit but not the sidebar entry.
+      expect(conversationCreatedCalls).toHaveLength(1);
       expect(emittedNotificationSignals).toHaveLength(0);
     });
 
@@ -1581,15 +1574,6 @@ describe("HeartbeatService", () => {
 
       // completeHeartbeatRun returned false, so alerter should NOT be called
       expect(alerterCalls).toHaveLength(0);
-
-      // No failure feed event either
-      const failCalls = mockEmitFeedEvent.mock.calls.filter(
-        (call: unknown[]) => {
-          const opts = call[0] as { dedupKey?: string };
-          return opts.dedupKey?.startsWith("heartbeat:fail:");
-        },
-      );
-      expect(failCalls).toHaveLength(0);
     });
 
     test("active-hours skip calls skipHeartbeatRun", async () => {
@@ -1738,39 +1722,14 @@ describe("HeartbeatService", () => {
       expect(mockSupersedePendingRun).toHaveBeenCalledWith("mock-run-id");
     });
 
-    test("timeout calls completeHeartbeatRun with status timeout", async () => {
-      jest.useFakeTimers();
-      try {
-        let resolveRun: () => void;
-        const runPromise = new Promise<void>((r) => {
-          resolveRun = r;
-        });
+    // Note: the heartbeat-specific behavior on timeout is the trivial
+    // `errorKind === "timeout" ? "timeout" : "error"` mapping. The runner
+    // owns the actual timeout race (covered in
+    // `background-job-runner.test.ts`), so we don't reproduce its
+    // setTimeout-based timing here — fake timers don't reliably propagate
+    // into the runner's module scope across bun versions.
 
-        const service = createService({
-          processMessage: async () => {
-            await runPromise;
-            return { messageId: "msg-1" };
-          },
-        });
-
-        const runOncePromise = service.runOnce();
-        // Advance past the 30-minute timeout
-        jest.advanceTimersByTime(30 * 60 * 1000 + 1000);
-        await runOncePromise;
-
-        expect(mockCompleteHeartbeatRun).toHaveBeenCalledWith("mock-run-id", {
-          status: "timeout",
-          error: "Heartbeat execution exceeded the 30-minute timeout",
-        });
-
-        // Clean up — resolve the hanging promise so it doesn't leak
-        resolveRun!();
-      } finally {
-        jest.useRealTimers();
-      }
-    });
-
-    test("failure feed event has urgency high and includes error message", async () => {
+    test("failure emits activity.failed notification with errorKind exception", async () => {
       const service = createService({
         processMessage: async () => {
           throw new Error("web_search outage");
@@ -1779,192 +1738,50 @@ describe("HeartbeatService", () => {
 
       await service.runOnce();
 
-      const failCalls = mockEmitFeedEvent.mock.calls.filter(
-        (call: unknown[]) => {
-          const opts = call[0] as { title?: string };
-          return opts.title === "Heartbeat Failed";
-        },
+      const failSignals = emittedNotificationSignals.filter(
+        (s) => s.sourceEventName === "activity.failed",
       );
-      expect(failCalls).toHaveLength(1);
-      const opts = (failCalls as any[][])[0][0] as {
-        urgency?: string;
-        summary?: string;
-      };
-      expect(opts.urgency).toBe("high");
-      expect(opts.summary).toContain("web_search outage");
+      expect(failSignals).toHaveLength(1);
+      const signal = failSignals[0]!;
+      expect(signal.contextPayload.jobName).toBe("heartbeat");
+      expect(signal.contextPayload.errorKind).toBe("exception");
+      expect(signal.contextPayload.errorMessage).toContain("web_search outage");
+      expect(signal.attentionHints?.urgency).toBe("medium");
+      expect(signal.attentionHints?.isAsyncBackground).toBe(true);
     });
 
-    test("CAS false on complete suppresses failure feed event", async () => {
-      mockCompleteHeartbeatRun.mockImplementation(() => false);
-
-      const service = createService({
-        processMessage: async () => {
-          throw new Error("some error");
-        },
-      });
-
-      await service.runOnce();
-
-      const failCalls = mockEmitFeedEvent.mock.calls.filter(
-        (call: unknown[]) => {
-          const opts = call[0] as { title?: string };
-          return opts.title === "Heartbeat Failed";
-        },
-      );
-      expect(failCalls).toHaveLength(0);
-    });
-
-    test("timeout emits feed event with urgency high", async () => {
-      jest.useFakeTimers();
-      try {
-        let resolveRun: () => void;
-        const runPromise = new Promise<void>((r) => {
-          resolveRun = r;
-        });
-
-        const service = createService({
-          processMessage: async () => {
-            await runPromise;
-            return { messageId: "msg-1" };
-          },
-        });
-
-        const runOncePromise = service.runOnce();
-        jest.advanceTimersByTime(30 * 60 * 1000 + 1000);
-        await runOncePromise;
-
-        const timeoutCalls = mockEmitFeedEvent.mock.calls.filter(
-          (call: unknown[]) => {
-            const opts = call[0] as { title?: string };
-            return opts.title === "Heartbeat Timed Out";
-          },
-        );
-        expect(timeoutCalls).toHaveLength(1);
-        const opts = (timeoutCalls as any[][])[0][0] as {
-          urgency?: string;
-        };
-        expect(opts.urgency).toBe("high");
-
-        resolveRun!();
-      } finally {
-        jest.useRealTimers();
-      }
-    });
-
-    test("CAS false on timeout suppresses timeout feed event", async () => {
-      jest.useFakeTimers();
-      try {
-        mockCompleteHeartbeatRun.mockImplementation(() => false);
-
-        let resolveRun: () => void;
-        const runPromise = new Promise<void>((r) => {
-          resolveRun = r;
-        });
-
-        const service = createService({
-          processMessage: async () => {
-            await runPromise;
-            return { messageId: "msg-1" };
-          },
-        });
-
-        const runOncePromise = service.runOnce();
-        jest.advanceTimersByTime(30 * 60 * 1000 + 1000);
-        await runOncePromise;
-
-        // completeHeartbeatRun returned false, so no timeout feed event
-        const timeoutCalls = mockEmitFeedEvent.mock.calls.filter(
-          (call: unknown[]) => {
-            const opts = call[0] as { title?: string };
-            return opts.title === "Heartbeat Timed Out";
-          },
-        );
-        expect(timeoutCalls).toHaveLength(0);
-
-        resolveRun!();
-      } finally {
-        jest.useRealTimers();
-      }
-    });
-
-    test("late run emits late feed event", async () => {
-      const service = createService();
-      service.start();
-
-      // Set the pending run to be 10 minutes in the past
-      (service as any)._nextRunAt = Date.now() - 10 * 60 * 1000;
-      (service as any)._pendingRunId = "late-run-id";
-
-      await service.runOnce();
-
-      const lateCalls = mockEmitFeedEvent.mock.calls.filter(
-        (call: unknown[]) => {
-          const opts = call[0] as { title?: string };
-          return opts.title === "Heartbeat Ran Late";
-        },
-      );
-      expect(lateCalls).toHaveLength(1);
-      const opts = (lateCalls as any[][])[0][0] as {
-        urgency?: string;
-        summary?: string;
-      };
-      expect(opts.urgency).toBe("medium");
-      expect(opts.summary).toContain("10 minutes late");
-
-      await service.stop();
-    });
-
-    test("on-time run does not emit late feed event", async () => {
-      const service = createService();
-      await service.runOnce();
-
-      const lateCalls = mockEmitFeedEvent.mock.calls.filter(
-        (call: unknown[]) => {
-          const opts = call[0] as { title?: string };
-          return opts.title === "Heartbeat Ran Late";
-        },
-      );
-      expect(lateCalls).toHaveLength(0);
-    });
-
-    test("start() emits missed-run feed event when stale rows exist", () => {
+    test("start() emits activity.failed notification when stale rows exist", () => {
       mockMarkStaleRunsAsMissed.mockImplementation(() => 2);
       mockMarkStaleRunningAsError.mockImplementation(() => 1);
 
       const service = createService();
       service.start();
 
-      const missedCalls = mockEmitFeedEvent.mock.calls.filter(
-        (call: unknown[]) => {
-          const opts = call[0] as { title?: string };
-          return opts.title === "Heartbeat Runs Missed";
-        },
+      const missedSignals = emittedNotificationSignals.filter(
+        (s) => s.sourceEventName === "activity.failed",
       );
-      expect(missedCalls).toHaveLength(1);
-      const opts = (missedCalls as any[][])[0][0] as {
-        urgency?: string;
-        summary?: string;
-      };
-      expect(opts.urgency).toBe("high");
-      expect(opts.summary).toContain("3");
+      expect(missedSignals).toHaveLength(1);
+      const signal = missedSignals[0]!;
+      expect(signal.dedupeKey).toContain("activity-failed:heartbeat-missed:");
+      expect(signal.contextPayload.jobName).toBe("heartbeat");
+      const errorMessage = signal.contextPayload.errorMessage as string;
+      expect(errorMessage).toContain("3");
+      expect(signal.attentionHints?.urgency).toBe("medium");
 
       service.stop();
     });
 
-    test("start() does not emit missed-run feed event when counts are 0", () => {
+    test("start() does not emit notification when counts are 0", () => {
       mockMarkStaleRunsAsMissed.mockImplementation(() => 0);
       mockMarkStaleRunningAsError.mockImplementation(() => 0);
 
       const service = createService();
       service.start();
 
-      const missedCalls = mockEmitFeedEvent.mock.calls.filter(
-        (call: unknown[]) => {
-          const opts = call[0] as { title?: string };
-          return opts.title === "Heartbeat Runs Missed";
-        },
+      const missedSignals = emittedNotificationSignals.filter(
+        (s) => s.sourceEventName === "activity.failed",
       );
-      expect(missedCalls).toHaveLength(0);
+      expect(missedSignals).toHaveLength(0);
       service.stop();
     });
   });

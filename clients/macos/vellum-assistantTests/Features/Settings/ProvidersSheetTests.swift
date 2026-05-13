@@ -78,7 +78,7 @@ final class ProvidersSheetTests: XCTestCase {
 
     func testCreateCallsClientWithExpectedArguments() async {
         let created = makeConnection(name: "new-conn", provider: "openai", authType: "api_key")
-        mockClient.createResponse = created
+        mockClient.createResponse = .created(created)
 
         _ = await mockClient.createProviderConnection(
             name: "new-conn",
@@ -178,5 +178,148 @@ final class ProvidersSheetTests: XCTestCase {
         mockClient.listResponse = [conn]
         let sheet = makeSheet()
         XCTAssertNotNil(sheet.body)
+    }
+
+    // MARK: - Managed connections: Save as New entry point
+
+    /// Builds a `ProviderConnection` flagged as `isManaged: true`, matching
+    /// the daemon-seeded canonical rows (anthropic-managed / openai-managed
+    /// / gemini-managed) that own the Save as New affordance.
+    private func makeManagedConnection(
+        name: String = "anthropic-managed",
+        provider: String = "anthropic",
+        label: String? = "Anthropic"
+    ) -> ProviderConnection {
+        ProviderConnection(
+            name: name,
+            provider: provider,
+            auth: ProviderConnectionAuth(type: "platform", credential: nil),
+            status: .active,
+            label: label,
+            createdAt: 0,
+            updatedAt: 0,
+            isManaged: true
+        )
+    }
+
+    /// A managed row must keep the sheet structurally valid — its row branch
+    /// in `connectionRow` takes the `beginManagedEdit` path (locks Auth,
+    /// disables Delete), and that branch must not throw a ViewBuilder type
+    /// error or crash the inline editor on open.
+    func testSheetBuildsWithManagedConnection() {
+        mockClient.listResponse = [makeManagedConnection()]
+        let sheet = makeSheet()
+        XCTAssertNotNil(
+            sheet.body,
+            "Sheet must build when a managed connection is loaded — exercises the managed-edit branch in `connectionRow` and the Save as New footer surface."
+        )
+    }
+
+    /// The `EditorState` enum must keep `.managedEdit` distinct from `.edit`.
+    /// The Save as New button is gated off `isAuthLocked`, which depends on
+    /// `.managedEdit` pattern matching — collapsing the two cases would
+    /// silently leak the button into plain edit mode (and vice versa,
+    /// silently lock auth on user-owned rows).
+    func testManagedEditStateIsDistinctFromEditState() {
+        let managedEdit: ProvidersSheet.EditorState = .managedEdit(name: "anthropic-managed")
+        let plainEdit: ProvidersSheet.EditorState = .edit(name: "anthropic-managed")
+        XCTAssertNotEqual(
+            managedEdit,
+            plainEdit,
+            "managed-edit and edit must remain distinct cases so isAuthLocked / Save as New only fire for managed."
+        )
+        XCTAssertEqual(managedEdit, .managedEdit(name: "anthropic-managed"))
+        XCTAssertEqual(plainEdit, .edit(name: "anthropic-managed"))
+    }
+
+    /// Save as New routes through `createProviderConnection` (POST), not
+    /// `updateProviderConnection` (PATCH) — the daemon assigns a fresh
+    /// user-owned row instead of rewriting the managed source. The view-
+    /// layer transition is exercised through `editorState = .create`; this
+    /// test asserts the protocol-level contract of the resulting save.
+    func testForkFromManagedSourceCallsCreateNotUpdate() async {
+        let forked = makeConnection(
+            name: "anthropic-personal",
+            provider: "anthropic",
+            authType: "api_key",
+            label: "Anthropic"
+        )
+        mockClient.createResponse = .created(forked)
+
+        _ = await mockClient.createProviderConnection(
+            name: "anthropic-personal",
+            provider: "anthropic",
+            auth: ProviderConnectionAuth(type: "api_key", credential: "credential/anthropic/api_key"),
+            label: "Anthropic",
+            status: .active
+        )
+
+        XCTAssertEqual(mockClient.createCallCount, 1, "Save as New must POST.")
+        XCTAssertEqual(mockClient.updateCallCount, 0, "Save as New must not PATCH the managed source.")
+        XCTAssertEqual(mockClient.createNameArg, "anthropic-personal")
+        XCTAssertEqual(mockClient.createProviderArg, "anthropic")
+        XCTAssertEqual(mockClient.createAuthArg?.type, "api_key")
+        XCTAssertEqual(mockClient.createAuthArg?.credential, "credential/anthropic/api_key")
+        XCTAssertEqual(mockClient.createLabelArg, "Anthropic")
+    }
+
+    // MARK: - Save as New: auto-generated name
+
+    /// Save as New seeds the new connection's Key with `${provider}-personal`
+    /// when nothing in the list owns that name. Matches the daemon's seed
+    /// naming convention for user-owned forks of canonical managed
+    /// connections (anthropic-managed → anthropic-personal).
+    func testSaveAsNewNamePicksBaseWhenNoCollision() {
+        let chosen = ProvidersSheet.saveAsNewName(
+            provider: "anthropic",
+            existingNames: ["anthropic-managed", "openai-managed"]
+        )
+        XCTAssertEqual(
+            chosen,
+            "anthropic-personal",
+            "First fork of a managed row picks `${provider}-personal` outright."
+        )
+    }
+
+    /// Save as New increments `${provider}-personal-2`, `-3`, … when the
+    /// base name is already taken. Guards against a daemon 409 on the very
+    /// first Create — the user shouldn't have to manually rename to dodge
+    /// an existing fork.
+    func testSaveAsNewNameIncrementsOnCollision() {
+        XCTAssertEqual(
+            ProvidersSheet.saveAsNewName(
+                provider: "anthropic",
+                existingNames: ["anthropic-managed", "anthropic-personal"]
+            ),
+            "anthropic-personal-2",
+            "Second fork lands on `-2` when `-personal` is taken."
+        )
+        XCTAssertEqual(
+            ProvidersSheet.saveAsNewName(
+                provider: "anthropic",
+                existingNames: [
+                    "anthropic-managed",
+                    "anthropic-personal",
+                    "anthropic-personal-2",
+                ]
+            ),
+            "anthropic-personal-3",
+            "Third fork lands on `-3` when `-personal` and `-2` are taken."
+        )
+    }
+
+    /// Gap-skipping: if the user has deleted intermediate forks (e.g.
+    /// `-personal-2` is gone but `-personal-3` still exists), the helper
+    /// still finds the lowest free integer suffix. Pure deterministic
+    /// behavior — no surprise jumps to `-personal-4`.
+    func testSaveAsNewNameFillsLowestGap() {
+        XCTAssertEqual(
+            ProvidersSheet.saveAsNewName(
+                provider: "openai",
+                existingNames: ["openai-personal", "openai-personal-3"]
+            ),
+            "openai-personal-2",
+            "Helper finds the lowest unused suffix instead of jumping past the gap."
+        )
     }
 }

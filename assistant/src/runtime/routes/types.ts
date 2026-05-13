@@ -142,4 +142,30 @@ export interface RouteDefinition {
    * this flag is a declarative signal for documentation and tooling.
    */
   rawBody?: boolean;
+  /**
+   * Per-route request-log control. Routes that opt in can suppress the
+   * per-request INFO log line after a confirmed run of successful
+   * responses — useful for high-frequency probes like `/v1/health` where
+   * the first few responses confirm the route works and every line after
+   * that is just noise. Non-success responses (status >= 400) always log.
+   */
+  logging?: RouteLoggingConfig;
+}
+
+/**
+ * Logging behavior for a single route. Currently only the success-suppression
+ * counter is supported; new knobs (sampling, periodic summary lines) can be
+ * added here as separate fields without changing call sites.
+ */
+export interface RouteLoggingConfig {
+  /**
+   * After this many successful (status < 400) responses, suppress the
+   * per-request INFO log line for further successful responses on the
+   * same route (keyed by `operationId`, so all path-param variants
+   * share a single counter).
+   *
+   * Counters are process-local and reset on restart. Warning (4xx) and
+   * error (5xx) log lines are always emitted regardless of this setting.
+   */
+  silenceSuccessAfter?: number;
 }

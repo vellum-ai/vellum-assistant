@@ -81,7 +81,7 @@ let mockManagedProxyContext = {
   assistantApiKey: "",
 };
 
-mock.module("../providers/managed-proxy/context.js", () => ({
+mock.module("../providers/platform-proxy/context.js", () => ({
   buildManagedBaseUrl: async () => mockManagedBaseUrl,
   resolveManagedProxyContext: async () => mockManagedProxyContext,
 }));

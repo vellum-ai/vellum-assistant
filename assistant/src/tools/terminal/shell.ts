@@ -17,7 +17,9 @@ import {
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
+import { getCredentialMetadataById } from "../credentials/metadata-store.js";
 import { resolveCredentialRef } from "../credentials/resolve.js";
+import { isToolAllowed } from "../credentials/tool-policy.js";
 import {
   getOrStartSession,
   getSessionEnv,
@@ -214,6 +216,48 @@ class ShellTool implements Tool {
         },
         "Credential refs resolved",
       );
+
+      // -------------------------------------------------------------------
+      // Tool policy enforcement — deny any credential that does not
+      // explicitly allow "bash" in its allowedTools metadata. This check
+      // runs after resolution/dedup and before proxy session creation so
+      // that a denied credential never reaches getOrStartSession.
+      // -------------------------------------------------------------------
+      const deniedCredentials: { credentialId: string; reason: string }[] = [];
+      for (const credId of credentialIds) {
+        const meta = getCredentialMetadataById(credId);
+        if (!meta) {
+          // Should not happen — we just resolved these IDs — but fail-closed.
+          deniedCredentials.push({
+            credentialId: credId,
+            reason: "metadata not found",
+          });
+          continue;
+        }
+        if (!isToolAllowed("bash", meta.allowedTools)) {
+          const tools = meta.allowedTools ?? [];
+          deniedCredentials.push({
+            credentialId: credId,
+            reason:
+              tools.length === 0
+                ? `credential ${meta.service}/${meta.field} has no allowed tools`
+                : `credential ${meta.service}/${meta.field} allows [${tools.join(", ")}] but not bash`,
+          });
+        }
+      }
+      if (deniedCredentials.length > 0) {
+        log.warn(
+          { denied: deniedCredentials },
+          "Credential tool policy denied for proxied bash",
+        );
+        const reasons = deniedCredentials
+          .map((d) => `${d.credentialId}: ${d.reason}`)
+          .join("; ");
+        return {
+          content: `Error: credential tool policy denied — ${reasons}. Each credential must include "bash" in its allowed tools to be used in a proxied shell session.`,
+          isError: true,
+        };
+      }
     } else {
       credentialIds.push(...rawCredentialRefs);
     }

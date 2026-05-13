@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { SEARCH_PROVIDER_IDS } from "../../providers/search-provider-catalog.js";
 import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
@@ -17,11 +18,12 @@ export const VALID_INFERENCE_PROVIDERS = [
 
 const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
 
-const VALID_WEB_SEARCH_PROVIDERS = [
-  "perplexity",
-  "brave",
-  "inference-provider-native",
-] as const;
+/**
+ * Derived from `SEARCH_PROVIDER_CATALOG`. Adding a new web-search provider
+ * to the catalog automatically extends the config-schema enum — no edit
+ * here required.
+ */
+const VALID_WEB_SEARCH_PROVIDERS = SEARCH_PROVIDER_IDS;
 
 const BaseServiceSchema = z.object({
   mode: ServiceModeSchema.default("your-own"),

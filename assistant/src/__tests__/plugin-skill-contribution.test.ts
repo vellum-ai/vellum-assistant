@@ -80,7 +80,6 @@ function buildSkillPlugin(
     manifest: {
       name,
       version: "0.0.1",
-      requires: { pluginRuntime: "v1" },
     },
     skills,
     ...extras,
@@ -204,7 +203,6 @@ describe("plugin skill contributions", () => {
       manifest: {
         name: "no-skills-plugin",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
     });
 

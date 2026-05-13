@@ -26,6 +26,25 @@ struct InferenceProfilesSheet: View {
     @ObservedObject var store: SettingsStore
     @Binding var isPresented: Bool
 
+    /// Connection client used to populate the editor's per-provider
+    /// Connection dropdown (audit finding #5). Injected so tests can stub
+    /// the network. Defaults to the production client; matches the pattern
+    /// already established by `ProvidersSheet`.
+    var connectionClient: ProviderConnectionClientProtocol = ProviderConnectionClient()
+
+    /// Cached active+disabled connection list. The editor reads this via
+    /// the `connections:` parameter and filters down to `.active` matches
+    /// for the currently-selected provider. Refreshed on appear and after
+    /// each editor commit so users who add a connection in another surface
+    /// see it without a manual reload.
+    ///
+    /// `nil` until the first `listProviderConnections` response lands —
+    /// the editor uses this to distinguish "still loading" from "loaded,
+    /// daemon returned zero connections." Without the distinction, a
+    /// fresh workspace would see the full provider catalog and could
+    /// bind a profile to a non-dispatchable provider.
+    @State private var connections: [ProviderConnection]? = nil
+
     @State private var editorState: EditorState?
 
     /// Local working copy for the active editor session. Bound into
@@ -53,6 +72,12 @@ struct InferenceProfilesSheet: View {
     @State private var draggingProfileName: String?
     @State private var dropTargetProfileName: String?
     @State private var dropIndicatorAtBottom: Bool = false
+
+    /// Guards against overlapping status PATCHes for the same profile.
+    /// A rapid off→on→off would otherwise produce out-of-order responses
+    /// that clobber the user's final intent. Mirrors `ProvidersSheet`'s
+    /// `inFlightStatusToggles`.
+    @State private var inFlightStatusToggles: Set<String> = []
 
     enum EditorState: Equatable {
         case create
@@ -89,10 +114,18 @@ struct InferenceProfilesSheet: View {
         .sheet(item: $blockedState) { _ in
             blockedDeleteSheet
         }
-        .onChange(of: editorState) { _, newValue in
+        .onChange(of: editorState) { oldValue, newValue in
             if newValue == nil {
                 editorDraft = InferenceProfile(name: "")
                 editorOriginalName = nil
+            }
+            // Re-fetch when the editor transitions from open → closed so a
+            // freshly-added connection (created in another sheet) shows up
+            // the next time the editor opens. Also covers the create-mode
+            // case where the daemon just wrote a new profile that may
+            // reference a connection added in the same session.
+            if oldValue != nil && newValue == nil {
+                Task { await refreshConnections() }
             }
         }
         .onChange(of: blockedState) { _, newValue in
@@ -100,6 +133,7 @@ struct InferenceProfilesSheet: View {
                 replacementSelection = ""
             }
         }
+        .task { await refreshConnections() }
         .animation(VAnimation.fast, value: editorState != nil)
     }
 
@@ -216,9 +250,12 @@ struct InferenceProfilesSheet: View {
 
     /// Single row: display name + optional badge on the leading column,
     /// summary on the trailing column. Managed profiles disable Edit and
-    /// Delete but keep Duplicate available.
+    /// Delete but keep Duplicate available. The inline status toggle
+    /// works for managed profiles too — `status` is a UI-level concern
+    /// the user always owns (mirrors `ProvidersSheet`'s connection row).
     private func profileRow(_ profile: InferenceProfile) -> some View {
-        HStack(alignment: .center, spacing: VSpacing.md) {
+        let isActive = profile.status != "disabled"
+        return HStack(alignment: .center, spacing: VSpacing.md) {
             VIconView(.gripVertical, size: 14)
                 .foregroundStyle(VColor.contentTertiary)
                 .frame(width: 18, height: 28)
@@ -246,8 +283,8 @@ struct InferenceProfilesSheet: View {
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentDefault)
                     if profile.isManaged {
-                        VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
-                            .help("Profiles managed by Vellum cannot be edited, but can be copied")
+                        VBadge(label: "Platform", tone: .positive, emphasis: .subtle)
+                            .help("Profiles managed by Platform cannot be edited, but can be copied")
                     }
                 }
                 if let subtitle = profile.subtitle {
@@ -259,17 +296,46 @@ struct InferenceProfilesSheet: View {
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
+            .opacity(isActive ? 1.0 : 0.55)
             Spacer(minLength: 0)
-            VButton(label: profile.isManaged ? "View" : "Edit", style: .ghost) {
-                if profile.isManaged {
-                    beginView(profile.name)
-                } else {
-                    beginEdit(profile.name)
+            HStack(spacing: VSpacing.sm) {
+                VToggle(
+                    isOn: Binding(
+                        get: { isActive },
+                        set: { newActive in
+                            Task { await setProfileStatus(profile, active: newActive) }
+                        }
+                    )
+                )
+                .accessibilityLabel("\(isActive ? "Disable" : "Activate") profile \(profile.displayName)")
+                .help(isActive ? "Active — toggle to hide from pickers" : "Disabled — toggle to show in pickers")
+                VButton(label: profile.isManaged ? "View" : "Edit", style: .ghost) {
+                    if profile.isManaged {
+                        beginView(profile.name)
+                    } else {
+                        beginEdit(profile.name)
+                    }
                 }
             }
         }
         .padding(.vertical, VSpacing.xs)
         .contentShape(Rectangle())
+    }
+
+    /// Inline status toggle handler. Guards against overlapping toggles
+    /// for the same profile via `inFlightStatusToggles`; the underlying
+    /// `SettingsStore.setProfileStatus` does the optimistic update +
+    /// rollback. Failures surface in `actionError` so the row's
+    /// trailing UI doesn't silently swallow them.
+    private func setProfileStatus(_ profile: InferenceProfile, active: Bool) async {
+        guard !inFlightStatusToggles.contains(profile.name) else { return }
+        inFlightStatusToggles.insert(profile.name)
+        defer { inFlightStatusToggles.remove(profile.name) }
+
+        let success = await store.setProfileStatus(name: profile.name, active: active)
+        if !success {
+            actionError = "Couldn't update \"\(profile.displayName)\". Please try again."
+        }
     }
 
     @ViewBuilder
@@ -301,6 +367,7 @@ struct InferenceProfilesSheet: View {
             profile: $editorDraft,
             isReadOnly: isViewMode,
             isCreating: isCreateMode,
+            connections: connections,
             onSave: {
                 Task { await commitEditor() }
             },
@@ -312,6 +379,17 @@ struct InferenceProfilesSheet: View {
                 editorState = nil
             }
         )
+    }
+
+    /// Loads provider connections used by the editor's per-provider
+    /// Connection dropdown. Tolerant: on transport failure the cached list
+    /// is preserved (stale-but-correct beats blank) — same posture as
+    /// `SettingsStore.providerKeys`.
+    private func refreshConnections() async {
+        guard let fetched = await connectionClient.listProviderConnections(provider: nil) else {
+            return
+        }
+        connections = fetched
     }
 
     // MARK: - Blocked Delete Sheet
@@ -466,6 +544,33 @@ struct InferenceProfilesSheet: View {
     private func commitEditor() async {
         let draft = editorDraft
         let originalName = editorOriginalName
+
+        // View mode is reserved for managed profiles. The user can rename
+        // them (`label`) and disable them (`status`) without leaving view
+        // mode, but everything else (provider, model, advanced params,
+        // connection binding) belongs to the daemon seed and can't be
+        // reshaped from here — the Save As New path is the only way to
+        // fork those into a user-owned profile. Route the view-mode save
+        // through `setManagedProfilePolicy` so the wire payload is
+        // restricted to `{label, status}` (the daemon's
+        // `handleReplaceInferenceProfile` rejects any other field for
+        // managed names with a 400) and so we don't run `replaceProfile`'s
+        // full UI-replace cycle on a label-only fragment — that would
+        // wipe every seed field on the local profile copy.
+        if case .view(let viewName) = editorState {
+            let success = await store.setManagedProfilePolicy(
+                name: viewName,
+                label: draft.label,
+                status: draft.status
+            )
+            guard success else {
+                actionError = "Couldn't save profile. Please try again."
+                return
+            }
+            editorState = nil
+            return
+        }
+
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         // Refuse to commit empty or whitespace-only names — the daemon
         // would accept them but the row would render unusably.
@@ -482,7 +587,9 @@ struct InferenceProfilesSheet: View {
 
         // Defense-in-depth: the UI disables Edit for managed profiles, but
         // guard here in case the method is reached through an unexpected
-        // path. The daemon also rejects writes to managed profiles.
+        // path. The daemon also rejects writes to managed profiles. The
+        // view-mode policy-edit path above is the ONE managed-profile
+        // mutation we do allow — it lands before this guard.
         if let originalName,
            let existing = store.profiles.first(where: { $0.name == originalName }),
            existing.isManaged {

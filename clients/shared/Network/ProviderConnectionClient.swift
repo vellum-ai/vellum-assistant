@@ -11,11 +11,30 @@ public enum ProviderConnectionDeleteResult: Sendable {
     case error
 }
 
+/// Result of a `POST /v1/inference/provider-connections` request.
+///
+/// Differentiates the failure modes that warrant a specific user-facing
+/// message — duplicate name (409) and invalid request (400) — from the
+/// generic catch-all so the editor sheet can surface a precise reason
+/// instead of a generic "please try again."
+public enum ProviderConnectionCreateResult: Sendable {
+    case created(ProviderConnection)
+    /// 409 — a connection with the same name already exists.
+    case duplicate
+    /// 400 — invalid request. `message` carries the daemon's human-readable
+    /// reason (e.g. `Invalid provider "x". Valid: ...`) when present in the
+    /// `{ error: { message } }` envelope. May be nil if the body can't be
+    /// parsed; callers should provide a sensible fallback.
+    case invalid(message: String?)
+    /// Anything else (network failure, 5xx, decode error).
+    case error
+}
+
 public protocol ProviderConnectionClientProtocol {
     func listProviderConnections(provider: String?) async -> [ProviderConnection]?
     func getProviderConnection(name: String) async -> ProviderConnection?
     /// `label` and `status` are optional extras; pass `nil` to omit from the request body.
-    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, status: ConnectionStatus?) async -> ProviderConnection?
+    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, status: ConnectionStatus?) async -> ProviderConnectionCreateResult
     /// `status`: nil = omit from body (no change). `label`: nil outer = omit; `.some(nil)` = send null (clear); `.some("v")` = set.
     func updateProviderConnection(name: String, auth: ProviderConnectionAuth, status: ConnectionStatus?, label: String??) async -> ProviderConnection?
     func deleteProviderConnection(name: String) async -> ProviderConnectionDeleteResult
@@ -82,7 +101,7 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         auth: ProviderConnectionAuth,
         label: String? = nil,
         status: ConnectionStatus? = nil
-    ) async -> ProviderConnection? {
+    ) async -> ProviderConnectionCreateResult {
         var body: [String: Any] = [
             "name": name,
             "provider": provider,
@@ -95,15 +114,39 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
                 path: "inference/provider-connections",
                 json: body
             )
-            guard response.isSuccess else {
+            switch response.statusCode {
+            case 200..<300:
+                do {
+                    let conn = try JSONDecoder().decode(ProviderConnection.self, from: response.data)
+                    return .created(conn)
+                } catch {
+                    log.error("createProviderConnection decode: \(error.localizedDescription, privacy: .public)")
+                    return .error
+                }
+            case 409:
+                return .duplicate
+            case 400:
+                return .invalid(message: Self.parseErrorMessage(from: response.data))
+            default:
                 log.warning("POST /inference/provider-connections failed: \(response.statusCode)")
-                return nil
+                return .error
             }
-            return try JSONDecoder().decode(ProviderConnection.self, from: response.data)
         } catch {
             log.error("createProviderConnection: \(error.localizedDescription, privacy: .public)")
+            return .error
+        }
+    }
+
+    /// Extract `error.message` from the standard daemon error envelope
+    /// `{ error: { code, message, details? } }`. Returns nil when the body
+    /// can't be parsed or doesn't follow the envelope.
+    private static func parseErrorMessage(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = json["error"] as? [String: Any],
+              let message = error["message"] as? String else {
             return nil
         }
+        return message
     }
 
     public func updateProviderConnection(
@@ -177,5 +220,25 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         if tail.hasSuffix(".") { tail = String(tail.dropLast()) }
         let names = tail.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         return names.isEmpty ? [] : names
+    }
+}
+
+// MARK: - ProviderConnection helpers
+
+extension ProviderConnection {
+    /// Return a copy of this connection with `status` replaced. Used by the
+    /// inline list-row toggle for optimistic + rollback updates without
+    /// needing the auto-generated struct's properties to be mutable.
+    public func withStatus(_ newStatus: ConnectionStatus) -> ProviderConnection {
+        ProviderConnection(
+            name: name,
+            provider: provider,
+            auth: auth,
+            status: newStatus,
+            label: label,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            isManaged: isManaged
+        )
     }
 }

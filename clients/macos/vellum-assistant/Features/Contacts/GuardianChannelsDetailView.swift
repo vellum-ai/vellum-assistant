@@ -7,8 +7,11 @@ import VellumAssistantShared
 /// Mirrors the card-per-channel layout of AssistantChannelsDetailView.
 @MainActor
 struct GuardianChannelsDetailView: View {
-    private static let allChannelTypes = ["slack", "telegram", "phone"]
-    private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
+    /// Channels surfaced as cards, with their display metadata (label,
+    /// subtitle, icon, verification capability, setup-message copy).
+    /// Hydrated from the gateway's `channels/available` endpoint on first
+    /// task; stays empty if the fetch fails.
+    @State private var availableChannels: [ChannelInfo] = []
 
     let contact: ContactPayload
     var connectionManager: GatewayConnectionManager?
@@ -70,9 +73,6 @@ struct GuardianChannelsDetailView: View {
         }
         .onAppear {
             startVerificationCountdownTimer()
-            for channel in Self.verificationSupportedChannels {
-                store?.refreshChannelVerificationStatus(channel: channel)
-            }
         }
         .onChange(of: contact) { _, _ in
             currentContact = nil
@@ -82,6 +82,16 @@ struct GuardianChannelsDetailView: View {
         }
         .task {
             channelReadiness = await channelClient.fetchChannelReadiness()
+            // Hydrate availability + metadata from the gateway. On failure
+            // (network, gateway pre-rollout) revert to the static default
+            // so the UI never carries stale state from a prior success.
+            availableChannels = await channelClient.fetchChannelAvailability() ?? []
+            // Pre-warm verification status for every verification-capable
+            // channel. Runs after availability hydrates so newly-surfaced
+            // verification-capable channels are included automatically.
+            for info in availableChannels where info.supportsVerification {
+                store?.refreshChannelVerificationStatus(channel: info.id)
+            }
             isLoadingReadiness = false
         }
         .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
@@ -91,7 +101,7 @@ struct GuardianChannelsDetailView: View {
 
     private var visibleTypes: [String] {
         // Show only channels the assistant has configured (ready/incomplete).
-        return Self.allChannelTypes.filter { type in
+        return availableChannels.map(\.id).filter { type in
             let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
             guard !hasExisting else { return true }
             guard let info = channelReadiness[type] else { return false }
@@ -146,13 +156,22 @@ struct GuardianChannelsDetailView: View {
 
     // MARK: - Channel Card
 
+    /// Look up a channel's display metadata from the hydrated availability
+    /// list. Returns `nil` for ids that aren't currently surfaced — the
+    /// caller decides on a fallback.
+    private func channelInfo(for type: String) -> ChannelInfo? {
+        availableChannels.first(where: { $0.id == type })
+    }
+
     private func channelIcon(for type: String) -> VIcon {
-        switch type {
-        case "slack": return .hash
-        case "telegram": return .send
-        case "phone": return .phone
-        default: return .messageCircle
-        }
+        guard let info = channelInfo(for: type) else { return .messageCircle }
+        // Backend returns a bare lucide icon name (e.g. "mail"); VIcon
+        // raw values carry the "lucide-" prefix.
+        return VIcon(rawValue: "lucide-\(info.icon)") ?? .messageCircle
+    }
+
+    private func supportsVerification(for type: String) -> Bool {
+        channelInfo(for: type)?.supportsVerification ?? false
     }
 
     @ViewBuilder
@@ -411,7 +430,7 @@ struct GuardianChannelsDetailView: View {
 
     @ViewBuilder
     private func verificationFlowContent(for type: String) -> some View {
-        if Self.verificationSupportedChannels.contains(type), let store {
+        if supportsVerification(for: type), let store {
             let state = store.channelVerificationState(for: type)
             let destinationBinding = Binding<String>(
                 get: { verificationDestinationTexts[type] ?? "" },
@@ -460,8 +479,8 @@ struct GuardianChannelsDetailView: View {
 
     /// Skeleton placeholder rows matching the number of channels the assistant has set up.
     private func channelSkeletonRows() -> some View {
-        let configuredCount = Self.allChannelTypes.filter { type in
-            let status = store?.channelSetupStatus[type]
+        let configuredCount = availableChannels.filter { info in
+            let status = store?.channelSetupStatus[info.id]
             return status == "ready"
         }.count
         let rowCount = max(configuredCount, 1)
@@ -486,41 +505,23 @@ struct GuardianChannelsDetailView: View {
     // MARK: - Helpers
 
     private func channelLabel(for type: String) -> String {
-        switch type {
-        case "telegram": return "Telegram"
-        case "email": return "Email"
-        case "whatsapp": return "WhatsApp"
-        case "phone": return "Phone Calling"
-        case "slack": return "Slack"
-        default: return type.capitalized
-        }
+        channelInfo(for: type)?.label ?? type.capitalized
     }
 
     private func channelSetupMessage(for type: String, isGuardian: Bool) -> String {
-        if isGuardian {
-            switch type {
-            case "telegram": return "I'd like to verify my identity as your guardian on Telegram. Can you help me set that up?"
-            case "slack": return "I'd like to verify my identity as your guardian on Slack. Can you help me set that up?"
-            case "phone": return "I'd like to verify my identity as your guardian for phone calls. Can you help me set that up?"
-            default: return "I'd like to verify my identity as your guardian on \(type.capitalized). Can you help me set that up?"
-            }
-        } else {
-            switch type {
-            case "telegram": return "I'd like to verify a contact's Telegram identity. Can you walk me through it?"
-            case "slack": return "I'd like to verify a contact's Slack identity. Can you walk me through it?"
-            case "phone": return "I'd like to verify a contact's phone number. Can you help me set that up?"
-            default: return "I'd like to verify a contact's \(type.capitalized) identity. Can you walk me through it?"
-            }
+        if let messages = channelInfo(for: type)?.setupMessages {
+            return isGuardian ? messages.guardian : messages.contact
         }
+        // Conservative fallback for an unknown id — should not happen
+        // because we only render cards for ids returned by the gateway.
+        if isGuardian {
+            return "I'd like to verify my identity as your guardian on \(type.capitalized). Can you help me set that up?"
+        }
+        return "I'd like to verify a contact's \(type.capitalized) identity. Can you walk me through it?"
     }
 
     private func channelSubtitle(for type: String) -> String {
-        switch type {
-        case "telegram": return "Message your assistant from Telegram"
-        case "phone": return "Call or text your assistant via phone"
-        case "slack": return "Message your assistant from Slack"
-        default: return "Connect via \(type.capitalized)"
-        }
+        channelInfo(for: type)?.subtitle ?? "Connect via \(type.capitalized)"
     }
 
 }

@@ -23,6 +23,8 @@ async function storeVellum(): Promise<void> {
     "Restricted API key from your Stripe Dashboard (Developers > API keys). Starts with rk_live_ or rk_test_.",
     "--allowed-domains",
     "api.stripe.com",
+    "--allowed-tools",
+    "bash",
     "--injection-templates",
     JSON.stringify([
       {

@@ -333,6 +333,8 @@ interface SseEvent {
   allowedDomains?: string[];
   // message_complete fields
   source?: "main" | "aux";
+  // sync_changed fields
+  tags?: string[];
   [key: string]: unknown;
 }
 
@@ -1856,6 +1858,11 @@ function ChatApp({
                 hRef.setBusy(false);
                 break;
 
+              case "sync_changed":
+                // The interactive CLI does not currently keep any sync-tagged
+                // caches, so generic invalidations are intentionally ignored.
+                break;
+
               default:
                 // Ignore events we don't handle (activity state, traces, etc.)
                 break;
@@ -2265,15 +2272,7 @@ function ChatApp({
       // racing with SSE events that may arrive during the sendMessage await.
       h.showSpinner("Working...");
     },
-    [
-      runtimeUrl,
-      assistantId,
-      auth,
-      project,
-      zone,
-      cleanup,
-      ensureConnected,
-    ],
+    [runtimeUrl, assistantId, auth, project, zone, cleanup, ensureConnected],
   );
 
   const handleSubmit = useCallback(

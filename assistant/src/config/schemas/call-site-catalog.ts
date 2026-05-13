@@ -128,6 +128,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Routes accumulated buffer entries into concept pages and rewrites the recent summary during V2 memory maintenance.",
     domain: "memory",
   },
+  memoryRetrospective: {
+    id: "memoryRetrospective",
+    displayName: "Memory Retrospective",
+    description:
+      "Background agent that re-reads recent conversation messages and saves what wasn't captured in the moment by calling the `remember` tool.",
+    domain: "memory",
+  },
   recall: {
     id: "recall",
     displayName: "Recall",
@@ -210,12 +217,6 @@ const CATALOG_RECORD: CatalogRecord = {
     id: "approvalConversation",
     displayName: "Approval Conversation",
     description: "Handles conversational approval flows.",
-    domain: "ui",
-  },
-  feedEventCopy: {
-    id: "feedEventCopy",
-    displayName: "Feed Event Copy",
-    description: "Generates copy for home feed event cards.",
     domain: "ui",
   },
   trustRuleSuggestion: {

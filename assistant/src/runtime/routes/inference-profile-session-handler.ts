@@ -21,12 +21,8 @@ import {
   setConversationInferenceProfileSession,
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
-import { getLogger } from "../../util/logger.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { publishConversationInferenceProfileChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
-
-const log = getLogger("inference-profile-session-handler");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,25 +116,12 @@ export async function setInferenceProfileSession({
       };
     }
     setConversationInferenceProfileSession(resolvedId, null, null, null);
-    await assistantEventHub
-      .publish(
-        buildAssistantEvent(
-          {
-            type: "conversation_inference_profile_updated",
-            conversationId: resolvedId,
-            profile: null,
-            sessionId: null,
-            expiresAt: null,
-          },
-          resolvedId,
-        ),
-      )
-      .catch((err) => {
-        log.warn(
-          { err, conversationId: resolvedId },
-          "Failed to publish conversation_inference_profile_updated event",
-        );
-      });
+    publishConversationInferenceProfileChanged({
+      conversationId: resolvedId,
+      profile: null,
+      sessionId: null,
+      expiresAt: null,
+    });
     return {
       conversationId: resolvedId,
       profile: null,
@@ -201,25 +184,12 @@ export async function setInferenceProfileSession({
     newExpiresAt ?? null,
   );
 
-  await assistantEventHub
-    .publish(
-      buildAssistantEvent(
-        {
-          type: "conversation_inference_profile_updated",
-          conversationId: resolvedId,
-          profile,
-          sessionId: newSessionId ?? null,
-          expiresAt: newExpiresAt ?? null,
-        },
-        resolvedId,
-      ),
-    )
-    .catch((err) => {
-      log.warn(
-        { err, conversationId: resolvedId },
-        "Failed to publish conversation_inference_profile_updated event",
-      );
-    });
+  publishConversationInferenceProfileChanged({
+    conversationId: resolvedId,
+    profile,
+    sessionId: newSessionId ?? null,
+    expiresAt: newExpiresAt ?? null,
+  });
 
   return {
     conversationId: resolvedId,
@@ -307,6 +277,9 @@ export function listInferenceProfileSessionsWithRemaining(
 }> {
   return listActiveInferenceProfileSessions(conversationId).map((row) => ({
     ...row,
-    remainingSeconds: Math.max(0, Math.floor((row.expiresAt - Date.now()) / 1000)),
+    remainingSeconds: Math.max(
+      0,
+      Math.floor((row.expiresAt - Date.now()) / 1000),
+    ),
   }));
 }

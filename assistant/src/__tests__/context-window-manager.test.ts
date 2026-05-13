@@ -74,7 +74,7 @@ describe("ContextWindowManager", () => {
     expect(result.reason).toBe("below compaction threshold");
   });
 
-  test("explains forced compaction skip when conversation already fits target", async () => {
+  test("explains forced compaction skip when only one user turn exists", async () => {
     const provider = createProvider(() => {
       throw new Error("summarizer should not be called");
     });
@@ -86,6 +86,10 @@ describe("ContextWindowManager", () => {
         targetBudgetRatio: 0.5,
       }),
     });
+    // Only one user turn — there is nothing earlier to summarize, so
+    // forced compaction must still skip but report a clear reason
+    // instead of "conversation already fits within the compaction
+    // target". `force=true` is honored everywhere else.
     const history = [message("user", "hello"), message("assistant", "hi")];
 
     const result = await manager.maybeCompact(history, undefined, {
@@ -95,8 +99,151 @@ describe("ContextWindowManager", () => {
     expect(result.compacted).toBe(false);
     expect(result.messages).toEqual(history);
     expect(result.reason).toBe(
+      "only one user turn — nothing earlier to compact",
+    );
+  });
+
+  test("forced compaction summarizes when adjustForToolPairs would walk boundary to summary", async () => {
+    let summaryCalls = 0;
+    const provider = createProvider(() => {
+      summaryCalls += 1;
+      return {
+        content: [{ type: "text", text: "## Summary\n- rescue path ran" }],
+        model: "mock-model",
+        usage: { inputTokens: 100, outputTokens: 25 },
+        stopReason: "end_turn",
+      };
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 10_000,
+        targetBudgetRatio: 0.5,
+      }),
+    });
+    // Conversation starts with consecutive `assistant(tool_use)` →
+    // `user(tool_result + text)` pairs. `collectUserTurnStartIndexes`
+    // includes the mixed user messages (not tool_result-only), so the
+    // earliest `userTurnStarts` entry is the message containing
+    // `tool_result(tool-1)`. Once the projection-optimism clamp
+    // decrements the keep boundary to that user turn,
+    // `adjustForToolPairs` walks the boundary back through the
+    // tool_use/tool_result chain to index 0 — under the old code that
+    // routed `/compact` through the "already fits" skip path. With the
+    // rescue, summarization runs and orphan `tool_result` blocks are
+    // stripped from the kept region.
+    const history: Message[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tool-1", name: "x", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tool-1", content: "result1" },
+          { type: "text", text: "u1" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tool-2", name: "x", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tool-2", content: "result2" },
+          { type: "text", text: "u2" },
+        ],
+      },
+      message("assistant", "a3"),
+      message("user", "u3"),
+      message("assistant", "a4"),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+      precomputedEstimate: 50_000,
+    });
+
+    expect(result.compacted).toBe(true);
+    expect(summaryCalls).toBe(1);
+    expect(result.reason).not.toBe(
       "conversation already fits within the compaction target",
     );
+    expect(result.reason).not.toBe(
+      "truncated tool results without summarization",
+    );
+    expect(result.compactedMessages).toBeGreaterThan(0);
+
+    // The kept region must not contain orphan tool_result blocks whose
+    // tool_use lives in the compacted region — the LLM API would reject
+    // such messages on the next agent turn.
+    const keptToolUseIds = new Set<string>();
+    for (const msg of result.messages) {
+      if (msg.role !== "assistant") continue;
+      for (const block of msg.content) {
+        if (
+          (block.type === "tool_use" || block.type === "server_tool_use") &&
+          "id" in block
+        ) {
+          keptToolUseIds.add((block as { id: string }).id);
+        }
+      }
+    }
+    for (const msg of result.messages) {
+      if (msg.role !== "user") continue;
+      for (const block of msg.content) {
+        if (
+          (block.type === "tool_result" ||
+            block.type === "web_search_tool_result") &&
+          "tool_use_id" in block
+        ) {
+          expect(keptToolUseIds.has(block.tool_use_id as string)).toBe(true);
+        }
+      }
+    }
+  });
+
+  test("forced compaction summarizes when compactable count is below MIN guard", async () => {
+    let summaryCalls = 0;
+    const provider = createProvider(() => {
+      summaryCalls += 1;
+      return {
+        content: [{ type: "text", text: "## Summary\n- min-bypass ran" }],
+        model: "mock-model",
+        usage: { inputTokens: 100, outputTokens: 25 },
+        stopReason: "end_turn",
+      };
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 10_000,
+        targetBudgetRatio: 0.5,
+      }),
+    });
+    // Two user turns separated by a single assistant message — the
+    // smallest realistic conversation where a forced compaction has
+    // anything to summarize. After the projection clamp + rescue, the
+    // compactable region is at most one user turn (the first one),
+    // which can fall below `MIN_COMPACTABLE_PERSISTED_MESSAGES`. The
+    // bypass must let summarization run instead of returning
+    // "insufficient compactable persisted messages".
+    const history: Message[] = [message("user", "u1"), message("user", "u2")];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+      precomputedEstimate: 50_000,
+    });
+
+    expect(result.compacted).toBe(true);
+    expect(summaryCalls).toBe(1);
+    expect(result.reason).not.toBe(
+      "insufficient compactable persisted messages",
+    );
+    expect(result.compactedMessages).toBeGreaterThan(0);
   });
 
   test("forced compaction summarizes when projection fits but real usage exceeds target", async () => {
@@ -2106,10 +2253,7 @@ describe("extractTailAssistantText", () => {
   });
 
   test("returns null when no assistant text is present", () => {
-    const messages: Message[] = [
-      message("user", "u1"),
-      message("user", "u2"),
-    ];
+    const messages: Message[] = [message("user", "u1"), message("user", "u2")];
     expect(extractTailAssistantText(messages)).toBeNull();
   });
 

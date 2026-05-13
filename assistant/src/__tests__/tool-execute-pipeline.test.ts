@@ -249,7 +249,6 @@ describe("ToolExecutor.execute → toolExecute pipeline", () => {
       manifest: {
         name: "spy-tool-execute",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: { toolExecute: spyMiddleware },
     };
@@ -308,7 +307,6 @@ describe("ToolExecutor.execute → toolExecute pipeline", () => {
       manifest: {
         name: "short-circuit-tool-execute",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: { toolExecute: shortCircuit },
     };
@@ -342,7 +340,6 @@ describe("ToolExecutor.execute → toolExecute pipeline", () => {
       manifest: {
         name: "slow-tool-execute",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: { toolExecute: slow },
     });
@@ -388,7 +385,6 @@ describe("ToolExecutor.execute → toolExecute pipeline", () => {
       manifest: {
         name: "outer-tool-execute",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: { toolExecute: outer },
     });
@@ -396,7 +392,6 @@ describe("ToolExecutor.execute → toolExecute pipeline", () => {
       manifest: {
         name: "inner-tool-execute",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: { toolExecute: inner },
     });

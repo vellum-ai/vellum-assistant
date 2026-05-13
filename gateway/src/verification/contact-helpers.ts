@@ -14,17 +14,26 @@ import { existsSync } from "node:fs";
 
 import { eq } from "drizzle-orm";
 
-import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../db/assistant-db-proxy.js";
+import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../db/connection.js";
-import { contactChannels as gwContactChannels, contacts as gwContacts } from "../db/schema.js";
+import {
+  contactChannels as gwContactChannels,
+  contacts as gwContacts,
+} from "../db/schema.js";
 import { getLogger } from "../logger.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
 
 const log = getLogger("verification-contacts");
+
+function contactChannelAddress(
+  sourceChannel: string,
+  canonicalUserId: string,
+): string {
+  return sourceChannel === "slack"
+    ? canonicalUserId
+    : canonicalUserId.toLowerCase();
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -92,10 +101,10 @@ export async function upsertVerifiedContactChannel(params: {
   const canonicalUserId =
     canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
     params.externalUserId;
-  const address = canonicalUserId.toLowerCase();
+  const address = contactChannelAddress(sourceChannel, canonicalUserId);
   const contactDisplayName = displayName ?? username ?? canonicalUserId;
 
-  // Check if a channel with this (type, address) already exists
+  // Check if a channel for this actor already exists.
   const existing = await assistantDbQuery<{
     channelId: string;
     contactId: string;
@@ -103,9 +112,17 @@ export async function upsertVerifiedContactChannel(params: {
   }>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     WHERE cc.type = ? AND cc.address = ?
+     WHERE cc.type = ? AND (cc.address = ? OR cc.external_user_id = ?)
+     ORDER BY
+       CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
+       CASE cc.status
+         WHEN 'active' THEN 0
+         WHEN 'unverified' THEN 1
+         ELSE 2
+       END,
+       cc.updated_at DESC
      LIMIT 1`,
-    [sourceChannel, address],
+    [sourceChannel, address, canonicalUserId, address],
   );
 
   if (existing.length > 0) {
@@ -123,21 +140,24 @@ export async function upsertVerifiedContactChannel(params: {
     // Update existing channel
     await assistantDbRun(
       `UPDATE contact_channels
-       SET status = 'active', policy = 'allow',
+       SET address = ?,
+           status = 'active', policy = 'allow',
            external_user_id = ?, external_chat_id = ?,
            revoked_reason = NULL, blocked_reason = NULL,
            updated_at = ?
        WHERE id = ?`,
-      [canonicalUserId, externalChatId, now, row.channelId],
+      [address, canonicalUserId, externalChatId, now, row.channelId],
     );
 
     // Dual-write to gateway DB
     try {
       const gwDb = getGatewayDb();
-      gwDb.update(gwContactChannels)
+      gwDb
+        .update(gwContactChannels)
         .set({
           status: "active",
           policy: "allow",
+          address,
           externalUserId: canonicalUserId,
           externalChatId,
           revokedReason: null,
@@ -147,7 +167,10 @@ export async function upsertVerifiedContactChannel(params: {
         .where(eq(gwContactChannels.id, row.channelId))
         .run();
     } catch (gwErr) {
-      log.warn({ err: gwErr }, "Gateway DB contact channel update dual-write failed");
+      log.warn(
+        { err: gwErr },
+        "Gateway DB contact channel update dual-write failed",
+      );
     }
 
     return;
@@ -171,13 +194,23 @@ export async function upsertVerifiedContactChannel(params: {
        (id, contact_id, type, address, is_primary, external_user_id, external_chat_id,
         status, policy, interaction_count, created_at, updated_at)
      VALUES (?, ?, ?, ?, 0, ?, ?, 'active', 'allow', 0, ?, ?)`,
-    [channelId, contactId, sourceChannel, address, canonicalUserId, externalChatId, now, now],
+    [
+      channelId,
+      contactId,
+      sourceChannel,
+      address,
+      canonicalUserId,
+      externalChatId,
+      now,
+      now,
+    ],
   );
 
   // Dual-write to gateway DB
   try {
     const gwDb = getGatewayDb();
-    gwDb.insert(gwContacts)
+    gwDb
+      .insert(gwContacts)
       .values({
         id: contactId,
         displayName: contactDisplayName,
@@ -188,7 +221,8 @@ export async function upsertVerifiedContactChannel(params: {
       .onConflictDoNothing()
       .run();
 
-    gwDb.insert(gwContactChannels)
+    gwDb
+      .insert(gwContactChannels)
       .values({
         id: channelId,
         contactId,
@@ -241,7 +275,7 @@ export async function upsertContactChannel(params: {
   const canonicalUserId =
     canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
     params.externalUserId;
-  const address = canonicalUserId.toLowerCase();
+  const address = contactChannelAddress(sourceChannel, canonicalUserId);
   const contactDisplayName = displayName ?? username ?? canonicalUserId;
 
   const existing = await assistantDbQuery<{
@@ -251,9 +285,17 @@ export async function upsertContactChannel(params: {
   }>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     WHERE cc.type = ? AND cc.address = ?
+     WHERE cc.type = ? AND (cc.address = ? OR cc.external_user_id = ?)
+     ORDER BY
+       CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
+       CASE cc.status
+         WHEN 'active' THEN 0
+         WHEN 'unverified' THEN 1
+         ELSE 2
+       END,
+       cc.updated_at DESC
      LIMIT 1`,
-    [sourceChannel, address],
+    [sourceChannel, address, canonicalUserId, address],
   );
 
   if (existing.length > 0) {
@@ -267,11 +309,12 @@ export async function upsertContactChannel(params: {
     );
     await assistantDbRun(
       `UPDATE contact_channels
-       SET external_user_id = ?,
+       SET address = ?,
+           external_user_id = ?,
            external_chat_id = COALESCE(?, external_chat_id),
            updated_at = ?
        WHERE id = ?`,
-      [canonicalUserId, externalChatId ?? null, now, row.channelId],
+      [address, canonicalUserId, externalChatId ?? null, now, row.channelId],
     );
 
     try {
@@ -279,6 +322,7 @@ export async function upsertContactChannel(params: {
       gwDb
         .update(gwContactChannels)
         .set({
+          address,
           externalUserId: canonicalUserId,
           ...(externalChatId ? { externalChatId } : {}),
           updatedAt: now,
@@ -286,7 +330,10 @@ export async function upsertContactChannel(params: {
         .where(eq(gwContactChannels.id, row.channelId))
         .run();
     } catch (gwErr) {
-      log.warn({ err: gwErr }, "Gateway DB contact channel update dual-write failed");
+      log.warn(
+        { err: gwErr },
+        "Gateway DB contact channel update dual-write failed",
+      );
     }
     return;
   }
@@ -305,7 +352,16 @@ export async function upsertContactChannel(params: {
        (id, contact_id, type, address, is_primary, external_user_id, external_chat_id,
         status, policy, interaction_count, created_at, updated_at)
      VALUES (?, ?, ?, ?, 0, ?, ?, 'unverified', 'allow', 0, ?, ?)`,
-    [channelId, contactId, sourceChannel, address, canonicalUserId, externalChatId ?? null, now, now],
+    [
+      channelId,
+      contactId,
+      sourceChannel,
+      address,
+      canonicalUserId,
+      externalChatId ?? null,
+      now,
+      now,
+    ],
   );
 
   try {
@@ -340,6 +396,9 @@ export async function upsertContactChannel(params: {
       .onConflictDoNothing()
       .run();
   } catch (gwErr) {
-    log.warn({ err: gwErr }, "Gateway DB contact channel create dual-write failed");
+    log.warn(
+      { err: gwErr },
+      "Gateway DB contact channel create dual-write failed",
+    );
   }
 }

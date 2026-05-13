@@ -18,7 +18,7 @@ import { httpError } from "./http-errors.js";
 import { withErrorHandling } from "./middleware/error-handler.js";
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { ROUTES } from "./routes/index.js";
-import type { RoutePathParam } from "./routes/types.js";
+import type { RouteLoggingConfig, RoutePathParam } from "./routes/types.js";
 
 // ---------------------------------------------------------------------------
 // Route definition types
@@ -128,6 +128,11 @@ export interface HTTPRouteDefinition {
   responseStatus?: string;
   /** Additional response codes documented in the generated OpenAPI spec. */
   additionalResponses?: Record<string, RouteAdditionalResponse>;
+  /**
+   * Per-route request-log control. See `RouteLoggingConfig` in `routes/types.ts`.
+   * When omitted, the route uses the default log-every-request behavior.
+   */
+  logging?: RouteLoggingConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +158,36 @@ export class HttpRouter {
     for (const def of routeDefinitionsToHTTPRoutes(ROUTES)) {
       this.compiledRoutes.push(compileRoute(def));
     }
+  }
+
+  /**
+   * Resolve the request-logging metadata for an incoming request without
+   * invoking the handler. Returns the matched route's logging config plus
+   * a stable counter key derived from operationId (or method+endpoint as
+   * a fallback when operationId is not set).
+   *
+   * Called by the HTTP server *before* `withRequestLogging` so the
+   * middleware can decide whether to suppress the per-request success log.
+   * Returns `null` when no route matches or the matched route opts out of
+   * custom logging — both cases mean "use the default log-every-request".
+   */
+  findLoggingMetadata(
+    method: string,
+    endpoint: string,
+  ): { counterKey: string; config: RouteLoggingConfig } | null {
+    const normalized = endpoint.endsWith("/")
+      ? endpoint.slice(0, -1)
+      : endpoint;
+    for (const compiled of this.compiledRoutes) {
+      if (compiled.def.method !== method) continue;
+      if (!compiled.regex.test(normalized)) continue;
+      const config = compiled.def.logging;
+      if (!config) return null;
+      const counterKey =
+        compiled.def.operationId ?? `${method} ${compiled.def.endpoint}`;
+      return { counterKey, config };
+    }
+    return null;
   }
 
   /**

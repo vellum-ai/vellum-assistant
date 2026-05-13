@@ -111,6 +111,21 @@ export function getStateDir(env: EnvironmentDefinition): string {
 }
 
 /**
+ * Path to the interactive CLI's input history file.
+ *
+ * Follows the XDG Base Directory spec: history files are state data
+ * (persistent across runs but not portable / user-owned content), so they
+ * belong under `$XDG_STATE_HOME`, mirroring `bash`, `zsh`, `psql`, and `gh`.
+ * Defaults to `~/.local/state/vellum/input-history`.
+ *
+ * Not environment-scoped: terminal input history is per-user, not per-assistant,
+ * so dev and prod CLIs share the same history file.
+ */
+export function getInputHistoryPath(): string {
+  return join(xdgStateHome(), "vellum", "input-history");
+}
+
+/**
  * Named port constants derived from `DEFAULT_PORTS`.
  * These are the ports the assistant and gateway services bind to *inside*
  * their container (or process). They are stable across environments.
@@ -126,4 +141,10 @@ function xdgDataHome(): string {
 
 function xdgConfigHome(): string {
   return process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+}
+
+function xdgStateHome(): string {
+  return (
+    process.env.XDG_STATE_HOME?.trim() || join(homedir(), ".local", "state")
+  );
 }

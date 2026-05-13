@@ -323,4 +323,77 @@ final class InferenceProfileTests: XCTestCase {
         XCTAssertEqual(merged.status, "disabled")
         XCTAssertEqual(merged.model, "claude-3.5")
     }
+
+    // MARK: - provider_connection (audit finding #5)
+
+    /// Profiles that bind to a specific provider connection must round-trip
+    /// the daemon's snake_case `provider_connection` wire field. The Swift
+    /// property uses camelCase `providerConnection` but the JSON key matches
+    /// the Zod schema in `assistant/src/config/schemas/llm.ts`.
+    func testProviderConnectionRoundTrip() {
+        let json: [String: Any] = [
+            "provider": "openai",
+            "provider_connection": "personal-openai",
+            "model": "gpt-5",
+        ]
+        let profile = InferenceProfile(name: "personal", json: json)
+        XCTAssertEqual(profile.provider, "openai")
+        XCTAssertEqual(profile.providerConnection, "personal-openai")
+        XCTAssertEqual(profile.model, "gpt-5")
+
+        let reEncoded = profile.toJSON()
+        XCTAssertEqual(reEncoded["provider_connection"] as? String, "personal-openai")
+        // Snake_case must not bleed into a camelCase duplicate — the
+        // preservedJSON exclusion list guards against that.
+        XCTAssertNil(reEncoded["providerConnection"])
+    }
+
+    /// Empty strings should decode as `nil` (rather than getting written
+    /// back as an empty key) so disabling the binding via the editor's
+    /// "Any active connection" option doesn't leave a min(1)-violating
+    /// value on disk that the daemon would reject at Zod parse time.
+    func testProviderConnectionEmptyStringDecodesAsNil() {
+        let json: [String: Any] = [
+            "provider": "openai",
+            "provider_connection": "",
+        ]
+        let profile = InferenceProfile(name: "draft", json: json)
+        XCTAssertNil(profile.providerConnection)
+
+        let reEncoded = profile.toJSON()
+        XCTAssertNil(reEncoded["provider_connection"])
+    }
+
+    /// `merging` must propagate a new `providerConnection` (re-bind) and
+    /// preserve the existing one when the fragment omits it (other-field
+    /// edits shouldn't clear the binding).
+    func testMergingProviderConnectionFromFragment() {
+        let base = InferenceProfile(
+            name: "personal",
+            provider: "openai",
+            providerConnection: "personal-openai",
+            model: "gpt-5"
+        )
+        let rebind = InferenceProfile(name: "personal", providerConnection: "work-openai")
+
+        let merged = base.merging(rebind)
+
+        XCTAssertEqual(merged.providerConnection, "work-openai")
+        XCTAssertEqual(merged.provider, "openai")
+        XCTAssertEqual(merged.model, "gpt-5")
+    }
+
+    func testMergingPreservesProviderConnectionWhenFragmentOmitsIt() {
+        let base = InferenceProfile(
+            name: "personal",
+            provider: "openai",
+            providerConnection: "personal-openai"
+        )
+        let modelOnly = InferenceProfile(name: "personal", model: "gpt-5")
+
+        let merged = base.merging(modelOnly)
+
+        XCTAssertEqual(merged.providerConnection, "personal-openai")
+        XCTAssertEqual(merged.model, "gpt-5")
+    }
 }

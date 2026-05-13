@@ -16,6 +16,35 @@ export interface ClassifiedConversationError {
   debugDetails?: string;
   /** Machine-readable error category for log report metadata and triage. */
   errorCategory: string;
+  /**
+   * Name of the `provider_connections` row in play when the error
+   * occurred. Forwarded to the wire `ConversationErrorMessage` so chat
+   * banners can point users at the specific slot to fix. Only set by
+   * classifiers / callers that have the resolved connection in scope —
+   * generic regex fallbacks leave it undefined.
+   */
+  connectionName?: string;
+  /**
+   * Name of the resolved profile (`llm.activeProfile` / per-call override)
+   * in play when the error occurred. Forwarded to the wire message so
+   * banners can name the profile when the connection identifier is
+   * generic (e.g. the canonical managed connection). Optional for the
+   * same reason as `connectionName`.
+   */
+  profileName?: string;
+}
+
+/**
+ * Optional resolved-config context that callers can attach to error
+ * classification so the resulting `ConversationErrorMessage` can name the
+ * exact connection / profile in play. Used in particular by the chat
+ * dispatch sites to make `PROVIDER_INVALID_KEY` and `PROVIDER_NOT_CONFIGURED`
+ * actionable (the macOS banner reads these to render "Invalid API key for
+ * profile X" instead of a generic "API key required").
+ */
+export interface ConversationErrorAttribution {
+  connectionName?: string;
+  profileName?: string;
 }
 
 // Network-level error patterns (connection refused, timeout, DNS, reset)
@@ -137,6 +166,20 @@ export interface ErrorContext {
   phase: "agent_loop" | "regenerate" | "handler" | "persist";
   /** Whether the abort signal was active when the error occurred. */
   aborted?: boolean;
+  /**
+   * Optional name of the `provider_connections` row in play. Plumbed by
+   * dispatch sites that know the resolved connection (chat agent loop)
+   * so credential-related classifications (`PROVIDER_INVALID_KEY`,
+   * `PROVIDER_NOT_CONFIGURED`) can name the exact slot to fix.
+   */
+  connectionName?: string;
+  /**
+   * Optional name of the resolved profile in play. Plumbed alongside
+   * `connectionName` by dispatch sites; surfaces in the wire message so
+   * the macOS chat banner can reference the profile even when the
+   * underlying connection name is generic.
+   */
+  profileName?: string;
 }
 
 /**
@@ -195,32 +238,43 @@ export function classifyConversationError(
     (error instanceof Error ? error.stack : undefined) ?? message;
   const debugDetails = truncateDebugDetails(rawDetails);
 
+  // Extract optional attribution (connection / profile names) so
+  // credential-related classifications can name the exact slot to fix.
+  // A `ProviderNotConfiguredError` instance carries its own attribution
+  // (from the throw site) which takes priority over context when present.
+  const attribution: ConversationErrorAttribution = {
+    ...(ctx.connectionName ? { connectionName: ctx.connectionName } : {}),
+    ...(ctx.profileName ? { profileName: ctx.profileName } : {}),
+  };
+
   // Dedicated classification for missing provider API key
   if (error instanceof ProviderNotConfiguredError) {
     return {
-      code: "PROVIDER_NOT_CONFIGURED",
-      userMessage:
-        "No API key configured for inference. Add one in Settings to start chatting.",
-      retryable: true,
-      errorCategory: "provider_not_configured",
+      ...providerNotConfiguredClassification({
+        connectionName:
+          error.connectionName ?? attribution.connectionName,
+        profileName: error.profileName ?? attribution.profileName,
+      }),
       debugDetails,
     };
   }
 
   // Phase-specific overrides
   if (ctx.phase === "regenerate") {
-    const base = classifyCore(error, message);
+    const base = classifyCore(error, message, attribution);
     return {
       code: "REGENERATE_FAILED",
       userMessage: `Could not regenerate the response. ${base.userMessage}`,
       retryable: true,
       debugDetails,
       errorCategory: `regenerate:${base.errorCategory}`,
+      ...(base.connectionName ? { connectionName: base.connectionName } : {}),
+      ...(base.profileName ? { profileName: base.profileName } : {}),
     };
   }
 
   // Classify using statusCode (if ProviderError) then regex fallback
-  const classified = classifyCore(error, message);
+  const classified = classifyCore(error, message, attribution);
   return {
     ...classified,
     debugDetails,
@@ -230,10 +284,16 @@ export function classifyConversationError(
 /**
  * Core classification: check ProviderError.statusCode first for
  * deterministic classification, then fall back to regex patterns.
+ *
+ * `attribution` carries the resolved connection / profile names (when the
+ * caller knows them) so credential-related results can name the exact
+ * slot for the user to fix. Pass an empty object when no attribution is
+ * available — the classifier falls back to a generic message.
  */
 function classifyCore(
   error: unknown,
   message: string,
+  attribution: ConversationErrorAttribution = {},
 ): Omit<ClassifiedConversationError, "debugDetails"> {
   // ProviderError with statusCode — deterministic classification
   if (error instanceof ProviderError && error.statusCode !== undefined) {
@@ -247,39 +307,33 @@ function classifyCore(
       };
     }
     if (error.statusCode === 401 || error.statusCode === 403) {
-      if (
-        /invalid.*api.?key|invalid.*x-api-key|authentication.?error/i.test(
-          message,
-        )
-      ) {
-        // Check if this provider is routed through the managed proxy.
-        // If so, the assistant API key is stale — the client should reprovision.
-        const providerName = error.provider;
-        if (getProviderRoutingSource(providerName) === "managed-proxy") {
-          return {
-            code: "MANAGED_KEY_INVALID",
-            userMessage:
-              "The assistant API key is invalid. Attempting to re-provision…",
-            retryable: true,
-            errorCategory: "managed_key_invalid",
-          };
-        }
+      // Both managed-proxy and user-key 401/403s reach this branch.
+      // Managed-proxy routes through the assistant API key (stale → re-
+      // provision) and emits `MANAGED_KEY_INVALID`; everything else is a
+      // user-set credential that the upstream provider rejected → emit
+      // `PROVIDER_INVALID_KEY` so the macOS chat banner renders an
+      // "Invalid API key" surface (distinct from "API key required"
+      // which only fires when the key is genuinely missing — see
+      // `providerNotConfiguredClassification`).
+      const providerName = error.provider;
+      if (getProviderRoutingSource(providerName) === "managed-proxy") {
         return {
-          code: "PROVIDER_NOT_CONFIGURED",
+          code: "MANAGED_KEY_INVALID",
           userMessage:
-            "Your API key is invalid or expired. Update it in Settings or switch to managed mode.",
-          retryable: false,
-          errorCategory: "provider_not_configured",
+            "The assistant API key is invalid. Attempting to re-provision…",
+          retryable: true,
+          errorCategory: "managed_key_invalid",
         };
       }
+      return invalidApiKeyClassification(attribution);
     }
     if (error.statusCode === 401) {
       return {
-        code: "PROVIDER_NOT_CONFIGURED",
+        code: "PROVIDER_INVALID_KEY",
         userMessage:
           "Your API key is invalid or expired. Update it in Settings or switch to managed mode.",
         retryable: false,
-        errorCategory: "provider_not_configured",
+        errorCategory: "provider_invalid_key",
       };
     }
     if (error.statusCode === 402) {
@@ -369,13 +423,10 @@ function classifyCore(
           message,
         )
       ) {
-        return {
-          code: "PROVIDER_NOT_CONFIGURED",
-          userMessage:
-            "Your API key is invalid. Update it in Settings or switch to managed mode.",
-          retryable: false,
-          errorCategory: "provider_not_configured",
-        };
+        // Mirror the 401/403 branch: a credential-shaped 4xx is an
+        // "invalid key" surface (banner: "Invalid API key"), distinct
+        // from "no key configured" (banner: "API key required").
+        return invalidApiKeyClassification(attribution);
       }
       if (isImageDimensionsTooLarge(message)) {
         return {
@@ -474,6 +525,80 @@ function providerBillingClassification(): Omit<
       "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings.",
     retryable: false,
     errorCategory: "provider_billing",
+  };
+}
+
+/**
+ * Build a user-facing message that names the exact profile / connection
+ * to fix when one is known, falling back to a generic phrase otherwise.
+ * Profile is preferred because that's the entity the user picks in the
+ * chat picker; connection is shown when no profile is in play (e.g.
+ * `llm.default` direct dispatch) or as a parenthetical when both differ.
+ */
+function describeAttribution(
+  attribution: ConversationErrorAttribution | undefined,
+): string {
+  if (!attribution) return "";
+  const { profileName, connectionName } = attribution;
+  if (profileName && connectionName && profileName !== connectionName) {
+    return ` for profile "${profileName}" (connection "${connectionName}")`;
+  }
+  if (profileName) return ` for profile "${profileName}"`;
+  if (connectionName) return ` for connection "${connectionName}"`;
+  return "";
+}
+
+/**
+ * Classification for an invalid (rejected by the upstream provider, e.g.
+ * Anthropic 401/403) API key. Distinct from `PROVIDER_NOT_CONFIGURED`
+ * (which is for a key that was never set) so the macOS chat banner can
+ * render "Invalid API key" rather than "API key required" — they have
+ * different recovery actions (update vs. add).
+ */
+function invalidApiKeyClassification(
+  attribution?: ConversationErrorAttribution,
+): Omit<ClassifiedConversationError, "debugDetails"> {
+  const target = describeAttribution(attribution);
+  return {
+    code: "PROVIDER_INVALID_KEY",
+    userMessage: target
+      ? `The API key${target} was rejected by the provider. Update it in Settings.`
+      : "Your API key was rejected by the provider. Update it in Settings.",
+    retryable: false,
+    errorCategory: "provider_invalid_key",
+    ...(attribution?.connectionName
+      ? { connectionName: attribution.connectionName }
+      : {}),
+    ...(attribution?.profileName
+      ? { profileName: attribution.profileName }
+      : {}),
+  };
+}
+
+/**
+ * Classification for a genuinely-missing provider credential — vault has
+ * no entry for the resolved connection's `auth.credential`, or no
+ * provider is registered at all. The macOS chat banner renders this as
+ * "API key required" with an "Open Settings" CTA. Distinct from
+ * `PROVIDER_INVALID_KEY` (where a key exists but was rejected).
+ */
+function providerNotConfiguredClassification(
+  attribution?: ConversationErrorAttribution,
+): Omit<ClassifiedConversationError, "debugDetails"> {
+  const target = describeAttribution(attribution);
+  return {
+    code: "PROVIDER_NOT_CONFIGURED",
+    userMessage: target
+      ? `No API key configured${target}. Add one in Settings to start chatting.`
+      : "No API key configured for inference. Add one in Settings to start chatting.",
+    retryable: true,
+    errorCategory: "provider_not_configured",
+    ...(attribution?.connectionName
+      ? { connectionName: attribution.connectionName }
+      : {}),
+    ...(attribution?.profileName
+      ? { profileName: attribution.profileName }
+      : {}),
   };
 }
 
@@ -650,5 +775,14 @@ export function buildConversationErrorMessage(
     retryable: classified.retryable,
     debugDetails: classified.debugDetails,
     errorCategory: classified.errorCategory,
+    // Optional attribution — only forwarded when the classifier was able
+    // to pin the failure to a specific provider connection / profile.
+    // The macOS chat banner reads these to render targeted CTAs.
+    ...(classified.connectionName
+      ? { connectionName: classified.connectionName }
+      : {}),
+    ...(classified.profileName
+      ? { profileName: classified.profileName }
+      : {}),
   };
 }

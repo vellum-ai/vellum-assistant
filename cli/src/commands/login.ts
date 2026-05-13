@@ -287,9 +287,10 @@ export async function login(): Promise<void> {
 
     // Sync cloud assistants from the platform into the local lockfile.
     // This ensures `vellum ps` shows managed assistants immediately
-    // after login (e.g. after a retire-and-rehatch cycle).
+    // after login (e.g. after a retire-and-rehatch cycle). We've just
+    // saved this token, so it's guaranteed non-empty here.
     try {
-      const result = await syncCloudAssistants();
+      const result = await syncCloudAssistants(token);
       if (result) {
         const total = result.added + result.removed;
         if (total > 0) {

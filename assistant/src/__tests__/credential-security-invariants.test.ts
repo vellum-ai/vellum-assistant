@@ -189,10 +189,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/slack/adapter.ts", // Slack bot token lookup for Socket Mode connectivity check
       "credential-health/credential-health-service.ts", // proactive credential health monitoring
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
-      "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
+      "providers/platform-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
-      "runtime/routes/integrations/slack/share.ts", // Slack share routes credential lookup
+      "runtime/routes/integrations/slack/token.ts", // shared Slack token resolver (bot/user token lookup for CLI use routes)
       "mcp/client.ts", // MCP client cached-token lookup
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "oauth/credential-token-resolver.ts", // centralized access-token key resolution for OAuth and manual-token providers
@@ -212,6 +212,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/provider-availability.ts", // provider availability API key check
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "memory/embedding-backend.ts", // embedding backend API key lookup
+      "memory/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
       "workspace/migrations/018-rekey-compound-credential-keys.ts", // re-key compound credential storage keys
@@ -225,6 +226,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
       "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
       "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
+      "plugins/external-api.ts", // globalThis runtime bridge that exposes getSecureKeyAsync to dynamically-imported workspace plugins (compiled-binary plugin loading)
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup

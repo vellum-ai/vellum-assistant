@@ -8,8 +8,7 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import { processMessage } from "../daemon/process-message.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
@@ -66,10 +65,6 @@ If the disk shape changed (files split, files moved, files created, files remove
 This is your knowledge base — keep it sharp.`;
 
 export interface FilingDeps {
-  onConversationCreated?: (info: {
-    conversationId: string;
-    title: string;
-  }) => void;
   getCurrentHour?: () => number;
 }
 
@@ -234,15 +229,7 @@ export class FilingService {
     const run = this.executeRun();
     this.activeRun = run;
     try {
-      await Promise.race([
-        run,
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Filing execution timed out")),
-            FILING_TIMEOUT_MS,
-          ),
-        ),
-      ]);
+      await run;
     } finally {
       this.activeRun = null;
       this._lastRunAt = Date.now();
@@ -288,15 +275,7 @@ export class FilingService {
     const run = this.executeCompactionRun();
     this.activeCompactionRun = run;
     try {
-      await Promise.race([
-        run,
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Compaction execution timed out")),
-            FILING_TIMEOUT_MS,
-          ),
-        ),
-      ]);
+      await run;
     } finally {
       this.activeCompactionRun = null;
       this._lastCompactionAt = Date.now();
@@ -352,7 +331,8 @@ export class FilingService {
 
   private executeRun(): Promise<void> {
     return this.executeBackgroundJob({
-      title: "Knowledge base filing",
+      jobName: "filing",
+      systemHint: "Knowledge base filing",
       prompt: FILING_PROMPT_TEMPLATE,
       callSite: "filingAgent",
     });
@@ -360,47 +340,40 @@ export class FilingService {
 
   private executeCompactionRun(): Promise<void> {
     return this.executeBackgroundJob({
-      title: "Knowledge base compaction",
+      jobName: "compaction",
+      systemHint: "Knowledge base compaction",
       prompt: COMPACTION_PROMPT_TEMPLATE,
       callSite: "compactionAgent",
     });
   }
 
   private async executeBackgroundJob(opts: {
-    title: string;
+    jobName: string;
+    systemHint: string;
     prompt: string;
     callSite: LLMCallSite;
   }): Promise<void> {
-    log.info({ title: opts.title }, "Running background job");
+    log.info({ jobName: opts.jobName }, "Running background job");
 
-    try {
-      const conversation = bootstrapConversation({
-        conversationType: "background",
-        source: "filing",
-        groupId: "system:background",
-        origin: "filing",
-        systemHint: opts.title,
-      });
+    const result = await runBackgroundJob({
+      jobName: opts.jobName,
+      source: "filing",
+      systemHint: opts.systemHint,
+      prompt: opts.prompt,
+      trustContext: {
+        sourceChannel: "vellum",
+        trustClass: "guardian",
+      },
+      callSite: opts.callSite,
+      timeoutMs: FILING_TIMEOUT_MS,
+      origin: "filing",
+    });
 
-      this.deps.onConversationCreated?.({
-        conversationId: conversation.id,
-        title: opts.title,
-      });
-
-      await processMessage(conversation.id, opts.prompt, undefined, {
-        trustContext: {
-          sourceChannel: "vellum",
-          trustClass: "guardian",
-        },
-        callSite: opts.callSite,
-      });
-
+    if (result.ok) {
       log.info(
-        { conversationId: conversation.id, title: opts.title },
+        { conversationId: result.conversationId, jobName: opts.jobName },
         "Background job completed",
       );
-    } catch (err) {
-      log.error({ err, title: opts.title }, "Background job failed");
     }
   }
 }

@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for taking the time to report a bug! Please fill out the details below so we can investigate.
 
-        > **Tip:** You can also submit feedback directly from the app via **Help → Share feedback**.
+        > **Tip:** Clicking **Share feedback** in the app sends us your recent logs — see [Getting Help](https://www.vellum.ai/docs/help/getting-help) for more ways to reach us.
 
   - type: textarea
     id: what-happened

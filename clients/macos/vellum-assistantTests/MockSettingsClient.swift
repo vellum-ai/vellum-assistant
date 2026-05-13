@@ -121,10 +121,6 @@ final class MockSettingsClient: SettingsClientProtocol {
         return modelInfoResponse
     }
 
-    func setModel(model: String, provider: String? = nil) async -> ModelInfoMessage? {
-        nil
-    }
-
     func setImageGenModel(modelId: String) async -> ModelInfoMessage? {
         setImageGenModelCalls.append(modelId)
         return setImageGenModelResponse

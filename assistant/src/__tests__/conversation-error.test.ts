@@ -596,12 +596,51 @@ describe("classifyConversationError", () => {
       expect(result.retryable).toBe(true);
     });
 
-    it("classifies ProviderError with 401 as PROVIDER_NOT_CONFIGURED (non-retryable)", () => {
+    it("classifies ProviderError with 401 as PROVIDER_INVALID_KEY (non-retryable)", () => {
+      // 401 means the upstream provider rejected the configured key
+      // (vs. PROVIDER_NOT_CONFIGURED which is for a never-set key).
+      // The macOS chat renders these on different banners.
       const err = new ProviderError("Unauthorized", "anthropic", 401);
       const result = classifyConversationError(err, baseCtx);
-      expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.retryable).toBe(false);
-      expect(result.errorCategory).toBe("provider_not_configured");
+      expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+
+    it("classifies ProviderError 401 with 'invalid x-api-key' message as PROVIDER_INVALID_KEY", () => {
+      // Regex-match branch — Anthropic's standard 401 wording.
+      const err = new ProviderError(
+        "Anthropic API error: invalid x-api-key",
+        "anthropic",
+        401,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+
+    it("classifies ProviderError 403 with 'invalid api key' message as PROVIDER_INVALID_KEY", () => {
+      const err = new ProviderError(
+        "OpenAI: Invalid API key",
+        "openai",
+        403,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+
+    it("includes connection/profile attribution in PROVIDER_INVALID_KEY when provided", () => {
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "my-anthropic",
+        profileName: "personal",
+      });
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.connectionName).toBe("my-anthropic");
+      expect(result.profileName).toBe("personal");
+      expect(result.userMessage).toContain("personal");
     });
 
     it("classifies direct ProviderError with 402 as provider_billing (non-retryable)", () => {

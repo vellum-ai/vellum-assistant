@@ -8,7 +8,6 @@ import {
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
-import { loadConfig } from "../config/loader.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
@@ -22,6 +21,10 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { normalizeOnboardingContext } from "./normalize-onboarding.js";
+import {
+  getWorkspaceSystemPromptDir,
+  renderWorkspaceSections,
+} from "./sections.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
@@ -100,6 +103,55 @@ export function ensurePromptFiles(): void {
       log.info({ file, dest }, "Created prompt file from template");
     } catch (err) {
       log.warn({ err, file }, "Failed to create prompt file from template");
+    }
+  }
+
+  // Seed `<workspace>/prompts/system/` from `templates/system/`.  Same
+  // copy-if-missing semantics as SOUL.md / IDENTITY.md — user edits are
+  // sticky; bundled defaults only land when the file does not exist.
+  // Discovery is filesystem-driven: every `.md` file in `templates/system/`
+  // is treated as a section.  No in-code registry of section ids.
+  const systemPromptDir = getWorkspaceSystemPromptDir();
+  const systemTemplatesDir = join(templatesDir, "system");
+  if (existsSync(systemTemplatesDir)) {
+    try {
+      mkdirSync(systemPromptDir, { recursive: true });
+    } catch (err) {
+      log.warn(
+        { err, systemPromptDir },
+        "Failed to create system prompt directory",
+      );
+    }
+
+    let templateFiles: string[] = [];
+    try {
+      templateFiles = readdirSync(systemTemplatesDir).filter((f) =>
+        f.endsWith(".md"),
+      );
+    } catch (err) {
+      log.warn(
+        { err, systemTemplatesDir },
+        "Failed to list system prompt templates",
+      );
+    }
+
+    for (const filename of templateFiles) {
+      const dest = join(systemPromptDir, filename);
+      if (existsSync(dest)) continue;
+
+      const src = join(systemTemplatesDir, filename);
+      try {
+        copyFileSync(src, dest);
+        log.info(
+          { filename, dest },
+          "Created system prompt section from template",
+        );
+      } catch (err) {
+        log.warn(
+          { err, filename },
+          "Failed to create system prompt section from template",
+        );
+      }
     }
   }
 
@@ -224,6 +276,14 @@ export interface BuildSystemPromptOptions {
   channelPersona?: string | null;
   userSlug?: string | null;
   onboardingContext?: OnboardingContext;
+  /**
+   * When true, append the Background Conversation guidance instructing the
+   * model to invoke the `notifications` skill for progress, blockers, and
+   * completion. Set by callers when running a non-interactive
+   * background/scheduled conversation. Interactive conversations leave this
+   * unset so they pay zero token cost.
+   */
+  isBackgroundConversation?: boolean;
 }
 
 /**
@@ -241,11 +301,12 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // These sections are deterministic within a process lifetime.  They form
   // the first cache block so they remain cached even when workspace files
   // (IDENTITY.md, SOUL.md, users/<slug>.md, etc.) are edited between turns.
+  //
+  // The remaining `build*Section` helpers will be migrated into the
+  // workspace-section convention in follow-up PRs (see
+  // `/workspace/data/plan-system-prompt-workspace.md`).
   const staticParts: string[] = [];
-  const customPrefix = readCustomSystemPromptPrefix();
-  if (customPrefix && !options?.excludeCustomPrefix)
-    staticParts.push(customPrefix);
-  staticParts.push(buildParallelToolCallsSection());
+  staticParts.push(...renderWorkspaceSections({ ...options }));
   if (getIsContainerized()) staticParts.push(buildContainerizedSection());
   staticParts.push(buildCliReferenceSection());
   // Tool Permissions section removed — guidance lives in tool descriptions.
@@ -256,6 +317,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
   staticParts.push(buildCredentialSecuritySection());
   staticParts.push(buildExternalContentSection());
+  if (options?.isBackgroundConversation) {
+    staticParts.push(buildBackgroundConversationSection());
+  }
   // Memory Persistence, Memory Recall, Workspace Reflection, Learning from Mistakes
   // sections removed — guidance lives in memory_manage/memory_recall tool descriptions
   // and the Proactive Workspace Editing subsection in Configuration.
@@ -409,6 +473,14 @@ function buildExternalContentSection(): string {
   ].join("\n");
 }
 
+function buildBackgroundConversationSection(): string {
+  return [
+    "## Background Conversation",
+    "",
+    'You are running as a non-interactive background job — the user is not watching this conversation. To surface progress, blockers, or completion to the user, invoke the `notifications` skill (`assistant notifications send --message "..." --source-channel assistant_tool --is-async-background`). Finishing silently means the user sees nothing.',
+  ].join("\n");
+}
+
 function buildIntegrationSection(): string {
   let connections: { provider: string; accountInfo?: string | null }[];
   try {
@@ -431,21 +503,6 @@ function buildIntegrationSection(): string {
   return lines.join("\n");
 }
 
-/**
- * Read the user-configured custom system prompt prefix.  Returns the trimmed
- * value when set and non-empty, otherwise null.  Errors (e.g. config file
- * unavailable) are swallowed so prompt construction never fails.
- */
-function readCustomSystemPromptPrefix(): string | null {
-  try {
-    const prefix = loadConfig().systemPromptPrefix;
-    if (typeof prefix !== "string") return null;
-    const trimmed = prefix.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  } catch {
-    return null;
-  }
-}
 function buildContainerizedSection(): string {
   const workspaceDir = getWorkspaceDir();
   return [
@@ -460,18 +517,6 @@ function buildContainerizedSection(): string {
     "- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume",
     "- When in doubt, prefer paths nested under the data directory",
     "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done - disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
-  ].join("\n");
-}
-
-function buildParallelToolCallsSection(): string {
-  return [
-    "<use_parallel_tool_calls>",
-    "Batch independent tool calls into the same response. An extra LLM round trip costs orders of magnitude more than a few wasted tool calls — err on the side of parallelizing when calls are independent. Reading multiple files, `glob`/`grep`, `ls`, `git status`/`diff`/`log`, type-checks, and tests should be batched.",
-    "",
-    "Before emitting a single tool call, ask whether your next turn would be another tool call that doesn't consume this one's output — if so, they belong together. Serialized tool calls without a real data dependency are a bug.",
-    "",
-    "For non-trivial independent workstreams — research, coding, multi-step investigations — delegate to subagents (load the `subagent` skill) and spawn them early and in parallel; an unnecessary subagent is cheaper than serialized work.",
-    "</use_parallel_tool_calls>",
   ].join("\n");
 }
 

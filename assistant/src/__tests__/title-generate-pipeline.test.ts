@@ -80,11 +80,6 @@ describe("titleGenerate pipeline", () => {
       manifest: {
         name: "default-title-generate",
         version: "1.0.0",
-        provides: { titleGenerate: "v1" },
-        requires: {
-          pluginRuntime: "v1",
-          titleGenerateApi: "v1",
-        },
       },
     });
   });
@@ -149,10 +144,6 @@ describe("titleGenerate pipeline", () => {
       manifest: {
         name: "custom-deterministic-title",
         version: "0.0.1",
-        requires: {
-          pluginRuntime: "v1",
-          titleGenerateApi: "v1",
-        },
       },
       middleware: { titleGenerate: deterministicMw },
     };
@@ -201,10 +192,6 @@ describe("titleGenerate pipeline", () => {
       manifest: {
         name: "observer",
         version: "0.0.1",
-        requires: {
-          pluginRuntime: "v1",
-          titleGenerateApi: "v1",
-        },
       },
       middleware: { titleGenerate: passthroughMw },
     });

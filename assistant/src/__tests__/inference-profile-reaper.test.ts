@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "./helpers/mock-logger.js";
+import { waitFor } from "./helpers/wait-for.js";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
@@ -86,8 +87,9 @@ describe("inference-profile-session-reaper", () => {
     });
 
     tickInferenceProfileReaper();
-    // Allow microtasks (promise callbacks) to settle
-    await Promise.resolve();
+    await waitFor(() => publishedEvents.length === 2, {
+      message: "Timed out waiting for inference profile reaper event",
+    });
 
     // Expired rows should be cleared
     expect(getConversation(conv1.id)?.inferenceProfile).toBeNull();

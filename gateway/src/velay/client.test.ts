@@ -13,6 +13,7 @@ import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
+import { VELAY_ALLOWED_PATHS_HEADER_VALUE } from "./allowed-paths.js";
 import {
   FakeWebSocket,
   makeFakeWebSocketConstructor,
@@ -291,7 +292,10 @@ describe("VelayTunnelClient", () => {
     expect(sockets[0].url).toBe("ws://velay.example.test/v1/register");
     expect(sockets[0].options).toEqual({
       protocols: [VELAY_TUNNEL_SUBPROTOCOL],
-      headers: { Authorization: "Api-Key api-key-123" },
+      headers: {
+        Authorization: "Api-Key api-key-123",
+        "X-Vellum-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
+      },
     });
 
     sockets[0].readyState = WS_OPEN;

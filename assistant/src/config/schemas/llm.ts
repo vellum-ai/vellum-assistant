@@ -49,6 +49,7 @@ export const LLMCallSiteEnum = z.enum([
   "memoryV2Sweep",
   "memoryRouter",
   "memoryV2Consolidation",
+  "memoryRetrospective",
   "recall",
   "narrativeRefinement",
   "patternScan",
@@ -71,7 +72,6 @@ export const LLMCallSiteEnum = z.enum([
   "meetConsentMonitor",
   "meetChatOpportunity",
   "inference",
-  "feedEventCopy",
   "trustRuleSuggestion",
   "proactiveArtifactDecision",
   "proactiveArtifactBuild",
@@ -337,7 +337,18 @@ export type ProfileStatus = z.infer<typeof ProfileStatusSchema>;
  */
 export const ProfileEntry = LLMConfigFragment.extend({
   source: ProfileSource.optional(),
-  label: z.string().min(1).optional(),
+  /**
+   * `.nullable()` is intentional: the PUT `/v1/config/llm/profiles/:name`
+   * route uses `null` as the "clear this override" sentinel for managed
+   * profiles (see `patchManagedProfileFields` in
+   * `runtime/routes/conversation-query-routes.ts`). Without `.nullable()`,
+   * Zod rejects `{ label: null }` at parse time before the route handler
+   * ever sees it, and the clear-back-to-seed path is unreachable from any
+   * client. `.min(1)` still applies to string values so empty strings
+   * remain rejected — `null` is the only non-string-non-undefined input
+   * accepted.
+   */
+  label: z.string().min(1).nullable().optional(),
   description: z.string().optional(),
   /**
    * Name of a `provider_connections` row to use for this profile.
@@ -346,8 +357,13 @@ export const ProfileEntry = LLMConfigFragment.extend({
    * not yet backfilled by the boot-time migration.
    */
   provider_connection: z.string().min(1).optional(),
-  /** Absent means active. */
-  status: ProfileStatusSchema.optional(),
+  /**
+   * Absent means active. `.nullable()` matches `label` so the PUT route's
+   * "send `null` to clear" sentinel works for status edits too — see
+   * `patchManagedProfileFields`, which has handled `status === null` since
+   * #30362 even though the schema didn't accept it until now.
+   */
+  status: ProfileStatusSchema.nullable().optional(),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 

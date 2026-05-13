@@ -38,9 +38,9 @@ final class MockProviderConnectionClient: ProviderConnectionClientProtocol {
     var createAuthArg: ProviderConnectionAuth?
     var createLabelArg: String?
     var createStatusArg: ConnectionStatus?
-    var createResponse: ProviderConnection? = nil
+    var createResponse: ProviderConnectionCreateResult = .error
 
-    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, status: ConnectionStatus?) async -> ProviderConnection? {
+    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, status: ConnectionStatus?) async -> ProviderConnectionCreateResult {
         createCallCount += 1
         createNameArg = name
         createProviderArg = provider
@@ -247,28 +247,55 @@ final class ProviderConnectionClientTests: XCTestCase {
 
     func testCreateReturnsConnectionOnSuccess() async {
         let conn = makeConnection(name: "new-conn")
-        mock.createResponse = conn
+        mock.createResponse = .created(conn)
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-test")
         let result = await mock.createProviderConnection(name: "new-conn", provider: "anthropic", auth: auth, label: nil, status: nil)
-        XCTAssertEqual(result?.name, "new-conn")
+        guard case .created(let created) = result else {
+            XCTFail("Expected .created result, got \(result)")
+            return
+        }
+        XCTAssertEqual(created.name, "new-conn")
         XCTAssertEqual(mock.createNameArg, "new-conn")
         XCTAssertEqual(mock.createProviderArg, "anthropic")
         XCTAssertEqual(mock.createAuthArg?.type, "api_key")
         XCTAssertEqual(mock.createAuthArg?.credential, "sk-test")
     }
 
-    func testCreateReturnsNilOn409NameConflict() async {
-        mock.createResponse = nil
+    func testCreateReturnsDuplicateOn409NameConflict() async {
+        // 409 from the daemon (a connection with this name already exists)
+        // surfaces as `.duplicate` so callers can show a precise message
+        // instead of a generic "please try again."
+        mock.createResponse = .duplicate
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-test")
         let result = await mock.createProviderConnection(name: "existing", provider: "anthropic", auth: auth, label: nil, status: nil)
-        XCTAssertNil(result, "nil return models 409 name conflict")
+        guard case .duplicate = result else {
+            XCTFail("Expected .duplicate result, got \(result)")
+            return
+        }
     }
 
-    func testCreateReturnsNilOn400InvalidAuth() async {
-        mock.createResponse = nil
+    func testCreateReturnsInvalidWithMessageOn400() async {
+        // 400 carries the daemon's structured reason when available so the
+        // sheet can echo it verbatim (e.g. `Invalid provider "x". Valid: ...`).
+        mock.createResponse = .invalid(message: "Invalid auth configuration.")
         let auth = ProviderConnectionAuth(type: "api_key", credential: "")
         let result = await mock.createProviderConnection(name: "conn", provider: "anthropic", auth: auth, label: nil, status: nil)
-        XCTAssertNil(result, "nil return models 400 invalid auth")
+        guard case .invalid(let message) = result else {
+            XCTFail("Expected .invalid result, got \(result)")
+            return
+        }
+        XCTAssertEqual(message, "Invalid auth configuration.")
+    }
+
+    func testCreateReturnsErrorOnUnknownFailure() async {
+        // Catch-all for network errors, 5xx, decode failures, etc.
+        mock.createResponse = .error
+        let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-test")
+        let result = await mock.createProviderConnection(name: "conn", provider: "anthropic", auth: auth, label: nil, status: nil)
+        guard case .error = result else {
+            XCTFail("Expected .error result, got \(result)")
+            return
+        }
     }
 
     // MARK: - update

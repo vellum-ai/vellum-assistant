@@ -286,7 +286,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "slack/channels", scopes: ["settings.read"] },
   { endpoint: "slack/share", scopes: ["settings.write"] },
 
-  // Channel readiness
+  // Channel availability + readiness
+  { endpoint: "channels/available", scopes: ["settings.read"] },
   { endpoint: "channels/readiness", scopes: ["settings.read"] },
   { endpoint: "channels/readiness/refresh", scopes: ["settings.write"] },
 
@@ -330,6 +331,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/sign-bundle", scopes: ["settings.write"] },
   { endpoint: "apps/signing-identity", scopes: ["settings.read"] },
   { endpoint: "apps/dist", scopes: ["settings.read"] },
+  { endpoint: "apps/publish", scopes: ["settings.write"] },
+  { endpoint: "apps/unpublish", scopes: ["settings.write"] },
+  { endpoint: "apps/publish-status", scopes: ["settings.read"] },
   { endpoint: "pages", scopes: ["settings.read"] },
 
   // Usage / cost telemetry

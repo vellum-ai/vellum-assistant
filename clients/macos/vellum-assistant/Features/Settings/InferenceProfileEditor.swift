@@ -27,6 +27,24 @@ struct InferenceProfileEditor: View {
     @Binding var profile: InferenceProfile
     var isReadOnly: Bool = false
     var isCreating: Bool = false
+    /// Provider connections available for the Connection sub-dropdown. The
+    /// editor reads this list, filters by the currently-selected provider
+    /// and `.status == .active`, and lets the user route the profile to a
+    /// specific row. Defaults to nil so test constructions and callers
+    /// that don't care about connection routing still compile — daemons
+    /// older than the `provider_connection`-aware profile schema continue
+    /// to behave as "pick the first active connection for the provider."
+    ///
+    /// `nil` vs `[]` is meaningful:
+    /// - `nil` → the parent has not yet fetched `listProviderConnections`
+    ///   (pre-load window between `.task` firing and the daemon response).
+    ///   The provider picker falls back to the full catalog so the trigger
+    ///   isn't empty during that gap.
+    /// - `[]` → the daemon returned zero connections. A fresh workspace
+    ///   with nothing configured. The provider picker filters to empty,
+    ///   the empty-state hint fires, and the user is steered to Providers
+    ///   instead of being allowed to pick a non-dispatchable provider.
+    var connections: [ProviderConnection]? = nil
     let onSave: () -> Void
     var onSaveAs: (() -> Void)?
     let onCancel: () -> Void
@@ -70,7 +88,81 @@ struct InferenceProfileEditor: View {
     /// false, the key auto-derives from the Display Name as kebab-case.
     @State private var isKeyDirty: Bool = false
 
+    /// Snapshot of `profile.label` captured when the editor appeared.
+    /// Used by `hasViewModeChanges` to decide whether the view-mode Save
+    /// button is enabled. View mode is reserved for managed profiles, so
+    /// this snapshot represents the daemon-seeded label (or the user's
+    /// most recent override of it).
+    @State private var initialLabel: String?
+
+    /// Snapshot of `profile.status` captured when the editor appeared.
+    /// Compared against the current status via `isStatusActive(_:)` so
+    /// the `nil`/`"active"` round-trip from the daemon doesn't read as
+    /// a spurious change. See `hasViewModeChanges`.
+    @State private var initialStatus: String?
+
+    /// True when the editor is in view mode (managed-profile read of an
+    /// existing profile) AND the user has touched either of the two
+    /// fields that view mode permits editing (`label`, `status`).
+    /// Drives the view-mode Save button's enabled state; without a
+    /// change, view mode stays close-only.
+    ///
+    /// `label` comparison trims surrounding whitespace so a stray space
+    /// doesn't read as a change. `status` comparison normalizes
+    /// `nil`/`""`/`"active"` to the same "active" bucket so the daemon's
+    /// stored shape (which may differ from the local-cache shape — see
+    /// `setProfileStatus`'s `wireStatus` vs `nextLocalStatus`) doesn't
+    /// trip a false-positive change.
+    var hasViewModeChanges: Bool {
+        guard isReadOnly else { return false }
+        return Self.viewModeHasChanges(
+            currentLabel: profile.label,
+            initialLabel: initialLabel,
+            currentStatus: profile.status,
+            initialStatus: initialStatus
+        )
+    }
+
+    /// Pure comparison driving `hasViewModeChanges`. Exposed so tests can
+    /// exercise the label/status normalization without rendering the
+    /// view (the instance variant depends on `@State` snapshots captured
+    /// in `.onAppear`, which doesn't fire under XCTest).
+    ///
+    /// `label` compares trimmed-whitespace, so a stray trailing space
+    /// doesn't read as a real change.
+    /// `status` normalizes through `isStatusActive` so the daemon's
+    /// nil-vs-"active" round-trip stays a no-op.
+    static func viewModeHasChanges(
+        currentLabel: String?,
+        initialLabel: String?,
+        currentStatus: String?,
+        initialStatus: String?
+    ) -> Bool {
+        let labelEqual = (currentLabel ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            == (initialLabel ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let statusEqual = isStatusActive(currentStatus) == isStatusActive(initialStatus)
+        return !labelEqual || !statusEqual
+    }
+
+    /// Normalizes the three "active" shapes (`nil`, empty string,
+    /// literal `"active"`) into a single boolean so the local-vs-wire
+    /// status comparison stays robust across daemon round-trips. Mirrors
+    /// `InferenceProfile.isDisabled` semantics: only literal `"disabled"`
+    /// reads as disabled.
+    static func isStatusActive(_ status: String?) -> Bool {
+        status != "disabled"
+    }
+
     // MARK: - Validation
+
+    /// True when the user hasn't picked a provider yet. Provider is now
+    /// required (the old "None (inherit defaults)" affordance was removed
+    /// because the inherit-defaults pathway encouraged accidental fallbacks
+    /// to the global default model — defeating the point of named profiles).
+    var isProviderMissing: Bool {
+        let provider = profile.provider ?? ""
+        return provider.isEmpty
+    }
 
     /// True when the user has picked a provider but no model — the most
     /// common partial-edit state. Disables Save and shows the badge.
@@ -93,10 +185,10 @@ struct InferenceProfileEditor: View {
         return !catalog.contains(model)
     }
 
-    /// Combined gate for the Save button: any model-validation problem
-    /// blocks Save.
+    /// Combined gate for the Save button: provider must be picked AND
+    /// model must be valid.
     var canSave: Bool {
-        !isModelMissing && !isModelInvalid
+        !isProviderMissing && !isModelMissing && !isModelInvalid
     }
 
     var parameterVisibility: InferenceProfileParameterVisibility {
@@ -122,35 +214,59 @@ struct InferenceProfileEditor: View {
             SettingsDivider()
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    // Display Name stays editable in every mode — including
+                    // view mode for managed profiles, where the daemon
+                    // allows policy edits on `label` even though the seed
+                    // contract (provider, model, advanced params) is
+                    // locked. The Save button in the view-mode footer
+                    // gates the persist call on `hasViewModeChanges`.
                     labelField
-                    descriptionField
-                    keyField
-                    providerField
-                    modelField
-                    if visibility.maxTokens {
-                        maxTokensField
+
+                    // Seed-owned fields: locked in view mode (managed
+                    // profile read) so the user can't reshape the
+                    // daemon-seeded contract from inside view mode. The
+                    // duplicate path (Save As New) is the supported way
+                    // to fork these into a user-owned profile.
+                    Group {
+                        descriptionField
+                        keyField
+                        providerField
+                        connectionField
+                        modelField
+                        if visibility.maxTokens {
+                            maxTokensField
+                        }
+                        contextWindowField
                     }
-                    contextWindowField
-                    if visibility.effort {
-                        effortField
+                    .disabled(isReadOnly)
+                    Group {
+                        if visibility.effort {
+                            effortField
+                        }
+                        if visibility.speed {
+                            speedField
+                        }
+                        if visibility.verbosity {
+                            verbosityField
+                        }
+                        if visibility.temperature {
+                            temperatureField
+                        }
+                        if visibility.thinking {
+                            thinkingSection
+                        }
                     }
-                    if visibility.speed {
-                        speedField
-                    }
-                    if visibility.verbosity {
-                        verbosityField
-                    }
-                    if visibility.temperature {
-                        temperatureField
-                    }
-                    if visibility.thinking {
-                        thinkingSection
-                    }
+                    .disabled(isReadOnly)
+
+                    // Status (active/disabled) is user policy in every
+                    // mode for the same reason as `label`: managed
+                    // profiles can be temporarily disabled without
+                    // duplicating. Save in view mode persists the
+                    // toggle along with any label change.
                     statusToggle
                 }
                 .padding(VSpacing.lg)
             }
-            .disabled(isReadOnly)
             SettingsDivider()
             editorFooter
         }
@@ -162,6 +278,15 @@ struct InferenceProfileEditor: View {
             if !isCreating {
                 isKeyDirty = true
             }
+            // Capture the policy-field baseline so the view-mode Save
+            // button can light up only when the user actually changed
+            // something. We re-capture on every `.onAppear` (not just
+            // the first) because the editor view is unmounted when
+            // `editorState` transitions to nil (parent sheet conditional
+            // `if editorState != nil`), so switching between profiles
+            // re-fires this closure with the new draft.
+            initialLabel = profile.label
+            initialStatus = profile.status
         }
     }
 
@@ -173,8 +298,8 @@ struct InferenceProfileEditor: View {
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
             if isReadOnly {
-                VBadge(label: "Vellum", tone: .neutral, emphasis: .subtle)
-                    .help("Profiles managed by Vellum cannot be edited, but can be copied")
+                VBadge(label: "Platform", tone: .positive, emphasis: .subtle)
+                    .help("Profiles managed by Platform cannot be edited, but can be copied")
             }
             Spacer(minLength: 0)
             VButton(
@@ -200,6 +325,19 @@ struct InferenceProfileEditor: View {
                     VButton(label: "Save As New", style: .primary) {
                         onSaveAs()
                     }
+                }
+                // Save persists the two view-mode-editable fields
+                // (`label`, `status`). Gated on `hasViewModeChanges` so an
+                // untouched view session can't round-trip a no-op write,
+                // and so the button visually communicates "nothing to save
+                // yet" while the user is just browsing. The parent's
+                // `commitEditor` detects view mode and routes through
+                // `SettingsStore.setManagedProfilePolicy` rather than the
+                // full `replaceProfile` path — sending only `{label,
+                // status}` is required by the daemon's managed-profile
+                // guard on `PUT /v1/config/llm/profiles/<name>`.
+                VButton(label: "Save", style: .primary, isDisabled: !hasViewModeChanges) {
+                    onSave()
                 }
             } else {
                 VButton(label: "Cancel", style: .outlined) {
@@ -299,8 +437,39 @@ struct InferenceProfileEditor: View {
             .joined(separator: "-")
     }
 
+    /// Provider IDs visible in the picker. Filtered to providers that
+    /// have at least one ACTIVE connection — picking a provider with
+    /// zero active connections binds the profile to a route the daemon
+    /// can't dispatch through, leaving the user stuck. The currently-
+    /// bound `provider` is always kept in the list so editing/viewing a
+    /// stale profile (whose connection was disabled after the binding
+    /// was saved) still renders a sensible trigger.
+    ///
+    /// Pre-load fallback: when `connections` is `nil` (the sheet's
+    /// `.task` hasn't completed its first `listProviderConnections`
+    /// fetch yet, or an older daemon that doesn't surface the connection
+    /// list), return the full catalog so the user doesn't see an empty
+    /// picker on first open. An EMPTY-but-loaded `connections == []` is
+    /// distinct: the daemon confirmed zero connections, so the filter
+    /// runs and yields empty — the empty-state hint fires and steers
+    /// the user to Providers instead of letting them save a profile
+    /// bound to a non-dispatchable provider.
+    ///
+    /// Mirrors web's `visibleProviders` + `providerOptionsSource` in
+    /// `web/src/app/(app)/assistant/settings/ai/profile-editor-modal.tsx`
+    /// (PR #6509). The web sibling has the same nil-vs-empty trap and
+    /// is being addressed in a follow-up.
     var availableProviderIds: [String] {
-        store.dynamicProviderIds
+        guard let connections else { return store.dynamicProviderIds }
+
+        var activeProviderSet = Set<String>()
+        for connection in connections where connection.status == .active {
+            activeProviderSet.insert(connection.provider)
+        }
+        if let bound = profile.provider, !bound.isEmpty {
+            activeProviderSet.insert(bound)
+        }
+        return store.dynamicProviderIds.filter { activeProviderSet.contains($0) }
     }
 
     private var providerField: some View {
@@ -326,6 +495,12 @@ struct InferenceProfileEditor: View {
                         } else {
                             profile.model = nil
                         }
+                        // Reset connection binding too: a stale name almost
+                        // certainly points at a different provider's row, and
+                        // the daemon would reject it at resolve time. Falling
+                        // back to "Any active <provider> connection" matches
+                        // the dispatcher's legacy behavior.
+                        profile.providerConnection = nil
                         Self.clampMaxOutputTokensForSelectedModel(&profile)
                         Self.clampContextWindowForSelectedModel(&profile)
                     }
@@ -334,7 +509,100 @@ struct InferenceProfileEditor: View {
                     (label: store.dynamicProviderDisplayName(provider), value: provider)
                 }
             )
+            if availableProviderIds.isEmpty && !isReadOnly {
+                Text("No active provider connections. Open Providers to add or enable one.")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
         }
+    }
+
+    /// Active connections that match the currently-selected provider. Used
+    /// by `connectionField` to populate its dropdown. During pre-load
+    /// (`connections == nil`) there's nothing to pick — the connection
+    /// sub-dropdown stays hidden until the fetch completes.
+    var availableConnectionsForProvider: [ProviderConnection] {
+        guard let provider = profile.provider, !provider.isEmpty else { return [] }
+        return (connections ?? []).filter { $0.provider == provider && $0.status == .active }
+    }
+
+    /// The currently-saved binding when it does NOT resolve to any active
+    /// connection for the selected provider. `nil` when the binding is
+    /// empty or when it does match. Used to gate the picker's "stale"
+    /// affordances (extra dropdown option + warning badge).
+    var staleProviderConnection: String? {
+        guard let bound = profile.providerConnection, !bound.isEmpty else { return nil }
+        return availableConnectionsForProvider.contains(where: { $0.name == bound })
+            ? nil
+            : bound
+    }
+
+    /// Connection sub-dropdown. Renders when a provider is selected AND
+    /// either at least one active connection matches OR the profile has a
+    /// non-empty saved binding (so a stale binding can be seen and cleared
+    /// rather than silently round-tripping on save). The first option
+    /// preserves the daemon's "first active" fallback so existing profiles
+    /// keep working without an explicit migration.
+    @ViewBuilder
+    private var connectionField: some View {
+        let available = availableConnectionsForProvider
+        let stale = staleProviderConnection
+        if let provider = profile.provider,
+           !provider.isEmpty,
+           (!available.isEmpty || stale != nil) {
+            labeled(
+                "Connection",
+                accessory: {
+                    // Surface the "stale binding" state: the saved name
+                    // doesn't match any active connection for the provider.
+                    // Most commonly this fires when a connection was
+                    // disabled or deleted outside the editor.
+                    if stale != nil {
+                        VBadge(
+                            label: "Not found",
+                            tone: .warning,
+                            emphasis: .subtle
+                        )
+                    }
+                }
+            ) {
+                let baseOptions: [(label: String, value: String)] = [
+                    (
+                        label: "Any active \(store.dynamicProviderDisplayName(provider)) connection",
+                        value: ""
+                    )
+                ] + available.map { conn in
+                    (label: Self.connectionDisplayName(conn), value: conn.name)
+                }
+                // When the saved binding is stale, surface it as an explicit
+                // dropdown option so the trigger renders its name. Selecting
+                // "Any active …" clears the binding back to the daemon's
+                // first-active fallback.
+                let optionsWithStale: [(label: String, value: String)] =
+                    stale.map { name in
+                        baseOptions + [(label: "\(name) (not found)", value: name)]
+                    } ?? baseOptions
+                VDropdown(
+                    placeholder: "Any active connection\u{2026}",
+                    selection: Binding(
+                        get: { profile.providerConnection ?? "" },
+                        set: { newValue in
+                            profile.providerConnection = newValue.isEmpty ? nil : newValue
+                        }
+                    ),
+                    options: optionsWithStale
+                )
+            }
+        }
+    }
+
+    /// Prefer the human-readable label when present; fall back to the
+    /// connection's stored `name` (which is the on-disk identifier). Mirrors
+    /// the convention used by `ProvidersSheet` row rendering so the two
+    /// surfaces stay visually consistent.
+    static func connectionDisplayName(_ conn: ProviderConnection) -> String {
+        if let label = conn.label, !label.isEmpty { return label }
+        return conn.name
     }
 
     private var modelField: some View {

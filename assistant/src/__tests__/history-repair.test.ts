@@ -724,6 +724,95 @@ describe("repairHistory", () => {
     expect(userMsg.content.every((b) => b.type !== "tool_result")).toBe(true);
   });
 
+  test("downgrades orphan web_search_tool_result in assistant message to text", () => {
+    // Inverse of the orphan-server_tool_use case. A web_search_tool_result
+    // in an assistant message whose tool_use_id has no preceding
+    // server_tool_use in the same message would 400 at the API. Downgrade
+    // to text so the model still sees the search results.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "search" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Here's what I found." },
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_orphan",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://example.com",
+                title: "Example",
+                encrypted_content: "enc_abc",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.orphanToolResultsDowngraded).toBe(1);
+    expect(stats.missingToolResultsInserted).toBe(0);
+
+    const assistantMsg = repaired[1];
+    expect(
+      assistantMsg.content.every((b) => b.type !== "web_search_tool_result"),
+    ).toBe(true);
+    const downgraded = assistantMsg.content.find(
+      (b) =>
+        b.type === "text" &&
+        (b as { text: string }).text.includes("srvtoolu_orphan"),
+    );
+    expect(downgraded).toBeDefined();
+  });
+
+  test("repairs both orphan directions within the same assistant message", () => {
+    // server_tool_use without a result AND a stray wsr from a different id —
+    // both must be repaired in one pass.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "stu_missing_result",
+            name: "web_search",
+            input: { query: "alpha" },
+          },
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "stu_no_use",
+            content: [
+              { type: "web_search_result", url: "https://x.test", title: "X" },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.missingToolResultsInserted).toBe(1);
+    expect(stats.orphanToolResultsDowngraded).toBe(1);
+
+    const assistantMsg = repaired[1];
+    // Synthetic result inserted immediately after the orphan server_tool_use.
+    const blockTypes = assistantMsg.content.map((b) => b.type);
+    expect(blockTypes[0]).toBe("server_tool_use");
+    expect(blockTypes[1]).toBe("web_search_tool_result");
+    expect(
+      (assistantMsg.content[1] as { tool_use_id: string }).tool_use_id,
+    ).toBe("stu_missing_result");
+    // The orphan wsr is downgraded to text.
+    expect(blockTypes[2]).toBe("text");
+    expect((assistantMsg.content[2] as { text: string }).text).toContain(
+      "stu_no_use",
+    );
+  });
+
   test("downgrades type-mismatched web_search_tool_result for tool_use", () => {
     // A web_search_tool_result paired with a regular tool_use ID is a type mismatch
     const messages: Message[] = [

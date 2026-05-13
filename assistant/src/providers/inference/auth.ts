@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { PROVIDER_CATALOG } from "../model-catalog.js";
+
 // ---------------------------------------------------------------------------
 // Auth discriminated union (stored in provider_connections.auth as JSON)
 // ---------------------------------------------------------------------------
@@ -54,21 +56,28 @@ export type ResolvedAuth =
   | { kind: "none" };
 
 // ---------------------------------------------------------------------------
-// Valid provider identifiers (code-defined closed set)
+// Valid provider identifiers — derived from PROVIDER_CATALOG
 // ---------------------------------------------------------------------------
+//
+// PROVIDER_CATALOG (in `model-catalog.ts`) is the single source of truth for
+// the closed set of inference-provider identifiers. The list below is
+// derived at module load; adding a provider to the catalog automatically
+// extends `VALID_CONNECTION_PROVIDERS` and `ConnectionProviderSchema`.
+//
+// Trade-off: because `PROVIDER_CATALOG` is a runtime value, the
+// `ConnectionProvider` static type is `string` rather than a narrow
+// literal-string union. Callers that need a narrowed value should parse
+// through `ConnectionProviderSchema`, which still rejects unknown
+// providers at runtime.
 
-export const VALID_CONNECTION_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "gemini",
-  "ollama",
-  "fireworks",
-  "openrouter",
-] as const;
+export const VALID_CONNECTION_PROVIDERS: readonly string[] =
+  PROVIDER_CATALOG.map((p) => p.id);
 
-export type ConnectionProvider = typeof VALID_CONNECTION_PROVIDERS[number];
+export type ConnectionProvider = string;
 
-export const ConnectionProviderSchema = z.enum(VALID_CONNECTION_PROVIDERS);
+export const ConnectionProviderSchema = z.enum(
+  VALID_CONNECTION_PROVIDERS as readonly [string, ...string[]],
+);
 
 // ---------------------------------------------------------------------------
 // Connection status

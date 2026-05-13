@@ -7,12 +7,14 @@ final class ComposerSlashCommandPickerTests: XCTestCase {
     func testPickerCommandsMatchSharedCatalogOrder() {
         XCTAssertEqual(
             SlashCommand.all.map(\.name),
-            ["commands", "compact", "models", "status", "btw", "fork"]
+            ["commands", "compact", "model", "models", "status", "btw", "fork"]
         )
     }
 
-    func testDeprecatedModelCommandIsNotInPickerCommands() {
-        XCTAssertFalse(SlashCommand.all.contains(where: { $0.name == "model" }))
+    func testModelCommandIsInPickerWithTrailingSpaceBehavior() throws {
+        let command = try XCTUnwrap(SlashCommand.all.first(where: { $0.name == "model" }))
+        XCTAssertEqual(command.selectedInputText, "/model ")
+        XCTAssertFalse(command.shouldAutoSendOnSelect)
     }
 
     func testBtwSelectionInsertsTrailingSpaceWithoutAutoSend() throws {

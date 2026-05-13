@@ -23,6 +23,8 @@ async function storeVellum(): Promise<void> {
     "Auth token from your Sentry internal integration (found on the integration's details page under Tokens)",
     "--allowed-domains",
     "sentry.io",
+    "--allowed-tools",
+    "bash",
     "--injection-templates",
     JSON.stringify([
       {

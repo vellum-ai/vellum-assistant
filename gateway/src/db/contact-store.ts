@@ -220,12 +220,17 @@ export class ContactStore {
    * fail the call. The returned `contact` shape is read back from the
    * assistant DB when available, falling back to a synthetic shape built
    * from the gateway row on any read-back failure.
+   *
+   * SECURITY: `role` and `principalId` are intentionally NOT accepted as
+   * inputs. They are auth/authz fields owned by guardian-bootstrap (raw
+   * SQL writes) — accepting them here would let any caller of POST
+   * /v1/contacts rebind the guardian. On update, existing role/principalId
+   * are preserved. On create, role defaults to "contact" and principalId
+   * to null.
    */
   async upsertContact(params: {
     id?: string;
     displayName: string;
-    role?: string;
-    principalId?: string | null;
     notes?: string | null;
     contactType?: string;
     assistantMetadata?: {
@@ -260,15 +265,12 @@ export class ContactStore {
         .get();
 
       if (existing) {
+        // Preserve existing role/principalId — they're never overwritten by
+        // this code path. Guardian binding is owned by guardian-bootstrap.
         this.db
           .update(contacts)
           .set({
             displayName: params.displayName,
-            role: params.role ?? existing.role,
-            principalId:
-              params.principalId !== undefined
-                ? params.principalId
-                : existing.principalId,
             updatedAt: now,
           })
           .where(eq(contacts.id, contactId))
@@ -279,8 +281,8 @@ export class ContactStore {
           .values({
             id: contactId,
             displayName: params.displayName,
-            role: params.role ?? "contact",
-            principalId: params.principalId ?? null,
+            role: "contact",
+            principalId: null,
             createdAt: now,
             updatedAt: now,
           })
@@ -290,10 +292,8 @@ export class ContactStore {
     }
 
     // ── 2. Look up by channel address ─────────────────────────────────
-    // When matching by channel, preserve existing role/principalId — only
-    // overwrite when the caller explicitly provides those fields. Otherwise
-    // a partial upsert by channel can silently demote a guardian to "contact"
-    // or clear principalId, breaking auth.
+    // Channel-match UPDATE preserves existing role/principalId — those
+    // fields are not part of this method's input surface.
     if (!contactId && params.channels?.length) {
       for (const ch of params.channels) {
         const address = ch.address.toLowerCase();
@@ -310,20 +310,10 @@ export class ContactStore {
 
         if (match) {
           contactId = match.contactId;
-          const existingContact = this.db
-            .select()
-            .from(contacts)
-            .where(eq(contacts.id, contactId))
-            .get();
           this.db
             .update(contacts)
             .set({
               displayName: params.displayName,
-              role: params.role ?? existingContact?.role ?? "contact",
-              principalId:
-                params.principalId !== undefined
-                  ? params.principalId
-                  : existingContact?.principalId ?? null,
               updatedAt: now,
             })
             .where(eq(contacts.id, contactId))
@@ -341,8 +331,8 @@ export class ContactStore {
         .values({
           id: contactId,
           displayName: params.displayName,
-          role: params.role ?? "contact",
-          principalId: params.principalId ?? null,
+          role: "contact",
+          principalId: null,
           createdAt: now,
           updatedAt: now,
         })
@@ -529,6 +519,9 @@ export class ContactStore {
 
     if (existing.length) {
       // Dynamic SET clause: only touch fields the caller actually provided.
+      // role / principal_id are intentionally never updated from this path —
+      // they're not in the params surface and the assistant DB already holds
+      // the values written by guardian-bootstrap.
       const setParts: string[] = ["display_name = ?", "updated_at = ?"];
       const setParams: SqliteValue[] = [params.displayName, now];
 
@@ -536,17 +529,9 @@ export class ContactStore {
         setParts.push("notes = ?");
         setParams.push(params.notes ?? null);
       }
-      if (params.role !== undefined) {
-        setParts.push("role = ?");
-        setParams.push(params.role);
-      }
       if (params.contactType !== undefined) {
         setParts.push("contact_type = ?");
         setParams.push(params.contactType);
-      }
-      if (params.principalId !== undefined) {
-        setParts.push("principal_id = ?");
-        setParams.push(params.principalId);
       }
       setParams.push(contactId);
 
@@ -557,7 +542,7 @@ export class ContactStore {
     } else {
       const userFile = await this.resolveAssistantUserFileSlug(
         params.displayName,
-        params.principalId ?? null,
+        null,
       );
       await assistantDbRun(
         `INSERT INTO contacts
@@ -568,9 +553,9 @@ export class ContactStore {
           contactId,
           params.displayName,
           params.notes ?? null,
-          params.role ?? "contact",
+          "contact",
           params.contactType ?? "human",
-          params.principalId ?? null,
+          null,
           userFile,
           now,
           now,

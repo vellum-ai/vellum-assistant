@@ -2860,18 +2860,6 @@ public struct ModelInfo: Codable, Sendable {
     }
 }
 
-public struct ModelSetRequest: Codable, Sendable {
-    public let type: String
-    public let model: String
-    public let provider: String?
-
-    public init(type: String, model: String, provider: String? = nil) {
-        self.type = type
-        self.model = model
-        self.provider = provider
-    }
-}
-
 public struct NavigateSettings: Codable, Sendable {
     public let type: String
     public let tab: String

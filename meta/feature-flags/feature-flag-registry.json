@@ -10,6 +10,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "memory-retrospective",
+      "scope": "assistant",
+      "key": "memory-retrospective",
+      "label": "Memory retrospective pass",
+      "description": "Run a focused, memory-only retrospective during active conversations and at conversation lifecycle. The retrospective agent re-reads the messages added since the last successful run, dedupes against memory/archive/, and calls `remember` for what wasn't captured in the moment. Enabling this also relaxes the in-conversation pressure to call `remember` (lighter PKB reminder + relaxed tool description) so the assistant can stay present and trust the retrospective as the backstop.",
+      "defaultEnabled": false
+    },
+    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",
@@ -286,7 +294,15 @@
       "scope": "assistant",
       "key": "pro-plan-adjust",
       "label": "Pro Plan Adjust",
-      "description": "Show the rich Plan card (current plan, features, Manage/Upgrade CTA) at the top of the macOS Settings → Billing tab.",
+      "description": "Show the rich Plan card (current plan, features, Manage/Upgrade CTA) at the top of the macOS Settings \u2192 Billing tab.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "external-plugins",
+      "scope": "assistant",
+      "key": "external-plugins",
+      "label": "External Plugins",
+      "description": "Enable the external-plugin install path: the `assistant plugins` CLI subcommand and the declarative external-plugin loader convention (`<workspaceDir>/plugins/<name>/` directories containing `package.json` plus interface dirs). Gates an unstable surface that may change shape before stabilizing.",
       "defaultEnabled": false
     }
   ]

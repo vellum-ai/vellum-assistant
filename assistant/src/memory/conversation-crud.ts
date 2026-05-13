@@ -49,6 +49,8 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { getDb, getSqliteFrom } from "./db-connection.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
+import { MEMORY_RETROSPECTIVE_SOURCE } from "./memory-retrospective-constants.js";
+import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
   channelInboundEvents,
@@ -436,6 +438,60 @@ export function findAnalysisConversationFor(
 }
 
 /**
+ * Find the most recent memory-retrospective background conversation rooted
+ * at `parentConversationId`. Used by the memory-retrospective job handler
+ * to load the prior retrospective's `remember` calls into the new run's
+ * `<already_remembered>` block — bounded source-of-truth for "what the
+ * prior pass already saved" that scales as the source conversation grows.
+ *
+ * Walks up `forkParentConversationId` when no retrospective exists at the
+ * current level. This lets a forked conversation inherit dedup context from
+ * its source's most recent retro on the fork's *first* retrospective —
+ * otherwise the fork would re-save every fact the source already retro'd.
+ * Once the fork accumulates its own retros, those are found at the first
+ * iteration and we never walk up.
+ *
+ * Returns `null` when no prior retrospective exists anywhere in the fork
+ * chain (true first-run case).
+ *
+ * Hits `idx_conversations_fork_parent_conversation_id` for the
+ * `forkParentConversationId` lookup.
+ */
+const MAX_FORK_CHAIN_DEPTH = 16;
+
+export function findMostRecentRetrospectiveFor(
+  parentConversationId: string,
+): { id: string } | null {
+  const db = getDb();
+  let currentId: string | null = parentConversationId;
+  for (let depth = 0; depth < MAX_FORK_CHAIN_DEPTH && currentId; depth++) {
+    const row = db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.source, MEMORY_RETROSPECTIVE_SOURCE),
+          eq(conversations.forkParentConversationId, currentId),
+        ),
+      )
+      .orderBy(desc(conversations.createdAt))
+      .limit(1)
+      .get();
+    if (row) return { id: row.id };
+
+    const parent = db
+      .select({
+        forkParentConversationId: conversations.forkParentConversationId,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, currentId))
+      .get();
+    currentId = parent?.forkParentConversationId ?? null;
+  }
+  return null;
+}
+
+/**
  * Returns the `source` column for the given conversation, or null if
  * not found. Tiny convenience used by the recursion guard in the
  * auto-analyze loop.
@@ -674,6 +730,13 @@ export function forkConversation(params: {
     // in-context tracker the parent had at fork time.
     forkActivationState(db, sourceConversation.id, fc.id);
     forkGraphMemoryState(sourceConversation.id, fc.id);
+    forkRetrospectiveState({
+      database: db,
+      sourceConversationId: sourceConversation.id,
+      forkedConversationId: fc.id,
+      forkedMessageIds,
+      lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
+    });
 
     return fc;
   });
@@ -1015,6 +1078,90 @@ export function selectSlackMetaCandidateMetadata(
     }
   }
   return out;
+}
+
+/**
+ * Count messages in a conversation that were created strictly after the
+ * `afterMessageId` reference message. If `afterMessageId` is `null` or empty,
+ * counts all messages in the conversation. If the referenced message no
+ * longer exists (e.g. deleted by a separate flow), returns 0 — callers
+ * decide how to react to a vanished reference, and the conservative answer
+ * here is "no new work."
+ *
+ * Used by the memory-retrospective trigger check to decide whether to fire
+ * the message-count trigger without loading message bodies.
+ */
+export function countMessagesAfter(
+  conversationId: string,
+  afterMessageId: string | null,
+): number {
+  const db = getDb();
+  if (afterMessageId === null || afterMessageId === "") {
+    const row = db
+      .select({ c: count() })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .get();
+    return row?.c ?? 0;
+  }
+  const ref = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.id, afterMessageId))
+    .get();
+  if (!ref) return 0;
+  const row = db
+    .select({ c: count() })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        gt(messages.createdAt, ref.createdAt),
+      ),
+    )
+    .get();
+  return row?.c ?? 0;
+}
+
+/**
+ * Return messages in a conversation created strictly after the
+ * `afterMessageId` reference. If the reference is `null`/empty, returns all
+ * messages. If the reference doesn't exist, returns an empty array (mirrors
+ * `countMessagesAfter`'s conservative semantics). Used by the
+ * memory-retrospective job handler to load the message slice it processes.
+ */
+export function getMessagesAfter(
+  conversationId: string,
+  afterMessageId: string | null,
+): MessageRow[] {
+  const db = getDb();
+  if (afterMessageId === null || afterMessageId === "") {
+    return db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt))
+      .all()
+      .map(parseMessage);
+  }
+  const ref = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.id, afterMessageId))
+    .get();
+  if (!ref) return [];
+  return db
+    .select()
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        gt(messages.createdAt, ref.createdAt),
+      ),
+    )
+    .orderBy(asc(messages.createdAt))
+    .all()
+    .map(parseMessage);
 }
 
 /**
