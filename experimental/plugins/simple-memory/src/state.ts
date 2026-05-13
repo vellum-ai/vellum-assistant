@@ -16,14 +16,7 @@ export interface MemoryEntry {
   readonly createdAt: number;
 }
 
-/**
- * Minimal pino-compatible logger shape. Defined locally so this module
- * has no imports outside the plugin directory.
- */
-export interface PluginLogger {
-  info(obj: Record<string, unknown>, msg?: string): void;
-  error(obj: Record<string, unknown>, msg?: string): void;
-}
+import type { PluginLogger } from "@vellumai/plugin-api";
 
 export interface PluginState {
   /** Absolute path to the JSONL file backing the in-memory store. */

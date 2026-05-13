@@ -8,6 +8,30 @@
  *
  * Keep this file's surface stable across minor/patch releases. Anything
  * exported here is part of the public contract.
+ *
+ * ## Surface today
+ *
+ * The public package is intentionally **declarative**: a plugin is a
+ * directory whose `package.json` is the manifest and whose `hooks/` /
+ * `tools/` / `skills/` / `routes/` subdirectories are the contributions.
+ * The host introspects the directory at load time and wires it into the
+ * runtime — plugin authors never call a runtime registration function.
+ *
+ * What this module exposes is therefore types-only: the context shapes
+ * the host hands to plugin hooks, and the logger shape they include.
+ *
+ * - {@link PluginInitContext} — passed to `init` hook at bootstrap
+ * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
+ * - {@link PluginLogger} — pino-compatible logger shape on the contexts
+ *
+ * Pipeline-argument types (`LLMCallArgs`, `MemoryArgs`, etc.) currently
+ * live in `assistant/src/plugins/types.ts` and have not yet migrated into
+ * this package. A follow-up PR will move them into this surface as the
+ * per-pipeline schemas stabilize.
  */
 
-export type { PluginInitContext, PluginShutdownContext } from "./types.js";
+export type {
+  PluginInitContext,
+  PluginLogger,
+  PluginShutdownContext,
+} from "./types.js";
