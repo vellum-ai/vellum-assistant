@@ -1,0 +1,45 @@
+{
+  "owner": { "id": "demo-assistant-1", "name": "Demo Assistant", "port": 3000 },
+  "connections": [
+    {
+      "id": "conn_demo_peer1",
+      "owner_assistant_id": "demo-assistant-1",
+      "peer_assistant_id": "peer-sarah",
+      "peer_agent_card_url": "http://localhost:3010/.well-known/agent-card.json",
+      "peer_base_url": "http://localhost:3010",
+      "declared_relationship": "colleague",
+      "scopes": ["coffee_order"],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "conn_demo_peer2",
+      "owner_assistant_id": "demo-assistant-1",
+      "peer_assistant_id": "peer-jake",
+      "peer_agent_card_url": "http://localhost:3011/.well-known/agent-card.json",
+      "peer_base_url": "http://localhost:3011",
+      "declared_relationship": "colleague",
+      "scopes": ["coffee_order"],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "conn_demo_peer3",
+      "owner_assistant_id": "demo-assistant-1",
+      "peer_assistant_id": "peer-maria",
+      "peer_agent_card_url": "http://localhost:3012/.well-known/agent-card.json",
+      "peer_base_url": "http://localhost:3012",
+      "declared_relationship": "colleague",
+      "scopes": ["coffee_order"],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "conn_demo_peer4",
+      "owner_assistant_id": "demo-assistant-1",
+      "peer_assistant_id": "peer-priya",
+      "peer_agent_card_url": "http://localhost:3013/.well-known/agent-card.json",
+      "peer_base_url": "http://localhost:3013",
+      "declared_relationship": "colleague",
+      "scopes": ["coffee_order"],
+      "created_at": "2026-01-01T00:00:00Z"
+    }
+  ]
+}
