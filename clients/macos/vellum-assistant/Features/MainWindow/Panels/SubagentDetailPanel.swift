@@ -314,6 +314,23 @@ struct SubagentDetailPanel: View {
                     .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentSecondary)
             }
+            if let resultContent = pair.resultContent, !resultContent.isEmpty {
+                Divider().background(VColor.borderBase)
+                if pair.resultIsError {
+                    Text(resultContent)
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .textSelection(.enabled)
+                } else {
+                    SubagentCollapsibleText(
+                        text: resultContent,
+                        isExpanded: Binding(
+                            get: { state?.isEventExpanded(pair.id) ?? false },
+                            set: { state?.setEventExpanded(pair.id, expanded: $0) }
+                        )
+                    )
+                }
+            }
         }
     }
 
