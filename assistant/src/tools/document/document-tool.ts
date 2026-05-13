@@ -85,7 +85,17 @@ export function executeDocumentUpdate(
   const content = input.content as string;
   const mode = (input.mode as string | undefined) || "append";
 
-  updateDocumentContent(surfaceId, content, mode);
+  const result = updateDocumentContent(surfaceId, content, mode);
+  if (!result.success) {
+    return {
+      content: JSON.stringify({
+        success: false,
+        surface_id: surfaceId,
+        error: result.error,
+      }),
+      isError: true,
+    };
+  }
 
   // Send document_editor_update message to update the built-in RTE
   if (context.sendToClient) {
