@@ -19,6 +19,7 @@
 import { readFileSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { Readable } from "node:stream";
 
 import { stringify } from "yaml";
 import { z } from "zod";
@@ -110,8 +111,48 @@ interface JSONSchemaObject {
   [key: string]: unknown;
 }
 
+/**
+ * Recursively strip fields with a `default` from `required[]` on every
+ * object schema in the tree. Zod 4's `toJSONSchema` (output mode) marks
+ * defaulted fields as required because the output always carries them,
+ * but for request bodies the server fills the default when the client
+ * omits the field — generated clients should not be forced to send it.
+ */
+function dropDefaultedFromRequired(node: unknown): void {
+  if (node == null || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const item of node) dropDefaultedFromRequired(item);
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+  const props = obj.properties;
+  const required = obj.required;
+  if (
+    Array.isArray(required) &&
+    props != null &&
+    typeof props === "object"
+  ) {
+    const propsRecord = props as Record<string, unknown>;
+    const filtered = required.filter((name) => {
+      if (typeof name !== "string") return true;
+      const prop = propsRecord[name];
+      return !(
+        prop != null &&
+        typeof prop === "object" &&
+        "default" in (prop as Record<string, unknown>)
+      );
+    });
+    if (filtered.length > 0) obj.required = filtered;
+    else delete obj.required;
+  }
+  for (const value of Object.values(obj)) dropDefaultedFromRequired(value);
+}
+
 /** Convert a Zod schema or plain JSON Schema object to a JSON Schema object. */
-function toJSONSchemaObject(schema: unknown): JSONSchemaObject {
+function toJSONSchemaObject(
+  schema: unknown,
+  options: { stripRequiredDefaults?: boolean } = {},
+): JSONSchemaObject {
   if (schema == null || typeof schema !== "object") return {};
   // Zod schema: has _zod branded property
   if ("_zod" in (schema as Record<string, unknown>)) {
@@ -120,6 +161,7 @@ function toJSONSchemaObject(schema: unknown): JSONSchemaObject {
     });
     // z.toJSONSchema may add $schema — strip it for inline embedding
     const { $schema: _, ...rest } = converted as Record<string, unknown>;
+    if (options.stripRequiredDefaults) dropDefaultedFromRequired(rest);
     return rest as JSONSchemaObject;
   }
   // Plain JSON Schema object (backward compat for inline/pre-auth routes)
@@ -141,14 +183,26 @@ function toJSONSchemaObject(schema: unknown): JSONSchemaObject {
 async function collectRoutesFromModules(): Promise<RouteEntry[]> {
   const routes: RouteEntry[] = [];
 
-  const files = (await readdir(ROUTES_DIR, { recursive: true })).filter(
-    (f) =>
-      typeof f === "string" &&
-      f.endsWith(".ts") &&
-      !f.endsWith(".test.ts") &&
-      !f.endsWith(".benchmark.test.ts") &&
-      !f.includes("node_modules"),
-  );
+  // Skip the `index.ts` barrel: it re-exports every other route module's
+  // ROUTES into a single combined array, so importing it would double-count
+  // every entry. The duplicate `method:endpoint` keys are deduped later by
+  // first-seen, but the surviving entry's `sourceModule` (used to derive
+  // OpenAPI `tags`) depends on `readdir` order — which is filesystem
+  // dependent and diverges between local sandbox and the CI runner, making
+  // the generator non-reproducible. Sort the file list as well so directory
+  // entry order can never affect the output.
+  const files = (await readdir(ROUTES_DIR, { recursive: true }))
+    .filter(
+      (f) =>
+        typeof f === "string" &&
+        f.endsWith(".ts") &&
+        !f.endsWith(".test.ts") &&
+        !f.endsWith(".benchmark.test.ts") &&
+        !f.includes("node_modules") &&
+        f !== "index.ts" &&
+        !f.endsWith("/index.ts"),
+    )
+    .sort();
 
   for (const file of files) {
     const filePath = join(ROUTES_DIR, file);
@@ -162,8 +216,20 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
       continue;
     }
 
-    if ("ROUTES" in mod && Array.isArray(mod.ROUTES)) {
-      for (const raw of mod.ROUTES) {
+    // Collect every export whose name is `ROUTES` or ends in `_ROUTES`.
+    // A handful of route files (e.g. `channel-route-definitions.ts`,
+    // `contact-prompt-routes.ts`) export under domain-prefixed names like
+    // `CHANNEL_ROUTES` and `CONTACT_PROMPT_ROUTES` rather than the
+    // canonical `ROUTES`. Without this fan-out the only way those routes
+    // reached the spec was via the `index.ts` barrel — which is excluded
+    // above for reproducibility.
+    const exportNames = Object.keys(mod)
+      .filter((k) => k === "ROUTES" || k.endsWith("_ROUTES"))
+      .sort();
+    for (const name of exportNames) {
+      const arr = mod[name];
+      if (!Array.isArray(arr)) continue;
+      for (const raw of arr) {
         const result = RouteEntrySchema.safeParse({
           ...(typeof raw === "object" && raw !== null ? raw : {}),
           sourceModule: file,
@@ -389,7 +455,9 @@ function buildSpec(
       const content: Record<string, { schema: JSONSchemaObject }> = {};
       for (const variant of entry.requestBodies) {
         content[variant.contentType] = {
-          schema: toJSONSchemaObject(variant.schema),
+          schema: toJSONSchemaObject(variant.schema, {
+            stripRequiredDefaults: true,
+          }),
         };
       }
       operation.requestBody = { required: true, content };
@@ -398,7 +466,9 @@ function buildSpec(
         required: true,
         content: {
           "application/json": {
-            schema: toJSONSchemaObject(entry.requestBody),
+            schema: toJSONSchemaObject(entry.requestBody, {
+              stripRequiredDefaults: true,
+            }),
           },
         },
       };
@@ -470,8 +540,10 @@ async function main() {
     stringify(spec, { lineWidth: 120 });
 
   // Format with prettier so the output matches what the pre-commit hook produces.
+  // Use a Node.js Readable stream for stdin — Bun.spawn with Blob stdin produces
+  // empty output on some platforms (Bun 1.3.x Linux sandbox).
   const prettierProc = Bun.spawn(["bunx", "prettier", "--parser", "yaml"], {
-    stdin: new Blob([rawYaml]),
+    stdin: Readable.from([rawYaml]) as unknown as Blob,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -497,6 +569,55 @@ async function main() {
     }
     if (existing !== yamlOutput) {
       console.error("openapi.yaml is stale. Run: bun run generate:openapi");
+      // Emit the first byte-level divergence and a windowed diff around it
+      // so CI logs are actionable without a follow-up local repro.
+      const maxLen = Math.max(existing.length, yamlOutput.length);
+      let firstDiff = -1;
+      for (let i = 0; i < maxLen; i++) {
+        if (existing[i] !== yamlOutput[i]) {
+          firstDiff = i;
+          break;
+        }
+      }
+      if (firstDiff >= 0) {
+        const lineNo = (existing.slice(0, firstDiff).match(/\n/g) ?? []).length + 1;
+        const winStart = Math.max(0, firstDiff - 120);
+        const winEnd = Math.min(maxLen, firstDiff + 120);
+        console.error(`First divergence at byte ${firstDiff} (~line ${lineNo}):`);
+        console.error(`  existing[${winStart}..${winEnd}]:`);
+        console.error(`    ${JSON.stringify(existing.slice(winStart, winEnd))}`);
+        console.error(`  generated[${winStart}..${winEnd}]:`);
+        console.error(`    ${JSON.stringify(yamlOutput.slice(winStart, winEnd))}`);
+      }
+      // Also flag which path operations are present in one but not the other —
+      // the common failure mode is a missing or duplicated route entry, and
+      // the path keys are the actionable thing for the human reading the log.
+      const pathsRe = /^\s\s(\/\S+):/gm;
+      const existingPaths = new Set(
+        Array.from(existing.matchAll(pathsRe), (m) => m[1]),
+      );
+      const generatedPaths = new Set(
+        Array.from(yamlOutput.matchAll(pathsRe), (m) => m[1]),
+      );
+      const inExistingOnly = [...existingPaths].filter(
+        (p) => !generatedPaths.has(p),
+      );
+      const inGeneratedOnly = [...generatedPaths].filter(
+        (p) => !existingPaths.has(p),
+      );
+      if (inExistingOnly.length || inGeneratedOnly.length) {
+        console.error(
+          `Path set drift: existing has ${existingPaths.size} paths, generated has ${generatedPaths.size}`,
+        );
+        if (inGeneratedOnly.length) {
+          console.error(`  Only in generated (missing from committed yaml):`);
+          for (const p of inGeneratedOnly.slice(0, 20)) console.error(`    + ${p}`);
+        }
+        if (inExistingOnly.length) {
+          console.error(`  Only in existing (stale entries in committed yaml):`);
+          for (const p of inExistingOnly.slice(0, 20)) console.error(`    - ${p}`);
+        }
+      }
       process.exit(1);
     }
     console.log("openapi.yaml is up to date.");

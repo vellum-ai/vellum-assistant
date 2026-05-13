@@ -248,7 +248,6 @@ describe("historyRepair pipeline — end-to-end via runPipeline", () => {
       manifest: {
         name: "observer-plugin",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1", historyRepairApi: "v1" },
       },
       middleware: { historyRepair: observer },
     });
@@ -297,7 +296,6 @@ describe("historyRepair pipeline — end-to-end via runPipeline", () => {
       manifest: {
         name: "override-plugin",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1", historyRepairApi: "v1" },
       },
       middleware: { historyRepair: shortCircuit },
     });
@@ -342,7 +340,6 @@ describe("historyRepair pipeline — end-to-end via runPipeline", () => {
       manifest: {
         name: "late-user-plugin",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1", historyRepairApi: "v1" },
       },
       middleware: { historyRepair: userMiddleware },
     });

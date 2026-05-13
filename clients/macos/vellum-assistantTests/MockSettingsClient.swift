@@ -53,6 +53,12 @@ final class MockSettingsClient: SettingsClientProtocol {
     var fetchSuggestionResponse: SuggestionResponseMessage?
     var patchConfigCalls: [[String: Any]] = []
     var patchConfigResponse: Bool = true
+    /// Optional per-call handler. When set, replaces the default
+    /// `patchConfigResponse` return path so tests can control completion
+    /// timing (e.g. resolve responses out of order to verify async-race
+    /// guards). The handler receives the same `partial` payload that was
+    /// captured into `patchConfigCalls`.
+    var patchConfigHandler: (([String: Any]) async -> Bool)?
     var replaceInferenceProfileCalls: [(name: String, fragment: [String: Any])] = []
     var replaceInferenceProfileResponse: Bool = true
     var callSiteCatalogResponse: CallSiteCatalogResponse? = MockSettingsClient.defaultCallSiteCatalogResponse
@@ -119,10 +125,6 @@ final class MockSettingsClient: SettingsClientProtocol {
     func fetchModelInfo() async -> ModelInfoMessage? {
         fetchModelInfoCallCount += 1
         return modelInfoResponse
-    }
-
-    func setModel(model: String, provider: String? = nil) async -> ModelInfoMessage? {
-        nil
     }
 
     func setImageGenModel(modelId: String) async -> ModelInfoMessage? {
@@ -213,6 +215,9 @@ final class MockSettingsClient: SettingsClientProtocol {
 
     func patchConfig(_ partial: [String: Any]) async -> Bool {
         patchConfigCalls.append(partial)
+        if let handler = patchConfigHandler {
+            return await handler(partial)
+        }
         return patchConfigResponse
     }
 

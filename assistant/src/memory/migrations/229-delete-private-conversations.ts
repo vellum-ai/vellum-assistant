@@ -12,6 +12,12 @@ const PRIVATE_GRAPH_NODE_IDS = /*sql*/ `
 `;
 
 export function migrateDeletePrivateConversations(database: DrizzleDb): void {
+  // Snapshot the migration's start time. The trailing orphan-attachment sweep
+  // uses this as an upper bound so it cleans up leaks from prior runs of this
+  // migration (those rows were created before this run started) without
+  // touching pre-staged uploads created during or after the migration.
+  const migrationStartTs = Date.now();
+
   database.run(/*sql*/ `
     DELETE FROM tool_invocations
     WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
@@ -47,6 +53,10 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
   database.run(/*sql*/ `
     DELETE FROM scoped_approval_grants
     WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+       OR call_session_id IN (
+        SELECT id FROM call_sessions
+        WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+      )
   `);
   database.run(/*sql*/ `
     DELETE FROM guardian_action_deliveries
@@ -192,6 +202,15 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
   database.run(/*sql*/ `
     DELETE FROM messages
     WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM attachments
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM message_attachments ma
+      WHERE ma.attachment_id = attachments.id
+    )
+      AND created_at <= ${migrationStartTs}
   `);
   database.run(/*sql*/ `
     DELETE FROM memory_summaries

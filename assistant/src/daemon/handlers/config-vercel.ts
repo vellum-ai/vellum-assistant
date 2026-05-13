@@ -59,7 +59,9 @@ export async function setVercelConfig(
   }
 
   upsertCredentialMetadata("vercel", "api_token", {
-    allowedTools: ["deploy", "publish_page"],
+    allowedTools: ["publish_page", "unpublish_page"],
+    allowedDomains: [],
+    injectionTemplates: null,
   });
 
   log.info("Vercel API token stored successfully");

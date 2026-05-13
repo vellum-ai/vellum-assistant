@@ -13,21 +13,24 @@
  * extraction-trigger path. Until then this handler is invoked only by
  * `memory_v2_sweep` rows enqueued explicitly (tests, future CLI).
  *
- * Skipped entirely when the `memory-v2-enabled` feature flag is off, or when
+ * Skipped entirely when `config.memory.v2.enabled` is false, or when
  * `config.memory.v2.sweep_enabled` is false — keeps the sweep dormant in
  * v1-only workspaces and in v2 workspaces that haven't opted in, even if a
- * stale row sits in the queue at flag-flip time.
+ * stale row sits in the queue when v2 is disabled.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { desc, gt } from "drizzle-orm";
+import { and, desc, eq, gt, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { getAssistantName } from "../../daemon/identity-helpers.js";
+import {
+  getAssistantName,
+  resolveUserName,
+} from "../../daemon/identity-helpers.js";
+import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import {
   extractToolUse,
   getConfiguredProvider,
@@ -42,10 +45,14 @@ import {
   formatRememberEntry,
 } from "../graph/tool-handlers.js";
 import type { MemoryJob } from "../jobs-store.js";
-import { messages } from "../schema.js";
+import { stringifyMessageContent } from "../message-content.js";
+import { conversations, messages } from "../schema.js";
 import { renderSweepPrompt } from "./prompts/sweep.js";
 
 const log = getLogger("memory-v2-sweep");
+
+/** Stable job identifier surfaced in `activity.failed` notifications. */
+const JOB_NAME = "memory.v2.sweep";
 
 /** Window of conversation history the sweep inspects on each run. */
 const RECENT_MESSAGES_WINDOW_MS = 30 * 60 * 1000;
@@ -101,74 +108,131 @@ const SweepResultSchema = z.object({
  * progress without inspecting the filesystem.
  */
 export async function memoryV2SweepJob(
-  _job: MemoryJob,
+  job: MemoryJob,
   config: AssistantConfig,
 ): Promise<number> {
-  if (!isAssistantFeatureFlagEnabled("memory-v2-enabled", config)) {
-    log.debug("memory-v2-enabled flag off; sweep skipped");
+  if (!config.memory?.v2?.enabled) {
+    log.debug("memory.v2.enabled is false; sweep skipped");
     return 0;
   }
 
-  if (!config.memory?.v2?.sweep_enabled) {
+  if (!config.memory.v2.sweep_enabled) {
     log.debug("memory.v2.sweep_enabled is false; sweep skipped");
     return 0;
   }
 
   const workspaceDir = getWorkspaceDir();
   const memoryDir = join(workspaceDir, "memory");
-  const recentText = loadRecentMessagesText(Date.now());
-  if (!recentText) {
-    log.debug("No recent messages in window; sweep skipped");
-    return 0;
-  }
 
-  const existingBuffer = readBufferText(memoryDir);
+  // Once we're committed to running (past the flag/feature gates), any
+  // unexpected error is surfaced via an `activity.failed` notification —
+  // mirrors v1 filing's post-migration treatment, but hand-rolled because
+  // the sweep makes a single forced-tool `provider.sendMessage` call rather
+  // than driving a conversation through `runBackgroundJob`. The function
+  // continues to return 0 on caught failures (preserving the existing
+  // silent-failure contract); only the notification side-effect is new.
+  try {
+    const recentText = loadRecentMessagesText(Date.now());
+    if (!recentText) {
+      log.debug("No recent messages in window; sweep skipped");
+      return 0;
+    }
 
-  const provider = await getConfiguredProvider("memoryV2Sweep");
-  if (!provider) {
-    log.warn("memoryV2Sweep provider unavailable; sweep skipped");
-    return 0;
-  }
+    const existingBuffer = readBufferText(memoryDir);
 
-  const systemPrompt = renderSweepPrompt({
-    assistantName: getAssistantName(),
-    userName: resolveUserName(workspaceDir),
-  });
-  const userText =
-    `## existingBuffer\n\n${existingBuffer || "(empty)"}\n\n` +
-    `## recentMessages\n\n${recentText}`;
+    const provider = await getConfiguredProvider("memoryV2Sweep");
+    if (!provider) {
+      log.warn("memoryV2Sweep provider unavailable; sweep skipped");
+      return 0;
+    }
 
-  const response = await provider.sendMessage(
-    [userMessage(userText)],
-    [SWEEP_TOOL],
-    systemPrompt,
-    {
-      config: {
-        callSite: "memoryV2Sweep" as const,
-        tool_choice: { type: "tool" as const, name: SWEEP_TOOL_NAME },
+    const systemPrompt = renderSweepPrompt({
+      assistantName: getAssistantName(),
+      userName: resolveUserName(workspaceDir),
+    });
+    const userText =
+      `## existingBuffer\n\n${existingBuffer || "(empty)"}\n\n` +
+      `## recentMessages\n\n${recentText}`;
+
+    const response = await provider.sendMessage(
+      [userMessage(userText)],
+      [SWEEP_TOOL],
+      systemPrompt,
+      {
+        config: {
+          callSite: "memoryV2Sweep" as const,
+          tool_choice: { type: "tool" as const, name: SWEEP_TOOL_NAME },
+        },
       },
-    },
-  );
-
-  const toolBlock = extractToolUse(response);
-  if (!toolBlock || toolBlock.name !== SWEEP_TOOL_NAME) {
-    log.debug("Sweep model returned no tool_use block");
-    return 0;
-  }
-  const parsed = SweepResultSchema.safeParse(toolBlock.input);
-  if (!parsed.success) {
-    log.warn(
-      { error: parsed.error.message },
-      "Sweep tool input did not match schema",
     );
+
+    const toolBlock = extractToolUse(response);
+    if (!toolBlock || toolBlock.name !== SWEEP_TOOL_NAME) {
+      log.debug("Sweep model returned no tool_use block");
+      return 0;
+    }
+    const parsed = SweepResultSchema.safeParse(toolBlock.input);
+    if (!parsed.success) {
+      log.warn(
+        { error: parsed.error.message },
+        "Sweep tool input did not match schema",
+      );
+      return 0;
+    }
+
+    const written = appendEntries(memoryDir, parsed.data.entries);
+    if (written > 0) {
+      log.info({ written }, "Memory v2 sweep wrote new buffer entries");
+    }
+    return written;
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "memory v2 sweep failed");
+    emitSweepActivityFailed({
+      jobId: job.id,
+      errorMessage,
+    });
     return 0;
   }
+}
 
-  const written = appendEntries(memoryDir, parsed.data.entries);
-  if (written > 0) {
-    log.info({ written }, "Memory v2 sweep wrote new buffer entries");
-  }
-  return written;
+/**
+ * Emit an `activity.failed` notification for a failed sweep run. Mirrors
+ * the shape `runBackgroundJob` produces for its own failures so the home
+ * feed and native notifications stay consistent regardless of which code
+ * path executed the work. Fire-and-forget — a notification failure must
+ * never break sweep operation.
+ */
+function emitSweepActivityFailed(args: {
+  jobId: string;
+  errorMessage: string;
+}): void {
+  const day = new Date().toISOString().slice(0, 10);
+  emitNotificationSignal({
+    sourceChannel: "scheduler",
+    sourceContextId: args.jobId,
+    sourceEventName: "activity.failed",
+    dedupeKey: `activity-failed:${JOB_NAME}:${day}`,
+    contextPayload: {
+      jobName: JOB_NAME,
+      errorMessage: args.errorMessage,
+      errorKind: "exception",
+    },
+    attentionHints: {
+      requiresAction: false,
+      urgency: "medium",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+  }).catch((emitErr) => {
+    log.warn(
+      {
+        err: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        jobId: args.jobId,
+      },
+      "Failed to emit activity.failed notification for memory v2 sweep",
+    );
+  });
 }
 
 /**
@@ -220,14 +284,22 @@ function loadRecentMessagesText(nowMs: number): string {
   const db = getDb();
   // Pull newest-first then reverse for chronological output. Bounding the
   // initial limit (1000) defends against pathological busy windows where a
-  // naive scan would touch every recent message.
+  // naive scan would touch every recent message. Joining conversations and
+  // excluding background/scheduled types keeps automation chatter
+  // (heartbeats, filing, update bulletins, scheduled jobs) out of buffer.md.
   const rows = db
     .select({
       role: messages.role,
       content: messages.content,
     })
     .from(messages)
-    .where(gt(messages.createdAt, cutoff))
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        gt(messages.createdAt, cutoff),
+        notInArray(conversations.conversationType, ["background", "scheduled"]),
+      ),
+    )
     .orderBy(desc(messages.createdAt))
     .limit(1000)
     .all();
@@ -248,51 +320,4 @@ function loadRecentMessagesText(nowMs: number): string {
     joined = joined.slice(joined.length - MAX_RECENT_TEXT_CHARS);
   }
   return joined;
-}
-
-/**
- * Coerce stored message content (JSON-serialized `ContentBlock[]` *or* plain
- * string in legacy rows) into a single text string. Image / tool blocks are
- * dropped — the sweep model only needs the spoken context.
- */
-function stringifyMessageContent(stored: string): string {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stored);
-  } catch {
-    return stored.trim();
-  }
-  if (typeof parsed === "string") return parsed.trim();
-  if (!Array.isArray(parsed)) return "";
-  const parts: string[] = [];
-  for (const block of parsed) {
-    if (
-      block &&
-      typeof block === "object" &&
-      (block as { type?: string }).type === "text" &&
-      typeof (block as { text?: unknown }).text === "string"
-    ) {
-      parts.push((block as { text: string }).text);
-    }
-  }
-  return parts.join("\n").trim();
-}
-
-/**
- * Read the guardian's display name from `users/default.md`. We look for the
- * markdown-bold "Name" label (matching the IDENTITY.md convention) and fall
- * back to `null` on any miss; the prompt template substitutes a generic
- * label.
- */
-function resolveUserName(workspaceDir: string): string | null {
-  try {
-    const content = readFileSync(
-      join(workspaceDir, "users", "default.md"),
-      "utf-8",
-    );
-    const match = content.match(/\*\*Name:\*\*\s*(.+)/);
-    return match?.[1]?.trim() || null;
-  } catch {
-    return null;
-  }
 }

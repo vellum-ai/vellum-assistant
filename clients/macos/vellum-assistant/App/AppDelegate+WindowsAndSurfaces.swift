@@ -758,16 +758,7 @@ extension AppDelegate {
             await authManager.loginWithToast(showToast: { [weak self] msg, style in
                 self?.mainWindow?.windowState.showToast(message: msg, style: style)
             }, onSuccess: { [weak self] in
-                guard let self else { return }
-                if !self.isCurrentAssistantManaged {
-                    self.ensureActorCredentials()
-                }
-                self.localBootstrapDidComplete = false
-                self.ensureLocalAssistantApiKey()
-
-                if self.isCurrentAssistantManaged {
-                    self.reconnectManagedAssistant()
-                }
+                self?.handlePlatformLoginSucceeded()
             })
         }
     }

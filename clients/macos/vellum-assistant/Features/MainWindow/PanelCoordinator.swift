@@ -56,7 +56,7 @@ extension MainWindowView {
         case .chat:
             chatView
         case .settings:
-            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, bookmarkStore: bookmarkStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
                     conversationManager.openConversation(
                         message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
                         forceNew: true
@@ -167,11 +167,9 @@ extension MainWindowView {
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
-                assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil),
+                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingSkillId != nil ? "Skills" : nil),
                 pendingTab: $windowState.pendingIntelligenceTab,
-                pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
         case .home:
@@ -267,42 +265,6 @@ extension MainWindowView {
             isDetailPanelVisible: activeHomeDetailPanel != nil,
             detailPanel: {
                 switch activeHomeDetailPanel {
-                case .scheduled(let item):
-                    let details = HomeScheduledDetails.placeholder
-                    // Surface the tapped item's title so distinct scheduled
-                    // rows render distinct panel headers while the rest of
-                    // the schedule metadata still uses placeholder data
-                    // (Devin feedback on PR #27475).
-                    // TODO: replace placeholder data with real schedule
-                    // metadata when the daemon surfaces scheduled-item
-                    // fields on FeedItem (home-feed-groups follow-up).
-                    HomeScheduledDetailPanel(
-                        title: item.title,
-                        description: details.description,
-                        rows: details.displayRows().map { row in
-                            HomeScheduledDetailPanel.DetailRow(key: row.key, value: row.value)
-                        },
-                        primaryActionLabel: "Action",
-                        secondaryActionLabel: "Action",
-                        onClose: { activeHomeDetailPanel = nil },
-                        onPrimaryAction: { activeHomeDetailPanel = nil },
-                        onSecondaryAction: { activeHomeDetailPanel = nil }
-                    )
-                case .nudge(let item):
-                    HomeNudgeDetailPanel(
-                        title: item.title,
-                        icon: .heart,
-                        iconForeground: VColor.feedNudgeStrong,
-                        iconBackground: VColor.feedNudgeWeak,
-                        description: "Found some issues.",
-                        cards: HomeNudgeDetailPanelPlaceholders.sampleCards,
-                        primaryActionLabel: "Resolve All",
-                        secondaryActionLabel: "Clear All",
-                        onClose: { activeHomeDetailPanel = nil },
-                        onPrimaryAction: { activeHomeDetailPanel = nil },
-                        onSecondaryAction: { activeHomeDetailPanel = nil },
-                        onCardAction: { _, _ in }
-                    )
                 case .emailDraft(let item):
                     HomeDetailPanel(
                         icon: nil,
@@ -387,11 +349,10 @@ extension MainWindowView {
             }
         )
         .onAppear {
-            homeStore.isHomeTabVisible = true
-            homeStore.markSeen()
+            homeStore.setHomeTabVisible(true)
         }
         .onDisappear {
-            homeStore.isHomeTabVisible = false
+            homeStore.setHomeTabVisible(false)
             // Codex P2 feedback (#27467): clear the detail panel so
             // re-entering Home doesn't show a stale split layout when the
             // user leaves Home through routes other than the detail panel's
@@ -751,6 +712,7 @@ extension MainWindowView {
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 conversationManager: conversationManager,
+                bookmarkStore: bookmarkStore,
                 diskPressureStatusStore: diskPressureStatusStore,
                 onMicrophoneToggle: onMicrophoneToggle,
                 isReadonly: activeConversation?.isChannelConversation ?? false,
@@ -785,6 +747,7 @@ extension MainWindowView {
                 },
                 conversationId: conversationManager.activeConversationId ?? conversationManager.draftLocalId,
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
+                anchorDaemonMessageId: $conversationManager.pendingAnchorDaemonMessageId,
                 highlightedMessageId: $conversationManager.highlightedMessageId,
                 isInteractionEnabled: viewModel.isHistoryLoaded
             )
@@ -795,7 +758,7 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, bookmarkStore: bookmarkStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
                     conversationManager.openConversation(
                         message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
                         forceNew: true
@@ -894,11 +857,9 @@ extension MainWindowView {
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
-                assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil),
+                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingSkillId != nil ? "Skills" : nil),
                 pendingTab: $windowState.pendingIntelligenceTab,
-                pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
         case .home:
@@ -942,31 +903,23 @@ extension MainWindowView {
 
 // MARK: - Feed Item Icon Helpers
 
-private func iconForFeedItem(_ item: FeedItem) -> VIcon {
-    switch item.type {
-    case .nudge:   return .heart
-    case .action:  return .arrowLeft
-    case .digest:  return .bell
-    case .thread:  return .calendar
-    }
+/// With the v2 schema collapsed to a single `.notification` type these
+/// helpers no longer per-type-dispatch — every feed item uses the same
+/// generic glyph. A per-item visual language driven by `urgency` or
+/// `detailPanel.kind` is a future iteration. The `FeedItem` parameter is
+/// retained (named `_` internally to flag intentionally unused) so a
+/// future per-urgency / per-detail-panel-kind dispatch can re-thread it
+/// without touching every call site.
+private func iconForFeedItem(_: FeedItem) -> VIcon {
+    .bell
 }
 
-private func iconForegroundForFeedItem(_ item: FeedItem) -> Color {
-    switch item.type {
-    case .nudge:   return VColor.feedNudgeStrong
-    case .action:  return VColor.systemInfoStrong
-    case .digest:  return VColor.feedDigestStrong
-    case .thread:  return VColor.feedThreadStrong
-    }
+private func iconForegroundForFeedItem(_: FeedItem) -> Color {
+    VColor.feedDigestStrong
 }
 
-private func iconBackgroundForFeedItem(_ item: FeedItem) -> Color {
-    switch item.type {
-    case .nudge:   return VColor.feedNudgeWeak
-    case .action:  return VColor.systemInfoWeak
-    case .digest:  return VColor.feedDigestWeak
-    case .thread:  return VColor.feedThreadWeak
-    }
+private func iconBackgroundForFeedItem(_: FeedItem) -> Color {
+    VColor.feedDigestWeak
 }
 
 // MARK: - Wrapper Views
@@ -985,6 +938,7 @@ struct ActiveChatViewWrapper: View {
     var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
+    let bookmarkStore: BookmarkStore
     let diskPressureStatusStore: DiskPressureStatusStore
     let onMicrophoneToggle: () -> Void
     var isReadonly: Bool = false
@@ -997,6 +951,11 @@ struct ActiveChatViewWrapper: View {
     var onOpenConversationDocument: ((ConversationArtifact) -> Void)? = nil
     var conversationId: UUID?
     @Binding var anchorMessageId: UUID?
+    /// Daemon (server-side) message ID to anchor on. Forwarded from
+    /// `ConversationSelectionStore.pendingAnchorDaemonMessageId` so deep
+    /// links from settings panes (e.g. Bookmarks) can scroll to a message
+    /// without first knowing its client-generated `UUID`.
+    @Binding var anchorDaemonMessageId: String?
     @Binding var highlightedMessageId: UUID?
     var isInteractionEnabled: Bool = true
 
@@ -1027,6 +986,13 @@ struct ActiveChatViewWrapper: View {
                     }
                 },
                 onInspectMessage: { presentInspector(for: $0) },
+                onToggleBookmark: isReadonly ? nil : { [bookmarkStore] daemonMessageId, conversationId in
+                    Task { @MainActor in
+                        await bookmarkStore.toggle(messageId: daemonMessageId, conversationId: conversationId)
+                    }
+                },
+                bookmarkStore: bookmarkStore,
+                bookmarkConversationId: viewModel.conversationId,
                 onSubagentTap: { windowState.selectedSubagentId = $0 },
                 onAddFunds: {
                     settingsStore.pendingSettingsTab = .billing
@@ -1059,6 +1025,7 @@ struct ActiveChatViewWrapper: View {
                     windowState.selection = .panel(.settings)
                 },
                 anchorMessageId: $anchorMessageId,
+                anchorDaemonMessageId: $anchorDaemonMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 conversationId: conversationId,
                 isInteractionEnabled: isInteractionEnabled && windowState.inspectorMessageId == nil,

@@ -86,6 +86,10 @@ const upsertCalls: Array<{
   slug: string;
   dense: number[];
   sparse: { indices: number[]; values: number[] };
+  summary?: {
+    dense: number[];
+    sparse: { indices: number[]; values: number[] };
+  };
   updatedAt: number;
 }> = [];
 
@@ -96,6 +100,10 @@ mock.module("../../v2/qdrant.js", () => ({
     slug: string;
     dense: number[];
     sparse: { indices: number[]; values: number[] };
+    summary?: {
+      dense: number[];
+      sparse: { indices: number[]; values: number[] };
+    };
     updatedAt: number;
   }) => {
     upsertCalls.push(params);
@@ -143,6 +151,8 @@ type MemoryJob = ReturnType<MemoryJobMod["claimMemoryJobs"]>[number];
 const { embedConceptPageJob, enqueueEmbedConceptPageJob } =
   await import("../embed-concept-page.js");
 const { writePage } = await import("../../v2/page-store.js");
+const { _resetQdrantBreaker, isQdrantBreakerOpen, withQdrantBreaker } =
+  await import("../../qdrant-circuit-breaker.js");
 
 // Use a tiny vectorSize so the cache-dim check matches our stub vector.
 const TEST_CONFIG = {
@@ -178,6 +188,7 @@ beforeEach(() => {
   embedWithBackendCalls.length = 0;
   upsertCalls.length = 0;
   deleteCalls.length = 0;
+  _resetQdrantBreaker();
 });
 
 afterEach(() => {
@@ -195,7 +206,7 @@ describe("embedConceptPageJob — happy path", () => {
   test("reads the page, embeds it, and upserts to the v2 collection", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Alice prefers VS Code over Vim.\nShe ships at end of day.\n",
     });
 
@@ -223,7 +234,7 @@ describe("embedConceptPageJob — happy path", () => {
   test("populates the SQLite embedding cache row keyed on (concept_page, slug)", async () => {
     await writePage(tmpWorkspace, {
       slug: "bob-uses-zsh",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Bob uses zsh.\n",
     });
 
@@ -242,11 +253,117 @@ describe("embedConceptPageJob — happy path", () => {
   });
 });
 
+describe("embedConceptPageJob — summary embedding", () => {
+  test("embeds the summary when present and forwards summary vectors to upsert", async () => {
+    await writePage(tmpWorkspace, {
+      slug: "summarized-page",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        summary: "A short prose summary that retrieval indexes separately.",
+      },
+      body: "Long-form body content.\n",
+    });
+
+    await embedConceptPageJob(
+      makeJob({ slug: "summarized-page" }),
+      TEST_CONFIG,
+    );
+
+    // Body and summary are batched into one backend call (saves a round-trip).
+    expect(embedWithBackendCalls).toHaveLength(1);
+    expect(embedWithBackendCalls[0].inputs).toHaveLength(2);
+    expect(upsertCalls).toHaveLength(1);
+    const call = upsertCalls[0];
+    expect(call.slug).toBe("summarized-page");
+    expect(call.dense).toEqual([0.1, 0.2, 0.3, 0.4]);
+    expect(call.sparse).toBeDefined();
+    expect(call.summary?.dense).toEqual([0.1, 0.2, 0.3, 0.4]);
+    expect(call.summary?.sparse).toBeDefined();
+  });
+
+  test("skips summary embedding when the page has no summary in frontmatter", async () => {
+    await writePage(tmpWorkspace, {
+      slug: "legacy-page",
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
+      body: "Body only — no summary in frontmatter.\n",
+    });
+
+    await embedConceptPageJob(makeJob({ slug: "legacy-page" }), TEST_CONFIG);
+
+    // Only the body was embedded.
+    expect(embedWithBackendCalls).toHaveLength(1);
+    expect(upsertCalls).toHaveLength(1);
+    const call = upsertCalls[0];
+    expect(call.summary).toBeUndefined();
+  });
+
+  test("skips summary embedding when the summary is whitespace-only", async () => {
+    // Whitespace-only summaries (` `, `\n`) are equivalent to absent — the
+    // embedding backend would reject the empty input downstream anyway.
+    await writePage(tmpWorkspace, {
+      slug: "whitespace-summary",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        summary: "   ",
+      },
+      body: "Body content.\n",
+    });
+
+    await embedConceptPageJob(
+      makeJob({ slug: "whitespace-summary" }),
+      TEST_CONFIG,
+    );
+
+    expect(embedWithBackendCalls).toHaveLength(1);
+    expect(upsertCalls[0].summary).toBeUndefined();
+  });
+
+  test("body and summary cache rows are independent (summary edit doesn't invalidate body)", async () => {
+    // Write a page with a summary, run the job to prime caches.
+    await writePage(tmpWorkspace, {
+      slug: "cached-summary",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        summary: "First version of the summary.",
+      },
+      body: "Stable body that never changes.\n",
+    });
+    await embedConceptPageJob(makeJob({ slug: "cached-summary" }), TEST_CONFIG);
+    // Body + summary batched into a single backend call on first run.
+    expect(embedWithBackendCalls).toHaveLength(1);
+    expect(embedWithBackendCalls[0].inputs).toHaveLength(2);
+
+    // Edit only the summary — body stays identical, only the summary text
+    // changes. Re-running the job should hit the body cache (no re-embed)
+    // but recompute the summary embedding.
+    await writePage(tmpWorkspace, {
+      slug: "cached-summary",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        summary: "Second version of the summary, different wording.",
+      },
+      body: "Stable body that never changes.\n",
+    });
+    await embedConceptPageJob(makeJob({ slug: "cached-summary" }), TEST_CONFIG);
+    // One additional backend call with only the summary text — body hit the cache.
+    expect(embedWithBackendCalls).toHaveLength(2);
+    expect(embedWithBackendCalls[1].inputs).toHaveLength(1);
+  });
+});
+
 describe("embedConceptPageJob — cache hit", () => {
   test("reuses the cached dense vector when content hash matches", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Stable content.\n",
     });
 
@@ -271,7 +388,7 @@ describe("embedConceptPageJob — cache hit", () => {
   test("re-embeds when the body changes (content hash mismatch)", async () => {
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "First content.\n",
     });
     await embedConceptPageJob(
@@ -282,7 +399,7 @@ describe("embedConceptPageJob — cache hit", () => {
     // Rewrite with different body.
     await writePage(tmpWorkspace, {
       slug: "alice-prefers-vs-code",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Second content (different).\n",
     });
     await embedConceptPageJob(
@@ -322,6 +439,76 @@ describe("embedConceptPageJob — defensive", () => {
   });
 });
 
+describe("embedConceptPageJob — Qdrant breaker integration", () => {
+  test("half-open probe success closes the breaker so embed catch-up unthrottles", async () => {
+    // Trip the breaker by recording 5 consecutive Qdrant failures. Without
+    // this fix, `embed_concept_page` bypassed the breaker entirely — winning
+    // the half-open probe slot did not transition state back to closed and
+    // the embed lane stayed throttled at one job per tick indefinitely.
+    for (let i = 0; i < 5; i++) {
+      try {
+        await withQdrantBreaker(async () => {
+          throw new Error("simulated qdrant failure");
+        });
+      } catch {
+        // expected
+      }
+    }
+    expect(isQdrantBreakerOpen()).toBe(true);
+
+    // Advance time past the 30s cooldown so the next breaker call transitions
+    // open → half-open and allows the probe through.
+    const originalNow = Date.now;
+    Date.now = () => originalNow() + 60_000;
+    try {
+      await writePage(tmpWorkspace, {
+        slug: "probe-success",
+        frontmatter: { edges: [], ref_files: [], ref_urls: [] },
+        body: "Probe body.\n",
+      });
+
+      await embedConceptPageJob(
+        makeJob({ slug: "probe-success" }),
+        TEST_CONFIG,
+      );
+    } finally {
+      Date.now = originalNow;
+    }
+
+    expect(upsertCalls).toHaveLength(1);
+    // Probe succeeded → breaker should now be closed (not open, not
+    // half-open), restoring full embed-lane concurrency.
+    expect(isQdrantBreakerOpen()).toBe(false);
+  });
+
+  test("half-open probe success on the delete path also closes the breaker", async () => {
+    // Same flow as above but exercising the missing-page branch — both v2
+    // Qdrant calls (`upsert` and `delete`) must close the breaker on success.
+    for (let i = 0; i < 5; i++) {
+      try {
+        await withQdrantBreaker(async () => {
+          throw new Error("simulated qdrant failure");
+        });
+      } catch {
+        // expected
+      }
+    }
+    expect(isQdrantBreakerOpen()).toBe(true);
+
+    const originalNow = Date.now;
+    Date.now = () => originalNow() + 60_000;
+    try {
+      // No `writePage` — the handler takes the delete branch.
+      await embedConceptPageJob(makeJob({ slug: "missing-slug" }), TEST_CONFIG);
+    } finally {
+      Date.now = originalNow;
+    }
+
+    expect(deleteCalls).toEqual(["missing-slug"]);
+    expect(isQdrantBreakerOpen()).toBe(false);
+  });
+});
+
 describe("enqueueEmbedConceptPageJob", () => {
   test("enqueues a pending embed_concept_page job with the slug payload", () => {
     const id = enqueueEmbedConceptPageJob({ slug: "alice-prefers-vs-code" });
@@ -337,7 +524,7 @@ describe("enqueueEmbedConceptPageJob", () => {
   test("round-trip: enqueued job dispatches through embedConceptPageJob", async () => {
     await writePage(tmpWorkspace, {
       slug: "round-trip-slug",
-      frontmatter: { edges: [], ref_files: [] },
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
       body: "Round-trip body.\n",
     });
 

@@ -40,6 +40,9 @@ struct ChatView: View {
     let onMicrophoneToggle: () -> Void
     var onForkFromMessage: ((String) -> Void)? = nil
     var onInspectMessage: ((String?) -> Void)?
+    var onToggleBookmark: ((String, String) -> Void)?
+    var bookmarkStore: BookmarkStore?
+    var bookmarkConversationId: String?
     var onSubagentTap: ((String) -> Void)?
     var onAddFunds: (() -> Void)? = nil
     var onOpenModelsAndServices: (() -> Void)? = nil
@@ -70,6 +73,14 @@ struct ChatView: View {
 
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
+    /// When set, MessageListView resolves the daemon (server-side) message
+    /// ID to its client `UUID` once the matching message is loaded, then
+    /// triggers the existing UUID-based scroll-and-flash. Used by deep
+    /// links from settings panes (e.g. Bookmarks) that only have the
+    /// daemon ID, not the client-generated `UUID`. Defaults to a constant
+    /// nil binding so non-bookmark hosts (e.g. `ThreadWindow`) don't need
+    /// to allocate a `@State` they never write to.
+    var anchorDaemonMessageId: Binding<String?> = .constant(nil)
     /// Message ID to visually highlight after an anchor scroll completes.
     @Binding var highlightedMessageId: UUID?
 
@@ -103,6 +114,19 @@ struct ChatView: View {
     @State private var dragEndLocalMonitor: Any?
     @State private var dragEndGlobalMonitor: Any?
 
+    // MARK: - Discord Community Nudge
+    @Environment(\.openURL) private var openURL
+    @AppStorage(DiscordNudge.joinedKey) private var discordJoined: Bool = false
+    @AppStorage(DiscordNudge.bannerDismissedKey) private var discordBannerDismissed: Bool = false
+    @AppStorage(GitHubNudge.starredKey) private var githubStarred: Bool = false
+
+    private var shouldShowDiscordBanner: Bool {
+        !discordJoined
+            && !discordBannerDismissed
+            && githubStarred
+            && (conversationManager?.listStore.hasMultipleConversations ?? false)
+    }
+
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
     @State private var searchQuery = ""
@@ -119,7 +143,7 @@ struct ChatView: View {
 
     private var currentConversation: ConversationModel? {
         guard let conversationManager, let conversationId else { return nil }
-        return conversationManager.conversations.first(where: { $0.id == conversationId })
+        return conversationManager.listStore.conversationsByLocalId[conversationId]
     }
 
     var body: some View {
@@ -324,6 +348,9 @@ struct ChatView: View {
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 onInspectMessage: onInspectMessage,
+                onToggleBookmark: onToggleBookmark,
+                bookmarkStore: bookmarkStore,
+                bookmarkConversationId: bookmarkConversationId,
                 mediaEmbedSettings: mediaEmbedSettings,
                 onAbortSubagent: { subagentId in
                     Task { await viewModel.abortSubagent(subagentId) }
@@ -346,73 +373,15 @@ struct ChatView: View {
                 // -- Scroll state inputs --
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
+                anchorDaemonMessageId: anchorDaemonMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 isInteractionEnabled: isInteractionEnabled,
                 containerWidth: containerWidth,
                 searchQuery: searchQuery
             )
             .animation(nil, value: queuedMessages.isEmpty)
-
-            if let error = viewModel.errorManager.conversationError, error.isCreditsExhausted {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    CreditsExhaustedBanner(
-                        onAddFunds: { onAddFunds?() }
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if let safeStorageCleanupState, let onOpenStorageCleanup {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    SafeStorageCleanupStatusBanner(
-                        state: safeStorageCleanupState,
-                        onOpenStorageCleanup: onOpenStorageCleanup
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if let error = viewModel.errorManager.conversationError, error.isProviderNotConfigured {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    MissingApiKeyBanner(
-                        onOpenSettings: { onOpenModelsAndServices?() },
-                        onDismiss: { viewModel.dismissConversationError() }
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if let until = viewModel.compactionCircuitOpenUntil, until > Date() {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    // CompactionCircuitOpenBanner is natural-width; spacers center it
-                    // within the fixed column instead of leading-aligning it.
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        CompactionCircuitOpenBanner(
-                            openUntil: until,
-                            onExpired: { viewModel.compactionCircuitOpenUntil = nil }
-                        )
-                        Spacer(minLength: 0)
-                    }
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
-            }
-
-            if let mode = recoveryMode, mode.enabled {
-                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
-                    RecoveryModeBanner(
-                        recoveryMode: mode,
-                        onResumeAssistant: { onResumeAssistant?() },
-                        onOpenSSHSettings: { onOpenSSHSettings?() },
-                        isExiting: isRecoveryModeExiting
-                    )
-                }
-                .padding(.bottom, -VSpacing.sm)
-                .animation(nil, value: queuedMessages.isEmpty)
+            .overlay(alignment: .bottom) {
+                chatBanners(layoutMetrics: layoutMetrics, queuedMessages: queuedMessages)
             }
 
             if !queuedMessages.isEmpty {
@@ -447,6 +416,128 @@ struct ChatView: View {
             }
         }
         .animation(.spring(duration: 0.28, bounce: 0.15), value: queuedMessages.isEmpty)
+    }
+
+    /// Status/notification banners rendered as an overlay at the bottom of
+    /// the message list. Using `.overlay` instead of VStack siblings keeps
+    /// the scroll viewport at its full height so `bottomAlignedMinHeight` /
+    /// `topAlignedMinHeight` use the correct dimension and content is not
+    /// clipped at the visual top.
+    ///
+    /// `.safeAreaInset` was considered but rejected: the inverted scroll
+    /// (`.flipped()`) causes bottom safe-area insets to propagate as content
+    /// padding at the visual *top* (oldest messages) rather than the visual
+    /// bottom where the banner sits, providing no overlap protection.
+    @ViewBuilder
+    private func chatBanners(
+        layoutMetrics: MessageListLayoutMetrics,
+        queuedMessages: [ChatMessage]
+    ) -> some View {
+        let bannerWidth = max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)
+        VStack(spacing: 0) {
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .managedCreditsBanner {
+                centeredChatColumn(width: bannerWidth) {
+                    CreditsExhaustedBanner(
+                        onAddFunds: { onAddFunds?() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .providerBillingBanner {
+                centeredChatColumn(width: bannerWidth) {
+                    ProviderBillingBanner(
+                        onOpenSettings: { onOpenModelsAndServices?() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let safeStorageCleanupState, let onOpenStorageCleanup {
+                centeredChatColumn(width: bannerWidth) {
+                    SafeStorageCleanupStatusBanner(
+                        state: safeStorageCleanupState,
+                        onOpenStorageCleanup: onOpenStorageCleanup
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .missingApiKeyBanner {
+                centeredChatColumn(width: bannerWidth) {
+                    MissingApiKeyBanner(
+                        onOpenSettings: { onOpenModelsAndServices?() },
+                        onDismiss: { viewModel.dismissConversationError() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .invalidApiKeyBanner {
+                centeredChatColumn(width: bannerWidth) {
+                    InvalidApiKeyBanner(
+                        connectionName: error.connectionName,
+                        profileName: error.profileName,
+                        onOpenSettings: { onOpenModelsAndServices?() },
+                        onDismiss: { viewModel.dismissConversationError() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let until = viewModel.compactionCircuitOpenUntil, until > Date() {
+                centeredChatColumn(width: bannerWidth) {
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        CompactionCircuitOpenBanner(
+                            openUntil: until,
+                            onExpired: { viewModel.compactionCircuitOpenUntil = nil }
+                        )
+                        Spacer(minLength: 0)
+                    }
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let mode = recoveryMode, mode.enabled {
+                centeredChatColumn(width: bannerWidth) {
+                    RecoveryModeBanner(
+                        recoveryMode: mode,
+                        onResumeAssistant: { onResumeAssistant?() },
+                        onOpenSSHSettings: { onOpenSSHSettings?() },
+                        isExiting: isRecoveryModeExiting
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if shouldShowDiscordBanner {
+                centeredChatColumn(width: bannerWidth) {
+                    DiscordCommunityBanner(
+                        onJoin: {
+                            discordJoined = true
+                            openURL(AppURLs.discordInviteURL)
+                        },
+                        onDismiss: {
+                            discordBannerDismissed = true
+                        }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+        }
     }
 
     /// Renders the chat composer centered to the standard chat-column width.
@@ -503,19 +594,22 @@ struct ChatView: View {
 
     /// Bundles the inference-profile pill state for ``ComposerView``. Returns
     /// `nil` when no manager is wired (preview/testing) so the pill stays
-    /// hidden until a real persistence path exists.
+    /// hidden until a real persistence path exists, and also when the
+    /// conversation has been promoted out of draft state but the daemon-side
+    /// conversation ID has not yet been backfilled — in that window
+    /// ``ConversationManager.setConversationInferenceProfile`` would silently
+    /// no-op. Drafts remain enabled because the manager routes draft
+    /// selections through ``ChatViewModel.pendingInferenceProfile``.
     private var inferenceProfilePicker: ChatProfilePickerConfiguration? {
-        guard let conversationManager else { return nil }
+        guard let conversationManager, let conversationId else { return nil }
+        let isDraft = conversationManager.draftLocalId == conversationId
+        let isPersisted = currentConversation?.conversationId != nil
+        guard isDraft || isPersisted else { return nil }
         return ChatProfilePickerConfiguration(
             current: currentConversation?.inferenceProfile ?? viewModel.pendingInferenceProfile,
             profiles: inferenceProfiles,
             activeProfile: activeInferenceProfile,
             onSelect: { profile in
-                if conversationId == nil {
-                    viewModel.pendingInferenceProfile = profile
-                    return
-                }
-                guard let conversationId else { return }
                 Task { @MainActor in
                     await conversationManager.setConversationInferenceProfile(
                         id: conversationId,

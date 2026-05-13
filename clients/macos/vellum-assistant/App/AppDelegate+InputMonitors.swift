@@ -743,10 +743,6 @@ extension AppDelegate {
             }
         }
 
-        window.onSelectMemory = { [weak self] memoryId in
-            self?.mainWindow?.windowState.showMemory(id: memoryId)
-        }
-
         window.show()
         commandPaletteWindow = window
     }

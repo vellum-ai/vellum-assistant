@@ -27,6 +27,7 @@ import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
@@ -53,7 +54,9 @@ import {
   getConversationOriginChannel,
   getConversationOverrideProfileFromRow,
 } from "../memory/conversation-crud.js";
+import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -116,10 +119,13 @@ import {
   buildToolDefinitions,
   createResolveToolsCallback,
   createToolExecutor,
+  resolveTrustClass,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
-import type { HostAppControlProxy } from "./host-app-control-proxy.js";
+import { canonicalizeTimeZone } from "./date-context.js";
+import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
+import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -221,6 +227,7 @@ export class Conversation {
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
+  /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
   /** @internal */ slackRuntimeContextNotice?: string;
@@ -232,6 +239,14 @@ export class Conversation {
   };
   /** @internal */ surfaceActionRequestIds = new Set<string>();
   /** @internal */ approvedViaPromptThisTurn = false;
+  /**
+   * When true, side-effect tools must prompt even if a trust/allow rule
+   * would auto-allow. Set by non-interactive callers (e.g. non-guardian
+   * phone voice) so their auto-deny handler reliably sees a
+   * `confirmation_request` event. See ToolSetupContext.forcePromptSideEffects.
+   * @internal
+   */
+  forcePromptSideEffects = false;
   /** @internal */ pendingSurfaceActions = new Map<
     string,
     { surfaceType: SurfaceType }
@@ -309,6 +324,7 @@ export class Conversation {
    * @internal
    */
   hostUsername?: string;
+  /** @internal */ clientTimezone?: string;
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
@@ -422,7 +438,8 @@ export class Conversation {
     );
 
     const config = getConfig();
-    this.streamThinking = config.llm.default.thinking.streamThinking ?? false;
+    const resolvedMainAgent = resolveCallSiteConfig("mainAgent", config.llm);
+    this.streamThinking = resolvedMainAgent.thinking.streamThinking ?? false;
 
     // CES (Credential Execution Service) — use the shared server-level client.
     // The CES sidecar accepts exactly one bootstrap connection, so the
@@ -461,6 +478,9 @@ export class Conversation {
                 channelPersona: persona.channelPersona,
                 userSlug: persona.userSlug,
                 onboardingContext: this.getOnboardingContext(),
+                isBackgroundConversation: isBackgroundConversationType(
+                  getConversation(this.conversationId)?.conversationType,
+                ),
               });
             })(),
       };
@@ -474,20 +494,19 @@ export class Conversation {
     };
 
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
-    const resolvedSpeed = speedOverride ?? config.llm.default.speed;
-    const llmDefault = config.llm.default;
+    const resolvedSpeed = speedOverride ?? resolvedMainAgent.speed;
     const initialContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
       callSite: "mainAgent",
     });
     const initialContextWindowConfig = contextWindowConfigFromEffective(
-      llmDefault.contextWindow,
+      resolvedMainAgent.contextWindow,
       initialContextWindow,
     );
 
     const agentLoopConfig: Partial<AgentLoopConfig> = {
-      thinking: llmDefault.thinking,
-      effort: llmDefault.effort,
+      thinking: resolvedMainAgent.thinking,
+      effort: resolvedMainAgent.effort,
       ...(fastModeEnabled && resolvedSpeed === "fast"
         ? { speed: resolvedSpeed }
         : {}),
@@ -549,6 +568,9 @@ export class Conversation {
             channelPersona: persona.channelPersona,
             userSlug: persona.userSlug,
             onboardingContext: this.getOnboardingContext(),
+            isBackgroundConversation: isBackgroundConversationType(
+              getConversation(this.conversationId)?.conversationType,
+            ),
           });
         })();
     const tools = buildToolDefinitions();
@@ -628,7 +650,21 @@ export class Conversation {
 
   async ensureActorScopedHistory(): Promise<void> {
     const currentTrustClass = this.trustContext?.trustClass;
-    if (this.loadedHistoryTrustClass === currentTrustClass) return;
+    // `loadFromDb` gates personal-memory rehydration on `sourceChannel` too
+    // (via `shouldExposePersonalMemory`), so a same-trust-class reuse from a
+    // different channel (e.g. internal `vellum` → remote channel) must also
+    // trigger a reload. Otherwise stale personal-memory blocks can leak to
+    // an untrusted remote turn, or be hidden when they should be present.
+    const currentPersonalMemoryAllowed = shouldExposePersonalMemory({
+      sourceChannel: this.trustContext?.sourceChannel,
+      isTrustedActor: resolveTrustClass(this.trustContext) === "guardian",
+    });
+    if (
+      this.loadedHistoryTrustClass === currentTrustClass &&
+      this.loadedHistoryPersonalMemoryAllowed === currentPersonalMemoryAllowed
+    ) {
+      return;
+    }
     await this.loadFromDb();
   }
 
@@ -941,6 +977,23 @@ export class Conversation {
     this.hostAppControlProxy = proxy;
   }
 
+  ensureHostProxiesForTurn(
+    sourceInterface: import("../channels/types.js").InterfaceId | undefined,
+  ): void {
+    if (
+      shouldAttachHostProxyForCapability("host_cu", sourceInterface) &&
+      !this.hostCuProxy
+    ) {
+      this.setHostCuProxy(new HostCuProxy());
+    }
+    if (
+      shouldAttachHostProxyForCapability("host_app_control", sourceInterface) &&
+      !this.hostAppControlProxy
+    ) {
+      this.setHostAppControlProxy(new HostAppControlProxy(this.conversationId));
+    }
+  }
+
   // ── Server-authoritative state signals ─────────────────────────────
 
   emitConfirmationStateChanged(
@@ -989,7 +1042,9 @@ export class Conversation {
     }
   }
 
-  async forceCompact(): Promise<ContextWindowResult> {
+  async forceCompact(options?: {
+    targetInputTokensOverride?: number;
+  }): Promise<ContextWindowResult> {
     const conversationRow = getConversation(this.conversationId);
     const overrideProfile =
       getConversationOverrideProfileFromRow(conversationRow) ?? null;
@@ -1005,7 +1060,9 @@ export class Conversation {
       }
     ).updateConfig?.(
       contextWindowConfigFromEffective(
-        config.llm.default.contextWindow,
+        resolveCallSiteConfig("mainAgent", config.llm, {
+          overrideProfile: overrideProfile ?? undefined,
+        }).contextWindow,
         effectiveContextWindow,
       ),
     );
@@ -1035,6 +1092,7 @@ export class Conversation {
         conversationOriginChannel:
           getConversationOriginChannel(this.conversationId) ?? undefined,
         overrideProfile,
+        targetInputTokensOverride: options?.targetInputTokensOverride,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
@@ -1050,7 +1108,7 @@ export class Conversation {
       );
     }
     if (result.compacted) {
-      applyCompactionResult(this, result, this.sendToClient, null, {
+      await applyCompactionResult(this, result, this.sendToClient, null, {
         slackContextCompactionWatermarkTs: getSlackCompactionWatermarkForPrefix(
           slackChronologicalContext,
           result.compactedMessages,
@@ -1128,6 +1186,13 @@ export class Conversation {
     ) {
       this.workspaceTopLevelDirty = true;
     }
+  }
+
+  applyClientTimezoneFromTransport(
+    transport: ConversationTransportMetadata,
+  ): void {
+    this.clientTimezone =
+      canonicalizeTimeZone(transport.clientTimezone) ?? undefined;
   }
 
   setAssistantId(assistantId: string | null): void {

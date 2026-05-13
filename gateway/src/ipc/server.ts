@@ -10,11 +10,20 @@
  * The preferred socket path is `{workspaceDir}/gateway.sock` on the shared
  * volume. On platforms with strict AF_UNIX path limits, the server falls back
  * to a shorter deterministic path.
+ *
+ * Resilience: a {@link SocketWatchdog} re-binds the listening socket when its
+ * on-disk path entry is removed (e.g. by a tmpfs sweep or rogue cleanup of
+ * `/run/*`). Existing connected sockets survive the re-bind because the
+ * kernel keeps connection inodes alive independently of the listener path;
+ * only new `connect()` calls require the path to exist.
  */
 
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import {
+  SocketWatchdog,
+  ensureSocketDir,
+} from "@vellumai/ipc-server-utils";
+import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { dirname } from "node:path";
 
 import type { z } from "zod";
 
@@ -55,6 +64,15 @@ export type IpcRoute = {
   handler: IpcMethodHandler;
 };
 
+/** Optional configuration for {@link GatewayIpcServer}. */
+export interface GatewayIpcServerOptions {
+  /**
+   * How often the socket-file watchdog stats the listening socket path.
+   * Set to `0` to disable. Defaults to {@link SocketWatchdog}'s 5000ms.
+   */
+  watchdogIntervalMs?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
@@ -65,8 +83,15 @@ export class GatewayIpcServer {
   private methods = new Map<string, IpcMethodHandler>();
   private schemas = new Map<string, z.ZodType>();
   private socketPath: string;
+  private watchdog: SocketWatchdog;
+  /**
+   * Servers whose listener path has been replaced by a re-bind. Kept around
+   * so that already-connected sockets continue to work; closed gracefully
+   * once their accept loops drain.
+   */
+  private legacyServers = new Set<Server>();
 
-  constructor(routes?: IpcRoute[]) {
+  constructor(routes?: IpcRoute[], options?: GatewayIpcServerOptions) {
     const resolution = resolveIpcSocketPath("gateway");
     this.socketPath = resolution.path;
     log.info(
@@ -81,16 +106,33 @@ export class GatewayIpcServer {
         }
       }
     }
+
+    this.watchdog = new SocketWatchdog({
+      socketPath: this.socketPath,
+      intervalMs: options?.watchdogIntervalMs,
+      getServer: () => this.server,
+      createServer: () => this.createListeningServer(),
+      onRebind: (newServer, oldServer) => {
+        this.server = newServer;
+        // Move the previous listener into the legacy set so already-
+        // connected clients keep their accept loop alive. close() stops
+        // accepting new connections (which the kernel already won't route
+        // here anyway after the path moved) but lets in-flight sockets
+        // drain.
+        this.legacyServers.add(oldServer);
+        oldServer.close(() => {
+          this.legacyServers.delete(oldServer);
+        });
+      },
+      log,
+    });
   }
 
   /** Start listening on the Unix domain socket. */
   start(): void {
     // Ensure the parent directory exists — on a fresh hatch the workspace
     // dir may not have been created yet when the IPC server starts.
-    const socketDir = dirname(this.socketPath);
-    if (!existsSync(socketDir)) {
-      mkdirSync(socketDir, { recursive: true });
-    }
+    ensureSocketDir(this.socketPath);
 
     // Clean up stale socket file from a previous run
     if (existsSync(this.socketPath)) {
@@ -101,57 +143,29 @@ export class GatewayIpcServer {
       }
     }
 
-    this.server = createServer((socket) => {
-      // The assistant maintains a persistent connection for hot-path RPCs
-      // (classify_risk) alongside short-lived one-shot connections for other
-      // calls. Track all of them so a new one-shot connection does not tear
-      // down the persistent socket and reject its in-flight requests.
-      this.clients.add(socket);
-      log.debug("IPC client connected");
-
-      let buffer = "";
-
-      socket.on("data", (chunk) => {
-        buffer += chunk.toString();
-        // Process complete newline-delimited messages
-        let newlineIdx: number;
-        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-          const line = buffer.slice(0, newlineIdx).trim();
-          buffer = buffer.slice(newlineIdx + 1);
-          if (line) {
-            this.handleMessage(socket, line);
-          }
-        }
-      });
-
-      socket.on("close", () => {
-        this.clients.delete(socket);
-        log.debug("IPC client disconnected");
-      });
-
-      socket.on("error", (err) => {
-        log.warn({ err }, "IPC client socket error");
-        this.clients.delete(socket);
-      });
-    });
-
-    this.server.on("error", (err) => {
-      log.error({ err }, "IPC server error");
-    });
-
+    this.server = this.createListeningServer();
     this.server.listen(this.socketPath, () => {
       log.info({ path: this.socketPath }, "IPC server listening");
     });
+
+    this.watchdog.start();
   }
 
   /** Stop the server and disconnect all clients. */
   stop(): void {
+    this.watchdog.stop();
+
     for (const socket of this.clients) {
       if (!socket.destroyed) {
         socket.destroy();
       }
     }
     this.clients.clear();
+
+    for (const legacy of this.legacyServers) {
+      legacy.close();
+    }
+    this.legacyServers.clear();
 
     if (this.server) {
       this.server.close();
@@ -184,7 +198,60 @@ export class GatewayIpcServer {
     return this.socketPath;
   }
 
+  /**
+   * Re-bind the listening socket if its path entry is missing on disk.
+   *
+   * Public for tests so the watchdog can be exercised deterministically
+   * without waiting for the interval. Returns `true` when a re-bind was
+   * performed, `false` otherwise.
+   */
+  async rebindIfMissing(): Promise<boolean> {
+    return this.watchdog.rebindIfMissing();
+  }
+
   // ── Internal ──────────────────────────────────────────────────────────
+
+  private createListeningServer(): Server {
+    const server = createServer((socket) => this.handleConnection(socket));
+    server.on("error", (err) => {
+      log.error({ err }, "IPC server error");
+    });
+    return server;
+  }
+
+  private handleConnection(socket: Socket): void {
+    // The assistant maintains a persistent connection for hot-path RPCs
+    // (classify_risk) alongside short-lived one-shot connections for other
+    // calls. Track all of them so a new one-shot connection does not tear
+    // down the persistent socket and reject its in-flight requests.
+    this.clients.add(socket);
+    log.debug("IPC client connected");
+
+    let buffer = "";
+
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString();
+      // Process complete newline-delimited messages
+      let newlineIdx: number;
+      while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, newlineIdx).trim();
+        buffer = buffer.slice(newlineIdx + 1);
+        if (line) {
+          this.handleMessage(socket, line);
+        }
+      }
+    });
+
+    socket.on("close", () => {
+      this.clients.delete(socket);
+      log.debug("IPC client disconnected");
+    });
+
+    socket.on("error", (err) => {
+      log.warn({ err }, "IPC client socket error");
+      this.clients.delete(socket);
+    });
+  }
 
   private handleMessage(socket: Socket, line: string): void {
     let req: IpcRequest;

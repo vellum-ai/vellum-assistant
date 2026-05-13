@@ -50,6 +50,10 @@ let lastCreateOptions: Record<string, unknown> | null = null;
 let lastConstructorOptions: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
 
+function userMsg(text: string): Message {
+  return { role: "user", content: [{ type: "text", text }] };
+}
+
 // Simulate OpenAI.APIError
 class FakeAPIError extends Error {
   status: number;
@@ -1294,10 +1298,6 @@ describe("effort config passthrough", () => {
 // ---------------------------------------------------------------------------
 
 describe("OpenRouterProvider reasoning", () => {
-  function userMsg(text: string): Message {
-    return { role: "user", content: [{ type: "text", text }] };
-  }
-
   beforeEach(() => {
     fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
     lastCreateParams = null;
@@ -1344,6 +1344,30 @@ describe("OpenRouterProvider reasoning", () => {
     expect(lastCreateParams!.reasoning).toEqual({ enabled: false });
   });
 
+  test("sends OpenRouter app-attribution headers on OpenAI-compatible requests", async () => {
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: {
+        usageAttributionHeaders: {
+          "Vellum-Organization-Id": "org-123",
+        },
+      },
+    });
+
+    expect(lastCreateOptions?.headers).toEqual(
+      expect.objectContaining({
+        "HTTP-Referer": "https://www.vellum.ai",
+        "X-OpenRouter-Title": "Vellum Assistant",
+        "X-OpenRouter-Categories": "personal-agent,cli-agent",
+        "Vellum-Organization-Id": "org-123",
+      }),
+    );
+    expect(lastCreateParams).not.toHaveProperty("HTTP-Referer");
+    expect(lastCreateParams).not.toHaveProperty("X-OpenRouter-Title");
+    expect(lastCreateParams).not.toHaveProperty("X-OpenRouter-Categories");
+    expect(lastCreateParams).not.toHaveProperty("usageAttributionHeaders");
+  });
+
   test("RetryProvider + OpenRouterProvider enables thinking end-to-end", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     const retry = new RetryProvider(provider);
@@ -1367,16 +1391,53 @@ describe("OpenRouterProvider reasoning", () => {
   });
 });
 
+describe("OpenRouterProvider Anthropic-compatible errors", () => {
+  test("retags Anthropic ProviderError instances as OpenRouter errors", async () => {
+    const provider = new OpenRouterProvider("or-key", "anthropic/claude-4.5");
+    const abortReason = createAbortReason(
+      "user_cancel",
+      "openrouter-provider-test",
+    );
+    const cause = new Error("upstream cause");
+    const innerError = new ProviderError(
+      "Anthropic API error (402): Payment Required",
+      "anthropic",
+      402,
+      { cause, retryAfterMs: 1250, abortReason },
+    );
+
+    (
+      provider as unknown as {
+        anthropicInner: {
+          sendMessage: OpenRouterProvider["sendMessage"];
+        };
+      }
+    ).anthropicInner = {
+      sendMessage: async () => {
+        throw innerError;
+      },
+    };
+
+    try {
+      await provider.sendMessage([userMsg("hi")]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).provider).toBe("openrouter");
+      expect((error as ProviderError).statusCode).toBe(402);
+      expect((error as ProviderError).retryAfterMs).toBe(1250);
+      expect((error as ProviderError).abortReason).toBe(abortReason);
+      expect((error as Error).cause).toBe(cause);
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Reasoning effort → OpenAI reasoning_effort mapping
 // ---------------------------------------------------------------------------
 
 describe("OpenAIProvider reasoning_effort", () => {
   let provider: OpenAIProvider;
-
-  function userMsg(text: string): Message {
-    return { role: "user", content: [{ type: "text", text }] };
-  }
 
   beforeEach(() => {
     fakeChunks = [textChunk("OK"), usageChunk(10, 2)];

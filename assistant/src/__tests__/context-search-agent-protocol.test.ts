@@ -51,7 +51,7 @@ describe("recall agent protocol tool definitions", () => {
       schemaProperties(SEARCH_SOURCES_TOOL_DEFINITION).sources.items,
     ).toEqual({
       type: "string",
-      enum: ["memory", "pkb", "conversations", "workspace"],
+      enum: ["memory", "conversations", "workspace"],
     });
     expect(
       schemaProperties(SEARCH_SOURCES_TOOL_DEFINITION).limit,
@@ -214,6 +214,25 @@ describe("recall agent validation helpers", () => {
         citationIds: [],
       },
     });
+
+    expect(
+      validateFinishRecallPayload(
+        {
+          answer: "Confident answer with no supporting evidence.",
+          confidence: "high",
+          citation_ids: [],
+        },
+        [makeEvidence("ev-1")],
+      ),
+    ).toMatchObject({
+      ok: false,
+      reason: "missing_citations",
+      finish: {
+        answer: "No reliable answer could be produced by the recall agent.",
+        confidence: "low",
+        citationIds: [],
+      },
+    });
   });
 
   test("defaults to all source descriptions when available sources are omitted", () => {
@@ -223,7 +242,7 @@ describe("recall agent validation helpers", () => {
     });
 
     expect(prompt).toContain("memory: durable memory graph facts");
-    expect(prompt).toContain("pkb: personal knowledge base");
+    expect(prompt).not.toContain("pkb: personal knowledge base");
     expect(prompt).toContain("conversations: past assistant conversations");
     expect(prompt).toContain("workspace: files and text");
   });

@@ -84,6 +84,7 @@ mock.module("../config/loader.js", () => ({
     },
     rateLimit: { maxRequestsPerMinute: 0 },
     workspaceGit: { turnCommitMaxWaitMs: 10 },
+    memory: { retrieval: { scratchpadInjection: { enabled: true } } },
     ui: {},
   }),
   loadRawConfig: () => ({}),
@@ -476,7 +477,7 @@ function makeCtx(
     }),
 
     graphMemory: {
-      onCompacted: () => {},
+      onCompacted: async () => {},
       prepareMemory: async () => ({
         runMessages: [],
         injectedTokens: 0,

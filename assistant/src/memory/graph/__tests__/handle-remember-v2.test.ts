@@ -1,19 +1,14 @@
 /**
- * Tests for `handleRemember` flag-routing between v1 (PKB) and v2 (memory/).
+ * Tests for `handleRemember` routing between v1 (PKB) and v2 (memory/).
  *
- * Verifies:
- *   - Flag on  → writes go to `memory/buffer.md` + `memory/archive/<today>.md`
- *                and NO PKB re-index job is enqueued.
- *   - Flag off → existing PKB path is unchanged (writes to `pkb/buffer.md`
- *                + `pkb/archive/<today>.md`, both files are re-indexed).
- *   - Archive filename uses today's local date.
+ * Routing follows `config.memory.v2.enabled`: when true, writes go to
+ * memory/; otherwise they fall back to v1 PKB.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
-  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -62,11 +57,13 @@ afterAll(() => {
 // Imports are deferred to after the env var is set so any internal use of
 // `getWorkspaceDir()` resolves to the tmpdir.
 const { handleRemember } = await import("../tool-handlers.js");
-const { _setOverridesForTesting } =
-  await import("../../../config/assistant-feature-flags.js");
 const { applyNestedDefaults } = await import("../../../config/loader.js");
 
 const CONFIG = applyNestedDefaults({});
+const CONFIG_V2_OFF = {
+  ...CONFIG,
+  memory: { ...CONFIG.memory, v2: { ...CONFIG.memory.v2, enabled: false } },
+};
 
 beforeEach(() => {
   enqueueCalls.length = 0;
@@ -76,10 +73,6 @@ beforeEach(() => {
   rmSync(join(tmpWorkspace, "memory"), { recursive: true, force: true });
 });
 
-afterEach(() => {
-  _setOverridesForTesting({});
-});
-
 function todaysArchiveBasename(now: Date = new Date()): string {
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
@@ -87,11 +80,7 @@ function todaysArchiveBasename(now: Date = new Date()): string {
   return `${yyyy}-${mm}-${dd}.md`;
 }
 
-describe("handleRemember — memory-v2 flag on", () => {
-  beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
-  });
-
+describe("handleRemember — memory.v2.enabled on", () => {
   test("writes to memory/buffer.md and memory/archive/<today>.md", () => {
     const result = handleRemember(
       { content: "Alice prefers VS Code over Vim" },
@@ -175,17 +164,13 @@ describe("handleRemember — memory-v2 flag on", () => {
   });
 });
 
-describe("handleRemember — memory-v2 flag off (v1 PKB path)", () => {
-  beforeEach(() => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
-  });
-
+describe("handleRemember — memory.v2.enabled off (v1 PKB path)", () => {
   test("writes to pkb/buffer.md and pkb/archive/<today>.md", () => {
     const result = handleRemember(
       { content: "v1 path still works" },
       "conv-v1-1",
       "default",
-      CONFIG,
+      CONFIG_V2_OFF,
     );
 
     expect(result.success).toBe(true);
@@ -206,7 +191,7 @@ describe("handleRemember — memory-v2 flag off (v1 PKB path)", () => {
       { content: "index me" },
       "conv-v1-2",
       "default",
-      CONFIG,
+      CONFIG_V2_OFF,
     );
 
     expect(result.success).toBe(true);

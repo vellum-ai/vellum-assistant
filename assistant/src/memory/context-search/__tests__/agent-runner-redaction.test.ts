@@ -4,7 +4,7 @@
  *
  * `redactWorkspaceEvidence` scrubs secrets from workspace-sourced evidence
  * excerpts before they are serialised into the prompt that is sent to the
- * external recall LLM provider. Memory/PKB/conversation evidence is left
+ * external recall LLM provider. Memory/conversation evidence is left
  * untouched — those sources contain intentionally stored user content.
  */
 
@@ -65,7 +65,10 @@ describe("redactWorkspaceEvidence", () => {
 
   test("does NOT modify non-secret workspace excerpts", () => {
     const safeContent = "This is a normal comment explaining the architecture.";
-    const original = makeEvidence({ source: "workspace", excerpt: safeContent });
+    const original = makeEvidence({
+      source: "workspace",
+      excerpt: safeContent,
+    });
     const [result] = redactWorkspaceEvidence([original]);
 
     expect(result.excerpt).toBe(safeContent);
@@ -74,11 +77,11 @@ describe("redactWorkspaceEvidence", () => {
   });
 
   test("does NOT redact non-workspace sources", () => {
-    // Memory/PKB/conversation evidence is intentionally stored user content —
+    // Memory/conversation evidence is intentionally stored user content —
     // redacting it would break recall for things the user deliberately noted.
     const secretLike = "token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.abc";
 
-    for (const source of ["memory", "pkb", "conversations"] as const) {
+    for (const source of ["memory", "conversations"] as const) {
       const original = makeEvidence({ source, excerpt: secretLike });
       const [result] = redactWorkspaceEvidence([original]);
 
@@ -89,8 +92,16 @@ describe("redactWorkspaceEvidence", () => {
 
   test("redacts multiple secrets across multiple workspace evidence items", () => {
     const results = redactWorkspaceEvidence([
-      makeEvidence({ id: "ev-1", source: "workspace", excerpt: `key=${ANTHROPIC_KEY}` }),
-      makeEvidence({ id: "ev-2", source: "workspace", excerpt: GENERIC_SECRET_EXCERPT }),
+      makeEvidence({
+        id: "ev-1",
+        source: "workspace",
+        excerpt: `key=${ANTHROPIC_KEY}`,
+      }),
+      makeEvidence({
+        id: "ev-2",
+        source: "workspace",
+        excerpt: GENERIC_SECRET_EXCERPT,
+      }),
     ]);
 
     expect(results[0].excerpt).not.toContain(ANTHROPIC_KEY);
@@ -101,7 +112,10 @@ describe("redactWorkspaceEvidence", () => {
 
   test("does not mutate the original evidence objects", () => {
     const secret = ANTHROPIC_KEY;
-    const original = makeEvidence({ source: "workspace", excerpt: `key=${secret}` });
+    const original = makeEvidence({
+      source: "workspace",
+      excerpt: `key=${secret}`,
+    });
     const originalExcerpt = original.excerpt;
 
     redactWorkspaceEvidence([original]);
@@ -111,8 +125,16 @@ describe("redactWorkspaceEvidence", () => {
 
   test("handles mixed sources in one batch correctly", () => {
     const secret = ANTHROPIC_KEY;
-    const wsItem = makeEvidence({ id: "ev-ws", source: "workspace", excerpt: `key=${secret}` });
-    const memItem = makeEvidence({ id: "ev-mem", source: "memory", excerpt: `key=${secret}` });
+    const wsItem = makeEvidence({
+      id: "ev-ws",
+      source: "workspace",
+      excerpt: `key=${secret}`,
+    });
+    const memItem = makeEvidence({
+      id: "ev-mem",
+      source: "memory",
+      excerpt: `key=${secret}`,
+    });
 
     const [wsResult, memResult] = redactWorkspaceEvidence([wsItem, memItem]);
 

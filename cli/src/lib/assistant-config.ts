@@ -18,6 +18,8 @@ import {
   getMultiInstanceDir,
 } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
+import { SEEDS } from "./environments/seeds.js";
+import type { EnvironmentDefinition } from "./environments/types.js";
 import { probePort } from "./port-probe.js";
 
 /**
@@ -325,6 +327,69 @@ export function removeAssistantEntry(assistantId: string): void {
 
 export function loadAllAssistants(): AssistantEntry[] {
   return readAssistants();
+}
+
+/**
+ * Read the first existing lockfile for an explicitly-provided environment,
+ * without applying legacy migrations. This is the cross-env read path used by
+ * {@link loadAllAssistantsAcrossEnvs}: it deliberately bypasses
+ * {@link readLockfile} (which always resolves the *current* env) so callers
+ * can enumerate state from every env without flipping `process.env` or the
+ * persisted default. Migrations are skipped because we never want to write
+ * to another env's lockfile from the current env's process.
+ */
+function readLockfileForEnv(env: EnvironmentDefinition): LockfileData {
+  for (const lockfilePath of getLockfilePaths(env)) {
+    if (!existsSync(lockfilePath)) continue;
+    try {
+      const raw = readFileSync(lockfilePath, "utf-8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as LockfileData;
+      }
+    } catch {
+      // Malformed; try next candidate
+    }
+  }
+  return {};
+}
+
+/**
+ * Load assistant entries from every known environment's lockfile.
+ *
+ * Each {@link SEEDS} entry has its own on-host data layout (config dir,
+ * lockfile path, data dir). A running assistant from `dev` is invisible to
+ * `loadAllAssistants()` when the current env is `local`, but its host
+ * processes (daemon/gateway/qdrant) still show up in `ps ax`. The orphan
+ * detector and `vellum clean` need the union of all envs' entries to avoid
+ * misclassifying — or worse, killing — another env's running services.
+ *
+ * Optional `envs` override is provided for testability so call sites can
+ * inject a curated env list with `lockfileDirOverride` set, without having
+ * to manipulate the global SEEDS table or process.env.
+ */
+export function loadAllAssistantsAcrossEnvs(
+  envs?: EnvironmentDefinition[],
+): AssistantEntry[] {
+  const envList = envs ?? Object.values(SEEDS).map((env) => ({ ...env }));
+  const all: AssistantEntry[] = [];
+  for (const env of envList) {
+    const data = readLockfileForEnv(env);
+    const entries = data.assistants;
+    if (!Array.isArray(entries)) continue;
+    for (const raw of entries) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const entry = raw as AssistantEntry;
+      if (
+        typeof entry.assistantId !== "string" ||
+        typeof entry.runtimeUrl !== "string"
+      ) {
+        continue;
+      }
+      all.push(entry);
+    }
+  }
+  return all;
 }
 
 export function getActiveAssistant(): string | null {

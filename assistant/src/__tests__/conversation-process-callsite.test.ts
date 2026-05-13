@@ -12,13 +12,7 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
-
-// This test exercises v1 conversation routing. The `memory-v2-enabled` flag
-// (registry default `true`) flips memory routing to v2 — disable it here so
-// the v1 paths under test stay active.
-_setOverridesForTesting({ "memory-v2-enabled": false });
 
 // Use an object wrapper so TypeScript doesn't narrow the captured type to
 // `undefined` based on the initial assignment in the test setup.
@@ -46,9 +40,28 @@ mock.module("../memory/guardian-action-store.js", () => ({
   resolveGuardianActionRequest: () => {},
 }));
 
+const mockProviderStub = { name: "mock-provider" };
 mock.module("../providers/registry.js", () => ({
-  getProvider: () => ({ name: "mock-provider" }),
+  getProvider: () => mockProviderStub,
   initializeProviders: () => {},
+  listProviders: () => ["anthropic", "openai", "gemini"],
+  resolveProviderFromConnection: async () => mockProviderStub,
+}));
+
+// Connection-aware resolver path: satisfy
+// `tryResolveProviderForConnectionName` lookups so resolveDefaultProvider
+// returns a usable provider for the inline `anthropic-conn` fixture.
+mock.module("../providers/inference/connections.js", () => ({
+  getConnection: (_db: unknown, name: string) => ({
+    id: 1,
+    name,
+    provider: "anthropic",
+    auth_strategy: "user_managed_credential",
+    credential_alias: null,
+    metadata_json: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }),
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -57,6 +70,7 @@ mock.module("../config/loader.js", () => ({
     llm: {
       default: {
         provider: "anthropic",
+        provider_connection: "anthropic-conn",
         model: "claude-opus-4-6",
         maxTokens: 4096,
         effort: "max" as const,
@@ -83,6 +97,10 @@ mock.module("../config/loader.js", () => ({
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
+    memory: {
+      v2: { enabled: false },
+      retrieval: { scratchpadInjection: { enabled: true } },
+    },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,
@@ -387,5 +405,42 @@ describe("processMessage callSite threading", () => {
     expect(captured.constructorMaxTokens).toBe(1234);
     expect(captured.resolvedMaxTokens).toBe(1234);
     expect(captured.resolvedHasMaxTokens).toBe(true);
+  });
+
+  test("applies clientTimezone in the create and reuse transport metadata path", async () => {
+    mockConversation = {
+      id: "conv-store-client-timezone",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [];
+    clearCaptured();
+    clearAllActiveConversations();
+
+    const conversation = await getOrCreateConversation(
+      "conv-store-client-timezone",
+      {
+        transport: {
+          channelId: "vellum",
+          interfaceId: "macos",
+          clientTimezone: "america/new_york",
+        },
+      },
+    );
+
+    expect(conversation.clientTimezone).toBe("America/New_York");
+
+    await getOrCreateConversation("conv-store-client-timezone", {
+      transport: {
+        channelId: "vellum",
+        interfaceId: "ios",
+        clientTimezone: "europe/london",
+      },
+    });
+
+    expect(conversation.clientTimezone).toBe("Europe/London");
   });
 });

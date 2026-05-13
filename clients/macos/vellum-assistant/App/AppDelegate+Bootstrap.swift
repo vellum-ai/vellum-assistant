@@ -232,56 +232,39 @@ extension AppDelegate {
     /// to re-provision from scratch. Intended as a recovery primitive for
     /// stale/invalid credentials (see `GatewayConnectionManager.attemptRePair()`).
     ///
-    /// In Docker/cloud hatches, the CLI-persisted `guardian-token.json` on
-    /// disk can still contain the same revoked token that produced the auth
-    /// failures. `performInitialBootstrap()` imports that file ahead of any
-    /// HTTP path, so without deleting it we would silently re-arm the bad
-    /// credential and the re-pair would "succeed" only to fall right back
-    /// into 401s. Delete the file for remote hatches (Docker/cloud/managed),
-    /// where the CLI or launcher will re-provision and rewrite the file,
-    /// so the bootstrap is forced down a genuine reprovision path.
+    /// Recovery must invalidate every guardian-token file the bootstrap path
+    /// might re-import — including copies in sibling-env config dirs that the
+    /// CLI's `seedGuardianTokenFromSiblingEnv` would otherwise restore on the
+    /// next `vellum wake`. Refresh-window expiry is a clock check, not a
+    /// server-validity check, so a server-revoked token whose refresh hasn't
+    /// elapsed will silently re-arm itself if any sibling-env copy survives.
     ///
-    /// For local/bare-metal assistants the on-disk token is the only
-    /// recovery artifact — nothing is guaranteed to rewrite it — so preserve
-    /// it. Bootstrap will still skip the (now-wiped) in-memory credentials
-    /// and re-import from the file, which is the intended local fallback.
+    /// For local/bare-metal hatches we additionally clear the guardian-init
+    /// lockfile so `/v1/guardian/init` can be called again — the lockfile is
+    /// one-time-use after first successful hatch on bare-metal.
     ///
-    /// If the lockfile entry can't be resolved (malformed/legacy lockfile,
-    /// missing entry), the hatch classification is ambiguous. Default to
-    /// treating it as remote — i.e. delete the file — so we match pre-PR
-    /// behavior and never silently re-arm a stale token on a misclassified
-    /// remote hatch.
-    ///
-    /// If the delete is attempted but fails (e.g. filesystem permissions),
-    /// the stale file would otherwise be re-imported by
-    /// `performInitialBootstrap()`, defeating the fix. In that case pass
-    /// `skipFileImport: true` so the bootstrap ignores the file entirely
-    /// and drives the HTTP reprovision path.
+    /// We always pass `skipFileImport: true` so recovery is driven exclusively
+    /// by the HTTP path; `bootstrapActorToken` will surface its own errors if
+    /// the gateway is unreachable.
     func forceReBootstrap() async {
         log.info("forceReBootstrap: clearing stored credentials and re-running bootstrap")
         ActorTokenManager.deleteAllCredentials()
 
-        var skipFileImport = false
         if let assistantId = LockfileAssistant.loadActiveAssistantId() {
+            let removed = GuardianTokenFileReader.deleteTokenFileAcrossAllEnvs(
+                assistantId: assistantId
+            )
+            log.info("forceReBootstrap: removed \(removed, privacy: .public) stale guardian-token file(s) across env dirs")
+
+            // When the lockfile entry can't be resolved, default to treating
+            // the hatch as remote (skip lock reset) — matches the prior
+            // ambiguous-state convention.
             let assistant = LockfileAssistant.loadByName(assistantId)
-            // When the lockfile entry can't be resolved (malformed/legacy
-            // lockfile, missing entry, read failure) default to treating the
-            // hatch as remote. Pre-PR behavior unconditionally deleted the
-            // token file; defaulting ambiguous state to "remote" preserves
-            // that safety so we never silently re-arm a stale token on a
-            // remote hatch we failed to classify.
             let isRemoteHatch = assistant?.isRemote ?? true
             if assistant == nil {
-                log.warning("forceReBootstrap: could not resolve lockfile entry for active assistant — treating as remote hatch to preserve delete-on-rebootstrap safety")
+                log.warning("forceReBootstrap: could not resolve lockfile entry for active assistant — treating as remote hatch")
             }
-            if isRemoteHatch {
-                let deleted = GuardianTokenFileReader.deleteTokenFile(assistantId: assistantId)
-                if !deleted {
-                    log.warning("forceReBootstrap: failed to delete stale guardian token file — skipping file import to avoid re-arming the revoked token")
-                    skipFileImport = true
-                }
-            } else {
-                log.info("forceReBootstrap: local/bare-metal hatch — preserving guardian token file as the only recovery artifact")
+            if !isRemoteHatch {
                 // Clear the guardian-init lock so /v1/guardian/init can succeed
                 // again. Without this, the HTTP fallback in performInitialBootstrap
                 // is permanently 403'd on bare-metal after the first hatch.
@@ -291,7 +274,7 @@ extension AppDelegate {
                 }
             }
         }
-        await performInitialBootstrap(skipFileImport: skipFileImport)
+        await performInitialBootstrap(skipFileImport: true)
     }
 
     /// Performs the initial actor token bootstrap, reactively waiting for a
@@ -303,10 +286,9 @@ extension AppDelegate {
     /// imports it directly and skips the HTTP bootstrap entirely.
     ///
     /// `skipFileImport`: when `true`, bypass the guardian-token.json import
-    /// entirely and jump straight to the HTTP fallback. Used by
-    /// `forceReBootstrap()` when a stale file could not be deleted — leaving
-    /// the import path enabled in that case would silently re-arm the revoked
-    /// token the re-bootstrap is meant to discard.
+    /// entirely and jump straight to the HTTP fallback. `forceReBootstrap()`
+    /// always passes `true` so recovery is driven exclusively by the HTTP
+    /// path.
     func performInitialBootstrap(skipFileImport: Bool = false) async {
         guard let assistantId = LockfileAssistant.loadActiveAssistantId() else { return }
 
@@ -390,12 +372,16 @@ extension AppDelegate {
             }
         }
 
+        // HTTP /v1/guardian/init does NOT gate on `connectionManager.isConnected`.
+        // `isConnected` flips true only after a 200 health-check response,
+        // which requires auth — and the whole point of this loop is to mint
+        // the credential that the health check would use. Gating here would
+        // deadlock initial bootstrap whenever an existing keychain token has
+        // been wiped (re-pair / refresh-token revoked / first-launch-after-
+        // sibling-env cleanup). `bootstrapActorToken` is itself an HTTP POST
+        // — it will surface gateway-down errors via its return value, and the
+        // retry loop handles transient failures.
         while !Task.isCancelled {
-            if !connectionManager.isConnected {
-                await awaitConnectionEstablished()
-                guard !Task.isCancelled else { return }
-            }
-
             let success = await GuardianClient().bootstrapActorToken(
                 platform: "macos",
                 deviceId: deviceId

@@ -1,6 +1,6 @@
 import type { AssistantConfig } from "../../config/schema.js";
 
-export type RecallSource = "memory" | "pkb" | "conversations" | "workspace";
+export type RecallSource = "memory" | "conversations" | "workspace";
 
 export type RecallDepth = "fast" | "standard" | "deep";
 

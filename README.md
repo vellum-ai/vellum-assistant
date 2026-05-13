@@ -103,6 +103,17 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 ---
 
+## Foundational documents
+
+The canonical sources for who we are and how we talk about what we're building. The docs site at [vellum.ai/docs](https://vellum.ai/docs) is a rendered view of these files.
+
+| Doc | What it is |
+|-----|------------|
+| [Constitution](CONSTITUTION.md) | Who we are, what we believe, and what we refuse to compromise on |
+| [Glossary](GLOSSARY.md) | The shared vocabulary we use to talk about personal intelligence |
+
+---
+
 ## Documentation
 
 | Section | What's covered |

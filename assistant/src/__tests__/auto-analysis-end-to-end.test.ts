@@ -389,18 +389,19 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
   const originalExtractionBatch = TEST_CONFIG.memory.extraction.batchSize;
   const originalAnalysisBatch = TEST_CONFIG.analysis.batchSize;
 
+  const originalV2Enabled = TEST_CONFIG.memory.v2.enabled;
+
   beforeEach(() => {
-    // memory-v2-enabled gates v1 graph_extract enqueue; force off so
+    _setOverridesForTesting({ "auto-analyze": true });
+    // memory.v2.enabled gates v1 graph_extract enqueue; force off so
     // these cadence tests can observe the v1 path.
-    _setOverridesForTesting({
-      "auto-analyze": true,
-      "memory-v2-enabled": false,
-    });
+    TEST_CONFIG.memory.v2.enabled = false;
     TEST_CONFIG.memory.extraction.batchSize = 2;
     TEST_CONFIG.analysis.batchSize = 5;
   });
 
   afterEach(() => {
+    TEST_CONFIG.memory.v2.enabled = originalV2Enabled;
     TEST_CONFIG.memory.extraction.batchSize = originalExtractionBatch;
     TEST_CONFIG.analysis.batchSize = originalAnalysisBatch;
   });
@@ -544,10 +545,10 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────
-// Indexer v1/v2 mutual exclusion: when memory-v2-enabled is on AND
-// memory.v2.enabled is on, the v1 graph_extract enqueue is suppressed
-// (v2 reads from buffer.md, so v1 graph data is unread). When either
-// gate is off, v1 graph_extract fires.
+// Indexer v1/v2 mutual exclusion: when memory.v2.enabled is on, the
+// v1 graph_extract enqueue is suppressed (v2 reads from buffer.md,
+// so v1 graph data is unread). When v2 is disabled, v1 graph_extract
+// fires.
 // ─────────────────────────────────────────────────────────────────
 
 describe("indexer v1/v2 mutual exclusion for graph_extract", () => {
@@ -564,8 +565,7 @@ describe("indexer v1/v2 mutual exclusion for graph_extract", () => {
     TEST_CONFIG.memory.v2.enabled = originalV2Enabled;
   });
 
-  test("v2 active (flag on + config on) → graph_extract not enqueued", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("v2 active (config on) → graph_extract not enqueued", async () => {
     TEST_CONFIG.memory.v2.enabled = true;
 
     const source = createConversation("v2-active");
@@ -574,20 +574,7 @@ describe("indexer v1/v2 mutual exclusion for graph_extract", () => {
     expect(countJobsOfType("graph_extract", source.id)).toBe(0);
   });
 
-  test("flag off → graph_extract enqueued", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": false });
-    TEST_CONFIG.memory.v2.enabled = true;
-
-    const source = createConversation("v2-flag-off");
-    await indexMessages(source.id, 2);
-
-    expect(countJobsOfType("graph_extract", source.id)).toBeGreaterThanOrEqual(
-      1,
-    );
-  });
-
-  test("config gate off (flag on) → graph_extract enqueued", async () => {
-    _setOverridesForTesting({ "memory-v2-enabled": true });
+  test("config gate off → graph_extract enqueued", async () => {
     TEST_CONFIG.memory.v2.enabled = false;
 
     const source = createConversation("v2-config-off");

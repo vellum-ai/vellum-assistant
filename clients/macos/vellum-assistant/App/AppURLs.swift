@@ -76,9 +76,9 @@ public enum AppURLs {
     // MARK: - Web app URLs
 
     /// Web app billing settings page — opened from the Settings → Billing tab's
-    /// "Adjust Plan" and "Configure Auto Top Ups" buttons (both gated by the
-    /// `pro-plan-adjust` feature flag). Resolves to the Next.js web app at
-    /// `<webURL>/assistant/settings/billing` for the current build environment.
+    /// "Adjust Plan" and "Configure Auto Top Ups" buttons. Resolves to the
+    /// Next.js web app at `<webURL>/assistant/settings/billing` for the current
+    /// build environment.
     ///
     /// If `VELLUM_WEB_URL` is set but malformed (no scheme/host, non-http(s),
     /// or contains a query/fragment), falls back to the canonical environment
@@ -111,6 +111,20 @@ public enum AppURLs {
     /// and the About panel's "View on GitHub" entry. Force-unwrap is safe: the
     /// literal is a known-valid absolute URL.
     public static let repositoryURL = URL(string: "https://github.com/vellum-ai/vellum-assistant")!
+
+    /// Discord community invite — linked from the Settings "Discord" card and
+    /// the in-chat Discord community banner. Force-unwrap is safe: the literal
+    /// is a known-valid absolute URL.
+    public static let discordInviteURL = URL(string: "https://discord.gg/ZABd9V2zM8")!
+
+    /// Vellum community hub — linked from the Settings "Community" tab.
+    public static let communityHubURL = URL(string: "https://vellum.ai/community")!
+
+    /// Twitter/X profile — linked from the Settings "Community" tab.
+    public static let twitterURL = URL(string: "https://x.com/vellum_ai")!
+
+    /// YouTube channel — linked from the Settings "Community" tab.
+    public static let youtubeURL = URL(string: "https://www.youtube.com/@Vellum_AI")!
 
     // MARK: - Helpers
 

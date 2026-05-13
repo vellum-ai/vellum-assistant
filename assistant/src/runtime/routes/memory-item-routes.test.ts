@@ -6,13 +6,6 @@
  */
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../../config/assistant-feature-flags.js";
-
-// This test exercises v1 memory CRUD routes. The `memory-v2-enabled` flag
-// (registry default `true`) flips memory routing to v2 — disable it here so
-// the v1 paths under test stay active.
-_setOverridesForTesting({ "memory-v2-enabled": false });
-
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -20,7 +13,8 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
-// Stub config loader — returns a config with memory enabled by default
+// Stub config loader — return a config with memory.v2.enabled=false so the
+// v1 paths under test stay active.
 mock.module("../../config/loader.js", () => ({
   loadConfig: () => mockConfig,
   getConfig: () => mockConfig,
@@ -28,7 +22,7 @@ mock.module("../../config/loader.js", () => ({
 }));
 
 // ── Controllable mocks for semantic search ─────────────────────────────
-const mockConfig: unknown = {};
+const mockConfig: unknown = { memory: { v2: { enabled: false } } };
 
 let mockBackendStatus: {
   enabled: boolean;

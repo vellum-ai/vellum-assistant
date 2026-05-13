@@ -280,10 +280,10 @@ Channel bindings follow a three-phase lifecycle:
 
 The public URL where the gateway is reachable is configured via:
 
-| Source                                           | Description                                                                                                                                                |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ingress.publicBaseUrl` (workspace config)       | Canonical public ingress URL for Telegram webhooks, OAuth callbacks, email callbacks, generic JSON webhooks, and custom/ngrok tunnel based Twilio fallback |
-| `ingress.twilioPublicBaseUrl` (workspace config) | Twilio-specific public ingress URL written by Velay registration; used only by Twilio URL builders when present                                            |
+| Source                                              | Description                                                                                                                                             |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ingress.publicBaseUrl` (workspace config)          | Canonical public ingress URL for Telegram webhooks, OAuth callbacks, email callbacks, generic JSON webhooks, Twilio webhooks, and Twilio WebSocket URLs |
+| `ingress.publicBaseUrlManagedBy` (workspace config) | Ownership marker used when Velay published `ingress.publicBaseUrl`; lets the gateway clear stale Velay-managed URLs without disturbing manual URLs      |
 
 ### Tunnel-Agnostic Setup
 
@@ -296,9 +296,9 @@ The assistant runtime reads this URL via the centralized `public-ingress-urls.ts
 
 ### Velay Twilio Ingress
 
-Velay is a platform-managed tunnel for assistant-hosted HTTP and WebSocket traffic. It is intentionally additive to the tunnel-agnostic setup above: Velay registration does not overwrite `ingress.publicBaseUrl`, and operators can continue using ngrok or custom tunnels for non-Twilio webhooks.
+Velay is a platform-managed tunnel for assistant-hosted HTTP and WebSocket traffic. When it is active, Velay publishes the registered public assistant URL to `ingress.publicBaseUrl` and marks it with `ingress.publicBaseUrlManagedBy: "velay"`.
 
-When `VELAY_BASE_URL` is present in the gateway environment, the gateway starts `VelayTunnelClient`. The client registers with Velay over `GET /v1/register` using the assistant API key, then receives a `registered` frame containing a public assistant URL such as `https://velay.vellum.ai/<assistant-id>`. The gateway writes that URL to `ingress.twilioPublicBaseUrl` only. When the tunnel disconnects, it clears that same value if it still matches the URL the tunnel published, leaving `ingress.publicBaseUrl` intact.
+When `VELAY_BASE_URL` is present in the gateway environment, the gateway starts `VelayTunnelClient`. The client registers with Velay over `GET /v1/register` using the assistant API key, then receives a `registered` frame containing a public assistant URL such as `https://velay.vellum.ai/<assistant-id>`. The gateway writes that URL to `ingress.publicBaseUrl`. When the tunnel disconnects, it clears that value only if the Velay ownership marker is still present and the URL still matches what the tunnel published, leaving manual URLs intact.
 
 Velay forwards both HTTP request frames and WebSocket frames into the local gateway loopback listener:
 
@@ -310,16 +310,16 @@ Public Velay HTTPS/WSS URL
   → Existing gateway route handlers
 ```
 
-The HTTP bridge can carry normal JSON requests and health checks, so it is useful for local bridge smoke tests. The advertised URL split is Twilio-scoped in this phase, though: only Twilio URL generation prefers `ingress.twilioPublicBaseUrl`; Telegram webhook registration, OAuth redirects, email callbacks, and generic public URL builders continue to use `ingress.publicBaseUrl`.
+The HTTP bridge can carry normal JSON requests and health checks, so it is useful for local bridge smoke tests. Velay-managed `ingress.publicBaseUrl` changes are tagged with `publicBaseUrlManagedBy` so gateway side effects can skip unrelated webhook reconciliation while still refreshing Twilio phone-number webhooks.
 
 Local platform smoke-test flow:
 
 1. In `vellum-assistant-platform`, run `vel up velay`.
-2. Ensure vembda passes `VELAY_BASE_URL=http://host.docker.internal:8501` into assistant gateway containers.
+2. Ensure vembda passes the environment-appropriate `VELAY_BASE_URL` into assistant gateway containers.
 3. Re-hatch or restart the assistant so the gateway receives the new environment.
 4. Confirm gateway logs show `Velay tunnel connected` and `Velay tunnel registered`.
 5. Verify HTTP forwarding by requesting `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/healthz` and `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/schema`. When validating a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm it reaches the loopback gateway.
-6. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/relay?callSessionId=...&token=...`, then with a real Twilio call after `VELAY_PUBLIC_BASE_URL` is backed by a public HTTPS/WSS tunnel.
+6. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/relay?callSessionId=...&token=...`, then with a real Twilio call after the gateway has registered with Velay.
 
 ### URL Builders
 
@@ -328,10 +328,10 @@ All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-
 | Function                       | URL Pattern                                                                                                                                                      |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or module-level state (assistant-side; the gateway reads via `ConfigFileCache`) |
-| `getTwilioVoiceWebhookUrl()`   | `${twilioBase}/webhooks/twilio/voice?callSessionId=...`, where `twilioBase` is `ingress.twilioPublicBaseUrl` when present, otherwise `ingress.publicBaseUrl`     |
-| `getTwilioStatusCallbackUrl()` | `${twilioBase}/webhooks/twilio/status`, with the same Twilio-specific base resolution                                                                            |
-| `getTwilioConnectActionUrl()`  | `${twilioBase}/webhooks/twilio/connect-action`, with the same Twilio-specific base resolution                                                                    |
-| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`, with the same Twilio-specific base resolution                                                                               |
+| `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`, using `ingress.publicBaseUrl`                                                                                 |
+| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`, using `ingress.publicBaseUrl`                                                                                                  |
+| `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`, using `ingress.publicBaseUrl`                                                                                          |
+| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`, using `ingress.publicBaseUrl`                                                                                               |
 | `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                                                                                                |
 | `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                                                                                                      |
 
@@ -1077,21 +1077,20 @@ In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice w
 
 Signature validation is **fail-closed**: if the Twilio auth token is not configured, all webhook requests are rejected with `403`. Missing or invalid `X-Twilio-Signature` headers are also rejected with `403`. Payload size is capped by `maxWebhookPayloadBytes` (checked via both `Content-Length` header and actual body size).
 
-**Webhook base URL resolution:** Public ingress URL construction is centralized in `public-ingress-urls.ts`, with a Twilio-specific override for Velay:
+**Webhook base URL resolution:** Public ingress URL construction is centralized in `public-ingress-urls.ts`:
 
-- Twilio voice/status/connect-action/relay/media-stream URLs use `ingress.twilioPublicBaseUrl` when present. This is the value published by Velay registration.
-- If `ingress.twilioPublicBaseUrl` is absent, Twilio falls back to `ingress.publicBaseUrl`.
-- Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs use `ingress.publicBaseUrl`; Velay does not replace those advertised URLs in this phase.
+- Twilio voice/status/connect-action/relay/media-stream URLs use `ingress.publicBaseUrl`.
+- Velay registration publishes its public assistant URL to `ingress.publicBaseUrl` with `ingress.publicBaseUrlManagedBy: "velay"`.
+- Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs also use `ingress.publicBaseUrl`; Velay-managed URL changes are tagged so unrelated reconciliation can be skipped when appropriate.
 - Module-level assistant state remains a fallback for legacy tunnel start/stop flows.
 
 All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
 
 For **inbound Twilio signature validation** at the gateway, URL reconstruction now supports multiple candidates in order:
 
-1. `ConfigFileCache.getString("ingress", "twilioPublicBaseUrl")` (if configured)
-2. `ConfigFileCache.getString("ingress", "publicBaseUrl")` (if configured)
-3. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`/`X-Original-Host` fallbacks)
-4. Raw request URL (always included as the final fallback)
+1. `ConfigFileCache.getString("ingress", "publicBaseUrl")` (if configured)
+2. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`/`X-Original-Host` fallbacks)
+3. Raw request URL (always included as the final fallback)
 
 This makes ingress URL updates smoother in local tunnel workflows because Twilio webhooks can continue validating immediately. For Telegram, the config file watcher detects ingress URL changes and triggers webhook reconciliation directly, so neither channel requires a gateway restart.
 

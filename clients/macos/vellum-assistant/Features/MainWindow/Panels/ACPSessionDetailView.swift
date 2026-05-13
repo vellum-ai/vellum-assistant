@@ -35,7 +35,14 @@ struct ACPSessionDetailView: View {
     /// Pop-to-list callback fired after a successful "Delete from history".
     /// Hosting view (the panel's `NavigationStack`) is responsible for the
     /// actual back-pop; we just signal that the underlying row is gone.
+    /// When unset, we fall back to the environment's `dismiss` action so a
+    /// successful delete always returns the user to the list.
     var onDismiss: (() -> Void)? = nil
+
+    /// Fallback dismiss action used when no explicit `onDismiss` callback is
+    /// wired by the host. Resolves to the enclosing `NavigationStack`'s
+    /// pop action when this view is pushed via `navigationDestination`.
+    @Environment(\.dismiss) private var dismissEnvironment
 
     /// True while a cancel HTTP request is in flight. Disables the button and
     /// shows an inline spinner so the user can't double-tap.
@@ -56,6 +63,11 @@ struct ACPSessionDetailView: View {
     /// Compared against `lastScrollOffset` to decide whether the user is
     /// currently parked at the bottom.
     @State private var lastMaxScrollOffset: CGFloat = 0
+    /// Set when the ring buffer trims its head. On the next offset reading
+    /// we lower the watermark by the amount the content shifted, so the
+    /// "returned to bottom" check evaluates against the new shorter content
+    /// instead of the prior taller content's bottom.
+    @State private var pendingHeadTrim = false
     /// Wall clock used to refresh the elapsed time once per second while the
     /// session is still running. The view only reads it when the session is
     /// non-terminal so terminal sessions don't wake the timer.
@@ -306,12 +318,58 @@ struct ACPSessionDetailView: View {
                 .onPreferenceChange(ACPSessionDetailScrollOffsetKey.self) { contentMinY in
                     handleScrollOffsetChange(contentMinY)
                 }
-                .onChange(of: session.events.count) {
+                .onChange(of: session.events.last?.id) {
+                    // `events.count` plateaus at `ACPSessionStore.eventsCapPerSession`
+                    // (the ring buffer trims oldest entries on append), so a count-keyed
+                    // `.onChange` would silently stop firing for long sessions. Observe
+                    // the last event's id instead — each `ACPSessionUpdateMessage`
+                    // carries a unique UUID, so this fires on every append.
                     if autoScrollEnabled {
                         // .easeOut keeps the jump readable when many events
                         // arrive at once.
                         withAnimation(.easeOut(duration: 0.1)) {
                             proxy.scrollTo(Self.bottomAnchorId, anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: session.events.first?.id) {
+                    // Oldest event changed — content was trimmed from the head of
+                    // the ring buffer, which shrinks total content height and shifts
+                    // the offset baseline. Don't zero the watermark here: if the
+                    // user is stationary mid-list, the next reading would reseed
+                    // the watermark to their position and `returnedToBottom` would
+                    // immediately fire, falsely re-engaging auto-scroll. Defer to
+                    // the next offset reading, which lowers the watermark by the
+                    // observed content shift instead.
+                    pendingHeadTrim = true
+                    // If the trim removed non-rendered content (e.g. a `.thought`
+                    // row while `showThoughts` is off), the visible offset won't
+                    // change and no preference callback fires to consume the
+                    // sentinel. Drop it on the next runloop tick so the user's
+                    // next real scroll isn't misread as a layout artifact. The
+                    // SwiftUI preference callback for this update runs during
+                    // the current runloop pass, before this async block.
+                    DispatchQueue.main.async {
+                        pendingHeadTrim = false
+                    }
+                }
+                .onChange(of: showThoughts) {
+                    // Toggling thoughts shifts content like a head trim. If
+                    // the user was parked at the bottom, re-anchor by zeroing
+                    // the watermark and re-engaging auto-scroll. Otherwise
+                    // defer to the head-trim sentinel so the next offset
+                    // reading absorbs the shift — zeroing here would discard
+                    // the "true bottom" anchor `returnedToBottom` compares
+                    // against, blocking auto-scroll resume on later scroll-down.
+                    let wasAtBottom = abs(lastScrollOffset - lastMaxScrollOffset) < Self.scrollAtBottomTolerance
+                    if wasAtBottom {
+                        lastMaxScrollOffset = 0
+                        lastScrollOffset = 0
+                        autoScrollEnabled = true
+                    } else {
+                        pendingHeadTrim = true
+                        DispatchQueue.main.async {
+                            pendingHeadTrim = false
                         }
                     }
                 }
@@ -349,12 +407,28 @@ struct ACPSessionDetailView: View {
         let currentOffset = -contentMinY
         defer { lastScrollOffset = currentOffset }
 
-        if currentOffset > lastMaxScrollOffset {
-            lastMaxScrollOffset = currentOffset
+        if pendingHeadTrim {
+            pendingHeadTrim = false
+            // Lower the watermark by the trimmed height (the difference
+            // between the pre-trim and post-trim offsets) and skip the
+            // movedUp/returnedToBottom evaluation — this tick's offset
+            // change is a layout artifact, not user input.
+            let trimmed = max(0, lastScrollOffset - currentOffset)
+            lastMaxScrollOffset = max(0, lastMaxScrollOffset - trimmed)
+            return
         }
 
         let movedUp = currentOffset < lastScrollOffset - Self.scrollAtBottomTolerance
+        // Evaluate against the *prior* high-water mark, before bumping it.
+        // If we updated the mark first, any offset that exceeds it (e.g. the
+        // user scrolling partway down into newly-arrived content) would
+        // immediately satisfy `abs(0) < tolerance` and re-engage auto-scroll
+        // — yanking the user away from where they were reading.
         let returnedToBottom = abs(currentOffset - lastMaxScrollOffset) < Self.scrollAtBottomTolerance
+
+        if currentOffset > lastMaxScrollOffset {
+            lastMaxScrollOffset = currentOffset
+        }
 
         if movedUp {
             autoScrollEnabled = false
@@ -510,11 +584,11 @@ struct ACPSessionDetailView: View {
         HStack(spacing: 0) {
             HStack(alignment: .top, spacing: VSpacing.xs) {
                 VIconView(.lightbulb, size: 12)
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .padding(.top, 2)
                 Text(content)
                     .font(VFont.bodyMediumDefault.italic())
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .textSelection(.enabled)
             }
             .padding(VSpacing.sm)
@@ -583,6 +657,8 @@ struct ACPSessionDetailView: View {
         // We piggy-back on `userMessageChunk` rather than introducing a new
         // wire-side update type so `buildRows` keeps a closed switch and the
         // entry coalesces naturally with any prior user-message run.
+        // The failure follow-up uses a distinct `.steerFailure` updateType
+        // so it renders as its own row instead of coalescing with this one.
         session.appendEvent(ACPSessionUpdateMessage(
             acpSessionId: session.state.acpSessionId,
             updateType: .userMessageChunk,
@@ -593,7 +669,21 @@ struct ACPSessionDetailView: View {
         // (`acp/:id/steer`) accepts and the store keys its dictionary by.
         // `state.acpSessionId` is the protocol-level handle and would
         // miss the lookup for any session past initialization.
-        Task { await store.steer(id: session.state.id, instruction: instruction) }
+        let id = session.state.id
+        let acpSessionId = session.state.acpSessionId
+        Task { @MainActor in
+            let result = await store.steer(id: id, instruction: instruction)
+            // Surface a failure follow-up so the optimistic "→ steered: …"
+            // row above isn't misread as confirmation when the daemon
+            // rejected the instruction (transport error, session ended, etc.).
+            if case .failure = result {
+                session.appendEvent(ACPSessionUpdateMessage(
+                    acpSessionId: acpSessionId,
+                    updateType: .steerFailure,
+                    content: "→ steer failed — the session may have ended."
+                ))
+            }
+        }
     }
 
     // MARK: - Delete Footer
@@ -643,7 +733,11 @@ struct ACPSessionDetailView: View {
             // to react if the daemon reports a 409 (still active) or other
             // failure — the row stays put and the button re-enables.
             if case .success = result {
-                onDismiss?()
+                if let onDismiss {
+                    onDismiss()
+                } else {
+                    dismissEnvironment()
+                }
             }
         }
     }
@@ -763,6 +857,15 @@ extension ACPSessionDetailView {
                 lastChunk = nil
                 let items = parsePlanItems(event.content ?? "")
                 rows.append(.plan(id: event.id.uuidString, items: items))
+            case .steerFailure:
+                // Reset `lastChunk` so the row neither coalesces with the
+                // preceding optimistic "→ steered: …" user-message chunk
+                // nor with any subsequent user chunk.
+                lastChunk = nil
+                rows.append(.userMessage(
+                    id: event.id.uuidString,
+                    content: event.content ?? ""
+                ))
             case .unknown:
                 // Tolerated by design — ACP allows unknown updateType
                 // values; rather than crashing or showing a placeholder we

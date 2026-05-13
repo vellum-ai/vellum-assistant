@@ -10,7 +10,7 @@ import VellumAssistantShared
 /// other apps unaffected.
 ///
 /// Coordinates are window-relative and translated to global at post time
-/// using the current `WindowBounds` reported by the daemon.
+/// using the current `WindowBounds` reported by the assistant.
 enum AppMouse {
 
     // MARK: - Errors

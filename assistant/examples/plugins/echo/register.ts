@@ -2,34 +2,26 @@
  * Echo plugin — observes every assistant pipeline and logs one structured
  * line per invocation to stderr.
  *
- * This plugin is bundled in the repository as an authoring reference. It is
- * not shipped with the assistant runtime; to try it locally, symlink this
- * directory into `~/.vellum/plugins/echo/` and restart the assistant. See
- * `README.md` in this directory for the full install recipe and
- * `assistant/docs/plugins.md` for general plugin authoring docs.
+ * Bundled in the repository as an authoring reference. To try it locally,
+ * symlink (or copy) this directory into `<workspaceDir>/plugins/echo/` and
+ * restart the assistant. See `README.md` in this directory for the install
+ * recipe and `assistant/docs/plugins.md` for general plugin authoring docs.
  *
- * ## IMPORTANT — imports below are REPO-LOCAL
+ * ## Runtime bridge
  *
- * The relative imports from `../../../src/plugins/...` resolve correctly
- * only while this file lives inside the vellum-assistant repo at
- * `assistant/examples/plugins/echo/`. The path walks back to
- * `assistant/src/plugins/` so the example compiles against the assistant's
- * in-repo types.
+ * The plugin reads `registerPlugin` from `globalThis.__vellumPluginRuntime`,
+ * a stable handle the daemon attaches at startup. This lets the same plugin
+ * file work whether the daemon is running from source (relative or absolute
+ * imports would resolve to the daemon's modules) or as a `bun --compile`
+ * binary (where absolute imports would load a disjoint disk copy with a
+ * separate registry instance). The bridge is documented in
+ * `assistant/src/plugins/external-api.ts`.
  *
- * If you copy (rather than symlink) this directory to
- * `~/.vellum/plugins/echo/`, these imports will fail because
- * `~/.vellum/src/plugins/...` does not exist. The assistant does not
- * currently publish the plugin API as an npm package, so the only
- * zero-edit install path is the symlink recipe (Option 1 in README.md).
- *
- * For a standalone copy that lives outside the repo, you must either:
- * - Point the imports at an absolute path into a vellum-assistant checkout
- *   (`/path/to/vellum-assistant/assistant/src/plugins/registry.js`), or
- * - Rewrite the plugin to consume only the public types you need and drop
- *   the direct registry import in favor of your own entry-point wiring.
- *
- * See README.md "Option 2 — standalone copy" for the recommended
- * standalone-template adaptation steps.
+ * Type imports below still come from the in-repo source tree. Types are
+ * erased at runtime, so they don't affect module identity — but they only
+ * resolve while this file lives inside the vellum-assistant checkout. For a
+ * standalone-copy install, rewrite the `import type` paths to absolute paths
+ * inside a checkout (or vendor only the types you need).
  *
  * ## Design
  *
@@ -48,7 +40,7 @@
  * user-plugin-loader contract (see `assistant/src/plugins/user-loader.ts`).
  */
 
-import { registerPlugin } from "../../../src/plugins/registry.js";
+import type { VellumPluginRuntime } from "../../../src/plugins/external-api.js";
 import type {
   CircuitBreakerArgs,
   CircuitBreakerResult,
@@ -80,6 +72,15 @@ import type {
   TurnArgs,
   TurnResult,
 } from "../../../src/plugins/types.js";
+
+const runtime = (globalThis as { __vellumPluginRuntime?: VellumPluginRuntime })
+  .__vellumPluginRuntime;
+if (!runtime || runtime.version !== 1) {
+  throw new Error(
+    "echo plugin: globalThis.__vellumPluginRuntime is missing or has an unexpected version — install a recent assistant build",
+  );
+}
+const { registerPlugin } = runtime;
 
 const PLUGIN_NAME = "echo";
 
@@ -136,9 +137,10 @@ function makeObserver<A, R>(
  * `PipelineMiddlewareMap` — all thin observers produced by `makeObserver`.
  *
  * Manifest:
- * - `requires.pluginRuntime: "v1"` satisfies the registry's mandatory
- *   capability negotiation.
- * - `provides: {}` — the plugin exposes no capabilities to other plugins.
+ * - Host-compat range lives in `package.json` under
+ *   `peerDependencies["@vellumai/plugin-api"]`. The external-plugin loader
+ *   validates it against the running assistant version via
+ *   `semver.satisfies()` before this file is even imported.
  * - No `requiresCredential` or `requiresFlag` — the plugin needs no external
  *   state and runs unconditionally.
  */
@@ -146,8 +148,6 @@ const echoPlugin: Plugin = {
   manifest: {
     name: PLUGIN_NAME,
     version: "0.1.0",
-    provides: {},
-    requires: { pluginRuntime: "v1" },
   },
   middleware: {
     turn: makeObserver<TurnArgs, TurnResult>("turn"),

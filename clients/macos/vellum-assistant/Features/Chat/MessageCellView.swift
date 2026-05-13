@@ -34,6 +34,8 @@ struct MessageCellView: View, Equatable {
             && lhs.isTTSEnabled == rhs.isTTSEnabled
             && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
             && lhs.searchQuery == rhs.searchQuery
+            && lhs.bookmarkStore === rhs.bookmarkStore
+            && lhs.bookmarkConversationId == rhs.bookmarkConversationId
     }
 
     let message: ChatMessage
@@ -66,6 +68,9 @@ struct MessageCellView: View, Equatable {
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
     var onInspectMessage: ((String?) -> Void)?
+    var onToggleBookmark: ((String, String) -> Void)?
+    var bookmarkStore: BookmarkStore?
+    var bookmarkConversationId: String?
     var onRehydrateMessage: ((UUID) -> Void)?
     var onSurfaceRefetch: ((String, String) -> Void)?
     var onRetryFailedMessage: ((UUID) -> Void)?
@@ -119,6 +124,9 @@ struct MessageCellView: View, Equatable {
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 onInspectMessage: onInspectMessage,
+                onToggleBookmark: onToggleBookmark,
+                bookmarkStore: bookmarkStore,
+                bookmarkConversationId: bookmarkConversationId,
                 onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
@@ -135,11 +143,15 @@ struct MessageCellView: View, Equatable {
                 processingStatusText: processingStatusText,
                 isStreamingContinuation: isStreamingContinuation,
                 activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: hideInlineAvatar,
+                hideInlineAvatar: hideInlineAvatar || hasSubagents,
                 searchQuery: searchQuery
             )
             .equatable()
         }
+    }
+
+    private var hasSubagents: Bool {
+        subagentsByParent[message.id]?.isEmpty == false
     }
 
     @ViewBuilder
@@ -153,6 +165,27 @@ struct MessageCellView: View, Equatable {
             Spacer(minLength: 0)
         }
         .id("thinking-indicator")
+    }
+
+    @ViewBuilder
+    private var subagentInlineAvatar: some View {
+        let appearance = AvatarAppearanceManager.shared
+        let avatarSize = ConversationAvatarFollower.avatarSize
+        HStack {
+            if appearance.customAvatarImage != nil {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+            } else if let bodyShape = appearance.characterBodyShape,
+                      let eyeStyle = appearance.characterEyeStyle,
+                      let color = appearance.characterColor {
+                AnimatedAvatarView(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color,
+                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
+                                   isStreaming: message.isStreaming)
+                    .frame(width: avatarSize, height: avatarSize)
+            } else {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+            }
+            Spacer()
+        }
     }
 
     var body: some View {
@@ -212,6 +245,9 @@ struct MessageCellView: View, Equatable {
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 onInspectMessage: onInspectMessage,
+                onToggleBookmark: onToggleBookmark,
+                bookmarkStore: bookmarkStore,
+                bookmarkConversationId: bookmarkConversationId,
                 onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
@@ -228,7 +264,7 @@ struct MessageCellView: View, Equatable {
                 processingStatusText: processingStatusText,
                 isStreamingContinuation: isStreamingContinuation,
                 activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: hideInlineAvatar,
+                hideInlineAvatar: hideInlineAvatar || hasSubagents,
                 searchQuery: searchQuery
             )
             .equatable()
@@ -241,17 +277,21 @@ struct MessageCellView: View, Equatable {
             .id(message.id)
         }
 
-        ForEach(subagentsByParent[message.id] ?? []) { subagent in
+        if let subagents = subagentsByParent[message.id], !subagents.isEmpty {
             HStack(spacing: 0) {
-                SubagentEventsReader(
-                    store: subagentDetailStore,
-                    subagent: subagent,
-                    onAbort: { onAbortSubagent?(subagent.id) },
-                    onTap: { onSubagentTap?(subagent.id) }
+                SubagentGroupContainer(
+                    subagents: subagents,
+                    onAbort: { id in onAbortSubagent?(id) },
+                    onTap: { id in onSubagentTap?(id) },
+                    avatarProvider: { SubagentAvatarProvider.avatar(for: $0, size: 20) }
                 )
                 Spacer(minLength: 0)
             }
-            .id("subagent-\(subagent.id)")
+            .id("subagent-group-\(message.id)")
+
+            if isLatestAssistantMessage && !hideInlineAvatar {
+                subagentInlineAvatar
+            }
         }
 
         if showAnchoredThinkingIndicator {

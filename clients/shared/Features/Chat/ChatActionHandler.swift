@@ -504,12 +504,17 @@ final class ChatActionHandler {
         // Flush any buffered streaming text before finalizing the message.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
-        // Backfill the daemon's persisted message ID so fork, inspect,
-        // TTS, and other daemon-anchored actions work without a history reload.
-        if let messageId = complete.messageId,
-           let msgId = vm.currentAssistantMessageId,
+        // Backfill both ids without a history reload: messageId is the
+        // concrete persisted row for row-scoped actions, while displayMessageId
+        // is the merged history/display id used for reconciliation.
+        if let msgId = vm.currentAssistantMessageId,
            let idx = vm.messages.firstIndex(where: { $0.id == msgId }) {
-            vm.messages[idx].daemonMessageId = messageId
+            if let messageId = complete.messageId {
+                vm.messages[idx].daemonMessageId = messageId
+            }
+            if let displayMessageId = complete.displayMessageId ?? complete.messageId {
+                vm.messages[idx].displayMessageId = displayMessageId
+            }
         }
         // Strip heavy binary data from old messages to cap memory growth.
         vm.trimOldMessagesIfNeeded()
@@ -729,14 +734,27 @@ final class ChatActionHandler {
                 callback("Response complete")
             }
         }
-        // Signal turn completion to observers (e.g. the `task_complete` sound).
-        // Cancel-acknowledgements are user-initiated aborts, not real turn ends,
-        // so they stay silent. Auxiliary `message_complete` events (call
-        // transcript updates, summaries, watch notifiers) are tagged with
-        // `source == "aux"` and must not be counted as turn ends. Absent
-        // source is treated as main for backwards compatibility.
+        // Signal turn completion to observers. Cancel-acknowledgements are
+        // user-initiated aborts, not real turn ends, so they stay silent.
+        // Auxiliary `message_complete` events (call transcript updates,
+        // summaries, watch notifiers) are tagged with `source == "aux"` and
+        // must not be counted as turn ends. Absent source is treated as main
+        // for backwards compatibility.
+        //
+        // `turnCompletionTick` fires for every real main-turn completion —
+        // it drives type-agnostic side effects like the inactive-app local
+        // notification (which has its own conversationType-based
+        // suppression). `interactiveTurnCompletionTick` only bumps when a
+        // user-typed send from this client was awaiting completion, gating
+        // the `task_complete` chime to turns the user actually initiated
+        // here (and silencing daemon-initiated wakes, scheduled jobs,
+        // watcher ticks, and subagent dispatches).
         if !wasCancelAck && complete.source != "aux" {
             vm.messageManager.turnCompletionTick &+= 1
+            if vm.messageManager.pendingUserTurnCount > 0 {
+                vm.messageManager.pendingUserTurnCount -= 1
+                vm.messageManager.interactiveTurnCompletionTick &+= 1
+            }
         }
     }
 
@@ -757,6 +775,19 @@ final class ChatActionHandler {
         guard belongsToConversation(cancelled.conversationId) else { return }
         let wasCancelling = vm.isCancelling
         vm.isCancelling = false
+        // Per-message daemon cancel (e.g. queue eviction): the matching
+        // `message_complete` will never arrive. Decrement here, above the
+        // stale-event early-return below, which per-message cancels also hit.
+        // Stale echoes from a prior cancel batch (primed via
+        // `staleCancelEventsExpected`) must not decrement — they would
+        // consume counts belonging to sends started after that batch.
+        if !wasCancelling {
+            if vm.messageManager.staleCancelEventsExpected > 0 {
+                vm.messageManager.staleCancelEventsExpected -= 1
+            } else if vm.messageManager.pendingUserTurnCount > 0 {
+                vm.messageManager.pendingUserTurnCount -= 1
+            }
+        }
         // Stale cancel event from a previous cancel cycle — the daemon
         // emits generation_cancelled for each queued entry during abort,
         // but the first event already reset state and dispatched any
@@ -776,11 +807,18 @@ final class ChatActionHandler {
         vm.isThinking = false
         if wasCancelling {
             vm.isSending = false
+            // Prime the stale-echo budget before zeroing `pendingQueuedCount`.
+            // The in-flight cancel is the event we just handled; the daemon
+            // will emit one more for each still-queued entry, and a new
+            // send dispatched via `dispatchPendingSendDirect()` below must
+            // not have its turn count consumed by those trailing echoes.
+            vm.messageManager.staleCancelEventsExpected = vm.pendingQueuedCount
             vm.pendingQueuedCount = 0
             vm.pendingMessageIds = []
             vm.requestIdToMessageId = [:]
             vm.activeRequestIdToMessageId = [:]
             vm.pendingLocalDeletions.removeAll()
+            vm.messageManager.pendingUserTurnCount = 0
             for i in vm.messages.indices {
                 if case .queued = vm.messages[i].status, vm.messages[i].role == .user {
                     vm.messages[i].status = .sent
@@ -958,11 +996,15 @@ final class ChatActionHandler {
         vm.ingestAssistantAttachments(handoff.attachments)
         // Keep isSending = true — daemon is handing off to next queued message
         if let existingId = vm.currentAssistantMessageId {
-            // Backfill the daemon's persisted message ID so fork, inspect,
-            // TTS, and other daemon-anchored actions work without a history reload.
-            if let messageId = handoff.messageId,
-               let index = vm.messages.firstIndex(where: { $0.id == existingId }) {
-                vm.messages[index].daemonMessageId = messageId
+            // Backfill both ids before the handoff clears currentAssistantMessageId.
+            // messageId remains row-scoped; displayMessageId is the merged bubble id.
+            if let index = vm.messages.firstIndex(where: { $0.id == existingId }) {
+                if let messageId = handoff.messageId {
+                    vm.messages[index].daemonMessageId = messageId
+                }
+                if let displayMessageId = handoff.displayMessageId ?? handoff.messageId {
+                    vm.messages[index].displayMessageId = displayMessageId
+                }
             }
             vm.messages.finalizeStreamingMessage(id: existingId, completeToolCalls: .none)
         }
@@ -988,7 +1030,15 @@ final class ChatActionHandler {
         // Only process errors relevant to this chat conversation. Generic daemon
         // errors (e.g., validation failures from unrelated message types
         // like work_item_delete) should not pollute the chat UI.
-        guard vm.isSending || vm.isThinking || vm.isCancelling || vm.currentAssistantMessageId != nil || vm.isWorkspaceRefinementInFlight else {
+        let typedBillingError = billingConversationError(from: err, fallbackConversationId: vm.conversationId)
+        let isActiveTurnError = vm.isSending
+            || vm.isThinking
+            || vm.isCancelling
+            || vm.currentAssistantMessageId != nil
+            || vm.isWorkspaceRefinementInFlight
+        let isRelevantBillingError = typedBillingError != nil
+            && err.conversationId.map { !$0.isEmpty && belongsToConversation($0) } == true
+        guard isActiveTurnError || isRelevantBillingError else {
             return
         }
         vm.isWorkspaceRefinementInFlight = false
@@ -1062,6 +1112,9 @@ final class ChatActionHandler {
         vm.clearCurrentTurnTracking()
         if !wasCancelling {
             vm.errorText = err.message
+            if let typedBillingError {
+                vm.conversationError = typedBillingError
+            }
             // When the backend blocks a message for containing secrets,
             // stash the full send context so "Send Anyway" can reconstruct
             // the original UserMessageMessage with attachments and surface metadata.
@@ -1119,6 +1172,22 @@ final class ChatActionHandler {
         }
     }
 
+    private func billingConversationError(from err: ErrorMessage, fallbackConversationId: String?) -> ConversationError? {
+        guard let errorCategory = err.errorCategory else { return nil }
+        guard errorCategory.hasSuffix("credits_exhausted") || errorCategory.hasSuffix("provider_billing") else {
+            return nil
+        }
+
+        let code = err.code.flatMap(ConversationErrorCode.init(rawValue:)) ?? .providerBilling
+        return ConversationError(from: ConversationErrorMessage(
+            conversationId: err.conversationId ?? fallbackConversationId ?? "",
+            code: code,
+            userMessage: err.message,
+            retryable: false,
+            errorCategory: errorCategory
+        ))
+    }
+
     private func handleConfirmationRequest(_ msg: ConfirmationRequestMessage, vm: ChatViewModel) {
         guard !vm.isLoadingHistory else { return }
         // Flush buffered text before inserting the confirmation message.
@@ -1166,14 +1235,20 @@ final class ChatActionHandler {
             if !dirOpts.isEmpty {
                 vm.messages[msgIdx].toolCalls[tcIdx].riskDirectoryScopeOptions = dirOpts
             }
-            // Populate riskScopeOptions from the confirmation's allowlistOptions so the
-            // Rule Editor modal has real classifier-produced patterns available when
-            // "Allow and Create Rule" is clicked (before the tool result arrives).
-            let scopeOptsFromConfirmation = confirmation.allowlistOptions.map {
-                ToolResultRiskScopeOption(pattern: $0.pattern, label: $0.label)
-            }
-            if !scopeOptsFromConfirmation.isEmpty {
-                vm.messages[msgIdx].toolCalls[tcIdx].riskScopeOptions = scopeOptsFromConfirmation
+            // Pre-populate riskAllowlistOptions from the confirmation's allowlistOptions
+            // so the Rule Editor modal has real classifier-produced save-shape patterns
+            // available when "Allow and Create Rule" is clicked before the tool result
+            // arrives. Once the tool_result SSE event lands, StreamingHelpers will
+            // overwrite both `riskScopeOptions` (display ladder) and
+            // `riskAllowlistOptions` (save ladder) from the daemon's payload.
+            //
+            // We populate `riskAllowlistOptions` directly (preserving the full
+            // `{pattern, label, description}` shape) instead of remapping into
+            // `riskScopeOptions`, which has a narrower regex-shaped contract and
+            // would silently lose the description plus mis-tag glob patterns as
+            // regex. See the riskScopeOptions JSDoc for the shape distinction.
+            if !confirmation.allowlistOptions.isEmpty {
+                vm.messages[msgIdx].toolCalls[tcIdx].riskAllowlistOptions = confirmation.allowlistOptions
             }
         }
         let confirmMsg = ChatMessage(

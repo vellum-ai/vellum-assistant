@@ -3,7 +3,7 @@
  * `assistant/src/daemon/handlers/skills.ts`.
  *
  * One representative call site (the `installSkill` bundled branch) is
- * exercised — all handler seed sites share the same delegation to
+ * exercised; all handler seed sites share the same delegation to
  * `refreshSkillCapabilityMemories`, so a single suite covers behavior. Validates:
  *   - handler invokes the centralized refresh helper with the live config.
  *
@@ -226,12 +226,4 @@ describe("v2 skill refresh delegation in skill handlers", () => {
       memory: { v2: { enabled: true } },
     });
   });
-
-  // Note: "seed rejection swallowed" is now an internal concern of
-  // `maybeSeedMemoryV2Skills` — it dispatches the seed call as a
-  // fire-and-forget promise with `.catch(log.warn)`. That behavior is
-  // covered by `lifecycle-memory-v2-seed.test.ts`. From the handler's
-  // perspective, we only need to verify the helper is invoked
-  // synchronously with the correct config — which the cases above already
-  // exercise.
 });

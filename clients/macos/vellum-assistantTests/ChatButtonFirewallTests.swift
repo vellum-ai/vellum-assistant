@@ -177,6 +177,10 @@ struct ChatButtonColorRoleTests {
     @Test func systemNegativeStrongResolvesCorrectly() {
         #expect(ChatButtonColorRole.systemNegativeStrong.resolved == VColor.systemNegativeStrong)
     }
+
+    @Test func primaryBaseResolvesCorrectly() {
+        #expect(ChatButtonColorRole.primaryBase.resolved == VColor.primaryBase)
+    }
 }
 
 // MARK: - ChatEquatableButton Equality

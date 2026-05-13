@@ -202,9 +202,7 @@ struct IntegrationDetailModal: View {
                     integrationEmptyState(buttonLabel: "Log in to Vellum", buttonIcon: VIcon.logOut.rawValue) {
                         Task {
                             await authManager.loginWithToast(showToast: showToast, onSuccess: {
-                                if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
-                                    AppDelegate.shared?.reconnectManagedAssistant()
-                                }
+                                AppDelegate.shared?.handlePlatformLoginSucceeded()
                                 Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
                             })
                         }

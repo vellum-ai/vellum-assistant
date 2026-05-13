@@ -70,12 +70,15 @@ export async function runBtwSidechain(
   const tools = params.tools;
   const history = params.messages ?? params.conversation?.getMessages() ?? [];
   const messages = [...history, userMessage(trimmedContent)];
+  // Side-chains force `tool_choice: { type: "none" }` below, so tool usage
+  // guidance must stay in tool descriptions rather than this system prompt.
   const systemPrompt =
     params.systemPrompt ??
     (params.conversation?.hasSystemPromptOverride
       ? params.conversation.systemPrompt
       : buildSystemPrompt({
           excludeBootstrap: true,
+          excludeCustomPrefix: true,
           userPersona: params.userPersona,
           channelPersona: params.channelPersona,
           userSlug: params.userSlug,

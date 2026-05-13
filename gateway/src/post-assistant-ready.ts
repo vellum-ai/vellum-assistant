@@ -18,7 +18,10 @@ import type { Database } from "bun:sqlite";
 import { ensureVellumGuardianBinding } from "./auth/guardian-bootstrap.js";
 import { getGatewayDb, type GatewayDb } from "./db/connection.js";
 import { runDataMigrations } from "./db/data-migrations/index.js";
-import { ipcCallAssistant } from "./ipc/assistant-client.js";
+import {
+  IpcTransportError,
+  ipcCallAssistant,
+} from "./ipc/assistant-client.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("post-assistant-ready");
@@ -34,10 +37,13 @@ export async function waitForAssistant(): Promise<boolean> {
   const deadline = Date.now() + MAX_WAIT_MS;
 
   while (Date.now() < deadline) {
-    const result = await ipcCallAssistant("health");
-    if (result !== undefined) {
+    try {
+      await ipcCallAssistant("health");
       log.info("Assistant is ready");
       return true;
+    } catch (err) {
+      if (!(err instanceof IpcTransportError)) throw err;
+      // Transport error during startup is expected — keep polling.
     }
 
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));

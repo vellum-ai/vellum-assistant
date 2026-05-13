@@ -32,7 +32,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Mutable config used by the mocked loader so individual tests can override
-// specific fields (e.g. systemPromptPrefix) without touching other sections.
+// specific fields without touching other sections.
 const mockLoadedConfig: Record<string, unknown> = {};
 
 mock.module("../config/loader.js", () => ({
@@ -127,7 +127,9 @@ describe("buildSystemPrompt", () => {
       const p = join(TEST_DIR, name);
       if (existsSync(p)) rmSync(p, { recursive: true, force: true });
     }
-    delete mockLoadedConfig.systemPromptPrefix;
+    for (const key of Object.keys(mockLoadedConfig)) {
+      delete mockLoadedConfig[key];
+    }
   });
 
   test("returns empty string when no files exist", () => {
@@ -205,20 +207,6 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("Identity content\n\nSoul content");
     expect(result).not.toContain("## Available Skills");
-  });
-
-  test("includes external service access section", () => {
-    const result = buildSystemPrompt();
-    expect(result).toContain("## External Service Access");
-    expect(result).toContain("browser automation as last resort");
-  });
-
-  test("includes inline media attachment guidance", () => {
-    const result = buildSystemPrompt();
-    expect(result).toContain(
-      "Image and video attachments can render inline in chat.",
-    );
-    expect(result).toContain("attach it instead of only printing its path");
   });
 
   test("does not include removed sections", () => {
@@ -485,55 +473,88 @@ describe("buildSystemPrompt", () => {
     expect(basePrompt(result)).toBe("");
   });
 
-  describe("custom systemPromptPrefix", () => {
-    test("omits prefix when config value is unset", () => {
-      const result = buildSystemPrompt();
-      // With no prefix, the prompt should start with the parallel tool calls
-      // section (the first static section when no prefix is injected).
-      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+  describe("workspace system prompt sections", () => {
+    const SYSTEM_PROMPTS_DIR = join(TEST_DIR, "prompts", "system");
+    const PREFIX_FILE = join(SYSTEM_PROMPTS_DIR, "00-prefix.md");
+    const PARALLEL_FILE = join(SYSTEM_PROMPTS_DIR, "01-parallel-tool-calls.md");
+    const PREFIX_FRONTMATTER = '---\nenabled: "!excludeCustomPrefix"\n---\n';
+
+    afterEach(() => {
+      if (existsSync(SYSTEM_PROMPTS_DIR))
+        rmSync(SYSTEM_PROMPTS_DIR, { recursive: true, force: true });
     });
 
-    test("omits prefix when config value is null", () => {
-      mockLoadedConfig.systemPromptPrefix = null;
+    test("no workspace section files → no renderer-driven sections in output", () => {
+      // The renderer reads the workspace dir only.  In tests we don't run
+      // `ensurePromptFiles()` automatically, so without an explicit write
+      // there is nothing to render and the parallel-tool-calls section
+      // (sourced from a workspace file in production) is absent.
       const result = buildSystemPrompt();
-      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+      expect(result).not.toContain("<use_parallel_tool_calls>");
     });
 
-    test("omits prefix when config value is an empty string", () => {
-      mockLoadedConfig.systemPromptPrefix = "";
-      const result = buildSystemPrompt();
-      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
-    });
-
-    test("omits prefix when config value is whitespace-only", () => {
-      mockLoadedConfig.systemPromptPrefix = "   \n\n  ";
-      const result = buildSystemPrompt();
-      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
-    });
-
-    test("injects prefix at the very start of the prompt when set", () => {
-      mockLoadedConfig.systemPromptPrefix = "You are operating in demo mode.";
+    test("workspace prefix with frontmatter renders body at the very top", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER + "You are operating in demo mode.\n",
+      );
       const result = buildSystemPrompt();
       expect(result.startsWith("You are operating in demo mode.")).toBe(true);
-      // The standard static sections should still follow the prefix.
-      expect(result).toContain("<use_parallel_tool_calls>");
-      // Prefix lives in the static (cached) block, not the dynamic block.
+      // Prefix lives in the static (cached) block.
       const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
       expect(boundaryIdx).toBeGreaterThan(-1);
       const staticBlock = result.slice(0, boundaryIdx);
       expect(staticBlock).toContain("You are operating in demo mode.");
     });
 
-    test("trims leading/trailing whitespace from the prefix", () => {
-      mockLoadedConfig.systemPromptPrefix =
-        "\n\n  Pretend you are a pirate.  \n\n";
+    test("workspace file without frontmatter is rendered as-is (always-on)", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(PREFIX_FILE, "Plain prefix, no frontmatter.\n");
       const result = buildSystemPrompt();
-      expect(result.startsWith("Pretend you are a pirate.")).toBe(true);
+      expect(result.startsWith("Plain prefix, no frontmatter.")).toBe(true);
     });
 
-    test("multi-line prefixes are preserved verbatim after trimming", () => {
-      mockLoadedConfig.systemPromptPrefix =
-        "# Org Guardrails\n\n- Never discuss pricing.\n- Escalate refunds.";
+    test("renders nothing when workspace prefix body is empty after stripping", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(PREFIX_FILE, PREFIX_FRONTMATTER);
+      const result = buildSystemPrompt();
+      // Frontmatter-only file → no body → section emits nothing.  Other
+      // workspace sections absent in this test → no renderer output at all.
+      expect(result).not.toContain("<use_parallel_tool_calls>");
+      expect(result.startsWith("---")).toBe(false);
+    });
+
+    test("renders nothing when workspace prefix body is comment-only", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER + "_ just a comment\n_ another\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).not.toContain("just a comment");
+      expect(result).not.toContain("another");
+    });
+
+    test("strips comment lines and trims whitespace from rendered body", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER +
+          "_ inline note\n\n  Pretend you are a pirate.  \n\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result.startsWith("Pretend you are a pirate.")).toBe(true);
+      expect(result).not.toContain("inline note");
+    });
+
+    test("multi-line bodies are preserved verbatim after stripping", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER +
+          "# Org Guardrails\n\n- Never discuss pricing.\n- Escalate refunds.\n",
+      );
       const result = buildSystemPrompt();
       expect(
         result.startsWith(
@@ -543,12 +564,420 @@ describe("buildSystemPrompt", () => {
     });
 
     test("workspace file content still appears after prefix", () => {
-      mockLoadedConfig.systemPromptPrefix = "Custom prefix";
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(PREFIX_FILE, PREFIX_FRONTMATTER + "Custom prefix\n");
       writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
       const result = buildSystemPrompt();
       expect(result.startsWith("Custom prefix")).toBe(true);
       expect(basePrompt(result)).toBe("I am Vellum.");
     });
+
+    test("parallel tool calls section is sourced from workspace when present", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PARALLEL_FILE,
+        "<use_parallel_tool_calls>\nCustomized parallel guidance.\n</use_parallel_tool_calls>\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).toContain("Customized parallel guidance.");
+      // Body of the bundled file must not leak in.
+      expect(result).not.toContain("Batch independent tool calls");
+    });
+
+    test("comment-only parallel file suppresses the section entirely", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(PARALLEL_FILE, "_ silenced\n");
+      const result = buildSystemPrompt();
+      expect(result).not.toContain("<use_parallel_tool_calls>");
+    });
+
+    test("frontmatter `enabled: !excludeCustomPrefix` suppresses prefix when flag is true", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER + "Should be excluded by sidechain.\n",
+      );
+      const result = buildSystemPrompt({ excludeCustomPrefix: true });
+      expect(result).not.toContain("Should be excluded by sidechain.");
+    });
+
+    test("frontmatter `enabled: !excludeCustomPrefix` renders prefix when flag is false", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(PREFIX_FILE, PREFIX_FRONTMATTER + "Default-on prefix.\n");
+      const result = buildSystemPrompt({ excludeCustomPrefix: false });
+      expect(result.startsWith("Default-on prefix.")).toBe(true);
+    });
+
+    test("frontmatter `enabled: <unknown-key>` treats key as falsy → suppresses", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        "---\nenabled: someUnknownFlag\n---\nShould not render.\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).not.toContain("Should not render.");
+    });
+
+    test("frontmatter `enabled: false` (literal boolean) suppresses the section", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        "---\nenabled: false\n---\nShould not render.\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).not.toContain("Should not render.");
+    });
+
+    test("workspace-only sections (no bundled counterpart) render — discovery is workspace-driven", () => {
+      // No bundled file with this id exists.  After Vargas's review the
+      // renderer no longer cross-references the bundled directory, so any
+      // numbered `.md` a user drops into `<workspace>/prompts/system/`
+      // joins the render order automatically.
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        join(SYSTEM_PROMPTS_DIR, "99-org-policy.md"),
+        "# Org policy\n\nUnique workspace-only marker A1B2C3.\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).toContain("Unique workspace-only marker A1B2C3.");
+      // Sort order is filename-driven; the new section sorts after `01-`,
+      // so it must appear after the parallel-tool-calls block when both
+      // are present.
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PARALLEL_FILE,
+        "<use_parallel_tool_calls>\nbatched.\n</use_parallel_tool_calls>\n",
+      );
+      const ordered = buildSystemPrompt();
+      const parallelIdx = ordered.indexOf("batched.");
+      const orgIdx = ordered.indexOf("Unique workspace-only marker A1B2C3.");
+      expect(parallelIdx).toBeGreaterThan(-1);
+      expect(orgIdx).toBeGreaterThan(parallelIdx);
+    });
+
+    describe("containerized section (slot 02)", () => {
+      const CONTAINERIZED_FILE = join(SYSTEM_PROMPTS_DIR, "02-containerized.md");
+
+      // The runtime gate is `isContainerized` on the render context, sourced
+      // from `getIsContainerized()` which reads `process.env.IS_CONTAINERIZED`.
+      // Tests toggle the env var directly and restore it in `finally`.
+      let priorIsContainerized: string | undefined;
+
+      beforeEach(() => {
+        priorIsContainerized = process.env.IS_CONTAINERIZED;
+      });
+
+      afterEach(() => {
+        if (priorIsContainerized === undefined)
+          delete process.env.IS_CONTAINERIZED;
+        else process.env.IS_CONTAINERIZED = priorIsContainerized;
+      });
+
+      test("renders the section when IS_CONTAINERIZED=true with {{workspaceDir}} interpolated", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CONTAINERIZED_FILE,
+          "---\nenabled: isContainerized\n---\n" +
+            "Container mounted at `{{workspaceDir}}`. Persist accordingly.\n",
+        );
+        process.env.IS_CONTAINERIZED = "true";
+        const result = buildSystemPrompt();
+        expect(result).toContain(
+          `Container mounted at \`${TEST_DIR}\`. Persist accordingly.`,
+        );
+        // The literal `{{workspaceDir}}` must be substituted, not leaked.
+        expect(result).not.toContain("{{workspaceDir}}");
+      });
+
+      test("omits the section when IS_CONTAINERIZED is unset", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CONTAINERIZED_FILE,
+          "---\nenabled: isContainerized\n---\nContainer guidance body.\n",
+        );
+        delete process.env.IS_CONTAINERIZED;
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("Container guidance body.");
+      });
+
+      test("omits the section when IS_CONTAINERIZED=false (string)", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CONTAINERIZED_FILE,
+          "---\nenabled: isContainerized\n---\nContainer guidance body.\n",
+        );
+        process.env.IS_CONTAINERIZED = "false";
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("Container guidance body.");
+      });
+    });
+
+    describe("cli-reference section (slot 03)", () => {
+      const CLI_REFERENCE_FILE = join(
+        SYSTEM_PROMPTS_DIR,
+        "03-cli-reference.md",
+      );
+
+      test("workspace cli-reference file is rendered into the static block", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CLI_REFERENCE_FILE,
+          "## Assistant CLI\n\nRun `assistant --help` to discover commands.\n",
+        );
+        const result = buildSystemPrompt();
+        expect(result).toContain("## Assistant CLI");
+        expect(result).toContain(
+          "Run `assistant --help` to discover commands.",
+        );
+        // Section lives in the static (cached) block.
+        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        expect(boundaryIdx).toBeGreaterThan(-1);
+        const staticBlock = result.slice(0, boundaryIdx);
+        expect(staticBlock).toContain("## Assistant CLI");
+      });
+
+      test("omits the section when the workspace file is missing", () => {
+        // No write — workspace dir empty (or only contains other sections).
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("## Assistant CLI");
+      });
+    });
+
+    describe("access-preference section (slot 05)", () => {
+      const ACCESS_FILE = join(SYSTEM_PROMPTS_DIR, "05-access-preference.md");
+      // Mirrors the bundled `templates/system/05-access-preference.md` — both
+      // variants live in the markdown body and the renderer picks one via
+      // mustache-style `{{#hasNoClient}}` / `{{^hasNoClient}}` conditionals.
+      const TEMPLATE_BODY = [
+        "## External Service Access",
+        "",
+        "{{#hasNoClient}}",
+        "Priority: (1) sandbox `bash` — install tools yourself; (2) browser automation as last resort (no API, visual interaction, or OAuth consent).",
+        "{{/hasNoClient}}",
+        "{{^hasNoClient}}",
+        "Priority: (1) sandbox `bash` - install tools yourself, only fall back to host when you need local files/auth; (2) `host_bash` with CLIs (gh, aws, etc.) using --json flags; (3) browser automation as last resort (no API, visual interaction, or OAuth consent).",
+        "{{/hasNoClient}}",
+        "",
+      ].join("\n");
+
+      test("with-client (default) renders the three-tier priority list", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
+        const result = buildSystemPrompt();
+        expect(result).toContain("## External Service Access");
+        expect(result).toContain("`host_bash` with CLIs");
+        expect(result).toContain("browser automation as last resort");
+        // The no-client body (em-dash separator after sandbox `bash`) must
+        // not leak when the with-client variant is active.
+        expect(result).not.toContain("install tools yourself; (2) browser");
+        // Section lives in the static (cached) block.
+        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        expect(boundaryIdx).toBeGreaterThan(-1);
+        const staticBlock = result.slice(0, boundaryIdx);
+        expect(staticBlock).toContain("## External Service Access");
+      });
+
+      test("hasNoClient=true renders the two-tier (no host_bash) priority list", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
+        const result = buildSystemPrompt({ hasNoClient: true });
+        expect(result).toContain("## External Service Access");
+        expect(result).toContain("browser automation as last resort");
+        // The host_bash tier must be absent in the no-client variant.
+        expect(result).not.toContain("`host_bash` with CLIs");
+        // The no-client body uses an em-dash + semicolon separator after
+        // sandbox `bash`; the with-client body uses a comma — guard against
+        // the wrong variant leaking through.
+        expect(result).toContain("install tools yourself; (2) browser");
+        expect(result).not.toContain(
+          "only fall back to host when you need local files/auth",
+        );
+      });
+
+      test("standalone tag lines do not bleed extra blank lines into output", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
+        const result = buildSystemPrompt();
+        // The heading and the active variant body should sit on adjacent
+        // lines separated by exactly one blank line — no triple-newline
+        // artifacts from the section markers.
+        expect(result).toMatch(
+          /## External Service Access\n\nPriority: \(1\) sandbox `bash` -/,
+        );
+      });
+
+      test("omits the section when the workspace file is missing", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("## External Service Access");
+      });
+
+      test("renders after the attachment section to preserve original order", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          join(SYSTEM_PROMPTS_DIR, "04-attachment.md"),
+          "## Sending Files to the User\n\nbody.\n",
+        );
+        writeFileSync(ACCESS_FILE, TEMPLATE_BODY);
+        const result = buildSystemPrompt();
+        const attachmentIdx = result.indexOf("## Sending Files to the User");
+        const accessIdx = result.indexOf("## External Service Access");
+        expect(attachmentIdx).toBeGreaterThan(-1);
+        expect(accessIdx).toBeGreaterThan(-1);
+        expect(attachmentIdx).toBeLessThan(accessIdx);
+      });
+    });
+
+    describe("mustache section interpolation", () => {
+      // Reuse slot 00 (prefix) — its default-on `enabled` predicate is
+      // already covered by other tests; here we only care about body
+      // interpolation shape.
+      const SECTION_FILE = join(SYSTEM_PROMPTS_DIR, "00-prefix.md");
+      const FRONTMATTER = '---\nenabled: "!excludeCustomPrefix"\n---\n';
+
+      test("{{#flag}}body{{/flag}} renders body when ctx[flag] is truthy", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "before {{#hasNoClient}}YES{{/hasNoClient}} after\n",
+        );
+        const result = buildSystemPrompt({ hasNoClient: true });
+        expect(result).toContain("before YES after");
+      });
+
+      test("{{#flag}}body{{/flag}} omits body when ctx[flag] is falsy", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "before {{#hasNoClient}}YES{{/hasNoClient}} after\n",
+        );
+        const result = buildSystemPrompt({ hasNoClient: false });
+        expect(result).toContain("before  after");
+        expect(result).not.toContain("YES");
+      });
+
+      test("{{^flag}}body{{/flag}} renders body when ctx[flag] is falsy", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "before {{^hasNoClient}}NO{{/hasNoClient}} after\n",
+        );
+        const result = buildSystemPrompt({ hasNoClient: false });
+        expect(result).toContain("before NO after");
+      });
+
+      test("{{^flag}}body{{/flag}} omits body when ctx[flag] is truthy", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "before {{^hasNoClient}}NO{{/hasNoClient}} after\n",
+        );
+        const result = buildSystemPrompt({ hasNoClient: true });
+        expect(result).toContain("before  after");
+        expect(result).not.toContain("NO");
+      });
+
+      test("paired {{#flag}} + {{^flag}} acts as if/else", () => {
+        // Use long unique markers — single letters collide with substrings
+        // in the rest of the system prompt (e.g. "B" lives inside
+        // SYSTEM_PROMPT_CACHE_BOUNDARY, "A" inside "API keys").
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER +
+            "{{#hasNoClient}}NO_CLIENT_BRANCH_MARKER{{/hasNoClient}}{{^hasNoClient}}WITH_CLIENT_BRANCH_MARKER{{/hasNoClient}}\n",
+        );
+        const onTrue = buildSystemPrompt({ hasNoClient: true });
+        expect(onTrue).toContain("NO_CLIENT_BRANCH_MARKER");
+        expect(onTrue).not.toContain("WITH_CLIENT_BRANCH_MARKER");
+        const onFalse = buildSystemPrompt({ hasNoClient: false });
+        expect(onFalse).toContain("WITH_CLIENT_BRANCH_MARKER");
+        expect(onFalse).not.toContain("NO_CLIENT_BRANCH_MARKER");
+      });
+
+      test("section body may contain a {{variable}} substitution", () => {
+        // Gate on `hasNoClient` (passed explicitly, so we don't depend on
+        // ambient test-env state for `isContainerized`).  The section body
+        // includes a `{{workspaceDir}}` interpolation that should resolve
+        // to the test workspace path.
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER +
+            "{{#hasNoClient}}cwd={{workspaceDir}}{{/hasNoClient}}\n",
+        );
+        const result = buildSystemPrompt({ hasNoClient: true });
+        expect(result).toMatch(/cwd=\S+/);
+        expect(result).not.toContain("{{workspaceDir}}");
+      });
+
+      test("unresolved section key is left as a literal", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "{{#noSuchFlag}}hidden{{/noSuchFlag}}\n",
+        );
+        const result = buildSystemPrompt();
+        expect(result).toContain("{{#noSuchFlag}}hidden{{/noSuchFlag}}");
+      });
+    });
+
+    describe("attachment section (slot 04)", () => {
+      const ATTACHMENT_FILE = join(SYSTEM_PROMPTS_DIR, "04-attachment.md");
+
+      test("workspace attachment file is rendered into the static block", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          ATTACHMENT_FILE,
+          "## Sending Files to the User\n\nUse the `<vellum-attachment />` tag.\n",
+        );
+        const result = buildSystemPrompt();
+        expect(result).toContain("## Sending Files to the User");
+        expect(result).toContain("Use the `<vellum-attachment />` tag.");
+        // Section lives in the static (cached) block.
+        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        expect(boundaryIdx).toBeGreaterThan(-1);
+        const staticBlock = result.slice(0, boundaryIdx);
+        expect(staticBlock).toContain("## Sending Files to the User");
+      });
+
+      test("renders after the cli-reference section to preserve original order", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          join(SYSTEM_PROMPTS_DIR, "03-cli-reference.md"),
+          "## Assistant CLI\n\nUse `assistant --help`.\n",
+        );
+        writeFileSync(
+          ATTACHMENT_FILE,
+          "## Sending Files to the User\n\nbody.\n",
+        );
+        const result = buildSystemPrompt();
+        const cliIdx = result.indexOf("## Assistant CLI");
+        const attachmentIdx = result.indexOf("## Sending Files to the User");
+        expect(cliIdx).toBeGreaterThan(-1);
+        expect(attachmentIdx).toBeGreaterThan(-1);
+        expect(cliIdx).toBeLessThan(attachmentIdx);
+      });
+
+      test("omits the section when the workspace file is missing", () => {
+        // No write — workspace dir empty (or only contains other sections).
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("## Sending Files to the User");
+      });
+    });
+
+    test("unresolved {{variable}} is left as a literal in the body", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER + "Has {{somethingMissing}} in body.\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).toContain("Has {{somethingMissing}} in body.");
+    });
+
   });
 });
 

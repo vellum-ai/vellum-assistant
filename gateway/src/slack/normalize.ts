@@ -246,11 +246,13 @@ export interface SlackMessageChangedEvent {
     ts: string;
     client_msg_id?: string;
     thread_ts?: string;
+    edited?: { user: string; ts: string };
   };
   previous_message?: {
     user?: string;
     text: string;
     ts: string;
+    edited?: { user: string; ts: string };
   };
 }
 
@@ -798,6 +800,11 @@ export function normalizeSlackMessageEdit(
 ): NormalizedSlackEvent | null {
   const edited = event.message;
   if (!edited) return null;
+
+  const editTimestampUnchanged =
+    event.previous_message !== undefined &&
+    event.previous_message.edited?.ts === edited.edited?.ts;
+  if (editTimestampUnchanged) return null;
 
   // Ignore edits from the bot itself
   if (botUserId && edited.user === botUserId) return null;

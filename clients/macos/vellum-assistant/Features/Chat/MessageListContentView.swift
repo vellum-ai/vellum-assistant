@@ -47,6 +47,8 @@ struct MessageListContentView: View, Equatable {
             && lhs.assistantStatusText == rhs.assistantStatusText
             && lhs.pinnedLatestTurnAnchorMessageId == rhs.pinnedLatestTurnAnchorMessageId
             && lhs.searchQuery == rhs.searchQuery
+            && lhs.bookmarkStore === rhs.bookmarkStore
+            && lhs.bookmarkConversationId == rhs.bookmarkConversationId
     }
 
     // MARK: - Data properties (compared in ==)
@@ -72,6 +74,8 @@ struct MessageListContentView: View, Equatable {
     let assistantStatusText: String?
     let pinnedLatestTurnAnchorMessageId: UUID?
     let searchQuery: String
+    let bookmarkStore: BookmarkStore?
+    let bookmarkConversationId: String?
 
     // MARK: - Closures (skipped in ==)
 
@@ -84,6 +88,7 @@ struct MessageListContentView: View, Equatable {
     var onDismissDocumentWidget: ((String) -> Void)?
     var onForkFromMessage: ((String) -> Void)?
     var onInspectMessage: ((String?) -> Void)?
+    var onToggleBookmark: ((String, String) -> Void)?
     var onRehydrateMessage: ((UUID) -> Void)?
     var onSurfaceRefetch: ((String, String) -> Void)?
     var onRetryFailedMessage: ((UUID) -> Void)?
@@ -162,24 +167,6 @@ struct MessageListContentView: View, Equatable {
         }
     }
 
-    @ViewBuilder
-    fileprivate func orphanSubagentRow(_ subagent: SubagentInfo, isFlipped: Bool = true) -> some View {
-        HStack(spacing: 0) {
-            SubagentEventsReader(
-                store: subagentDetailStore,
-                subagent: subagent,
-                onAbort: { onAbortSubagent?(subagent.id) },
-                onTap: { onSubagentTap?(subagent.id) }
-            )
-            Spacer(minLength: 0)
-        }
-        .id("subagent-\(subagent.id)")
-        .transition(.opacity)
-        .if(isFlipped) { view in
-            view.flipped()
-        }
-    }
-
     // MARK: - Transcript row rendering
 
     /// Renders a single transcript row (either a real message cell or the
@@ -240,6 +227,9 @@ struct MessageListContentView: View, Equatable {
                     showInspectButton: showInspectButton,
                     isTTSEnabled: isTTSEnabled,
                     onInspectMessage: onInspectMessage,
+                    onToggleBookmark: onToggleBookmark,
+                    bookmarkStore: bookmarkStore,
+                    bookmarkConversationId: bookmarkConversationId,
                     onRehydrateMessage: onRehydrateMessage,
                     onSurfaceRefetch: onSurfaceRefetch,
                     onRetryFailedMessage: onRetryFailedMessage,
@@ -348,6 +338,7 @@ struct MessageListContentView: View, Equatable {
 
             if let anchorMessage = pinnedTurnPartition.anchorMessage,
                let anchorRow = rowsByMessageId[anchorMessage.id] {
+
                 PinnedLatestTurnSection(
                     contentView: self,
                     partition: pinnedTurnPartition,
@@ -372,10 +363,6 @@ struct MessageListContentView: View, Equatable {
                 // at the visual bottom. Place current-activity indicators here.
                 latestEdgeSentinel()
                 latestEdgeActivityRow()
-
-                ForEach(state.orphanSubagents) { subagent in
-                    orphanSubagentRow(subagent)
-                }
 
                 // ── Messages ──
                 ForEach(displayedItems.reversed()) { item in
@@ -457,18 +444,39 @@ private struct PinnedLatestTurnSection: View {
     let isUnanchoredThinking: Bool
     let thinkingLabel: String
 
-    // Minimum height equal to the scroll container's visible height
-    // (minus the outer LazyVStack's vertical padding). Sourced from a
-    // zero-size `containerRelativeFrame` probe in the `.background` so
-    // the section grows to fill the viewport when content is short but
-    // is still free to exceed it when an assistant response is longer
-    // than a viewport — preserving scrollability for tall answers.
-    @State private var viewportMinHeight: CGFloat = 0
+    // Filtered scroll-container visible height published by `MessageListView`
+    // (see `ScrollViewportHeightKey` in `MessageListView.swift`). Used to
+    // size the section's `topAlignedMinHeight` floor against the viewport.
+    // `nil` until the first scroll-geometry callback lands.
+    //
+    // Read via `@Environment` so the value reaches us without going through
+    // `MessageListContentView`'s `Equatable` props — keeps the `.equatable()`
+    // barrier upstream intact while still letting this section react.
+    @Environment(\.scrollViewportHeight) private var scrollViewportHeight: CGFloat?
 
     private var hasResponseContent: Bool {
         contentView.showsStandaloneLatestEdgeActivity
-            || !contentView.state.orphanSubagents.isEmpty
             || !partition.responseItems.isEmpty
+    }
+
+    /// Viewport-sized floor for the section, minus the outer transcript
+    /// padding (`VSpacing.md` top + `VSpacing.md` bottom in
+    /// `MessageListContentView.body`'s `EdgeInsets`) so the anchor row
+    /// lands with the intended visual gap. `max(0, …)` guards transient
+    /// zero-height layout passes SwiftUI runs during setup and
+    /// window/split-view collapse — negative minimums cause layout
+    /// warnings and unstable pinned-turn rendering.
+    ///
+    /// Defaults to `0` (not `nil`) before the first scroll measurement
+    /// lands so `topAlignedMinHeight` always wraps the section in
+    /// `TopAlignedMinHeightLayout`. The modifier is `@ViewBuilder` with
+    /// `if let minHeight`, so a `nil → value` transition would flip the
+    /// section's structural identity and rebuild every transcript row
+    /// inside on the first measurement; pinning the initial value to
+    /// `0` (sizing-equivalent to no floor since content is non-negative)
+    /// keeps identity stable.
+    private var viewportMinHeight: CGFloat {
+        scrollViewportHeight.map { max(0, $0 - VSpacing.md * 2) } ?? 0
     }
 
     var body: some View {
@@ -504,29 +512,7 @@ private struct PinnedLatestTurnSection: View {
             contentView.latestEdgeSentinel(isFlipped: false)
         }
         .topAlignedMinHeight(viewportMinHeight)
-        .background(viewportMinHeightProbe)
         .flipped()
-    }
-
-    /// Zero-width `Color.clear` sized to the scroll container's visible
-    /// height via `containerRelativeFrame`. `onGeometryChange` mirrors the
-    /// resolved height into `@State` so the VStack's `minHeight` tracks
-    /// the viewport. `max(0, …)` keeps the closure non-negative for the
-    /// transient zero-height layout passes SwiftUI runs during setup and
-    /// window/split-view collapse — negative frame dimensions produce
-    /// layout warnings and unstable pinned-turn rendering.
-    private var viewportMinHeightProbe: some View {
-        Color.clear
-            .containerRelativeFrame(.vertical, alignment: .top) { length, _ in
-                max(0, length - VSpacing.md * 2)
-            }
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.height
-            } action: { newHeight in
-                if abs(viewportMinHeight - newHeight) > 0.5 {
-                    viewportMinHeight = newHeight
-                }
-            }
     }
 
     @ViewBuilder
@@ -540,10 +526,6 @@ private struct PinnedLatestTurnSection: View {
                     thinkingLabel: thinkingLabel,
                     isFlipped: false
                 )
-            }
-
-            ForEach(contentView.state.orphanSubagents) { subagent in
-                contentView.orphanSubagentRow(subagent, isFlipped: false)
             }
 
             contentView.latestEdgeActivityRow(isFlipped: false)

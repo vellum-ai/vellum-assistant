@@ -123,6 +123,15 @@ describe("trigger-state", () => {
       expect(getUserMessageCountUpTo(350)).toBe(3);
     });
 
+    test("counts user messages across standard conversations", () => {
+      seedUserMessage(100);
+      seedUserMessage(200);
+      seedUserMessage(300);
+      seedUserMessage(400);
+
+      expect(getUserMessageCountUpTo(400)).toBe(4);
+    });
+
     test("caps at 11 due to LIMIT", () => {
       for (let i = 1; i <= 15; i++) {
         seedUserMessage(i * 100);

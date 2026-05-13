@@ -135,9 +135,11 @@ let cachedOverridesFromGateway = false;
  * timeout, parse error). No auth needed — the IPC socket is
  * access-controlled by file-system permissions on the shared volume.
  */
-async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
+async function fetchOverridesFromGateway(
+  timeoutMs?: number,
+): Promise<Record<string, boolean>> {
   try {
-    return await ipcGetFeatureFlags();
+    return await ipcGetFeatureFlags(timeoutMs);
   } catch {
     return {};
   }
@@ -182,10 +184,18 @@ const DEFAULT_INIT_RETRY_BACKOFFS_MS: readonly number[] = [
  */
 export async function initFeatureFlagOverrides(options?: {
   retryBackoffsMs?: readonly number[];
+  /**
+   * Timeout (ms) for each IPC call to the gateway. When omitted the
+   * transport defaults apply (3 s connect + 5 s call). CLI callers should
+   * pass a small value (e.g. 200) so a slow/absent gateway fails fast
+   * instead of blocking startup.
+   */
+  callTimeoutMs?: number;
 }): Promise<void> {
   if (cachedOverridesFromGateway) return;
 
   const backoffs = options?.retryBackoffsMs ?? DEFAULT_INIT_RETRY_BACKOFFS_MS;
+  const callTimeoutMs = options?.callTimeoutMs;
 
   // First attempt has no preceding delay; subsequent attempts wait per the
   // backoff schedule. An empty result is treated as a transient miss
@@ -201,7 +211,7 @@ export async function initFeatureFlagOverrides(options?: {
       if (cachedOverridesFromGateway) return;
     }
 
-    const gatewayOverrides = await fetchOverridesFromGateway();
+    const gatewayOverrides = await fetchOverridesFromGateway(callTimeoutMs);
     if (Object.keys(gatewayOverrides).length > 0) {
       cachedOverrides = gatewayOverrides;
       cachedOverridesFromGateway = true;

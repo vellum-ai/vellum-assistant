@@ -17,8 +17,42 @@ const log = getLogger("web-search");
 
 const BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search";
 const PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions";
+const TAVILY_API_URL = "https://api.tavily.com/search";
 
-type WebSearchProvider = "perplexity" | "brave";
+type WebSearchProvider = "perplexity" | "brave" | "tavily";
+
+/**
+ * Arguments passed to every {@link WebSearchAdapter}. The full superset is
+ * always supplied; individual adapters ignore the fields they don't use
+ * (e.g. Perplexity ignores `count`, `offset`, and `freshness`).
+ */
+interface WebSearchAdapterArgs {
+  query: string;
+  count: number;
+  offset: number;
+  freshness: string | undefined;
+  apiKey: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * One built-in web-search provider. Each adapter owns its HTTP shape,
+ * freshness mapping, retry behaviour, and result formatter. Registering a
+ * new provider becomes a single entry in {@link WEB_SEARCH_ADAPTERS}.
+ */
+interface WebSearchAdapter {
+  /** Stable provider identifier (matches config + secret-catalog values). */
+  readonly id: WebSearchProvider;
+  /** Secret-catalog key used to look up the API key via `getProviderKeyAsync`. */
+  readonly secretKey: string;
+  /**
+   * Position in the fallback chain (lower = earlier). Used when the
+   * configured provider has no key and we try other BYOK providers.
+   */
+  readonly fallbackOrder: number;
+  /** Execute one search against the provider's API. */
+  execute(args: WebSearchAdapterArgs): Promise<ToolExecutionResult>;
+}
 
 interface BraveSearchResult {
   title: string;
@@ -42,6 +76,20 @@ interface PerplexityResponse {
   citations?: string[];
 }
 
+interface TavilySearchResult {
+  title?: string;
+  url?: string;
+  content?: string;
+  score?: number;
+  raw_content?: string | null;
+  favicon?: string;
+}
+
+interface TavilySearchResponse {
+  query?: string;
+  results?: TavilySearchResult[];
+}
+
 function getWebSearchProvider(): WebSearchProvider {
   const config = getConfig();
   const configured = config.services["web-search"].provider ?? "perplexity";
@@ -54,12 +102,16 @@ function getWebSearchProvider(): WebSearchProvider {
 async function getApiKey(
   provider: WebSearchProvider,
 ): Promise<string | undefined> {
-  if (provider === "brave") {
-    return (await getProviderKeyAsync("brave")) ?? undefined;
-  }
+  const adapter = WEB_SEARCH_ADAPTERS[provider];
+  return (await getProviderKeyAsync(adapter.secretKey)) ?? undefined;
+}
 
-  // Perplexity
-  return (await getProviderKeyAsync("perplexity")) ?? undefined;
+function fallbackProvidersFor(
+  provider: WebSearchProvider,
+): readonly WebSearchProvider[] {
+  return WEB_SEARCH_FALLBACK_ORDER.filter(
+    (candidate) => candidate !== provider,
+  );
 }
 
 const CITATION_INSTRUCTION =
@@ -116,6 +168,54 @@ function formatPerplexityResults(
   }
 
   return lines.join("\n");
+}
+
+function formatTavilyResults(
+  data: TavilySearchResponse,
+  query: string,
+): string {
+  const results = data.results ?? [];
+
+  if (results.length === 0) {
+    return `No results found for "${query}".`;
+  }
+
+  const lines: string[] = [`Web search results for "${query}":\n`];
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const title = r.title?.trim() || r.url?.trim() || "Untitled result";
+    lines.push(`${i + 1}. ${title}`);
+    if (r.url) {
+      lines.push(`   URL: ${r.url}`);
+    }
+    if (r.content) {
+      lines.push(`   ${r.content}`);
+    }
+    if (typeof r.score === "number") {
+      lines.push(`   Score: ${r.score.toFixed(3)}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+function tavilyTimeRangeForFreshness(
+  freshness: string | undefined,
+): "day" | "week" | "month" | "year" | undefined {
+  switch (freshness) {
+    case "pd":
+      return "day";
+    case "pw":
+      return "week";
+    case "pm":
+      return "month";
+    case "py":
+      return "year";
+    default:
+      return undefined;
+  }
 }
 
 async function executeBraveSearch(
@@ -281,6 +381,147 @@ async function executePerplexitySearch(
   };
 }
 
+async function executeTavilySearch(
+  query: string,
+  count: number,
+  freshness: string | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const timeRange = tavilyTimeRangeForFreshness(freshness);
+  const body: Record<string, unknown> = {
+    query,
+    search_depth: "advanced",
+    max_results: count,
+  };
+  if (timeRange) {
+    body.time_range = timeRange;
+  }
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    const response = await fetch(TAVILY_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "X-Client-Source": "vellum-assistant",
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    if (response.ok) {
+      const data = (await response.json()) as TavilySearchResponse;
+      return {
+        content:
+          wrapUntrustedContent(formatTavilyResults(data, query), {
+            source: "search",
+            sourceDetail: "tavily",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+      };
+    }
+
+    await response.text();
+
+    if (response.status === 401 || response.status === 403) {
+      return {
+        content: "Error: Invalid or expired Tavily API key",
+        isError: true,
+      };
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "Tavily Search rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn({ status: response.status }, "Tavily Search API error");
+    if (response.status === 429) {
+      return {
+        content:
+          "Error: Tavily Search rate limit exceeded after retries. Try again shortly.",
+        isError: true,
+      };
+    }
+    return {
+      content: `Error: Tavily Search API returned status ${response.status}`,
+      isError: true,
+    };
+  }
+
+  return {
+    content:
+      "Error: Tavily Search rate limit exceeded after retries. Try again shortly.",
+    isError: true,
+  };
+}
+
+// ----------------------------------------------------------------------------
+// Adapter registry
+//
+// Each built-in provider exposes a {@link WebSearchAdapter} wrapping its
+// existing execute function. Adding a new provider means adding one adapter
+// const and one entry to `WEB_SEARCH_ADAPTERS` — the dispatcher, fallback
+// chain, and api-key lookup all derive from this table.
+// ----------------------------------------------------------------------------
+
+const perplexitySearchAdapter: WebSearchAdapter = {
+  id: "perplexity",
+  secretKey: "perplexity",
+  fallbackOrder: 1,
+  execute: ({ query, apiKey, signal }) =>
+    executePerplexitySearch(query, apiKey, signal),
+};
+
+const braveSearchAdapter: WebSearchAdapter = {
+  id: "brave",
+  secretKey: "brave",
+  fallbackOrder: 2,
+  execute: ({ query, count, offset, freshness, apiKey, signal }) =>
+    executeBraveSearch(query, count, offset, freshness, apiKey, signal),
+};
+
+const tavilySearchAdapter: WebSearchAdapter = {
+  id: "tavily",
+  secretKey: "tavily",
+  fallbackOrder: 3,
+  execute: ({ query, count, freshness, apiKey, signal }) =>
+    executeTavilySearch(query, count, freshness, apiKey, signal),
+};
+
+/**
+ * All built-in web-search adapters keyed by provider id. The
+ * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
+ * provider added to the union without a corresponding adapter.
+ */
+const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
+  perplexity: perplexitySearchAdapter,
+  brave: braveSearchAdapter,
+  tavily: tavilySearchAdapter,
+};
+
+/**
+ * Fallback chain derived from {@link WEB_SEARCH_ADAPTERS}. Sorted by each
+ * adapter's `fallbackOrder` (lower first). Used when the configured provider
+ * has no API key and we try other BYOK providers before giving up.
+ */
+const WEB_SEARCH_FALLBACK_ORDER: readonly WebSearchProvider[] = Object.values(
+  WEB_SEARCH_ADAPTERS,
+)
+  .slice()
+  .sort((a, b) => a.fallbackOrder - b.fallbackOrder)
+  .map((adapter) => adapter.id);
+
 class WebSearchTool implements Tool {
   name = "web_search";
   description =
@@ -302,7 +543,7 @@ class WebSearchTool implements Tool {
           count: {
             type: "number",
             description:
-              "Number of results to return (1-20, default 10). Only used with Brave provider.",
+              "Number of results to return (1-20, default 10). Used with Brave and Tavily providers.",
           },
           offset: {
             type: "number",
@@ -312,7 +553,7 @@ class WebSearchTool implements Tool {
           freshness: {
             type: "string",
             description:
-              'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Only used with Brave provider.',
+              'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave and Tavily providers.',
           },
         },
         required: ["query"],
@@ -335,22 +576,27 @@ class WebSearchTool implements Tool {
     let provider = getWebSearchProvider();
     let apiKey = await getApiKey(provider);
 
-    // Fallback: if the configured provider has no key, try the other provider
+    // Fallback: if the configured provider has no key, try other BYOK search
+    // providers in a stable order. This preserves existing installs that only
+    // configured one search-provider key while still allowing new providers to
+    // be selected explicitly.
     if (!apiKey) {
-      const fallback: WebSearchProvider =
-        provider === "perplexity" ? "brave" : "perplexity";
-      const fallbackKey = await getApiKey(fallback);
-      if (fallbackKey) {
+      for (const fallback of fallbackProvidersFor(provider)) {
+        const fallbackKey = await getApiKey(fallback);
+        if (!fallbackKey) continue;
         log.info(
           { from: provider, to: fallback },
           "Configured web search provider has no API key, falling back",
         );
         provider = fallback;
         apiKey = fallbackKey;
-      } else {
+        break;
+      }
+
+      if (!apiKey) {
         return {
           content:
-            "Error: No web search API key configured. Set it via `keys set perplexity <key>` or `keys set brave <key>`, or configure it from the Settings page under API Keys.",
+            "Error: No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, or `keys set tavily <key>`, or configure it from the Settings page under API Keys.",
           isError: true,
         };
       }
@@ -359,28 +605,25 @@ class WebSearchTool implements Tool {
     try {
       log.debug({ query, provider }, "Executing web search");
 
-      if (provider === "brave") {
-        const count =
-          typeof input.count === "number"
-            ? Math.min(20, Math.max(1, Math.round(input.count)))
-            : 10;
-        const offset =
-          typeof input.offset === "number"
-            ? Math.min(9, Math.max(0, Math.round(input.offset)))
-            : 0;
-        const freshness =
-          typeof input.freshness === "string" ? input.freshness : undefined;
-        return await executeBraveSearch(
-          query,
-          count,
-          offset,
-          freshness,
-          apiKey,
-          context.signal,
-        );
-      }
+      const count =
+        typeof input.count === "number"
+          ? Math.min(20, Math.max(1, Math.round(input.count)))
+          : 10;
+      const offset =
+        typeof input.offset === "number"
+          ? Math.min(9, Math.max(0, Math.round(input.offset)))
+          : 0;
+      const freshness =
+        typeof input.freshness === "string" ? input.freshness : undefined;
 
-      return await executePerplexitySearch(query, apiKey, context.signal);
+      return await WEB_SEARCH_ADAPTERS[provider].execute({
+        query,
+        count,
+        offset,
+        freshness,
+        apiKey,
+        signal: context.signal,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error({ err }, "Web search failed");

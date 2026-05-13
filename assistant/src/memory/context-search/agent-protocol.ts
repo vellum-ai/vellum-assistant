@@ -34,6 +34,7 @@ type RecallFinishFallbackReason =
   | "malformed_finish_payload"
   | "invalid_confidence"
   | "invalid_citation_ids"
+  | "missing_citations"
   | "unknown_citation_ids"
   | "empty_answer";
 
@@ -57,7 +58,6 @@ const DEFAULT_MAX_SEARCH_CALLS = 4;
 
 const RECALL_SOURCE_DESCRIPTIONS: Record<RecallSource, string> = {
   memory: "durable memory graph facts and relationship/context memories",
-  pkb: "personal knowledge base notes, NOW context, and pinned context",
   conversations: "past assistant conversations and conversation summaries",
   workspace: "files and text available in the current workspace",
 };
@@ -291,6 +291,10 @@ export function validateFinishRecallPayload(
 
   if (!isStringArray(payload.citation_ids)) {
     return fallbackFinish("invalid_citation_ids");
+  }
+
+  if (payload.citation_ids.length === 0) {
+    return fallbackFinish("missing_citations");
   }
 
   const citationValidation = validateRecallCitationIds(

@@ -7,9 +7,10 @@ import type { WorkspaceMigration } from "./types.js";
  * Repair stale Gemini model IDs that earlier workspace migrations could seed.
  *
  * `gemini-3-flash` is no longer a catalog model ID. Repair only known LLM
- * config leaves where migrations write model IDs, and only when the value is
- * an exact stale match so unrelated user config and substring values are left
- * untouched.
+ * config leaves where migrations write model IDs, only when the value is an
+ * exact stale match, and only when the effective provider context is Gemini —
+ * a custom Ollama/OpenRouter config that happens to use the literal
+ * `"gemini-3-flash"` string must be left untouched.
  */
 export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
   id: "057-repair-stale-gemini-model-ids",
@@ -33,7 +34,16 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
     let changed = false;
 
     const defaultBlock = readObject(llm.default);
-    if (defaultBlock !== null) {
+    const defaultProvider = readProvider(defaultBlock);
+    const profiles = readObject(llm.profiles);
+    const activeProfileName =
+      typeof llm.activeProfile === "string" ? llm.activeProfile : undefined;
+    const activeProfileProvider =
+      profiles !== null && activeProfileName !== undefined
+        ? inferProvider(readObject(profiles[activeProfileName]))
+        : undefined;
+
+    if (defaultBlock !== null && isGeminiProvider(defaultProvider)) {
       changed = repairModel(defaultBlock, DEFAULT_REPLACEMENT_MODEL) || changed;
     }
 
@@ -42,6 +52,14 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
       for (const [site, rawConfig] of Object.entries(callSites)) {
         const callSiteConfig = readObject(rawConfig);
         if (callSiteConfig === null) continue;
+        const effective = resolveCallSiteEffectiveProvider({
+          callSite: site,
+          callSiteConfig,
+          profiles,
+          activeProfileProvider,
+          defaultProvider,
+        });
+        if (!isGeminiProvider(effective)) continue;
         const replacement = LATENCY_CALL_SITES.has(site)
           ? LATENCY_REPLACEMENT_MODEL
           : DEFAULT_REPLACEMENT_MODEL;
@@ -49,11 +67,12 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
       }
     }
 
-    const profiles = readObject(llm.profiles);
     if (profiles !== null) {
       for (const rawProfile of Object.values(profiles)) {
         const profile = readObject(rawProfile);
         if (profile === null) continue;
+        const effective = inferProvider(profile) ?? defaultProvider;
+        if (!isGeminiProvider(effective)) continue;
         changed = repairModel(profile, DEFAULT_REPLACEMENT_MODEL) || changed;
       }
     }
@@ -95,4 +114,74 @@ function readObject(value: unknown): Record<string, unknown> | null {
     return null;
   }
   return value as Record<string, unknown>;
+}
+
+function readProvider(
+  block: Record<string, unknown> | null,
+): string | undefined {
+  if (block === null) return undefined;
+  return typeof block.provider === "string" ? block.provider : undefined;
+}
+
+// Mirrors `resolveCallSiteConfig`'s catalog-based inference: a fragment with
+// no explicit `provider` but a Gemini-catalog `model` resolves to "gemini" at
+// that layer. The stale model is the only catalog entry the migration cares
+// about, so the check stays self-contained.
+function inferProvider(
+  block: Record<string, unknown> | null,
+): string | undefined {
+  if (block === null) return undefined;
+  const explicit = readProvider(block);
+  if (explicit !== undefined) return explicit;
+  if (block.model === STALE_MODEL) return "gemini";
+  return undefined;
+}
+
+function isGeminiProvider(provider: string | undefined): boolean {
+  return provider === undefined || provider === "gemini";
+}
+
+// Walks the call-site provider resolution chain the same way
+// `resolveCallSiteConfig` does: for `mainAgent`, `activeProfile` overrides the
+// static `callSites.mainAgent` block, while for every other call site the
+// call-site block (and its referenced profile) wins over `activeProfile`.
+// Returns the highest-precedence inferred provider, falling back to `default`.
+function resolveCallSiteEffectiveProvider(args: {
+  callSite: string;
+  callSiteConfig: Record<string, unknown>;
+  profiles: Record<string, unknown> | null;
+  activeProfileProvider: string | undefined;
+  defaultProvider: string | undefined;
+}): string | undefined {
+  const {
+    callSite,
+    callSiteConfig,
+    profiles,
+    activeProfileProvider,
+    defaultProvider,
+  } = args;
+  const siteProvider = inferProvider(callSiteConfig);
+  const siteProfileName =
+    typeof callSiteConfig.profile === "string"
+      ? callSiteConfig.profile
+      : undefined;
+  const siteProfileProvider =
+    profiles !== null && siteProfileName !== undefined
+      ? inferProvider(readObject(profiles[siteProfileName]))
+      : undefined;
+
+  if (callSite === "mainAgent") {
+    return (
+      activeProfileProvider ??
+      siteProvider ??
+      siteProfileProvider ??
+      defaultProvider
+    );
+  }
+  return (
+    siteProvider ??
+    siteProfileProvider ??
+    activeProfileProvider ??
+    defaultProvider
+  );
 }

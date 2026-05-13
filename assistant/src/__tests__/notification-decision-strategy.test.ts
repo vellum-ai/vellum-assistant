@@ -373,6 +373,28 @@ describe("notification decision strategy", () => {
         "A guardian question needs your attention",
       );
     });
+
+    test("heartbeat.alert fallback avoids intermediary-instruction popup copy", () => {
+      const signal = makeSignal({
+        sourceEventName: "heartbeat.alert",
+        contextPayload: {
+          summary:
+            "The daily tracker is ready; consider reminding the guardian to review it before the next check-in.",
+          conversationTitle: "Running Habit Tracking",
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, channels);
+      expect(copy.vellum).toBeDefined();
+      expect(copy.vellum!.title).toBe("Heartbeat Alert");
+      expect(copy.vellum!.body).toBe(
+        "I found something worth your attention in a heartbeat check. Open the conversation for details.",
+      );
+      expect(copy.vellum!.conversationSeedMessage).toContain(
+        "consider reminding the guardian",
+      );
+      expect(copy.telegram!.deliveryText).toBe(copy.vellum!.body);
+    });
   });
 
   // -- NotificationChannel type correctness ----------------------------------

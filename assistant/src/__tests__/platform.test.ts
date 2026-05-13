@@ -16,9 +16,11 @@ import {
   getWorkspaceConfigPath,
   getWorkspaceDir,
   getWorkspaceHooksDir,
+  getWorkspacePluginsDir,
   getWorkspacePromptPath,
   getWorkspaceSkillsDir,
   getXdgVellumConfigDirName,
+  vellumRoot,
 } from "../util/platform.js";
 
 const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
@@ -99,7 +101,7 @@ describe("path characterization", () => {
     ensureDataDir();
 
     // Root-level dirs (ensureDataDir always creates these)
-    const root = join(homedir(), ".vellum");
+    const root = vellumRoot();
     expect(existsSync(root)).toBe(true);
 
     // Workspace dirs (in our temp location)
@@ -160,6 +162,7 @@ describe("workspace path primitives", () => {
     expect(getWorkspaceConfigPath()).toBe(join(ws, "config.json"));
     expect(getWorkspaceSkillsDir()).toBe(join(ws, "skills"));
     expect(getWorkspaceHooksDir()).toBe(join(ws, "hooks"));
+    expect(getWorkspacePluginsDir()).toBe(join(ws, "plugins"));
     expect(getWorkspacePromptPath("IDENTITY.md")).toBe(join(ws, "IDENTITY.md"));
     expect(getWorkspacePromptPath("SOUL.md")).toBe(join(ws, "SOUL.md"));
   });

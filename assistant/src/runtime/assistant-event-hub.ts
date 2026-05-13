@@ -39,11 +39,7 @@ export function capabilityForMessageType(
   const stem = type.replace(/_(request|cancel)$/, "");
   return HOST_PREFIX_TO_CAPABILITY[stem];
 }
-import { emitFeedEvent } from "../home/emit-feed-event.js";
-import { rewriteCommandPreview } from "../home/rewrite-command-preview.js";
-import { redactSecrets } from "../security/secret-scanner.js";
 import { appendEventToStream } from "../signals/event-stream.js";
-import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
@@ -421,35 +417,6 @@ export class AssistantEventHub {
   }
 
   /**
-   * Return the best client for the given capability using an explicit
-   * interface preference order. Among clients that support `capability`,
-   * the one whose `interfaceId` appears earliest in `interfacePreference`
-   * wins. Within the same interface tier, `lastActiveAt` is the tiebreaker
-   * (most recent first). Clients not in the preference list are considered last.
-   *
-   * Used by {@link HostBrowserProxy} to prefer the Chrome Extension
-   * (`chrome-extension`) over the macOS SSE bridge (`macos`) when both are
-   * connected, so `chrome.debugger` is used ahead of the localhost:9222 path.
-   */
-  getPreferredClientByCapability(
-    capability: HostProxyCapability,
-    interfacePreference: InterfaceId[],
-  ): ClientEntry | undefined {
-    const clients = this.listClientsByCapability(capability);
-    if (clients.length === 0) return undefined;
-    // listClientsByCapability returns clients sorted by lastActiveAt desc
-    // (most recent first). A stable sort by preference index preserves that
-    // ordering within each interface tier.
-    return clients.sort((a, b) => {
-      const ai = interfacePreference.indexOf(a.interfaceId);
-      const bi = interfacePreference.indexOf(b.interfaceId);
-      const ea = ai === -1 ? interfacePreference.length : ai;
-      const eb = bi === -1 ? interfacePreference.length : bi;
-      return ea - eb;
-    })[0];
-  }
-
-  /**
    * Return all client subscribers with the given interface type,
    * sorted by `lastActiveAt` descending.
    */
@@ -557,9 +524,10 @@ export function broadcastMessage(
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
   const targetClientId = options?.targetClientId;
 
-  // Confirmation-request side effects: feed event + canonical guardian request.
+  // Confirmation-request side effects: canonical guardian request creation.
+  // The home-feed `activity.failed` notification side-effect lives in the
+  // notifications pipeline now, so we no longer emit a feed event here.
   if (msg.type === "confirmation_request" && resolvedConversationId) {
-    void emitConfirmationFeedEvent(msg, resolvedConversationId);
     void createCanonicalRequestForConfirmation(msg, resolvedConversationId);
   }
 
@@ -695,53 +663,3 @@ async function createCanonicalRequestForConfirmation(
   }
 }
 
-// ── Feed events for confirmation requests ─────────────────────────────────────
-
-/**
- * Emit a feed event when a confirmation request (tool approval prompt) is
- * broadcast. Emits immediately with a technical preview, then rewrites
- * into prose in the background and updates the feed item.
- */
-async function emitConfirmationFeedEvent(
-  msg: ServerMessage & { type: "confirmation_request" },
-  conversationId: string,
-): Promise<void> {
-  try {
-    const inputRecord = msg.input as Record<string, unknown>;
-    const commandPreview =
-      redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) || undefined;
-    const technicalTitle = commandPreview
-      ? `Requesting permission: ${commandPreview}`
-      : `Requesting approval to use ${msg.toolName}.`;
-    const dedupKey = `tool-approval:${msg.requestId}`;
-
-    await emitFeedEvent({
-      source: "assistant",
-      title: technicalTitle,
-      summary: technicalTitle,
-      dedupKey,
-      urgency: msg.riskLevel === "high" ? "high" : "medium",
-      conversationId,
-      detailPanel: { kind: "toolPermission" },
-    });
-
-    // Background: rewrite into prose and update the feed item.
-    if (commandPreview) {
-      const prose = await rewriteCommandPreview(msg.toolName, commandPreview);
-      if (prose) {
-        const proseTitle = `Requesting permission: ${prose}`;
-        await emitFeedEvent({
-          source: "assistant",
-          title: proseTitle,
-          summary: proseTitle,
-          dedupKey,
-          urgency: msg.riskLevel === "high" ? "high" : "medium",
-          conversationId,
-          detailPanel: { kind: "toolPermission" },
-        });
-      }
-    }
-  } catch (err) {
-    log.warn({ err }, "Failed to emit confirmation feed event from broadcast");
-  }
-}

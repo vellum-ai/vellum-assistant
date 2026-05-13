@@ -16,6 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
+import { getConfig } from "../../config/loader.js";
 import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
@@ -92,7 +93,10 @@ async function handleBtw({
 
   // ----- Greeting context enrichment -----
   let effectiveContent = trimmedContent;
-  if (conversationKey === GREETING_KEY) {
+  if (
+    conversationKey === GREETING_KEY &&
+    getConfig().memory.retrieval.scratchpadInjection.enabled
+  ) {
     const now = readNowScratchpad();
     if (now) {
       effectiveContent = `${trimmedContent}\n\n<context>\n${now}\n</context>`;

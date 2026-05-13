@@ -811,8 +811,16 @@ public struct ToolCallData: Identifiable, Equatable {
     public var approvalReason: String?
     /// Snapshot of the auto-approve threshold at execution time.
     public var riskThreshold: String?
-    /// Scope options ladder for the rule editor (pattern + label pairs, narrowest to broadest).
+    /// Display-only scope options ladder for the rule editor (regex patterns from
+    /// the classifier — narrowest to broadest). NOT safe to use as the saved
+    /// trust-rule pattern (gateway matches as Minimatch glob). For save use
+    /// `riskAllowlistOptions`.
     public var riskScopeOptions: [ToolResultRiskScopeOption]?
+    /// Save-shape allowlist options ladder for the rule editor (Minimatch-glob
+    /// patterns + descriptions from the classifier — narrowest to broadest).
+    /// This is the field whose `pattern` is persisted when the user picks a
+    /// chip and saves the trust rule.
+    public var riskAllowlistOptions: [ConfirmationRequestAllowlistOption]?
     /// Directory scope options ladder for the rule editor (scope + label pairs, narrowest to broadest).
     public var riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
     /// Working directory for this tool call (extracted from confirmation scope options).
@@ -1680,8 +1688,11 @@ public struct ChatMessage: Identifiable, Equatable {
     /// Typed error metadata for inline error display (category icon, recovery suggestion, etc.).
     /// Populated when the error originates from a `ConversationErrorMessage`.
     public var conversationError: ConversationError?
-    /// The daemon's persisted message ID, populated from history responses.
-    /// Nil for freshly streamed messages that haven't been loaded from history.
+    /// The daemon/history ID for the rendered bubble after history merges tool turns.
+    /// Used to reconcile a live streamed bubble with the same bubble loaded from history.
+    public var displayMessageId: String?
+    /// The daemon's concrete persisted message row ID.
+    /// Nil for freshly streamed messages until completion or history backfills it.
     /// Used for fork-from-message, inspect LLM context, TTS, and other daemon-anchored actions.
     public var daemonMessageId: String?
     /// Client-generated correlation nonce stamped on the optimistic row at

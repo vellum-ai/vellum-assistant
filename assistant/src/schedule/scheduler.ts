@@ -3,18 +3,15 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import { getLogger } from "../util/logger.js";
-import {
-  runWatchersOnce,
-  type WatcherEscalator,
-  type WatcherNotifier,
-} from "../watcher/engine.js";
+import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
 import { runScript, type ScriptResult } from "./run-script.js";
@@ -63,6 +60,20 @@ const TICK_INTERVAL_MS = 15_000;
  */
 const WAKE_MAX_RETRIES = 20;
 
+/**
+ * Hard timeout for `talk`-mode scheduled jobs. Schedules can do
+ * non-trivial work (research, summarize the day, etc.), so the cap is
+ * generous; it exists primarily so a wedged turn cannot block the next
+ * scheduler tick indefinitely. Mirrors the heartbeat/filing budgets.
+ */
+const SCHEDULE_TALK_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * Apply retry policy on schedule-execution failure. Retries are scheduled by
+ * `applyRetryDecision`; once retries are exhausted, the `emitAlert` callback
+ * fires an `activity.failed` notification so the user sees that a job
+ * permanently failed rather than just silently disappearing.
+ */
 function handleExecutionFailure(params: {
   job: ScheduleJob;
   errorMsg: string;
@@ -77,8 +88,13 @@ function handleExecutionFailure(params: {
     scheduleRetry,
     failOneShotPermanently,
     resetRetryCount,
-    emitAlert: (title, summary, dedupKey) =>
-      emitScheduleFeedEvent({ title, summary, dedupKey }),
+    emitAlert: (_title, _summary, dedupKey) =>
+      emitScheduleActivityFailed({
+        jobId: params.job.id,
+        jobName: params.job.name,
+        errorMessage: params.errorMsg,
+        dedupKey,
+      }),
     log,
   });
 }
@@ -87,7 +103,6 @@ export function startScheduler(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
   watcherNotifier?: WatcherNotifier,
-  watcherEscalator?: WatcherEscalator,
   onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
 ): SchedulerHandle {
   let stopped = false;
@@ -101,7 +116,6 @@ export function startScheduler(
         processMessage,
         notifyScheduleOneShot,
         watcherNotifier,
-        watcherEscalator,
         onScheduleConversationCreated,
       );
     } catch (err) {
@@ -123,7 +137,6 @@ export function startScheduler(
         processMessage,
         notifyScheduleOneShot,
         watcherNotifier,
-        watcherEscalator,
         onScheduleConversationCreated,
       );
     },
@@ -138,7 +151,6 @@ export async function runScheduleOnce(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
   watcherNotifier?: WatcherNotifier,
-  watcherEscalator?: WatcherEscalator,
   onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
 ): Promise<number> {
   const now = Date.now();
@@ -181,21 +193,11 @@ export async function runScheduleOnce(
           const successRunId = createScheduleRun(job.id, `notify-ok:${job.id}`);
           completeScheduleRun(successRunId, { status: "ok" });
           completeOneShot(job.id);
-          emitScheduleFeedEvent({
-            title: job.name,
-            summary: "Reminder fired.",
-            dedupKey: `schedule-notify-oneshot:${job.id}`,
-          });
         } else {
           // Track recurring notify-mode success so lastStatus resets to ok
           // and retryCount clears after a transient failure.
           const runId = createScheduleRun(job.id, `notify-ok:${job.id}`);
           completeScheduleRun(runId, { status: "ok" });
-          emitScheduleFeedEvent({
-            title: job.name,
-            summary: "Scheduled notification fired.",
-            dedupKey: `schedule-run:${runId}`,
-          });
         }
       } catch (err) {
         log.warn(
@@ -234,13 +236,6 @@ export async function runScheduleOnce(
           error: result.stderr || undefined,
         });
         if (result.exitCode === 0) {
-          if (!job.quiet) {
-            emitScheduleFeedEvent({
-              title: job.name,
-              summary: "Script ran.",
-              dedupKey: `schedule-run:${runId}`,
-            });
-          }
           if (isOneShot) completeOneShot(job.id);
         } else {
           const errorMsg =
@@ -337,13 +332,6 @@ export async function runScheduleOnce(
           completeScheduleRun(successRunId, { status: "ok" });
           completeOneShot(job.id);
         }
-        if (!job.quiet) {
-          emitScheduleFeedEvent({
-            title: job.name,
-            summary: "Deferred wake fired.",
-            dedupKey: `schedule-wake:${job.id}`,
-          });
-        }
       } catch (err) {
         log.warn(
           { err, jobId: job.id, name: job.name, wakeConversationId, isOneShot },
@@ -412,24 +400,23 @@ export async function runScheduleOnce(
         // Track the schedule run using the task's conversation
         const runId = createScheduleRun(job.id, result.conversationId);
         if (result.status === "failed") {
+          const errorMessage = result.error ?? "Task run failed";
           completeScheduleRun(runId, {
             status: "error",
-            error: result.error ?? "Task run failed",
+            error: errorMessage,
+          });
+          emitTaskActivityFailed({
+            taskId,
+            conversationId: result.conversationId,
+            errorMessage,
           });
           handleExecutionFailure({
             job,
-            errorMsg: result.error ?? "Task run failed",
+            errorMsg: errorMessage,
             isOneShot,
           });
         } else {
           completeScheduleRun(runId, { status: "ok" });
-          if (!job.quiet) {
-            emitScheduleFeedEvent({
-              title: job.name,
-              summary: "Scheduled task ran.",
-              dedupKey: `schedule-run:${runId}`,
-            });
-          }
           if (isOneShot) completeOneShot(job.id);
         }
         processed += 1;
@@ -464,6 +451,11 @@ export async function runScheduleOnce(
         });
         const runId = createScheduleRun(job.id, fallbackConversation.id);
         completeScheduleRun(runId, { status: "error", error: message });
+        emitTaskActivityFailed({
+          taskId,
+          conversationId: fallbackConversation.id,
+          errorMessage: message,
+        });
         handleExecutionFailure({
           job,
           errorMsg: message,
@@ -474,71 +466,112 @@ export async function runScheduleOnce(
     }
 
     // Reuse the conversation from the last successful run when the flag is set
-    // and a prior conversation still exists; otherwise bootstrap a new one.
-    let conversationId: string | null = null;
-    let conversationReused = false;
-    if (job.reuseConversation && !isOneShot) {
-      const lastId = getLastScheduleConversationId(job.id);
-      if (lastId && getConversation(lastId)) {
-        conversationId = lastId;
-        conversationReused = true;
-      }
-    }
-    if (!conversationId) {
-      const conversation = bootstrapConversation({
-        conversationType: "scheduled",
-        source: "schedule",
-        scheduleJobId: job.id,
-        groupId: "system:scheduled",
-        origin: "schedule",
-        systemHint: isOneShot
-          ? `Reminder: ${job.name}`
-          : `Schedule: ${job.name}`,
-      });
-      conversationId = conversation.id;
-    }
-    onScheduleConversationCreated?.({
-      conversationId,
-      scheduleJobId: job.id,
-      title: job.name,
-    });
-    const runId = createScheduleRun(job.id, conversationId);
+    // and a prior conversation still exists; otherwise route through the
+    // shared `runBackgroundJob` runner (which bootstraps fresh, applies the
+    // standard timeout, and emits `activity.failed` on any failure).
     const isRruleSetMsg =
       job.syntax === "rrule" &&
       job.expression != null &&
       hasSetConstructs(job.expression);
 
-    try {
-      log.info(
-        {
-          jobId: job.id,
-          name: job.name,
-          syntax: job.syntax,
-          expression: job.expression,
-          isRruleSet: isRruleSetMsg,
-          isOneShot,
-          conversationId,
-        },
-        isOneShot ? "Executing one-shot schedule" : "Executing schedule",
-      );
-      await processMessage(conversationId, job.message, {
-        trustClass: "guardian",
-      });
-      completeScheduleRun(runId, { status: "ok" });
-      if (!job.quiet) {
-        emitScheduleFeedEvent({
-          title: job.name,
-          summary: isOneShot ? "One-shot reminder ran." : "Scheduled job ran.",
-          dedupKey: `schedule-run:${runId}`,
-        });
+    let reusedConversationId: string | null = null;
+    if (job.reuseConversation && !isOneShot) {
+      const lastId = getLastScheduleConversationId(job.id);
+      if (lastId && getConversation(lastId)) {
+        reusedConversationId = lastId;
       }
+    }
+
+    log.info(
+      {
+        jobId: job.id,
+        name: job.name,
+        syntax: job.syntax,
+        expression: job.expression,
+        isRruleSet: isRruleSetMsg,
+        isOneShot,
+        ...(reusedConversationId
+          ? { conversationId: reusedConversationId }
+          : {}),
+      },
+      isOneShot ? "Executing one-shot schedule" : "Executing schedule",
+    );
+
+    let conversationId: string;
+    let ok: boolean;
+    let errorMsg: string | undefined;
+    const conversationReused = reusedConversationId != null;
+
+    if (reusedConversationId) {
+      // Reuse path: keep using the injected `processMessage` callback so the
+      // existing conversation is continued in place. `runBackgroundJob`
+      // unconditionally bootstraps a new conversation and is therefore not a
+      // drop-in replacement for the reuse semantics.
+      conversationId = reusedConversationId;
+      onScheduleConversationCreated?.({
+        conversationId,
+        scheduleJobId: job.id,
+        title: job.name,
+      });
+      try {
+        await processMessage(conversationId, job.message, {
+          trustClass: "guardian",
+        });
+        ok = true;
+      } catch (err) {
+        ok = false;
+        errorMsg = err instanceof Error ? err.message : String(err);
+      }
+    } else {
+      // Fresh-bootstrap path: route through the shared runner so failures
+      // surface via `activity.failed` and we get the standard timeout +
+      // error-classification policy applied to every background producer.
+      // The runner fires `onConversationCreated` synchronously after bootstrap
+      // (before `processMessage` starts) so the macOS sidebar gets the new
+      // conversation immediately rather than after the up-to-30-min job ends.
+      const result = await runBackgroundJob({
+        jobName: `schedule:${job.id}`,
+        source: "schedule",
+        prompt: job.message,
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+        callSite: "mainAgent",
+        timeoutMs: SCHEDULE_TALK_TIMEOUT_MS,
+        origin: "schedule",
+        groupId: "system:scheduled",
+        conversationType: "scheduled",
+        scheduleJobId: job.id,
+        suppressFailureNotifications: job.quiet === true,
+        onConversationCreated: (newConversationId) => {
+          onScheduleConversationCreated?.({
+            conversationId: newConversationId,
+            scheduleJobId: job.id,
+            title: job.name,
+          });
+        },
+      });
+      // Bootstrap-failure path returns `{ ok: false, conversationId: "" }`.
+      // Substitute a sentinel only for failures so the schedule-run DB row
+      // carries a recognizable marker. Successful skips (e.g.
+      // `pre_first_user_message`) also return `conversationId: ""` but with
+      // `ok: true` — keep the empty ID to preserve their skip contract.
+      conversationId =
+        !result.ok && result.conversationId === ""
+          ? `bootstrap-error:${job.id}`
+          : result.conversationId;
+      ok = result.ok;
+      errorMsg = result.error?.message;
+    }
+
+    const runId = createScheduleRun(job.id, conversationId);
+
+    if (ok) {
+      completeScheduleRun(runId, { status: "ok" });
       if (isOneShot) completeOneShot(job.id);
       processed += 1;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+    } else {
       log.warn(
         {
-          err,
+          err: errorMsg,
           jobId: job.id,
           name: job.name,
           syntax: job.syntax,
@@ -550,8 +583,12 @@ export async function runScheduleOnce(
           ? "One-shot schedule execution failed"
           : "Schedule execution failed",
       );
-      completeScheduleRun(runId, { status: "error", error: message });
-      handleExecutionFailure({ job, errorMsg: message, isOneShot });
+      completeScheduleRun(runId, { status: "error", error: errorMsg });
+      handleExecutionFailure({
+        job,
+        errorMsg: errorMsg ?? "Schedule run failed",
+        isOneShot,
+      });
 
       // Only skip invalidation when the conversation was *actually* reused,
       // i.e. it contains prior successful context worth preserving. When
@@ -572,13 +609,9 @@ export async function runScheduleOnce(
   }
 
   // ── Watchers (event-driven polling) ────────────────────────────────
-  if (watcherNotifier && watcherEscalator) {
+  if (watcherNotifier) {
     try {
-      const watcherProcessed = await runWatchersOnce(
-        processMessage,
-        watcherNotifier,
-        watcherEscalator,
-      );
+      const watcherProcessed = await runWatchersOnce(watcherNotifier);
       processed += watcherProcessed;
     } catch (err) {
       log.error({ err }, "Watcher tick failed");
@@ -587,7 +620,7 @@ export async function runScheduleOnce(
 
   // ── Sequences (multi-step outreach) ──────────────────────────────
   try {
-    const sequenceProcessed = await runSequencesOnce(processMessage);
+    const sequenceProcessed = await runSequencesOnce();
     processed += sequenceProcessed;
   } catch (err) {
     log.error({ err }, "Sequence engine tick failed");
@@ -600,30 +633,82 @@ export async function runScheduleOnce(
 }
 
 /**
- * Fire-and-forget home-feed emit for a successful schedule run.
- *
- * Wraps {@link emitFeedEvent} with local error handling so a schema
- * failure or writer hiccup can never interrupt the scheduler tick
- * loop. The dedupKey is always derived from the schedule run id (or
- * the job id, for one-shot notify-mode which fires before a run
- * record is created) so each run lands as its own entry in the
- * activity log — the writer's per-source cap keeps total volume
- * bounded.
+ * Emit an `activity.failed` notification for a failed scheduled task run.
+ * Mirrors the shape `runBackgroundJob` produces for its own failures so the
+ * home feed and native notifications stay consistent regardless of which
+ * code path executed the work. Fire-and-forget — a notification failure
+ * must never break scheduler operation.
  */
-function emitScheduleFeedEvent(params: {
-  title: string;
-  summary: string;
+function emitTaskActivityFailed(args: {
+  taskId: string;
+  conversationId: string;
+  errorMessage: string;
+}): void {
+  const day = new Date().toISOString().slice(0, 10);
+  emitNotificationSignal({
+    sourceChannel: "scheduler",
+    sourceContextId: args.conversationId,
+    sourceEventName: "activity.failed",
+    dedupeKey: `activity-failed:task:${args.taskId}:${day}`,
+    contextPayload: {
+      jobName: `task:${args.taskId}`,
+      errorMessage: args.errorMessage,
+      errorKind: "exception",
+    },
+    attentionHints: {
+      requiresAction: false,
+      urgency: "medium",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+  }).catch((emitErr) => {
+    log.warn(
+      {
+        err: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        taskId: args.taskId,
+        conversationId: args.conversationId,
+      },
+      "Failed to emit activity.failed notification for scheduled task",
+    );
+  });
+}
+
+/**
+ * Emit an `activity.failed` notification for a schedule whose retries have
+ * been exhausted. Distinct from `emitTaskActivityFailed` (which fires per
+ * failed task run) — this one fires once when the retry policy has given
+ * up, so the dedupeKey caller is the per-attempt key passed in by
+ * `applyRetryDecision` (already includes the job id and a timestamp).
+ */
+function emitScheduleActivityFailed(args: {
+  jobId: string;
+  jobName: string;
+  errorMessage: string;
   dedupKey: string;
 }): void {
-  void emitFeedEvent({
-    source: "assistant",
-    title: params.title,
-    summary: params.summary,
-    dedupKey: params.dedupKey,
-  }).catch((err) => {
+  emitNotificationSignal({
+    sourceChannel: "scheduler",
+    sourceContextId: args.jobId,
+    sourceEventName: "activity.failed",
+    dedupeKey: args.dedupKey,
+    contextPayload: {
+      jobName: `schedule:${args.jobName}`,
+      errorMessage: args.errorMessage,
+      errorKind: "exception",
+    },
+    attentionHints: {
+      requiresAction: false,
+      urgency: "medium",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+  }).catch((emitErr) => {
     log.warn(
-      { err, dedupKey: params.dedupKey },
-      "Failed to emit schedule feed event",
+      {
+        err: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        jobId: args.jobId,
+      },
+      "Failed to emit activity.failed notification for exhausted schedule",
     );
   });
 }

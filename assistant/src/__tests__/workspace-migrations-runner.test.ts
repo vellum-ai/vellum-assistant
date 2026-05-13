@@ -137,9 +137,10 @@ describe("runWorkspaceMigrations", () => {
     expect(m1.run).toHaveBeenCalledTimes(1);
     expect(m2.run).toHaveBeenCalledTimes(1);
 
-    // Checkpoints saved: started m1, completed m1, started m2, failed m2 = 4 writes
-    expect(writeFileSyncFn).toHaveBeenCalledTimes(4);
-    expect(renameSyncFn).toHaveBeenCalledTimes(4);
+    // Checkpoints saved: started m1, completed m1, started m2, failed m2,
+    // then the post-loop flip clearing isNewWorkspace = 5 writes.
+    expect(writeFileSyncFn).toHaveBeenCalledTimes(5);
+    expect(renameSyncFn).toHaveBeenCalledTimes(5);
 
     // Verify the completed checkpoint contains m1
     // The second write is the "completed" marker for m1
@@ -303,6 +304,86 @@ describe("runWorkspaceMigrations", () => {
 
     // The migration itself did not run because the "started" checkpoint failed
     expect(m1.run).not.toHaveBeenCalled();
+  });
+
+  test("persists isNewWorkspace=true on first creation, then flips to false after sweep", async () => {
+    // No checkpoint file → fresh workspace.
+    const m1 = makeMigration("001");
+    let observed: boolean | undefined;
+    (m1.run as ReturnType<typeof mock>).mockImplementation(
+      (_dir: string, ctx?: { isNewWorkspace: boolean }) => {
+        observed = ctx?.isNewWorkspace;
+      },
+    );
+
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1]);
+
+    // The migration saw the new-workspace flag.
+    expect(observed).toBe(true);
+
+    // The first persisted checkpoint (m1's "started" save) carries the flag.
+    const firstSave = JSON.parse(
+      (writeFileSyncFn.mock.calls[0] as unknown[])[1] as string,
+    );
+    expect(firstSave.isNewWorkspace).toBe(true);
+
+    // The final persisted checkpoint clears the flag so subsequent boots
+    // treat this workspace as an upgrade.
+    const finalSave = JSON.parse(
+      (writeFileSyncFn.mock.calls.at(-1) as unknown[])[1] as string,
+    );
+    expect(finalSave.isNewWorkspace).toBe(false);
+  });
+
+  test("preserves isNewWorkspace=true across a crash before seeding migrations run", async () => {
+    // Simulate a crash mid-first-boot: an earlier migration recorded its
+    // "started" marker (writing the checkpoint file) and the daemon then
+    // died before reaching the seeding migration. The persisted flag must
+    // survive the reboot so the seeding migration still observes the
+    // brand-new workspace.
+    mockCheckpointContents = JSON.stringify({
+      isNewWorkspace: true,
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "started" },
+      },
+    });
+
+    const seedingMigration = makeMigration("seed");
+    let observed: boolean | undefined;
+    (seedingMigration.run as ReturnType<typeof mock>).mockImplementation(
+      (_dir: string, ctx?: { isNewWorkspace: boolean }) => {
+        observed = ctx?.isNewWorkspace;
+      },
+    );
+
+    const m1 = makeMigration("001");
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1, seedingMigration]);
+
+    expect(m1.run).toHaveBeenCalledTimes(1);
+    expect(seedingMigration.run).toHaveBeenCalledTimes(1);
+    expect(observed).toBe(true);
+  });
+
+  test("treats pre-existing checkpoint without isNewWorkspace field as upgrade", async () => {
+    // Workspaces created before this field was introduced have a checkpoint
+    // file with only `applied`. They must not be re-seeded.
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "completed" },
+      },
+    });
+
+    const seedingMigration = makeMigration("seed");
+    let observed: boolean | undefined;
+    (seedingMigration.run as ReturnType<typeof mock>).mockImplementation(
+      (_dir: string, ctx?: { isNewWorkspace: boolean }) => {
+        observed = ctx?.isNewWorkspace;
+      },
+    );
+
+    await runWorkspaceMigrations(WORKSPACE_DIR, [seedingMigration]);
+
+    expect(observed).toBe(false);
   });
 
   test("warns on malformed checkpoint file", async () => {

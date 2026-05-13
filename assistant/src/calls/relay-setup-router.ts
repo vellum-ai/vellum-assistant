@@ -56,6 +56,13 @@ type SetupOutcome =
       guardianName: string | null;
     }
   | { action: "name_capture"; assistantId: string; fromNumber: string }
+  | {
+      action: "unverified_caller";
+      assistantId: string;
+      fromNumber: string;
+      displayName: string;
+      isGuardian: boolean;
+    }
   | { action: "deny"; message: string; logReason: string };
 
 // ── Resolved context produced alongside the outcome ──────────────────
@@ -229,6 +236,35 @@ export function routeSetup(ctx: SetupContext): {
           fromNumber: ctx.from,
           friendName: matchedInvite.friendName,
           guardianName: matchedInvite.guardianName,
+        },
+        resolved,
+      };
+    }
+
+    // Known caller whose channel hasn't passed verification yet —
+    // mirrors the gateway's pre-intercept (twilio-voice-webhook.ts) so
+    // calls slipping past it (e.g. canonicalization mismatch between
+    // gateway and assistant DBs) still get useful guidance instead of
+    // the "I don't recognize this number" name-capture script.
+    const unverifiedStatuses = new Set(["unverified", "pending"]);
+    const memberChannel = actorTrust.memberRecord?.channel;
+    if (memberChannel && unverifiedStatuses.has(memberChannel.status)) {
+      log.info(
+        {
+          callSessionId: ctx.callSessionId,
+          from: ctx.from,
+          channelId: memberChannel.id,
+          channelStatus: memberChannel.status,
+        },
+        "Inbound voice ACL: known but unverified caller — returning verification guidance",
+      );
+      return {
+        outcome: {
+          action: "unverified_caller",
+          assistantId,
+          fromNumber: ctx.from,
+          displayName: actorTrust.memberRecord!.contact.displayName,
+          isGuardian: actorTrust.memberRecord!.contact.role === "guardian",
         },
         resolved,
       };

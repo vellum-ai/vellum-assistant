@@ -32,6 +32,51 @@ export function nonEmpty(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+export function looksLikeIntermediaryInstruction(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const intermediaryAction =
+    "(?:tell|telling|ask|asking|remind|reminding|nudge|nudging|prompt|prompting|notify|notifying|encourage|encouraging|prime|priming|brief|briefing|coach|coaching)";
+  const target = "(?:the\\s+)?(?:guardian|recipient|user)";
+  return (
+    /\b(?:assistant|agent|system|model|watcher)\s+(?:should|needs?\s+to|must|can|could)\b/i.test(
+      normalized,
+    ) ||
+    new RegExp(
+      `\\b(?:consider|try|please)\\s+${intermediaryAction}\\s+${target}\\b`,
+      "i",
+    ).test(normalized) ||
+    new RegExp(
+      `\\b${intermediaryAction}\\s+${target}\\s+(?:to|that|about|with)\\b`,
+      "i",
+    ).test(normalized) ||
+    new RegExp(
+      `\\b${target}\\s+(?:should|needs?\\s+to|must|might\\s+want\\s+to)\\b`,
+      "i",
+    ).test(normalized) ||
+    new RegExp(`\\b(?:for|to)\\s+${target}\\s+to\\b`, "i").test(normalized)
+  );
+}
+
+function buildHeartbeatAlertCopy(
+  payload: Record<string, unknown>,
+): RenderedChannelCopy {
+  const summary = str(
+    payload.summary,
+    str(payload.body, "Your assistant found something worth your attention."),
+  ).trim();
+  const safePopupBody = looksLikeIntermediaryInstruction(summary)
+    ? "I found something worth your attention in a heartbeat check. Open the conversation for details."
+    : summary;
+
+  return {
+    title: str(payload.title, "Heartbeat Alert"),
+    body: safePopupBody,
+    deliveryText: safePopupBody,
+    conversationTitle: str(payload.conversationTitle, "Heartbeat"),
+    conversationSeedMessage: summary,
+  };
+}
+
 // ── Access-request copy contract ─────────────────────────────────────────────
 //
 // Deterministic helpers for building guardian-facing access-request copy.
@@ -505,18 +550,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.body, "A watcher event requires your attention"),
   }),
 
-  "heartbeat.alert": (payload) => {
-    const body = str(
-      payload.summary,
-      str(payload.body, "Your assistant found something worth your attention."),
-    );
-    return {
-      title: str(payload.title, "Heartbeat Alert"),
-      body,
-      conversationTitle: str(payload.conversationTitle, "Heartbeat"),
-      conversationSeedMessage: body,
-    };
-  },
+  "heartbeat.alert": buildHeartbeatAlertCopy,
 
   "tool_confirmation.required_action": (payload) => ({
     title: "Tool Confirmation",
@@ -527,6 +561,21 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     title: "Activity Complete",
     body: str(payload.summary, "An activity has completed"),
   }),
+
+  "activity.failed": (payload) => {
+    const jobName = str(payload.jobName, "background job");
+    const errorKind = str(payload.errorKind, "exception");
+    const rawMessage =
+      typeof payload.errorMessage === "string"
+        ? payload.errorMessage
+        : "no message";
+    const truncated =
+      rawMessage.length > 200 ? rawMessage.slice(0, 200) + "…" : rawMessage;
+    return {
+      title: `Background job failed: ${jobName}`,
+      body: `${errorKind}: ${truncated}`,
+    };
+  },
 
   "quick_chat.response_ready": (payload) => ({
     title: "Response Ready",

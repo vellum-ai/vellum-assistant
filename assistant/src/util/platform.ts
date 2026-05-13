@@ -7,14 +7,25 @@ import { getWorkspaceDirOverride } from "../config/env-registry.js";
 /**
  * The daemon's root data directory (`~/.vellum`).
  *
- * Multi-instance path relocation is handled by the CLI when spawning the
- * daemon (via `VELLUM_WORKSPACE_DIR` and `GATEWAY_SECURITY_DIR`); the
- * assistant itself never reads an env var for this.
+ * Used as a fallback when `VELLUM_WORKSPACE_DIR` is not set, and as a
+ * stable constant for paths (like `.env`) that intentionally live at the
+ * host home directory regardless of workspace relocation.
  */
 const VELLUM_ROOT = join(homedir(), ".vellum");
 
-/** Returns the daemon's root data directory (`~/.vellum`). */
+/**
+ * Returns the Vellum root directory.
+ *
+ * Resolution order (mirrors workspace/migrations/utils.ts):
+ * 1. Parent of VELLUM_WORKSPACE_DIR — e.g. /data/.vellum/workspace → /data/.vellum
+ * 2. If that parent is "/" (workspace at top level), fall back to ~/.vellum
+ */
 export function vellumRoot(): string {
+  const override = getWorkspaceDirOverride();
+  if (override) {
+    const parent = dirname(override);
+    if (parent !== "/") return parent;
+  }
   return VELLUM_ROOT;
 }
 
@@ -160,17 +171,16 @@ export function getHistoryPath(): string {
 }
 
 /**
- * Returns the protected directory (~/.vellum/protected). Security-sensitive
- * files — trust rules, encrypted credential store, signing keys, feature-flag
- * overrides, device approval lists — live here.
+ * Returns the protected directory. Security-sensitive files — trust rules,
+ * encrypted credential store, signing keys, feature-flag overrides, device
+ * approval lists — live here.
  *
  * This directory is:
- * - Outside the workspace
  * - Outside the sandbox write boundary (tools cannot modify it)
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
  */
 export function getProtectedDir(): string {
-  return join(VELLUM_ROOT, "protected");
+  return join(vellumRoot(), "protected");
 }
 
 /** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
@@ -204,7 +214,7 @@ export function getBinDir(): string {
 
 /** Returns the path to the dot-env file (~/.vellum/.env). Stays at root because it contains secrets. */
 export function getDotEnvPath(): string {
-  return join(VELLUM_ROOT, ".env");
+  return join(vellumRoot(), ".env");
 }
 
 /** Returns the path to the embed-worker PID file (~/.vellum/workspace/embed-worker.pid). */
@@ -256,6 +266,16 @@ export function getWorkspaceSkillsDir(): string {
 /** Returns ~/.vellum/workspace/hooks */
 export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
+}
+
+/**
+ * Returns `<workspaceDir>/plugins` — the directory scanned by the user plugin
+ * loader at daemon startup. Writes here are security-sensitive: any
+ * `register.{ts,js}` will be dynamic-imported on next restart, so the file
+ * risk classifier escalates writes under this path to High.
+ */
+export function getWorkspacePluginsDir(): string {
+  return join(getWorkspaceDir(), "plugins");
 }
 
 /** Returns $VELLUM_WORKSPACE_DIR/routes — user-defined HTTP route handlers. */
@@ -368,7 +388,7 @@ export function getBundledBunPath(): string | undefined {
 }
 
 export function ensureDataDir(): void {
-  const root = VELLUM_ROOT;
+  const root = vellumRoot();
   const workspace = getWorkspaceDir();
   const wsData = join(workspace, "data");
   const dirs = [

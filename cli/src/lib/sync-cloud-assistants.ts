@@ -6,6 +6,11 @@
  *   (e.g. retired assistants).
  *
  * Used by both `vellum login` and `vellum ps` to keep the lockfile fresh.
+ *
+ * **Contract:** callers must verify the user is logged in (i.e. a non-empty
+ * platform token exists) before invoking this helper. The "is there a token?"
+ * decision belongs at the command level so commands can render the right
+ * "Platform: …" status without ever entering the platform fetch path.
  */
 
 import {
@@ -17,7 +22,6 @@ import {
   fetchCurrentUser,
   fetchPlatformAssistants,
   getPlatformUrl,
-  readPlatformToken,
 } from "./platform-client.js";
 
 export type SyncLogger = (message: string) => void;
@@ -34,21 +38,24 @@ export interface SyncOptions {
 
 /**
  * Fetch platform assistants and reconcile against the lockfile.
- * Returns the number of entries added/removed, or `null` if the user
- * is not logged in or the fetch fails.
+ *
+ * Returns the number of entries added/removed, or `null` if the fetch fails
+ * (e.g. platform unreachable, invalid token). Callers must pre-verify a
+ * non-empty token; this function assumes one is present and will throw if
+ * called with an empty string.
  */
 export async function syncCloudAssistants(
+  token: string,
   options?: SyncOptions,
 ): Promise<SyncResult | null> {
+  if (!token) {
+    throw new Error(
+      "syncCloudAssistants called without a token. Callers must check `readPlatformToken()` first.",
+    );
+  }
   const log = options?.log;
   const platformUrl = getPlatformUrl();
   log?.(`Platform URL: ${platformUrl}`);
-
-  const token = readPlatformToken();
-  if (!token) {
-    log?.("No platform token found — skipping cloud sync");
-    return null;
-  }
   log?.(
     `Token found (${token.length} chars, prefix: ${token.slice(0, 6)}…)`,
   );

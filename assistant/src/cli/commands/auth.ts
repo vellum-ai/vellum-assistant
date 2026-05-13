@@ -1,24 +1,30 @@
 import type { Command } from "commander";
 
-import {
-  getPlatformAssistantId,
-  getPlatformBaseUrl,
-  getPlatformOrganizationId,
-  getPlatformUserId,
-} from "../../config/env.js";
-import { resolveManagedProxyContext } from "../../providers/managed-proxy/context.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
-export function registerAuthCommand(program: Command): void {
-  const auth = program
-    .command("auth")
-    .description("Manage platform authentication and identity")
-    .option("--json", "Machine-readable compact JSON output");
+interface AuthInfoResponse {
+  platformUrl: string | null;
+  assistantId: string | null;
+  organizationId: string | null;
+  userId: string | null;
+  authenticated: boolean;
+  message?: string;
+}
 
-  auth.addHelpText(
-    "after",
-    `
+export function registerAuthCommand(program: Command): void {
+  registerCommand(program, {
+    name: "auth",
+    transport: "ipc",
+    description: "Manage platform authentication and identity",
+    build: (auth) => {
+      auth.option("--json", "Machine-readable compact JSON output");
+
+      auth.addHelpText(
+        "after",
+        `
 The auth namespace manages the assistant's authentication state with the
 Vellum platform. It provides commands to inspect identity and connection
 status, helping diagnose configuration issues.
@@ -26,18 +32,18 @@ status, helping diagnose configuration issues.
 Examples:
   $ assistant auth info
   $ assistant auth info --json`,
-  );
+      );
 
-  // ---------------------------------------------------------------------------
-  // info
-  // ---------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // info
+      // -----------------------------------------------------------------------
 
-  auth
-    .command("info")
-    .description("Show platform identity and authentication status")
-    .addHelpText(
-      "after",
-      `
+      auth
+        .command("info")
+        .description("Show platform identity and authentication status")
+        .addHelpText(
+          "after",
+          `
 Fields:
   platformUrl         The Vellum platform base URL this assistant connects to
   assistantId         This assistant's platform UUID
@@ -51,42 +57,39 @@ When not authenticated, a message field provides guidance on next steps.
 Examples:
   $ assistant auth info
   $ assistant auth info --json`,
-    )
-    .action(async (_opts: Record<string, unknown>, cmd: Command) => {
-      const ctx = await resolveManagedProxyContext();
+        )
+        .action(async (_opts: Record<string, unknown>, cmd: Command) => {
+          const response =
+            await cliIpcCall<AuthInfoResponse>("auth_info");
 
-      const platformUrl = getPlatformBaseUrl();
-      const assistantId = getPlatformAssistantId();
-      const organizationId = getPlatformOrganizationId();
-      const userId = getPlatformUserId();
-      const authenticated = ctx.enabled;
+          if (!response.ok) {
+            return exitFromIpcResult(response);
+          }
 
-      const result: Record<string, unknown> = {
-        platformUrl: platformUrl || null,
-        assistantId: assistantId || null,
-        organizationId: organizationId || null,
-        userId: userId || null,
-        authenticated,
-      };
+          const result = response.result!;
 
-      if (!authenticated) {
-        result.message = !platformUrl
-          ? "Platform URL not configured. Run assistant config set platform.baseUrl <url>"
-          : "Assistant API key not found. Store one with: assistant keys set credential/vellum/assistant_api_key <key>";
-      }
+          writeOutput(cmd, result);
 
-      writeOutput(cmd, result);
-
-      if (!shouldOutputJson(cmd)) {
-        log.info(`Platform URL:        ${platformUrl || "(not set)"}`);
-        log.info(`Assistant ID:        ${assistantId || "(not set)"}`);
-        log.info(`Organization ID:     ${organizationId || "(not set)"}`);
-        log.info(`User ID:             ${userId || "(not set)"}`);
-        log.info(`Authenticated:       ${authenticated ? "yes" : "no"}`);
-        if (!authenticated && result.message) {
-          log.info("");
-          log.info(result.message as string);
-        }
-      }
-    });
+          if (!shouldOutputJson(cmd)) {
+            log.info(
+              `Platform URL:        ${result.platformUrl ?? "(not set)"}`,
+            );
+            log.info(
+              `Assistant ID:        ${result.assistantId ?? "(not set)"}`,
+            );
+            log.info(
+              `Organization ID:     ${result.organizationId ?? "(not set)"}`,
+            );
+            log.info(`User ID:             ${result.userId ?? "(not set)"}`);
+            log.info(
+              `Authenticated:       ${result.authenticated ? "yes" : "no"}`,
+            );
+            if (!result.authenticated && result.message) {
+              log.info("");
+              log.info(result.message);
+            }
+          }
+        });
+    },
+  });
 }

@@ -147,8 +147,26 @@ export interface ToolResult {
   matchedTrustRuleId?: string;
   /** Whether the daemon is running in a containerized (Docker) environment. */
   isContainerized?: boolean;
-  /** Scope options ladder for the rule editor modal (narrowest to broadest). */
+  /**
+   * Display-only ladder of scope option labels for the rule editor
+   * (narrowest to broadest). The `pattern` here is regex-style and is
+   * NOT a valid trust rule pattern. Clients must use
+   * `riskAllowlistOptions` for the pattern that gets saved.
+   */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  /**
+   * Allowlist options for the rule editor save path (narrowest to
+   * broadest). Each `pattern` is a Minimatch-glob compatible string —
+   * what the gateway actually matches against. Mirrors the
+   * `allowlistOptions` field on `ConfirmationRequest`. May be absent
+   * for tools whose classifier does not produce an allowlist (e.g.
+   * web-risk classifier, MCP tools without classifier coverage).
+   */
+  riskAllowlistOptions?: Array<{
+    label: string;
+    description: string;
+    pattern: string;
+  }>;
   /** Directory scope ladder for the rule editor modal (narrowest to broadest). */
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
   /** How the approval decision was reached: prompted, auto, blocked, or unknown (legacy). */
@@ -217,13 +235,79 @@ export interface SecretRequest {
   allowOneTimeSend?: boolean;
 }
 
+export interface QuestionOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+/**
+ * One entry in a batched ask-question request.
+ *
+ * `id` is daemon-assigned (e.g. `q1`, `q2`...) — the LLM neither sees nor
+ * supplies it. It exists so the client has a stable handle to post the
+ * user's answer back against. See `QuestionRequest` for the batching
+ * contract.
+ */
+export interface QuestionEntry {
+  id: string;
+  question: string;
+  description?: string;
+  /** LLM-supplied options, capped at 4. The client always renders a fixed
+   *  5th "Type something else" slot wired to a free-text response — so this
+   *  array never represents the full choice set the user sees. */
+  options: QuestionOption[];
+  /** Optional placeholder shown in the free-text input. */
+  freeTextPlaceholder?: string;
+}
+
+/**
+ * A single broadcast that carries either one or a small batch (≤5) of
+ * clarifying questions. The whole batch is one card lifecycle on the client:
+ * one render, one state machine, one response submission.
+ *
+ * Wire-compat plan: both shapes are populated on every broadcast.
+ *  - `questions[]` is the canonical shape new clients should consume.
+ *  - The flat `question` / `description` / `options` / `freeTextPlaceholder`
+ *    fields mirror `questions[0]` for backwards compat with the existing
+ *    web client, which keys off the flat fields. Once that client adopts
+ *    `questions[]`, the flat fields can be dropped (separate cleanup).
+ *
+ * Daemon callers that don't supply a batch get a one-element `questions`
+ * array synthesized from the flat fields.
+ */
+export interface QuestionRequest {
+  type: "question_request";
+  requestId: string;
+  /** Batched-question payload. Always populated (single questions are sent
+   *  as a one-element array). Each entry's `id` is daemon-assigned. */
+  questions: QuestionEntry[];
+  /** Legacy: mirrors `questions[0].question`. Kept populated for clients
+   *  that haven't adopted the batched `questions[]` shape yet. */
+  question: string;
+  /** Legacy: mirrors `questions[0].description`. */
+  description?: string;
+  /** Legacy: mirrors `questions[0].options`. */
+  options: QuestionOption[];
+  /** Legacy: mirrors `questions[0].freeTextPlaceholder`. */
+  freeTextPlaceholder?: string;
+  conversationId?: string;
+  toolUseId?: string;
+}
+
 export interface MessageComplete {
   type: "message_complete";
   conversationId?: string;
   attachments?: UserMessageAttachment[];
   attachmentWarnings?: string[];
-  /** Database ID of the persisted assistant message, if any. */
+  /** Database ID of the final persisted assistant row, if any. */
   messageId?: string;
+  /**
+   * Database ID used by clients for the rendered assistant bubble. Tool turns
+   * may persist multiple assistant rows; this matches the history row that
+   * survives query-time merging.
+   */
+  displayMessageId?: string;
   /**
    * Distinguishes a real main-turn completion from auxiliary events such as
    * call transcripts, call summaries, and watch notifier outputs. Clients
@@ -241,6 +325,8 @@ export interface ErrorMessage {
   message: string;
   /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */
   category?: string;
+  /** Machine-readable conversation error category for clients that need source-aware recovery UI. */
+  errorCategory?: string;
 }
 
 export interface MessageQueued {
@@ -350,6 +436,8 @@ export interface ConversationInferenceProfileUpdated {
   type: "conversation_inference_profile_updated";
   conversationId: string;
   profile: string | null;
+  sessionId?: string | null;
+  expiresAt?: number | null;
 }
 
 export type TraceEventKind =
@@ -402,6 +490,7 @@ export type _MessagesServerMessages =
   | ToolResult
   | ConfirmationRequest
   | SecretRequest
+  | QuestionRequest
   | MessageComplete
   | ErrorMessage
   | MessageQueued

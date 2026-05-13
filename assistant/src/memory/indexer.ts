@@ -9,10 +9,11 @@ import { getLogger } from "../util/logger.js";
 import { enqueueAutoAnalysisIfEnabled } from "./auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
-import { isMemoryV2ReadActive } from "./context-search/sources/memory-v2.js";
 import { getDb } from "./db-connection.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import { enqueueMemoryJob, upsertDebouncedJob } from "./jobs-store.js";
+import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
+import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import {
   extractMediaBlockMeta,
   extractTextFromStoredMessageContent,
@@ -190,7 +191,7 @@ export async function indexMessageNow(
       }
 
       const v2Config =
-        triggerConfig != null && isMemoryV2ReadActive(triggerConfig)
+        triggerConfig != null && triggerConfig.memory.v2.enabled
           ? triggerConfig
           : null;
 
@@ -283,6 +284,21 @@ export async function indexMessageNow(
             trigger: "batch",
           });
         }
+      }
+
+      // ── Memory retrospective triggers ─────────────────────────────────
+      // Independent of auto-analyze: the retrospective is a focused,
+      // memory-only pass that re-reads messages since its last successful
+      // run and saves what the in-conversation `remember` calls didn't
+      // capture. Triggers (interval / message_count) are evaluated by
+      // `maybeEnqueueRetrospective`, which also enforces the per-conversation
+      // cooldown gate against retry storms. Recursion guard skips the
+      // memory-retrospective background conversation itself.
+      if (
+        triggerConfig != null &&
+        !isMemoryRetrospectiveConversation(input.conversationId)
+      ) {
+        maybeEnqueueRetrospective(input.conversationId, triggerConfig);
       }
     }
 

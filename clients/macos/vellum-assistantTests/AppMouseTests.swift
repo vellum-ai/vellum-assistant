@@ -69,7 +69,7 @@ final class AppMouseTests: XCTestCase {
         XCTAssertEqual(AppMouse.cgButton(for: .middle), .center)
     }
 
-    func test_mouseButton_rawValuesMatchDaemonContract() {
+    func test_mouseButton_rawValuesMatchAssistantContract() {
         XCTAssertEqual(AppMouse.MouseButton.left.rawValue, "left")
         XCTAssertEqual(AppMouse.MouseButton.right.rawValue, "right")
         XCTAssertEqual(AppMouse.MouseButton.middle.rawValue, "middle")

@@ -11,8 +11,10 @@ import {
   deleteApp,
   disconnectOAuthProvider,
   getApp,
+  getAppByProviderAndClientId,
   getAppClientSecret,
   getConnection,
+  getMostRecentAppByProvider,
   getProvider,
   listApps,
   listConnections,
@@ -58,6 +60,22 @@ function normalizeHasRefreshToken(
 // Handlers
 // ---------------------------------------------------------------------------
 
+function formatAppRow(row: {
+  id: string;
+  provider: string;
+  clientId: string;
+  createdAt: number;
+  updatedAt: number;
+}) {
+  return {
+    id: row.id,
+    provider_key: row.provider,
+    client_id: row.clientId,
+    created_at: row.createdAt,
+    updated_at: row.updatedAt,
+  };
+}
+
 function handleListApps({ queryParams = {} }: RouteHandlerArgs) {
   const provider = queryParams.provider_key;
   if (!provider) {
@@ -74,14 +92,61 @@ function handleListApps({ queryParams = {} }: RouteHandlerArgs) {
 
   return {
     provider: providerSummary,
-    apps: filtered.map((row) => ({
-      id: row.id,
-      provider_key: row.provider,
-      client_id: row.clientId,
-      created_at: row.createdAt,
-      updated_at: row.updatedAt,
-    })),
+    apps: filtered.map(formatAppRow),
   };
+}
+
+function handleGetApp({ queryParams = {} }: RouteHandlerArgs) {
+  const { id, provider, client_id } = queryParams;
+
+  let row;
+  if (id) {
+    row = getApp(id);
+  } else if (provider && client_id) {
+    row = getAppByProviderAndClientId(provider, client_id);
+  } else if (provider) {
+    row = getMostRecentAppByProvider(provider);
+  } else {
+    throw new BadRequestError(
+      "Provide id, provider, or provider + client_id query parameters",
+    );
+  }
+
+  if (!row) {
+    const lookup = id
+      ? `id=${id}`
+      : provider && client_id
+        ? `provider=${provider}, client_id=${client_id}`
+        : `provider=${provider}`;
+    throw new NotFoundError(`No app found for ${lookup}`);
+  }
+
+  return { app: formatAppRow(row) };
+}
+
+async function handleUpsertApp({ body = {} }: RouteHandlerArgs) {
+  const b = body as Record<string, unknown>;
+  const providerKey = b.provider_key as string | undefined;
+  const clientId = b.client_id as string | undefined;
+
+  if (!providerKey || !clientId) {
+    throw new BadRequestError(
+      "provider_key and client_id are required",
+    );
+  }
+
+  const clientSecretOpts = b.client_secret
+    ? { clientSecretValue: b.client_secret as string }
+    : b.client_secret_credential_path
+      ? {
+          clientSecretCredentialPath:
+            b.client_secret_credential_path as string,
+        }
+      : undefined;
+
+  const row = await upsertApp(providerKey, clientId, clientSecretOpts);
+
+  return { app: formatAppRow(row) };
 }
 
 async function handleCreateApp({ body = {} }: RouteHandlerArgs) {
@@ -253,6 +318,46 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     handler: handleListApps,
+  },
+  {
+    operationId: "oauth_apps_by_query_get",
+    endpoint: "oauth/apps/lookup",
+    method: "GET",
+    summary: "Get OAuth app",
+    description:
+      "Look up a single OAuth app by ID, provider + client_id, or provider (most recent).",
+    tags: ["oauth"],
+    requirePolicyEnforcement: true,
+    queryParams: [
+      {
+        name: "id",
+        type: "string",
+        description: "App UUID",
+      },
+      {
+        name: "provider",
+        type: "string",
+        description: "Provider key",
+      },
+      {
+        name: "client_id",
+        type: "string",
+        description: "OAuth client ID (requires provider)",
+      },
+    ],
+    handler: handleGetApp,
+  },
+  {
+    operationId: "oauth_apps_upsert",
+    endpoint: "oauth/apps/upsert",
+    method: "POST",
+    policyKey: "oauth/apps.upsert",
+    summary: "Upsert OAuth app",
+    description:
+      "Create or return an existing OAuth app registration. Updates client secret if provided.",
+    tags: ["oauth"],
+    requirePolicyEnforcement: true,
+    handler: handleUpsertApp,
   },
   {
     operationId: "oauth_apps_post",

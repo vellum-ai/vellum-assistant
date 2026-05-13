@@ -3,7 +3,11 @@ import { dirname, join } from "node:path";
 
 import { ensureDir, readTextFileSync } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
-import type { WorkspaceMigration, WorkspaceMigrationStatus } from "./types.js";
+import type {
+  MigrationRunContext,
+  WorkspaceMigration,
+  WorkspaceMigrationStatus,
+} from "./types.js";
 
 const log = getLogger("workspace-migrations");
 
@@ -18,6 +22,13 @@ export type CheckpointFile = {
     string,
     { appliedAt: string; status?: WorkspaceMigrationStatus }
   >;
+  /** Persisted "fresh workspace" flag. Set to `true` by the runner when the
+   *  checkpoint file is being created for the first time; cleared after the
+   *  initial migration sweep finishes. Survives crashes mid-first-boot so
+   *  seeding migrations that fall later in the sequence still observe the
+   *  brand-new state. Absent on workspaces that pre-date this field — those
+   *  are treated as not-new. */
+  isNewWorkspace?: boolean;
 };
 
 function getCheckpointPath(workspaceDir: string): string {
@@ -76,7 +87,20 @@ export async function runWorkspaceMigrations(
     migrationsById.set(m.id, m);
   }
 
+  // The checkpoint file is written *before* each migration's run() (to record
+  // the "started" status), so file-absence alone cannot be used to detect a
+  // brand-new workspace — a crash mid-first-boot would flip the next boot's
+  // verdict to "upgrade" before later seeding migrations have run. Persist
+  // the flag inside the file instead so it survives across reboots.
+  const checkpointExisted =
+    readTextFileSync(getCheckpointPath(workspaceDir)) != null;
   const checkpoints = loadCheckpoints(workspaceDir);
+  if (!checkpointExisted) {
+    checkpoints.isNewWorkspace = true;
+  }
+  const ctx: MigrationRunContext = {
+    isNewWorkspace: checkpoints.isNewWorkspace === true,
+  };
 
   for (const [id, entry] of Object.entries(checkpoints.applied)) {
     if (entry.status === "started" || entry.status === "rolling_back") {
@@ -112,7 +136,7 @@ export async function runWorkspaceMigrations(
     saveCheckpoints(workspaceDir, checkpoints);
 
     try {
-      await migration.run(workspaceDir);
+      await migration.run(workspaceDir, ctx);
     } catch (error) {
       log.error(
         { migrationId: migration.id, error },
@@ -131,6 +155,15 @@ export async function runWorkspaceMigrations(
       appliedAt: new Date().toISOString(),
       status: "completed",
     };
+    saveCheckpoints(workspaceDir, checkpoints);
+  }
+
+  // First-boot sweep finished cleanly — clear the flag so future runs (and
+  // future seeding migrations added later) treat the workspace as an upgrade.
+  // A crash above this point leaves the flag set, so the retry on the next
+  // boot still observes a fresh workspace.
+  if (checkpoints.isNewWorkspace === true) {
+    checkpoints.isNewWorkspace = false;
     saveCheckpoints(workspaceDir, checkpoints);
   }
 }

@@ -21,6 +21,7 @@
  * is invisible in production.
  */
 
+import { resolveCallSiteConfig } from "../../../config/llm-resolver.js";
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
@@ -63,7 +64,7 @@ export const ROUTES: RouteDefinition[] = [
 
 function buildCompactionState(conversation: Conversation) {
   const config = getConfig();
-  const contextWindow = config.llm.default.contextWindow;
+  const contextWindow = resolveCallSiteConfig("mainAgent", config.llm).contextWindow;
   const messages = conversation.getMessages();
   const estimatedInputTokens = estimatePromptTokens(messages);
   const maxInputTokens = contextWindow.maxInputTokens;

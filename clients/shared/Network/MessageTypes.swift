@@ -701,8 +701,8 @@ extension AssistantThinkingDelta {
 public typealias MessageCompleteMessage = MessageComplete
 
 extension MessageComplete {
-    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, source: String? = nil) {
-        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId, source: source)
+    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, displayMessageId: String? = nil, source: String? = nil) {
+        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId, displayMessageId: displayMessageId, source: source)
     }
 }
 
@@ -732,6 +732,40 @@ public struct ConversationInferenceProfileUpdatedMessage: Decodable, Sendable {
 /// Server push — tells clients their sidebar conversation list is stale.
 public struct ConversationListInvalidatedMessage: Decodable, Sendable {
     public let reason: String
+}
+
+/// Generic persisted-state invalidation event.
+///
+/// Tags name stale resources and intentionally do not carry resource data.
+/// Routing/refetch behavior is handled separately by `SyncTagRouter`.
+public struct SyncChangedMessage: Decodable, Sendable {
+    public let tags: [String]
+
+    public init(tags: [String]) {
+        self.tags = tags
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tags
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard var tagContainer = try? container.nestedUnkeyedContainer(forKey: .tags) else {
+            tags = []
+            return
+        }
+
+        var decodedTags: [String] = []
+        while !tagContainer.isAtEnd {
+            if let tag = try? tagContainer.decode(String.self) {
+                decodedTags.append(tag)
+            } else {
+                _ = try? tagContainer.decode(AnyCodable.self)
+            }
+        }
+        tags = decodedTags
+    }
 }
 
 /// Conversation title update push message emitted after first-turn auto-titling.
@@ -887,8 +921,8 @@ public struct GenerationCancelledMessage: Decodable, Sendable {
 public typealias GenerationHandoffMessage = GenerationHandoff
 
 extension GenerationHandoff {
-    public init(conversationId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
-        self.init(type: "generation_handoff", conversationId: conversationId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId)
+    public init(conversationId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, displayMessageId: String? = nil) {
+        self.init(type: "generation_handoff", conversationId: conversationId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId, displayMessageId: displayMessageId)
     }
 }
 
@@ -944,8 +978,23 @@ extension DeleteQueuedMessage {
 }
 
 extension ErrorMessage {
-    public init(message: String, category: String? = nil) {
-        self.init(type: "error", message: message, category: category)
+    public init(
+        conversationId: String? = nil,
+        requestId: String? = nil,
+        code: String? = nil,
+        message: String,
+        category: String? = nil,
+        errorCategory: String? = nil
+    ) {
+        self.init(
+            type: "error",
+            conversationId: conversationId,
+            requestId: requestId,
+            code: code,
+            message: message,
+            category: category,
+            errorCategory: errorCategory
+        )
     }
 }
 
@@ -1416,6 +1465,7 @@ public enum ConversationErrorCode: String, CaseIterable, Codable, Sendable {
     case regenerateFailed = "REGENERATE_FAILED"
     case authenticationRequired = "AUTHENTICATION_REQUIRED"
     case providerNotConfigured = "PROVIDER_NOT_CONFIGURED"
+    case providerInvalidKey = "PROVIDER_INVALID_KEY"
     case managedKeyInvalid = "MANAGED_KEY_INVALID"
     case unknown = "UNKNOWN"
 
@@ -1442,8 +1492,17 @@ public struct ConversationErrorMessage: Decodable, Sendable {
     /// Contains the message content that failed to send, used to mark
     /// the specific user message as `.sendFailed` in the chat.
     public let failedMessageContent: String?
+    /// Optional `provider_connections.name` for credential-related errors
+    /// (`PROVIDER_INVALID_KEY`, `PROVIDER_NOT_CONFIGURED`). The
+    /// `InvalidApiKeyBanner` / `MissingApiKeyBanner` reads this so the
+    /// surface can name the exact connection to fix.
+    public let connectionName: String?
+    /// Optional name of the resolved profile (`llm.activeProfile` /
+    /// per-call override) in play when the error occurred. Surfaced
+    /// alongside `connectionName` for chat banners.
+    public let profileName: String?
 
-    public init(conversationId: String, code: ConversationErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil) {
+    public init(conversationId: String, code: ConversationErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil, connectionName: String? = nil, profileName: String? = nil) {
         self.conversationId = conversationId
         self.code = code
         self.userMessage = userMessage
@@ -1451,6 +1510,8 @@ public struct ConversationErrorMessage: Decodable, Sendable {
         self.debugDetails = debugDetails
         self.errorCategory = errorCategory
         self.failedMessageContent = failedMessageContent
+        self.connectionName = connectionName
+        self.profileName = profileName
     }
 }
 
@@ -2243,6 +2304,41 @@ public struct MeetSpeakingEndedMessage: Decodable, Sendable, Equatable {
     }
 }
 
+// MARK: - Bookmark events
+//
+// Wire-compatible mirror of `assistant/src/daemon/message-types/bookmarks.ts`.
+// Emitted by `bookmark-routes.ts` after every mutation so other connected
+// clients (e.g. a second macOS window) can refresh their bookmark cache in
+// lock-step. The dotted `type` strings (`bookmark.created` / `bookmark.deleted`)
+// match the daemon's serialization. Each platform client decides how to react
+// — see the platform-specific event subscriber for the translation
+// (e.g. `AppDelegate+ConnectionSetup.swift` on macOS posts a
+// `.bookmarkDidChange` NotificationCenter event).
+
+/// A new bookmark was created on the daemon.
+public struct BookmarkCreatedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let bookmark: BookmarkSummary
+
+    public init(type: String, bookmark: BookmarkSummary) {
+        self.type = type
+        self.bookmark = bookmark
+    }
+}
+
+/// An existing bookmark was deleted on the daemon, identified by the message
+/// it was attached to. Clients typically just refresh their bookmark list on
+/// receipt; the id is included for clients that index by message.
+public struct BookmarkDeletedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let messageId: String
+
+    public init(type: String, messageId: String) {
+        self.type = type
+        self.messageId = messageId
+    }
+}
+
 /// Payload posted back to the daemon with the result of a host CU action execution.
 public struct HostCuResultPayload: Codable, Sendable {
     public let requestId: String
@@ -2586,16 +2682,6 @@ extension ModelGetRequest {
     }
 }
 
-/// Set the active model.
-/// Backed by generated `ModelSetRequest`.
-public typealias ModelSetRequestMessage = ModelSetRequest
-
-extension ModelSetRequest {
-    public init(model: String) {
-        self.init(type: "model_set", model: model)
-    }
-}
-
 /// Set the active image generation model.
 /// Backed by generated `ImageGenModelSetRequest`.
 public typealias ImageGenModelSetRequestMessage = ImageGenModelSetRequest
@@ -2799,6 +2885,7 @@ public struct SubagentAbortMessage: Encodable, Sendable {
 /// Wire type: `"subagent_event"`
 public struct SubagentEventMessage: Decodable, Sendable {
     public let subagentId: String
+    public let conversationId: String?
     public let event: ServerMessage
 }
 
@@ -2817,6 +2904,7 @@ public enum ServerMessage: Decodable, Sendable {
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
     case conversationListInvalidated(ConversationListInvalidatedMessage)
+    case syncChanged(SyncChangedMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
     case memoryRecalled(MemoryRecalledMessage)
@@ -2971,6 +3059,8 @@ public enum ServerMessage: Decodable, Sendable {
     case meetError(MeetErrorMessage)
     case meetSpeakingStarted(MeetSpeakingStartedMessage)
     case meetSpeakingEnded(MeetSpeakingEndedMessage)
+    case bookmarkCreated(BookmarkCreatedMessage)
+    case bookmarkDeleted(BookmarkDeletedMessage)
     case contextCompacted(ContextCompacted)
     case usageUpdate(UsageUpdate)
     case compactionCircuitOpen(CompactionCircuitOpen)
@@ -3338,6 +3428,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_list_invalidated":
             let message = try ConversationListInvalidatedMessage(from: decoder)
             self = .conversationListInvalidated(message)
+        case "sync_changed":
+            let message = try SyncChangedMessage(from: decoder)
+            self = .syncChanged(message)
         case "schedule_conversation_created":
             let message = try ScheduleConversationCreated(from: decoder)
             self = .scheduleConversationCreated(message)
@@ -3527,6 +3620,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "meet.speaking_ended":
             let message = try MeetSpeakingEndedMessage(from: decoder)
             self = .meetSpeakingEnded(message)
+        case "bookmark.created":
+            let message = try BookmarkCreatedMessage(from: decoder)
+            self = .bookmarkCreated(message)
+        case "bookmark.deleted":
+            let message = try BookmarkDeletedMessage(from: decoder)
+            self = .bookmarkDeleted(message)
         case "relationship_state_updated":
             let payloadContainer = try decoder.container(keyedBy: InlinePayloadKeys.self)
             let updatedAt = try payloadContainer.decode(String.self, forKey: .updatedAt)

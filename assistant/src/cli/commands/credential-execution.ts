@@ -29,6 +29,7 @@ import {
 } from "../../credential-execution/client.js";
 import { isCesGrantAuditEnabled } from "../../credential-execution/feature-gates.js";
 import { createCesProcessManager } from "../../credential-execution/process-manager.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
@@ -122,12 +123,12 @@ function printAuditRecordHuman(record: AuditRecordSummary): void {
 // ---------------------------------------------------------------------------
 
 export function registerCredentialExecutionCommand(program: Command): void {
-  const ce = program
-    .command("credential-execution")
-    .description(
-      "Inspect and manage Credential Execution Service (CES) grants and audit records",
-    )
-    .option("--json", "Machine-readable compact JSON output");
+  registerCommand(program, {
+    name: "credential-execution",
+    transport: "local",
+    description: "Inspect and manage Credential Execution Service (CES) grants and audit records",
+    build: (ce) => {
+      ce.option("--json", "Machine-readable compact JSON output");
 
   ce.addHelpText(
     "after",
@@ -356,4 +357,6 @@ Examples:
         }
       },
     );
+    },
+  });
 }

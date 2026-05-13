@@ -6,6 +6,7 @@ import {
   getImmediateChildren,
   indexCatalogById,
   traverseIncludes,
+  validateIncludeCycles,
   validateIncludes,
 } from "../skills/include-graph.js";
 
@@ -295,6 +296,36 @@ describe("validateIncludes — cycle detection", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toBe("missing");
+    }
+  });
+});
+
+describe("validateIncludeCycles", () => {
+  test("skips missing children while still detecting available cycles", () => {
+    const catalog = [
+      makeSkill("root", ["missing", "a"]),
+      makeSkill("a", ["b"]),
+      makeSkill("b", ["a"]),
+    ];
+    const index = indexCatalogById(catalog);
+
+    const result = validateIncludeCycles("root", index);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error === "cycle") {
+      expect(result.cyclePath).toEqual(["a", "b", "a"]);
+    }
+  });
+
+  test("returns success when the only invalid edges are missing children", () => {
+    const catalog = [makeSkill("root", ["missing"])];
+    const index = indexCatalogById(catalog);
+
+    const result = validateIncludeCycles("root", index);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.visited).toEqual(["root"]);
     }
   });
 });

@@ -33,6 +33,7 @@ export type CallEventType =
   | "inbound_acl_name_capture_started"
   | "inbound_acl_name_captured"
   | "inbound_acl_name_capture_timeout"
+  | "inbound_acl_unverified_caller"
   | "inbound_acl_access_approved"
   | "inbound_acl_access_denied"
   | "inbound_acl_access_timeout"

@@ -116,13 +116,13 @@ function defaultCredentials(): Record<string, string> {
 // Setup / teardown
 // ---------------------------------------------------------------------------
 const savedVellumPlatformUrl = process.env.VELLUM_PLATFORM_URL;
-const savedPlatformInternalApiKey = process.env.PLATFORM_INTERNAL_API_KEY;
+const savedAssistantCredential = process.env.ASSISTANT_API_KEY;
 
 beforeEach(() => {
   // Clear env vars that the production code falls back to, so tests remain
   // deterministic unless they explicitly set them.
   delete process.env.VELLUM_PLATFORM_URL;
-  delete process.env.PLATFORM_INTERNAL_API_KEY;
+  delete process.env.ASSISTANT_API_KEY;
   mkdirSync(protectedDir, { recursive: true });
   // Write the test registry and point resolution at it
   writeFileSync(testRegistryPath, JSON.stringify(TEST_REGISTRY, null, 2));
@@ -142,7 +142,7 @@ afterEach(() => {
     }
   };
   restoreEnv("VELLUM_PLATFORM_URL", savedVellumPlatformUrl);
-  restoreEnv("PLATFORM_INTERNAL_API_KEY", savedPlatformInternalApiKey);
+  restoreEnv("ASSISTANT_API_KEY", savedAssistantCredential);
   try {
     rmSync(protectedDir, { recursive: true, force: true });
     mkdirSync(protectedDir, { recursive: true });
@@ -195,7 +195,7 @@ describe("RemoteFeatureFlagSync", () => {
     );
   });
 
-  test("skips sync when assistant_api_key is missing and no PLATFORM_INTERNAL_API_KEY", async () => {
+  test("skips sync when assistant_api_key is missing", async () => {
     const creds = defaultCredentials();
     delete creds["credential/vellum/assistant_api_key"];
 
@@ -205,24 +205,6 @@ describe("RemoteFeatureFlagSync", () => {
     await sync.start();
     sync.stop();
 
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("does not use PLATFORM_INTERNAL_API_KEY when assistant_api_key is missing", async () => {
-    fetchMock = mock(async () => Response.json({ flags: {} }));
-    process.env.PLATFORM_INTERNAL_API_KEY = "internal-key-123";
-
-    const creds = defaultCredentials();
-    delete creds["credential/vellum/assistant_api_key"];
-
-    const sync = new RemoteFeatureFlagSync({
-      credentials: fakeCredentialCache(creds),
-    });
-    await sync.start();
-    sync.stop();
-
-    // PLATFORM_INTERNAL_API_KEY is only for internal gateway endpoints —
-    // feature flag sync requires assistant_api_key (Api-Key auth).
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -241,6 +223,26 @@ describe("RemoteFeatureFlagSync", () => {
     sync.stop();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("falls back to ASSISTANT_API_KEY env var when credential key is missing", async () => {
+    fetchMock = mock(async () => Response.json({ flags: { ff1: true } }));
+    process.env.ASSISTANT_API_KEY = "env-key";
+
+    const creds = {
+      "credential/vellum/platform_base_url": "https://platform.example.com",
+    };
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(creds),
+    });
+    await sync.start();
+    sync.stop();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    const headers = init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Api-Key env-key");
   });
 
   test("fetches and caches flags on successful response", async () => {

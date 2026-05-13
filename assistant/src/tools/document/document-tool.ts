@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 
+import {
+  saveDocument,
+  updateDocumentContent,
+} from "../../documents/document-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 // ── Exported execute functions ──────────────────────────────────────
@@ -11,6 +15,20 @@ export function executeDocumentCreate(
   const title = (input.title as string | undefined) || "Untitled Document";
   const initialContent = (input.initial_content as string | undefined) || "";
   const surfaceId = `doc-${randomUUID()}`;
+
+  // Persist the document so any client (web or macOS) can fetch it via
+  // GET /v1/documents/:id. The macOS client may later update the row
+  // via document_save; ON CONFLICT DO UPDATE handles that.
+  const wordCount = initialContent
+    .split(/\s+/)
+    .filter((w) => w.length > 0).length;
+  saveDocument({
+    surfaceId,
+    conversationId: context.conversationId,
+    title,
+    content: initialContent,
+    wordCount,
+  });
 
   // Send document_editor_show message to open the built-in RTE
   if (context.sendToClient) {
@@ -66,6 +84,8 @@ export function executeDocumentUpdate(
   const surfaceId = input.surface_id as string;
   const content = input.content as string;
   const mode = (input.mode as string | undefined) || "append";
+
+  updateDocumentContent(surfaceId, content, mode);
 
   // Send document_editor_update message to update the built-in RTE
   if (context.sendToClient) {

@@ -34,6 +34,7 @@ export interface CatalogSkill {
   version?: string;
   updatedAt?: string;
   metadata?: {
+    emoji?: string;
     vellum?: {
       "display-name"?: string;
       "activation-hints"?: string[];

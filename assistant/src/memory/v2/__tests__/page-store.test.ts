@@ -62,7 +62,7 @@ afterEach(() => {
 function makePage(overrides: Partial<ConceptPage> = {}): ConceptPage {
   return {
     slug: "alice-preferences",
-    frontmatter: { edges: ["bob-handoff"], ref_files: [] },
+    frontmatter: { edges: ["bob-handoff"], ref_files: [], ref_urls: [] },
     body: "Alice prefers VS Code over Vim.\nShe ships at end of day.\n",
     ...overrides,
   };
@@ -236,6 +236,19 @@ describe("writePage + readPage round-trip", () => {
     expect(read!.frontmatter.edges).toEqual([]);
     expect(read!.frontmatter.ref_files).toEqual([]);
     expect(read!.body).toBe(body);
+  });
+
+  test("readPage throws on unknown frontmatter keys instead of silently dropping them", async () => {
+    const slug = "extra-keys";
+    const raw =
+      "---\nedges: []\nref_files: []\nunknown_field: oops\n---\nbody\n";
+    writeFileSync(
+      join(workspaceDir, "memory", "concepts", `${slug}.md`),
+      raw,
+      "utf-8",
+    );
+
+    await expect(readPage(workspaceDir, slug)).rejects.toThrow();
   });
 
   test("writePage overwrites an existing page", async () => {

@@ -27,6 +27,7 @@ import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
+import { resolveToolNameAlias } from "./tool-name-aliases.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -76,7 +77,12 @@ export class ToolExecutor {
     };
 
     const middlewares = getMiddlewaresFor("toolExecute");
-    const pipelineArgs: ToolExecuteArgs = { name, input, context };
+    const executionName = resolveToolNameAlias(name, context.allowedToolNames);
+    const pipelineArgs: ToolExecuteArgs = {
+      name: executionName,
+      input,
+      context,
+    };
 
     // No pipeline-level timeout: `executeInternal` already wraps the real
     // tool invocation in `executeWithTimeout`, which is the sole enforcer
@@ -107,6 +113,11 @@ export class ToolExecutor {
           riskLevel: string;
           riskReason: string;
           riskScopeOptions: Array<{ pattern: string; label: string }>;
+          riskAllowlistOptions?: Array<{
+            label: string;
+            description: string;
+            pattern: string;
+          }>;
           riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
           isContainerized?: boolean;
         }
@@ -205,6 +216,7 @@ export class ToolExecutor {
             riskLevel: permRiskMeta?.riskLevel,
             riskReason: permRiskMeta?.riskReason,
             riskScopeOptions: permRiskMeta?.riskScopeOptions,
+            riskAllowlistOptions: permRiskMeta?.riskAllowlistOptions,
             riskDirectoryScopeOptions: permRiskMeta?.riskDirectoryScopeOptions,
             isContainerized: permRiskMeta?.isContainerized,
             matchedTrustRuleId: permMatchedTrustRuleId,
@@ -422,12 +434,16 @@ export class ToolExecutor {
           riskLevel: permRiskMeta.riskLevel,
           riskReason: permRiskMeta.riskReason,
           riskScopeOptions: permRiskMeta.riskScopeOptions,
+          riskAllowlistOptions: permRiskMeta.riskAllowlistOptions,
           riskDirectoryScopeOptions: permRiskMeta.riskDirectoryScopeOptions,
           isContainerized: permRiskMeta.isContainerized,
         };
       }
       if (permMatchedTrustRuleId) {
-        execResult = { ...execResult, matchedTrustRuleId: permMatchedTrustRuleId };
+        execResult = {
+          ...execResult,
+          matchedTrustRuleId: permMatchedTrustRuleId,
+        };
       }
       if (permApprovalMode) {
         execResult = { ...execResult, approvalMode: permApprovalMode };

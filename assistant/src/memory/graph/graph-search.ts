@@ -5,7 +5,6 @@
 import { getConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
-import { isMemoryV2ReadActive } from "../context-search/sources/memory-v2.js";
 import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
 import type { EmbeddingInput } from "../embedding-types.js";
 import { embedAndUpsert } from "../job-utils.js";
@@ -46,11 +45,11 @@ export async function searchGraphNodes(
   sparseVector?: QdrantSparseVector,
   dateRange?: { afterMs?: number; beforeMs?: number },
 ): Promise<GraphSearchResult[]> {
-  // v2 owns the read path when both gates are on. The v1 `memory` collection
-  // is in active retirement and a corrupted sparse segment can OOM-crash the
+  // v2 owns the read path when enabled. The v1 `memory` collection is in
+  // active retirement and a corrupted sparse segment can OOM-crash the
   // shared Qdrant process — short-circuiting here keeps v1 background work
   // and stale callers from taking v2 down with them.
-  if (isMemoryV2ReadActive(getConfig())) return [];
+  if (getConfig().memory.v2.enabled) return [];
 
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping graph search");

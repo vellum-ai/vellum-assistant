@@ -15,7 +15,6 @@
 
 import { connect, type Socket } from "node:net";
 
-import { getLogger } from "../logger.js";
 import type { ScopeOption, DirectoryScopeOption } from "../risk/risk-types.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
@@ -49,8 +48,8 @@ interface IpcResponse {
 // ---------------------------------------------------------------------------
 
 /**
- * Error thrown by {@link ipcCallAssistantStrict} when the daemon returns
- * a handler-level error (e.g. a RouteError with statusCode).
+ * Error thrown by {@link ipcCallAssistant} when the daemon returns a
+ * handler-level error (e.g. a RouteError with statusCode).
  */
 export class IpcHandlerError extends Error {
   readonly statusCode: number;
@@ -65,8 +64,8 @@ export class IpcHandlerError extends Error {
 }
 
 /**
- * Error thrown by {@link ipcCallAssistantStrict} when the daemon is
- * unreachable (socket error, timeout, closed before response).
+ * Error thrown by {@link ipcCallAssistant} when the daemon is unreachable
+ * (socket error, timeout, closed before response).
  */
 export class IpcTransportError extends Error {
   constructor(message: string) {
@@ -87,124 +86,19 @@ function getAssistantSocketPath(): string {
 // One-shot IPC call to the assistant
 // ---------------------------------------------------------------------------
 
-const log = getLogger("assistant-client");
-
 /**
  * One-shot IPC helper: connect to assistant.sock, call a method, disconnect.
  *
- * Returns `undefined` on any failure (socket not found, timeout, parse error)
- * so callers can fall back gracefully. Uses a 30-second call timeout to
- * accommodate LLM latency on the assistant side.
+ * - On success: resolves with the result value.
+ * - On handler error (assistant RouteError): throws {@link IpcHandlerError}
+ *   with statusCode and code.
+ * - On transport failure (socket not found, timeout, parse error, closed
+ *   before response): throws {@link IpcTransportError}.
+ *
+ * Uses a 30-second call timeout to accommodate LLM latency on the
+ * assistant side.
  */
 export async function ipcCallAssistant(
-  method: string,
-  params?: Record<string, unknown>,
-): Promise<unknown> {
-  const socketPath = getAssistantSocketPath();
-
-  return new Promise<unknown>((resolve) => {
-    let settled = false;
-    let callTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const finish = (value: unknown) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(connectTimer);
-      if (callTimer) clearTimeout(callTimer);
-      socket.destroy();
-      resolve(value);
-    };
-
-    const connectTimer = setTimeout(() => {
-      log.warn(
-        { method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS },
-        "Assistant IPC connect timed out",
-      );
-      finish(undefined);
-    }, CONNECT_TIMEOUT_MS);
-
-    const socket: Socket = connect(socketPath);
-    socket.unref();
-
-    let buffer = "";
-    const reqId = crypto.randomUUID();
-
-    socket.on("connect", () => {
-      clearTimeout(connectTimer);
-      const req: IpcRequest = { id: reqId, method, params };
-      socket.write(JSON.stringify(req) + "\n");
-
-      callTimer = setTimeout(() => {
-        log.warn(
-          { method, socketPath, timeoutMs: CALL_TIMEOUT_MS },
-          "Assistant IPC call timed out waiting for response",
-        );
-        finish(undefined);
-      }, CALL_TIMEOUT_MS);
-
-      socket.on("data", (chunk) => {
-        buffer += chunk.toString();
-        let newlineIdx: number;
-        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-          const line = buffer.slice(0, newlineIdx).trim();
-          buffer = buffer.slice(newlineIdx + 1);
-          if (!line) continue;
-
-          try {
-            const msg = JSON.parse(line) as IpcResponse;
-            if (msg.id === reqId) {
-              if (msg.error) {
-                log.warn(
-                  { error: msg.error, method },
-                  "Assistant IPC call returned error",
-                );
-                finish(undefined);
-              } else {
-                finish(msg.result);
-              }
-              return;
-            }
-          } catch {
-            // Ignore malformed lines
-          }
-        }
-      });
-    });
-
-    socket.on("error", (err) => {
-      log.warn(
-        {
-          err: err instanceof Error ? err.message : String(err),
-          code: (err as NodeJS.ErrnoException).code ?? "unknown",
-          method,
-          socketPath,
-        },
-        "Assistant IPC socket error",
-      );
-      finish(undefined);
-    });
-
-    socket.on("close", () => {
-      if (!settled) {
-        log.warn(
-          { method, socketPath },
-          "Assistant IPC socket closed before response",
-        );
-      }
-      finish(undefined);
-    });
-  });
-}
-
-/**
- * Strict IPC call that distinguishes handler errors from transport failures.
- *
- * - On success: resolves with the result value.
- * - On handler error (RouteError): throws {@link IpcHandlerError} with
- *   statusCode and code.
- * - On transport failure: throws {@link IpcTransportError}.
- */
-export async function ipcCallAssistantStrict(
   method: string,
   params?: Record<string, unknown>,
 ): Promise<unknown> {

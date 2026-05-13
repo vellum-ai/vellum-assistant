@@ -204,10 +204,30 @@ public final class ChatMessageManager {
     public var pendingQueuedCount: Int = 0
     /// Monotonic counter incremented once per successful main-turn completion
     /// (daemon `message_complete` event that isn't an auxiliary or cancel-ack).
-    /// Observers watch this to fire end-of-turn side effects (e.g. the
-    /// `task_complete` sound) without re-deriving state from transient flags
-    /// that also flip between tool calls.
+    /// Observers watch this for type-agnostic end-of-turn side effects (e.g.
+    /// the inactive-app local notification) without re-deriving state from
+    /// transient flags that also flip between tool calls.
     public var turnCompletionTick: UInt64 = 0
+    /// Count of user-typed sends from this client that are awaiting a matching
+    /// `message_complete`. Incremented in `MessageSendCoordinator.sendUserMessage`
+    /// when `automated == false`, decremented (paired with an
+    /// `interactiveTurnCompletionTick` bump) on each non-aux non-cancel-ack
+    /// `message_complete`, and reset to 0 by cancel paths. Daemon-initiated
+    /// turns (subagents, schedulers, watchers, opportunity wakes) never touch
+    /// this counter, so they cannot trigger the `task_complete` chime.
+    public var pendingUserTurnCount: Int = 0
+    /// Trailing `generation_cancelled` echoes still expected from the
+    /// in-flight cancel batch. Primed by the `wasCancelling=true` branch
+    /// in `handleGenerationCancelled` so later `wasCancelling=false`
+    /// echoes skip the per-message decrement and don't consume
+    /// `pendingUserTurnCount` belonging to sends started after the batch.
+    /// Internal cancel-protocol bookkeeping — not surfaced to views.
+    @ObservationIgnored public var staleCancelEventsExpected: Int = 0
+    /// Monotonic counter that bumps only when a `message_complete` matches a
+    /// pending user-typed send from this client. Observed by
+    /// `ConversationActivityStore` to gate the `task_complete` chime to
+    /// turns the user actually initiated here.
+    public var interactiveTurnCompletionTick: UInt64 = 0
     public var suggestion: String?
     public var isRecording: Bool = false
     public var recordingAmplitude: Float = 0
@@ -251,7 +271,7 @@ public final class ChatMessageManager {
     // MARK: - Model / provider
 
     /// The currently active model ID, updated via `model_info` messages.
-    public var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
+    public var selectedModel: String = LLMProviderRegistry.defaultProvider.defaultModel
     /// Set of provider keys with configured API keys, updated via `model_info` messages.
     public var configuredProviders: Set<String> = ["anthropic"]
     /// Full provider catalog from daemon, updated via `model_info` messages.

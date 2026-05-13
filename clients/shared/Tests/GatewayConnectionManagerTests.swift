@@ -139,4 +139,38 @@ final class GatewayConnectionManagerTests: XCTestCase {
         client.disconnect()
         XCTAssertFalse(client.isConnected)
     }
+
+    // MARK: - setConnected Coalescing
+
+    /// Back-to-back calls within a single `@MainActor` turn collapse to
+    /// the most-recent target; the public property is unchanged until
+    /// the in-flight task drains.
+    func testSetConnectedDefersWritesAndCoalescesToFinalTarget() async {
+        let client = GatewayConnectionManager()
+        XCTAssertFalse(client.isConnected)
+
+        client._testSetConnected(true)
+        client._testSetConnected(false)
+        client._testSetConnected(true)
+        client._testSetConnected(false)
+        client._testSetConnected(true)
+
+        XCTAssertFalse(client.isConnected, "Coalesced writes must not apply within the same actor turn")
+
+        await client._testAwaitPendingConnectedTransitions()
+
+        XCTAssertTrue(client.isConnected, "Final coalesced target should be the last setConnected call")
+    }
+
+    /// A transient flap (true → false) that returns to the original
+    /// value drains as a no-op.
+    func testSetConnectedCoalescesBackToOriginalValueAsNoOp() async {
+        let client = GatewayConnectionManager()
+
+        client._testSetConnected(true)
+        client._testSetConnected(false)
+        await client._testAwaitPendingConnectedTransitions()
+
+        XCTAssertFalse(client.isConnected, "Coalesced apply with final target equal to prior value is a no-op")
+    }
 }

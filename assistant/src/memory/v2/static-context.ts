@@ -18,7 +18,6 @@
 // matching the existing PKB auto-inject pattern.
 
 import type { ChannelId } from "../../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { loadConfig } from "../../config/loader.js";
 import { readPromptFile } from "../../prompts/system-prompt.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
@@ -36,9 +35,9 @@ const MEMORY_V2_STATIC_BLOCKS: readonly MemoryV2StaticBlock[] = [
 ];
 
 /**
- * Build the v2 static memory block, gated on `memory-v2-enabled` +
- * `config.memory.v2.enabled`. Empty/missing files are skipped; returns
- * `null` when the gate is off or every file is empty.
+ * Build the v2 static memory block, gated on `config.memory.v2.enabled`.
+ * Empty/missing files are skipped; returns `null` when the gate is off or
+ * every file is empty.
  */
 export function readMemoryV2StaticContent(): string | null {
   let config;
@@ -47,10 +46,7 @@ export function readMemoryV2StaticContent(): string | null {
   } catch {
     return null;
   }
-  if (
-    !isAssistantFeatureFlagEnabled("memory-v2-enabled", config) ||
-    !config.memory.v2.enabled
-  ) {
+  if (!config.memory.v2.enabled) {
     return null;
   }
 
@@ -64,19 +60,26 @@ export function readMemoryV2StaticContent(): string | null {
 }
 
 /**
- * Static memory holds the user's aggregate personal pages
- * (essentials/threads/recent/buffer). Block injection when a non-guardian
- * actor reaches the assistant over a remote channel — otherwise the model
- * can be prompt-injected into reciting private memory. Internal flows
- * (`sourceChannel: "vellum"`) and turns with no trust context pass through
- * unchanged; this gate exists only to keep remote untrusted actors out.
+ * Trust-class predicate for personal-memory injection. Personal memory
+ * spans v2 static blocks (essentials/threads/recent/buffer), the PKB
+ * context, and NOW.md — all of which can hold private user content. Block
+ * injection when a non-guardian actor reaches the assistant over a remote
+ * channel — otherwise the model can be prompt-injected into reciting
+ * private memory. Internal flows (`sourceChannel: "vellum"`) and turns
+ * with no trust context pass through unchanged; this gate exists only to
+ * keep remote untrusted actors out.
+ *
+ * This is the trust-only gate. Cadence (first-turn / post-compaction) is
+ * applied separately by the caller so that the freshest content remains
+ * available for re-injection after a mid-turn reducer-triggered compaction
+ * — the initial-injection turn may not have been a `shouldInjectNowAndPkb`
+ * turn, but compaction strips the existing personal-memory blocks and we
+ * still need the freshest content to re-inject.
  */
-export function shouldLoadMemoryV2Static(args: {
-  shouldInjectNowAndPkb: boolean;
+export function shouldExposePersonalMemory(args: {
   sourceChannel: ChannelId | undefined;
   isTrustedActor: boolean;
 }): boolean {
-  if (!args.shouldInjectNowAndPkb) return false;
   const isRemoteUntrustedActor =
     args.sourceChannel !== undefined &&
     args.sourceChannel !== "vellum" &&

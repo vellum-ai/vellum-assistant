@@ -162,7 +162,7 @@ struct ChatConversationErrorToast: View {
             return .refreshCw
         case .authenticationRequired:
             return .lock
-        case .providerNotConfigured, .managedKeyInvalid:
+        case .providerNotConfigured, .providerInvalidKey, .managedKeyInvalid:
             return .keyRound
         case .unknown:
             return .circleAlert
@@ -203,20 +203,22 @@ struct ChatConversationErrorToast: View {
     }
 }
 
-// MARK: - Credits Exhausted Banner
+// MARK: - Above Composer Action Banner
 
-/// Inline banner shown when the user's credits are exhausted.
-/// Uses a warm, encouraging tone with a visual gauge and clear CTA.
-struct CreditsExhaustedBanner: View {
-    let onAddFunds: () -> Void
+private struct AboveComposerActionBanner: View {
+    let title: String
+    let subtitle: String
+    let actionLabel: String
+    let signpost: StaticString
+    let onAction: () -> Void
 
     var body: some View {
         HStack(spacing: VSpacing.xl) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("💰  Your balance has run out")
+                Text(title)
                     .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentEmphasized)
-                Text("Add funds to pick up where you left off.")
+                Text(subtitle)
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
@@ -224,8 +226,8 @@ struct CreditsExhaustedBanner: View {
 
             Spacer(minLength: 0)
 
-            VButton(label: "Add Funds", style: .primary) {
-                onAddFunds()
+            VButton(label: actionLabel, style: .primary) {
+                onAction()
             }
         }
         .padding(VSpacing.lg)
@@ -239,7 +241,45 @@ struct CreditsExhaustedBanner: View {
             )
         )
         .transition(.move(edge: .bottom).combined(with: .opacity))
-        .layoutHangSignpost("chat.creditsExhaustedBanner")
+        .layoutHangSignpost(signpost)
+    }
+}
+
+// MARK: - Credits Exhausted Banner
+
+/// Inline banner shown when the user's credits are exhausted.
+/// Uses a warm, encouraging tone with a visual gauge and clear CTA.
+struct CreditsExhaustedBanner: View {
+    let onAddFunds: () -> Void
+
+    var body: some View {
+        AboveComposerActionBanner(
+            title: "💰  Your balance has run out",
+            subtitle: "Add funds to pick up where you left off.",
+            actionLabel: "Add Funds",
+            signpost: "chat.creditsExhaustedBanner",
+            onAction: onAddFunds
+        )
+    }
+}
+
+// MARK: - Provider Billing Banner
+
+/// Inline banner shown when the user's configured provider reports
+/// account or API-key billing trouble.
+/// This intentionally mirrors the managed credits blocker: there is no manual
+/// dismiss action because the banner clears with the conversation error state.
+struct ProviderBillingBanner: View {
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        AboveComposerActionBanner(
+            title: "Your API key needs credits",
+            subtitle: "Add funds with your provider or lower the model token limit.",
+            actionLabel: "Open Settings",
+            signpost: "chat.providerBillingBanner",
+            onAction: onOpenSettings
+        )
     }
 }
 
@@ -329,5 +369,75 @@ struct MissingApiKeyBanner: View {
         )
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .layoutHangSignpost("chat.missingApiKeyBanner")
+    }
+}
+
+// MARK: - Invalid API Key Banner
+
+/// Inline banner shown when the upstream provider rejected the configured API
+/// key (`PROVIDER_INVALID_KEY` — e.g. Anthropic returned 401). Distinct from
+/// `MissingApiKeyBanner` (key never set): the copy and CTA tell the user the
+/// key is wrong / expired and to UPDATE it, rather than to ADD one. When the
+/// daemon attributes the failure to a specific connection or profile, the
+/// subtitle names it so the user knows which slot to fix.
+struct InvalidApiKeyBanner: View {
+    /// Optional name of the `provider_connections.name` whose key the
+    /// provider rejected. Surfaced in the subtitle when present.
+    let connectionName: String?
+    /// Optional name of the resolved profile in play. Preferred over
+    /// `connectionName` in subtitle copy because the profile is what the
+    /// user picks in the chat profile picker.
+    let profileName: String?
+    let onOpenSettings: () -> Void
+    let onDismiss: (() -> Void)?
+
+    private var subtitle: String {
+        if let profileName, !profileName.isEmpty {
+            return "The API key for profile \u{201C}\(profileName)\u{201D} was rejected by the provider. Update it in Settings."
+        }
+        if let connectionName, !connectionName.isEmpty {
+            return "The API key for connection \u{201C}\(connectionName)\u{201D} was rejected by the provider. Update it in Settings."
+        }
+        return "The API key was rejected by the provider. Update it in Settings."
+    }
+
+    var body: some View {
+        VStack(spacing: VSpacing.md) {
+            HStack {
+                Spacer()
+                Button { onDismiss?() } label: {
+                    VIconView(.x, size: 12)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
+            }
+
+            VStack(spacing: VSpacing.xs) {
+                Text("Invalid API key")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentEmphasized)
+                Text(subtitle)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VButton(label: "Open Settings", style: .primary, isFullWidth: true) {
+                onOpenSettings()
+            }
+        }
+        .padding(VSpacing.lg)
+        .background(VColor.surfaceActive)
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: VRadius.lg,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: VRadius.lg
+            )
+        )
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .layoutHangSignpost("chat.invalidApiKeyBanner")
     }
 }

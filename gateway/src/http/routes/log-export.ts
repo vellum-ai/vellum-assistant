@@ -30,7 +30,11 @@ import { fetchCesLogExport } from "@vellumai/ces-client/http-log-export";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
-import { getLogger, LOG_FILE_PATTERN } from "../../logger.js";
+import {
+  getLogger,
+  LOG_FILE_JSON_PATTERN,
+  LOG_FILE_PATTERN,
+} from "../../logger.js";
 
 const log = getLogger("log-export");
 
@@ -253,14 +257,31 @@ async function collectGatewayLogs(
   const startDate = startTime ? new Date(startTime) : undefined;
   const endDate = endTime ? new Date(endTime) : undefined;
 
-  const entries = readdirSync(logDir);
+  // Deterministic ordering: newest date first; within a date, JSONL before
+  // pretty .log. Under the 10 MB cap this guarantees the machine-parseable
+  // file lands in the bundle even if its pretty sibling would push us over —
+  // tooling consumers stay functional, humans degrade gracefully.
+  type Candidate = { name: string; dateStr: string; isJsonl: boolean };
+  const candidates: Candidate[] = [];
+  for (const name of readdirSync(logDir)) {
+    const jsonlMatch = LOG_FILE_JSON_PATTERN.exec(name);
+    if (jsonlMatch) {
+      candidates.push({ name, dateStr: jsonlMatch[1], isJsonl: true });
+      continue;
+    }
+    const prettyMatch = LOG_FILE_PATTERN.exec(name);
+    if (prettyMatch) {
+      candidates.push({ name, dateStr: prettyMatch[1], isJsonl: false });
+    }
+  }
+  candidates.sort((a, b) => {
+    if (a.dateStr !== b.dateStr) return b.dateStr.localeCompare(a.dateStr);
+    return Number(b.isJsonl) - Number(a.isJsonl);
+  });
+
   let totalBytes = 0;
 
-  for (const name of entries) {
-    const match = LOG_FILE_PATTERN.exec(name);
-    if (!match) continue;
-
-    const fileDateStr = match[1];
+  for (const { name, dateStr: fileDateStr } of candidates) {
     const fileDate = new Date(fileDateStr + "T00:00:00Z");
 
     // Filter by date range when provided

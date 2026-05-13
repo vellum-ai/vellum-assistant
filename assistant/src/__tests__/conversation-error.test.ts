@@ -305,6 +305,44 @@ describe("classifyConversationError", () => {
     });
   });
 
+  describe("image-input dimension errors via ProviderError (400)", () => {
+    it("classifies Anthropic 400 with image-dimension overflow as image_dimensions_too_large (non-retryable)", () => {
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.8.content.3.image.source.base64.data: At least one of the image dimensions exceed max allowed size: 8000 pixels"},"request_id":"req_011CaoaGzPXNs2dxAWegSg9D"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
+      expect(result.errorCategory).toBe("image_dimensions_too_large");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("image");
+      expect(result.userMessage).toContain("8000");
+    });
+
+    it("matches the singular 'image dimension exceeds' phrasing as well", () => {
+      const err = new ProviderError(
+        "image dimension exceeds max allowed size: 8000 pixels",
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.errorCategory).toBe("image_dimensions_too_large");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("does not steal generic 400s that happen to mention 'image'", () => {
+      const err = new ProviderError(
+        "invalid request: image source is missing",
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.errorCategory).toBe("provider_api_error");
+      expect(result.retryable).toBe(true);
+    });
+  });
+
   describe("ordering errors (tool_use/tool_result mismatches)", () => {
     const cases = [
       "tool_result block not immediately after tool_use block",
@@ -558,19 +596,58 @@ describe("classifyConversationError", () => {
       expect(result.retryable).toBe(true);
     });
 
-    it("classifies ProviderError with 401 as PROVIDER_NOT_CONFIGURED (non-retryable)", () => {
+    it("classifies ProviderError with 401 as PROVIDER_INVALID_KEY (non-retryable)", () => {
+      // 401 means the upstream provider rejected the configured key
+      // (vs. PROVIDER_NOT_CONFIGURED which is for a never-set key).
+      // The macOS chat renders these on different banners.
       const err = new ProviderError("Unauthorized", "anthropic", 401);
       const result = classifyConversationError(err, baseCtx);
-      expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.retryable).toBe(false);
-      expect(result.errorCategory).toBe("provider_not_configured");
+      expect(result.errorCategory).toBe("provider_invalid_key");
     });
 
-    it("classifies ProviderError with 402 as credits_exhausted (non-retryable)", () => {
+    it("classifies ProviderError 401 with 'invalid x-api-key' message as PROVIDER_INVALID_KEY", () => {
+      // Regex-match branch — Anthropic's standard 401 wording.
+      const err = new ProviderError(
+        "Anthropic API error: invalid x-api-key",
+        "anthropic",
+        401,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+
+    it("classifies ProviderError 403 with 'invalid api key' message as PROVIDER_INVALID_KEY", () => {
+      const err = new ProviderError(
+        "OpenAI: Invalid API key",
+        "openai",
+        403,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+
+    it("includes connection/profile attribution in PROVIDER_INVALID_KEY when provided", () => {
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "my-anthropic",
+        profileName: "personal",
+      });
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.connectionName).toBe("my-anthropic");
+      expect(result.profileName).toBe("personal");
+      expect(result.userMessage).toContain("personal");
+    });
+
+    it("classifies direct ProviderError with 402 as provider_billing (non-retryable)", () => {
       const err = new ProviderError("Payment Required", "anthropic", 402);
       const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_BILLING");
-      expect(result.errorCategory).toBe("credits_exhausted");
+      expect(result.errorCategory).toBe("provider_billing");
       expect(result.retryable).toBe(false);
     });
 
@@ -614,6 +691,96 @@ describe("classifyConversationError", () => {
         expect(result.errorCategory).toBeDefined();
         expect(result.errorCategory.length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  describe("OpenRouter billing classification", () => {
+    it("keeps managed-proxy OpenRouter 402 responses as credits_exhausted", () => {
+      providerRoutingSources.openrouter = "managed-proxy";
+      const err = new ProviderError(
+        "OpenRouter API error (402): Payment Required",
+        "openrouter",
+        402,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("credits_exhausted");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("Add funds");
+      expect(result.userMessage).toContain("assistant");
+    });
+
+    it("classifies direct Anthropic, OpenAI, and OpenRouter 402 responses as provider_billing", () => {
+      providerRoutingSources.anthropic = "user-key";
+      providerRoutingSources.openai = "user-key";
+      providerRoutingSources.openrouter = "user-key";
+
+      for (const provider of ["anthropic", "openai", "openrouter"]) {
+        const err = new ProviderError(
+          `${provider} API error (402): Payment Required`,
+          provider,
+          402,
+        );
+
+        const result = classifyConversationError(err, baseCtx);
+
+        expect(result.code).toBe("PROVIDER_BILLING");
+        expect(result.errorCategory).toBe("provider_billing");
+        expect(result.retryable).toBe(false);
+        expect(result.userMessage).toContain("provider");
+        expect(result.userMessage).toContain("Settings");
+      }
+    });
+
+    it("classifies OpenRouter 400 credit-limit messages as provider_billing", () => {
+      const cases = [
+        "OpenRouter API error (400): This request requires more credits",
+        "OpenRouter API error (400): You can only afford 1000 tokens",
+      ];
+
+      for (const message of cases) {
+        const err = new ProviderError(message, "openrouter", 400);
+
+        const result = classifyConversationError(err, baseCtx);
+
+        expect(result.code).toBe("PROVIDER_BILLING");
+        expect(result.errorCategory).toBe("provider_billing");
+        expect(result.retryable).toBe(false);
+      }
+    });
+
+    it("classifies managed-proxy OpenRouter insufficient_balance bodies as credits_exhausted", () => {
+      providerRoutingSources.openrouter = "managed-proxy";
+      const err = new ProviderError(
+        'OpenRouter API error (402): {"code":"insufficient_balance","detail":"Managed balance exhausted"}',
+        "openrouter",
+        402,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("credits_exhausted");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("classifies direct OpenRouter insufficient_balance bodies as provider_billing", () => {
+      providerRoutingSources.openrouter = "user-key";
+      const err = new ProviderError(
+        'OpenRouter API error (402): {"code":"insufficient_balance","detail":"Provider account balance exhausted"}',
+        "openrouter",
+        402,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("provider_billing");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("provider");
+      expect(result.userMessage).toContain("Settings");
     });
   });
 

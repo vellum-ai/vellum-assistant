@@ -447,6 +447,7 @@ extension ChatViewModel {
             messages[msgIndex].toolCalls[tcIndex].riskThreshold = msg.riskThreshold
             if let containerized = msg.isContainerized { messages[msgIndex].toolCalls[tcIndex].isContainerized = containerized }
             messages[msgIndex].toolCalls[tcIndex].riskScopeOptions = msg.riskScopeOptions
+            messages[msgIndex].toolCalls[tcIndex].riskAllowlistOptions = msg.riskAllowlistOptions
             messages[msgIndex].toolCalls[tcIndex].riskDirectoryScopeOptions = msg.riskDirectoryScopeOptions
             if let status = msg.status, !status.isEmpty {
                 messages[msgIndex].toolCalls[tcIndex].buildingStatus = status

@@ -4,6 +4,7 @@
  * can delegate without exposing its full surface.
  */
 
+import { getConfig } from "../config/loader.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
 import type { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
@@ -16,6 +17,8 @@ import {
   type MessageRow,
 } from "../memory/conversation-crud.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
+import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -29,12 +32,14 @@ import { getLogger } from "../util/logger.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
+import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { repairHistory } from "./history-repair.js";
 import type {
   SurfaceData,
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
+import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-lifecycle");
 
@@ -111,8 +116,9 @@ export interface LoadFromDbContext {
   usageStats: UsageStats;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
-  trustContext?: { trustClass: TrustClass };
+  trustContext?: TrustContext;
   loadedHistoryTrustClass?: TrustClass;
+  loadedHistoryPersonalMemoryAllowed?: boolean;
 }
 
 export interface AbortContext {
@@ -182,6 +188,16 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
   }
 
+  // Mirror the injection-time gate (`shouldExposePersonalMemory` in
+  // `conversation-agent-loop.ts`) so background/local conversations
+  // (sourceChannel `undefined` or `"vellum"`) can rehydrate the persisted
+  // v2 static memory block. Use `resolveTrustClass` for parity with the
+  // agent loop — it folds in the HTTP-auth-disabled dev bypass so
+  // rehydration and injection agree on the effective trust class.
+  const personalMemoryAllowed = shouldExposePersonalMemory({
+    sourceChannel: ctx.trustContext?.sourceChannel,
+    isTrustedActor: resolveTrustClass(ctx.trustContext) === "guardian",
+  });
   const parsedMessages: Message[] = dbMessages
     .slice(ctx.contextCompactedMessageCount)
     .map((m, index, arr) => {
@@ -209,20 +225,19 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           const meta = JSON.parse(m.metadata);
           const isTail = index === arr.length - 1;
 
-          // All rehydration steps are prepends — the ordering below
-          // (innermost block first, outermost last) builds the documented
-          // shape right-to-left, since each prepend shifts previously-
-          // prepended blocks one slot right:
-          //   [<workspace>, <turn_context>, <NOW.md>, <memory __injected>,
-          //    <system_reminder>, <knowledge_base>, ...original]
-          //
-          // Persisted non-tail rows rehydrate the full set so Anthropic's
-          // prefix cache keeps matching msg[0] across daemon restarts and
-          // conversation eviction. The tail row gets fresh blocks via
-          // applyRuntimeInjections on the next turn, so rehydration for the
-          // tail is limited to blocks that the next turn's injection pipeline
-          // cannot reconstruct (currently just `memoryInjectedBlock`, which
-          // is not always re-injected on the next turn).
+          // Rehydrate in reverse injection order (innermost block first)
+          // so the resulting layout matches `applyRuntimeInjections`'s
+          // after-memory-prefix splices in ascending injector order
+          // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
+          // now-md 40 — the v2 static block lands inside the memory
+          // prefix, so now-md splices *after* it):
+          //   [<workspace>, <turn_context>, <memory __injected>,
+          //    <memory>\n…</memory>, <NOW.md>, <system_reminder>,
+          //    <knowledge_base>, ...original]
+          // Required so Anthropic's prefix cache keeps matching msg[0]
+          // across daemon restart and conversation eviction. The tail
+          // row only rehydrates `memoryInjectedBlock` — the next turn
+          // re-injects the rest fresh.
           if (!isTail && typeof meta.pkbContextBlock === "string") {
             content = [
               { type: "text" as const, text: meta.pkbContextBlock },
@@ -237,27 +252,49 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
             ];
           }
 
+          if (!isTail && typeof meta.nowScratchpadBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.nowScratchpadBlock },
+              ...content,
+            ];
+          }
+
+          // The v2 static memory block (essentials/threads/recent/buffer
+          // wrapped in `<memory>…</memory>`) carries personal user memory.
+          // Trust-gated to mirror `shouldExposePersonalMemory` at injection
+          // time — untrusted-actor views must not read persisted personal
+          // memory back through metadata. Skipped on the tail row because
+          // the next turn re-injects fresh content on full-mode turns.
+          if (
+            !isTail &&
+            personalMemoryAllowed &&
+            typeof meta.memoryV2StaticBlock === "string"
+          ) {
+            content = [
+              { type: "text" as const, text: meta.memoryV2StaticBlock },
+              ...content,
+            ];
+          }
+
           // Memory remains rehydrated on all rows (existing behavior).
           // Strip any pre-existing wrapper before re-wrapping so historical
           // rows persisted with the wrapper (v2 path before the
           // injectedBlockText contract was unified with v1's unwrapped form)
-          // don't render double-wrapped after rehydrate.
+          // don't render double-wrapped after rehydrate. Only unwrap when
+          // the full <memory>...</memory> pair is present so we don't mutate
+          // legitimate unwrapped payloads that happen to start with
+          // "<memory>\n" or end with "\n</memory>".
           if (typeof meta.memoryInjectedBlock === "string") {
-            const inner = meta.memoryInjectedBlock
-              .replace(/^<memory>\n/, "")
-              .replace(/\n<\/memory>$/, "");
+            const block = meta.memoryInjectedBlock;
+            const inner =
+              block.startsWith("<memory>\n") && block.endsWith("\n</memory>")
+                ? block.slice("<memory>\n".length, -"\n</memory>".length)
+                : block;
             content = [
               {
                 type: "text" as const,
                 text: `<memory>\n${inner}\n</memory>`,
               },
-              ...content,
-            ];
-          }
-
-          if (!isTail && typeof meta.nowScratchpadBlock === "string") {
-            content = [
-              { type: "text" as const, text: meta.nowScratchpadBlock },
               ...content,
             ];
           }
@@ -310,6 +347,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
   }
 
   ctx.loadedHistoryTrustClass = trustClass;
+  ctx.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
 
   log.info(
     { conversationId: ctx.conversationId, count: ctx.messages.length },
@@ -373,13 +411,43 @@ export function disposeConversation(ctx: DisposeContext): void {
       // Best-effort — don't block conversation disposal
     }
     if (!isAutoAnalysis) {
+      // Suppress v1 graph extraction when memory v2 is active — v2 reads
+      // from buffer.md and concept pages, so the v1 graph would be stale
+      // data nobody consumes. Mirrors the gate applied in `indexer.ts`
+      // for the per-message indexing path. Fail open to v1 if config
+      // can't load, since the worker handler also short-circuits.
+      let v2Enabled = false;
       try {
-        enqueueMemoryJob("graph_extract", {
+        v2Enabled = getConfig().memory.v2.enabled;
+      } catch {
+        // Best-effort — fall through to legacy v1 enqueue
+      }
+      if (!v2Enabled) {
+        try {
+          enqueueMemoryJob("graph_extract", {
+            conversationId: ctx.conversationId,
+            scopeId: "default",
+            ...(ctx.activeContextNodeIds?.length
+              ? { activeContextNodeIds: ctx.activeContextNodeIds }
+              : {}),
+          });
+        } catch {
+          // Best-effort — don't block conversation disposal
+        }
+      }
+
+      try {
+        // Memory-retrospective lifecycle safety-net. The periodic triggers
+        // (interval / message_count / pre-compaction) handle the common
+        // path; lifecycle catches the gap between the last interval fire
+        // and conversation eviction. The job's `no_new_messages` early
+        // return makes this a cheap no-op when the periodic path already
+        // covered things. Lives inside the `!isAutoAnalysis` guard so
+        // auto-analysis conversations don't trigger retrospective enqueues
+        // on disposal — mirrors the indexer-time gate in `indexer.ts`.
+        enqueueMemoryRetrospectiveIfEnabled({
           conversationId: ctx.conversationId,
-          scopeId: "default",
-          ...(ctx.activeContextNodeIds?.length
-            ? { activeContextNodeIds: ctx.activeContextNodeIds }
-            : {}),
+          trigger: "lifecycle",
         });
       } catch {
         // Best-effort — don't block conversation disposal

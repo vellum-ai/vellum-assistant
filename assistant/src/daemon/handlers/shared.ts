@@ -63,6 +63,20 @@ export interface HistoryToolCall {
   approvalReason?: string;
   /** Snapshot of the auto-approve threshold at execution time. */
   riskThreshold?: string;
+  /**
+   * Display-only regex ladder for the rule editor (narrowest → broadest).
+   * Persisted on tool_use blocks by `annotatePersistedAssistantMessage` so
+   * historical chips render the same ladder as live tool_result events.
+   */
+  riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  /** Minimatch save patterns for the rule editor (narrowest → broadest). */
+  riskAllowlistOptions?: Array<{
+    label: string;
+    description: string;
+    pattern: string;
+  }>;
+  /** Directory scope ladder for the rule editor. */
+  riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
 }
 
 export interface HistorySurface {
@@ -368,6 +382,18 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         entry.approvalReason = block._approvalReason;
       if (typeof block._riskThreshold === "string")
         entry.riskThreshold = block._riskThreshold;
+      // Read back the 3 risk-option arrays persisted by
+      // `annotatePersistedAssistantMessage`. Validate the array shape only
+      // — element shapes are best-effort (we trust our own writer).
+      if (Array.isArray(block._riskScopeOptions))
+        entry.riskScopeOptions =
+          block._riskScopeOptions as HistoryToolCall["riskScopeOptions"];
+      if (Array.isArray(block._riskAllowlistOptions))
+        entry.riskAllowlistOptions =
+          block._riskAllowlistOptions as HistoryToolCall["riskAllowlistOptions"];
+      if (Array.isArray(block._riskDirectoryScopeOptions))
+        entry.riskDirectoryScopeOptions =
+          block._riskDirectoryScopeOptions as HistoryToolCall["riskDirectoryScopeOptions"];
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);

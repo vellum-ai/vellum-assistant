@@ -30,6 +30,14 @@ mock.module("../memory/conversation-disk-view.js", () => ({
   updateMetaFile: () => {},
 }));
 
+const broadcastMessages: unknown[] = [];
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: unknown) => {
+    broadcastMessages.push(msg);
+  },
+}));
+
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   bridgeConfirmationRequestToGuardian: () => {},
 }));
@@ -137,6 +145,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { conversationMessagesSyncTag } from "../daemon/message-types/sync.js";
 import {
   processMessage,
   processMessageInBackground,
@@ -240,6 +249,7 @@ describe("processMessageInBackground Slack option propagation", () => {
   beforeEach(() => {
     activeConversation = makeConversation();
     mergeConversationOptionsMock.mockClear();
+    broadcastMessages.length = 0;
   });
 
   test("passes Slack inbound metadata to persistence and exposes the runtime notice during the loop", async () => {
@@ -307,6 +317,49 @@ describe("processMessageInBackground Slack option propagation", () => {
 
     expect(activeConversation.__noticeCalls).toEqual([notice, undefined]);
     expect(activeConversation.__clientSenders).toHaveLength(2);
+  });
+
+  test("observes live agent events without replacing the broadcast emitter", async () => {
+    const observedMessages: unknown[] = [];
+
+    const processing = processMessage(
+      "conv-background-slack",
+      "Reply from Slack",
+      undefined,
+      {
+        onEvent: (msg) => {
+          observedMessages.push(msg);
+        },
+      },
+      "slack",
+      "slack",
+    );
+
+    await waitForRunAgentLoopCall();
+
+    const loopOnEvent = activeConversation.runAgentLoop.mock.calls[0][2] as
+      | ((msg: unknown) => void)
+      | undefined;
+    const delta = {
+      type: "assistant_text_delta",
+      text: "Working on it.",
+      conversationId: "conv-background-slack",
+    };
+    loopOnEvent?.(delta);
+
+    expect(broadcastMessages).toEqual([
+      {
+        type: "sync_changed",
+        tags: [conversationMessagesSyncTag("conv-background-slack")],
+      },
+      delta,
+    ]);
+    expect(observedMessages).toEqual([delta]);
+
+    activeConversation.__loopDeferred.resolve();
+    await expect(processing).resolves.toEqual({
+      messageId: "persisted-user-message-id",
+    });
   });
 
   test("leaves non-Slack background persistence metadata absent", async () => {

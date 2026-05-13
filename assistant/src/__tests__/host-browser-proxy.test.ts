@@ -11,22 +11,34 @@ mock.module("../util/logger.js", () => ({
 
 /** Events published through the mock event hub. */
 let publishedEvents: unknown[] = [];
-let mockHasConnection = true;
+
+/**
+ * Per-test client roster. Drives `listClientsByCapability` and
+ * `getMostRecentClientByCapability` — the two hub methods the proxy
+ * uses for client resolution. Order matters: the first entry whose
+ * capabilities include the requested cap is the "most recent", which
+ * matches the production `listClientsByCapability` contract of
+ * returning clients in `lastActiveAt`-desc order.
+ */
+type MockClient = {
+  clientId: string;
+  interfaceId: "chrome-extension" | "macos";
+  actorPrincipalId?: string;
+  capabilities: string[];
+};
+let mockClients: MockClient[] = [];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     publish: async (event: unknown, _options?: unknown) => {
       publishedEvents.push(event);
     },
-    getPreferredClientByCapability: (cap: string, _preference?: unknown) =>
-      cap === "host_browser" && mockHasConnection
-        ? {
-            type: "client",
-            clientId: "test-client",
-            interfaceId: "macos",
-            capabilities: ["host_browser"],
-          }
-        : undefined,
+    getMostRecentClientByCapability: (cap: string) =>
+      mockClients.find((c) => c.capabilities.includes(cap)),
+    listClientsByCapability: (cap: string) =>
+      mockClients.filter((c) => c.capabilities.includes(cap)),
+    getActorPrincipalIdForClient: (clientId: string) =>
+      mockClients.find((c) => c.clientId === clientId)?.actorPrincipalId,
   },
   broadcastMessage: (msg: unknown) => {
     publishedEvents.push(msg);
@@ -43,16 +55,39 @@ function getPublishedMessages(): unknown[] {
   return publishedEvents;
 }
 
+/**
+ * Simulate the HTTP route resolving a host_browser result. Mirrors what
+ * `resolveHostBrowserResultByRequestId` does after its guards pass: consume
+ * the pending interaction and invoke `rpcResolve` with the response.
+ */
+function resolveResult(
+  requestId: string,
+  response: { content: string; isError: boolean },
+): void {
+  const interaction = pendingInteractions.resolve(requestId);
+  interaction?.rpcResolve?.(response);
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("HostBrowserProxy", () => {
   let proxy: InstanceType<typeof HostBrowserProxy>;
 
+  /**
+   * A single anonymous host_browser client, used as the default fixture
+   * for tests that don't care about actor identity.
+   */
+  const DEFAULT_CLIENT: MockClient = {
+    clientId: "test-client",
+    interfaceId: "macos",
+    capabilities: ["host_browser"],
+  };
+
   beforeEach(() => {
     HostBrowserProxy.reset();
     pendingInteractions.clear();
     publishedEvents = [];
-    mockHasConnection = true;
+    mockClients = [DEFAULT_CLIENT];
     proxy = HostBrowserProxy.instance;
   });
 
@@ -82,7 +117,7 @@ describe("HostBrowserProxy", () => {
       const requestId = sent.requestId as string;
       expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
 
       const result = await resultPromise;
       expect(result.content).toBe("ok");
@@ -110,7 +145,7 @@ describe("HostBrowserProxy", () => {
       });
       expect(sent.cdpSessionId).toBe("session-abc");
 
-      proxy.resolveResult(sent.requestId as string, {
+      resolveResult(sent.requestId as string, {
         content: "Example Domain",
         isError: false,
       });
@@ -125,7 +160,7 @@ describe("HostBrowserProxy", () => {
       );
 
       const sent = getPublishedMessages()[0] as Record<string, unknown>;
-      proxy.resolveResult(sent.requestId as string, {
+      resolveResult(sent.requestId as string, {
         content: "Navigation failed",
         isError: true,
       });
@@ -147,7 +182,7 @@ describe("HostBrowserProxy", () => {
       const requestId = sent.requestId as string;
       expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
 
       expect(pendingInteractions.get(requestId)).toBeUndefined();
       await resultPromise;
@@ -223,12 +258,12 @@ describe("HostBrowserProxy", () => {
 
   describe("isAvailable", () => {
     test("returns true when a connection exists in the registry", () => {
-      mockHasConnection = true;
+      mockClients = [DEFAULT_CLIENT];
       expect(proxy.isAvailable()).toBe(true);
     });
 
     test("returns false when no connection exists", () => {
-      mockHasConnection = false;
+      mockClients = [];
       expect(proxy.isAvailable()).toBe(false);
     });
   });
@@ -272,13 +307,13 @@ describe("HostBrowserProxy", () => {
 
   describe("resolve with unknown requestId", () => {
     test("silently ignores unknown requestId", () => {
-      proxy.resolveResult("nonexistent", { content: "stale", isError: false });
+      resolveResult("nonexistent", { content: "stale", isError: false });
     });
   });
 
   describe("send failure", () => {
     test("rejects when no connection exists at send time", async () => {
-      mockHasConnection = false;
+      mockClients = [];
 
       const resultPromise = proxy.request(
         { cdpMethod: "Page.navigate", cdpParams: { url: "https://x.test" } },
@@ -344,7 +379,7 @@ describe("HostBrowserProxy", () => {
 
       const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
         .requestId as string;
-      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      resolveResult(requestId, { content: "ok", isError: false });
       await resultPromise;
 
       expect(spy.removeCalls).toEqual(["abort"]);
@@ -367,6 +402,367 @@ describe("HostBrowserProxy", () => {
       proxy.dispose();
 
       expect(spy.removeCalls).toEqual(["abort"]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Same-actor binding (cross-user enforcement)
+  //
+  // When the caller does not supply `targetClientId`, the proxy auto-
+  // resolves using `resolveTargetClient(sourceActorPrincipalId)`:
+  //
+  //   1. Candidate clients are filtered to those owned by the caller's
+  //      actor; the first match (lastActiveAt-desc) wins. When the
+  //      caller has no actor, the resolver falls through to the most-
+  //      recently-active host_browser client without same-actor filtering.
+  //   2. The proxy persists `targetClientId` and `targetActorPrincipalId`
+  //      on the pending interaction so the result-route's same-actor
+  //      check has authoritative bindings to compare against (mirrors
+  //      host-cu).
+  //
+  // These tests focus on (1) and (2). Result-side guard coverage lives
+  // in `host-browser-routes.test.ts` (HTTP 400/403 against the same
+  // bindings).
+  // ---------------------------------------------------------------------------
+
+  describe("same-actor binding", () => {
+    test("persists targetClientId + targetActorPrincipalId when caller actor matches", async () => {
+      mockClients = [
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const sent = getPublishedMessages()[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      const pending = pendingInteractions.get(requestId);
+      expect(pending).toBeDefined();
+      expect(pending?.targetClientId).toBe("ext-client");
+      expect(pending?.targetActorPrincipalId).toBe("user-1");
+
+      resolveResult(requestId, { content: "ok", isError: false });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("rejects when only different-actor clients are connected", async () => {
+      mockClients = [
+        {
+          clientId: "other-user-ext",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-2",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      // Auto-resolution filters out the cross-user candidate, so the
+      // proxy falls into the existing "no active extension connection"
+      // rejection — we never broadcast to a different actor's client.
+      await expect(resultPromise).rejects.toThrow(
+        "no active extension connection",
+      );
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("picks the most-recently-active same-actor client among multiple transports", async () => {
+      // Mock `listClientsByCapability` returns mockClients in array
+      // order, which mirrors production's `lastActiveAt`-desc ordering.
+      // The first same-actor entry wins regardless of transport; LLMs
+      // pin a specific transport via `target_client_id`.
+      mockClients = [
+        {
+          clientId: "macos-client",
+          interfaceId: "macos",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const sent = getPublishedMessages()[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      const pending = pendingInteractions.get(requestId);
+      expect(pending?.targetClientId).toBe("macos-client");
+
+      resolveResult(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("falls back to macOS bridge when no chrome-extension is connected for the caller's actor", async () => {
+      mockClients = [
+        {
+          clientId: "macos-client",
+          interfaceId: "macos",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
+        .requestId as string;
+
+      const pending = pendingInteractions.get(requestId);
+      expect(pending?.targetClientId).toBe("macos-client");
+      expect(pending?.targetActorPrincipalId).toBe("user-1");
+
+      resolveResult(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("legacy callers without a sourceActorPrincipalId fall through to the most-recently-active client", async () => {
+      // No `sourceActorPrincipalId` supplied — the proxy falls back to
+      // the unfiltered roster and picks the first entry. Mirrors the
+      // singleton-style behavior expected by registry-driven callers
+      // that haven't been threaded with an actor identity. The pending
+      // interaction binds to the resolved client without an actor.
+      mockClients = [DEFAULT_CLIENT];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        // signal omitted
+        // sourceActorPrincipalId omitted — legacy path
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
+        .requestId as string;
+
+      const pending = pendingInteractions.get(requestId);
+      expect(pending?.targetClientId).toBe("test-client");
+      expect(pending?.targetActorPrincipalId).toBeUndefined();
+
+      resolveResult(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+
+    test("rejects when caller has actor but no host_browser-capable client is connected for that actor", async () => {
+      // Same-user filter returns empty even though listClientsByCapability
+      // would return a non-empty list (because that list is for a
+      // different actor). The unfiltered fallback path runs only when
+      // the caller has no actor — we don't silently broadcast to anyone
+      // when the caller IS authenticated to a specific actor.
+      mockClients = [
+        {
+          clientId: "other-user-ext",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-99",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      await expect(resultPromise).rejects.toThrow(
+        "no active extension connection",
+      );
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Explicit targetClientId routing
+  //
+  // When `targetClientId` is supplied, the proxy skips auto-resolution
+  // and routes directly to the named client (subject to the same-actor
+  // enforcement that runs on all host-proxy requests).
+  // ---------------------------------------------------------------------------
+
+  describe("explicit targetClientId routing", () => {
+    test("routes to the named client and persists targetClientId in pending state", async () => {
+      mockClients = [
+        {
+          clientId: "macos-client",
+          interfaceId: "macos",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      // Explicitly target the macOS client even though it isn't the
+      // first entry in the roster — explicit targeting overrides
+      // auto-resolution.
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+        "macos-client",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const sent = getPublishedMessages()[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      const pending = pendingInteractions.get(requestId);
+      expect(pending?.targetClientId).toBe("macos-client");
+
+      resolveResult(requestId, { content: "ok", isError: false });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("rejects when targetClientId does not match any connected client", async () => {
+      mockClients = [
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+        "nonexistent-client",
+      );
+
+      await expect(resultPromise).rejects.toThrow(
+        "no active extension connection",
+      );
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("rejects when targetClientId points to a client without host_browser capability", async () => {
+      // The client exists but is not in the host_browser roster, so
+      // listClientsByCapability("host_browser") does not return it.
+      mockClients = [
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_bash"],
+        },
+      ];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+        "ext-client",
+      );
+
+      await expect(resultPromise).rejects.toThrow(
+        "no active extension connection",
+      );
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("same-actor check rejects targetClientId that belongs to a different actor", async () => {
+      mockClients = [
+        {
+          clientId: "other-user-ext",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-2",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      // actor user-1 explicitly targets user-2's client — same-actor gate
+      // should fire and return an isError result (not reject the promise).
+      const result = await proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+        "other-user-ext",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Submitting actor does not match");
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("no targetClientId auto-resolves to the most-recently-active same-actor client", async () => {
+      mockClients = [
+        {
+          clientId: "macos-client",
+          interfaceId: "macos",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+        {
+          clientId: "ext-client",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      // No targetClientId — falls through to the first same-actor
+      // entry by lastActiveAt-desc. Mock array order is the proxy's
+      // input contract.
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
+        "session-1",
+        undefined,
+        "user-1",
+        // targetClientId omitted
+      );
+
+      const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
+        .requestId as string;
+      const pending = pendingInteractions.get(requestId);
+      expect(pending?.targetClientId).toBe("macos-client");
+
+      resolveResult(requestId, { content: "ok", isError: false });
+      await resultPromise;
     });
   });
 });

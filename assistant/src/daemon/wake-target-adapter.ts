@@ -14,6 +14,7 @@ import {
   provenanceFromTrustContext,
 } from "../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
+import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
 import type { WakeTarget } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
@@ -197,6 +198,16 @@ export function conversationToWakeTarget(
         JSON.stringify(message.content),
         metadata,
       );
+      if (message.role === "assistant") {
+        try {
+          backfillMessageIdOnLogs(conversation.conversationId, persisted.id);
+        } catch (err) {
+          log.warn(
+            { err, conversationId: conversation.conversationId },
+            "wake adapter: backfill messageId on LLM logs failed (non-fatal)",
+          );
+        }
+      }
       try {
         const convRow = getConversation(conversation.conversationId);
         if (convRow) {

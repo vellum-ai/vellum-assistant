@@ -90,6 +90,7 @@ final class LiveVoiceAudioPlayer {
     @ObservationIgnored private let output: any LiveVoiceAudioOutput
     @ObservationIgnored private var queuedChunks: [LiveVoiceAudioChunk] = []
     @ObservationIgnored private var scheduledPlaybackCount = 0
+    @ObservationIgnored private var hasNonPCMInFlight = false
     @ObservationIgnored private var playbackGeneration: UInt64 = 0
     @ObservationIgnored private var acceptsAudio = true
     @ObservationIgnored private var playbackWaiters: [CheckedContinuation<Void, Never>] = []
@@ -139,6 +140,7 @@ final class LiveVoiceAudioPlayer {
         acceptsAudio = false
         queuedChunks.removeAll()
         scheduledPlaybackCount = 0
+        hasNonPCMInFlight = false
         output.stop()
         state = .stopped(reason)
         notifyPlaybackWaiters()
@@ -149,6 +151,7 @@ final class LiveVoiceAudioPlayer {
         output.stop()
         queuedChunks.removeAll()
         scheduledPlaybackCount = 0
+        hasNonPCMInFlight = false
         acceptsAudio = true
         state = .idle
         notifyPlaybackWaiters()
@@ -164,6 +167,9 @@ final class LiveVoiceAudioPlayer {
 
     private func playNextChunkIfNeeded() {
         while acceptsAudio, !queuedChunks.isEmpty {
+            if hasNonPCMInFlight {
+                return
+            }
             let chunk = queuedChunks[0]
             if scheduledPlaybackCount > 0, !chunk.isPCM {
                 return
@@ -172,6 +178,9 @@ final class LiveVoiceAudioPlayer {
             queuedChunks.removeFirst()
             let generation = playbackGeneration
             scheduledPlaybackCount += 1
+            if !chunk.isPCM {
+                hasNonPCMInFlight = true
+            }
             state = .playing
 
             output.play(chunk) { [weak self] result in
@@ -187,11 +196,14 @@ final class LiveVoiceAudioPlayer {
     private func handlePlaybackCompletion(_ result: Result<Void, Error>, generation: UInt64) {
         guard generation == playbackGeneration, scheduledPlaybackCount > 0 else { return }
         scheduledPlaybackCount -= 1
+        if scheduledPlaybackCount == 0 {
+            hasNonPCMInFlight = false
+        }
 
         switch result {
         case .success:
             playNextChunkIfNeeded()
-            if queuedChunks.isEmpty, scheduledPlaybackCount == 0 {
+            if generation == playbackGeneration, queuedChunks.isEmpty, scheduledPlaybackCount == 0 {
                 state = .idle
                 notifyPlaybackWaiters()
             }
@@ -201,6 +213,7 @@ final class LiveVoiceAudioPlayer {
             acceptsAudio = false
             queuedChunks.removeAll()
             scheduledPlaybackCount = 0
+            hasNonPCMInFlight = false
             output.stop()
             state = .failed(error.localizedDescription)
             notifyPlaybackWaiters()

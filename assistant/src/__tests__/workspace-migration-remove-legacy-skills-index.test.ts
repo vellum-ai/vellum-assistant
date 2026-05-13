@@ -11,24 +11,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
-import { loadSkillBySelector, loadSkillCatalog } from "../config/skills.js";
-import { removeLegacySkillsIndexMigration } from "../workspace/migrations/068-remove-legacy-skills-index.js";
+import { removeLegacySkillsIndexMigration } from "../workspace/migrations/084-remove-legacy-skills-index.js";
 
 let workspaceDir: string;
-let previousWorkspaceDir: string | undefined;
 
 beforeEach(() => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "vellum-migration-068-test-"));
-  previousWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
-  process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  workspaceDir = mkdtempSync(join(tmpdir(), "vellum-migration-084-test-"));
 });
 
 afterEach(() => {
-  if (previousWorkspaceDir === undefined) {
-    delete process.env.VELLUM_WORKSPACE_DIR;
-  } else {
-    process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceDir;
-  }
   if (existsSync(workspaceDir)) {
     rmSync(workspaceDir, { recursive: true, force: true });
   }
@@ -67,16 +58,12 @@ function expectNestedSkillPreserved(
   expect(existsSync(legacyIndexPath)).toBe(false);
   expect(existsSync(nestedSkillPath)).toBe(true);
   expect(readFileSync(topLevelSkillPath, "utf-8")).toContain("org/my-skill");
-
-  const loaded = loadSkillBySelector("my-skill");
-  expect(loaded.error).toBeUndefined();
-  expect(loaded.skill!.id).toBe("my-skill");
 }
 
-describe("068-remove-legacy-skills-index migration", () => {
+describe("084-remove-legacy-skills-index migration", () => {
   test("has correct id and description", () => {
     expect(removeLegacySkillsIndexMigration.id).toBe(
-      "068-remove-legacy-skills-index",
+      "084-remove-legacy-skills-index",
     );
     expect(removeLegacySkillsIndexMigration.description).toContain("SKILLS.md");
     expect(removeLegacySkillsIndexMigration.retryFailedCheckpoint).toBe(true);
@@ -114,7 +101,7 @@ describe("068-remove-legacy-skills-index migration", () => {
     );
   });
 
-  test("removing a stale SKILLS.md index preserves loadability for omitted valid skill directories", () => {
+  test("removing a stale SKILLS.md index preserves omitted valid skill directories", () => {
     const legacyIndexPath = writeLegacyIndex("- indexed-skill\n");
 
     writeSkill("indexed-skill");
@@ -123,11 +110,12 @@ describe("068-remove-legacy-skills-index migration", () => {
     removeLegacySkillsIndexMigration.run(workspaceDir);
 
     expect(existsSync(legacyIndexPath)).toBe(false);
-    const loaded = loadSkillBySelector("omitted-skill");
-    expect(loaded.error).toBeUndefined();
-    expect(loaded.skill).toBeDefined();
-    expect(loaded.skill!.id).toBe("omitted-skill");
-    expect(loaded.skill!.body).toBe("Body.");
+    expect(
+      readFileSync(
+        join(workspaceDir, "skills", "omitted-skill", "SKILL.md"),
+        "utf-8",
+      ),
+    ).toContain("Body.");
   });
 
   test("copies nested indexed skills to top-level discovery location", () => {
@@ -146,18 +134,7 @@ describe("068-remove-legacy-skills-index migration", () => {
     expect(existsSync(nestedSkillPath)).toBe(true);
     expect(readFileSync(topLevelSkillPath, "utf-8")).toContain("org/my-skill");
 
-    const catalogSkill = loadSkillCatalog().find(
-      (skill) => skill.id === "my-skill",
-    );
-    expect(catalogSkill).toBeDefined();
-    expect(catalogSkill!.directoryPath).toBe(
-      join(workspaceDir, "skills", "my-skill"),
-    );
-
-    const loaded = loadSkillBySelector("my-skill");
-    expect(loaded.error).toBeUndefined();
-    expect(loaded.skill!.id).toBe("my-skill");
-    expect(loaded.skill!.body).toBe("Body.");
+    expect(readFileSync(topLevelSkillPath, "utf-8")).toContain("Body.");
   });
 
   test("copies nested indexed skills from plain entries that point to SKILL.md", () => {
@@ -200,13 +177,10 @@ describe("068-remove-legacy-skills-index migration", () => {
     );
     expect(readFileSync(preservedSkillPath, "utf-8")).toContain("Nested body.");
 
-    const loaded = loadSkillBySelector("my-skill");
-    expect(loaded.error).toBeUndefined();
-    expect(loaded.skill!.body).toBe("Top-level body.");
-
-    const loadedPreserved = loadSkillBySelector("org__my-skill");
-    expect(loadedPreserved.error).toBeUndefined();
-    expect(loadedPreserved.skill!.body).toBe("Nested body.");
+    expect(readFileSync(topLevelSkillPath, "utf-8")).toContain(
+      "Top-level body.",
+    );
+    expect(readFileSync(preservedSkillPath, "utf-8")).toContain("Nested body.");
   });
 
   test("preserves same-basename nested indexed skills with unique top-level ids", () => {
@@ -241,13 +215,12 @@ describe("068-remove-legacy-skills-index migration", () => {
       "Team B body.",
     );
 
-    const primaryLoaded = loadSkillBySelector("deploy");
-    expect(primaryLoaded.error).toBeUndefined();
-    expect(primaryLoaded.skill!.body).toBe("Team A body.");
-
-    const alternateLoaded = loadSkillBySelector("team-b__deploy");
-    expect(alternateLoaded.error).toBeUndefined();
-    expect(alternateLoaded.skill!.body).toBe("Team B body.");
+    expect(readFileSync(primaryPreservedSkillPath, "utf-8")).toContain(
+      "Team A body.",
+    );
+    expect(readFileSync(alternatePreservedSkillPath, "utf-8")).toContain(
+      "Team B body.",
+    );
   });
 
   test("does not follow legacy index entries outside the skills root", () => {

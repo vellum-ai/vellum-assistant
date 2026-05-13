@@ -17,12 +17,13 @@ import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import {
-  type InteractiveUiAction,
-  type InteractiveUiResult,
-  RESERVED_ACTION_IDS,
+import type {
+  InteractiveUiAction,
+  InteractiveUiResult,
 } from "../../runtime/interactive-ui-types.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { resolveConversationId } from "../utils/conversation-id.js";
 
 // ── Constants ─────────────────────────────────────────────────────────
 
@@ -40,41 +41,24 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000; // 5m
  */
 const IPC_TIMEOUT_BUFFER_MS = 10_000; // 10s
 
-// ── Conversation ID resolution ────────────────────────────────────────
+const CONV_ID_HELP =
+  "No conversation ID available.\n" +
+  "Provide --conversation-id explicitly (run 'assistant conversations list' to find it),\n" +
+  "or run this command from a skill or bash tool context.";
 
 /**
- * Resolve the conversation ID by precedence:
- *   1. Explicit `--conversation-id` flag
- *   2. `__SKILL_CONTEXT_JSON` env var (set by skill sandbox runner)
- *   3. `__CONVERSATION_ID` env var (set by bash tool subprocess)
- *   4. Fail with an actionable error
+ * Action IDs reserved for internal use. Inlined from
+ * `interactive-ui-types.ts` to avoid a runtime import from daemon
+ * internals (the ESLint `cli/no-daemon-internals` rule forbids it for
+ * `ipc`-tagged commands).
  */
-function resolveConversationId(explicit?: string): string {
-  if (explicit) return explicit;
-
-  const contextJson = process.env.__SKILL_CONTEXT_JSON;
-  if (contextJson) {
-    try {
-      const parsed = JSON.parse(contextJson);
-      if (parsed.conversationId && typeof parsed.conversationId === "string") {
-        return parsed.conversationId;
-      }
-    } catch {
-      // Fall through
-    }
-  }
-
-  const envConvId = process.env.__CONVERSATION_ID;
-  if (envConvId && typeof envConvId === "string") {
-    return envConvId;
-  }
-
-  throw new Error(
-    "No conversation ID available.\n" +
-      "Provide --conversation-id explicitly (run 'assistant conversations list' to find it),\n" +
-      "or run this command from a skill or bash tool context.",
-  );
-}
+const RESERVED_ACTION_IDS = new Set([
+  "selection_changed",
+  "content_changed",
+  "state_update",
+  "cancel",
+  "dismiss",
+]);
 
 // ── Payload parsing ───────────────────────────────────────────────────
 
@@ -261,10 +245,11 @@ function parseStrictPositiveInt(value: string): number {
 // ── Registration ──────────────────────────────────────────────────────
 
 export function registerUiCommand(program: Command): void {
-  const ui = program
-    .command("ui")
-    .description("Present interactive UI surfaces to the user");
-
+  registerCommand(program, {
+    name: "ui",
+    transport: "ipc",
+    description: "Present interactive UI surfaces to the user",
+    build: (ui) => {
   ui.addHelpText(
     "after",
     `
@@ -372,7 +357,10 @@ Examples:
         // Resolve conversation ID
         let conversationId: string;
         try {
-          conversationId = resolveConversationId(opts.conversationId);
+          conversationId = resolveConversationId({
+            explicit: opts.conversationId,
+            failureHelp: CONV_ID_HELP,
+          });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (opts.json) {
@@ -547,7 +535,10 @@ Examples:
         // Resolve conversation ID
         let conversationId: string;
         try {
-          conversationId = resolveConversationId(opts.conversationId);
+          conversationId = resolveConversationId({
+            explicit: opts.conversationId,
+            failureHelp: CONV_ID_HELP,
+          });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (opts.json) {
@@ -667,4 +658,6 @@ Examples:
         }
       },
     );
+    },
+  });
 }

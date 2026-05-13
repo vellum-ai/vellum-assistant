@@ -1515,14 +1515,23 @@ public struct EnvVarsResponse: Codable, Sendable {
 
 public struct ErrorMessage: Codable, Sendable {
     public let type: String
+    public let conversationId: String?
+    public let requestId: String?
+    public let code: String?
     public let message: String
     /// Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked).
     public let category: String?
+    /// Machine-readable conversation error category for clients that need source-aware recovery UI.
+    public let errorCategory: String?
 
-    public init(type: String, message: String, category: String? = nil) {
+    public init(type: String, conversationId: String? = nil, requestId: String? = nil, code: String? = nil, message: String, category: String? = nil, errorCategory: String? = nil) {
         self.type = type
+        self.conversationId = conversationId
+        self.requestId = requestId
+        self.code = code
         self.message = message
         self.category = category
+        self.errorCategory = errorCategory
     }
 }
 
@@ -1697,8 +1706,9 @@ public struct GenerationHandoff: Codable, Sendable {
     public let attachments: [UserMessageAttachment]?
     public let attachmentWarnings: [String]?
     public let messageId: String?
+    public let displayMessageId: String?
 
-    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, displayMessageId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.requestId = requestId
@@ -1706,6 +1716,7 @@ public struct GenerationHandoff: Codable, Sendable {
         self.attachments = attachments
         self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
+        self.displayMessageId = displayMessageId
     }
 }
 
@@ -2140,6 +2151,7 @@ public struct HistoryResponse: Codable, Sendable {
 
 public struct HistoryResponseMessage: Codable, Sendable {
     public let id: String?
+    public let daemonMessageId: String?
     public let role: String
     public let text: String
     public let timestamp: Double
@@ -2160,8 +2172,9 @@ public struct HistoryResponseMessage: Codable, Sendable {
     /// True when text or tool result content was truncated due to maxTextChars/maxToolResultChars.
     public let wasTruncated: Bool?
 
-    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, thinkingSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
+    public init(id: String? = nil, daemonMessageId: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, thinkingSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
         self.id = id
+        self.daemonMessageId = daemonMessageId
         self.role = role
         self.text = text
         self.timestamp = timestamp
@@ -2681,14 +2694,16 @@ public struct MessageComplete: Codable, Sendable {
     public let attachments: [UserMessageAttachment]?
     public let attachmentWarnings: [String]?
     public let messageId: String?
+    public let displayMessageId: String?
     public let source: String?
 
-    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, source: String? = nil) {
+    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, displayMessageId: String? = nil, source: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.attachments = attachments
         self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
+        self.displayMessageId = displayMessageId
         self.source = source
     }
 }
@@ -2842,18 +2857,6 @@ public struct ModelInfo: Codable, Sendable {
         self.configuredProviders = configuredProviders
         self.availableModels = availableModels
         self.allProviders = allProviders
-    }
-}
-
-public struct ModelSetRequest: Codable, Sendable {
-    public let type: String
-    public let model: String
-    public let provider: String?
-
-    public init(type: String, model: String, provider: String? = nil) {
-        self.type = type
-        self.model = model
-        self.provider = provider
     }
 }
 
@@ -4900,11 +4903,19 @@ public struct ToolResult: Codable, Sendable {
     public let riskThreshold: String?
     /// Whether the daemon is running in a containerized (Docker) environment.
     public let isContainerized: Bool?
-    /// Scope options ladder for the rule editor modal (narrowest to broadest).
+    /// Display-only scope options ladder for the rule editor modal (regex
+    /// patterns from the classifier — narrowest to broadest). NOT safe to use
+    /// as the saved trust-rule pattern; the gateway matches saved patterns as
+    /// Minimatch globs, not regex. For save use `riskAllowlistOptions`.
     public let riskScopeOptions: [ToolResultRiskScopeOption]?
+    /// Save-shape allowlist options ladder for the rule editor modal
+    /// (Minimatch-glob patterns from the classifier — narrowest to broadest).
+    /// This is the field whose `pattern` should be used when persisting a
+    /// trust rule from the chip-ladder UI.
+    public let riskAllowlistOptions: [ConfirmationRequestAllowlistOption]?
     public let riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedTrustRuleId: String? = nil, approvalMode: String? = nil, approvalReason: String? = nil, riskThreshold: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedTrustRuleId: String? = nil, approvalMode: String? = nil, approvalReason: String? = nil, riskThreshold: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskAllowlistOptions: [ConfirmationRequestAllowlistOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4922,6 +4933,7 @@ public struct ToolResult: Codable, Sendable {
         self.riskThreshold = riskThreshold
         self.isContainerized = isContainerized
         self.riskScopeOptions = riskScopeOptions
+        self.riskAllowlistOptions = riskAllowlistOptions
         self.riskDirectoryScopeOptions = riskDirectoryScopeOptions
     }
 }
@@ -5928,6 +5940,123 @@ public struct WorkspaceFilesListResponseFile: Codable, Sendable {
         self.path = path
         self.name = name
         self.exists = exists
+    }
+}
+
+// MARK: - Inference provider connection types (Phase 1.2, PR-B)
+
+/// Auth configuration for a provider connection.
+/// `type` is one of: `api_key`, `platform`, `none`, `oauth_subscription`, `service_account`.
+/// `credential` is required for `api_key`, `oauth_subscription`, and `service_account` types.
+public struct ProviderConnectionAuth: Codable, Sendable {
+    public let type: String
+    public let credential: String?
+
+    public init(type: String, credential: String? = nil) {
+        self.type = type
+        self.credential = credential
+    }
+}
+
+/// Status of a provider connection. `active` (default) means the connection
+/// is offered in picker UIs. `disabled` hides it from pickers but keeps it
+/// visible in the settings sheet so the user can re-enable it.
+public enum ConnectionStatus: String, Codable, Sendable {
+    case active
+    case disabled
+}
+
+/// A named provider connection stored in the assistant database.
+public struct ProviderConnection: Codable, Sendable {
+    public let name: String
+    /// One of: `anthropic`, `openai`, `gemini`, `ollama`, `fireworks`, `openrouter`.
+    public let provider: String
+    public let auth: ProviderConnectionAuth
+    public let status: ConnectionStatus
+    public let label: String?
+    public let createdAt: Int
+    public let updatedAt: Int
+    /// True for Vellum-managed canonical connections (`anthropic-managed`,
+    /// `openai-managed`, `gemini-managed`). The daemon derives this at
+    /// serialize time from its `MANAGED_CONNECTION_NAMES` set; clients use
+    /// it to render the read-only badge + view-only editor and to disable
+    /// the delete affordance without mirroring the canonical name list.
+    public let isManaged: Bool
+
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, status: ConnectionStatus = .active, label: String? = nil, createdAt: Int, updatedAt: Int, isManaged: Bool = false) {
+        self.name = name
+        self.provider = provider
+        self.auth = auth
+        self.status = status
+        self.label = label
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.isManaged = isManaged
+    }
+
+    /// Decodes responses from daemons that predate the `status` or `isManaged`
+    /// fields. `status` defaults to `.active`; `isManaged` defaults to `false`.
+    /// Mixed-version setups (the app explicitly supports them via
+    /// version-mismatch handling) would otherwise throw `keyNotFound` and
+    /// silently strand the Providers UI.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.provider = try container.decode(String.self, forKey: .provider)
+        self.auth = try container.decode(ProviderConnectionAuth.self, forKey: .auth)
+        self.status = try container.decodeIfPresent(ConnectionStatus.self, forKey: .status) ?? .active
+        self.label = try container.decodeIfPresent(String.self, forKey: .label)
+        self.createdAt = try container.decode(Int.self, forKey: .createdAt)
+        self.updatedAt = try container.decode(Int.self, forKey: .updatedAt)
+        self.isManaged = try container.decodeIfPresent(Bool.self, forKey: .isManaged) ?? false
+    }
+}
+
+/// Response body for `GET /v1/inference/provider-connections`.
+public struct ListProviderConnectionsResponse: Codable, Sendable {
+    public let connections: [ProviderConnection]
+
+    public init(connections: [ProviderConnection]) {
+        self.connections = connections
+    }
+}
+
+/// Request body for `POST /v1/inference/provider-connections`.
+public struct CreateProviderConnectionRequest: Codable, Sendable {
+    public let name: String
+    public let provider: String
+    public let auth: ProviderConnectionAuth
+    public let label: String?
+    public let status: ConnectionStatus?
+
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, label: String? = nil, status: ConnectionStatus? = nil) {
+        self.name = name
+        self.provider = provider
+        self.auth = auth
+        self.label = label
+        self.status = status
+    }
+}
+
+/// Request body for `PATCH /v1/inference/provider-connections/:name`.
+public struct UpdateProviderConnectionRequest: Codable, Sendable {
+    public let auth: ProviderConnectionAuth
+    public let status: ConnectionStatus?
+    public let label: String?
+
+    public init(auth: ProviderConnectionAuth, status: ConnectionStatus? = nil, label: String? = nil) {
+        self.auth = auth
+        self.status = status
+        self.label = label
+    }
+}
+
+/// Response body for `DELETE /v1/inference/provider-connections/:name`.
+public struct DeleteProviderConnectionResponse: Codable, Sendable {
+    public let ok: Bool
+
+    public init(ok: Bool) {
+        self.ok = ok
     }
 }
 

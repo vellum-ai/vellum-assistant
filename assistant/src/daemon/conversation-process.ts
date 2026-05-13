@@ -12,6 +12,7 @@ import {
   createUserMessage,
 } from "../agent/message-types.js";
 import {
+  type InterfaceId,
   parseChannelId,
   parseInterfaceId,
   type TurnChannelContext,
@@ -30,6 +31,7 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { persistQueuedMessageBody } from "./conversation-messaging.js";
 import type {
@@ -179,9 +181,13 @@ export interface ProcessConversationContext {
     statusText?: string,
   ): void;
   /** Force context compaction regardless of threshold/cooldown. */
-  forceCompact(): Promise<ContextWindowResult>;
+  forceCompact(options?: {
+    targetInputTokensOverride?: number;
+  }): Promise<ContextWindowResult>;
   /** Set transport-derived hints for the conversation. */
   setTransportHints(hints: string[] | undefined): void;
+  /** IANA timezone reported by the active client for the current turn. */
+  clientTimezone?: string;
   /**
    * Apply client-reported host env (home dir, username) from transport
    * metadata, gating on `supportsHostProxy` so non-host-proxy interfaces
@@ -189,6 +195,17 @@ export interface ProcessConversationContext {
    * `DaemonServer.applyTransportMetadata` and the queue-drain path below.
    */
   applyHostEnvFromTransport(transport: ConversationTransportMetadata): void;
+  /** Apply the per-turn client timezone reported by transport metadata. */
+  applyClientTimezoneFromTransport(
+    transport: ConversationTransportMetadata,
+  ): void;
+  /**
+   * Instantiate host proxies for capabilities that have become reachable
+   * mid-queue (e.g. a macOS client connected after a web turn was enqueued
+   * without a proxy). Called from drain paths before preactivation so skills
+   * are only activated when the proxy that services them is present.
+   */
+  ensureHostProxiesForTurn(sourceInterface: InterfaceId | undefined): void;
 }
 
 function resolveQueuedTurnContext(
@@ -423,21 +440,22 @@ async function drainSingleMessage(
     // setter used by DaemonServer.applyTransportMetadata so create/reuse
     // and queue-drain stay in sync without duplicating the gate logic.
     conversation.applyHostEnvFromTransport(next.transport);
+    conversation.applyClientTimezoneFromTransport(next.transport);
   }
 
-  // Re-preactivate host-proxy skills for interactive desktop turns. The
-  // dequeue path reset `preactivatedSkillIds` above, so without these
-  // re-adds the relevant skill tools wouldn't be projected to the LLM
-  // for queued messages 2+ even though the underlying proxies (HostCuProxy,
-  // HostAppControlProxy) are still attached. Mirrors the per-message
-  // instantiation block in `conversation-routes.ts` / `process-message.ts`.
+  // Re-attach and re-preactivate host-proxy skills for interactive turns.
+  // The dequeue path reset `preactivatedSkillIds` above; without these
+  // re-adds the relevant skill tools won't be projected to the LLM for
+  // queued messages 2+. Also instantiates proxies that may not have been
+  // present when the message was first enqueued (e.g. a macOS client
+  // connects between enqueue and drain). Mirrors the per-message block in
+  // `conversation-routes.ts` / `process-message.ts`.
   if (next.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    preactivateHostProxySkills(
-      conversation,
-      interfaceCtx?.userMessageInterface,
-    );
+    const sourceInterface = interfaceCtx?.userMessageInterface;
+    conversation.ensureHostProxiesForTurn(sourceInterface);
+    preactivateHostProxySkills(conversation, sourceInterface);
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -553,6 +571,7 @@ async function drainSingleMessage(
         type: "message_complete",
         conversationId: conversation.conversationId,
       });
+      publishConversationMessagesChanged(conversation.conversationId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -585,6 +604,7 @@ async function drainSingleMessage(
 
   // /compact — force context compaction, persist exchange, continue draining.
   if (slashResult.kind === "compact") {
+    let persistedCompactMessage = false;
     try {
       const drainProvenance = provenanceFromTrustContext(
         conversation.trustContext,
@@ -613,6 +633,7 @@ async function drainSingleMessage(
         JSON.stringify(cleanUserMsg.content),
         drainChannelMeta,
       );
+      persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
 
       conversation.emitActivityState(
@@ -621,7 +642,9 @@ async function drainSingleMessage(
         "assistant_turn",
         next.requestId,
       );
-      const result = await conversation.forceCompact();
+      const result = await conversation.forceCompact({
+        targetInputTokensOverride: slashResult.targetInputTokensOverride,
+      });
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -647,7 +670,11 @@ async function drainSingleMessage(
         type: "message_complete",
         conversationId: conversation.conversationId,
       });
+      publishConversationMessagesChanged(conversation.conversationId);
     } catch (err) {
+      if (persistedCompactMessage) {
+        publishConversationMessagesChanged(conversation.conversationId);
+      }
       const message = err instanceof Error ? err.message : String(err);
       log.error(
         {
@@ -743,6 +770,7 @@ async function drainSingleMessage(
     requestId: next.requestId,
     clientMessageId: next.clientMessageId,
   });
+  publishConversationMessagesChanged(conversation.conversationId);
 
   // Set the active surface for the dequeued message so runAgentLoop can inject context
   conversation.currentActiveSurfaceId = next.activeSurfaceId;
@@ -865,17 +893,17 @@ async function drainBatch(
   if (head.transport) {
     conversation.setTransportHints(buildTransportHints(head.transport));
     conversation.applyHostEnvFromTransport(head.transport);
+    conversation.applyClientTimezoneFromTransport(head.transport);
   }
 
-  // Re-preactivate host-proxy skills for interactive desktop turns.
+  // Re-attach and re-preactivate host-proxy skills for interactive turns.
   // Mirrors the single-message path exactly — sourced from `head`.
   if (head.isInteractive !== false) {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    preactivateHostProxySkills(
-      conversation,
-      interfaceCtx?.userMessageInterface,
-    );
+    const sourceInterface = interfaceCtx?.userMessageInterface;
+    conversation.ensureHostProxiesForTurn(sourceInterface);
+    preactivateHostProxySkills(conversation, sourceInterface);
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -1068,6 +1096,7 @@ async function drainBatch(
       requestId: qm.requestId,
       clientMessageId: qm.clientMessageId,
     });
+    publishConversationMessagesChanged(conversation.conversationId);
 
     // Persist succeeded. Update last-successful markers so a later tail
     // failure won't overwrite them.
@@ -1306,7 +1335,11 @@ export async function processMessage(
       );
       conversation.messages.push(assistantMsg);
 
-      onEvent({ type: "assistant_text_delta", text: replyText });
+      onEvent({
+        type: "assistant_text_delta",
+        text: replyText,
+        conversationId: conversation.conversationId,
+      });
       onEvent({
         type: "message_complete",
         conversationId: conversation.conversationId,
@@ -1423,12 +1456,14 @@ export async function processMessage(
       type: "message_complete",
       conversationId: conversation.conversationId,
     });
+    publishConversationMessagesChanged(conversation.conversationId);
     return persisted.id;
   }
 
   // /compact — force context compaction, persist exchange, return message ID.
   if (slashResult.kind === "compact") {
     conversation.processing = true;
+    let persistedCompactMessage = false;
     try {
       const pmTurnCtx = conversation.getTurnChannelContext();
       const pmInterfaceCtx = conversation.getTurnInterfaceContext();
@@ -1458,6 +1493,7 @@ export async function processMessage(
         JSON.stringify(cleanUserMsg.content),
         pmChannelMeta,
       );
+      persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
 
       conversation.emitActivityState(
@@ -1466,7 +1502,9 @@ export async function processMessage(
         "assistant_turn",
         requestId,
       );
-      const result = await conversation.forceCompact();
+      const result = await conversation.forceCompact({
+        targetInputTokensOverride: slashResult.targetInputTokensOverride,
+      });
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -1492,7 +1530,13 @@ export async function processMessage(
         type: "message_complete",
         conversationId: conversation.conversationId,
       });
+      publishConversationMessagesChanged(conversation.conversationId);
       return persisted.id;
+    } catch (err) {
+      if (persistedCompactMessage) {
+        publishConversationMessagesChanged(conversation.conversationId);
+      }
+      throw err;
     } finally {
       conversation.processing = false;
       await drainQueue(conversation);
@@ -1532,6 +1576,7 @@ export async function processMessage(
       undefined,
       displayContent,
     );
+    publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     onEvent({

@@ -23,7 +23,9 @@ mock.module("../channels/config.js", () => ({
   }),
 }));
 
-mock.module("../config/env.js", () => ({}));
+mock.module("../config/env.js", () => ({
+  getIngressPublicBaseUrl: () => undefined,
+}));
 
 mock.module("../config/loader.js", () => ({
   loadRawConfig: () => mockRawConfig ?? {},
@@ -305,7 +307,7 @@ describe("ChannelReadinessService", () => {
     });
   });
 
-  test("phone readiness accepts Twilio-specific ingress without generic public ingress", async () => {
+  test("phone readiness accepts configured public ingress", async () => {
     mockHasTwilioCredentials = true;
     mockTwilioPhoneNumber = "+15550123";
     mockRawConfig = {

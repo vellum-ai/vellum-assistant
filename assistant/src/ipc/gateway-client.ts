@@ -38,9 +38,10 @@ const log = getLogger("gateway-ipc-client");
 export async function ipcCall(
   method: string,
   params?: Record<string, unknown>,
+  timeoutMs?: number,
 ): Promise<unknown> {
   const socketPath = getGatewaySocketPath();
-  return packageIpcCall(socketPath, method, params, log);
+  return packageIpcCall(socketPath, method, params, log, timeoutMs);
 }
 
 // ---------------------------------------------------------------------------
@@ -90,9 +91,15 @@ export function resetPersistentClient(): void {
 /**
  * Fetch all merged feature flags from the gateway via IPC.
  * Returns an empty record on any failure.
+ *
+ * @param timeoutMs - Optional timeout override forwarded to the IPC
+ *   transport. Pass a small value (e.g. 200) for CLI startup paths where
+ *   a slow/absent gateway should fail fast.
  */
-export async function ipcGetFeatureFlags(): Promise<Record<string, boolean>> {
-  const result = await ipcCall("get_feature_flags");
+export async function ipcGetFeatureFlags(
+  timeoutMs?: number,
+): Promise<Record<string, boolean>> {
+  const result = await ipcCall("get_feature_flags", undefined, timeoutMs);
   if (result && typeof result === "object" && !Array.isArray(result)) {
     const filtered: Record<string, boolean> = {};
     for (const [k, v] of Object.entries(result as Record<string, unknown>)) {

@@ -32,6 +32,7 @@ import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
 import { IngressConfigSchema } from "./schemas/ingress.js";
 import { JournalConfigSchema } from "./schemas/journal.js";
 import { LLMSchema } from "./schemas/llm.js";
+import { LlmRequestLogsConfigSchema } from "./schemas/llm-request-logs.js";
 import {
   AuditLogConfigSchema,
   LogFileConfigSchema,
@@ -81,6 +82,7 @@ export const AssistantConfigSchema = z
     // ensures the loader's leaf-deletion recovery path can repair a partially
     // invalid `llm` block without falling back to `cloneDefaultConfig()`.
     llm: LLMSchema.default(LLMSchema.parse({})),
+    llmRequestLogs: LlmRequestLogsConfigSchema,
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),
@@ -141,13 +143,6 @@ export const AssistantConfigSchema = z
       .max(200, "maxStepsPerSession must be <= 200")
       .default(50)
       .describe("Maximum number of computer-use steps per session"),
-    systemPromptPrefix: z
-      .string({ error: "systemPromptPrefix must be a string" })
-      .nullable()
-      .default(null)
-      .describe(
-        "Custom text injected at the very beginning of the system prompt. Defaults to null (no injection).",
-      ),
   })
   .superRefine((config, ctx) => {
     const llmContextWindow = config.llm?.default?.contextWindow;

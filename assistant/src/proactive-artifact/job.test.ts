@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  conversationMessagesSyncTag,
+  SYNC_TAGS,
+} from "../daemon/message-types/sync.js";
+
 // ── Mock state ──────────────────────────────────────────────────────────
 
 // Provider mock
@@ -51,9 +56,15 @@ mock.module("../providers/provider-send-message.js", () => ({
 
 // rawAll mock
 let rawAllRows: Array<{ role: string; content: string }> = [];
+let rawAllLastSql = "";
+let rawAllLastArgs: unknown[] = [];
 
 mock.module("../memory/raw-query.js", () => ({
-  rawAll: () => rawAllRows,
+  rawAll: (sql: string, ...args: unknown[]) => {
+    rawAllLastSql = sql;
+    rawAllLastArgs = args;
+    return rawAllRows;
+  },
   rawRun: () => 0,
 }));
 
@@ -95,11 +106,15 @@ let mockApps: Array<{
   id: string;
   name: string;
   createdAt: number;
+  updatedAt?: number;
+  conversationIds?: string[];
 }> = [];
 let addAppConvCalls: Array<{ appId: string; conversationId: string }> = [];
 
 mock.module("../memory/app-store.js", () => ({
   listApps: () => mockApps,
+  listAppsByConversation: (conversationId: string) =>
+    mockApps.filter((app) => app.conversationIds?.includes(conversationId)),
   addAppConversationId: (appId: string, conversationId: string) => {
     addAppConvCalls.push({ appId, conversationId });
     return true;
@@ -227,8 +242,11 @@ mock.module("uuid", () => ({
 
 const { runProactiveArtifactJob } = await import("./job.js");
 const { injectAuxAssistantMessage } = await import("./aux-message-injector.js");
-const { buildMessageCopyPrompt, parseMessageCopy } =
-  await import("./message-copy.js");
+const {
+  buildMessageCopyPrompt,
+  ensureMessageMentionsLibraryLocation,
+  parseMessageCopy,
+} = await import("./message-copy.js");
 
 // ── Test helpers ────────────────────────────────────────────────────────
 
@@ -272,6 +290,8 @@ function resetState() {
   copyResponse = "";
   providerSendCalls = [];
   rawAllRows = [];
+  rawAllLastSql = "";
+  rawAllLastArgs = [];
   bootstrapCalls = [];
   processMessageCalls = [];
   processMessageShouldThrow = false;
@@ -391,6 +411,7 @@ describe("runProactiveArtifactJob", () => {
           id: "app-123",
           name: "Budget Tracker",
           createdAt: buildStartedAt + 100,
+          updatedAt: buildStartedAt + 100,
         },
       ];
 
@@ -432,15 +453,23 @@ describe("runProactiveArtifactJob", () => {
       expect(bootstrapCalls[0].conversationType).toBe("background");
       expect(bootstrapCalls[0].source).toBe("proactive_artifact");
 
-      // App associated with user's conversation for Assets chip
+      // App associated with user's conversation for existing artifact linkage
       expect(addAppConvCalls).toHaveLength(1);
       expect(addAppConvCalls[0].appId).toBe("app-123");
       expect(addAppConvCalls[0].conversationId).toBe("conv-1");
+
+      expect(broadcastCalls).toContainEqual({
+        type: "app_files_changed",
+        appId: "app-123",
+      });
 
       // Message injection: addMessage called with skipIndexing
       expect(addMessageCalls).toHaveLength(1);
       expect(addMessageCalls[0].opts).toEqual({ skipIndexing: true });
       expect(addMessageCalls[0].conversationId).toBe("conv-1");
+      const injectedAppContent = JSON.parse(addMessageCalls[0].content);
+      expect(injectedAppContent[0].text).toContain("Library");
+      expect(injectedAppContent[0].text).not.toContain("Assets");
 
       // Notification emitted
       expect(emitSignalCalls).toHaveLength(1);
@@ -498,6 +527,9 @@ describe("runProactiveArtifactJob", () => {
 
       // Message injection and notification
       expect(addMessageCalls).toHaveLength(1);
+      const injectedDocumentContent = JSON.parse(addMessageCalls[0].content);
+      expect(injectedDocumentContent[0].text).toContain("Library");
+      expect(injectedDocumentContent[0].text).not.toContain("Assets");
       expect(emitSignalCalls).toHaveLength(1);
 
       // Claim NOT released on success
@@ -520,6 +552,52 @@ describe("runProactiveArtifactJob", () => {
       expect(addMessageCalls).toHaveLength(0);
       expect(emitSignalCalls).toHaveLength(0);
       expect(releaseClaimCalls).toBe(1);
+    });
+
+    test("app decision with foreground app tool suppresses background build permanently", async () => {
+      rawAllRows = defaultTranscript;
+      decisionResponse = decisionYesApp;
+
+      await runProactiveArtifactJob({
+        conversationId: "conv-1",
+        userMessageCutoff: 1000,
+        assistantMessageId: "msg-4",
+        suppressAppBuild: true,
+        broadcastMessage: mockBroadcast,
+      });
+
+      expect(bootstrapCalls).toHaveLength(0);
+      expect(processMessageCalls).toHaveLength(0);
+      expect(addMessageCalls).toHaveLength(0);
+      expect(emitSignalCalls).toHaveLength(0);
+      expect(releaseClaimCalls).toBe(0);
+    });
+
+    test("app decision with recent app activity in source conversation suppresses background build permanently", async () => {
+      rawAllRows = defaultTranscript;
+      decisionResponse = decisionYesApp;
+      mockApps = [
+        {
+          id: "app-main",
+          name: "Budget Tracker",
+          createdAt: 1200,
+          updatedAt: 1300,
+          conversationIds: ["conv-1"],
+        },
+      ];
+
+      await runProactiveArtifactJob({
+        conversationId: "conv-1",
+        userMessageCutoff: 1000,
+        assistantMessageId: "msg-4",
+        broadcastMessage: mockBroadcast,
+      });
+
+      expect(bootstrapCalls).toHaveLength(0);
+      expect(processMessageCalls).toHaveLength(0);
+      expect(addMessageCalls).toHaveLength(0);
+      expect(emitSignalCalls).toHaveLength(0);
+      expect(releaseClaimCalls).toBe(0);
     });
 
     test("document build - build provider unavailable → releases claim for retry", async () => {
@@ -572,13 +650,15 @@ describe("runProactiveArtifactJob", () => {
       // Verify fallback message was used
       expect(addMessageCalls).toHaveLength(1);
       const content = JSON.parse(addMessageCalls[0].content);
-      expect(content[0].text).toContain("I made something for you");
+      expect(content[0].text).toContain("I made an app for you");
       expect(content[0].text).toContain("Budget Tracker");
+      expect(content[0].text).toContain("Library");
+      expect(content[0].text).not.toContain("Assets");
     });
   });
 
   describe("Transcript collection", () => {
-    test("dual-condition transcript query uses userMessageCutoff and assistantMessageId", async () => {
+    test("transcript query is scoped to the triggering conversation", async () => {
       rawAllRows = defaultTranscript;
       decisionResponse = decisionNo;
 
@@ -589,8 +669,8 @@ describe("runProactiveArtifactJob", () => {
         broadcastMessage: mockBroadcast,
       });
 
-      // The rawAll mock captures all calls; verify the decision was called
-      // (proving transcript was collected and passed to decision)
+      expect(rawAllLastSql).toContain("AND m.conversation_id = ?");
+      expect(rawAllLastArgs).toEqual(["conv-1", 5000, "asst-msg-99"]);
       expect(
         providerSendCalls.some(
           (c) => c.callSite === "proactiveArtifactDecision",
@@ -616,7 +696,7 @@ describe("runProactiveArtifactJob", () => {
 });
 
 describe("injectAuxAssistantMessage", () => {
-  test("idle conversation: persists with skipIndexing, pushes to getMessages(), broadcasts delta + complete(aux) + list_invalidated", async () => {
+  test("idle conversation: persists with skipIndexing, pushes to getMessages(), broadcasts delta + complete(aux) + list sync", async () => {
     const messages: unknown[] = [];
     mockConversations.set("conv-inject-1", {
       processing: false,
@@ -639,7 +719,7 @@ describe("injectAuxAssistantMessage", () => {
     // Pushed to in-memory messages
     expect(messages).toHaveLength(1);
 
-    // Broadcasts: delta, complete(aux), list_invalidated
+    // Broadcasts: delta, complete(aux), list invalidation + sync tag
     const deltaMsg = broadcastCalls.find(
       (c) => c.type === "assistant_text_delta",
     );
@@ -659,6 +739,15 @@ describe("injectAuxAssistantMessage", () => {
     );
     expect(listMsg).toBeDefined();
     expect(listMsg!.reason).toBe("reordered");
+
+    const syncMsg = broadcastCalls.find((c) => c.type === "sync_changed");
+    expect(syncMsg).toEqual({
+      type: "sync_changed",
+      tags: [
+        SYNC_TAGS.conversationsList,
+        conversationMessagesSyncTag("conv-inject-1"),
+      ],
+    });
   });
 
   test("processing → idle: waits for processing to become false before persisting", async () => {
@@ -749,13 +838,22 @@ describe("injectAuxAssistantMessage", () => {
       broadcastCalls.filter((c) => c.type === "message_complete"),
     ).toHaveLength(0);
 
-    // But list_invalidated IS sent (always sent regardless of processing state)
+    // But list invalidation + sync tag ARE sent regardless of processing state.
     expect(
       broadcastCalls.filter((c) => c.type === "conversation_list_invalidated"),
     ).toHaveLength(1);
+    expect(broadcastCalls.filter((c) => c.type === "sync_changed")).toEqual([
+      {
+        type: "sync_changed",
+        tags: [
+          SYNC_TAGS.conversationsList,
+          conversationMessagesSyncTag("conv-inject-3"),
+        ],
+      },
+    ]);
   });
 
-  test("inactive/unloaded conversation: persists + list_invalidated only", async () => {
+  test("inactive/unloaded conversation: persists + list sync only", async () => {
     // No conversation in the store
     await injectAuxAssistantMessage({
       conversationId: "conv-inject-4",
@@ -775,10 +873,19 @@ describe("injectAuxAssistantMessage", () => {
       broadcastCalls.filter((c) => c.type === "message_complete"),
     ).toHaveLength(0);
 
-    // But list_invalidated IS sent
+    // But list invalidation + sync tag ARE sent
     expect(
       broadcastCalls.filter((c) => c.type === "conversation_list_invalidated"),
     ).toHaveLength(1);
+    expect(broadcastCalls.filter((c) => c.type === "sync_changed")).toEqual([
+      {
+        type: "sync_changed",
+        tags: [
+          SYNC_TAGS.conversationsList,
+          conversationMessagesSyncTag("conv-inject-4"),
+        ],
+      },
+    ]);
   });
 });
 
@@ -795,6 +902,8 @@ describe("message-copy", () => {
     expect(prompt).toContain("Budget Tracker");
     expect(prompt).toContain("app-123");
     expect(prompt).toContain("I need a budget tool");
+    expect(prompt).toContain("Library");
+    expect(prompt).not.toContain("Assets pill");
     expect(prompt).toContain("MESSAGE:");
   });
 
@@ -812,5 +921,34 @@ describe("message-copy", () => {
 
   test("parseMessageCopy returns null for empty MESSAGE", () => {
     expect(parseMessageCopy("MESSAGE:   ")).toBeNull();
+  });
+
+  test("ensureMessageMentionsLibraryLocation appends missing location", () => {
+    const message = ensureMessageMentionsLibraryLocation(
+      "I built a budget tracker for your rent and groceries.",
+      "app",
+    );
+    expect(message).toContain("Library");
+    expect(message).not.toContain("Assets");
+  });
+
+  test("ensureMessageMentionsLibraryLocation normalizes terminal punctuation once", () => {
+    const message = ensureMessageMentionsLibraryLocation(
+      "I built a budget tracker for you!",
+      "app",
+    );
+    expect(message).toBe(
+      "I built a budget tracker for you. You can find the app in Library.",
+    );
+  });
+
+  test("ensureMessageMentionsLibraryLocation replaces artifact panel wording", () => {
+    const message = ensureMessageMentionsLibraryLocation(
+      "You'll find it in the artifact panel.",
+      "document",
+    );
+    expect(message).toContain("Library");
+    expect(message).not.toContain("Assets");
+    expect(message).not.toContain("artifact panel");
   });
 });

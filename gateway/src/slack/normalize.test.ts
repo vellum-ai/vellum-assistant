@@ -913,6 +913,10 @@ function makeMessageChangedEvent(
       user: overrides?.user ?? "U123",
       text: overrides?.text ?? "edited content",
       ts: overrides?.messageTs ?? "1700000000.000100",
+      edited: {
+        user: overrides?.user ?? "U123",
+        ts: overrides?.eventTs ?? "1700000000.000200",
+      },
       ...(overrides?.threadTs ? { thread_ts: overrides.threadTs } : {}),
     },
     previous_message: {
@@ -1050,6 +1054,7 @@ describe("normalizeSlackMessageEdit", () => {
         user: "U123",
         text: "edited content",
         ts: "1700000000.000100",
+        edited: { user: "U123", ts: "1700000000.000200" },
       },
       previous_message: {
         user: "U123",

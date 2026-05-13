@@ -14,14 +14,18 @@ import { ROUTES as APP_ROUTES } from "./app-routes.js";
 import { ROUTES as APPROVAL_ROUTES } from "./approval-routes.js";
 import { ROUTES as ATTACHMENT_ROUTES } from "./attachment-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./audio-routes.js";
+import { ROUTES as AUDIT_ROUTES } from "./audit-routes.js";
+import { ROUTES as AUTH_ROUTES } from "./auth-routes.js";
 import { ROUTES as AVATAR_ROUTES } from "./avatar-routes.js";
 import { ROUTES as BACKGROUND_TOOL_ROUTES } from "./background-tool-routes.js";
 import { ROUTES as BACKUP_ROUTES } from "./backup-routes.js";
+import { ROUTES as BOOKMARK_ROUTES } from "./bookmark-routes.js";
 import { ROUTES as BRAIN_GRAPH_ROUTES } from "./brain-graph-routes.js";
 import { ROUTES as BROWSER_ROUTES } from "./browser-routes.js";
 import { ROUTES as BTW_ROUTES } from "./btw-routes.js";
 import { ROUTES as CACHE_ROUTES } from "./cache-routes.js";
 import { ROUTES as CALL_ROUTES } from "./call-routes.js";
+import { ROUTES as CHANNEL_AVAILABILITY_ROUTES } from "./channel-availability-routes.js";
 import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.js";
 import { CHANNEL_ROUTES } from "./channel-route-definitions.js";
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
@@ -31,17 +35,23 @@ import { CONTACT_PROMPT_ROUTES } from "./contact-prompt-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
 import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
+import { ROUTES as CONVERSATION_CLI_ROUTES } from "./conversation-cli-routes.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "./conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "./conversation-management-routes.js";
 import { ROUTES as CONVERSATION_QUERY_ROUTES } from "./conversation-query-routes.js";
 import { ROUTES as CONVERSATION_MESSAGE_ROUTES } from "./conversation-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
+import { ROUTES as CONVERSATIONS_IMPORT_ROUTES } from "./conversations-import-routes.js";
 import { ROUTES as CREDENTIAL_PROMPT_ROUTES } from "./credential-prompt-routes.js";
+import { ROUTES as CREDENTIAL_ROUTES } from "./credential-routes.js";
+import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
 import { ROUTES as DOCUMENT_ROUTES } from "./documents-routes.js";
+import { ROUTES as DOMAIN_ROUTES } from "./domain-routes.js";
+import { ROUTES as EMAIL_ROUTES } from "./email-routes.js";
 import { ROUTES as EVENTS_ROUTES } from "./events-routes.js";
 import { ROUTES as FILING_ROUTES } from "./filing-routes.js";
 import { ROUTES as GATEWAY_LOG_ROUTES } from "./gateway-log-routes.js";
@@ -58,6 +68,10 @@ import { ROUTES as HOST_CU_ROUTES } from "./host-cu-routes.js";
 import { ROUTES as HOST_FILE_ROUTES } from "./host-file-routes.js";
 import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
+import { ROUTES as IMAGE_GENERATION_ROUTES } from "./image-generation-routes.js";
+import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-session-routes.js";
+import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-provider-connection-routes.js";
+import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
 import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
@@ -75,15 +89,20 @@ import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
 import { ROUTES as OAUTH_APPS_ROUTES } from "./oauth-apps.js";
+import { ROUTES as OAUTH_COMMANDS_ROUTES } from "./oauth-commands-routes.js";
 import { ROUTES as OAUTH_CONNECT_ROUTES } from "./oauth-connect-routes.js";
 import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
+import { ROUTES as PLATFORM_ROUTES } from "./platform-routes.js";
 import { ROUTES as PLAYGROUND_ROUTES } from "./playground/index.js";
 import { ROUTES as PROFILER_ROUTES } from "./profiler-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
+import { ROUTES as PUBLISH_ROUTES } from "./publish-routes.js";
+import { ROUTES as QUESTION_ROUTES } from "./question-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
+import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
@@ -101,8 +120,10 @@ import { ROUTES as UI_REQUEST_ROUTES } from "./ui-request-routes.js";
 import { ROUTES as UPGRADE_BROADCAST_ROUTES } from "./upgrade-broadcast-routes.js";
 import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
 import { ROUTES as USER_ROUTES } from "./user-routes.js";
+import { ROUTES as USER_ROUTES_CLI } from "./user-routes-cli.js";
 import { ROUTES as WAKE_CONVERSATION_ROUTES } from "./wake-conversation-routes.js";
 import { ROUTES as WATCHER_ROUTES } from "./watcher-routes.js";
+import { ROUTES as WEBHOOK_ROUTES } from "./webhook-routes.js";
 import { ROUTES as WIPE_CONVERSATION_ROUTES } from "./wipe-conversation-routes.js";
 import { ROUTES as WORK_ITEM_ROUTES } from "./work-items-routes.js";
 import { ROUTES as WORKSPACE_COMMIT_ROUTES } from "./workspace-commit-routes.js";
@@ -115,13 +136,17 @@ export const ROUTES: RouteDefinition[] = [
   ...APP_ROUTES,
   ...APPROVAL_ROUTES,
   ...AUDIO_ROUTES,
+  ...AUDIT_ROUTES,
+  ...AUTH_ROUTES,
   ...AVATAR_ROUTES,
   ...BACKGROUND_TOOL_ROUTES,
   ...BACKUP_ROUTES,
+  ...BOOKMARK_ROUTES,
   ...CACHE_ROUTES,
   ...CALL_ROUTES,
   ...CHANNEL_ROUTES,
   ...CHANNEL_VERIFICATION_ROUTES,
+  ...CHANNEL_AVAILABILITY_ROUTES,
   ...CHANNEL_READINESS_ROUTES,
   ...BROWSER_ROUTES,
   ...BTW_ROUTES,
@@ -131,18 +156,24 @@ export const ROUTES: RouteDefinition[] = [
   ...CONTACT_ROUTES,
   ...CONVERSATION_ANALYSIS_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
+  ...CONVERSATION_CLI_ROUTES,
   ...CONVERSATION_LIST_ROUTES,
   ...CONVERSATION_MANAGEMENT_ROUTES,
+  ...CONVERSATIONS_IMPORT_ROUTES,
   ...CONVERSATION_MESSAGE_ROUTES,
   ...CONSOLIDATION_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
+  ...CREDENTIAL_ROUTES,
   ...DEFER_ROUTES,
   ...CONVERSATION_QUERY_ROUTES,
   ...CONVERSATION_STARTER_ROUTES,
+  ...DEBUG_BASH_ROUTES,
   ...DEBUG_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
+  ...DOMAIN_ROUTES,
   ...DOCUMENT_ROUTES,
+  ...EMAIL_ROUTES,
   ...EVENTS_ROUTES,
   ...FILING_ROUTES,
   ...GATEWAY_LOG_ROUTES,
@@ -152,6 +183,7 @@ export const ROUTES: RouteDefinition[] = [
   ...HEARTBEAT_ROUTES,
   ...HOME_FEED_ROUTES,
   ...HOME_STATE_ROUTES,
+  ...IMAGE_GENERATION_ROUTES,
   ...HOST_APP_CONTROL_ROUTES,
   ...HOST_BASH_ROUTES,
   ...HOST_BROWSER_ROUTES,
@@ -159,6 +191,9 @@ export const ROUTES: RouteDefinition[] = [
   ...HOST_FILE_ROUTES,
   ...HOST_TRANSFER_ROUTES,
   ...IDENTITY_ROUTES,
+  ...INFERENCE_PROFILE_SESSION_ROUTES,
+  ...INFERENCE_PROVIDER_CONNECTION_ROUTES,
+  ...INFERENCE_SEND_ROUTES,
   ...INTERFACE_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
   ...MCP_AUTH_ROUTES,
@@ -172,10 +207,14 @@ export const ROUTES: RouteDefinition[] = [
   ...MIGRATION_ROUTES,
   ...NOTIFICATION_ROUTES,
   ...OAUTH_APPS_ROUTES,
+  ...OAUTH_COMMANDS_ROUTES,
   ...OAUTH_PROVIDERS_ROUTES,
+  ...PLATFORM_ROUTES,
   ...PLAYGROUND_ROUTES,
   ...PROFILER_ROUTES,
   ...PS_ROUTES,
+  ...PUBLISH_ROUTES,
+  ...QUESTION_ROUTES,
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,
   ...SCHEDULE_ROUTES,
@@ -202,10 +241,13 @@ export const ROUTES: RouteDefinition[] = [
   ...VERCEL_ROUTES,
   ...WORK_ITEM_ROUTES,
   ...WATCHER_ROUTES,
+  ...WEBHOOK_ROUTES,
   ...WIPE_CONVERSATION_ROUTES,
   ...WORKSPACE_COMMIT_ROUTES,
   ...WAKE_CONVERSATION_ROUTES,
   ...WORKSPACE_ROUTES,
+  ...SEQUENCE_ROUTES,
+  ...USER_ROUTES_CLI,
 
   // User-defined routes under /x/* — MUST be last so built-in routes
   // always take priority over the catch-all pattern.

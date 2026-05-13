@@ -571,7 +571,7 @@ struct MarkdownSegmentView: View, Equatable {
     #endif
 
     /// Pure builder with no side effects — separated for caching.
-    private static func buildAttributedStringUncached(
+    static func buildAttributedStringUncached(
         from segments: [MarkdownSegment],
         secondaryTextColor: Color,
         codeTextColor: Color = VColor.systemNegativeStrong,
@@ -681,6 +681,18 @@ struct MarkdownSegmentView: View, Equatable {
         for range in codeRanges.reversed() {
             result[range].foregroundColor = codeTextColor
             result[range].backgroundColor = codeBackgroundColor
+            // Apple Color Emoji glyphs inside an inline-code run must not carry
+            // the code foreground color, or Core Text drops the color-glyph
+            // fallback and the emoji renders as blank space. Mirrors the
+            // obliqueness strip for emoji inside italic runs.
+            var charIdx = range.lowerBound
+            while charIdx < range.upperBound {
+                let nextIdx = result.characters.index(after: charIdx)
+                if result.characters[charIdx].rendersAsEmoji {
+                    result[charIdx..<nextIdx].foregroundColor = nil
+                }
+                charIdx = nextIdx
+            }
             var trailing = AttributedString("\u{2009}")
             trailing.backgroundColor = codeBackgroundColor
             result.insert(trailing, at: range.upperBound)
@@ -1279,7 +1291,7 @@ private extension View {
     }
 }
 
-fileprivate extension Character {
+extension Character {
     /// True iff this grapheme cluster renders as emoji — either default emoji
     /// presentation, or text-default codepoints forced into emoji presentation
     /// via U+FE0F (VS16). Excludes text-presentation characters like digits

@@ -50,7 +50,9 @@ final class MessageListTypographyRefreshTests: XCTestCase {
             subagentDetailStore: SubagentDetailStore(),
             assistantStatusText: nil,
             pinnedLatestTurnAnchorMessageId: nil,
-            searchQuery: ""
+            searchQuery: "",
+            bookmarkStore: nil,
+            bookmarkConversationId: nil
         )
     }
 

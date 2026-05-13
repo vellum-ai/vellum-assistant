@@ -101,6 +101,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var contactPromptManager: ContactPromptManager { services.contactPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
     var featureFlagStore: AssistantFeatureFlagStore { services.featureFlagStore }
+    var bookmarkStore: BookmarkStore { services.bookmarkStore }
     var diskPressureStatusStore: DiskPressureStatusStore { services.diskPressureStatusStore }
 
     let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
@@ -183,6 +184,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// cancelled before creating a new subscription (e.g. on reconnection or
     /// assistant switch), preventing duplicate event processing.
     var eventSubscriptionTask: Task<Void, Never>?
+    var syncAppActivationObserver: NSObjectProtocol?
+    var syncEventStreamReconnectObserver: NSObjectProtocol?
+    var syncBroadRefreshTask: Task<Void, Never>?
     /// In-flight managed-assistant switch task. Cancelled when a new switch
     /// begins so a stale bootstrap cannot reconnect the wrong assistant.
     var managedSwitchTask: Task<Void, Never>?
@@ -503,11 +507,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // persisted value so it doesn't linger in UserDefaults.
         UserDefaults.standard.removeObject(forKey: "conversationTextZoomLevel")
 
-        // Migrate API keys from plaintext UserDefaults to credential storage
-        // (file-based credential storage). Safe to call on every
-        // launch — skips providers already present in credential storage.
-        APIKeyManager.migrateFromUserDefaults()
-
         if let envPath = MacOSClientFeatureFlagManager.findRepoEnvFile() {
             MacOSClientFeatureFlagManager.shared.loadFromFile(at: envPath)
         }
@@ -733,12 +732,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                         await awaitLocalBootstrapCompleted(timeout: 30)
                     }
 
-                    // Push locally-stored LLM provider keys (e.g. Anthropic) to the
-                    // assistant so it can fulfil the first message. Without this the
-                    // wake-up greeting races with the detached key sync from onboarding
-                    // and may hit "No providers available".
-                    await self.syncApiKeysViaGateway()
-
                     // Assistant connected within timeout — proceed directly
                     // to mandatory wake-up send with retries.
                     transitionBootstrap(to: .pendingWakeupSend)
@@ -841,6 +834,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = appMenuActivationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = syncAppActivationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = syncEventStreamReconnectObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusTask?.cancel()
@@ -860,6 +859,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
         eventSubscriptionTask?.cancel()
+        syncBroadRefreshTask?.cancel()
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
     }
@@ -903,6 +903,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Called from both the first-launch and non-first-launch paths in `proceedToApp`
     /// so that auth-gate onboarding flows also persist avatar traits on the assistant.
     func syncOnboardingAvatarIfNeeded() {
+        // When the managed bootstrap reused an existing assistant (hatched
+        // elsewhere, e.g. the web platform), the daemon already has the
+        // user's chosen avatar. Reload it instead of overwriting with the
+        // random traits generated for the hatching animation.
+        if onboardingState?.hasExistingManagedAssistant == true {
+            log.info("[avatarSync] syncOnboardingAvatarIfNeeded: reused existing managed assistant — reloading daemon avatar instead of syncing onboarding traits")
+            onboardingState = nil
+            AvatarAppearanceManager.shared.reloadAvatar()
+            return
+        }
+
         guard let body = onboardingState?.hatchAvatarBodyShape,
               let eyes = onboardingState?.hatchAvatarEyeStyle,
               let color = onboardingState?.hatchAvatarColor else {

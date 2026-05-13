@@ -105,11 +105,13 @@ mock.module("../security/credential-key.js", () => ({
 
 let mockConsultationTimeoutMs = 90_000;
 let mockSilenceTimeoutMs = 30_000;
+let mockEndCallListenWindowMs = 0;
 
 mock.module("../calls/call-constants.js", () => ({
   getMaxCallDurationMs: () => 12 * 60 * 1000,
   getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
   getSilenceTimeoutMs: () => mockSilenceTimeoutMs,
+  getEndCallListenWindowMs: () => mockEndCallListenWindowMs,
 }));
 
 // ── Voice session bridge mock ────────────────────────────────────────
@@ -467,6 +469,7 @@ describe("call-controller", () => {
     // Reset consultation timeout to the default (long) value
     mockConsultationTimeoutMs = 90_000;
     mockSilenceTimeoutMs = 30_000;
+    mockEndCallListenWindowMs = 0;
     // Reset TTS config to defaults so per-test mutations don't leak.
     const cfg = loadConfig();
     cfg.services.tts.provider = "elevenlabs";
@@ -751,6 +754,130 @@ describe("call-controller", () => {
     // The END_CALL marker text should NOT appear in the relay tokens
     const allText = relay.sentTokens.map((t) => t.token).join("");
     expect(allText).not.toContain("[END_CALL]");
+
+    controller.destroy();
+  });
+
+  test("END_CALL waits through the listen window before completing", async () => {
+    mockEndCallListenWindowMs = 25;
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Thank you for calling, goodbye! ", "[END_CALL]"]),
+    );
+    const { session, relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("That is all, thanks");
+
+    expect(relay.endCalled).toBe(false);
+    expect(getCallSession(session.id)!.status).toBe("in_progress");
+
+    await new Promise((r) => setTimeout(r, 35));
+
+    expect(relay.endCalled).toBe(true);
+    const updatedSession = getCallSession(session.id);
+    expect(updatedSession!.status).toBe("completed");
+    expect(updatedSession!.endedAt).not.toBeNull();
+
+    controller.destroy();
+  });
+
+  test("delayed END_CALL completion skips side effects when session is already terminal", async () => {
+    mockEndCallListenWindowMs = 25;
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Thank you for calling, goodbye! ", "[END_CALL]"]),
+    );
+    const { session, relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("That is all, thanks");
+
+    const externalEndedAt = Date.now();
+    updateCallSession(session.id, {
+      status: "completed",
+      endedAt: externalEndedAt,
+    });
+
+    await new Promise((r) => setTimeout(r, 35));
+
+    expect(relay.endCalled).toBe(false);
+    const updatedSession = getCallSession(session.id);
+    expect(updatedSession!.status).toBe("completed");
+    expect(updatedSession!.endedAt).toBe(externalEndedAt);
+
+    controller.destroy();
+  });
+
+  test("callee speech during END_CALL listen window cancels pending completion", async () => {
+    mockEndCallListenWindowMs = 30;
+    const turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        content: string;
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        turnContents.push(opts.content);
+        if (turnContents.length === 1) {
+          opts.onTextDelta("Goodbye! [END_CALL]");
+        } else {
+          opts.onTextDelta("Of course. I'm still here.");
+        }
+        opts.onComplete();
+        return { turnId: `run-${turnContents.length}`, abort: () => {} };
+      },
+    );
+    const { session, relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("That is all, thanks");
+    expect(relay.endCalled).toBe(false);
+
+    await controller.handleCallerUtterance("Wait, one more thing");
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(relay.endCalled).toBe(false);
+    expect(getCallSession(session.id)!.status).toBe("in_progress");
+    expect(turnContents).toContain("Wait, one more thing");
+    const allText = relay.sentTokens.map((t) => t.token).join("");
+    expect(allText).toContain("I'm still here.");
+
+    controller.destroy();
+  });
+
+  test("END_CALL listen window restores in_progress after clearing pending guardian input", async () => {
+    mockEndCallListenWindowMs = 30;
+    const turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        content: string;
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        turnContents.push(opts.content);
+        if (turnContents.length === 1) {
+          opts.onTextDelta("Let me check. [ASK_GUARDIAN: Is this okay?]");
+        } else if (turnContents.length === 2) {
+          opts.onTextDelta("Never mind, goodbye. [END_CALL]");
+        } else {
+          opts.onTextDelta("I'm still here.");
+        }
+        opts.onComplete();
+        return { turnId: `run-${turnContents.length}`, abort: () => {} };
+      },
+    );
+    const { session, relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Can you ask?");
+    expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
+    expect(getCallSession(session.id)!.status).toBe("waiting_on_user");
+
+    await controller.handleCallerUtterance("Actually never mind");
+    expect(controller.getPendingConsultationQuestionId()).toBeNull();
+    expect(getCallSession(session.id)!.status).toBe("in_progress");
+    expect(relay.endCalled).toBe(false);
+
+    await controller.handleCallerUtterance("Wait, one more thing");
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(relay.endCalled).toBe(false);
+    expect(getCallSession(session.id)!.status).toBe("in_progress");
 
     controller.destroy();
   });

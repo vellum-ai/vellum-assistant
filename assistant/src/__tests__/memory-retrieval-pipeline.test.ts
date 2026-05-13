@@ -158,6 +158,27 @@ describe("runDefaultMemoryRetrieval", () => {
     expect(result.nowContent).toBe("now-default");
   });
 
+  test("propagates errors from prepareMemory rather than swallowing them", async () => {
+    // Memory is critical — failures must surface to the caller (the agent
+    // loop) rather than silently degrading to an empty memory block.
+    const failingPrepare = mock(
+      (
+        _msgs: Message[],
+        _cfg: AssistantConfig,
+        _signal: AbortSignal,
+        _onEvent: (msg: ServerMessage) => void,
+      ) => Promise.reject(new Error("retrieval failed")),
+    );
+    const graphMemory = {
+      prepareMemory: failingPrepare,
+    } as unknown as ConversationGraphMemory;
+    const deps = makeDeps({ graphMemory, isTrustedActor: true });
+
+    await expect(
+      runDefaultMemoryRetrieval(makeMemoryArgs(), deps),
+    ).rejects.toThrow("retrieval failed");
+  });
+
   test("passes through null PKB and NOW when the files are absent", async () => {
     readPkbContextMock.mockImplementation(() => null);
     readNowContextMock.mockImplementation(() => null);
@@ -252,7 +273,6 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
       manifest: {
         name: "custom-memory-retrieval",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1", memoryApi: "v1" },
       },
       middleware: { memoryRetrieval: customMiddleware },
     };
@@ -297,7 +317,6 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
       manifest: {
         name: "hanging-memory-plugin",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1", memoryApi: "v1" },
       },
       middleware: { memoryRetrieval: hanging },
     };
@@ -314,7 +333,7 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
         (innerArgs: MemoryArgs) => runDefaultMemoryRetrieval(innerArgs, deps),
         args,
         makeTurnCtx(),
-        30, // tiny budget — real production path uses 5_000ms
+        30, // tiny pipeline budget to keep the test fast
       );
     } catch (err) {
       caught = err;

@@ -127,9 +127,9 @@ describe("038-unify-llm-callsite-configs migration", () => {
     // if llm.default exists`) then silently skipped, and migration 039
     // stripped `services.inference.{provider,model}` — losing the user's
     // actual configuration. The fix prefers legacy source keys over the
-    // injected schema defaults whenever both are present. (The loader
-    // no longer writes defaults to disk, but workspaces still on disk
-    // from that era can carry the bad state forward.)
+    // injected schema defaults whenever both are present. (Defaults are
+    // applied in-memory only; legacy workspaces may still carry the
+    // on-disk state from that era.)
     writeConfig({
       services: {
         inference: {

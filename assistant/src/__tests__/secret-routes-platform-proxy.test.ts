@@ -1,0 +1,284 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { LLMSchema } from "../config/schemas/llm.js";
+import { credentialKey } from "../security/credential-key.js";
+
+let lastGeminiConstructorOpts: Record<string, unknown> | null = null;
+let secureKeyStore: Record<string, string | undefined> = {};
+const metadataUpserts: Array<{ service: string; field: string }> = [];
+const metadataDeletes: Array<{ service: string; field: string }> = [];
+let providerRefreshCalls = 0;
+
+const PLATFORM_BASE_URL = "https://platform.example.com";
+const ASSISTANT_API_KEY_PATH = credentialKey("vellum", "assistant_api_key");
+const PLATFORM_BASE_URL_PATH = credentialKey("vellum", "platform_base_url");
+const MANAGED_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
+
+let platformBaseUrlOverride: string | undefined;
+
+const baseLlm = LLMSchema.parse({});
+
+const mockConfig = {
+  services: {
+    inference: {},
+    "image-generation": {
+      mode: "your-own" as const,
+      provider: "gemini",
+      model: "gemini-3.1-flash-image-preview",
+    },
+    "web-search": {
+      mode: "your-own" as const,
+      provider: "inference-provider-native",
+    },
+  },
+  llm: {
+    ...baseLlm,
+    default: {
+      ...baseLlm.default,
+      provider: "anthropic" as const,
+      model: "test-model",
+    },
+  },
+};
+
+mock.module("@google/genai", () => ({
+  GoogleGenAI: class MockGoogleGenAI {
+    constructor(opts: Record<string, unknown>) {
+      lastGeminiConstructorOpts = opts;
+    }
+    models = {
+      generateContentStream: async () => ({
+        [Symbol.asyncIterator]: async function* () {
+          /* no chunks */
+        },
+      }),
+    };
+  },
+  ApiError: class FakeApiError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+      this.name = "ApiError";
+    }
+  },
+}));
+
+mock.module("../config/env.js", () => ({
+  getPlatformBaseUrl: () => PLATFORM_BASE_URL,
+  setPlatformBaseUrl: (value: string | undefined) => {
+    platformBaseUrlOverride = value;
+  },
+}));
+
+mock.module("../config/loader.js", () => ({
+  API_KEY_PROVIDERS: [
+    "anthropic",
+    "openai",
+    "gemini",
+    "fireworks",
+    "openrouter",
+  ],
+  getConfig: () => mockConfig,
+  invalidateConfigCache: () => {},
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (key: string) => secureKeyStore[key],
+  getSecureKeyResultAsync: async (key: string) => ({
+    value: secureKeyStore[key],
+    unreachable: false,
+  }),
+  setSecureKeyAsync: async (key: string, value: string) => {
+    secureKeyStore[key] = value;
+    return true;
+  },
+  deleteSecureKeyAsync: async (key: string) => {
+    delete secureKeyStore[key];
+    return "deleted";
+  },
+}));
+
+mock.module("../tools/credentials/metadata-store.js", () => ({
+  assertMetadataWritable: () => {},
+  upsertCredentialMetadata: (service: string, field: string) => {
+    metadataUpserts.push({ service, field });
+  },
+  deleteCredentialMetadata: (service: string, field: string) => {
+    metadataDeletes.push({ service, field });
+  },
+}));
+
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
+
+import {
+  getProviderRoutingSource,
+  initializeProviders,
+  listProviders,
+} from "../providers/registry.js";
+import { ROUTES } from "../runtime/routes/secret-routes.js";
+import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
+
+const addRoute = ROUTES.find(
+  (r) => r.method === "POST" && r.endpoint === "secrets",
+)!;
+
+const deleteRoute = ROUTES.find(
+  (r) => r.method === "DELETE" && r.endpoint === "secrets",
+)!;
+
+function addCredential(name: string, value: string) {
+  return addRoute.handler({
+    body: { type: "credential", name, value },
+  });
+}
+
+function deleteCredential(name: string) {
+  return deleteRoute.handler({
+    body: { type: "credential", name },
+  });
+}
+
+function addApiKey(name: string, value: string) {
+  return addRoute.handler({
+    body: { type: "api_key", name, value },
+  });
+}
+
+function deleteApiKey(name: string) {
+  return deleteRoute.handler({
+    body: { type: "api_key", name },
+  });
+}
+
+describe("secret routes managed proxy registry sync", () => {
+  beforeEach(async () => {
+    secureKeyStore = {};
+    metadataUpserts.length = 0;
+    metadataDeletes.length = 0;
+    lastGeminiConstructorOpts = null;
+    platformBaseUrlOverride = undefined;
+    providerRefreshCalls = 0;
+    registerSecretsDeps({
+      getCesClient: () => undefined,
+      onProviderCredentialsChanged: () => {
+        providerRefreshCalls++;
+      },
+    });
+    await initializeProviders(mockConfig);
+  });
+
+  test("adding vellum:assistant_api_key bootstraps managed fallback providers immediately", async () => {
+    expect(listProviders()).toEqual([]);
+
+    const result = await addCredential(
+      "vellum:assistant_api_key",
+      "ast-managed-key",
+    );
+
+    expect(result).toEqual(expect.objectContaining({ success: true }));
+    expect(secureKeyStore[ASSISTANT_API_KEY_PATH]).toBe("ast-managed-key");
+    expect(metadataUpserts).toEqual([
+      { service: "vellum", field: "assistant_api_key" },
+    ]);
+
+    const providers = listProviders();
+    expect(providers).toHaveLength(MANAGED_PROVIDERS.length);
+    for (const provider of MANAGED_PROVIDERS) {
+      expect(providers).toContain(provider);
+      expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
+    }
+    expect(lastGeminiConstructorOpts).toBeDefined();
+  });
+
+  test("provider API key writes notify live-conversation refresh listeners", async () => {
+    await addApiKey("fireworks", "fw-key");
+
+    expect(secureKeyStore[credentialKey("fireworks", "api_key")]).toBe("fw-key");
+    expect(providerRefreshCalls).toBe(1);
+
+    await deleteApiKey("fireworks");
+
+    expect(providerRefreshCalls).toBe(2);
+  });
+
+  test("deleting vellum:assistant_api_key clears managed fallback providers immediately", async () => {
+    secureKeyStore[ASSISTANT_API_KEY_PATH] = "ast-managed-key";
+    await initializeProviders(mockConfig);
+
+    for (const provider of MANAGED_PROVIDERS) {
+      expect(listProviders()).toContain(provider);
+      expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
+    }
+
+    await deleteCredential("vellum:assistant_api_key");
+
+    expect(secureKeyStore[ASSISTANT_API_KEY_PATH]).toBeUndefined();
+    expect(metadataDeletes).toEqual([
+      { service: "vellum", field: "assistant_api_key" },
+    ]);
+    expect(listProviders()).toEqual([]);
+  });
+
+  test("managed proxy credential writes notify live-conversation refresh listeners", async () => {
+    await addCredential("vellum:assistant_api_key", "ast-managed-key");
+
+    expect(providerRefreshCalls).toBe(1);
+
+    await deleteCredential("vellum:assistant_api_key");
+
+    expect(providerRefreshCalls).toBe(2);
+  });
+
+  test("storing vellum:platform_base_url sets override and triggers initializeProviders", async () => {
+    await addCredential(
+      "vellum:platform_base_url",
+      "https://managed.example.com",
+    );
+
+    expect(secureKeyStore[PLATFORM_BASE_URL_PATH]).toBe(
+      "https://managed.example.com",
+    );
+    expect(platformBaseUrlOverride).toBe("https://managed.example.com");
+    expect(metadataUpserts).toEqual([
+      { service: "vellum", field: "platform_base_url" },
+    ]);
+  });
+
+  test("storing both vellum:platform_base_url and vellum:assistant_api_key enables managed proxy", async () => {
+    expect(listProviders()).toEqual([]);
+
+    await addCredential(
+      "vellum:platform_base_url",
+      "https://managed.example.com",
+    );
+    expect(platformBaseUrlOverride).toBe("https://managed.example.com");
+
+    await addCredential("vellum:assistant_api_key", "ast-managed-key");
+
+    const providers = listProviders();
+    expect(providers).toHaveLength(MANAGED_PROVIDERS.length);
+    for (const provider of MANAGED_PROVIDERS) {
+      expect(providers).toContain(provider);
+      expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
+    }
+  });
+
+  test("deleting vellum:platform_base_url clears override and re-initializes providers", async () => {
+    secureKeyStore[PLATFORM_BASE_URL_PATH] = "https://managed.example.com";
+    platformBaseUrlOverride = "https://managed.example.com";
+
+    await deleteCredential("vellum:platform_base_url");
+
+    expect(secureKeyStore[PLATFORM_BASE_URL_PATH]).toBeUndefined();
+    expect(platformBaseUrlOverride).toBeUndefined();
+    expect(metadataDeletes).toEqual([
+      { service: "vellum", field: "platform_base_url" },
+    ]);
+  });
+});

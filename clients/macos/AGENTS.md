@@ -301,6 +301,8 @@ DM Mono is not used in the SwiftUI-facing palette anymore (removed when the type
   - **No-op backgrounds**: Never add invisible backgrounds like `.background(Capsule().fill(Color.clear))` — they create layout wrappers with zero visual effect.
 - **No animated insertions in chat `LazyVStack`**: ANY animated insertion/removal in a `LazyVStack` triggers `motionVectors` — an O(n) `sizeThatFits` measurement over ALL children that defeats lazy loading and causes multi-minute hangs. The chat message list uses `.transaction { $0.animation = nil }` to suppress all insertion animations. Do NOT remove that modifier or wrap content mutations in `withAnimation` that flows into the `LazyVStack`. See [`.transaction` docs](https://developer.apple.com/documentation/swiftui/view/transaction(_:)) and [WWDC23: Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/).
 - **Geometry observations must not drive state that changes the observed layout**: if a subtree is size-constrained (e.g., `.frame(height:)`, `.clipped()`) and an `onGeometryChange` or `GeometryReader` inside it writes the measured height/width into `@State` that gates the same constraint, you get a feedback loop — the observed value is the *clamped* value, so the decision to clamp flips off, the frame is removed, the child re-measures larger, the decision flips back on, and the layout oscillates or settles incorrectly. Derive layout-gating decisions from the model (content counts, text length, attachment types) or from a container-level geometry source that is *not* inside the constrained subtree. See [`onGeometryChange` docs](https://developer.apple.com/documentation/swiftui/view/ongeometrychange(for:of:action:)).
+- **Accessory views adjacent to inverted scroll must use `.overlay`, not VStack siblings**: banners, toolbars, or status bars placed as VStack siblings of an inverted-scroll view (`.flipped()`) reduce the scroll viewport height, which breaks height-dependent layouts like `bottomAlignedMinHeight`/`topAlignedMinHeight`. Use `.overlay(alignment: .bottom)` instead so the scroll view occupies its full available height. Avoid `.safeAreaInset` with inverted scroll — the 180° rotation causes bottom insets to propagate at the visual *top* (oldest messages). See [`.overlay` docs](https://developer.apple.com/documentation/swiftui/view/overlay(alignment:content:)).
+- **When replacing a measurement source, verify edge-case equivalence**: if you swap one geometry source for another (e.g., `containerRelativeFrame` → `onScrollGeometryChange`), confirm the new source returns the same value under *all* conditions — including empty/short content, conversation switches, and transient layout states — not just steady-state. `documentVisibleRect.height` ≠ `clipView.bounds.height` when content is shorter than the viewport; prefer `containerHeight` for scroll viewport measurement. See [`NSClipView.bounds`](https://developer.apple.com/documentation/appkit/nsclipview/bounds).
 - **No `_FlexFrameLayout` inside LazyVStack/LazyHStack/LazyVGrid cell hierarchy**: ANY parameter on the [flexible frame overload](https://developer.apple.com/documentation/swiftui/view/frame(minwidth:idealwidth:maxwidth:minheight:idealheight:maxheight:alignment:)) — `minWidth`, `minHeight`, `maxWidth`, `maxHeight`, `idealWidth`, `idealHeight` — creates `_FlexFrameLayout`, whose `placeSubviews` queries each child's explicit alignment via [`ViewDimensions.subscript`](https://developer.apple.com/documentation/swiftui/viewdimensions). Nested FlexFrames recurse O(depth × children) per layout pass. **This applies to ALL values, not just `.infinity`** — bounded values like `.frame(maxWidth: 360)` or `.frame(minHeight: 100)` still create `_FlexFrameLayout` and trigger the alignment cascade. The [fixed frame overload](https://developer.apple.com/documentation/swiftui/view/frame(width:height:alignment:)) (`.frame(width:)`, `.frame(height:)`) creates `_FrameLayout` instead — a different internal type. See [WWDC23: Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/). Safe alternatives:
   - **`.widthCap(N)`** — uses `WidthCapLayout` ([Layout protocol](https://developer.apple.com/documentation/swiftui/layout), O(1)), caps width without creating `_FlexFrameLayout`. See `WidthCapLayout.swift`.
   - **`.fixedWidth(N)`** — uses `FixedWidthLayout` ([Layout protocol](https://developer.apple.com/documentation/swiftui/layout), O(1)), sets a definite width without creating `_FrameLayout`. See `FixedWidthLayout.swift`.
@@ -394,8 +396,26 @@ When adding a new keyboard shortcut to the macOS app, you **must** also add a co
 - The app is **not sandboxed** — it requires direct access to accessibility APIs, CGEvent injection, and file system paths outside the sandbox container.
 - The main app binary is signed with `app-entitlements.plist` ([`com.apple.security.device.audio-input`](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.device.audio-input) — required for microphone access under [Hardened Runtime](https://developer.apple.com/documentation/xcode/configuring-the-hardened-runtime)).
 - The embedded daemon binary is signed with `daemon-entitlements.plist` (JIT, unsigned executable memory, network client).
+- All Bun-compiled binaries (`vellum-cli`, `vellum-gateway`, `credential-executor`) must be signed with daemon entitlements — hardened runtime blocks JIT by default, and these are JavaScript executables. See [`allow-jit`](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_security_cs_allow-jit).
 - If new hardware access is needed (e.g., camera), add the corresponding hardened runtime entitlement to `app-entitlements.plist`.
 - Never add `com.apple.security.app-sandbox` — it would break core functionality.
+
+### Code Signing
+
+[Hardened Runtime](https://developer.apple.com/documentation/security/hardened_runtime) is enabled for **all** builds (release and debug). macOS 26+ enforces [Launch Constraints](https://developer.apple.com/documentation/security/defining-launch-environment-and-library-constraints) that kill unsigned or ad-hoc-signed apps claiming security entitlements.
+
+The signing identity fallback chain in `build.sh`:
+1. Developer ID Application (distribution)
+2. Apple Development / Mac Developer (local dev with Apple cert)
+3. Any valid codesigning identity (self-signed)
+4. Auto-generated "Vellum Local Development" self-signed cert (created on first build if no cert exists)
+5. Ad-hoc (`-s -`) — last resort, prints a warning on macOS 26+
+
+Key behaviors:
+- Invalid certs (`CSSMERR_TP_CERT_REVOKED`, etc.) are excluded from detection — `security find-identity -v` includes them despite the `-v` flag
+- Debug builds get [`get-task-allow`](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_security_get-task-allow) injected dynamically for LLDB attachment
+- All keychain operations are guarded by `command -v security` for Docker/Linux compatibility
+- Override with `SIGN_IDENTITY=<identity>` env var to skip auto-detection
 
 ### Computer-Use Safety
 - All computer-use actions go through `ActionVerifier` before execution. Never bypass verification.
@@ -410,6 +430,12 @@ All `vellum.ai` and external links the app navigates to (docs pages, terms of se
 - All `AppURLs` members are `public` so the `vellum-assistant-app` shell target can use them via `import VellumAssistantLib`.
 - The docs base URL honors a `VELLUM_DOCS_BASE_URL` env var (validated as an absolute http(s) URL with no query/fragment, falls back to `https://www.vellum.ai/docs` on failure).
 - If you introduce a new env-var-overridable URL, also: (1) embed the var into `Info.plist`'s `LSEnvironment` in `clients/macos/build.sh` — LaunchServices doesn't inherit shell env, so `./build.sh run` requires the embedding (XML-escape values; see the existing `VELLUM_DOCS_BASE_URL` block for the pattern); (2) register the var in `assistant/src/tools/terminal/safe-env.ts` and `assistant/src/config/env-registry.ts` per `assistant/CLAUDE.md` § "Adding new environment variables".
+
+### Authentication
+
+The WorkOS sign-in flow uses [`ASWebAuthenticationSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) (`AuthManager.startWorkOSLogin`). Apple's defaults assume the sheet shares cookies with the user's existing Safari session — flipping [`prefersEphemeralWebBrowserSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession/prefersephemeralwebbrowsersession) to `true` silently breaks SSO, because the user's existing IdP cookies (Google etc.) become invisible to the sheet and every login asks for credentials from scratch.
+
+Before mirroring an auth-session flag from iOS to macOS (or vice versa), reproduce the bug being fixed on the *target* platform. The two platforms use the same `ASWebAuthenticationSession` API but have different IdP-cookie expectations and different historical bug surfaces, so a setting that is right on one platform can be wrong on the other.
 
 ---
 

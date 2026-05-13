@@ -1,16 +1,7 @@
 import type { Command } from "commander";
 
-import { getDb } from "../../memory/db-connection.js";
-import {
-  getUsageDayBuckets,
-  getUsageGroupBreakdown,
-  getUsageTotals,
-  type GroupByDimension,
-  USAGE_GROUP_BY_DIMENSIONS,
-  type UsageDayBucket,
-  type UsageGroupBreakdown,
-  type UsageTotals,
-} from "../../memory/llm-usage-store.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ── Formatting helpers ───────────────────────────────────────────
@@ -57,6 +48,34 @@ function resolveTimeRange(preset: RangePreset): { from: number; to: number } {
     case "all":
       return { from: 0, to: now };
   }
+}
+
+// ── Response interfaces ─────────────────────────────────────────
+
+interface UsageTotals {
+  totalEstimatedCostUsd: number;
+  eventCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheCreationTokens: number;
+  totalCacheReadTokens: number;
+  unpricedEventCount: number;
+}
+
+interface UsageDayBucket {
+  date: string;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalEstimatedCostUsd: number;
+  eventCount: number;
+}
+
+interface UsageGroupBreakdown {
+  group: string;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalEstimatedCostUsd: number;
+  eventCount: number;
 }
 
 // ── Table printers ───────────────────────────────────────────────
@@ -173,17 +192,26 @@ function printBreakdownTable(
 
 // ── Command registration ─────────────────────────────────────────
 
-export function registerUsageCommand(program: Command): void {
-  const usage = program
-    .command("usage")
-    .description("Query LLM token usage and cost data");
+const VALID_GROUP_BY_DIMENSIONS = [
+  "call_site",
+  "inference_profile",
+  "provider",
+  "model",
+  "conversation",
+  "actor",
+] as const;
 
-  usage.addHelpText(
-    "after",
-    `
-Reads from the local LLM usage event ledger (llm_usage_events table) to
-display token consumption and cost data. Operates on the local SQLite
-database directly — does not require the assistant to be running.
+export function registerUsageCommand(program: Command): void {
+  registerCommand(program, {
+    name: "usage",
+    transport: "ipc",
+    description: "Query LLM token usage and cost data",
+    build: (usage) => {
+      usage.addHelpText(
+        "after",
+        `
+Queries LLM usage event data via the daemon to display token consumption
+and cost data. Requires the assistant to be running.
 
 Time range can be specified with --range presets (today, week, month, all)
 or explicit --from / --to epoch-millisecond timestamps.
@@ -193,30 +221,33 @@ Examples:
   $ assistant usage daily --range week
   $ assistant usage breakdown --group-by provider
   $ assistant usage totals --range all --json`,
-  );
+      );
 
-  const rangeOption = [
-    "-r, --range <preset>",
-    "Time range preset: today, week, month, all",
-    "today",
-  ] as const;
-  const fromOption = [
-    "--from <epoch_ms>",
-    "Start of range (epoch ms)",
-  ] as const;
-  const toOption = ["--to <epoch_ms>", "End of range (epoch ms)"] as const;
-  const jsonOption = ["--json", "Output raw JSON"] as const;
+      const rangeOption = [
+        "-r, --range <preset>",
+        "Time range preset: today, week, month, all",
+        "today",
+      ] as const;
+      const fromOption = [
+        "--from <epoch_ms>",
+        "Start of range (epoch ms)",
+      ] as const;
+      const toOption = [
+        "--to <epoch_ms>",
+        "End of range (epoch ms)",
+      ] as const;
+      const jsonOption = ["--json", "Output raw JSON"] as const;
 
-  usage
-    .command("totals", { isDefault: true })
-    .description("Aggregate totals for a time range")
-    .option(...rangeOption)
-    .option(...fromOption)
-    .option(...toOption)
-    .option(...jsonOption)
-    .addHelpText(
-      "after",
-      `
+      usage
+        .command("totals", { isDefault: true })
+        .description("Aggregate totals for a time range")
+        .option(...rangeOption)
+        .option(...fromOption)
+        .option(...toOption)
+        .option(...jsonOption)
+        .addHelpText(
+          "after",
+          `
 Shows aggregate token counts and estimated cost across all LLM calls
 within the time range.
 
@@ -227,30 +258,40 @@ Examples:
   $ assistant usage totals
   $ assistant usage totals --range all
   $ assistant usage totals --from 1709856000000 --to 1709942400000`,
-    )
-    .action(
-      (opts: { range: string; from?: string; to?: string; json?: boolean }) => {
-        getDb();
-        const { from, to } = resolveRange(opts);
-        const totals = getUsageTotals({ from, to });
-        if (opts.json) {
-          log.info(JSON.stringify(totals, null, 2));
-        } else {
-          printTotalsTable(totals);
-        }
-      },
-    );
+        )
+        .action(
+          async (opts: {
+            range: string;
+            from?: string;
+            to?: string;
+            json?: boolean;
+          }) => {
+            const { from, to } = resolveRange(opts);
+            const response = await cliIpcCall<UsageTotals>("usage_totals", {
+              queryParams: { from: String(from), to: String(to) },
+            });
+            if (!response.ok) {
+              return exitFromIpcResult(response);
+            }
+            const totals = response.result!;
+            if (opts.json) {
+              log.info(JSON.stringify(totals, null, 2));
+            } else {
+              printTotalsTable(totals);
+            }
+          },
+        );
 
-  usage
-    .command("daily")
-    .description("Per-day token and cost breakdown")
-    .option(...rangeOption)
-    .option(...fromOption)
-    .option(...toOption)
-    .option(...jsonOption)
-    .addHelpText(
-      "after",
-      `
+      usage
+        .command("daily")
+        .description("Per-day token and cost breakdown")
+        .option(...rangeOption)
+        .option(...fromOption)
+        .option(...toOption)
+        .option(...jsonOption)
+        .addHelpText(
+          "after",
+          `
 Shows one row per day (UTC) with input tokens, output tokens, estimated
 cost, and LLM call count.
 
@@ -258,37 +299,48 @@ Examples:
   $ assistant usage daily
   $ assistant usage daily --range week
   $ assistant usage daily --range month --json`,
-    )
-    .action(
-      (opts: { range: string; from?: string; to?: string; json?: boolean }) => {
-        getDb();
-        const { from, to } = resolveRange(opts);
-        const buckets = getUsageDayBuckets({ from, to });
-        if (opts.json) {
-          log.info(JSON.stringify({ buckets }, null, 2));
-        } else {
-          printDailyTable(buckets);
-        }
-      },
-    );
+        )
+        .action(
+          async (opts: {
+            range: string;
+            from?: string;
+            to?: string;
+            json?: boolean;
+          }) => {
+            const { from, to } = resolveRange(opts);
+            const response = await cliIpcCall<{ buckets: UsageDayBucket[] }>(
+              "usage_daily",
+              { queryParams: { from: String(from), to: String(to) } },
+            );
+            if (!response.ok) {
+              return exitFromIpcResult(response);
+            }
+            const { buckets } = response.result!;
+            if (opts.json) {
+              log.info(JSON.stringify({ buckets }, null, 2));
+            } else {
+              printDailyTable(buckets);
+            }
+          },
+        );
 
-  usage
-    .command("breakdown")
-    .description(
-      "Grouped breakdown by task, profile, provider, model, or conversation",
-    )
-    .option(...rangeOption)
-    .option(...fromOption)
-    .option(...toOption)
-    .option(...jsonOption)
-    .option(
-      "-g, --group-by <dimension>",
-      "Grouping dimension: call_site, inference_profile, provider, model, conversation, actor",
-      "model",
-    )
-    .addHelpText(
-      "after",
-      `
+      usage
+        .command("breakdown")
+        .description(
+          "Grouped breakdown by task, profile, provider, model, or conversation",
+        )
+        .option(...rangeOption)
+        .option(...fromOption)
+        .option(...toOption)
+        .option(...jsonOption)
+        .option(
+          "-g, --group-by <dimension>",
+          "Grouping dimension: call_site, inference_profile, provider, model, conversation, actor",
+          "model",
+        )
+        .addHelpText(
+          "after",
+          `
 Grouping dimensions:
   call_site          Groups by user-facing task (Main Agent, Memory Extraction,
                      Conversation Title, etc.)
@@ -308,35 +360,45 @@ Examples:
   $ assistant usage breakdown --group-by inference_profile
   $ assistant usage breakdown --group-by provider
   $ assistant usage breakdown --group-by actor --range week`,
-    )
-    .action(
-      (opts: {
-        range: string;
-        from?: string;
-        to?: string;
-        json?: boolean;
-        groupBy: string;
-      }) => {
-        const validDimensions = new Set<string>(USAGE_GROUP_BY_DIMENSIONS);
-        if (!validDimensions.has(opts.groupBy)) {
-          log.error(
-            `Invalid --group-by value: '${opts.groupBy}'. Must be one of: ${USAGE_GROUP_BY_DIMENSIONS.join(", ")}`,
-          );
-          process.exit(1);
-        }
-        getDb();
-        const { from, to } = resolveRange(opts);
-        const breakdown = getUsageGroupBreakdown(
-          { from, to },
-          opts.groupBy as GroupByDimension,
+        )
+        .action(
+          async (opts: {
+            range: string;
+            from?: string;
+            to?: string;
+            json?: boolean;
+            groupBy: string;
+          }) => {
+            const validDimensions = new Set<string>(VALID_GROUP_BY_DIMENSIONS);
+            if (!validDimensions.has(opts.groupBy)) {
+              log.error(
+                `Invalid --group-by value: '${opts.groupBy}'. Must be one of: ${VALID_GROUP_BY_DIMENSIONS.join(", ")}`,
+              );
+              process.exit(1);
+            }
+            const { from, to } = resolveRange(opts);
+            const response = await cliIpcCall<{
+              breakdown: UsageGroupBreakdown[];
+            }>("usage_breakdown", {
+              queryParams: {
+                from: String(from),
+                to: String(to),
+                groupBy: opts.groupBy,
+              },
+            });
+            if (!response.ok) {
+              return exitFromIpcResult(response);
+            }
+            const { breakdown } = response.result!;
+            if (opts.json) {
+              log.info(JSON.stringify({ breakdown }, null, 2));
+            } else {
+              printBreakdownTable(breakdown, opts.groupBy);
+            }
+          },
         );
-        if (opts.json) {
-          log.info(JSON.stringify({ breakdown }, null, 2));
-        } else {
-          printBreakdownTable(breakdown, opts.groupBy);
-        }
-      },
-    );
+    },
+  });
 }
 
 /** Resolve the time range from commander options. */

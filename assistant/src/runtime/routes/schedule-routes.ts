@@ -11,10 +11,12 @@ import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
+import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
 import { runScript } from "../../schedule/run-script.js";
 import {
   cancelSchedule,
   completeScheduleRun,
+  createSchedule,
   createScheduleRun,
   deleteSchedule,
   describeCronExpression,
@@ -69,6 +71,53 @@ function handleListSchedules(queryParams: Record<string, string>) {
       isOneShot: j.cronExpression == null,
     })),
   };
+}
+
+function handleCreateSchedule(body: Record<string, unknown>) {
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const expression =
+    typeof body.expression === "string" ? body.expression.trim() : "";
+  const message = typeof body.message === "string" ? body.message : "";
+  const timezoneRaw = typeof body.timezone === "string" ? body.timezone.trim() : "";
+  const timezone = timezoneRaw === "" ? null : timezoneRaw;
+  const enabled = body.enabled !== false;
+  const mode = (body.mode as string | undefined) ?? "execute";
+
+  if (!name) throw new BadRequestError("name is required");
+  if (!expression) throw new BadRequestError("expression is required");
+  if (!message) throw new BadRequestError("message is required");
+
+  // The settings UI only exposes execute mode for now. Other modes
+  // remain reachable via the schedule_create LLM tool.
+  if (mode !== "execute") {
+    throw new BadRequestError(
+      "Only 'execute' mode is supported by this endpoint",
+    );
+  }
+
+  const normalized = normalizeScheduleSyntax({ expression });
+  if (!normalized) {
+    throw new BadRequestError(
+      "expression could not be parsed as cron or rrule",
+    );
+  }
+
+  try {
+    const job = createSchedule({
+      name,
+      message,
+      mode: "execute",
+      enabled,
+      timezone,
+      expression: normalized.expression,
+      syntax: normalized.syntax,
+    });
+    log.info({ id: job.id, name: job.name }, "Schedule created");
+  } catch (err) {
+    if (err instanceof Error) throw new BadRequestError(err.message);
+    throw err;
+  }
+  return handleListSchedules({});
 }
 
 function handleToggleSchedule(id: string, body: Record<string, unknown>) {
@@ -226,6 +275,39 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: ({ queryParams }: RouteHandlerArgs) =>
       handleListSchedules(queryParams ?? {}),
+  },
+  {
+    operationId: "createSchedule",
+    endpoint: "schedules",
+    method: "POST",
+    policyKey: "schedules",
+    summary: "Create schedule",
+    description:
+      "Create a new recurring schedule. Currently restricted to mode='execute'.",
+    tags: ["schedules"],
+    requestBody: z.object({
+      name: z.string().describe("Display name"),
+      expression: z.string().describe("Cron or RRULE expression"),
+      message: z.string().describe("Message body to execute on each fire"),
+      timezone: z
+        .string()
+        .nullable()
+        .describe("IANA timezone, e.g. America/New_York")
+        .optional(),
+      enabled: z
+        .boolean()
+        .describe("Whether the schedule starts active (default true)")
+        .optional(),
+      mode: z
+        .string()
+        .describe("Currently must be 'execute'")
+        .optional(),
+    }),
+    responseBody: z.object({
+      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+    }),
+    handler: ({ body }: RouteHandlerArgs) =>
+      handleCreateSchedule(body ?? {}),
   },
   {
     operationId: "listScheduleRuns",

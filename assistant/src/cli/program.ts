@@ -5,17 +5,18 @@ import { Command } from "commander";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfigReadOnly } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
+import { isExternalPluginsEnabled } from "../plugins/feature-gate.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
-import { registerAutonomyCommand } from "./commands/autonomy.js";
 import { registerAvatarCommand } from "./commands/avatar.js";
 import { registerBackupCommand } from "./commands/backup.js";
 import { registerBashCommand } from "./commands/bash.js";
 import { registerBrowserCommand } from "./commands/browser.js";
 import { registerCacheCommand } from "./commands/cache.js";
+import { registerChangelogCommand } from "./commands/changelog.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
 import { registerClientsCommand } from "./commands/clients.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
@@ -32,12 +33,12 @@ import { registerImageGenerationCommand } from "./commands/image-generation.js";
 import { registerInferenceCommand } from "./commands/inference.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
-import { registerMemoryCommand } from "./commands/memory.js";
 import { registerMemoryV2Command } from "./commands/memory-v2.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPendingCommand } from "./commands/pending.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
+import { registerPluginsCommand } from "./commands/plugins.js";
 import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSkillsCommand } from "./commands/skills.js";
@@ -50,6 +51,7 @@ import { registerUiCommand } from "./commands/ui.js";
 import { registerUsageCommand } from "./commands/usage.js";
 import { registerWatchersCommand } from "./commands/watchers.js";
 import { registerWebhooksCommand } from "./commands/webhooks.js";
+import { red } from "./lib/cli-colors.js";
 import { log } from "./logger.js";
 
 /**
@@ -57,7 +59,7 @@ import { log } from "./logger.js";
  * the gateway so flag-gated commands are registered correctly.
  */
 export async function buildCliProgram(): Promise<Command> {
-  await initFeatureFlagOverrides();
+  await initFeatureFlagOverrides({ retryBackoffsMs: [], callTimeoutMs: 200 });
   const program = new Command();
 
   program
@@ -65,6 +67,13 @@ export async function buildCliProgram(): Promise<Command> {
     .description("Local AI assistant")
     .version(APP_VERSION)
     .allowExcessArguments(true);
+
+  // Color Commander-emitted error output red (unknown options, missing args,
+  // cmd.error() calls). Plain success output and --help text are untouched.
+  // The `red` helper is a no-op when stderr isn't a TTY or NO_COLOR is set.
+  program.configureOutput({
+    outputError: (str, write) => write(red(str)),
+  });
 
   program.addHelpText(
     "after",
@@ -80,12 +89,12 @@ Examples:
   registerAttachmentCommand(program);
   registerAuditCommand(program);
   registerAuthCommand(program);
-  registerAutonomyCommand(program);
   registerAvatarCommand(program);
   registerBackupCommand(program);
   registerBashCommand(program);
   registerBrowserCommand(program);
   registerCacheCommand(program);
+  registerChangelogCommand(program);
   registerChannelVerificationSessionsCommand(program);
   registerClientsCommand(program);
   registerCompletionsCommand(program);
@@ -103,12 +112,14 @@ Examples:
   registerInferenceCommand(program);
   registerKeysCommand(program);
   registerMcpCommand(program);
-  registerMemoryCommand(program);
   registerMemoryV2Command(program);
   registerNotificationsCommand(program);
   registerOAuthCommand(program);
   registerPendingCommand(program);
   registerPlatformCommand(program);
+  if (isExternalPluginsEnabled(getConfigReadOnly())) {
+    registerPluginsCommand(program);
+  }
   registerRoutesCommand(program);
   registerSequenceCommand(program);
   registerStatusCommand(program);
@@ -128,9 +139,28 @@ Examples:
   // remain available even without a workspace.
   // Workspace-independent commands are exempt:
   //   completions — pure shell-script generation, no workspace files needed
-  const workspaceExemptCommands = new Set(["completions", "status"]);
+  //   status     — diagnostic; should run even when the workspace is broken
+  //   changelog  — pure read-only network surface backed by GitHub Releases;
+  //                its on-disk cache is best-effort and tolerates a missing
+  //                workspace dir (see changelog.ts:writeCache)
+  const workspaceExemptCommands = new Set([
+    "completions",
+    "status",
+    "changelog",
+  ]);
+  // An action command's `.name()` returns the leaf (e.g. "show" for
+  // `changelog show <ver>`), so we walk up the parent chain to see whether
+  // any ancestor — typically the top-level subcommand — is exempt.
+  const isExemptFromWorkspaceCheck = (command: Command): boolean => {
+    let current: Command | null | undefined = command;
+    while (current && current !== program) {
+      if (workspaceExemptCommands.has(current.name())) return true;
+      current = current.parent;
+    }
+    return false;
+  };
   program.hook("preAction", (_thisCommand, actionCommand) => {
-    if (workspaceExemptCommands.has(actionCommand.name())) {
+    if (isExemptFromWorkspaceCheck(actionCommand)) {
       return;
     }
     const workspaceDir = getWorkspaceDir();

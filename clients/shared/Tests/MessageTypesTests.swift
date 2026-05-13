@@ -56,6 +56,109 @@ final class MessageTypesTests: XCTestCase {
         ])
     }
 
+    func testDecodesErrorMessagePreservesConversationErrorCategory() throws {
+        let json = Data(
+            """
+            {
+              "type": "error",
+              "conversationId": "conv-billing",
+              "requestId": "req-billing",
+              "code": "PROVIDER_BILLING",
+              "message": "Your provider key needs credits.",
+              "errorCategory": "provider_billing"
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .error(let error) = message else {
+            XCTFail("Expected .error, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(error.conversationId, "conv-billing")
+        XCTAssertEqual(error.requestId, "req-billing")
+        XCTAssertEqual(error.code, "PROVIDER_BILLING")
+        XCTAssertEqual(error.message, "Your provider key needs credits.")
+        XCTAssertEqual(error.errorCategory, "provider_billing")
+    }
+
+    func testDecodesSyncChangedWithKnownAndFutureTags() throws {
+        let json = Data(
+            """
+            {
+              "type": "sync_changed",
+              "tags": [
+                "assistant:self:avatar",
+                "conversation:conversation-123:metadata",
+                "future:resource"
+              ]
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .syncChanged(let event) = message else {
+            XCTFail("Expected .syncChanged, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(event.tags, [
+            "assistant:self:avatar",
+            "conversation:conversation-123:metadata",
+            "future:resource",
+        ])
+    }
+
+    func testDecodesSyncChangedWithMissingTagsAsEmpty() throws {
+        let json = Data(
+            """
+            {
+              "type": "sync_changed"
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .syncChanged(let event) = message else {
+            XCTFail("Expected .syncChanged, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(event.tags, [])
+    }
+
+    func testDecodesSyncChangedByIgnoringMalformedTags() throws {
+        let json = Data(
+            """
+            {
+              "type": "sync_changed",
+              "tags": [
+                "assistant:self:identity",
+                42,
+                { "unexpected": true },
+                "conversations:list"
+              ]
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .syncChanged(let event) = message else {
+            XCTFail("Expected .syncChanged, got \(message)")
+            return
+        }
+
+        XCTAssertEqual(event.tags, [
+            "assistant:self:identity",
+            "conversations:list",
+        ])
+    }
+
     // MARK: - host_browser_request
 
     func testDecodes_hostBrowserRequest_withAllFields() throws {

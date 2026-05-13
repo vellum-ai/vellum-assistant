@@ -161,12 +161,13 @@ struct HatchingStepView: View {
                     progressAtCompletion = progressValue(at: Date())
                     completionTime = Date()
                 }
-                // Push the locally-stored API key to the newly-booted daemon.
-                // During onboarding the fire-and-forget gateway HTTP call in
-                // saveAndHatch() races the hatch and silently fails when the
-                // daemon isn't running yet. Re-send once we know it's up.
+                // Push the in-memory API key to the newly-booted daemon.
+                // OnboardingState holds the typed value transiently — this
+                // is its only durable destination, so we POST exactly once
+                // when we know the daemon is up.
                 if !state.skippedAPIKeyEntry,
-                   let key = APIKeyManager.getKey(for: state.selectedProvider) {
+                   let key = state.providerKeys[state.selectedProvider],
+                   !key.isEmpty {
                     let provider = state.selectedProvider
                     Task { await APIKeyManager.setKey(key, for: provider) }
                 }
@@ -430,11 +431,19 @@ struct HatchingStepView: View {
 
         log.info("Hatch success detected — starting completion transition")
 
+        // Import the guardian token immediately so any gateway requests made
+        // during the completion transition (identity, secrets, etc.) have valid
+        // credentials. Without this, calls fire before setupGatewayConnectionManager
+        // runs and 401 because the credential store is empty.
+        if let assistantId = LockfileAssistant.loadActiveAssistantId(),
+           !ActorTokenManager.hasToken {
+            _ = GuardianTokenFileReader.importIfAvailable(assistantId: assistantId)
+        }
+
         // Save the randomly-generated avatar as the user's avatar, but only if
         // one hasn't already been uploaded/generated (preserves existing avatars
         // when replaying onboarding during development).
-        // skipWorkspaceSync: the guardian token hasn't been imported yet so gateway
-        // requests would 401. The workspace sync happens later in
+        // skipWorkspaceSync: the workspace sync happens later in
         // syncOnboardingAvatarIfNeeded() after the daemon connection is authenticated.
         if AvatarAppearanceManager.shared.customAvatarImage == nil,
            let image = hatchAvatarImage {
@@ -580,14 +589,10 @@ struct HatchingStepView: View {
     /// Most config default values are determined by the daemon process and may
     /// depend on whether the assistant is hatched on the Vellum Platform or not.
     private func buildOnboardingConfigValues() -> [String: String] {
-        var configValues: [String: String] = [:]
-        if !state.selectedProvider.isEmpty {
-            configValues["llm.default.provider"] = state.selectedProvider
-        }
-        if !state.selectedModel.isEmpty {
-            configValues["llm.default.model"] = state.selectedModel
-        }
-        return configValues
+        let provider = state.selectedProvider.isEmpty
+            ? LLMProviderRegistry.defaultProvider.id
+            : state.selectedProvider
+        return ["llm.default.provider": provider]
     }
 
     private func startRemoteHatch() {

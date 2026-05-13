@@ -33,6 +33,19 @@ const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 /**
+ * Hard cap on the verbatim tail-anchor block we splice into the
+ * post-compaction summary message (see `extractTailAssistantText`). 1500
+ * chars (~375 tokens) covers a few paragraphs of recent assistant
+ * narration without bloating the summary. When the tail exceeds this
+ * size we keep the END (most recent text), since "next step" / "now I'll
+ * …" statements typically live at the end of the assistant's last text
+ * block and that's the part the post-compaction model needs most.
+ */
+const TAIL_ANCHOR_MAX_CHARS = 1500;
+const TAIL_ANCHOR_OPEN_TAG = "<verbatim_tail>";
+const TAIL_ANCHOR_CLOSE_TAG = "</verbatim_tail>";
+
+/**
  * When the existing summary is this fraction or more of the per-summary
  * token budget, inject a "compress older content aggressively" instruction
  * so incremental-update passes don't let the summary grow unboundedly.
@@ -488,13 +501,45 @@ export class ContextWindowManager {
       };
     }
 
-    const keepPlan = this.pickKeepBoundary(messages, userTurnStarts, {
+    const keepPlanInitial = this.pickKeepBoundary(messages, userTurnStarts, {
       minKeepRecentUserTurns: options?.minKeepRecentUserTurns,
       targetInputTokensOverride: options?.targetInputTokensOverride,
       conversationOriginChannel: options?.conversationOriginChannel,
       force: options?.force,
       previousEstimatedInputTokens,
     });
+    // Under force (user-explicit `/compact`), never route through the
+    // "already fits" / "truncated tool results without summarization"
+    // early-return — those are no-op responses to a direct user command.
+    // The boundary can collapse to the summary in two cases the
+    // projection-optimism clamp in pickKeepBoundary does not cover:
+    //   1. `adjustForToolPairs` walked the boundary back through a
+    //      tool_use/tool_result chain at the start of the conversation.
+    //   2. The binary search settled below `userTurnStarts.length` (so
+    //      the clamp at the top of pickKeepBoundary did not fire) but
+    //      `adjustForToolPairs` still walked the resulting boundary
+    //      backwards past `summaryOffset`.
+    // Rescue: restore the binary search's intended keep depth (capped at
+    // `length - 1` so we always summarize at least one turn) and bypass
+    // `adjustForToolPairs`. The kept region's first message may then
+    // contain a `tool_result` whose matching `tool_use` lives in the
+    // compacted region; we strip such orphans below before assembling
+    // the final messages array so the next agent turn does not fail
+    // when sending to the LLM.
+    const forceRescueApplied =
+      options?.force === true &&
+      keepPlanInitial.keepFromIndex <= summaryOffset &&
+      userTurnStarts.length >= 2;
+    const safeKeepTurns = Math.max(
+      1,
+      Math.min(keepPlanInitial.keepTurns, userTurnStarts.length - 1),
+    );
+    const keepPlan = forceRescueApplied
+      ? {
+          keepFromIndex: userTurnStarts[userTurnStarts.length - safeKeepTurns],
+          keepTurns: safeKeepTurns,
+        }
+      : keepPlanInitial;
     if (keepPlan.keepFromIndex <= summaryOffset) {
       // All turns fit after truncation projection, but the real in-memory
       // messages may still contain un-truncated tool results. Apply truncation
@@ -511,6 +556,14 @@ export class ContextWindowManager {
             toolTokenBudget: this.toolTokenBudget,
           })
         : previousEstimatedInputTokens;
+      // Under force with only one user turn, the rescue above could not
+      // fire — there is nothing earlier to summarize. Surface that
+      // explicitly instead of "conversation already fits..." so the user
+      // knows why `/compact` did not produce a summary.
+      const noSummarizationReason =
+        options?.force && userTurnStarts.length < 2
+          ? "only one user turn — nothing earlier to compact"
+          : "conversation already fits within the compaction target";
       return {
         messages: truncatedMessages,
         compacted: didTruncate,
@@ -527,7 +580,7 @@ export class ContextWindowManager {
         summaryText: existingSummary ?? "",
         reason: didTruncate
           ? "truncated tool results without summarization"
-          : "conversation already fits within the compaction target",
+          : noSummarizationReason,
       };
     }
 
@@ -645,9 +698,15 @@ export class ContextWindowManager {
       };
     }
 
+    // `severePressure` already bypasses this guard to keep context from
+    // overflowing. Forced compaction also bypasses: when the user
+    // explicitly types `/compact` we must summarize whatever is
+    // available rather than return "insufficient compactable persisted
+    // messages" — that is a no-op response to a direct user command.
     if (
       compactedPersistedMessages < MIN_COMPACTABLE_PERSISTED_MESSAGES &&
-      !severePressure
+      !severePressure &&
+      !options?.force
     ) {
       return {
         messages,
@@ -670,12 +729,44 @@ export class ContextWindowManager {
     const retainedThreadRefs = collectRetainedThreadReferences(
       messages.slice(keepPlan.keepFromIndex),
     );
+    // Force-rescue path: the kept region may begin with a `tool_result`
+    // whose matching `tool_use` lives in the (now-compacted) prefix. We
+    // must remove those orphan blocks before sending to the LLM (which
+    // would reject them), but their content was never visible to the
+    // summarizer either — `compactableMessages` ends before the boundary.
+    // Split them out here so they can (a) be fed into the summarizer as
+    // part of the compacted transcript, and (b) be stripped from the
+    // kept region below. Without this routing the orphan tool_result
+    // content is silently lost.
+    const { messages: truncatedKeptMessages } =
+      truncateToolResultsAcrossHistory(
+        messages.slice(keepPlan.keepFromIndex),
+        COMPACTION_TOOL_RESULT_MAX_CHARS,
+      );
+    const { orphans: boundaryOrphanToolResults, stripped: keptMessages } =
+      forceRescueApplied
+        ? splitOrphanToolResults(truncatedKeptMessages)
+        : {
+            orphans: [] as ContentBlock[],
+            stripped: truncatedKeptMessages,
+          };
+    const summaryInputMessages =
+      boundaryOrphanToolResults.length > 0
+        ? [
+            ...compactableMessages,
+            {
+              role: "user" as const,
+              content: boundaryOrphanToolResults,
+            },
+          ]
+        : compactableMessages;
     // Strip runtime injections (memory, turn context, workspace hints, etc.)
     // from the messages fed to the summarizer. These blocks are system
     // metadata; leaving them in causes the summary to echo rotating memory
     // content instead of the actual conversation. The caller's live message
     // array is untouched so prefix caching stays intact.
-    const transcriptSource = stripCompactionOnlyInjections(compactableMessages);
+    const transcriptSource =
+      stripCompactionOnlyInjections(summaryInputMessages);
     const transcriptBlocks = this.capTranscriptBlocksToTokenBudget(
       serializeMessagesToContentBlocks(transcriptSource),
       existingSummary ?? "No previous summary.",
@@ -688,7 +779,6 @@ export class ContextWindowManager {
       signal,
       options?.overrideProfile ?? null,
     );
-    const summary = summaryUpdate.summary;
     const summaryInputTokens = summaryUpdate.inputTokens;
     const summaryOutputTokens = summaryUpdate.outputTokens;
     const summaryModel = summaryUpdate.model;
@@ -704,6 +794,19 @@ export class ContextWindowManager {
     }
     const summaryCalls = 1;
 
+    // Force-keep the most recent assistant text from the compactable region
+    // by splicing it verbatim into the summary message. This is independent
+    // of what the LLM summarizer chose to surface — when compaction
+    // interrupts a long assistant work span, this anchor preserves the
+    // model's last self-narration ("Next step: …", "About to …") so the
+    // post-compaction model has unambiguous continuity instead of falling
+    // back to a "where am I?" recovery shape.
+    const tailAnchorText = extractTailAssistantText(compactableMessages);
+    const summary =
+      tailAnchorText != null
+        ? appendTailAnchorToSummary(summaryUpdate.summary, tailAnchorText)
+        : summaryUpdate.summary;
+
     // Media (images, files) in kept turns is preserved naturally — those
     // turns are carried forward as-is and their token cost is already
     // accounted for by pickKeepBoundary's estimatePromptTokens call.
@@ -711,12 +814,7 @@ export class ContextWindowManager {
     // describe their visual content in the summary text.
     const summaryMessage = createContextSummaryMessage(summary);
 
-    const { messages: truncatedKeptMessages } =
-      truncateToolResultsAcrossHistory(
-        messages.slice(keepPlan.keepFromIndex),
-        COMPACTION_TOOL_RESULT_MAX_CHARS,
-      );
-    const compactedMessages = [summaryMessage, ...truncatedKeptMessages];
+    const compactedMessages = [summaryMessage, ...keptMessages];
     const estimatedInputTokens = estimatePromptTokens(
       compactedMessages,
       this.systemPrompt,
@@ -1251,6 +1349,62 @@ function adjustForToolPairs(
   return idx;
 }
 
+/**
+ * Split `tool_result` blocks whose matching `tool_use` is not present in
+ * the message array. Used by the force-rescue path in `_maybeCompact`
+ * which bypasses `adjustForToolPairs` to honor user-explicit `/compact`
+ * commands — the kept region's first user message can otherwise contain
+ * an orphan `tool_result`, which the LLM API rejects.
+ *
+ * Returns the orphan blocks alongside the stripped message array so the
+ * caller can route their content into the summarizer rather than
+ * dropping it silently. A user message that contains only orphan
+ * `tool_result` blocks is dropped entirely; partial messages keep the
+ * surviving content blocks.
+ */
+function splitOrphanToolResults(messages: Message[]): {
+  orphans: ContentBlock[];
+  stripped: Message[];
+} {
+  const knownToolUseIds = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    for (const block of msg.content) {
+      if (
+        (block.type === "tool_use" || block.type === "server_tool_use") &&
+        "id" in block
+      ) {
+        knownToolUseIds.add((block as { id: string }).id);
+      }
+    }
+  }
+
+  const orphans: ContentBlock[] = [];
+  const stripped = messages.flatMap((msg) => {
+    if (msg.role !== "user") return [msg];
+    let changed = false;
+    const filtered = msg.content.filter((block) => {
+      if (
+        (block.type === "tool_result" ||
+          block.type === "web_search_tool_result") &&
+        "tool_use_id" in block
+      ) {
+        const id = (block as { tool_use_id: string }).tool_use_id;
+        if (!knownToolUseIds.has(id)) {
+          orphans.push(block);
+          changed = true;
+          return false;
+        }
+      }
+      return true;
+    });
+    if (!changed) return [msg];
+    if (filtered.length === 0) return [];
+    return [{ ...msg, content: filtered }];
+  });
+  return { orphans, stripped };
+}
+
 export function getSummaryFromContextMessage(
   message: Message | undefined,
 ): string | null {
@@ -1284,6 +1438,67 @@ export function createContextSummaryMessage(summary: string): Message {
   };
   INTERNAL_CONTEXT_SUMMARY_MESSAGES.add(message);
   return message;
+}
+
+/**
+ * Walk `messages` backward and return the concatenated text content of the
+ * most recent assistant message that contains at least one non-empty text
+ * block. tool_use / tool_result / image / unknown blocks are skipped. The
+ * result is trimmed and (if longer than `maxChars`) clamped from the START
+ * so the END — where "next step" / "now I'll …" narration tends to land —
+ * is preserved.
+ *
+ * Returns `null` when no eligible assistant text is found (e.g. compactable
+ * region was all user/tool messages, or all assistant messages were
+ * tool_use-only). The caller treats `null` as "no anchor to splice".
+ *
+ * Used by `_maybeCompact` to force-keep the last assistant text from the
+ * compactable region into the post-compaction summary message, so the
+ * model's most recent self-narration survives summarization regardless of
+ * whether the LLM summarizer chose to surface it.
+ */
+export function extractTailAssistantText(
+  messages: Message[],
+  maxChars: number = TAIL_ANCHOR_MAX_CHARS,
+): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message?.role !== "assistant") continue;
+    const text = extractText(message.content).trim();
+    if (text.length === 0) continue;
+    if (text.length <= maxChars) return text;
+    // Keep the END — most recent narration wins.
+    const truncated = safeStringSlice(
+      text,
+      text.length - maxChars,
+      text.length,
+    );
+    return `[...truncated] ${truncated}`;
+  }
+  return null;
+}
+
+/**
+ * Splice a verbatim tail-anchor block onto the end of the LLM-produced
+ * summary text. The tag-wrapped block is structurally distinct from any
+ * `## ` section the LLM might generate, so it survives section-boundary
+ * clamping in `clampSummaryAtSectionBoundary` (which only runs on the LLM
+ * summary itself, before this splice).
+ *
+ * Idempotent: if the summary already ends with a `<verbatim_tail>…` block
+ * (e.g. from a prior compaction whose summary was carried forward as
+ * `existingSummary`), it is replaced rather than stacked, so successive
+ * compactions don't accumulate stale tails.
+ */
+export function appendTailAnchorToSummary(
+  summary: string,
+  tailText: string,
+): string {
+  const trimmed = summary.trimEnd();
+  const existingOpen = trimmed.lastIndexOf(TAIL_ANCHOR_OPEN_TAG);
+  const base =
+    existingOpen >= 0 ? trimmed.slice(0, existingOpen).trimEnd() : trimmed;
+  return `${base}\n\n${TAIL_ANCHOR_OPEN_TAG}\n${tailText.trim()}\n${TAIL_ANCHOR_CLOSE_TAG}`;
 }
 
 /**

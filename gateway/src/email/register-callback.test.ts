@@ -15,7 +15,7 @@ import {
 afterEach(() => {
   resetMockFetch();
   delete process.env.VELLUM_PLATFORM_URL;
-  delete process.env.PLATFORM_INTERNAL_API_KEY;
+  delete process.env.ASSISTANT_API_KEY;
 });
 
 function makeConfigFile(
@@ -118,9 +118,9 @@ describe("registerEmailCallbackRoute", () => {
     });
   });
 
-  test("uses credential cache for assistant ID", async () => {
+  test("uses env assistant key with credential cache for assistant ID", async () => {
     process.env.VELLUM_PLATFORM_URL = "https://env-platform.example.com";
-    process.env.PLATFORM_INTERNAL_API_KEY = "internal-key";
+    process.env.ASSISTANT_API_KEY = "env-key";
 
     const callbackUrl =
       "https://env-platform.example.com/v1/gateway/callbacks/11111111-2222-3333-4444-555555555555/webhooks/email/";
@@ -145,7 +145,7 @@ describe("registerEmailCallbackRoute", () => {
     const calls = getMockFetchCalls();
     expect(calls).toHaveLength(1);
     const headers = calls[0].init.headers as Record<string, string>;
-    expect(headers?.["Authorization"]).toBe("Bearer internal-key");
+    expect(headers?.["Authorization"]).toBe("Api-Key env-key");
   });
 
   test("throws on non-ok response", async () => {

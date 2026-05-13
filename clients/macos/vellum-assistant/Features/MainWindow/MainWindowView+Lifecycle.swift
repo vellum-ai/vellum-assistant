@@ -23,8 +23,8 @@ extension MainWindowView {
                 handleUpdateOutcome(outcome)
                 connectionManager.clearLastUpdateOutcome()
             }
-            .onChange(of: listStore.conversations.isEmpty) { _, isEmpty in
-                if !isEmpty && showAssistantLoading {
+            .onChange(of: listStore.hasAnyConversations) { _, hasAny in
+                if hasAny && showAssistantLoading {
                     withAnimation(VAnimation.standard) {
                         showAssistantLoading = false
                     }

@@ -653,6 +653,9 @@ describe("voice-session-bridge", () => {
       "If your assistant name is not known, skip the name and just identify yourself as the guardian's assistant.",
     );
     expect(prompt).toContain(
+      "Never use a UUID-shaped internal assistant ID as your spoken name.",
+    );
+    expect(prompt).toContain(
       'Do NOT say "I\'m calling" or "I\'m calling on behalf of".',
     );
   });
@@ -1178,6 +1181,134 @@ describe("voice-session-bridge", () => {
     expect(handleSecretCalls[0].requestId).toBe("req-secret-1");
     expect(handleSecretCalls[0].value).toBeUndefined();
     expect(handleSecretCalls[0].delivery).toBe("store");
+  });
+
+  test("forcePromptSideEffects does not leak when persistUserMessage fails", async () => {
+    const conversation = createConversation(
+      "voice bridge forcePromptSideEffects leak test",
+    );
+
+    const session = {
+      isProcessing: () => false,
+      forcePromptSideEffects: false,
+      callSessionId: undefined as string | undefined,
+      persistUserMessage: async () => {
+        throw new Error("simulated persistence failure");
+      },
+      memoryPolicy: {
+        scopeId: "default",
+        includeDefaultFallback: false,
+      },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setTrustContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      setVoiceCallControlPrompt: () => {},
+      updateClient: () => {},
+      ensureActorScopedHistory: async () => {},
+      runAgentLoop: async () => {},
+      handleConfirmationResponse: () => {},
+      abort: () => {},
+    } as unknown as Conversation & { forcePromptSideEffects: boolean };
+
+    injectDeps(() => session);
+
+    // Non-guardian voice would normally set forcePromptSideEffects = true.
+    // The setup must fail before that assignment happens so the flag stays
+    // false and cannot leak into subsequent non-voice turns.
+    let caught: Error | null = null;
+    try {
+      await startVoiceTurn({
+        conversationId: conversation.id,
+        content: "Hello",
+        isInbound: true,
+        trustContext: {
+          sourceChannel: "phone",
+          trustClass: "trusted_contact",
+        },
+        onTextDelta: () => {},
+        onComplete: () => {},
+        onError: () => {},
+      });
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    expect(caught?.message).toBe("simulated persistence failure");
+    expect(session.forcePromptSideEffects).toBe(false);
+  });
+
+  test("turn state does not leak when persistUserMessage fails", async () => {
+    const conversation = createConversation(
+      "voice bridge turn state leak test",
+    );
+
+    const lastSetterValue: Record<string, unknown> = {};
+    const recordLast =
+      (name: string) =>
+      (value: unknown): void => {
+        lastSetterValue[name] = value;
+      };
+    const session = {
+      isProcessing: () => false,
+      forcePromptSideEffects: false,
+      callSessionId: undefined as string | undefined,
+      persistUserMessage: async () => {
+        throw new Error("simulated persistence failure");
+      },
+      memoryPolicy: {
+        scopeId: "default",
+        includeDefaultFallback: false,
+      },
+      setChannelCapabilities: recordLast("setChannelCapabilities"),
+      setAssistantId: recordLast("setAssistantId"),
+      setTrustContext: recordLast("setTrustContext"),
+      setCommandIntent: recordLast("setCommandIntent"),
+      setTurnChannelContext: recordLast("setTurnChannelContext"),
+      setTurnInterfaceContext: recordLast("setTurnInterfaceContext"),
+      setVoiceCallControlPrompt: recordLast("setVoiceCallControlPrompt"),
+      updateClient: () => {},
+      ensureActorScopedHistory: async () => {},
+      runAgentLoop: async () => {},
+      handleConfirmationResponse: () => {},
+      abort: () => {},
+    } as unknown as Conversation & {
+      forcePromptSideEffects: boolean;
+      callSessionId?: string;
+    };
+    session.callSessionId = "session-leak-test-precondition";
+
+    injectDeps(() => session);
+
+    let caught: Error | null = null;
+    try {
+      await startVoiceTurn({
+        conversationId: conversation.id,
+        voiceSessionId: "session-leak-test",
+        content: "Hello",
+        isInbound: true,
+        trustContext: {
+          sourceChannel: "phone",
+          trustClass: "trusted_contact",
+        },
+        onTextDelta: () => {},
+        onComplete: () => {},
+        onError: () => {},
+      });
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    expect(caught?.message).toBe("simulated persistence failure");
+    expect(lastSetterValue.setChannelCapabilities).toBeNull();
+    expect(lastSetterValue.setTrustContext).toBeNull();
+    expect(lastSetterValue.setCommandIntent).toBeNull();
+    expect(lastSetterValue.setAssistantId).toBe("self");
+    expect(lastSetterValue.setVoiceCallControlPrompt).toBeNull();
+    expect(session.callSessionId).toBeUndefined();
+    expect(session.forcePromptSideEffects).toBe(false);
   });
 
   test("pre-aborted signal triggers immediate abort", async () => {

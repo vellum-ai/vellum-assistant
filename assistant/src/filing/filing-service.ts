@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import {
@@ -9,8 +8,7 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import { processMessage } from "../daemon/process-message.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
@@ -18,6 +16,11 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
 const log = getLogger("filing-service");
 
 const FILING_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+
+// When compaction skips because a filing run holds the serialization lock,
+// retry on this near-term cadence so phase-aligned 24h timers don't starve
+// compaction across consecutive ticks.
+const COMPACTION_CONTENDED_RETRY_MS = 10 * 60 * 1000; // 10 minutes
 
 const FILING_PROMPT_TEMPLATE = `You are running a periodic knowledge base filing job. This is a background maintenance task focused on the buffer.
 
@@ -67,11 +70,8 @@ If the disk shape changed (files split, files moved, files created, files remove
 This is your knowledge base — keep it sharp.`;
 
 export interface FilingDeps {
-  onConversationCreated?: (info: {
-    conversationId: string;
-    title: string;
-  }) => void;
   getCurrentHour?: () => number;
+  compactionContendedRetryMs?: number;
 }
 
 export class FilingService {
@@ -85,8 +85,10 @@ export class FilingService {
   private readonly deps: FilingDeps;
   private timer: ReturnType<typeof setInterval> | null = null;
   private compactionTimer: ReturnType<typeof setInterval> | null = null;
+  private compactionRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private activeRun: Promise<void> | null = null;
   private activeCompactionRun: Promise<void> | null = null;
+  private stopped = false;
   private _lastRunAt: number | null = null;
   private _nextRunAt: number | null = null;
   private _lastCompactionAt: number | null = null;
@@ -114,9 +116,10 @@ export class FilingService {
   }
 
   start(): void {
+    this.stopped = false;
     const fullConfig = getConfig();
-    if (isAssistantFeatureFlagEnabled("memory-v2-enabled", fullConfig)) {
-      log.info("Filing service disabled — memory v2 flag is set");
+    if (fullConfig.memory.v2.enabled) {
+      log.info("Filing service disabled — memory v2 is active");
       this._nextRunAt = null;
       this._nextCompactionAt = null;
       return;
@@ -163,12 +166,14 @@ export class FilingService {
       clearInterval(this.compactionTimer);
       this.compactionTimer = null;
     }
+    this.clearCompactionRetry();
     this._nextRunAt = null;
     this._nextCompactionAt = null;
     this.start();
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -177,6 +182,7 @@ export class FilingService {
       clearInterval(this.compactionTimer);
       this.compactionTimer = null;
     }
+    this.clearCompactionRetry();
     this._nextRunAt = null;
     this._nextCompactionAt = null;
     const inflight: Promise<void>[] = [];
@@ -218,6 +224,13 @@ export class FilingService {
       return false;
     }
 
+    if (this.activeCompactionRun) {
+      log.debug(
+        "Compaction run in progress, skipping filing to avoid concurrent PKB writes",
+      );
+      return false;
+    }
+
     // Skip if buffer is empty — no work to do
     if (!force && !this.hasBufferContent()) {
       log.debug("Buffer is empty, skipping filing");
@@ -228,15 +241,7 @@ export class FilingService {
     const run = this.executeRun();
     this.activeRun = run;
     try {
-      await Promise.race([
-        run,
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Filing execution timed out")),
-            FILING_TIMEOUT_MS,
-          ),
-        ),
-      ]);
+      await run;
     } finally {
       this.activeRun = null;
       this._lastRunAt = Date.now();
@@ -272,18 +277,21 @@ export class FilingService {
       return false;
     }
 
+    if (this.activeRun) {
+      log.debug(
+        "Filing run in progress, skipping compaction to avoid concurrent PKB writes",
+      );
+      this.scheduleCompactionRetry(
+        this.deps.compactionContendedRetryMs ?? COMPACTION_CONTENDED_RETRY_MS,
+      );
+      return false;
+    }
+
+    this.clearCompactionRetry();
     const run = this.executeCompactionRun();
     this.activeCompactionRun = run;
     try {
-      await Promise.race([
-        run,
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Compaction execution timed out")),
-            FILING_TIMEOUT_MS,
-          ),
-        ),
-      ]);
+      await run;
     } finally {
       this.activeCompactionRun = null;
       this._lastCompactionAt = Date.now();
@@ -307,6 +315,29 @@ export class FilingService {
 
   private scheduleNextCompactionRun(intervalMs: number): void {
     this._nextCompactionAt = Date.now() + intervalMs;
+  }
+
+  private scheduleCompactionRetry(delayMs: number): void {
+    this.clearCompactionRetry();
+    if (this.stopped) return;
+    this.compactionRetryTimer = setTimeout(() => {
+      this.compactionRetryTimer = null;
+      if (this.stopped) return;
+      this.runCompactionOnce().catch((err) => {
+        log.error({ err }, "Compaction retry failed");
+      });
+    }, delayMs);
+    // unref so the pending retry doesn't keep the daemon process alive on
+    // shutdown paths that don't call stop().
+    this.compactionRetryTimer.unref?.();
+    this._nextCompactionAt = Date.now() + delayMs;
+  }
+
+  private clearCompactionRetry(): void {
+    if (this.compactionRetryTimer) {
+      clearTimeout(this.compactionRetryTimer);
+      this.compactionRetryTimer = null;
+    }
   }
 
   private shouldSkipForDiskPressure(source: "filing" | "compaction"): boolean {
@@ -339,7 +370,8 @@ export class FilingService {
 
   private executeRun(): Promise<void> {
     return this.executeBackgroundJob({
-      title: "Knowledge base filing",
+      jobName: "filing",
+      systemHint: "Knowledge base filing",
       prompt: FILING_PROMPT_TEMPLATE,
       callSite: "filingAgent",
     });
@@ -347,47 +379,40 @@ export class FilingService {
 
   private executeCompactionRun(): Promise<void> {
     return this.executeBackgroundJob({
-      title: "Knowledge base compaction",
+      jobName: "compaction",
+      systemHint: "Knowledge base compaction",
       prompt: COMPACTION_PROMPT_TEMPLATE,
       callSite: "compactionAgent",
     });
   }
 
   private async executeBackgroundJob(opts: {
-    title: string;
+    jobName: string;
+    systemHint: string;
     prompt: string;
     callSite: LLMCallSite;
   }): Promise<void> {
-    log.info({ title: opts.title }, "Running background job");
+    log.info({ jobName: opts.jobName }, "Running background job");
 
-    try {
-      const conversation = bootstrapConversation({
-        conversationType: "background",
-        source: "filing",
-        groupId: "system:background",
-        origin: "filing",
-        systemHint: opts.title,
-      });
+    const result = await runBackgroundJob({
+      jobName: opts.jobName,
+      source: "filing",
+      systemHint: opts.systemHint,
+      prompt: opts.prompt,
+      trustContext: {
+        sourceChannel: "vellum",
+        trustClass: "guardian",
+      },
+      callSite: opts.callSite,
+      timeoutMs: FILING_TIMEOUT_MS,
+      origin: "filing",
+    });
 
-      this.deps.onConversationCreated?.({
-        conversationId: conversation.id,
-        title: opts.title,
-      });
-
-      await processMessage(conversation.id, opts.prompt, undefined, {
-        trustContext: {
-          sourceChannel: "vellum",
-          trustClass: "guardian",
-        },
-        callSite: opts.callSite,
-      });
-
+    if (result.ok) {
       log.info(
-        { conversationId: conversation.id, title: opts.title },
+        { conversationId: result.conversationId, jobName: opts.jobName },
         "Background job completed",
       );
-    } catch (err) {
-      log.error({ err, title: opts.title }, "Background job failed");
     }
   }
 }

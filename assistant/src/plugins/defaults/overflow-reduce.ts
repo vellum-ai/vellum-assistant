@@ -156,7 +156,6 @@ export const defaultOverflowReducePlugin: Plugin = {
   manifest: {
     name: "default-overflow-reduce",
     version: "1.0.0",
-    requires: { pluginRuntime: "v1", overflowReduceApi: "v1" },
   },
   middleware: {
     overflowReduce: defaultOverflowReduceMiddleware,

@@ -1,6 +1,7 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -669,5 +670,43 @@ describe("bundled computer-use skill", () => {
       "computer_use_done",
       "computer_use_respond",
     ]);
+  });
+});
+
+describe("skill source ownership", () => {
+  const BUNDLED_SKILLS_DIR = join(
+    import.meta.dir,
+    "..",
+    "config",
+    "bundled-skills",
+  );
+  const FIRST_PARTY_SKILLS_DIR = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "skills",
+  );
+
+  function collectSourceSkillIds(rootDir: string): string[] {
+    return readdirSync(rootDir, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          existsSync(join(rootDir, entry.name, "SKILL.md")),
+      )
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+  }
+
+  test("bundled skills are not duplicated in the first-party source catalog", () => {
+    const firstPartyIds = new Set(
+      collectSourceSkillIds(FIRST_PARTY_SKILLS_DIR),
+    );
+    const duplicates = collectSourceSkillIds(BUNDLED_SKILLS_DIR).filter((id) =>
+      firstPartyIds.has(id),
+    );
+
+    expect(duplicates).toEqual([]);
   });
 });

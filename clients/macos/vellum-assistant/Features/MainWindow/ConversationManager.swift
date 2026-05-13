@@ -1,10 +1,19 @@
-import SwiftUI
-import VellumAssistantShared
+import AppKit
 import Foundation
 import UserNotifications
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationManager")
+
+/// Paired snapshot of the `ChatViewModel` signals that
+/// `prepareActiveConversationForVoiceMode` waits on. Wrapping them in a single
+/// `Equatable & Sendable` value lets one `observationStream` yield on either
+/// transition without spinning up a second observation task.
+private struct VoiceBootstrapSnapshot: Equatable, Sendable {
+    let hasConversationId: Bool
+    let isBootstrapping: Bool
+}
 
 // MARK: - Conversation Client Protocol
 
@@ -88,11 +97,16 @@ final class ConversationManager: ConversationRestorerDelegate {
     /// message POST includes it for assistant personalization.
     var preChatContext: PreChatOnboardingContext?
 
-    // MARK: - Notification Catch-Up
+    // MARK: - History Catch-Up
 
-    /// Daemon conversation IDs that need a notification catch-up (history fetch)
-    /// once the associated ChatViewModel finishes its current send/think cycle.
-    @ObservationIgnored private var pendingNotificationCatchUpIds: Set<String> = []
+    private struct PendingHistoryCatchUp {
+        let requiresLoadedHistory: Bool
+    }
+
+    /// Daemon conversation IDs that need a history catch-up once the associated
+    /// ChatViewModel finishes an observed send/think/queue or history-load block.
+    @ObservationIgnored private var pendingHistoryCatchUpsByDaemonId: [String: PendingHistoryCatchUp] = [:]
+    @ObservationIgnored private var pendingHistoryCatchUpRetryTasks: [String: Task<Void, Never>] = [:]
 
     // MARK: - App-Layer Callbacks
 
@@ -160,6 +174,11 @@ final class ConversationManager: ConversationRestorerDelegate {
         set { selectionStore.pendingAnchorMessageId = newValue }
     }
 
+    var pendingAnchorDaemonMessageId: String? {
+        get { selectionStore.pendingAnchorDaemonMessageId }
+        set { selectionStore.pendingAnchorDaemonMessageId = newValue }
+    }
+
     var highlightedMessageId: UUID? {
         get { selectionStore.highlightedMessageId }
         set { selectionStore.highlightedMessageId = newValue }
@@ -169,9 +188,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     var sortedGroups: [ConversationGroup] { listStore.sortedGroups }
 
-    var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] {
-        listStore.groupedConversations
-    }
+    var groupedConversations: [GroupedConversations] { listStore.groupedConversations }
 
     var sidebarGroupEntries: [SidebarGroupEntry] { listStore.sidebarGroupEntries }
 
@@ -232,7 +249,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         wireStoreCallbacks()
 
         activityStore.onBusyToIdle = { [weak self] conversationId in
-            self?.drainPendingNotificationCatchUp(for: conversationId)
+            self?.drainPendingHistoryCatchUp(for: conversationId)
         }
         activityStore.onAssistantActivityChange = { [weak self] conversationId, previousSnapshot, currentSnapshot in
             self?.handleAssistantMessageArrival(conversationId: conversationId, previousSnapshot: previousSnapshot, currentSnapshot: currentSnapshot)
@@ -326,11 +343,12 @@ final class ConversationManager: ConversationRestorerDelegate {
             self?.markActiveConversationSeenIfNeeded()
         }
 
-        // List store → selection store: refresh cached active conversation after
-        // any conversations mutation so views stay current without tracking the
-        // full conversations array.
+        // List store → selection store: refresh cached active conversation and
+        // visible-selection-validation set after any conversations mutation so
+        // views stay current without tracking the full conversations array.
         listStore.onDerivedPropertiesRecomputed = { [weak self] in
             self?.selectionStore.syncActiveConversationCache()
+            self?.selectionStore.syncVisibleNonArchivedConversationIds()
         }
 
         // List store → selection store: schedule eviction after appending conversations
@@ -397,8 +415,23 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.appendConversations(from: response)
     }
 
+    func reconcileLoadedConversationHistory(localId: UUID, daemonConversationId: String) {
+        requestHistoryCatchUp(localId: localId, daemonConversationId: daemonConversationId, requiresLoadedHistory: true)
+    }
+
     func mergeAssistantAttention(from item: ConversationListResponseItem, intoConversationAt index: Int) {
         listStore.mergeAssistantAttention(from: item, intoConversationAt: index)
+    }
+
+    func applyAssistantAttention(from item: ConversationListResponseItem, into conversation: inout ConversationModel) {
+        listStore.applyAssistantAttention(from: item, into: &conversation)
+    }
+
+    func handleSyncRoutes(_ routes: [SyncTagRoute]) {
+        conversationRestorer.handleSyncRoutes(
+            routes,
+            activeConversationId: activeConversation?.conversationId
+        )
     }
 
     func restoreLastActiveConversation() {
@@ -414,7 +447,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             return self.isLatestToolUseRecipient(viewModel)
         }
         viewModel.shouldCreateInlineErrorMessage = { error in
-            !error.isCreditsExhausted && !error.isProviderNotConfigured && !error.isManagedKeyInvalid
+            error.shouldCreateInlineErrorMessage
         }
         viewModel.onManagedKeyInvalid = { [weak self] in
             guard let self else { return }
@@ -491,9 +524,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         guard !NSApp.isActive else { return }
         guard let conversation = listStore.conversations.first(where: { $0.id == conversationId }) else { return }
         if conversation.shouldSuppressUnreadIndicator { return }
+        guard let daemonConversationId = conversation.conversationId else { return }
         guard let vm = selectionStore.chatViewModels[conversationId] else { return }
-        // Voice path posts its own VOICE_RESPONSE_COMPLETE notification; skip to avoid duplicates.
-        if vm.isVoiceModeActive { return }
 
         let lastAssistantText = vm.messages.last(where: { $0.role == .assistant })?.text ?? ""
         let bodyText = lastAssistantText.isEmpty ? "Response complete" : String(lastAssistantText.prefix(200))
@@ -504,9 +536,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         content.body = bodyText
         content.sound = .default
         content.categoryIdentifier = "ACTIVITY_COMPLETE"
-        content.threadIdentifier = conversationId.uuidString
-        content.userInfo = ["conversationId": conversationId.uuidString]
-        content.attachAppIcon()
+        content.threadIdentifier = daemonConversationId
+        content.userInfo = ["conversationId": daemonConversationId]
 
         let request = UNNotificationRequest(
             identifier: "turn-complete-\(conversationId.uuidString)-\(UUID().uuidString)",
@@ -575,7 +606,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     }
 
     @discardableResult
-    func prepareActiveConversationForVoiceMode(timeoutSeconds: TimeInterval = 3.0) async -> ChatViewModel? {
+    func prepareActiveConversationForVoiceMode(timeoutSeconds: TimeInterval = 10.0) async -> ChatViewModel? {
         if activeViewModel == nil {
             enterDraftMode()
         }
@@ -592,15 +623,30 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         viewModel.createConversationIfNeeded()
 
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while Date() < deadline {
-            if viewModel.conversationId != nil {
-                return viewModel
+        // Wait for bootstrap to settle: either `conversationId` becomes
+        // non-nil (success) or `isBootstrapping` flips to false (failure).
+        // The timeout is a safety net for a stuck state machine; it must
+        // exceed the gateway health-check window so cold-start bootstraps
+        // are not falsely reported as failed.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor [weak viewModel] in
+                guard let viewModel else { return }
+                for await snapshot in observationStream({
+                    VoiceBootstrapSnapshot(
+                        hasConversationId: viewModel.conversationId != nil,
+                        isBootstrapping: viewModel.isBootstrapping
+                    )
+                }) {
+                    if snapshot.hasConversationId || !snapshot.isBootstrapping {
+                        return
+                    }
+                }
             }
-            if !viewModel.isBootstrapping {
-                break
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
             }
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            await group.next()
+            group.cancelAll()
         }
 
         return viewModel.conversationId == nil ? nil : viewModel
@@ -1059,7 +1105,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     func refreshActiveConversation() {
         guard let conversationId = activeConversation?.conversationId else { return }
-        activeViewModel?.prepareForNotificationCatchUp()
+        activeViewModel?.prepareForLatestHistoryReconciliation()
         conversationRestorer.requestReconnectHistory(conversationId: conversationId)
     }
 
@@ -1303,6 +1349,19 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.pendingAnchorConversationId = conversationId
     }
 
+    /// Set the pending anchor by daemon (server-side) message ID. Used by
+    /// callers that only know the daemon ID — the MessageListView resolver
+    /// maps it to the client `UUID` once the message has loaded. Recording
+    /// `pendingAnchorConversationId` here is essential: without it, the
+    /// `ConversationSelectionStore.activeConversationId` didSet won't clear
+    /// a stale daemon-id when the user switches conversations before the
+    /// resolver fires.
+    func setPendingAnchorDaemonMessage(conversationId: UUID, daemonMessageId: String) {
+        guard selectionStore.activeConversationId == conversationId else { return }
+        selectionStore.pendingAnchorDaemonMessageId = daemonMessageId
+        selectionStore.pendingAnchorConversationId = conversationId
+    }
+
     // MARK: - Delegated Activity Operations
 
     func isConversationBusy(_ conversationId: UUID) -> Bool {
@@ -1361,12 +1420,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
         listStore.conversations[idx] = conversation
 
-        if let vm = selectionStore.chatViewModels[localId], !vm.isThinking, !vm.isSending {
-            pendingNotificationCatchUpIds.remove(daemonConversationId)
-            vm.prepareForNotificationCatchUp()
-            conversationRestorer.requestReconnectHistory(conversationId: daemonConversationId)
-        } else if selectionStore.chatViewModels[localId] != nil {
-            pendingNotificationCatchUpIds.insert(daemonConversationId)
+        if selectionStore.chatViewModels[localId] != nil {
+            requestHistoryCatchUp(localId: localId, daemonConversationId: daemonConversationId)
         }
     }
 
@@ -1387,14 +1442,14 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         if let existingIdx = listStore.conversations.firstIndex(where: { $0.conversationId == item.id }) {
             let existingConversation = listStore.conversations[existingIdx]
-            let updatedConversation = listStore.conversationModel(
+            var updatedConversation = listStore.conversationModel(
                 from: item,
                 localId: existingConversation.id,
                 createdAt: existingConversation.createdAt,
                 isArchived: isArchived
             )
+            listStore.applyAssistantAttention(from: item, into: &updatedConversation)
             listStore.conversations[existingIdx] = updatedConversation
-            listStore.mergeAssistantAttention(from: item, intoConversationAt: existingIdx)
             if let viewModel = selectionStore.chatViewModels[existingConversation.id] {
                 viewModel.conversationId = item.id
                 viewModel.isChannelConversation = updatedConversation.isChannelConversation
@@ -1565,14 +1620,90 @@ final class ConversationManager: ConversationRestorerDelegate {
         activityStore.unsubscribeAll(for: id)
     }
 
-    // MARK: - Notification Catch-Up
+    // MARK: - History Catch-Up
 
-    private func drainPendingNotificationCatchUp(for conversationId: UUID) {
+    private func requestHistoryCatchUp(
+        localId: UUID,
+        daemonConversationId: String,
+        requiresLoadedHistory: Bool = false
+    ) {
+        guard let vm = selectionStore.chatViewModels[localId] else { return }
+        if requiresLoadedHistory, !vm.isHistoryLoaded {
+            guard vm.isLoadingHistory else {
+                clearPendingHistoryCatchUp(daemonConversationId)
+                return
+            }
+            queuePendingHistoryCatchUp(
+                daemonConversationId: daemonConversationId,
+                requiresLoadedHistory: requiresLoadedHistory,
+                retryAfterDelayFor: localId
+            )
+            return
+        }
+        if requiresLoadedHistory, vm.isLoadingHistory || vm.isLoadingMoreMessages {
+            queuePendingHistoryCatchUp(
+                daemonConversationId: daemonConversationId,
+                requiresLoadedHistory: requiresLoadedHistory,
+                retryAfterDelayFor: localId
+            )
+            return
+        }
+        guard !isHistoryCatchUpBlockedByObservedActivity(vm) else {
+            queuePendingHistoryCatchUp(
+                daemonConversationId: daemonConversationId,
+                requiresLoadedHistory: requiresLoadedHistory
+            )
+            return
+        }
+        clearPendingHistoryCatchUp(daemonConversationId)
+        vm.prepareForLatestHistoryReconciliation()
+        conversationRestorer.requestReconnectHistory(conversationId: daemonConversationId)
+    }
+
+    private func drainPendingHistoryCatchUp(for conversationId: UUID) {
         guard let daemonId = listStore.conversations.first(where: { $0.id == conversationId })?.conversationId,
-              pendingNotificationCatchUpIds.remove(daemonId) != nil,
-              let vm = selectionStore.chatViewModels[conversationId] else { return }
-        vm.prepareForNotificationCatchUp()
-        conversationRestorer.requestReconnectHistory(conversationId: daemonId)
+              let pending = pendingHistoryCatchUpsByDaemonId[daemonId] else { return }
+        guard selectionStore.chatViewModels[conversationId] != nil else {
+            clearPendingHistoryCatchUp(daemonId)
+            return
+        }
+        requestHistoryCatchUp(
+            localId: conversationId,
+            daemonConversationId: daemonId,
+            requiresLoadedHistory: pending.requiresLoadedHistory
+        )
+    }
+
+    private func isHistoryCatchUpBlockedByObservedActivity(_ vm: ChatViewModel) -> Bool {
+        vm.isSending || vm.isThinking || vm.pendingQueuedCount > 0
+    }
+
+    private func queuePendingHistoryCatchUp(
+        daemonConversationId: String,
+        requiresLoadedHistory: Bool,
+        retryAfterDelayFor localId: UUID? = nil
+    ) {
+        let existing = pendingHistoryCatchUpsByDaemonId[daemonConversationId]
+        pendingHistoryCatchUpsByDaemonId[daemonConversationId] = PendingHistoryCatchUp(
+            requiresLoadedHistory: (existing?.requiresLoadedHistory ?? true) && requiresLoadedHistory
+        )
+        guard let localId else { return }
+        schedulePendingHistoryCatchUpRetry(daemonConversationId: daemonConversationId, localId: localId)
+    }
+
+    private func clearPendingHistoryCatchUp(_ daemonConversationId: String) {
+        pendingHistoryCatchUpsByDaemonId.removeValue(forKey: daemonConversationId)
+        pendingHistoryCatchUpRetryTasks.removeValue(forKey: daemonConversationId)?.cancel()
+    }
+
+    private func schedulePendingHistoryCatchUpRetry(daemonConversationId: String, localId: UUID) {
+        guard pendingHistoryCatchUpRetryTasks[daemonConversationId] == nil else { return }
+        pendingHistoryCatchUpRetryTasks[daemonConversationId] = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.pendingHistoryCatchUpRetryTasks.removeValue(forKey: daemonConversationId)
+            self.drainPendingHistoryCatchUp(for: localId)
+        }
     }
 
     // MARK: - Managed Key Reprovisioning

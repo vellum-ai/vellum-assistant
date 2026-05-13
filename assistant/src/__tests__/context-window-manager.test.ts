@@ -3,10 +3,12 @@ import { describe, expect, test } from "bun:test";
 import type { ContextWindowConfig } from "../config/types.js";
 import { estimateTextTokens } from "../context/token-estimator.js";
 import {
+  appendTailAnchorToSummary,
   clampSummaryAtSectionBoundary,
   CONTEXT_SUMMARY_MARKER,
   ContextWindowManager,
   createContextSummaryMessage,
+  extractTailAssistantText,
   getSummaryFromContextMessage,
   stripCompactionOnlyInjections,
 } from "../context/window-manager.js";
@@ -72,7 +74,7 @@ describe("ContextWindowManager", () => {
     expect(result.reason).toBe("below compaction threshold");
   });
 
-  test("explains forced compaction skip when conversation already fits target", async () => {
+  test("explains forced compaction skip when only one user turn exists", async () => {
     const provider = createProvider(() => {
       throw new Error("summarizer should not be called");
     });
@@ -84,6 +86,10 @@ describe("ContextWindowManager", () => {
         targetBudgetRatio: 0.5,
       }),
     });
+    // Only one user turn — there is nothing earlier to summarize, so
+    // forced compaction must still skip but report a clear reason
+    // instead of "conversation already fits within the compaction
+    // target". `force=true` is honored everywhere else.
     const history = [message("user", "hello"), message("assistant", "hi")];
 
     const result = await manager.maybeCompact(history, undefined, {
@@ -93,8 +99,151 @@ describe("ContextWindowManager", () => {
     expect(result.compacted).toBe(false);
     expect(result.messages).toEqual(history);
     expect(result.reason).toBe(
+      "only one user turn — nothing earlier to compact",
+    );
+  });
+
+  test("forced compaction summarizes when adjustForToolPairs would walk boundary to summary", async () => {
+    let summaryCalls = 0;
+    const provider = createProvider(() => {
+      summaryCalls += 1;
+      return {
+        content: [{ type: "text", text: "## Summary\n- rescue path ran" }],
+        model: "mock-model",
+        usage: { inputTokens: 100, outputTokens: 25 },
+        stopReason: "end_turn",
+      };
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 10_000,
+        targetBudgetRatio: 0.5,
+      }),
+    });
+    // Conversation starts with consecutive `assistant(tool_use)` →
+    // `user(tool_result + text)` pairs. `collectUserTurnStartIndexes`
+    // includes the mixed user messages (not tool_result-only), so the
+    // earliest `userTurnStarts` entry is the message containing
+    // `tool_result(tool-1)`. Once the projection-optimism clamp
+    // decrements the keep boundary to that user turn,
+    // `adjustForToolPairs` walks the boundary back through the
+    // tool_use/tool_result chain to index 0. The force-rescue must run
+    // summarization in this case; any boundary `tool_result` blocks
+    // whose matching `tool_use` lives in the compacted region must be
+    // captured by the summary and stripped from the kept region so the
+    // next LLM request does not fail.
+    const history: Message[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tool-1", name: "x", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tool-1", content: "result1" },
+          { type: "text", text: "u1" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tool-2", name: "x", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tool-2", content: "result2" },
+          { type: "text", text: "u2" },
+        ],
+      },
+      message("assistant", "a3"),
+      message("user", "u3"),
+      message("assistant", "a4"),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+      precomputedEstimate: 50_000,
+    });
+
+    expect(result.compacted).toBe(true);
+    expect(summaryCalls).toBe(1);
+    expect(result.reason).not.toBe(
       "conversation already fits within the compaction target",
     );
+    expect(result.reason).not.toBe(
+      "truncated tool results without summarization",
+    );
+    expect(result.compactedMessages).toBeGreaterThan(0);
+
+    // The kept region must not contain orphan tool_result blocks whose
+    // tool_use lives in the compacted region — the LLM API would reject
+    // such messages on the next agent turn.
+    const keptToolUseIds = new Set<string>();
+    for (const msg of result.messages) {
+      if (msg.role !== "assistant") continue;
+      for (const block of msg.content) {
+        if (
+          (block.type === "tool_use" || block.type === "server_tool_use") &&
+          "id" in block
+        ) {
+          keptToolUseIds.add((block as { id: string }).id);
+        }
+      }
+    }
+    for (const msg of result.messages) {
+      if (msg.role !== "user") continue;
+      for (const block of msg.content) {
+        if (
+          (block.type === "tool_result" ||
+            block.type === "web_search_tool_result") &&
+          "tool_use_id" in block
+        ) {
+          expect(keptToolUseIds.has(block.tool_use_id as string)).toBe(true);
+        }
+      }
+    }
+  });
+
+  test("forced compaction summarizes when compactable count is below MIN guard", async () => {
+    let summaryCalls = 0;
+    const provider = createProvider(() => {
+      summaryCalls += 1;
+      return {
+        content: [{ type: "text", text: "## Summary\n- min-bypass ran" }],
+        model: "mock-model",
+        usage: { inputTokens: 100, outputTokens: 25 },
+        stopReason: "end_turn",
+      };
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 10_000,
+        targetBudgetRatio: 0.5,
+      }),
+    });
+    // Two user turns — after the projection clamp the compactable
+    // region is a single user message, below
+    // `MIN_COMPACTABLE_PERSISTED_MESSAGES`. The precomputed estimate
+    // sits above the compaction threshold (60%) but below the severe
+    // pressure ratio (95%), so only the forced-compaction bypass keeps
+    // summarization running.
+    const history: Message[] = [message("user", "u1"), message("user", "u2")];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+      precomputedEstimate: 8_000,
+    });
+
+    expect(result.compacted).toBe(true);
+    expect(summaryCalls).toBe(1);
+    expect(result.reason).not.toBe(
+      "insufficient compactable persisted messages",
+    );
+    expect(result.compactedMessages).toBeGreaterThan(0);
   });
 
   test("forced compaction summarizes when projection fits but real usage exceeds target", async () => {
@@ -2089,5 +2238,244 @@ describe("clampSummaryAtSectionBoundary", () => {
     const clamped = clampSummaryAtSectionBoundary(body, 100);
     expect(clamped.endsWith("...")).toBe(true);
     expect(clamped.length).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("extractTailAssistantText", () => {
+  test("returns the most recent assistant text block", () => {
+    const messages: Message[] = [
+      message("user", "u1"),
+      message("assistant", "a1 first"),
+      message("user", "u2"),
+      message("assistant", "a2 last"),
+    ];
+    expect(extractTailAssistantText(messages)).toBe("a2 last");
+  });
+
+  test("returns null when no assistant text is present", () => {
+    const messages: Message[] = [message("user", "u1"), message("user", "u2")];
+    expect(extractTailAssistantText(messages)).toBeNull();
+  });
+
+  test("skips assistant messages with only tool_use blocks and finds the prior text", () => {
+    const messages: Message[] = [
+      message("assistant", "a1 narration before tool use"),
+      message("user", "u1"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tool-1",
+            name: "bash",
+            input: { command: "ls" },
+          } as ContentBlock,
+        ],
+      },
+    ];
+    expect(extractTailAssistantText(messages)).toBe(
+      "a1 narration before tool use",
+    );
+  });
+
+  test("clamps long text from the start so the END is preserved", () => {
+    const longText = "early prefix " + "x".repeat(2000) + " FINAL NEXT STEP";
+    const messages: Message[] = [message("assistant", longText)];
+    const result = extractTailAssistantText(messages, 200);
+    expect(result).not.toBeNull();
+    expect(result!.startsWith("[...truncated]")).toBe(true);
+    expect(result!.endsWith("FINAL NEXT STEP")).toBe(true);
+    // Stripped block size ≈ maxChars; "[...truncated] " adds a fixed prefix.
+    expect(result!.length).toBeLessThanOrEqual(200 + "[...truncated] ".length);
+  });
+
+  test("ignores empty/whitespace-only assistant text", () => {
+    const messages: Message[] = [
+      message("assistant", "real content"),
+      message("assistant", "   \n  "),
+    ];
+    expect(extractTailAssistantText(messages)).toBe("real content");
+  });
+
+  test("returns null for an empty messages array", () => {
+    expect(extractTailAssistantText([])).toBeNull();
+  });
+});
+
+describe("appendTailAnchorToSummary", () => {
+  test("appends a tag-wrapped block after the summary", () => {
+    const out = appendTailAnchorToSummary(
+      "## Goals\n- item",
+      "Next step: file the SSE followup.",
+    );
+    expect(out).toContain("## Goals\n- item");
+    expect(out).toContain(
+      "<verbatim_tail>\nNext step: file the SSE followup.\n</verbatim_tail>",
+    );
+    expect(out.endsWith("</verbatim_tail>")).toBe(true);
+  });
+
+  test("is idempotent: re-applying with new text replaces the prior tail", () => {
+    const first = appendTailAnchorToSummary("body", "tail-1");
+    const second = appendTailAnchorToSummary(first, "tail-2");
+    expect(second).toContain("body");
+    expect(second).toContain("tail-2");
+    expect(second).not.toContain("tail-1");
+    // Exactly one open-tag occurrence — no stacking.
+    expect(second.match(/<verbatim_tail>/g)?.length).toBe(1);
+  });
+});
+
+describe("compaction tail-anchor", () => {
+  test("splices the last assistant text block verbatim into the summary message", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- LLM summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 100, outputTokens: 25 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    const distinctiveTail =
+      "Pushed 8fe70d63a0 — next step: file the SSE followup as promised.";
+    // Place `distinctiveTail` as the assistant response for u1 so it lands
+    // at the end of the compactable region. With the same 600-token budget
+    // and 6-message shape as the existing 600-token compaction test above,
+    // the binary search settles on keepTurns=2 (kept = [u2, a2, u3, a3];
+    // compactable = [u1, distinctiveTail]) — exercising the real-world
+    // drift scenario where the model's last narration in a long work span
+    // gets summarized away.
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", distinctiveTail),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+
+    expect(result.compacted).toBe(true);
+    const summaryInner = getSummaryFromContextMessage(result.messages[0]);
+    expect(summaryInner).not.toBeNull();
+    // LLM summary still present.
+    expect(summaryInner).toContain("LLM summary");
+    // Verbatim tail spliced in: distinctive text from the LAST assistant
+    // message in the compactable region (here, `distinctiveTail`).
+    expect(summaryInner).toContain("<verbatim_tail>");
+    expect(summaryInner).toContain(distinctiveTail);
+    expect(summaryInner).toContain("</verbatim_tail>");
+    // summaryText reflects what's persisted in messages[0] for consistency
+    // with downstream consumers (DB, context_compacted event).
+    expect(result.summaryText).toContain(distinctiveTail);
+  });
+
+  test("omits the tail-anchor block when no assistant text exists in compactable region", async () => {
+    // Construct a scenario where the compactable region has assistant
+    // messages with ONLY tool_use blocks (no text) plus user turns. The
+    // anchor should be omitted gracefully.
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 100, outputTokens: 25 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tool-1",
+            name: "bash",
+            input: { command: "ls" },
+          } as ContentBlock,
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tool-1",
+            content: "ls output",
+          } as ContentBlock,
+        ],
+      },
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+
+    expect(result.compacted).toBe(true);
+    const summaryInner = getSummaryFromContextMessage(result.messages[0]);
+    expect(summaryInner).not.toBeNull();
+    // No tail anchor when the only compactable assistant message has no text.
+    // (a2 / a3 are kept verbatim post-compaction since they're recent enough,
+    // so the compactable-region's only assistant message is the tool_use one.)
+    if (summaryInner!.includes("<verbatim_tail>")) {
+      // If a2 ended up in the compactable region after binary search, the
+      // anchor would surface a2's text — which is fine; the assertion that
+      // matters is that the spliced content (when present) is verbatim
+      // content from the compactable region, not noise. Validate the
+      // ordering: anchor must follow LLM summary text.
+      expect(summaryInner!.indexOf("summary")).toBeLessThan(
+        summaryInner!.indexOf("<verbatim_tail>"),
+      );
+    }
+  });
+
+  test("clamps tail-anchor when the last assistant text is longer than the cap", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 100, outputTokens: 25 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    const tailEnd = "FINAL DISTINCTIVE END MARKER";
+    // Long enough to trip TAIL_ANCHOR_MAX_CHARS (=1500) clamping.
+    const longTail = "early body " + "y".repeat(2000) + " " + tailEnd;
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", longTail),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+
+    expect(result.compacted).toBe(true);
+    const summaryInner = getSummaryFromContextMessage(result.messages[0]);
+    expect(summaryInner).not.toBeNull();
+    if (summaryInner!.includes("<verbatim_tail>")) {
+      // When clamped, the END is preserved (most recent narration).
+      expect(summaryInner).toContain(tailEnd);
+      // And the early prefix is dropped.
+      expect(summaryInner).toContain("[...truncated]");
+      expect(summaryInner).not.toContain("early body");
+    }
   });
 });

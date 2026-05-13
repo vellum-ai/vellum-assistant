@@ -36,6 +36,7 @@ mock.module("../config/loader.js", () => ({
       },
     },
   }),
+  saveRawConfig: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({

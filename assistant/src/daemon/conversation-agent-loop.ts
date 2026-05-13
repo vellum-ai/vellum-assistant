@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import { v4 as uuid } from "uuid";
 
+import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type {
   AgentEvent,
   AgentLoop,
@@ -28,6 +29,7 @@ import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
@@ -41,9 +43,7 @@ import {
 } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
-import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
-import { rewriteFeedTitle } from "../home/rewrite-feed-title.js";
 import {
   clearSentryConversationContext,
   setSentryConversationContext,
@@ -71,11 +71,12 @@ import {
 } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
+import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import {
   readMemoryV2StaticContent,
-  shouldLoadMemoryV2Static,
+  shouldExposePersonalMemory,
 } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
@@ -123,6 +124,7 @@ import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
@@ -147,6 +149,7 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
+  getClientDisplayMessageId,
 } from "./conversation-agent-loop-handlers.js";
 import {
   approveHostAttachmentRead,
@@ -184,7 +187,10 @@ import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
-import { formatTurnTimestamp } from "./date-context.js";
+import {
+  formatTurnTimestamp,
+  resolveTurnTimezoneContext,
+} from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
 import { deepRepairHistory } from "./history-repair.js";
@@ -197,6 +203,10 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
+import {
+  conversationMetadataSyncTag,
+  SYNC_TAGS,
+} from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
@@ -511,6 +521,7 @@ export interface AgentLoopConversationContext {
   voiceCallControlPrompt?: string;
   transportHints?: string[];
   slackRuntimeContextNotice?: string;
+  clientTimezone?: string;
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
@@ -675,7 +686,9 @@ export async function runAgentLoopImpl(
     overrideProfile: turnOverrideProfile ?? undefined,
   });
   const turnContextWindowConfig = contextWindowConfigFromEffective(
-    config.llm.default.contextWindow,
+    resolveCallSiteConfig(turnCallSite, config.llm, {
+      overrideProfile: turnOverrideProfile ?? undefined,
+    }).contextWindow,
     effectiveContextWindow,
   );
   (
@@ -759,6 +772,18 @@ export async function runAgentLoopImpl(
 
   ctx.profiler.startRequest();
   let turnStarted = false;
+  const state = createEventHandlerState();
+  let persistedErrorAssistantMessage = false;
+
+  const publishLoopMessagesChanged = (): void => {
+    if (
+      state.lastAssistantMessageId ||
+      state.persistedToolUseIds.size > 0 ||
+      persistedErrorAssistantMessage
+    ) {
+      publishConversationMessagesChanged(ctx.conversationId);
+    }
+  };
 
   // Populate Sentry scope with conversation-specific tags so any exception
   // captured during this turn (e.g. inside agent/loop.ts) can be
@@ -796,6 +821,7 @@ export async function runAgentLoopImpl(
         code: DISK_PRESSURE_ERROR_CODE,
         message,
         category: DISK_PRESSURE_ERROR_CATEGORY,
+        errorCategory: DISK_PRESSURE_ERROR_CATEGORY,
       });
       onEvent({
         type: "conversation_error",
@@ -861,6 +887,13 @@ export async function runAgentLoopImpl(
             type: "conversation_title_updated",
             conversationId: ctx.conversationId,
             title,
+          });
+          onEvent({
+            type: "sync_changed",
+            tags: [
+              SYNC_TAGS.conversationsList,
+              conversationMetadataSyncTag(ctx.conversationId),
+            ],
           });
         },
       };
@@ -981,7 +1014,7 @@ export async function runAgentLoopImpl(
         compactableStartIndex: 1,
       };
     };
-    const applySuccessfulCompaction = (
+    const applySuccessfulCompaction = async (
       result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
       compactedBasis?: Message[],
     ) => {
@@ -995,7 +1028,7 @@ export async function runAgentLoopImpl(
         provenanceContext,
         result.compactedMessages,
       );
-      applyCompactionResult(ctx, result, onEvent, reqId, {
+      await applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
       });
       currentSlackContextSummary = result.summaryText;
@@ -1082,14 +1115,15 @@ export async function runAgentLoopImpl(
       await trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
     }
     if (compacted?.compacted) {
-      applySuccessfulCompaction(compacted, messagesForStartOfTurnCompaction);
+      await applySuccessfulCompaction(
+        compacted,
+        messagesForStartOfTurnCompaction,
+      );
       shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
         compactedThisTurn = true;
       }
     }
-
-    const state = createEventHandlerState();
 
     // Register confirmation outcome tracker so the agent loop can link
     // confirmation decisions to tool_use_ids for persistence.
@@ -1320,14 +1354,16 @@ export async function runAgentLoopImpl(
 
     // Compute fresh turn timestamp for date grounding.
     // Absolute "now" is always anchored to assistant host clock, while local
-    // date semantics prefer configured user timezone, then recalled memory.
+    // date semantics prefer configured user timezone, then device timezones.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
-    const recalledUserTimeZone = null;
-    const timestamp = formatTurnTimestamp({
+    const timezoneContext = resolveTurnTimezoneContext({
+      configuredUserTimeZone: config.ui.userTimezone ?? null,
+      clientTimezone: ctx.clientTimezone ?? null,
+      detectedTimezone: config.ui.detectedTimezone ?? null,
       hostTimeZone,
-      configuredUserTimeZone,
-      userTimeZone: recalledUserTimeZone,
+    });
+    const timestamp = formatTurnTimestamp({
+      timeZone: timezoneContext.effectiveTimezone,
     });
 
     // Resolve the inbound actor context for the unified <turn_context> block.
@@ -1381,47 +1417,68 @@ export async function runAgentLoopImpl(
       }
     }
 
+    const baseTurnContext = {
+      timestamp,
+      interfaceName,
+      channelName,
+      configuredUserTimezone: timezoneContext.configuredUserTimezone,
+      clientTimezone: timezoneContext.clientTimezone,
+      detectedTimezone: timezoneContext.detectedTimezone,
+      timeSinceLastMessage,
+    };
     const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
       isGuardian
-        ? { timestamp, interfaceName, channelName, timeSinceLastMessage }
+        ? baseTurnContext
         : {
-            timestamp,
-            interfaceName,
-            channelName,
+            ...baseTurnContext,
             actorContext: resolvedInboundActorContext,
-            timeSinceLastMessage,
           },
     );
 
     // The `remember` tool handles scratchpad-style memory writes directly to the graph.
+
+    // Personal-memory trust gate: PKB, NOW.md, and v2 static blocks all
+    // hold private user content. Block exposure to non-guardian actors
+    // arriving over a remote channel; internal/local flows pass through.
+    // See `shouldExposePersonalMemory` for the threat model.
+    const personalMemoryAllowed = shouldExposePersonalMemory({
+      sourceChannel: ctx.trustContext?.sourceChannel,
+      isTrustedActor,
+    });
 
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
     // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
     // so plugins can override either source without touching the agent loop.
-    const currentNowContent = memoryResult.nowContent;
+    // NOW.md injection can be disabled via `memory.retrieval.scratchpadInjection.enabled`.
+    const scratchpadInjectionEnabled =
+      getConfig().memory.retrieval.scratchpadInjection.enabled;
+    const currentNowContent =
+      personalMemoryAllowed && scratchpadInjectionEnabled
+        ? memoryResult.nowContent
+        : null;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
-    const currentPkbContent = memoryResult.pkbContent;
+    const currentPkbContent = personalMemoryAllowed
+      ? memoryResult.pkbContent
+      : null;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
-    // V2 static memory block (essentials/threads/recent/buffer). Same
-    // first-turn / post-compaction cadence as PKB. `shouldLoadMemoryV2Static`
-    // also blocks remote-channel non-guardian actors from inducing the
-    // model to recite private memory; `readMemoryV2StaticContent` self-gates
-    // on the v2 flag + config and returns null when v2 is off, so the file
-    // reads are skipped on non-injection turns.
-    const currentMemoryV2Static = shouldLoadMemoryV2Static({
-      shouldInjectNowAndPkb,
-      sourceChannel: ctx.trustContext?.sourceChannel,
-      isTrustedActor,
-    })
+    // V2 static memory block (essentials/threads/recent/buffer).
+    // `currentMemoryV2Static` is the trust-gated content reused by every
+    // re-injection path — it stays non-null on non-full-mode turns so
+    // that mid-turn reducer compaction (which strips the prior `<memory>`
+    // block) can restore the freshest content. `memoryV2Static` is the
+    // first-turn / post-compaction cadence-gated value for initial
+    // injection only. `readMemoryV2StaticContent` self-gates on the v2
+    // flag + config and returns null when v2 is off.
+    const currentMemoryV2Static = personalMemoryAllowed
       ? readMemoryV2StaticContent()
       : null;
-    const memoryV2Static = currentMemoryV2Static;
+    const memoryV2Static = shouldInjectNowAndPkb ? currentMemoryV2Static : null;
 
     // PKB relevance-hint inputs. Resolved once per turn and reused across
     // re-injections so post-compaction rebuilds pick up fresh hints against
@@ -1559,7 +1616,8 @@ export async function runAgentLoopImpl(
       injection.blocks.pkbSystemReminder ||
       injection.blocks.workspaceBlock ||
       injection.blocks.nowScratchpadBlock ||
-      injection.blocks.pkbContextBlock
+      injection.blocks.pkbContextBlock ||
+      injection.blocks.memoryV2StaticBlock
     ) {
       try {
         const metadataUpdates: Record<string, unknown> = {};
@@ -1580,6 +1638,10 @@ export async function runAgentLoopImpl(
         }
         if (injection.blocks.pkbContextBlock) {
           metadataUpdates.pkbContextBlock = injection.blocks.pkbContextBlock;
+        }
+        if (injection.blocks.memoryV2StaticBlock) {
+          metadataUpdates.memoryV2StaticBlock =
+            injection.blocks.memoryV2StaticBlock;
         }
         await runPipeline<PersistArgs, PersistResult>(
           "persistence",
@@ -1777,7 +1839,7 @@ export async function runAgentLoopImpl(
             await trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
           }
           if (result.compacted) {
-            applySuccessfulCompaction(result, compactedBasis);
+            await applySuccessfulCompaction(result, compactedBasis);
             shouldInjectWorkspace = true;
           }
         },
@@ -2106,7 +2168,7 @@ export async function runAgentLoopImpl(
         );
       }
       if (midLoopCompact.compacted) {
-        applySuccessfulCompaction(midLoopCompact, rawHistory);
+        await applySuccessfulCompaction(midLoopCompact, rawHistory);
         reducerCompacted = true;
         shouldInjectWorkspace = true;
       }
@@ -2221,6 +2283,83 @@ export async function runAgentLoopImpl(
           { phase: "retry" },
           "Deep-repair retry also failed with ordering error. Consider starting a new conversation if this persists.",
         );
+      }
+    }
+
+    // ── Image-dimension overflow recovery ──────────────────────────
+    // When the provider rejects because an image block exceeds its pixel
+    // cap, strip every image block from ctx.messages and retry once.
+    // optimizeImageForTransport already ran at upload time; if sips was
+    // unavailable (non-macOS) it returns the same bytes unchanged.  In
+    // that case we swap the block for a text note so the model can tell
+    // the user what happened instead of hard-failing with a red banner.
+    if (state.imageTooLargeDetected) {
+      state.imageTooLargeDetected = false;
+      rlog.warn(
+        { phase: "image-recovery" },
+        "Image too large — stripping oversized image blocks and retrying",
+      );
+      ctx.messages = ctx.messages.map((msg) => {
+        if (!Array.isArray(msg.content)) return msg;
+        if (!msg.content.some((b) => b.type === "image")) return msg;
+        return {
+          ...msg,
+          content: msg.content.flatMap((b): ContentBlock[] => {
+            if (b.type !== "image") return [b];
+            const resized = optimizeImageForTransport(
+              b.source.data,
+              b.source.media_type,
+            );
+            if (resized.data !== b.source.data) {
+              // sips managed to downscale — use the smaller version
+              return [
+                {
+                  ...b,
+                  source: {
+                    type: "base64" as const,
+                    media_type: resized.mediaType,
+                    data: resized.data,
+                  },
+                },
+              ];
+            }
+            // Can't resize — replace with a text annotation so the model
+            // can explain the situation rather than silently dropping context
+            return [
+              {
+                type: "text" as const,
+                text: "(An image was attached but could not be sent — its dimensions exceed the provider limit and automatic resize was not available. Please resize the image and try again.)",
+              },
+            ];
+          }),
+        };
+      });
+      runMessages = ctx.messages;
+      updatedHistory = await ctx.agentLoop.run(
+        runMessages,
+        eventHandler,
+        abortController.signal,
+        reqId,
+        onCheckpoint,
+        turnCallSite,
+        loopTurnCtx,
+        turnOverrideProfile,
+        effectiveContextWindow.maxInputTokens,
+      );
+      if (state.imageTooLargeDetected) {
+        rlog.error(
+          { phase: "image-recovery" },
+          "Image-recovery retry also failed — surfacing error to user",
+        );
+        const classified = classifyConversationError(
+          new Error("Image dimensions too large"),
+          { phase: "agent_loop" },
+        );
+        deps.onEvent(
+          buildConversationErrorMessage(deps.ctx.conversationId, classified),
+        );
+        state.providerErrorUserMessage = classified.userMessage;
+        state.imageTooLargeDetected = false;
       }
     }
 
@@ -2358,7 +2497,7 @@ export async function runAgentLoopImpl(
         }
 
         if (step.compactionResult?.compacted) {
-          applySuccessfulCompaction(
+          await applySuccessfulCompaction(
             step.compactionResult,
             convergenceCompactionBasis,
           );
@@ -2524,7 +2663,7 @@ export async function runAgentLoopImpl(
             );
           }
           if (emergencyCompact?.compacted) {
-            applySuccessfulCompaction(emergencyCompact, ctx.messages);
+            await applySuccessfulCompaction(emergencyCompact, ctx.messages);
             reducerCompacted = true;
             shouldInjectWorkspace = true;
           }
@@ -2701,6 +2840,7 @@ export async function runAgentLoopImpl(
         buildPluginTurnContext(ctx, reqId),
         DEFAULT_TIMEOUTS.persistence,
       );
+      persistedErrorAssistantMessage = true;
       newMessages.push(errorAssistantMessage);
       // Do NOT send assistant_text_delta here — handleProviderError already
       // emitted a conversation_error event for this same error text, and the
@@ -2776,7 +2916,6 @@ export async function runAgentLoopImpl(
         convForDisk.createdAt,
       );
     };
-
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
     // so the client can re-enable the UI without delay.
@@ -2795,6 +2934,7 @@ export async function runAgentLoopImpl(
         type: "generation_cancelled",
         conversationId: ctx.conversationId,
       });
+      publishLoopMessagesChanged();
     } else {
       // Resolve attachments (only when not cancelled — this is expensive async I/O)
       const attachmentResult = await resolveAssistantAttachments(
@@ -2818,6 +2958,7 @@ export async function runAgentLoopImpl(
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
       syncLastAssistantMessageToDisk();
+      const clientDisplayMessageId = getClientDisplayMessageId(state);
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
@@ -2834,6 +2975,7 @@ export async function runAgentLoopImpl(
           type: "generation_cancelled",
           conversationId: ctx.conversationId,
         });
+        publishLoopMessagesChanged();
       } else if (yieldedForHandoff) {
         ctx.traceEmitter.emit(
           "generation_handoff",
@@ -2858,7 +3000,11 @@ export async function runAgentLoopImpl(
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
+          ...(clientDisplayMessageId
+            ? { displayMessageId: clientDisplayMessageId }
+            : {}),
         });
+        publishLoopMessagesChanged();
       } else {
         ctx.emitActivityState("idle", "message_complete", "global", reqId);
         ctx.traceEmitter.emit(
@@ -2881,85 +3027,11 @@ export async function runAgentLoopImpl(
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
+          ...(clientDisplayMessageId
+            ? { displayMessageId: clientDisplayMessageId }
+            : {}),
         });
-
-        // Emit a home-feed event for background/scheduled conversation completions.
-        // Scoped to message_complete only (not cancelled/handoff), wrapped in
-        // try-catch so malformed message content can never propagate errors.
-        try {
-          const conv = getConversation(ctx.conversationId);
-          if (
-            conv &&
-            (conv.conversationType === "background" ||
-              conv.conversationType === "scheduled")
-          ) {
-            const lastMsg = state.lastAssistantMessageId
-              ? getMessageById(state.lastAssistantMessageId, ctx.conversationId)
-              : undefined;
-            let summary: string;
-            if (lastMsg) {
-              const parsed: unknown = JSON.parse(lastMsg.content);
-              if (typeof parsed === "string") {
-                summary = parsed.slice(0, 200);
-              } else if (Array.isArray(parsed)) {
-                const textBlock = parsed.find(
-                  (b: { type?: string }) => b.type === "text",
-                );
-                summary =
-                  typeof textBlock?.text === "string"
-                    ? textBlock.text.slice(0, 200)
-                    : (conv.title ?? "Background task completed.");
-              } else {
-                summary = conv.title ?? "Background task completed.";
-              }
-            } else {
-              summary = conv.title ?? "Background task completed.";
-            }
-            const feedTitle =
-              conv.title && !isReplaceableTitle(conv.title)
-                ? conv.title
-                : "Background task";
-            const dedupKey = `bg-conv:${ctx.conversationId}`;
-            void emitFeedEvent({
-              source: "assistant",
-              title: feedTitle,
-              summary,
-              dedupKey,
-              conversationId: ctx.conversationId,
-            }).catch((err) => {
-              log.warn(
-                { err, conversationId: ctx.conversationId },
-                "Failed to emit background conversation feed event",
-              );
-            });
-
-            if (isReplaceableTitle(conv.title ?? null)) {
-              void rewriteFeedTitle(feedTitle)
-                .then((prose) => {
-                  if (prose && prose !== feedTitle) {
-                    return emitFeedEvent({
-                      source: "assistant",
-                      title: prose,
-                      summary,
-                      dedupKey,
-                      conversationId: ctx.conversationId,
-                    });
-                  }
-                })
-                .catch((err) => {
-                  log.warn(
-                    { err, conversationId: ctx.conversationId },
-                    "Failed to update feed event with prose title rewrite",
-                  );
-                });
-            }
-          }
-        } catch (feedErr) {
-          log.warn(
-            { err: feedErr, conversationId: ctx.conversationId },
-            "Failed to build home-feed event for background conversation",
-          );
-        }
+        publishLoopMessagesChanged();
 
         // Proactive artifact: fire once when the processed turn was the 4th user message.
         // Only trigger for real user-authored turns (not subagent/system messages).
@@ -2984,6 +3056,7 @@ export async function runAgentLoopImpl(
                   conversationId: ctx.conversationId,
                   userMessageCutoff: userMsg.createdAt,
                   assistantMessageId: state.lastAssistantMessageId,
+                  suppressAppBuild: state.appBuildToolUsedThisRun,
                   broadcastMessage,
                 });
               } catch (err) {
@@ -3013,6 +3086,13 @@ export async function runAgentLoopImpl(
             conversationId: ctx.conversationId,
             title,
           });
+          onEvent({
+            type: "sync_changed",
+            tags: [
+              SYNC_TAGS.conversationsList,
+              conversationMetadataSyncTag(ctx.conversationId),
+            ],
+          });
         },
         signal: abortController.signal,
       });
@@ -3037,6 +3117,7 @@ export async function runAgentLoopImpl(
         type: "generation_cancelled",
         conversationId: ctx.conversationId,
       });
+      publishLoopMessagesChanged();
     } else {
       ctx.emitActivityState("idle", "error_terminal", "global", reqId);
       const message = err instanceof Error ? err.message : String(err);
@@ -3058,8 +3139,10 @@ export async function runAgentLoopImpl(
         conversationId: ctx.conversationId,
         code: classified.code,
         message: classified.userMessage,
+        errorCategory: classified.errorCategory,
       });
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
+      publishLoopMessagesChanged();
     }
   } finally {
     if (turnStarted) {
@@ -3208,7 +3291,7 @@ export interface CompactionApplyContext {
  * truth for the UI indicator after compaction. Emitting both caused a
  * redundant SwiftUI invalidation on every compaction.
  */
-export function applyCompactionResult(
+export async function applyCompactionResult(
   ctx: CompactionApplyContext,
   result: {
     messages: Message[];
@@ -3234,12 +3317,12 @@ export function applyCompactionResult(
   options: {
     slackContextCompactionWatermarkTs?: string | null;
   } = {},
-): void {
+): Promise<void> {
   ctx.messages = result.messages;
   ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
+  await ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,
@@ -3253,6 +3336,10 @@ export function applyCompactionResult(
     );
   }
   enqueueAutoAnalysisOnCompaction(
+    ctx.conversationId,
+    ctx.trustContext?.trustClass,
+  );
+  enqueueMemoryRetrospectiveOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,
   );

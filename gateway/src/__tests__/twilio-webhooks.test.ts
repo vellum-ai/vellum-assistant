@@ -150,11 +150,7 @@ function makeCaches(
     ingressUrl?: string;
   } = {},
 ) {
-  const {
-    authToken = AUTH_TOKEN,
-    ingressEnabled,
-    ingressUrl,
-  } = opts;
+  const { authToken = AUTH_TOKEN, ingressEnabled, ingressUrl } = opts;
   const credentials = {
     get: async (key: string, _opts?: { force?: boolean }) => {
       if (key === credentialKey("twilio", "auth_token")) return authToken;
@@ -876,7 +872,7 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
 });
 
 describe("Twilio webhook force retry", () => {
-  test("refreshes Twilio-specific ingress URL before retrying signature validation", async () => {
+  test("refreshes configured ingress URL before retrying signature validation", async () => {
     fetchMock = mock(
       async () =>
         new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {

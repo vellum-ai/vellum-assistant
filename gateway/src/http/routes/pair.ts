@@ -30,6 +30,7 @@ import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
 import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
+import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
 
 const log = getLogger("pair");
 
@@ -209,6 +210,13 @@ export async function handlePair(
       status: 405,
       headers: { Allow: "POST" },
     });
+  }
+
+  // Defense-in-depth: reject Velay-bridged requests. The bridge injects this
+  // header on every forwarded request; it cannot be stripped by a Velay client.
+  if (req.headers.get(VELAY_FORWARDED_HEADER)) {
+    auditDeny(req, clientIp, "velay_bridged");
+    return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
   if (!clientIp || !isLoopbackAddress(clientIp)) {

@@ -52,6 +52,7 @@ public final class GatewayConnectionManager {
     public internal(set) var isUpdateInProgress: Bool = false
     public internal(set) var updateTargetVersion: String?
     public internal(set) var updateStatusMessage: String?
+    public internal(set) var updateExpectedDowntimeSeconds: Double?
     @ObservationIgnored var updateExpiresAt: Date?
     @ObservationIgnored private var outcomeEmittedForCurrentCycle = false
     public internal(set) var lastUpdateOutcome: UpdateOutcome?
@@ -98,7 +99,7 @@ public final class GatewayConnectionManager {
     /// repetitive "Health check passed" logs after the first three passes.
     @ObservationIgnored private var consecutiveHealthCheckSuccesses = 0
     func setUpdateInProgress(_ value: Bool) {
-        let wasInProgress = isUpdateInProgress
+        let wasInProgress = _isUpdateInProgress
         if value != wasInProgress { isUpdateInProgress = value }
         if value && !wasInProgress {
             outcomeEmittedForCurrentCycle = false
@@ -171,6 +172,7 @@ public final class GatewayConnectionManager {
 
     public func connect() async throws {
         try await connectImpl(cancelAutoWake: true)
+        await awaitPendingConnectedTransitions()
     }
 
     func connectImpl(cancelAutoWake: Bool) async throws {
@@ -238,6 +240,7 @@ public final class GatewayConnectionManager {
         reconnectionTask?.cancel()
         reconnectionTask = nil
         disconnectInternal()
+        flushPendingConnectedTransitions()
     }
 
     func disconnectInternal(cancelAutoWake: Bool = true) {
@@ -296,6 +299,7 @@ public final class GatewayConnectionManager {
         isUpdateInProgress = false
         updateTargetVersion = nil
         updateStatusMessage = nil
+        updateExpectedDowntimeSeconds = nil
         updateExpiresAt = nil
         lastUpdateOutcome = nil
         keyFingerprint = nil
@@ -400,7 +404,7 @@ public final class GatewayConnectionManager {
         authFailureTracker.recordSuccess()
         updateAuthFailedSignal()
 
-        if let newVersion = outcome.version, newVersion != assistantVersion {
+        if let newVersion = outcome.version, newVersion != _assistantVersion {
             assistantVersion = newVersion
             handleDaemonVersionChanged(newVersion)
         }
@@ -419,7 +423,7 @@ public final class GatewayConnectionManager {
     /// on its own and vice-versa.
     private func updateAuthFailedSignal() {
         let tripped = authFailureTracker.isAuthFailed
-        guard tripped != isAuthFailed else { return }
+        guard tripped != _isAuthFailed else { return }
         isAuthFailed = tripped
         if tripped {
             let status = authFailureTracker.lastStatusCode ?? -1
@@ -443,6 +447,18 @@ public final class GatewayConnectionManager {
             authFailureTracker.recordFailure(statusCode: statusCode, path: "/v1/health")
         }
         updateAuthFailedSignal()
+    }
+
+    /// Internal hook to invoke the private `setConnected` from unit tests.
+    /// Production code must not call this.
+    internal func _testSetConnected(_ connected: Bool) {
+        setConnected(connected)
+    }
+
+    /// Internal hook to await the in-flight coalescing task from unit tests.
+    /// Production code must not call this.
+    internal func _testAwaitPendingConnectedTransitions() async {
+        await awaitPendingConnectedTransitions()
     }
 
     private func startHealthCheckLoop() {
@@ -490,6 +506,7 @@ public final class GatewayConnectionManager {
         lastUpdateOutcome = UpdateOutcome(result: .timedOut, timestamp: Date())
         isUpdateInProgress = false
         updateTargetVersion = nil
+        updateExpectedDowntimeSeconds = nil
         updateExpiresAt = nil
         updateStatusMessage = nil
         eventStreamClient.resetSSEReconnectDelay()
@@ -511,7 +528,7 @@ public final class GatewayConnectionManager {
 
     private func handleDaemonVersionChanged(_ newVersion: String) {
         checkVersionCompatibility(assistantVersion: newVersion)
-        if isUpdateInProgress && !outcomeEmittedForCurrentCycle {
+        if _isUpdateInProgress && !outcomeEmittedForCurrentCycle {
             if let target = updateTargetVersion, versionsMatch(newVersion, target) {
                 log.info("Health check confirmed update completed — now running \(newVersion, privacy: .public)")
                 lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: newVersion), timestamp: Date())
@@ -523,6 +540,7 @@ public final class GatewayConnectionManager {
             isUpdateInProgress = false
             // Preserve updateTargetVersion — only the authoritative
             // .serviceGroupUpdateComplete SSE event or timeout clears it.
+            updateExpectedDowntimeSeconds = nil
             updateExpiresAt = nil
             updateStatusMessage = nil
             eventStreamClient.resetSSEReconnectDelay()
@@ -536,17 +554,17 @@ public final class GatewayConnectionManager {
         guard let assistant = VersionCompat.parseMajorMinor(assistantVersion),
               let client = VersionCompat.parseMajorMinor(clientVersion) else { return }
         let mismatch = assistant.major != client.major || assistant.minor != client.minor
-        if mismatch != versionMismatch {
+        if mismatch != _versionMismatch {
             versionMismatch = mismatch
         }
         // Reset dismissal when the version pair changes (new mismatch should re-show the banner)
         if mismatch {
             let currentKey = "\(clientVersion)|\(assistantVersion)"
-            if dismissedMismatchKey != nil && dismissedMismatchKey != currentKey {
+            if _dismissedMismatchKey != nil && _dismissedMismatchKey != currentKey {
                 dismissedMismatchKey = nil
             }
             log.warning("Version mismatch: client \(clientVersion, privacy: .public) vs assistant \(assistantVersion, privacy: .public)")
-        } else {
+        } else if _dismissedMismatchKey != nil {
             dismissedMismatchKey = nil
         }
     }
@@ -564,9 +582,9 @@ public final class GatewayConnectionManager {
     private func handleServerMessage(_ message: ServerMessage) {
         if case .assistantStatus(let status) = message {
             if let version = status.version {
-                if version != assistantVersion { assistantVersion = version }
+                if version != _assistantVersion { assistantVersion = version }
                 checkVersionCompatibility(assistantVersion: version)
-                if self.isUpdateInProgress && !self.outcomeEmittedForCurrentCycle {
+                if _isUpdateInProgress && !self.outcomeEmittedForCurrentCycle {
                     if let target = self.updateTargetVersion, self.versionsMatch(version, target) {
                         log.info("Planned update completed — now running \(version, privacy: .public)")
                         self.lastUpdateOutcome = UpdateOutcome(result: .succeeded(version: version), timestamp: Date())
@@ -578,13 +596,14 @@ public final class GatewayConnectionManager {
                     self.isUpdateInProgress = false
                     // Preserve updateTargetVersion — only the authoritative
                     // .serviceGroupUpdateComplete SSE event or timeout clears it.
+                    self.updateExpectedDowntimeSeconds = nil
                     self.updateExpiresAt = nil
                     self.updateStatusMessage = nil
                     self.eventStreamClient.resetSSEReconnectDelay()
                 }
             }
             if let newFingerprint = status.keyFingerprint {
-                let oldFingerprint = keyFingerprint
+                let oldFingerprint = _keyFingerprint
                 if newFingerprint != oldFingerprint { keyFingerprint = newFingerprint }
 
                 if let oldFingerprint, oldFingerprint != newFingerprint {
@@ -598,6 +617,7 @@ public final class GatewayConnectionManager {
         switch message {
         case .serviceGroupUpdateStarting(let msg):
             self.updateTargetVersion = msg.targetVersion
+            self.updateExpectedDowntimeSeconds = msg.expectedDowntimeSeconds
             self.updateExpiresAt = Date().addingTimeInterval(msg.expectedDowntimeSeconds * 2)
             self.updateStatusMessage = "Preparing to update…"
             setUpdateInProgress(true)
@@ -615,6 +635,7 @@ public final class GatewayConnectionManager {
             }
             self.isUpdateInProgress = false
             self.updateTargetVersion = nil
+            self.updateExpectedDowntimeSeconds = nil
             self.updateExpiresAt = nil
             self.updateStatusMessage = nil
             self.eventStreamClient.resetSSEReconnectDelay()
@@ -833,7 +854,7 @@ public final class GatewayConnectionManager {
             var attempt = 0
             while !Task.isCancelled {
                 // If another path (e.g. autoWakeIfAssistantDied) connected us, exit
-                guard !self.isConnected else {
+                guard !self._isConnected else {
                     log.info("reconnect-loop: already connected, exiting")
                     break
                 }
@@ -940,28 +961,95 @@ public final class GatewayConnectionManager {
         observationStream { [weak self] in self?.isConnected ?? false }
     }
 
-    // MARK: - Helpers
+    // MARK: - Coalesced isConnected writes
+    //
+    // Each `@Observable` property write fires every registered
+    // `withObservationTracking` `onChange` callback synchronously inside
+    // `willSet`. With per-instance SwiftUI view bodies, `observationStream`
+    // consumers, and `.onChange(of:)` modifiers, the tracking-context count
+    // on `isConnected` can reach the tens-to-low-hundreds; doing the write
+    // off the calling stack frame breaks any synchronous re-entry into this
+    // setter and lets the actor interleave other work.
+    //
+    // Public-API contract: `connect()` is async and awaits the in-flight
+    // task; `disconnect()` is sync and flushes inline. Callers can therefore
+    // read `isConnected` immediately after either call returns.
+    //
+    // References:
+    //   - https://developer.apple.com/documentation/observation/observable
+    //   - https://developer.apple.com/documentation/observation/withobservationtracking(_:onchange:)
+    //   - https://developer.apple.com/videos/play/wwdc2023/10149/
+    //   - https://developer.apple.com/videos/play/wwdc2021/10133/
 
+    @ObservationIgnored private var pendingConnectedTarget: Bool?
+    @ObservationIgnored private var setConnectedTask: Task<Void, Never>?
+
+    /// Records a target for `isConnected` and ensures it will be applied
+    /// on a subsequent `@MainActor` turn. Back-to-back calls within the
+    /// same turn coalesce to the most-recent target, skipping intermediate
+    /// `willSet` fan-outs.
     private func setConnected(_ connected: Bool) {
-        guard isConnected != connected else { return }
-        isConnected = connected
-        if isConnecting { isConnecting = false }
-        if connected {
-            // Deferred to the next main-actor turn. NotificationCenter.post
-            // is synchronous and invokes all observer callbacks inline.
-            // With per-instance observers (ChatViewModel, media attachment
-            // views) the total count can reach 30–50, and the _Block_copy
-            // allocations during dispatch stall the main thread under
-            // memory pressure. Deferring breaks the synchronous cascade
-            // while preserving delivery on @MainActor.
-            Task { @MainActor [weak self] in
-                guard let self, self.isConnected else { return }
-                NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
-            }
-            handlePostSparkleUpdate()
+        // Pure backing-storage compare. A pending target always supersedes
+        // the current value, so skip the early-out then.
+        if pendingConnectedTarget == nil, _isConnected == connected { return }
+        pendingConnectedTarget = connected
+        guard setConnectedTask == nil else { return }
+        setConnectedTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.setConnectedTask = nil }
+            self.applyAllPendingConnectedTransitions()
         }
-        if !connected {
+    }
+
+    /// Synchronously applies any queued targets, cancelling the in-flight
+    /// task. Used by the synchronous public API (`disconnect`).
+    private func flushPendingConnectedTransitions() {
+        setConnectedTask?.cancel()
+        setConnectedTask = nil
+        applyAllPendingConnectedTransitions()
+    }
+
+    /// Awaits the in-flight coalescing task. Used by the async public API
+    /// (`connect`) so the post-`await` read invariant is preserved.
+    private func awaitPendingConnectedTransitions() async {
+        if let task = setConnectedTask {
+            await task.value
+        }
+    }
+
+    /// Drains `pendingConnectedTarget` by iteration. Re-entrant queued
+    /// targets (e.g. from a synchronous `onChange` handler) are picked up
+    /// by the next loop iteration rather than recursion.
+    private func applyAllPendingConnectedTransitions() {
+        while let target = pendingConnectedTarget {
+            pendingConnectedTarget = nil
+            guard _isConnected != target else { continue }
+            applyConnectedTransition(target)
+        }
+    }
+
+    /// Writes `isConnected` on `@MainActor` and runs the side effects
+    /// associated with the new state.
+    private func applyConnectedTransition(_ connected: Bool) {
+        isConnected = connected
+        if _isConnecting { isConnecting = false }
+        if connected {
+            scheduleDaemonDidReconnect()
+            handlePostSparkleUpdate()
+        } else {
             autoWakeIfAssistantDied()
+        }
+    }
+
+    /// Defers the `daemonDidReconnect` post to the next `@MainActor` turn
+    /// so observer callbacks (which `NotificationCenter.post` invokes
+    /// synchronously) are billed to a fresh stack frame, not the one that
+    /// triggered the transition.
+    /// https://developer.apple.com/documentation/foundation/notificationcenter/post(name:object:)
+    private func scheduleDaemonDidReconnect() {
+        Task { @MainActor [weak self] in
+            guard let self, self._isConnected else { return }
+            NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
         }
     }
 
@@ -1020,6 +1108,7 @@ public final class GatewayConnectionManager {
     deinit {
         autoWakeTask?.cancel()
         reconnectionTask?.cancel()
+        setConnectedTask?.cancel()
         if let observer = assistantChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }

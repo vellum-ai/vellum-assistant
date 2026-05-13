@@ -63,6 +63,80 @@ public struct MessageClient: MessageClientProtocol {
         return NSUserName()
     }
 
+    internal static var clientTimezone: String? {
+        let identifier = TimeZone.autoupdatingCurrent.identifier
+        return identifier.isEmpty ? nil : identifier
+    }
+
+    internal static func messageBody(
+        content: String?,
+        conversationKey: String,
+        attachmentIds: [String] = [],
+        conversationType: String? = nil,
+        automated: Bool? = nil,
+        bypassSecretCheck: Bool? = nil,
+        onboarding: PreChatOnboardingContext? = nil,
+        clientMessageId: String? = nil,
+        inferenceProfile: String? = nil,
+        riskThreshold: String? = nil,
+        clientTimezone: String? = MessageClient.clientTimezone
+    ) -> [String: Any] {
+        var body: [String: Any] = [
+            "conversationKey": conversationKey,
+            "sourceChannel": "vellum",
+            "interface": Self.interfaceValue
+        ]
+        if let content, !content.isEmpty {
+            body["content"] = content
+        }
+        if !attachmentIds.isEmpty {
+            body["attachmentIds"] = attachmentIds
+        }
+        if let conversationType {
+            body["conversationType"] = conversationType
+        }
+        if automated == true {
+            body["automated"] = true
+        }
+        if bypassSecretCheck == true {
+            body["bypassSecretCheck"] = true
+        }
+        if let clientMessageId {
+            body["clientMessageId"] = clientMessageId
+        }
+        if let inferenceProfile {
+            body["inferenceProfile"] = inferenceProfile
+        }
+        if let riskThreshold {
+            body["riskThreshold"] = riskThreshold
+        }
+        if let hostHomeDir = Self.hostHomeDir {
+            body["hostHomeDir"] = hostHomeDir
+        }
+        if let hostUsername = Self.hostUsername {
+            body["hostUsername"] = hostUsername
+        }
+        if let clientTimezone, !clientTimezone.isEmpty {
+            body["clientTimezone"] = clientTimezone
+        }
+        if let onboarding {
+            var onboardingDict: [String: Any] = [
+                "tools": onboarding.tools,
+                "tasks": onboarding.tasks,
+                "tone": onboarding.tone
+            ]
+            if let userName = onboarding.userName {
+                onboardingDict["userName"] = userName
+            }
+            if let assistantName = onboarding.assistantName {
+                onboardingDict["assistantName"] = assistantName
+            }
+            body["onboarding"] = onboardingDict
+        }
+
+        return body
+    }
+
     public func uploadAttachment(filename: String, mimeType: String, data: String, filePath: String? = nil) async -> AttachmentUploadResult {
         let isFileBacked = data.isEmpty && filePath != nil
         log.info("[send-pipeline] attachment upload start — filename=\(filename, privacy: .public), mimeType=\(mimeType, privacy: .public), fileBacked=\(isFileBacked, privacy: .public)")
@@ -167,55 +241,18 @@ public struct MessageClient: MessageClientProtocol {
     ) async -> MessageSendResult {
         log.info("[send-pipeline] message request start — uploadedAttachmentIds=\(attachmentIds.count)")
 
-        var body: [String: Any] = [
-            "conversationKey": conversationKey,
-            "sourceChannel": "vellum",
-            "interface": Self.interfaceValue
-        ]
-        if let content, !content.isEmpty {
-            body["content"] = content
-        }
-        if !attachmentIds.isEmpty {
-            body["attachmentIds"] = attachmentIds
-        }
-        if let conversationType {
-            body["conversationType"] = conversationType
-        }
-        if automated == true {
-            body["automated"] = true
-        }
-        if bypassSecretCheck == true {
-            body["bypassSecretCheck"] = true
-        }
-        if let clientMessageId {
-            body["clientMessageId"] = clientMessageId
-        }
-        if let inferenceProfile {
-            body["inferenceProfile"] = inferenceProfile
-        }
-        if let riskThreshold {
-            body["riskThreshold"] = riskThreshold
-        }
-        if let hostHomeDir = Self.hostHomeDir {
-            body["hostHomeDir"] = hostHomeDir
-        }
-        if let hostUsername = Self.hostUsername {
-            body["hostUsername"] = hostUsername
-        }
-        if let onboarding {
-            var onboardingDict: [String: Any] = [
-                "tools": onboarding.tools,
-                "tasks": onboarding.tasks,
-                "tone": onboarding.tone
-            ]
-            if let userName = onboarding.userName {
-                onboardingDict["userName"] = userName
-            }
-            if let assistantName = onboarding.assistantName {
-                onboardingDict["assistantName"] = assistantName
-            }
-            body["onboarding"] = onboardingDict
-        }
+        let body = Self.messageBody(
+            content: content,
+            conversationKey: conversationKey,
+            attachmentIds: attachmentIds,
+            conversationType: conversationType,
+            automated: automated,
+            bypassSecretCheck: bypassSecretCheck,
+            onboarding: onboarding,
+            clientMessageId: clientMessageId,
+            inferenceProfile: inferenceProfile,
+            riskThreshold: riskThreshold
+        )
 
         do {
             let response = try await GatewayHTTPClient.post(

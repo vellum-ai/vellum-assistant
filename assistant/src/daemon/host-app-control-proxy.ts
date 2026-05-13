@@ -15,8 +15,13 @@
  * session at a time, and that session is bound to a specific target app.
  * The lock is module-level (`activeAppControlSession`) because the session
  * targets the user's actual desktop application, which is a host-wide
- * resource. It is acquired on a successful `app_control_start` (storing
- * `(conversationId, app)`) and released when the owning proxy's
+ * resource. It is acquired optimistically when `app_control_start` is
+ * dispatched (storing `(conversationId, app)`) so that the synchronous
+ * guard and the asynchronous host round-trip cannot race; the prior
+ * session value is snapshotted before the overwrite and restored if the
+ * dispatch fails or the host returns a non-running state, so a failed
+ * re-start within the same conversation does not strand the original
+ * session. The lock is released outright when the owning proxy's
  * `dispose()` fires.
  *
  * `app_control_start` is the only tool that can acquire the lock — the
@@ -144,12 +149,12 @@ function checkNonStartAuthorization(
   // except `stop`, and `stop` short-circuits in conversation-surfaces and
   // does not reach this method in production. A stop reaching here would
   // be a defensive bug — surface it explicitly rather than dispatch.
-  const requestedApp = (input as { app?: string }).app;
-  if (requestedApp == null) {
+  const requestedApp = (input as { app?: unknown }).app;
+  if (typeof requestedApp !== "string") {
     return {
       content:
-        "Tool input missing required 'app' field; cannot validate against " +
-        "the active app-control session.",
+        "Tool input missing required string 'app' field; cannot validate " +
+        "against the active app-control session.",
       isError: true,
     };
   }
@@ -222,6 +227,8 @@ export class HostAppControlProxy extends HostProxyBase<
     input: HostAppControlInput,
     conversationId: string,
     signal: AbortSignal,
+    sourceActorPrincipalId?: string,
+    targetClientId?: string,
   ): Promise<ToolExecutionResult> {
     if (signal.aborted) {
       return { content: "Aborted", isError: true };
@@ -232,10 +239,12 @@ export class HostAppControlProxy extends HostProxyBase<
     // belong to the active session and target the same `app`. Without this
     // gate, prompt-injected calls would bypass the start-time approval and
     // send raw input to arbitrary apps.
+    let priorSession: ActiveAppControlSession | undefined;
+    let attemptedSession: ActiveAppControlSession | undefined;
     if (input.tool === "start") {
       if (
         activeAppControlSession != null &&
-        activeAppControlSession.conversationId !== conversationId
+        activeAppControlSession.conversationId !== this.conversationId
       ) {
         return {
           content:
@@ -245,8 +254,29 @@ export class HostAppControlProxy extends HostProxyBase<
           isError: true,
         };
       }
+      // Snapshot the prior session before the optimistic overwrite so a
+      // failed re-start within the same conversation can restore it rather
+      // than stranding the original session. For a first start from a
+      // clean state this is `undefined` (restore == release).
+      priorSession = activeAppControlSession;
+      // Acquire optimistically to close the TOCTOU window between this
+      // synchronous guard and the asynchronous `dispatchRequest` below. Two
+      // concurrent starts from different conversations would otherwise both
+      // see `activeAppControlSession == null` and both pass the guard. The
+      // lock is rolled back below if dispatch fails or the host returns a
+      // non-running state — keyed on object identity so that a later
+      // overlapping start that has already replaced our write is not
+      // clobbered by a stale rollback.
+      attemptedSession = {
+        conversationId: this.conversationId,
+        app: input.app,
+      };
+      activeAppControlSession = attemptedSession;
     } else {
-      const sessionError = checkNonStartAuthorization(input, conversationId);
+      const sessionError = checkNonStartAuthorization(
+        input,
+        this.conversationId,
+      );
       if (sessionError != null) {
         return sessionError;
       }
@@ -258,9 +288,17 @@ export class HostAppControlProxy extends HostProxyBase<
         input,
         conversationId,
         signal,
+        undefined,
+        targetClientId,
       );
-      return this.handleSuccess(input, payload);
+      if (input.tool === "start" && payload.state !== "running") {
+        this.rollbackStartIfCurrent(attemptedSession, priorSession);
+      }
+      return this.handleSuccess(payload);
     } catch (err) {
+      if (input.tool === "start") {
+        this.rollbackStartIfCurrent(attemptedSession, priorSession);
+      }
       if (err instanceof HostProxyRequestError) {
         if (err.reason === "timeout") {
           log.warn({ toolName }, "Host app-control proxy request timed out");
@@ -279,12 +317,41 @@ export class HostAppControlProxy extends HostProxyBase<
     }
   }
 
+  /**
+   * Roll back the optimistic overwrite performed by a `start` when the
+   * dispatch fails or the host returns non-running. Keyed on the
+   * `attempted` reference, not just `conversationId`, so that an
+   * out-of-order failure does not clobber a newer overlapping start that
+   * already replaced our write — e.g. start A → start B (pending) →
+   * start C (success); when B later fails, the live session is C and the
+   * identity check makes our rollback a no-op rather than restoring A.
+   */
+  private rollbackStartIfCurrent(
+    attempted: ActiveAppControlSession | undefined,
+    prior: ActiveAppControlSession | undefined,
+  ): void {
+    if (attempted != null && activeAppControlSession === attempted) {
+      activeAppControlSession = prior;
+    }
+  }
+
+  /**
+   * Release the module-level session lock if this proxy is the current
+   * holder. Used by `dispose()` — distinct from `rollbackStartIfCurrent`
+   * because dispose is keyed on ownership (conversationId) rather than on
+   * a specific in-flight start.
+   */
+  private releaseSessionIfHeld(): void {
+    if (activeAppControlSession?.conversationId === this.conversationId) {
+      activeAppControlSession = undefined;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Result handling
   // ---------------------------------------------------------------------------
 
   private handleSuccess(
-    input: HostAppControlInput,
     payload: HostAppControlResultPayload,
   ): ToolExecutionResult {
     // Update PNG-hash loop tracking only for the "running" state — other
@@ -302,15 +369,6 @@ export class HostAppControlProxy extends HostProxyBase<
       if (this.observationHashRepeatCount >= STUCK_REPEAT_THRESHOLD) {
         stuck = true;
       }
-    }
-
-    // Store the exact `app` form for validation against subsequent
-    // non-start tool calls.
-    if (input.tool === "start" && payload.state === "running") {
-      activeAppControlSession = {
-        conversationId: this.conversationId,
-        app: input.app,
-      };
     }
 
     return this.formatResult(payload, stuck);
@@ -382,8 +440,6 @@ export class HostAppControlProxy extends HostProxyBase<
    */
   override dispose(): void {
     super.dispose();
-    if (activeAppControlSession?.conversationId === this.conversationId) {
-      activeAppControlSession = undefined;
-    }
+    this.releaseSessionIfHeld();
   }
 }

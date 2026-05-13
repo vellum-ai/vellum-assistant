@@ -16,6 +16,7 @@ public enum ConversationErrorCategory: Equatable, Sendable {
     case regenerateFailed
     case authenticationRequired
     case providerNotConfigured
+    case providerInvalidKey
     case managedKeyInvalid
     case unknown
 
@@ -49,6 +50,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             self = .authenticationRequired
         case .providerNotConfigured:
             self = .providerNotConfigured
+        case .providerInvalidKey:
+            self = .providerInvalidKey
         case .managedKeyInvalid:
             self = .managedKeyInvalid
         case .unknown:
@@ -70,7 +73,7 @@ public enum ConversationErrorCategory: Equatable, Sendable {
         case .providerApi:
             return "This is usually temporary — click Retry, or check your API key in Settings if it persists."
         case .providerBilling:
-            return "Please add credits to your account or update your API key in Settings."
+            return "Add funds with your provider or update your API key in Settings."
         case .providerOrdering:
             return "This is usually temporary — click Retry to continue."
         case .providerWebSearch:
@@ -87,12 +90,28 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             return "Sign in or check your credentials in Settings to continue."
         case .providerNotConfigured:
             return "Add your API key in Settings to continue."
+        case .providerInvalidKey:
+            return "Update the API key in Settings — the provider rejected the current one."
         case .managedKeyInvalid:
             return "The assistant API key is being refreshed. Please retry in a moment."
         case .unknown:
             return "Click Retry or send a new message. Copy debug info if the problem repeats."
         }
     }
+}
+
+/// Preferred UI surface for a conversation-level error.
+public enum ConversationErrorPresentationSurface: Equatable, Sendable {
+    case managedCreditsBanner
+    case providerBillingBanner
+    case missingApiKeyBanner
+    /// Daemon says the upstream provider rejected the configured key
+    /// (`PROVIDER_INVALID_KEY` — e.g. Anthropic 401/403). Distinct from
+    /// `missingApiKeyBanner` so the chat surface can render an "Invalid
+    /// API key" banner with an Update-in-Settings CTA, rather than the
+    /// "API key required" copy that asks the user to add one.
+    case invalidApiKeyBanner
+    case generic
 }
 
 /// Typed error state for conversation-level errors from the daemon.
@@ -105,31 +124,78 @@ public struct ConversationError: Equatable {
     public let debugDetails: String?
     /// Machine-readable error category for log report metadata and triage.
     public let errorCategory: String?
+    /// Optional `provider_connections.name` carried over from the wire
+    /// message for credential-related errors. Used by `InvalidApiKeyBanner`
+    /// / `MissingApiKeyBanner` to name the slot to fix.
+    public let connectionName: String?
+    /// Optional resolved profile name carried over from the wire message.
+    /// Same purpose as `connectionName` — surfaces in the banner when the
+    /// connection identifier is generic.
+    public let profileName: String?
 
     public init(from msg: ConversationErrorMessage) {
         self.category = ConversationErrorCategory(from: msg.code)
         self.message = msg.userMessage
         self.isRetryable = msg.retryable
-        self.recoverySuggestion = self.category.recoverySuggestion
+        self.recoverySuggestion = Self.recoverySuggestion(for: self.category, errorCategory: msg.errorCategory)
         self.conversationId = msg.conversationId
         self.debugDetails = msg.debugDetails
         self.errorCategory = msg.errorCategory
+        self.connectionName = msg.connectionName
+        self.profileName = msg.profileName
     }
 
-    public init(category: ConversationErrorCategory, message: String, isRetryable: Bool, conversationId: String, debugDetails: String? = nil, errorCategory: String? = nil) {
+    public init(category: ConversationErrorCategory, message: String, isRetryable: Bool, conversationId: String, debugDetails: String? = nil, errorCategory: String? = nil, connectionName: String? = nil, profileName: String? = nil) {
         self.category = category
         self.message = message
         self.isRetryable = isRetryable
-        self.recoverySuggestion = category.recoverySuggestion
+        self.recoverySuggestion = Self.recoverySuggestion(for: category, errorCategory: errorCategory)
         self.conversationId = conversationId
         self.debugDetails = debugDetails
         self.errorCategory = errorCategory
+        self.connectionName = connectionName
+        self.profileName = profileName
     }
 
-    /// Whether this error indicates that the user's credits are exhausted.
+    /// Whether this error indicates that Vellum-managed credits are exhausted.
     /// Matches both plain "credits_exhausted" and prefixed variants like "regenerate:credits_exhausted".
+    public var isManagedCreditsExhausted: Bool {
+        Self.isManagedCreditsExhausted(errorCategory)
+    }
+
+    /// Compatibility alias for existing managed-credits UI checks.
     public var isCreditsExhausted: Bool {
-        errorCategory?.hasSuffix("credits_exhausted") == true
+        isManagedCreditsExhausted
+    }
+
+    /// Whether this error indicates billing trouble with the user's configured provider.
+    /// Matches both plain "provider_billing" and prefixed variants like "regenerate:provider_billing".
+    public var isProviderBilling: Bool {
+        Self.isProviderBilling(category: category, errorCategory: errorCategory)
+    }
+
+    public var presentationSurface: ConversationErrorPresentationSurface {
+        if isManagedCreditsExhausted {
+            return .managedCreditsBanner
+        }
+        if isProviderBilling {
+            return .providerBillingBanner
+        }
+        if isProviderInvalidKey {
+            return .invalidApiKeyBanner
+        }
+        if isProviderNotConfigured {
+            return .missingApiKeyBanner
+        }
+        return .generic
+    }
+
+    public var shouldSuppressGenericErrorSurface: Bool {
+        presentationSurface != .generic
+    }
+
+    public var shouldCreateInlineErrorMessage: Bool {
+        !shouldSuppressGenericErrorSurface && !isManagedKeyInvalid
     }
 
     /// Whether this error indicates that no provider is configured for inference.
@@ -137,8 +203,40 @@ public struct ConversationError: Equatable {
         category == .providerNotConfigured
     }
 
+    /// Whether this error indicates the upstream provider rejected the
+    /// configured API key (e.g. Anthropic 401/403). Distinct from
+    /// `isProviderNotConfigured` (key never set) — the banner copy and
+    /// CTA differ between the two states.
+    public var isProviderInvalidKey: Bool {
+        category == .providerInvalidKey
+    }
+
     /// Whether this error indicates the managed assistant API key is invalid and should be reprovisioned.
     public var isManagedKeyInvalid: Bool {
         category == .managedKeyInvalid
+    }
+
+    private static func recoverySuggestion(for category: ConversationErrorCategory, errorCategory: String?) -> String {
+        if isManagedCreditsExhausted(errorCategory) {
+            return "Add credits to your Vellum account or switch to your API key in Settings."
+        }
+        if isProviderBilling(category: category, errorCategory: errorCategory) {
+            return ConversationErrorCategory.providerBilling.recoverySuggestion
+        }
+        return category.recoverySuggestion
+    }
+
+    private static func isManagedCreditsExhausted(_ errorCategory: String?) -> Bool {
+        errorCategory?.hasSuffix("credits_exhausted") == true
+    }
+
+    private static func isProviderBilling(category: ConversationErrorCategory, errorCategory: String?) -> Bool {
+        if isManagedCreditsExhausted(errorCategory) {
+            return false
+        }
+        if errorCategory?.hasSuffix("provider_billing") == true {
+            return true
+        }
+        return category == .providerBilling && errorCategory == nil
     }
 }

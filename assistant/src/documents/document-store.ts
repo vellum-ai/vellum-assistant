@@ -5,7 +5,7 @@
  * background jobs (e.g. proactive artifact generation) can persist documents
  * without going through the HTTP layer.
  */
-import { rawRun } from "../memory/raw-query.js";
+import { rawGet, rawRun } from "../memory/raw-query.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("document-store");
@@ -81,5 +81,39 @@ export function saveDocument(params: {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
     };
+  }
+}
+
+/** Update persisted document content (append or replace). */
+export function updateDocumentContent(
+  surfaceId: string,
+  markdown: string,
+  mode: string,
+): void {
+  try {
+    const existing = rawGet<{ content: string }>(
+      /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
+      surfaceId,
+    );
+    if (!existing) {
+      log.info({ surfaceId }, "No persisted document to update");
+      return;
+    }
+    const sep = mode === "append" && existing.content.length > 0 ? "\n\n" : "";
+    const newContent =
+      mode === "append" ? existing.content + sep + markdown : markdown;
+    const wordCount = newContent
+      .split(/\s+/)
+      .filter((w) => w.length > 0).length;
+    rawRun(
+      /*sql*/ `UPDATE documents SET content = ?, word_count = ?, updated_at = ? WHERE surface_id = ?`,
+      newContent,
+      wordCount,
+      Date.now(),
+      surfaceId,
+    );
+    log.info({ surfaceId, mode }, "Updated document content");
+  } catch (error) {
+    log.error({ err: error, surfaceId }, "Document content update error");
   }
 }

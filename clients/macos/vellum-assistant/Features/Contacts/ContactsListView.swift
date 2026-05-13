@@ -40,20 +40,24 @@ struct ContactsListView: View {
 
     private var contactsCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Header: "Entries" title + add button
+            HStack {
+                Text("Entries")
+                    .font(VFont.titleSmall)
+                    .foregroundStyle(VColor.contentDefault)
+                Spacer()
+                VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {
+                    viewModel.isCreatingContact = true
+                }
+                .accessibilityLabel("Add contact")
+            }
+
             // System contacts (always visible, not affected by search)
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                contactListRow(
-                    name: "Your Assistant",
-                    badgeKind: .assistant,
-                    isSelected: selection == .assistant,
-                    isHovered: isAssistantHovered,
-                    onTap: { selection = .assistant },
-                    onHover: { isAssistantHovered = $0 }
-                )
-
                 if let guardian = viewModel.guardianContact {
                     contactListRow(
                         name: "You",
+                        subtitle: channelTypesLabel(for: guardian.channels),
                         badgeKind: ContactTypeBadge.Kind(role: guardian.role, contactType: guardian.contactType),
                         isSelected: selection == .contact(guardian.id),
                         isHovered: hoveredContactId == guardian.id,
@@ -61,21 +65,25 @@ struct ContactsListView: View {
                         onHover: { hoveredContactId = $0 ? guardian.id : nil }
                     )
                 }
+
+                contactListRow(
+                    name: cachedAssistantDisplayName,
+                    subtitle: nil,
+                    badgeKind: .assistant,
+                    isSelected: selection == .assistant,
+                    isHovered: isAssistantHovered,
+                    onTap: { selection = .assistant },
+                    onHover: { isAssistantHovered = $0 }
+                )
             }
 
-            Divider()
+            SettingsDivider()
 
-            if viewModel.regularContacts.isEmpty {
-                // No contacts yet — full-width add button matching contact row height
+            if viewModel.regularContacts.isEmpty && viewModel.searchQuery.isEmpty {
                 addContactButton
             } else {
-                // Search + Add button
-                HStack(spacing: VSpacing.sm) {
+                if !viewModel.regularContacts.isEmpty || !viewModel.searchQuery.isEmpty {
                     searchBar
-                    VButton(label: "Add", iconOnly: VIcon.plus.rawValue, style: .ghost, size: .compact) {
-                        viewModel.isCreatingContact = true
-                    }
-                    .accessibilityLabel("Add contact")
                 }
 
                 ScrollView {
@@ -83,6 +91,7 @@ struct ContactsListView: View {
                         ForEach(viewModel.filteredRegularContacts, id: \.id) { contact in
                             contactListRow(
                                 name: contact.displayName,
+                                subtitle: channelTypesLabel(for: contact.channels),
                                 badgeKind: ContactTypeBadge.Kind(role: contact.role, contactType: contact.contactType),
                                 isSelected: selection == .contact(contact.id),
                                 isHovered: hoveredContactId == contact.id,
@@ -107,8 +116,8 @@ struct ContactsListView: View {
                 }
             }
         }
-        .padding(.trailing, VSpacing.lg)
-        .padding(.bottom, VSpacing.lg)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceLift)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
@@ -151,6 +160,7 @@ struct ContactsListView: View {
 
     private func contactListRow(
         name: String,
+        subtitle: String?,
         badgeKind: ContactTypeBadge.Kind,
         isSelected: Bool,
         isHovered: Bool,
@@ -159,10 +169,19 @@ struct ContactsListView: View {
     ) -> some View {
         Button(action: onTap) {
             HStack(spacing: VSpacing.xs) {
-                Text(name)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
+                        .lineLimit(1)
+
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .lineLimit(1)
+                    }
+                }
 
                 Spacer()
 
@@ -215,6 +234,23 @@ struct ContactsListView: View {
     }
 
     // MARK: - Helpers
+
+    private func channelTypesLabel(for channels: [ContactChannelPayload]) -> String? {
+        let types = Set(channels.filter { $0.status != "revoked" }.map { $0.type })
+        guard !types.isEmpty else { return nil }
+        let labels: [String: String] = [
+            "slack": "Slack",
+            "telegram": "Telegram",
+            "phone": "Phone",
+            "email": "Email",
+            "whatsapp": "WhatsApp",
+        ]
+        let ordered = ["email", "slack", "telegram", "phone", "whatsapp"]
+        let result = ordered.compactMap { type in
+            types.contains(type) ? labels[type] : nil
+        }
+        return result.isEmpty ? nil : result.joined(separator: " | ")
+    }
 
     private func rowBackground(isSelected: Bool, isHovered: Bool) -> some View {
         RoundedRectangle(cornerRadius: VRadius.md)

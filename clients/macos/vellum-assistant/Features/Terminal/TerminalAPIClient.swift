@@ -12,12 +12,6 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Termi
 @MainActor
 final class TerminalAPIClient {
 
-    private let assistantId: String
-
-    init(assistantId: String) {
-        self.assistantId = assistantId
-    }
-
     // MARK: - Session Lifecycle
 
     /// Creates a new terminal session and returns the session ID.

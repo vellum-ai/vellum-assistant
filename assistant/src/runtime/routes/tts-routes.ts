@@ -20,6 +20,7 @@ import {
   TtsSynthesisError,
 } from "../../tts/synthesize-text.js";
 import { resolveTtsConfig } from "../../tts/tts-config-resolver.js";
+import type { TtsUseCase } from "../../tts/types.js";
 import { getLogger } from "../../util/logger.js";
 import {
   BadGatewayError,
@@ -93,8 +94,33 @@ async function doSynthesize(
       throw new ServiceUnavailableError("TTS provider is not configured");
     }
 
-    throw new BadGatewayError("TTS synthesis failed");
+    throw new BadGatewayError(formatTtsFailureMessage(err));
   }
+}
+
+/**
+ * Build a user-facing error message for a failed TTS synthesis, embedding the
+ * upstream provider's message when available.
+ *
+ * The provider adapters surface a clean upstream message (e.g. "Free users
+ * cannot use library voices via the API…") and `synthesize-text` already
+ * prefixes those with `"TTS synthesis failed (provider: <id>): "`. We pass
+ * pre-prefixed messages through verbatim and only add the base prefix for
+ * raw provider errors, so users never see double- or triple-prefixed
+ * messages on the desktop / channels.
+ *
+ * Exported for unit testing.
+ */
+export function formatTtsFailureMessage(err: unknown): string {
+  const base = "TTS synthesis failed";
+  if (err instanceof Error && err.message && err.message.trim()) {
+    const trimmed = err.message.trim();
+    if (/^TTS synthesis failed\b/i.test(trimmed)) {
+      return trimmed;
+    }
+    return `${base}: ${trimmed}`;
+  }
+  return base;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +181,45 @@ async function handleSynthesizeTts({ body }: RouteHandlerArgs) {
   return doSynthesize(sanitizedText, { context: body.context });
 }
 
+async function handleSynthesizeCliTts({ body }: RouteHandlerArgs) {
+  if (!body?.text || typeof body.text !== "string") {
+    throw new BadRequestError("text is required");
+  }
+
+  const sanitizedText = sanitizeForTts(body.text).trim();
+  if (!sanitizedText) {
+    throw new BadRequestError(
+      "Text has no speakable content after sanitization",
+    );
+  }
+
+  const useCase: TtsUseCase =
+    (body.useCase as TtsUseCase | undefined) ?? "message-playback";
+  const voiceId =
+    body.voiceId && typeof body.voiceId === "string"
+      ? body.voiceId
+      : undefined;
+
+  try {
+    const result = await synthesizeText({ text: sanitizedText, useCase, voiceId });
+    return {
+      audioBase64: Buffer.from(result.audio).toString("base64"),
+      contentType: result.contentType,
+    };
+  } catch (err) {
+    log.error({ err }, "TTS CLI synthesis failed");
+
+    if (
+      err instanceof TtsSynthesisError &&
+      err.code === "TTS_PROVIDER_NOT_CONFIGURED"
+    ) {
+      throw new ServiceUnavailableError("TTS provider is not configured");
+    }
+
+    throw new BadGatewayError(formatTtsFailureMessage(err));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -205,5 +270,32 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseHeaders: ttsResponseHeaders,
     handler: handleSynthesizeTts,
+  },
+  {
+    operationId: "tts_synthesize_cli",
+    endpoint: "tts/synthesize-cli",
+    method: "POST",
+    policyKey: "tts/synthesize-cli",
+    requirePolicyEnforcement: true,
+    summary: "Synthesize text to speech (CLI)",
+    description:
+      "Synthesize arbitrary text to audio. Returns base64-encoded audio + content type for CLI consumption.",
+    tags: ["tts"],
+    requestBody: z.object({
+      text: z.string().describe("Text to synthesize into speech"),
+      useCase: z
+        .enum(["message-playback", "phone-call"])
+        .optional()
+        .default("message-playback"),
+      voiceId: z
+        .string()
+        .optional()
+        .describe("Provider-specific voice identifier override"),
+    }),
+    responseBody: z.object({
+      audioBase64: z.string().describe("Base64-encoded audio bytes"),
+      contentType: z.string().describe("MIME type of the audio (e.g. audio/mpeg)"),
+    }),
+    handler: handleSynthesizeCliTts,
   },
 ];

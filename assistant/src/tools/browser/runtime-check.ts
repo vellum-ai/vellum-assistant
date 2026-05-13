@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { ensureBun } from "../../util/bun-runtime.js";
+import { getLogger } from "../../util/logger.js";
 import { getExternalDir } from "../../util/platform.js";
+
+const log = getLogger("runtime-check");
 
 export interface BrowserRuntimeStatus {
   playwrightAvailable: boolean;
@@ -108,6 +111,80 @@ export async function importPlaywright(): Promise<typeof import("playwright")> {
     );
   }
   return mod as unknown as typeof import("playwright");
+}
+
+/** In-flight headless shell install promise to deduplicate concurrent callers. */
+let headlessShellInstalling: Promise<void> | undefined;
+
+/**
+ * Ensure the Chromium headless shell binary is available on disk.
+ * Downloads it on-demand via `playwright install --only-shell chromium`
+ * if the binary is missing. Only installs the lightweight headless shell
+ * (~111 MB), not the full Chrome for Testing browser.
+ */
+export async function ensureChromiumHeadlessShell(
+  pw: typeof import("playwright"),
+): Promise<void> {
+  try {
+    const execPath = pw.chromium.executablePath();
+    if (existsSync(execPath)) return;
+  } catch {
+    // executablePath() may throw if the browser registry is missing
+  }
+
+  if (headlessShellInstalling) {
+    await headlessShellInstalling;
+    return;
+  }
+
+  headlessShellInstalling = (async () => {
+    log.info("Chromium headless shell not found, installing...");
+    const bunPath = await ensureBun();
+
+    // Run the CLI from the same directory where importPlaywright() installed
+    // the package so the resolved playwright version matches the pw module.
+    const externalDir = getExternalDir();
+    const externalPwExists = existsSync(
+      join(externalDir, "node_modules", "playwright", "package.json"),
+    );
+
+    const proc = Bun.spawn(
+      [bunPath, "x", "playwright", "install", "--only-shell", "chromium"],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+        cwd: externalPwExists ? externalDir : undefined,
+      },
+    );
+    const timeoutMs = 120_000;
+    let timer: ReturnType<typeof setTimeout>;
+    const exitCode = await Promise.race([
+      proc.exited.finally(() => clearTimeout(timer)),
+      new Promise<never>(
+        (_, reject) =>
+          (timer = setTimeout(() => {
+            proc.kill();
+            reject(
+              new Error(
+                `Chromium headless shell install timed out after ${timeoutMs / 1000}s`,
+              ),
+            );
+          }, timeoutMs)),
+      ),
+    ]);
+    if (exitCode === 0) {
+      log.info("Chromium headless shell installed successfully");
+    } else {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(
+        `Failed to install Chromium headless shell: ${stderr.trim() || `exit code ${exitCode}`}`,
+      );
+    }
+  })().finally(() => {
+    headlessShellInstalling = undefined;
+  });
+
+  await headlessShellInstalling;
 }
 
 export async function checkBrowserRuntime(): Promise<BrowserRuntimeStatus> {

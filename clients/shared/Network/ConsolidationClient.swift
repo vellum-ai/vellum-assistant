@@ -6,7 +6,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Conso
 /// Focused client for memory v2 consolidation operations routed through the gateway.
 ///
 /// Mirrors ``FilingClientProtocol`` — consolidation replaces filing as the
-/// active background memory job when the `memory-v2-enabled` flag is on.
+/// active background memory job when `memory.v2.enabled` is true.
 public protocol ConsolidationClientProtocol {
     func fetchConfig() async -> ConsolidationConfigResponse?
     func runNow() async -> ConsolidationRunNowResponse?

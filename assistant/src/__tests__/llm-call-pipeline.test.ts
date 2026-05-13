@@ -157,7 +157,6 @@ describe("llmCall pipeline", () => {
       manifest: {
         name: "spy-llm",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: {
         llmCall: async (args, next, _ctx) => {
@@ -209,7 +208,6 @@ describe("llmCall pipeline", () => {
       manifest: {
         name: "spy-llm-after-default",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: {
         llmCall: async (args, next, _ctx) => {
@@ -255,7 +253,6 @@ describe("llmCall pipeline", () => {
       manifest: {
         name: "short-circuit-llm",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
       middleware: { llmCall: shortCircuit },
     };

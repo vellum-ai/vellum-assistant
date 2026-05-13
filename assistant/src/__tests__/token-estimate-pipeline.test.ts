@@ -338,7 +338,6 @@ describe("tokenEstimate pipeline — custom override", () => {
       manifest: {
         name: "custom-token-estimate",
         version: "1.0.0",
-        requires: { pluginRuntime: "v1", tokenEstimateApi: "v1" },
       },
       middleware: { tokenEstimate: override },
     };
@@ -376,7 +375,6 @@ describe("tokenEstimate pipeline — custom override", () => {
       manifest: {
         name: "doubling-token-estimate",
         version: "1.0.0",
-        requires: { pluginRuntime: "v1", tokenEstimateApi: "v1" },
       },
       middleware: { tokenEstimate: doubler },
     };
@@ -420,7 +418,6 @@ describe("tokenEstimate pipeline — default does not shadow late plugins", () =
       manifest: {
         name: "late-registered-observer",
         version: "1.0.0",
-        requires: { pluginRuntime: "v1", tokenEstimateApi: "v1" },
       },
       middleware: { tokenEstimate: observer },
     };

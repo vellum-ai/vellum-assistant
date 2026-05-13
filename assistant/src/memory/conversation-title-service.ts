@@ -39,6 +39,7 @@ export type TitleOrigin =
   | "task_submit"
   | "updates_bulletin"
   | "memory_consolidation"
+  | "memory_retrospective"
   | "misc";
 
 export interface TitleContext {

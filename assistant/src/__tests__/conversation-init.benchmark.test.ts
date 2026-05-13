@@ -136,6 +136,7 @@ mock.module("../config/loader.js", () => ({
     "fireworks",
     "brave",
     "perplexity",
+    "tavily",
   ],
   getConfig: () => mockConfig,
   getConfigReadOnly: () => mockConfig,
@@ -465,7 +466,7 @@ describe("End-to-end session creation benchmark", () => {
       timings.push(performance.now() - start);
 
       if (i === 0) {
-        expect(session.eventBus.listenerCount()).toBeGreaterThan(0);
+        expect(session.eventBus.anyListenerCount()).toBeGreaterThan(0);
       }
       session.dispose();
     }

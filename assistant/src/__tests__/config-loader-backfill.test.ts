@@ -64,12 +64,15 @@ afterAll(() => {
   mock.restore();
 });
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import {
   deepMergeOverwrite,
   getConfig,
   invalidateConfigCache,
   loadConfig,
+  mergeDefaultWorkspaceConfig,
 } from "../config/loader.js";
+import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 
 // ---------------------------------------------------------------------------
@@ -78,6 +81,15 @@ import { _setStorePath } from "../security/encrypted-store.js";
 
 function writeConfig(obj: unknown): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n");
+}
+
+function mergeDefaultConfigAndSeedInferenceProfiles(): void {
+  const defaultConfigMerge = mergeDefaultWorkspaceConfig();
+  seedInferenceProfiles({
+    preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
+    preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+    isHatch: defaultConfigMerge.hadOverlay,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +286,8 @@ describe("loadConfig startup behavior", () => {
     ensureTestDir();
     const resetPaths = [
       CONFIG_PATH,
+      join(WORKSPACE_DIR, "default-config.json"),
+      join(WORKSPACE_DIR, "hatch-overlay.json"),
       join(WORKSPACE_DIR, "keys.enc"),
       join(WORKSPACE_DIR, "data"),
       join(WORKSPACE_DIR, "data", "memory"),
@@ -295,11 +309,15 @@ describe("loadConfig startup behavior", () => {
     if (existsSync(updatesPath)) rmSync(updatesPath, { force: true });
     ensureTestDir();
     _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
     invalidateConfigCache();
   });
 
   afterEach(() => {
     _setStorePath(null);
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
     invalidateConfigCache();
   });
 
@@ -391,6 +409,473 @@ describe("loadConfig startup behavior", () => {
     expect(raw.dataDir).toBeUndefined();
   });
 
+  test("off-platform hatch seeds both managed and user anthropic profiles", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: {
+              provider: "anthropic",
+              model: "claude-opus-4-7",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.default.provider).toBe("anthropic");
+    expect(config.llm.default.model).toBe("claude-opus-4-7");
+    // Off-platform: user profiles are active, backed by the user's API key.
+    expect(config.llm.activeProfile).toBe("custom-balanced");
+    expect(config.llm.profiles["custom-balanced"]?.provider).toBe("anthropic");
+    expect(config.llm.profiles["custom-balanced"]?.provider_connection).toBe(
+      "anthropic-personal",
+    );
+    // Managed profiles exist as well.
+    expect(config.llm.profiles.balanced?.model).toBe("claude-sonnet-4-6");
+    expect(config.llm.profiles.balanced?.provider_connection).toBe(
+      "anthropic-managed",
+    );
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+    });
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+  });
+
+  test("on-platform hatch seeds only managed profiles", () => {
+    process.env.IS_PLATFORM = "true";
+
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: {
+              provider: "anthropic",
+              model: "claude-opus-4-7",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.activeProfile).toBe("balanced");
+    expect(config.llm.profiles.balanced?.model).toBe("claude-sonnet-4-6");
+    expect(config.llm.profiles.balanced?.provider_connection).toBe(
+      "anthropic-managed",
+    );
+    // No user profiles created on platform.
+    expect(config.llm.profiles["custom-balanced"]).toBeUndefined();
+  });
+
+  test("re-hatch from openai to anthropic creates user anthropic profiles off-platform", () => {
+    // Pre-seed an OpenAI-style workspace: user-defined custom-balanced profile
+    // is active, default is openai. Simulates a workspace that hatched against
+    // OpenAI under the pre-1.2 model.
+    writeConfig({
+      llm: {
+        default: { provider: "openai", model: "gpt-5.4-mini" },
+        profiles: {
+          "custom-balanced": {
+            source: "user",
+            provider: "openai",
+            model: "gpt-5.4-mini",
+          },
+        },
+        activeProfile: "custom-balanced",
+      },
+    });
+
+    const overlayPath = join(WORKSPACE_DIR, "rehatch-anthropic.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    // Off-platform re-hatch: user profiles are overwritten for the new
+    // provider and custom-balanced becomes active.
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    expect(raw.llm.profiles["custom-balanced"].provider).toBe("anthropic");
+    expect(raw.llm.profiles["custom-balanced"].provider_connection).toBe(
+      "anthropic-personal",
+    );
+    // Managed profiles are also seeded for anthropic-managed.
+    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-managed",
+    );
+  });
+
+  test("on-platform re-hatch resets active profile to balanced", () => {
+    process.env.IS_PLATFORM = "true";
+
+    writeConfig({
+      llm: {
+        default: { provider: "openai", model: "gpt-5.4-mini" },
+        profiles: {
+          "custom-balanced": {
+            source: "user",
+            provider: "openai",
+            model: "gpt-5.4-mini",
+          },
+        },
+        activeProfile: "custom-balanced",
+      },
+    });
+
+    const overlayPath = join(WORKSPACE_DIR, "rehatch-anthropic.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    // On-platform: no user profiles created, active resets to managed balanced.
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-managed",
+    );
+    // The old custom-balanced is preserved on disk but no longer active.
+    expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
+  });
+
+  test("preserves user-supplied non-catalog model on every restart (ollama custom model)", () => {
+    // Models the ollama case: catalog lists only `llama3.2` but the user has
+    // pulled `codellama`. The seeder must NOT silently overwrite their pick.
+    writeConfig({
+      llm: { default: { provider: "ollama", model: "codellama" } },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    let raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default.model).toBe("codellama");
+
+    // Re-run to confirm idempotency — the user's model survives every restart.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default.model).toBe("codellama");
+  });
+
+  test("off-platform hatch with openai seeds user profiles and managed anthropic profiles", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        { llm: { default: { provider: "openai" } } },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // User profiles for the hatch provider (openai).
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
+    expect(raw.llm.profiles["custom-balanced"].model).toBe("gpt-5.4-mini");
+    expect(raw.llm.profiles["custom-balanced"].provider_connection).toBe(
+      "openai-personal",
+    );
+    expect(raw.llm.profiles["custom-balanced"].source).toBe("user");
+    expect(raw.llm.profiles["custom-quality-optimized"].provider).toBe(
+      "openai",
+    );
+    expect(raw.llm.profiles["custom-quality-optimized"].model).toBe("gpt-5.4");
+    expect(raw.llm.profiles["custom-cost-optimized"].provider).toBe("openai");
+    expect(raw.llm.profiles["custom-cost-optimized"].model).toBe(
+      "gpt-5.4-nano",
+    );
+
+    // Managed anthropic profiles are also seeded.
+    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-managed",
+    );
+    expect(raw.llm.profiles.balanced.source).toBe("managed");
+    expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
+    expect(raw.llm.profiles["cost-optimized"].provider).toBe("anthropic");
+  });
+
+  test("off-platform managed profiles are overwritten on every boot", () => {
+    // Simulate a previous boot that left managed profiles on disk.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    // Non-hatch boot (no overlay). Managed profiles should be overwritten
+    // with the latest templates.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-managed",
+    );
+    expect(raw.llm.activeProfile).toBe("balanced");
+  });
+
+  test("off-platform reseed preserves user-edited label on managed profiles (Codex P1 on PR #30362)", () => {
+    // Simulate a user who renamed the managed "balanced" profile via
+    // PUT /v1/config/llm/profiles/balanced { label: "My Default" }.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+            label: "My Default",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    // Model still gets the new template value (provider-controlled).
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    // But the user's label override is preserved across the reseed.
+    expect(raw.llm.profiles.balanced.label).toBe("My Default");
+  });
+
+  test("off-platform reseed preserves user-toggled status on managed profiles", () => {
+    // Simulate a user who disabled the managed "balanced" profile via
+    // PUT /v1/config/llm/profiles/balanced { status: "disabled" }.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+            status: "disabled",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.status).toBe("disabled");
+    // Model still refreshes — only label/status are user-owned.
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+  });
+
+  test("off-platform reseed preserves an explicit null label (user cleared it)", () => {
+    // Setting label to null is the "clear" intent — must survive too,
+    // otherwise the next boot would re-stamp the template's default
+    // label and ignore the user's clear action.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model",
+            provider_connection: "anthropic-managed",
+            label: null,
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.label).toBeNull();
+  });
+
+  test("off-platform reseed materializes template defaults with the BYOK label suffix when no user overrides exist", () => {
+    // First boot, no prior config — template defaults must materialize
+    // exactly. Off-platform installs get the " (Managed)" suffix so the
+    // managed profile is distinguishable from the personal "custom-*"
+    // sibling that shares the base label. Guards against accidentally
+    // clobbering template values with `undefined` from a `"label" in
+    // previous` check when previous is an empty shell.
+    writeConfig({});
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.label).toBe("Balanced (Managed)");
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+    // Status is unset by default — must not appear as `undefined`.
+    expect("status" in raw.llm.profiles.balanced).toBe(false);
+  });
+
+  test("platform-provided profile fragments are not polluted by managed seeds", () => {
+    process.env.IS_PLATFORM = "true";
+
+    writeConfig({
+      llm: {
+        default: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+        },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            maxTokens: 16000,
+            effort: "high",
+            thinking: { enabled: true, streamThinking: true },
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: {
+              provider: "openai",
+              model: "gpt-5.4",
+            },
+            profiles: {
+              balanced: {
+                source: "managed",
+                provider: "openai",
+                model: "gpt-5.4",
+                label: "Platform Balanced",
+              },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+    const mainAgentConfig = resolveCallSiteConfig("mainAgent", config.llm);
+
+    expect(config.llm.activeProfile).toBe("balanced");
+    expect(config.llm.profiles.balanced).toEqual({
+      source: "managed",
+      provider: "openai",
+      model: "gpt-5.4",
+      label: "Platform Balanced",
+    });
+    expect(mainAgentConfig.provider).toBe("openai");
+    expect(mainAgentConfig.model).toBe("gpt-5.4");
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles.balanced).toEqual({
+      source: "managed",
+      provider: "openai",
+      model: "gpt-5.4",
+      label: "Platform Balanced",
+    });
+    expect(raw.llm.profiles.balanced.maxTokens).toBeUndefined();
+    expect(raw.llm.profiles.balanced.thinking).toBeUndefined();
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const afterRestart = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(afterRestart.llm.activeProfile).toBe("balanced");
+    expect(afterRestart.llm.profiles.balanced).toEqual({
+      source: "managed",
+      provider: "openai",
+      model: "gpt-5.4",
+      label: "Platform Balanced",
+    });
+  });
+
+  test("quarantines corrupt config before merging hatch overlay", () => {
+    writeFileSync(CONFIG_PATH, "{not valid json");
+
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: {
+              provider: "anthropic",
+              model: "claude-opus-4-7",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const quarantined = readdirSync(WORKSPACE_DIR).filter((n) =>
+      n.startsWith("config.json.corrupt-"),
+    );
+    expect(quarantined.length).toBeGreaterThan(0);
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.default).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+    });
+    // Off-platform hatch: user profiles are active.
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    expect(raw.llm.profiles["custom-balanced"].provider).toBe("anthropic");
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
+  });
+
   test("still quarantines corrupt JSON", () => {
     // Corrupt-config quarantine is a recovery path: the broken file is
     // renamed to `config.json.corrupt-<ts>.json` and the daemon proceeds
@@ -409,5 +894,308 @@ describe("loadConfig startup behavior", () => {
       n.startsWith("config.json.corrupt-"),
     );
     expect(quarantined.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: BYOK-mode seed behavior (issues #2/#3/#4 of the May 12 provider UX
+// queue). Off-platform managed profiles share base labels with the personal
+// "custom-*" profiles (Balanced / Quality / Speed), so the seed function
+// suffixes managed labels with " (Managed)" to disambiguate. Status is
+// initialized to "disabled" ONLY at hatch on first materialization — a fresh
+// BYOK user has no platform auth, so we don't want managed entries surfacing
+// as enabled in the picker on day one. Post-hatch user toggles persist
+// through every subsequent boot — the "never auto-disable BYOK connections"
+// rule applies to RESTART, not to hatch. On-platform behavior is unchanged.
+// ---------------------------------------------------------------------------
+
+describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
+  beforeEach(() => {
+    ensureTestDir();
+    const resetPaths = [
+      CONFIG_PATH,
+      join(WORKSPACE_DIR, "default-config.json"),
+      join(WORKSPACE_DIR, "hatch-overlay.json"),
+      join(WORKSPACE_DIR, "keys.enc"),
+      join(WORKSPACE_DIR, "data"),
+      join(WORKSPACE_DIR, "data", "memory"),
+    ];
+    for (const path of resetPaths) {
+      if (existsSync(path)) {
+        rmSync(path, { recursive: true, force: true });
+      }
+    }
+    ensureTestDir();
+    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    _setStorePath(null);
+    delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
+    delete process.env.IS_PLATFORM;
+    invalidateConfigCache();
+  });
+
+  test("off-platform hatch suffixes managed profile labels with ' (Managed)'", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic", model: "claude-opus-4-7" },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    // Managed profile labels carry the suffix so they're visibly distinct
+    // from the personal "custom-*" profiles (which retain bare labels).
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+    expect(config.llm.profiles["quality-optimized"]?.label).toBe(
+      "Quality (Managed)",
+    );
+    expect(config.llm.profiles["cost-optimized"]?.label).toBe(
+      "Speed (Managed)",
+    );
+
+    // Personal profiles keep their bare labels — they're the daily driver.
+    expect(config.llm.profiles["custom-balanced"]?.label).toBe("Balanced");
+  });
+
+  test("off-platform hatch initializes managed profile status to 'disabled'", () => {
+    // On a fresh BYOK hatch the user has no platform auth, so managed
+    // profiles must not surface as enabled in the picker on day one. We
+    // flip the three canonical managed profiles to status="disabled"
+    // ONCE at hatch time. (The complementary "user re-enable persists
+    // across restarts" guarantee is covered by the test further down.)
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        { llm: { default: { provider: "anthropic" } } },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.profiles.balanced?.status).toBe("disabled");
+    expect(config.llm.profiles["quality-optimized"]?.status).toBe("disabled");
+    expect(config.llm.profiles["cost-optimized"]?.status).toBe("disabled");
+  });
+
+  test("non-hatch off-platform boot does NOT auto-disable freshly-materialized managed profiles", () => {
+    // Existing installs that upgrade to a version where the managed
+    // profile didn't previously exist (e.g. a new template added later)
+    // must not be auto-disabled on a normal boot. The hatch-time disable
+    // is gated on `isHatch && !previous`; without an overlay there's no
+    // hatch signal, so the seeder leaves status unset (schema default
+    // = "active"). This is the "we never want to auto-disable BYOK
+    // connections on restart" guarantee.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        // Note: no `profiles` key — the managed profiles will be freshly
+        // materialized by seedInferenceProfiles. !previous is true for all
+        // three, but isHatch is false, so disable does NOT fire.
+      },
+    });
+
+    // No overlay → not a hatch.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect("status" in raw.llm.profiles.balanced).toBe(false);
+    expect("status" in raw.llm.profiles["quality-optimized"]).toBe(false);
+    expect("status" in raw.llm.profiles["cost-optimized"]).toBe(false);
+  });
+
+  test("on-platform hatch leaves managed labels untouched", () => {
+    process.env.IS_PLATFORM = "true";
+
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        { llm: { default: { provider: "anthropic" } } },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    // No "(Managed)" suffix on platform — the personal profiles don't exist
+    // here so there's nothing to disambiguate from.
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced");
+    expect(config.llm.profiles["quality-optimized"]?.label).toBe("Quality");
+    expect(config.llm.profiles["cost-optimized"]?.label).toBe("Speed");
+  });
+
+  test("upgrade boot rewrites legacy bare labels to suffixed form on off-platform", () => {
+    // Existing off-platform install (pre-suffix-PR) has `label: "Balanced"`
+    // on disk. The "label" in previous preservation would normally keep
+    // the bare label and the picker would stay ambiguous forever — so the
+    // seeder runs a one-shot upgrade migration when previous.label exactly
+    // equals the bare template default. User-customized labels and
+    // explicit nulls are NOT rewritten.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+            label: "Balanced",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: "Quality",
+          },
+          "cost-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: "Speed",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    // No overlay → not a hatch. Still upgrades labels.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+    expect(config.llm.profiles["quality-optimized"]?.label).toBe(
+      "Quality (Managed)",
+    );
+    expect(config.llm.profiles["cost-optimized"]?.label).toBe(
+      "Speed (Managed)",
+    );
+  });
+
+  test("upgrade boot preserves user-customized labels and explicit null on off-platform", () => {
+    // A user-set string that differs from the bare default must survive;
+    // an explicit null (user cleared the label) must also survive. Only
+    // exact matches against the bare template label trigger the upgrade.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+            label: "My Balanced",
+          },
+          "quality-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: null,
+          },
+          // Already-suffixed labels are also preserved (idempotency).
+          "cost-optimized": {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            label: "Speed (Managed)",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.label).toBe("My Balanced");
+    expect(raw.llm.profiles["quality-optimized"].label).toBeNull();
+    expect(raw.llm.profiles["cost-optimized"].label).toBe("Speed (Managed)");
+  });
+
+  test("upgrade boot does NOT rewrite bare labels on platform", () => {
+    // The migration is gated on isByokMode, so an on-platform install with
+    // a bare "Balanced" label preserves it (no suffix on platform).
+    process.env.IS_PLATFORM = "true";
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+            label: "Balanced",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced");
+  });
+
+  test("subsequent off-platform boot preserves user-set status on managed profiles", () => {
+    // Simulate a user who hatched yesterday, then re-enabled the managed
+    // Balanced profile (they have platform auth via a separate route).
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            provider_connection: "anthropic-managed",
+            model: "claude-sonnet-4-6",
+            label: "Balanced (Managed)",
+            status: "active",
+          },
+          "custom-balanced": {
+            source: "user",
+            provider: "anthropic",
+            provider_connection: "anthropic-personal",
+            model: "claude-sonnet-4-6",
+            label: "Balanced",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    // No overlay → this is a normal boot, not a hatch.
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const config = loadConfig();
+
+    // User's "active" decision survives the boot upsert.
+    expect(config.llm.profiles.balanced?.status).toBe("active");
+    // Label is still suffixed (Vellum can push label updates).
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
   });
 });

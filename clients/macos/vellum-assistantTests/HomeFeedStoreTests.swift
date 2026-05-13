@@ -12,12 +12,10 @@ final class HomeFeedStoreTests: XCTestCase {
 
     private func makeFeedItem(
         id: String = "item-1",
-        type: FeedItemType = .nudge,
+        type: FeedItemType = .notification,
         status: FeedItemStatus = .new,
         title: String = "Fixture title",
         priority: Int = 60,
-        source: FeedItemSource? = .gmail,
-        author: FeedItemAuthor = .assistant,
         timestamp: Date = Date(timeIntervalSince1970: 1_760_000_000),
         createdAt: Date = Date(timeIntervalSince1970: 1_760_000_000)
     ) -> FeedItem {
@@ -27,13 +25,10 @@ final class HomeFeedStoreTests: XCTestCase {
             priority: priority,
             title: title,
             summary: "Fixture summary",
-            source: source,
             timestamp: timestamp,
             status: status,
             expiresAt: nil,
-            minTimeAway: nil,
             actions: nil,
-            author: author,
             createdAt: createdAt
         )
     }
@@ -59,8 +54,7 @@ final class HomeFeedStoreTests: XCTestCase {
                 timeAwayLabel: "Away for 2 hours",
                 newCount: items.filter { $0.status == .new }.count
             ),
-            suggestedPrompts: suggestedPrompts,
-            lowPriorityCollapsed: LowPriorityCollapsed(count: 0, itemIds: [])
+            suggestedPrompts: suggestedPrompts
         )
     }
 
@@ -339,6 +333,35 @@ final class HomeFeedStoreTests: XCTestCase {
         XCTAssertNil(conversationId)
     }
 
+    /// `onSSEUpdate` is what wires the feed store back into ``HomeStore``
+    /// to raise the unread dot when the Home tab is off-surface. The
+    /// `homeFeedUpdated` SSE handler must invoke it after every
+    /// successful reload — verified here by counting callback fires
+    /// against SSE events.
+    func testSSEEventInvokesOnSSEUpdateCallback() async throws {
+        let initial = makeResponse(items: [makeFeedItem(id: "first")])
+        let client = MockHomeFeedClient(response: initial)
+        let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
+        let counter = Counter()
+        let store = HomeFeedStore(
+            client: client,
+            messageStream: stream,
+            onSSEUpdate: { counter.increment() }
+        )
+        await store.load()
+        XCTAssertEqual(counter.value, 0, "load() alone must not fire the callback")
+
+        let updated = makeResponse(items: [makeFeedItem(id: "second")])
+        client.setResponse(updated)
+        continuation.yield(.homeFeedUpdated(updatedAt: "2026-04-14T12:00:00Z", newItemCount: 1))
+
+        try await waitUntil(timeout: 2.0) {
+            counter.value == 1 && store.items.map { $0.id } == ["second"]
+        }
+
+        XCTAssertEqual(counter.value, 1, "exactly one callback per SSE event")
+    }
+
     // MARK: - Helpers
 
     private func waitUntil(
@@ -351,5 +374,14 @@ final class HomeFeedStoreTests: XCTestCase {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         XCTFail("waitUntil timed out after \(timeout)s")
+    }
+
+    /// MainActor-pinned counter used by ``testSSEEventInvokesOnSSEUpdateCallback``
+    /// to count callback fires from inside an `@MainActor` closure without
+    /// reaching for actor-bridging machinery.
+    @MainActor
+    private final class Counter {
+        private(set) var value: Int = 0
+        func increment() { value += 1 }
     }
 }

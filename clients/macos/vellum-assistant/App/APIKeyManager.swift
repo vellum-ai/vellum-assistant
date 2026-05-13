@@ -27,110 +27,14 @@ extension Notification.Name {
 
 private let apiKeyLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "APIKeyManager")
 
-/// Manages API keys using file-based CredentialStorage. The daemon owns the
-/// canonical encrypted store; the app syncs
-/// keys to the daemon via HTTP on save/clear/reconnect.
+/// API keys live in the daemon's encrypted secret store; this type wraps
+/// the gateway API for reads/writes. Credential-mode secrets (OAuth tokens
+/// etc.) still live on disk via FileCredentialStorage and use the
+/// credential-prefixed methods below.
 enum APIKeyManager {
-    private static let udPrefix = "vellum_provider_"
-
     private static let storage: CredentialStorage = FileCredentialStorage()
 
-    /// Core LLM/service provider identifiers whose API keys are always
-    /// synced to the daemon as `type: "api_key"`.
-    private static let coreSyncableProviders = [
-        "anthropic",
-        "brave",
-        "fireworks",
-        "gemini",
-        "openai",
-        "openrouter",
-        "perplexity",
-    ]
-
-    /// Provider identifiers whose API keys are synced to the daemon as
-    /// `type: "api_key"`. Combines the core provider list with any TTS
-    /// and STT providers from the shared registries that use `api_key`
-    /// setup mode, so new registry entries are automatically included
-    /// without code changes here.
-    static var allSyncableProviders: [String] {
-        var ids = coreSyncableProviders
-        let ttsApiKeyIds = loadTTSProviderRegistry().providers
-            .filter { $0.setupMode == .apiKey }
-            .map(\.id)
-        for id in ttsApiKeyIds where !ids.contains(id) {
-            ids.append(id)
-        }
-        let sttApiKeyNames = loadSTTProviderRegistry().providers
-            .filter { $0.setupMode == .apiKey }
-            .map(\.apiKeyProviderName)
-        for name in sttApiKeyNames where !ids.contains(name) {
-            ids.append(name)
-        }
-        return ids
-    }
-
-    // MARK: - Migration from UserDefaults
-
-    /// One-time migration: copies API keys from UserDefaults to credential
-    /// storage for existing users, then removes them from UserDefaults.
-    /// Safe to call multiple times — skips providers that already have a
-    /// value in credential storage.
-    static func migrateFromUserDefaults() {
-        for provider in allSyncableProviders {
-            migrateProviderFromUserDefaults(provider)
-        }
-        migrateElevenLabsToCredential()
-    }
-
-    /// Migrate ElevenLabs key from api_key storage to credential storage.
-    /// Handles keys stored in UserDefaults or FileCredentialStorage under the
-    /// old `vellum_provider_elevenlabs` account.
-    private static func migrateElevenLabsToCredential() {
-        let oldAccount = udPrefix + "elevenlabs"
-        let newAccount = credentialPrefix + "elevenlabs:api_key"
-
-        // First migrate from UserDefaults if present
-        if let udValue = UserDefaults.standard.string(forKey: oldAccount), !udValue.isEmpty {
-            if storage.get(account: newAccount) == nil {
-                guard storage.set(account: newAccount, value: udValue) else { return }
-            }
-            UserDefaults.standard.removeObject(forKey: oldAccount)
-            _ = storage.delete(account: oldAccount)
-            return
-        }
-
-        // Then migrate from old FileCredentialStorage format
-        if let oldValue = storage.get(account: oldAccount),
-           storage.get(account: newAccount) == nil {
-            guard storage.set(account: newAccount, value: oldValue) else { return }
-        }
-        _ = storage.delete(account: oldAccount)
-    }
-
-    /// Migrate a single provider's key from UserDefaults to credential storage.
-    private static func migrateProviderFromUserDefaults(_ provider: String) {
-        let udKey = udPrefix + provider
-        if let udValue = UserDefaults.standard.string(forKey: udKey),
-           !udValue.isEmpty,
-           storage.get(account: udKey) == nil {
-            // Only remove from UserDefaults if the credential store
-            // write succeeds. A transient credential storage failure should
-            // not destroy the user's only copy of the key.
-            guard storage.set(account: udKey, value: udValue) else { return }
-        }
-        // Safe to remove: either the key was successfully migrated,
-        // the credential store already had a value, or UserDefaults
-        // had no value to preserve.
-        UserDefaults.standard.removeObject(forKey: udKey)
-    }
-
-    // MARK: - Generic provider access (sync — FileCredentialStorage)
-
-    static func getKey(for provider: String) -> String? {
-        storage.get(account: udPrefix + provider)
-    }
-
-    // MARK: - Generic provider access (async — gateway API)
+    // MARK: - Provider key access (daemon-backed)
 
     /// Result of an async key-write operation via the gateway API.
     struct SetKeyResult {
@@ -198,11 +102,6 @@ enum APIKeyManager {
         return masked
     }
 
-    static func setKey(_ key: String, for provider: String) {
-        _ = storage.set(account: udPrefix + provider, value: key)
-        notifyKeyDidChange()
-    }
-
     /// Write a key to the daemon's secret store via the gateway API.
     /// Performs server-side validation and returns the result.
     @discardableResult
@@ -227,11 +126,6 @@ enum APIKeyManager {
         }
     }
 
-    static func deleteKey(for provider: String) {
-        _ = storage.delete(account: udPrefix + provider)
-        notifyKeyDidChange()
-    }
-
     /// Delete a key from the daemon's secret store via the gateway API.
     /// Returns `true` when the server confirms deletion.
     @discardableResult
@@ -246,6 +140,97 @@ enum APIKeyManager {
             apiKeyLog.error("deleteKey(\(provider, privacy: .public)) async failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
+    }
+
+    /// List API-key provider names currently stored in the daemon's secret
+    /// store via the gateway API. Filters out non-`api_key` entries (e.g.
+    /// OAuth credentials) so callers get just the BYOK provider set.
+    ///
+    /// Returns `nil` on transport failure — callers should treat that as
+    /// "status unknown" rather than "no keys stored", same convention as
+    /// ``keyStatus(for:)``.
+    static func listKeys() async -> Set<String>? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "secrets", timeout: 5
+            )
+            guard response.isSuccess else {
+                apiKeyLog.error("listKeys failed: HTTP \(response.statusCode, privacy: .public)")
+                return nil
+            }
+            return parseListKeysResponse(response.data)
+        } catch {
+            apiKeyLog.error("listKeys failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Parse the `GET /v1/secrets` response into the set of `api_key`
+    /// provider names. Internal so tests can exercise the shape handling
+    /// (notably the `secrets`/`accounts` alias and the mixed `api_key` /
+    /// `credential` entry forms) without standing up a gateway.
+    static func parseListKeysResponse(_ data: Data) -> Set<String>? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        // The daemon returns both `secrets` and `accounts` as aliases of the
+        // same array; prefer `secrets` and fall back for older daemons.
+        let entries = (json["secrets"] as? [[String: Any]])
+            ?? (json["accounts"] as? [[String: Any]])
+            ?? []
+        var names = Set<String>()
+        for entry in entries {
+            guard let type = entry["type"] as? String, type == "api_key",
+                  let name = entry["name"] as? String, !name.isEmpty else {
+                continue
+            }
+            names.insert(name)
+        }
+        return names
+    }
+
+    /// List credential entries from the daemon's secret store.
+    /// Returns an array of (service, field) tuples for credential-type secrets,
+    /// or nil on transport failure.
+    static func listCredentials() async -> [(service: String, field: String)]? {
+        do {
+            let response = try await GatewayHTTPClient.get(path: "secrets", timeout: 5)
+            guard response.isSuccess else { return nil }
+            return parseListCredentialsResponse(response.data)
+        } catch {
+            apiKeyLog.error("listCredentials failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Surfaces only `credential`-type entries from the daemon's secret store.
+    ///
+    /// `api_key`-type entries are intentionally excluded: they back the inline
+    /// API Key field at the top of the provider editor, and the credential
+    /// dropdown is for picking *additional* credential references. Lumping them
+    /// in caused two failure modes the dropdown couldn't recover from —
+    /// `secrets/read` with `type:"credential"` returned not-found (the entry
+    /// lives under `type:"api_key"`), so saving a value would write a fresh
+    /// `credential`-type row alongside the original.
+    static func parseListCredentialsResponse(_ data: Data) -> [(service: String, field: String)]? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let entries = (json["secrets"] as? [[String: Any]])
+            ?? (json["accounts"] as? [[String: Any]])
+            ?? []
+        var results: [(service: String, field: String)] = []
+        for entry in entries {
+            guard let type = entry["type"] as? String, type == "credential",
+                  let name = entry["name"] as? String else { continue }
+            guard let colonIdx = name.lastIndex(of: ":") else { continue }
+            let service = String(name[name.startIndex..<colonIdx])
+            let field = String(name[name.index(after: colonIdx)...])
+            if !service.isEmpty && !field.isEmpty {
+                results.append((service: service, field: field))
+            }
+        }
+        return results
     }
 
     // MARK: - Credential access (service:field secrets)

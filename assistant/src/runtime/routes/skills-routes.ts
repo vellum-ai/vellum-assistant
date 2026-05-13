@@ -17,6 +17,7 @@ import {
   getSkill,
   getSkillFileContent,
   getSkillFiles,
+  getSkillLocalDetail,
   inspectSkill,
   installSkill,
   listSkills,
@@ -360,6 +361,11 @@ export const ROUTES: RouteDefinition[] = [
         schema: { type: "string" },
         description: "Search query (required)",
       },
+      {
+        name: "limit",
+        schema: { type: "string" },
+        description: "Max community results to fetch (default 25)",
+      },
     ],
     responseBody: z.object({
       skills: z
@@ -369,7 +375,9 @@ export const ROUTES: RouteDefinition[] = [
     handler: async ({ queryParams = {} }: RouteHandlerArgs) => {
       const query = queryParams.q ?? "";
       if (!query) throw new BadRequestError("q query parameter is required");
-      const result = await searchSkills(query);
+      const limitRaw = queryParams.limit;
+      const limit = limitRaw ? Math.max(1, Number.parseInt(limitRaw, 10) || 25) : 25;
+      const result = await searchSkills(query, limit);
       if (!result.success) throw new InternalError(result.error);
       return { skills: result.skills };
     },
@@ -498,6 +506,8 @@ export const ROUTES: RouteDefinition[] = [
         .describe(
           "Which registry to install from. When omitted, the install flow auto-detects based on slug format.",
         ),
+      overwrite: z.boolean().optional().describe("Replace an existing install. Defaults to true for back-compat with the legacy in-process API."),
+      catalogOnly: z.boolean().optional().describe("When true, restrict to bundled and Vellum catalog skills only — do not fall through to community registries."),
     }),
     responseBody: z.object({
       ok: z.boolean(),
@@ -516,6 +526,8 @@ export const ROUTES: RouteDefinition[] = [
           slug,
           version: body.version as string | undefined,
           origin: body.origin as "clawhub" | "skillssh" | undefined,
+          catalogOnly: body.catalogOnly as boolean | undefined,
+          overwrite: body.overwrite as boolean | undefined,
         },
       );
       if (!result.success) throw new InternalError(result.error);
@@ -554,6 +566,24 @@ export const ROUTES: RouteDefinition[] = [
       );
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };
+    },
+  },
+  {
+    operationId: "skillsLocalInspect",
+    endpoint: "skills/:id/local-inspect",
+    method: "GET",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Local skill inspect",
+    description: "Return full local detail for an installed or bundled skill, including featureFlag, toolManifest, installMeta, configEntry, and directoryPath.",
+    tags: ["skills"],
+    handler: ({ pathParams }: RouteHandlerArgs) => {
+      const result = getSkillLocalDetail(pathParams!.id);
+      if (!result.ok) {
+        if (result.status === 404) throw new NotFoundError(result.error);
+        throw new InternalError(result.error);
+      }
+      return result;
     },
   },
 ];

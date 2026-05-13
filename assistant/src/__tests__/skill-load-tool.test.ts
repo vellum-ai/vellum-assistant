@@ -19,6 +19,7 @@ mock.module("../util/logger.js", () => ({
 const mockAutoInstall = mock((_skillId: string) => Promise.resolve(false));
 mock.module("../skills/catalog-install.js", () => ({
   autoInstallFromCatalog: (skillId: string) => mockAutoInstall(skillId),
+  getRepoSkillsDir: () => undefined,
   resolveCatalog: (_skillId?: string) => Promise.resolve([]),
 }));
 
@@ -275,16 +276,18 @@ describe("skill_load tool", () => {
     expect(markers.length).toBe(1);
   });
 
-  test("returns error when skill has missing include", async () => {
+  test("continues when skill has missing include", async () => {
     writeSkillWithIncludes("parent", "Parent", "Has missing child", "Body", [
       "missing-child",
     ]);
 
     const result = await executeSkillLoad({ skill: "parent" });
-    expect(result.isError).toBe(true);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: Parent");
+    expect(result.content).toContain("Suggested Included Skills (not loaded):");
     expect(result.content).toContain("missing-child");
-    expect(result.content).toContain("not found");
-    expect(result.content).not.toContain("<loaded_skill");
+    expect(result.content).toContain('<loaded_skill id="parent"');
+    expect(result.content).not.toContain('<loaded_skill id="missing-child"');
   });
 
   test("returns error when skill has circular include", async () => {
@@ -317,7 +320,7 @@ describe("skill_load tool", () => {
     expect(result.content).toContain("<loaded_skill");
   });
 
-  test("failed include validation (missing) emits no loaded_skill marker", async () => {
+  test("missing include emits only the parent loaded_skill marker", async () => {
     const skillDir = join(TEST_DIR, "skills", "marker-missing");
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(
@@ -326,9 +329,13 @@ describe("skill_load tool", () => {
     );
 
     const result = await executeSkillLoad({ skill: "marker-missing" });
-    expect(result.isError).toBe(true);
-    expect(result.content).not.toContain("<loaded_skill");
-    expect(result.content).not.toMatch(/<loaded_skill\s/);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Suggested Included Skills (not loaded):");
+    expect(result.content).toContain("nonexistent");
+    const markers = result.content.match(/<loaded_skill/g) || [];
+    expect(markers.length).toBe(1);
+    expect(result.content).toContain('<loaded_skill id="marker-missing"');
+    expect(result.content).not.toContain('<loaded_skill id="nonexistent"');
   });
 
   test("failed include validation (cycle) emits no loaded_skill marker", async () => {
@@ -357,6 +364,26 @@ describe("skill_load tool", () => {
     const result = await executeSkillLoad({ skill: "no-includes" });
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Skill: No Includes");
+  });
+
+  test("bundled app-builder loads without includes", async () => {
+    const result = await executeSkillLoad({ skill: "app-builder" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: App Builder");
+    expect(result.content).toContain("Included Skills (immediate): none");
+    expect(result.content).toContain('<loaded_skill id="app-builder"');
+  });
+
+  test("bundled phone-calls loads when setup includes are unavailable", async () => {
+    const result = await executeSkillLoad({ skill: "phone-calls" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: Phone Calls");
+    expect(result.content).toContain("Suggested Included Skills (not loaded):");
+    expect(result.content).toContain("twilio-setup");
+    expect(result.content).toContain('<loaded_skill id="phone-calls"');
+    expect(result.content).not.toContain('<loaded_skill id="twilio-setup"');
   });
 
   test("skill_load output includes immediate child metadata", async () => {
@@ -828,7 +855,7 @@ describe("skill_load tool", () => {
     expect(mockAutoInstall).toHaveBeenCalledWith("trans-c");
   });
 
-  test("returns error when auto-install of missing include fails", async () => {
+  test("continues when auto-install of missing include fails", async () => {
     writeSkillWithIncludes(
       "fail-parent",
       "Fail Parent",
@@ -846,10 +873,12 @@ describe("skill_load tool", () => {
     });
 
     const result = await executeSkillLoad({ skill: "fail-parent" });
-    expect(result.isError).toBe(true);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: Fail Parent");
+    expect(result.content).toContain("Suggested Included Skills (not loaded):");
     expect(result.content).toContain("dep-x");
-    expect(result.content).toContain("not found");
-    expect(result.content).not.toContain("<loaded_skill");
+    expect(result.content).toContain('<loaded_skill id="fail-parent"');
+    expect(result.content).not.toContain('<loaded_skill id="dep-x"');
   });
 
   test("stops after MAX_INSTALL_ROUNDS", async () => {
@@ -878,10 +907,8 @@ describe("skill_load tool", () => {
     });
 
     const result = await executeSkillLoad({ skill: "loop-root" });
-    // Should terminate with an error (the final dep is still missing)
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("not found");
-    // Should have terminated — installCount should be bounded by MAX_INSTALL_ROUNDS (5)
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Suggested Included Skills (not loaded):");
     expect(installCount).toBeLessThanOrEqual(5);
   });
 });

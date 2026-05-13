@@ -528,4 +528,136 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result).not.toBeNull();
     expect(result!.event.source.chatType).toBeUndefined();
   });
+
+  test("returns null for metadata-only mutation on a never-edited message", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      message: {
+        user: "U_USER123",
+        text: "<@UBOT> can you take a look",
+        ts: "1700000000.000100",
+      },
+      previous_message: {
+        user: "U_USER123",
+        text: "<@UBOT> can you take a look",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageEdit(
+      event,
+      "evt-metadata-only-1",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null for metadata-only mutation on an already-edited message", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      message: {
+        user: "U_USER123",
+        text: "<@UBOT> can you take a look",
+        ts: "1700000000.000100",
+        edited: { user: "U_USER123", ts: "1700000000.000150" },
+      },
+      previous_message: {
+        user: "U_USER123",
+        text: "<@UBOT> can you take a look",
+        ts: "1700000000.000100",
+        edited: { user: "U_USER123", ts: "1700000000.000150" },
+      },
+    });
+    const result = normalizeSlackMessageEdit(
+      event,
+      "evt-metadata-only-2",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null for metadata-only mutation in a DM", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      channel: "D_DM_CHANNEL",
+      channel_type: "im",
+      message: {
+        user: "U_USER123",
+        text: "hey, free for a quick sync?",
+        ts: "1700000000.000100",
+      },
+      previous_message: {
+        user: "U_USER123",
+        text: "hey, free for a quick sync?",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageEdit(
+      event,
+      "evt-metadata-only-dm",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  test("forwards first user edit when message.edited becomes set", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      message: {
+        user: "U_USER123",
+        text: "<@UBOT> can you take another look",
+        ts: "1700000000.000100",
+        edited: { user: "U_USER123", ts: "1700000000.000200" },
+      },
+      previous_message: {
+        user: "U_USER123",
+        text: "<@UBOT> can you take a look",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageEdit(event, "evt-real-edit-1", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toContain(
+      "can you take another look",
+    );
+    expect(result!.event.message.isEdit).toBe(true);
+  });
+
+  test("forwards rich-text-only edit when text is identical but edited.ts changes", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      message: {
+        user: "U_USER123",
+        text: "<@UBOT> can you take a look",
+        ts: "1700000000.000100",
+        edited: { user: "U_USER123", ts: "1700000000.000200" },
+      },
+      previous_message: {
+        user: "U_USER123",
+        text: "<@UBOT> can you take a look",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageEdit(
+      event,
+      "evt-rich-text-edit",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.isEdit).toBe(true);
+  });
+
+  test("forwards edit when previous_message is missing (cannot prove no-op)", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent();
+    expect(event.previous_message).toBeUndefined();
+
+    const result = normalizeSlackMessageEdit(event, "evt-no-prev", config);
+    expect(result).not.toBeNull();
+    expect(result!.event.message.isEdit).toBe(true);
+  });
 });

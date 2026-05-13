@@ -191,6 +191,40 @@ describe("parseExtractionResponse event_date coercion", () => {
     expect(diff.updateNodes[0].changes.eventDate).toBe(1712534400000);
   });
 
+  test("auto-creates an event trigger for future event_date", () => {
+    const conversationTs = Date.UTC(2026, 3, 26, 0, 0, 0);
+    const futureEventDate = Date.UTC(2026, 5, 1, 0, 0, 0);
+    const input = makeInput({ event_date: futureEventDate });
+    const { deferredTriggers } = parseExtractionResponse(
+      input,
+      conversationId,
+      scopeId,
+      candidateNodeIds,
+      conversationTs,
+    );
+    const auto = deferredTriggers.find(
+      (t) =>
+        t.trigger.type === "event" && t.trigger.eventDate === futureEventDate,
+    );
+    expect(auto).toBeTruthy();
+  });
+
+  test("does not auto-create an event trigger for past event_date", () => {
+    const conversationTs = Date.UTC(2026, 3, 26, 0, 0, 0);
+    const pastEventDate = Date.UTC(2025, 0, 15, 0, 0, 0);
+    const input = makeInput({ event_date: pastEventDate });
+    const { deferredTriggers } = parseExtractionResponse(
+      input,
+      conversationId,
+      scopeId,
+      candidateNodeIds,
+      conversationTs,
+    );
+    expect(deferredTriggers.some((t) => t.trigger.type === "event")).toBe(
+      false,
+    );
+  });
+
   test("null-clears event_date on update_nodes when explicitly null", () => {
     const existingNodeId = "existing-node-1";
     const candidates = new Set([existingNodeId]);

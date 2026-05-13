@@ -50,6 +50,10 @@ When adding a new dependency:
 
 All `uses:` steps in `.github/workflows/**` and `.github/actions/**` must pin to a 40-character commit SHA with a trailing `# vX.Y.Z` comment (e.g. `actions/checkout@a1b2c3... # v6.0.2`). Never use a bare major tag (`@v6`) or a floating version tag (`@v6.0.2`) on its own — SHAs are immutable while tags can be force-moved, so SHA pinning is the GitHub security-hardening recommendation. To upgrade: look up the new tag's commit SHA with `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, then replace both the SHA and the trailing comment. For actions that don't publish `vX.Y.Z` tags (e.g. `dawidd6/action-download-artifact`, which tags only bare majors), pin to the SHA with a `# vN` trailing comment instead.
 
+### Workflow duplication
+
+`dev-release.yaml` and `release.yml` share duplicated logic (e.g. the "Compute migration ceilings" inline Node script). When fixing or changing logic that appears in both workflows, apply the change to both files in the same PR. Search for the same code block in the other workflow before marking the fix complete.
+
 ### iOS release dispatch
 
 The release workflows (`dev-release.yaml`, `release.yml`) include `dispatch-ios-release` jobs that fire a [`repository_dispatch`](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#repository_dispatch) event to [`vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform) to trigger iOS Capacitor builds. The dispatch carries `environment` (dev/staging/production) and `version` in the payload. The receiving workflow [`release-ios.yaml`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/.github/workflows/release-ios.yaml) handles those events. Full environment mapping is documented in [`web/ios/README.md`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/ios/README.md#ci--release-pipeline) in the platform repo.
@@ -146,6 +150,20 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 
 Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
 
+## Multi-Client Assistant State Sync
+
+Persisted assistant state that must converge across macOS, web/Capacitor iOS, and CLI should use the generic `sync_changed` invalidation contract instead of adding a new bespoke server message for each resource. The event payload is `{ type: "sync_changed", tags: [...] }`; tags describe which cached resource is stale, not the new value.
+
+When adding a synced resource:
+
+- Add or reuse a stable tag in `assistant/src/daemon/message-types/sync.ts`.
+- Emit the invalidation after the canonical state write succeeds, using `publishSyncInvalidation()` or the existing serialized `broadcastMessage()` path so clients observe invalidations in send order.
+- Route tags in native and CLI clients by refetching their existing endpoints; broad reconnect/resume catch-up should perform resource refetches instead of depending on a durable sync ledger.
+- Keep live turn and streaming events domain-specific. `sync_changed` is for persisted resource invalidation.
+- Keep legacy bespoke events during native rollout and remove them only after adoption is verified. Do not add durable `sync_changes` tables, cursors, or `/sync/changes` endpoints for v1 unless the design is reopened.
+
+See the platform repo's `docs/multi-client-sync.md` for the tag registry and client-routing examples.
+
 ## Assistant-Driven Judgement
 
 Judgement calls affecting user experience should be made by the assistant through the daemon — not hardcoded heuristics. Reserve deterministic logic for mechanical operations (parsing, validation, access control). If you're writing string matches or scoring functions to approximate what the model would decide, route it through the daemon instead.
@@ -195,6 +213,8 @@ Adding content to the system prompt is a **last resort**. The system prompt is t
 1. **Skills** — Encode behavior in a SKILL.md that the assistant loads on demand.
 2. **Config / feature flags** — Use runtime configuration instead of prompt-level instructions.
 3. **Code** — If a behavior can be enforced programmatically, enforce it in code.
+
+Tool routing and tool usage guidance belong in the relevant tool description, input schema, or SKILL.md — not in the system prompt. Only put this guidance in the system prompt when it must apply across tools and cannot be localized.
 
 Only add to the system prompt when the behavior cannot be achieved any other way. When you must, keep additions minimal and look for existing content to condense or remove to offset the addition.
 
@@ -250,6 +270,10 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 ## Release Update Hygiene
 
 Release notes for user/assistant-facing changes ship via **workspace migrations**. There is no bundled template to edit and no checkpoint state to clear — the notes are just a migration that writes to `<workspace>/UPDATES.md`.
+
+**Do not ship release notes for feature-flagged or rollout-only features.** `UPDATES.md` is processed by the assistant without checking the feature flag that may guard the underlying feature, so release-note copy for disabled features can still leak into user-facing prompts. If a feature is still controlled by a default-disabled assistant flag or rollout flag, skip the release-note migration. When the feature actually GAs, add a new append-only release-note migration with a new marker; never change an already-shipped migration id from no-op back to writing release notes.
+
+The guard test `assistant/src/__tests__/workspace-release-notes-feature-flag-guard.test.ts` blocks new release-note migrations that mention flag/rollout launch language or default-disabled assistant feature flag keys. Prefer removing that copy and waiting for GA. Only extend the legacy allowlist for a bulletin that already shipped before the guard existed.
 
 **To ship release notes:**
 
@@ -330,10 +354,11 @@ The IPC protocol is newline-delimited JSON over the Unix domain socket:
 - Request:  `{ "id": string, "method": string, "params"?: object }`
 - Response: `{ "id": string, "result"?: unknown, "error"?: string }`
 
-When you need to publish events to connected clients (e.g. `open_url`,
-`avatar_updated`) from code running inside the daemon process, import and
-call the `assistantEventHub` singleton directly rather than adding a new
-HTTP endpoint.
+When you need to publish domain/live events to connected clients (e.g.
+`open_url`) from code running inside the daemon process, import and call the
+`assistantEventHub` singleton directly rather than adding a new HTTP endpoint.
+For persisted multi-client state invalidation, use `sync_changed` via
+`publishSyncInvalidation()` instead.
 
 ## See Also
 

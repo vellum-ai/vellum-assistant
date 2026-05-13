@@ -29,6 +29,8 @@ interface BaseTransportMetadata {
   uxBrief?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel"). */
   chatType?: string;
+  /** IANA timezone reported by the active client for the current turn. */
+  clientTimezone?: string;
 }
 
 /**
@@ -134,12 +136,6 @@ export interface DeleteQueuedMessage {
 
 export interface ModelGetRequest {
   type: "model_get";
-}
-
-export interface ModelSetRequest {
-  type: "model_set";
-  model: string;
-  provider?: string;
 }
 
 export interface ImageGenModelSetRequest {
@@ -308,8 +304,14 @@ export interface GenerationHandoff {
   queuedCount: number;
   attachments?: UserMessageAttachment[];
   attachmentWarnings?: string[];
-  /** Database ID of the persisted assistant message, if any. */
+  /** Database ID of the final persisted assistant row, if any. */
   messageId?: string;
+  /**
+   * Database ID used by clients for the rendered assistant bubble. Tool turns
+   * may persist multiple assistant rows; this matches the history row that
+   * survives query-time merging.
+   */
+  displayMessageId?: string;
 }
 
 export interface ModelInfo {
@@ -385,7 +387,10 @@ export interface HistoryResponse {
   type: "history_response";
   conversationId: string;
   messages: Array<{
-    id?: string; // Database message ID (for matching surfaces)
+    /** Database ID used by clients for the rendered message bubble. */
+    id?: string;
+    /** Concrete persisted row ID for row-scoped actions such as TTS/fork. */
+    daemonMessageId?: string;
     role: string;
     text: string;
     timestamp: number;
@@ -525,10 +530,12 @@ export type ConversationErrorCode =
   | "MANAGED_USAGE_LIMIT"
   | "PROVIDER_OVERLOADED"
   | "PROVIDER_API"
+  | "IMAGE_TOO_LARGE"
   | "PROVIDER_BILLING"
   | "PROVIDER_ORDERING"
   | "PROVIDER_WEB_SEARCH"
   | "PROVIDER_NOT_CONFIGURED"
+  | "PROVIDER_INVALID_KEY"
   | "MANAGED_KEY_INVALID"
   | "CONTEXT_TOO_LARGE"
   | "CONVERSATION_ABORTED"
@@ -546,6 +553,20 @@ export interface ConversationErrorMessage {
   debugDetails?: string;
   /** Machine-readable error category for log report metadata and triage. */
   errorCategory?: string;
+  /**
+   * Name of the `provider_connections` row in play when the error occurred.
+   * Surfaced by the macOS chat banner so users know which connection to fix
+   * (e.g. an invalid API key on `my-anthropic`). Optional because some
+   * errors fire before a connection is resolved.
+   */
+  connectionName?: string;
+  /**
+   * Name of the resolved profile (`llm.activeProfile` or per-call override)
+   * in play when the error occurred. Lets the macOS chat banner point
+   * users at the right profile even when the connection name is generic.
+   * Optional because some errors fire before a profile is resolved.
+   */
+  profileName?: string;
 }
 
 /** Reason the conversation list was invalidated. */
@@ -595,7 +616,6 @@ export type _ConversationsClientMessages =
   | CancelRequest
   | DeleteQueuedMessage
   | ModelGetRequest
-  | ModelSetRequest
   | ImageGenModelSetRequest
   | UndoRequest
   | UsageRequest

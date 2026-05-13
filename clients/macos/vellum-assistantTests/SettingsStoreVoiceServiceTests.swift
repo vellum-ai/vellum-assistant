@@ -898,7 +898,7 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
 
     func testTTSCredentialExistsReturnsFalseForUnknownProvider() {
         XCTAssertFalse(
-            SettingsStore.ttsCredentialExists(for: "nonexistent-provider"),
+            store.ttsCredentialExists(for: "nonexistent-provider"),
             "Unknown TTS provider must return false for credential existence"
         )
     }

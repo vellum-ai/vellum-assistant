@@ -18,6 +18,7 @@ import { resetDb } from "../memory/db-connection.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { migrateAddConversationInferenceProfile } from "../memory/migrations/227-add-conversation-inference-profile.js";
+import { migrateRenameInferenceProfileSnakeCase } from "../memory/migrations/228-rename-inference-profile-snake-case.js";
 import * as schema from "../memory/schema.js";
 import { getDbPath } from "../util/platform.js";
 
@@ -206,6 +207,42 @@ describe("conversation inference profile migration", () => {
     } | null;
 
     expect(row).toEqual({ inferenceProfile: "quality-optimized" });
+  });
+
+  test("replaying 227 + 228 across multiple boots does not re-add the camelCase column", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+
+    bootstrapPreInferenceProfileConversations(raw);
+
+    // First boot: 227 adds camelCase, 228 renames to snake_case.
+    migrateAddConversationInferenceProfile(db);
+    migrateRenameInferenceProfileSnakeCase(db);
+    expect(getColumnNames(raw)).toContain("inference_profile");
+    expect(getColumnNames(raw)).not.toContain("inferenceProfile");
+
+    // Second boot: replays must not re-add the camelCase column.
+    migrateAddConversationInferenceProfile(db);
+    migrateRenameInferenceProfileSnakeCase(db);
+    expect(getColumnNames(raw)).toContain("inference_profile");
+    expect(getColumnNames(raw)).not.toContain("inferenceProfile");
+  });
+
+  test("228 self-heals when both columns are present from the legacy bug", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+
+    bootstrapPreInferenceProfileConversations(raw);
+    // Simulate the legacy state: both columns exist because 227 re-added the
+    // camelCase column on a boot after 228 had already renamed it.
+    raw.exec(`ALTER TABLE conversations ADD COLUMN inference_profile TEXT`);
+    raw.exec(`ALTER TABLE conversations ADD COLUMN inferenceProfile TEXT`);
+    expect(getColumnNames(raw)).toContain("inferenceProfile");
+
+    migrateRenameInferenceProfileSnakeCase(db);
+
+    expect(getColumnNames(raw)).toContain("inference_profile");
+    expect(getColumnNames(raw)).not.toContain("inferenceProfile");
   });
 
   test("new rows default to NULL inferenceProfile after migration", () => {

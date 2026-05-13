@@ -5,6 +5,7 @@ export type ContactsControlPlaneRoute =
   | { kind: "deleteContact"; contactId: string }
   | { kind: "mergeContacts" }
   | { kind: "updateContactChannel"; contactChannelId: string }
+  | { kind: "verifyContactChannel"; contactChannelId: string }
   | { kind: "listInvites" }
   | { kind: "createInvite" }
   | { kind: "redeemInvite" }
@@ -24,6 +25,17 @@ export function matchContactsControlPlaneRoute(
 
   if (pathname === "/v1/contacts/merge" && method === "POST") {
     return { kind: "mergeContacts" };
+  }
+
+  // Channel verify (must come before the bare channel match)
+  const channelVerifyMatch = pathname.match(
+    /^\/v1\/contact-channels\/([^/]+)\/verify$/,
+  );
+  if (channelVerifyMatch && method === "POST") {
+    return {
+      kind: "verifyContactChannel",
+      contactChannelId: channelVerifyMatch[1],
+    };
   }
 
   // Channel status/policy updates

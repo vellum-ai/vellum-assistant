@@ -278,12 +278,26 @@ export class AcpSessionManager {
 
   /**
    * Kills the agent process and removes the session from tracking.
+   *
+   * Persists the buffered event log first so abort paths
+   * (`executeAcpAbort`, daemon shutdown) don't drop history. If the
+   * session is still in a non-terminal state, mark it cancelled so the
+   * persisted row reflects reality. The in-flight prompt's then/catch
+   * handler will short-circuit after teardown removes the entry.
    */
   close(acpSessionId: string): void {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
       throw new Error(`ACP session "${acpSessionId}" not found`);
     }
+    if (
+      entry.state.status === "running" ||
+      entry.state.status === "initializing"
+    ) {
+      entry.state.status = "cancelled";
+      entry.state.completedAt = Date.now();
+    }
+    this.persistTerminal(acpSessionId, entry);
     this.teardownSession(acpSessionId, entry);
   }
 

@@ -403,7 +403,7 @@ export const PROVIDER_SEED_DATA: Record<
       },
     ],
     appType: "App",
-    identityUrl: "https://api.todoist.com/sync/v9/sync",
+    identityUrl: "https://api.todoist.com/api/v1/sync",
     identityMethod: "POST",
     identityHeaders: { "Content-Type": "application/x-www-form-urlencoded" },
     identityBody: "sync_token=*&resource_types=[%22user%22]",
@@ -465,7 +465,6 @@ export const PROVIDER_SEED_DATA: Record<
     availableScopes: "https://developers.dropbox.com/oauth-guide",
     authorizeParams: { token_access_type: "offline" },
     loopbackPort: 17327,
-    managedServiceConfigKey: "dropbox-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.dropboxapi.com",
@@ -533,7 +532,6 @@ export const PROVIDER_SEED_DATA: Record<
     availableScopes: "https://airtable.com/developers/web/api/scopes",
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17329,
-    managedServiceConfigKey: "airtable-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.airtable.com",
@@ -609,7 +607,6 @@ export const PROVIDER_SEED_DATA: Record<
     authorizeParams: { prompt: "consent" },
     tokenEndpointAuthMethod: "client_secret_post",
     loopbackPort: 17336,
-    managedServiceConfigKey: "salesforce-oauth",
     // Salesforce REST traffic goes to per-org instance hosts like
     // ``acme.my.salesforce.com`` and ``acme.lightning.force.com``.
     // ``matchHostPattern`` only treats ``*.<domain>`` as a wildcard match —
@@ -725,6 +722,14 @@ export const PROVIDER_SEED_DATA: Record<
     requiresClientSecret: false,
     logoUrl: "https://cdn.simpleicons.org/slack",
     defaultScopes: [],
+    injectionTemplates: [
+      {
+        hostPattern: "slack.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
   },
 
   telegram: {

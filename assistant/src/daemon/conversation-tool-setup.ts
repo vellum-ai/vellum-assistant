@@ -30,6 +30,7 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
+import { resolveToolNameAlias } from "../tools/tool-name-aliases.js";
 import {
   isDiskPressureCleanupToolName,
   type ProxyApprovalCallback,
@@ -122,7 +123,9 @@ export function createToolExecutor(
     toolUseId?: string,
     turnContext?: import("../plugins/types.js").TurnContext,
   ) => {
-    if (isDoordashCommand(name, input)) {
+    const executionName = resolveToolNameAlias(name, ctx.allowedToolNames);
+
+    if (isDoordashCommand(executionName, input)) {
       markDoordashStepInProgress(ctx, input);
     }
 
@@ -153,6 +156,7 @@ export function createToolExecutor(
       onOutput,
       signal: ctx.abortController?.signal,
       allowedToolNames: ctx.allowedToolNames,
+      forcePromptSideEffects: ctx.forcePromptSideEffects,
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
       toolUseId,
       isPlatformHosted: getIsPlatform(),
@@ -208,8 +212,9 @@ export function createToolExecutor(
     // route through the full executor pipeline so the underlying tool's
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
-    if (name === "skill_execute") {
-      const toolName = typeof input.tool === "string" ? input.tool : "";
+    if (executionName === "skill_execute") {
+      const rawToolName = typeof input.tool === "string" ? input.tool : "";
+      const toolName = resolveToolNameAlias(rawToolName, ctx.allowedToolNames);
       const rawToolInput =
         input.input != null && typeof input.input === "object"
           ? (input.input as Record<string, unknown>)
@@ -242,7 +247,7 @@ export function createToolExecutor(
     }
 
     const result = await executor.execute(
-      name,
+      executionName,
       input,
       toolContext,
       turnContext,
@@ -251,7 +256,7 @@ export function createToolExecutor(
       ctx.approvedViaPromptThisTurn = true;
     }
 
-    runPostExecutionSideEffects(name, input, result, { ctx });
+    runPostExecutionSideEffects(executionName, input, result, { ctx });
 
     return result;
   };
@@ -357,28 +362,38 @@ export const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
 export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
 /**
  * Capabilities eligible for cross-client exposure on non-host-proxy
- * transports (e.g. web, ios routing to a connected macOS client).
+ * transports (e.g. web, ios routing to a connected capable client).
  * Adding a capability here exposes ALL tools that map to it (per
  * HOST_TOOL_TO_CAPABILITY) on non-host-proxy transports — the daemon then
  * routes the actual invocation to the connected capable client via the
  * proxy's targetClientId path.
  *
+ * All members below adopt the same-actor enforcement pattern: the proxy
+ * binds the request to a specific client id + actor principal id at
+ * dispatch time, and the corresponding result route requires the
+ * submitting client to present an `x-vellum-client-id` matching the
+ * captured target plus an `x-vellum-actor-principal-id` matching the
+ * captured actor (see `enforceSameActorOrThrow` in
+ * `runtime/auth/same-actor.ts`).
+ *
  * Inclusions:
  * - host_bash (Phase 1, PR #29322)
  * - host_file (Phases 2 & 3, PRs #29398 + #29440)
+ * - host_browser (PR #27489 executor parity + PR #29829 cross-client
+ *   exposure with same-actor guard at proxy dispatch and result route)
  *
  * Exclusions:
- * - host_browser: chrome-extension is its own executor; web turns don't
- *   have a CDP target model. Re-evaluate when host browser via macOS
- *   host proxy ships (PR #27489).
- * - host_app_control, host_cu: not in HOST_TOOL_TO_CAPABILITY
- *   (skill-routed).
+ * - host_app_control, host_cu: not in HOST_TOOL_TO_CAPABILITY (skill-routed).
+ *   Their cross-client exposure is handled at the skill preactivation layer
+ *   via `preactivateHostProxySkills` — see host-proxy-preactivation.ts.
  */
 const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
   "host_bash",
   "host_file",
+  "host_browser",
 ]);
-const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
+// Tools that require a connected client but no specific host proxy capability.
+const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open", "ask_question"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
 /**
@@ -392,16 +407,34 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
- * Determine whether a tool should be included in the LLM tool definitions
- * for the current turn based on conversation context. Tools not active for the
- * current context are omitted from the definitions sent to the provider,
- * reducing noise and preventing the model from attempting calls that would
- * fail.
+ * Determine whether a tool is part of the final exposed tool set for the
+ * current turn. This helper mirrors the filtering applied by
+ * `createResolveToolsCallback` — including the subagent allowlist,
+ * `toolsDisabledDepth`, and disk-pressure cleanup restrictions.
  */
 export function isToolActiveForContext(
   name: string,
   ctx: SkillProjectionContext,
 ): boolean {
+  // When the conversation is acting as a subagent, the parent orchestrator
+  // restricts the tool list. A tool that isn't on the allowlist is not
+  // available for this turn, so short-circuit before any capability checks.
+  if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
+    return false;
+  }
+  // `createResolveToolsCallback` returns an empty tool list when tools are
+  // disabled (e.g. pointer-generation turns) and restricts to cleanup-safe
+  // tools under disk pressure. Mirror both here so this helper reports the
+  // same final tool set the LLM receives.
+  if (ctx.toolsDisabledDepth > 0) {
+    return false;
+  }
+  if (
+    ctx.diskPressureCleanupModeActive === true &&
+    !isDiskPressureCleanupToolName(name)
+  ) {
+    return false;
+  }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
   }
@@ -413,15 +446,15 @@ export function isToolActiveForContext(
     // transport cannot service this capability, the tool is filtered out.
     if (transport && capability && !supportsHostProxy(transport, capability)) {
       // Cross-client exception: allow host tools whose capabilities have
-      // cross-client routing infrastructure (Phases 1–3) to be exposed for
-      // non-host-proxy transports (e.g. "web", "ios") when at least one
-      // capable client is connected via the event hub. Members of
-      // CROSS_CLIENT_EXPOSED_CAPABILITIES (host_bash, host_file) qualify;
-      // host_browser is intentionally excluded (chrome-extension is its
-      // own executor and web turns don't have a CDP target model).
+      // cross-client routing infrastructure (Phases 1–3 plus host_browser
+      // via PR #27489) to be exposed for non-host-proxy transports (e.g.
+      // "web", "ios") when at least one capable client is connected via
+      // the event hub. Members of CROSS_CLIENT_EXPOSED_CAPABILITIES
+      // (host_bash, host_file, host_browser) qualify.
       // chrome-extension transport is excluded as a security boundary
-      // (extension only gets host_browser); hasNoClient turns are excluded
-      // (no interactive approval UI available).
+      // (extension only gets host_browser via its own executor path);
+      // hasNoClient turns are excluded (no interactive approval UI
+      // available).
       if (
         capability &&
         CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
@@ -449,6 +482,14 @@ export function isToolActiveForContext(
     return !ctx.hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
+    if (
+      name === "ask_question" &&
+      ctx.channelCapabilities?.clientOS === "macos"
+    ) {
+      // macOS has no UI handler for question_request yet; hiding the tool
+      // avoids a 5-minute prompter timeout when the LLM would otherwise call it.
+      return false;
+    }
     return !ctx.hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {

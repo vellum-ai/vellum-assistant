@@ -7,8 +7,8 @@
 // ---------------------------------------------------------------------------
 
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
+import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
@@ -20,9 +20,16 @@ import type {
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getDb } from "../db-connection.js";
+import { embedWithRetry } from "../embed.js";
+import { generateSparseEmbedding } from "../embedding-backend.js";
 import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
+import {
+  evictCompactedTurns as evictCompactedTurnsV2,
+  hydrate as hydrateV2State,
+  save as saveV2State,
+} from "../v2/activation-store.js";
 import {
   injectMemoryV2Block,
   type InjectMemoryV2Mode,
@@ -206,11 +213,33 @@ export class ConversationGraphMemory {
    * Notify that context compaction just happened.
    * On the next turn, we'll re-run full context load.
    */
-  onCompacted(compactedMessageCount: number): void {
+  async onCompacted(compactedMessageCount: number): Promise<void> {
     // Evict everything — compaction summarized all prior turns.
     // The tracker can't know exactly which turns were compacted,
     // so we conservatively clear everything and reload.
-    this.tracker.evictCompactedTurns(this.tracker.getTurn());
+    const upToTurn = this.tracker.getTurn();
+    this.tracker.evictCompactedTurns(upToTurn);
+
+    // Mirror the eviction on the v2 activation row: the cached `<memory>`
+    // attachments those slugs lived on are gone, but `everInjected` would
+    // otherwise keep them deduped from per-turn deltas forever.
+    try {
+      const db = getDb();
+      const state = await hydrateV2State(db, this.conversationId);
+      if (state) {
+        await saveV2State(
+          db,
+          this.conversationId,
+          evictCompactedTurnsV2(state, upToTurn),
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Failed to evict v2 activation state on compaction (non-fatal)",
+      );
+    }
+
     this.needsReload = true;
     log.info(
       { compactedMessageCount },
@@ -362,8 +391,15 @@ export class ConversationGraphMemory {
 
       return await this.runPerTurn(messages, config, abortSignal);
     } catch (err) {
+      const errCode =
+        err instanceof z.ZodError ? err.issues[0]?.code : undefined;
       log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
+        {
+          err: err instanceof Error ? err.message : String(err),
+          conversationId: this.conversationId,
+          turn: this.tracker.getTurn(),
+          errCode,
+        },
         "Memory retrieval failed (non-fatal)",
       );
       return noopResult;
@@ -382,29 +418,11 @@ export class ConversationGraphMemory {
     signal: AbortSignal,
     onEvent: (msg: ServerMessage) => void,
   ) {
-    const result = await loadContextMemory({
-      scopeId: "default",
-      recentSummaries,
-      userQuery,
-      config,
-      signal,
-    });
-
-    this.initialized = true;
-    this.needsReload = false;
-
-    // v2 routing: when the feature flag and workspace config are both on,
-    // replace v1's injection with the activation-pipeline output. v1
-    // retrieval still runs above so its tracker stays warm — keeps the
-    // off→on→off flag flip cheap and avoids invalidating cached metrics.
-    // assistantMessage is empty: context-load fires on turn 1 / post-
-    // compaction, so there is no immediately-prior assistant turn to
-    // weight the activation against.
-    //
     // Use the raw user text (no >10-char filter) so even short greetings
     // ("hi") get a fresh top-K activation dump on the first user message.
-    // The activation pipeline is robust to weak ANN signal — it still falls
-    // back to spreading + nowText to surface candidates.
+    // The activation pipeline is robust to weak ANN signal — it falls back
+    // to spreading + nowText to surface candidates.
+    const startedAt = Date.now();
     const rawUserText = readRawUserText(messages[messages.length - 1]);
     const v2 = await this.maybeRouteV2Injection(
       messages,
@@ -412,8 +430,23 @@ export class ConversationGraphMemory {
       "context-load",
       rawUserText ?? userQuery ?? "",
       "",
+      signal,
     );
+
     if (v2.routed) {
+      // Surface a user-query embedding so PKB hint search still runs on v2
+      // turns. v1's `loadContextMemory` produced these as a side effect of
+      // hybrid retrieval; the v2 path skips that retrieval, so embed
+      // explicitly here.
+      const userQueryText = rawUserText ?? userQuery ?? "";
+      const userQueryEmbed = await this.computeQueryVectors(
+        userQueryText,
+        userQueryText,
+        config,
+        signal,
+      );
+      this.initialized = true;
+      this.needsReload = false;
       this.lastInjectedBlock = v2.injectedBlockText;
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
@@ -422,16 +455,29 @@ export class ConversationGraphMemory {
         injectedTokens: v2.injectedBlockText
           ? estimateTextTokens(v2.injectedBlockText)
           : 0,
-        latencyMs: result.latencyMs,
+        latencyMs: Date.now() - startedAt,
         mode: "context-load" as const,
         injectedBlockText: v2.injectedBlockText,
-        metrics: result.metrics,
-        queryVector: result.queryVector,
-        sparseVector: result.sparseVector,
-        userQueryVector: result.userQueryVector,
-        userQuerySparseVector: result.userQuerySparseVector,
+        metrics: null,
+        userQueryVector: userQueryEmbed.dense,
+        userQuerySparseVector: userQueryEmbed.sparse,
       };
     }
+
+    // v1 fallback — only reached when the v2 flag or workspace config is off.
+    const result = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries,
+      userQuery,
+      config,
+      signal,
+    });
+    // Set initialized only after v1 retrieval succeeds. If `loadContextMemory`
+    // throws (transient DB/Qdrant failure), `prepareMemory` catches and
+    // returns noop, but we want the next turn to retry the bootstrap path
+    // rather than be stuck in per-turn mode.
+    this.initialized = true;
+    this.needsReload = false;
 
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
@@ -540,6 +586,52 @@ export class ConversationGraphMemory {
       if (userLastBlocks.length > 0 && assistantLast) break;
     }
 
+    // v2 path — skip v1 retrieval entirely when v2 is enabled. See the
+    // matching comment in `runContextLoad` for rationale.
+    const startedAt = Date.now();
+    const v2 = await this.maybeRouteV2Injection(
+      messages,
+      config,
+      "per-turn",
+      userLast,
+      assistantLast,
+      signal,
+    );
+    if (v2.routed) {
+      // Surface a per-turn query embedding so PKB hint search still runs
+      // on v2 turns. v1's `retrieveForTurn` produced these as a side effect;
+      // the v2 path skips that retrieval, so embed explicitly here. Match
+      // v1's split: dense embeds the combined assistant+user text (short
+      // referential follow-ups like "do that one" need the assistant turn
+      // for semantic grounding), while sparse uses the user message alone
+      // to keep lexical signal focused on what the user actually said.
+      const denseQueryText = [assistantLast, userLast]
+        .filter((m) => m.length > 0)
+        .join("\n\n");
+      const perTurnEmbed = await this.computeQueryVectors(
+        denseQueryText,
+        userLast,
+        config,
+        signal,
+      );
+      this.lastInjectedBlock = v2.injectedBlockText;
+      this.lastInjectedNodeIds = [];
+      this.lastInjectedImages = new Map();
+      return {
+        runMessages: v2.runMessages,
+        injectedTokens: v2.injectedBlockText
+          ? estimateTextTokens(v2.injectedBlockText)
+          : 0,
+        latencyMs: Date.now() - startedAt,
+        mode: "per-turn" as const,
+        injectedBlockText: v2.injectedBlockText,
+        metrics: null,
+        queryVector: perTurnEmbed.dense,
+        sparseVector: perTurnEmbed.sparse,
+      };
+    }
+
+    // v1 path (only reached when the v2 flag or workspace config is off).
     const result = await retrieveForTurn({
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
@@ -549,36 +641,6 @@ export class ConversationGraphMemory {
       tracker: this.tracker,
       signal,
     });
-
-    // v2 routing: same gating as `runContextLoad` — when the flag and config
-    // are both on, the v2 activation pipeline produces the injection block
-    // (or `null` for the cache-stable empty path). v1 retrieval above runs
-    // unconditionally so the tracker stays in sync with the v1 nodes —
-    // cheap insurance for an off→on→off flag flip mid-conversation.
-    const v2 = await this.maybeRouteV2Injection(
-      messages,
-      config,
-      "per-turn",
-      userLast,
-      assistantLast,
-    );
-    if (v2.routed) {
-      this.lastInjectedBlock = v2.injectedBlockText;
-      this.lastInjectedNodeIds = [];
-      this.lastInjectedImages = new Map();
-      return {
-        runMessages: v2.runMessages,
-        injectedTokens: v2.injectedBlockText
-          ? estimateTextTokens(v2.injectedBlockText)
-          : 0,
-        latencyMs: result.latencyMs,
-        mode: "per-turn" as const,
-        injectedBlockText: v2.injectedBlockText,
-        metrics: result.metrics,
-        queryVector: result.queryVector,
-        sparseVector: result.sparseVector,
-      };
-    }
 
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
@@ -638,12 +700,47 @@ export class ConversationGraphMemory {
   }
 
   /**
-   * Route the v1 retrieval's injection step through the v2 activation
-   * pipeline when the `memory-v2-enabled` feature flag *and* the workspace
-   * config (`memory.v2.enabled`) are both on.
+   * Embed a query string for PKB hint search on v2 turns. v1 retrieval
+   * produced these vectors as a side effect; on v2 we skip retrieval, so
+   * the agent loop loses the dense/sparse pair it needs to drive
+   * `buildPkbReminderWithHints`. Failures here degrade PKB hints to the
+   * static fallback rather than blocking the turn.
+   */
+  private async computeQueryVectors(
+    denseText: string,
+    sparseText: string,
+    config: AssistantConfig,
+    signal: AbortSignal,
+  ): Promise<{ dense?: number[]; sparse?: QdrantSparseVector }> {
+    const trimmedDense = denseText.trim();
+    const trimmedSparse = sparseText.trim();
+    let dense: number[] | undefined;
+    if (trimmedDense.length > 0) {
+      try {
+        const result = await embedWithRetry(config, [trimmedDense], { signal });
+        dense = result.vectors[0];
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "Failed to embed query for PKB hints on v2 path",
+        );
+      }
+    }
+    let sparse: QdrantSparseVector | undefined;
+    if (trimmedSparse.length > 0) {
+      const sparseRaw = generateSparseEmbedding(trimmedSparse);
+      sparse = sparseRaw.indices.length > 0 ? sparseRaw : undefined;
+    }
+    return { dense, sparse };
+  }
+
+  /**
+   * Run the v2 activation pipeline when the workspace config
+   * (`memory.v2.enabled`) is on.
    *
    * The two outcomes the caller distinguishes via `routed`:
-   *   - `routed: false` — v2 disabled; caller runs the existing v1 injection.
+   *   - `routed: false` — v2 disabled; caller falls through to the legacy v1
+   *                        retrieval path.
    *   - `routed: true`  — v2 ran. `runMessages` is either the v2-prepended
    *                        message list (block was non-null) or the input
    *                        messages unchanged (cache-stable empty path).
@@ -655,15 +752,13 @@ export class ConversationGraphMemory {
     mode: InjectMemoryV2Mode,
     userMessage: string,
     assistantMessage: string,
+    signal: AbortSignal,
   ): Promise<{
     routed: boolean;
     runMessages: Message[];
     injectedBlockText: string | null;
   }> {
-    if (
-      !isAssistantFeatureFlagEnabled("memory-v2-enabled", config) ||
-      !config.memory.v2.enabled
-    ) {
+    if (!config.memory.v2.enabled) {
       return { routed: false, runMessages: messages, injectedBlockText: null };
     }
 
@@ -680,6 +775,7 @@ export class ConversationGraphMemory {
       messageId: `${this.conversationId}:turn:${currentTurn}`,
       mode,
       config,
+      signal,
     });
 
     if (!result.block) {
@@ -702,7 +798,11 @@ export class ConversationGraphMemory {
  * Count the leading content blocks on a user message that were added by
  * `injectMemoryBlock`. Memory-injected images use a 3-block pattern
  * (opening `<memory_image>` text + image + closing `</memory_image>` text),
- * followed by a `<memory>…</memory>` text block (legacy `<memory __injected>` is also accepted). A legacy
+ * followed by a `<memory>…</memory>` text block (legacy `<memory __injected>` is also accepted).
+ * The bare `<memory>` form is matched only when the block also ends with
+ * `\n</memory>`, so user-authored content that happens to begin with
+ * `<memory>` (for example, a message discussing the XML-like markup) is not
+ * mistaken for an injected prefix and stripped on re-injection. A legacy
  * 2-block image pattern (no closing tag) is also accepted for backward
  * compatibility. The injection prefix is always contiguous at the start,
  * so we stop at the first non-memory block.
@@ -715,7 +815,8 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
     const block = content[firstNonMemory];
     if (
       block.type === "text" &&
-      (block.text.startsWith("<memory>\n") ||
+      ((block.text.startsWith("<memory>\n") &&
+        block.text.endsWith("\n</memory>")) ||
         block.text.startsWith("<memory __injected>\n"))
     ) {
       firstNonMemory++;

@@ -143,6 +143,11 @@ public struct ACPSessionUpdateMessage: Codable, Equatable, Identifiable, Sendabl
         case toolCall = "tool_call"
         case toolCallUpdate = "tool_call_update"
         case plan
+        // Local-only synthetic event emitted by the macOS client when a
+        // steer call fails. Distinct from `.userMessageChunk` so `buildRows`
+        // renders it as its own non-coalescing row instead of merging into
+        // the preceding optimistic "→ steered: …" chunk.
+        case steerFailure = "steer_failure"
         case unknown
 
         /// Fall back to `.unknown` for unrecognized update types.

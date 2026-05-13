@@ -110,3 +110,10 @@ export interface SlackConversationsOpenResponse extends SlackApiResponse {
 }
 
 export type SlackConversationMarkResponse = SlackApiResponse;
+
+export type SlackReactionsAddResponse = SlackApiResponse;
+
+export interface SlackUsersListResponse extends SlackApiResponse {
+  members: SlackUser[];
+  response_metadata?: { next_cursor?: string };
+}

@@ -6,6 +6,7 @@ import VellumAssistantShared
 public final class AppServices {
     public let connectionManager: GatewayConnectionManager
     let featureFlagStore: AssistantFeatureFlagStore
+    let bookmarkStore: BookmarkStore
     let diskPressureStatusStore: DiskPressureStatusStore
 
     public let authManager = AuthManager()
@@ -30,14 +31,19 @@ public final class AppServices {
     public init() {
         let connectionManager = GatewayConnectionManager()
         let featureFlagStore = AssistantFeatureFlagStore()
+        let bookmarkStore = BookmarkStore()
         self.connectionManager = connectionManager
         self.featureFlagStore = featureFlagStore
+        self.bookmarkStore = bookmarkStore
         diskPressureStatusStore = DiskPressureStatusStore(
             eventStreamClient: connectionManager.eventStreamClient,
             featureFlagEnabled: { key in
                 featureFlagStore.isEnabled(key)
             }
         )
+        // Bookmark hydration is deferred until the gateway is connected
+        // (see ``AppDelegate+ConnectionSetup``) so it doesn't race auth
+        // bootstrap and 401.
     }
 
     /// Reconfigure the connection for a new assistant.

@@ -144,7 +144,15 @@ assistant config set twilio.phoneNumber "+14155551234"
 
 ### Verify Public Ingress is Set Up
 
-Twilio needs a publicly reachable URL for voice webhooks. Load the `public-ingress` skill to determine whether a public ingress has been configured and walk the user through setting one up if not.
+Twilio needs publicly reachable HTTP webhooks and, for live calls, a publicly reachable WebSocket path. First check managed/platform status:
+
+```bash
+assistant platform status --json
+```
+
+If this reports an available platform assistant and `velayTunnel.connected` is `true`, do not load `public-ingress` or install ngrok. Use the managed Velay route for the WebSocket leg. If `velayTunnel.connected` is `false`, restart or re-hatch the assistant/gateway and check gateway logs for `Velay tunnel registered`; do not treat that as an ngrok setup problem.
+
+For local/self-hosted assistants without Velay, load the `public-ingress` skill to determine whether `ingress.publicBaseUrl` is configured and walk the user through setting one up if not.
 
 ### Configure Twilio Webhooks
 

@@ -70,7 +70,7 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
             height: windowHeight
         )
 
-        let title = conversationManager.conversations.first(where: { $0.id == conversationLocalId })?.title ?? "Thread"
+        let title = conversationManager.listStore.conversationsByLocalId[conversationLocalId]?.title ?? "Thread"
 
         let nsWindow = TitleBarZoomableWindow(
             contentRect: windowRect,
@@ -187,10 +187,12 @@ private struct ThreadWindowContentView: View {
     @State private var highlightedMessageId: UUID?
     @State private var windowSize: CGSize = CGSize(width: 700, height: 700)
 
-    /// Derived title from ConversationManager — updates reactively when
-    /// the conversation is renamed, avoiding the stale-title bug.
+    /// Derived title that updates reactively when the conversation is renamed.
+    /// Reads through the cached `conversationsByLocalId` lookup because the
+    /// underlying `conversations` array is `@ObservationIgnored` and would not
+    /// invalidate this view body on rename.
     private var title: String {
-        conversationManager.conversations.first(where: { $0.id == conversationLocalId })?.title ?? "Thread"
+        conversationManager.listStore.conversationsByLocalId[conversationLocalId]?.title ?? "Thread"
     }
 
     @State private var showTitleActions = false
@@ -349,7 +351,7 @@ private struct ThreadWindowContentView: View {
     }
 
     private var conversation: ConversationModel? {
-        conversationManager.conversations.first(where: { $0.id == conversationLocalId })
+        conversationManager.listStore.conversationsByLocalId[conversationLocalId]
     }
 
     private var threadTitleActionsDrawer: some View {

@@ -164,6 +164,21 @@ describe("retry normalization: thinking + forced tool_choice", () => {
     expect(lastConfig()?.thinking).toEqual({ type: "disabled" });
   });
 
+  test("normalizes raw { enabled: false } from pass-through callers to wire shape", async () => {
+    // Pass-through callers (e.g. host.providers.llm.complete) may forward the
+    // schema-shape `{ enabled: false }` without a callSite. The normalizer must
+    // convert it to Anthropic's wire shape `{ type: "disabled" }`, otherwise
+    // Anthropic rejects the request with a 400 on malformed `thinking`.
+    const { provider, lastConfig } = makePipeline("anthropic");
+    await provider.sendMessage([userMessage], undefined, undefined, {
+      config: {
+        thinking: { enabled: false },
+        tool_choice: { type: "tool", name: "select_memories" },
+      },
+    });
+    expect(lastConfig()?.thinking).toEqual({ type: "disabled" });
+  });
+
   test("preserves resolved thinking: disabled with forced tool_choice", async () => {
     setLlmConfig({
       default: {

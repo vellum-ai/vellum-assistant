@@ -114,8 +114,11 @@ import {
   createDeepgramProvider,
   DeepgramTtsError,
 } from "../providers/deepgram-provider.js";
-import { createElevenLabsProvider } from "../providers/elevenlabs-provider.js";
-import { ElevenLabsTtsError } from "../providers/elevenlabs-provider.js";
+import {
+  createElevenLabsProvider,
+  ElevenLabsTtsError,
+  extractElevenLabsErrorMessage,
+} from "../providers/elevenlabs-provider.js";
 import { createFishAudioProvider } from "../providers/fish-audio-provider.js";
 import { FishAudioTtsError } from "../providers/fish-audio-provider.js";
 import { providerFactories } from "../providers/index.js";
@@ -395,6 +398,77 @@ describe("ElevenLabs TTS provider adapter", () => {
         "Network unreachable",
       );
     }
+  });
+
+  // -- Upstream error-body extraction --------------------------------------
+
+  describe("extractElevenLabsErrorMessage", () => {
+    test("extracts message from standard { detail: { message } } shape", () => {
+      const body = JSON.stringify({
+        detail: {
+          type: "payment_required",
+          code: "paid_plan_required",
+          message:
+            "Free users cannot use library voices via the API. Please upgrade your subscription to use this voice.",
+          status: "payment_required",
+        },
+      });
+      expect(extractElevenLabsErrorMessage(body)).toBe(
+        "Free users cannot use library voices via the API. Please upgrade your subscription to use this voice.",
+      );
+    });
+
+    test("falls back to { detail: '...' } when detail is a string", () => {
+      const body = JSON.stringify({ detail: "Voice not found" });
+      expect(extractElevenLabsErrorMessage(body)).toBe("Voice not found");
+    });
+
+    test("falls back to { message: '...' } when present", () => {
+      const body = JSON.stringify({ message: "Quota exceeded" });
+      expect(extractElevenLabsErrorMessage(body)).toBe("Quota exceeded");
+    });
+
+    test("returns trimmed raw body when not JSON", () => {
+      expect(extractElevenLabsErrorMessage("  upstream timeout  ")).toBe(
+        "upstream timeout",
+      );
+    });
+
+    test("truncates oversized raw bodies", () => {
+      const long = "x".repeat(1000);
+      const result = extractElevenLabsErrorMessage(long);
+      expect(result).not.toBeUndefined();
+      // 200-char limit plus an ellipsis character.
+      expect(result!.length).toBeLessThanOrEqual(201);
+      expect(result!.endsWith("…")).toBe(true);
+    });
+
+    test("returns undefined for empty input", () => {
+      expect(extractElevenLabsErrorMessage("")).toBeUndefined();
+      expect(extractElevenLabsErrorMessage("   \n  ")).toBeUndefined();
+    });
+
+    test("returns truncated raw body when JSON is malformed", () => {
+      // Not valid JSON despite the leading `{` — falls through to raw fallback.
+      const body = "{not really json}";
+      expect(extractElevenLabsErrorMessage(body)).toBe("{not really json}");
+    });
+
+    test("ignores empty-string message fields", () => {
+      const body = JSON.stringify({ detail: { message: "   " } });
+      // Falls through to top-level message — also absent — then to raw body.
+      const result = extractElevenLabsErrorMessage(body);
+      expect(result).not.toBeUndefined();
+      // Raw body fallback contains the JSON text itself.
+      expect(result).toContain("detail");
+    });
+
+    test("trims whitespace from extracted messages", () => {
+      const body = JSON.stringify({
+        detail: { message: "  hello world  " },
+      });
+      expect(extractElevenLabsErrorMessage(body)).toBe("hello world");
+    });
   });
 });
 

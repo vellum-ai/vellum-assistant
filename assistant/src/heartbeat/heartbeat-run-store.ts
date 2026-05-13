@@ -22,7 +22,8 @@ export type HeartbeatRunStatus =
 export type HeartbeatSkipReason =
   | "disabled"
   | "outside_active_hours"
-  | "overlap";
+  | "overlap"
+  | "pre_first_user_message";
 
 export interface HeartbeatRunRecord {
   id: string;
@@ -200,6 +201,19 @@ export function markStaleRunningAsError(
     )
     .run();
   return rawChanges();
+}
+
+/**
+ * Count the number of heartbeat runs that completed with status `ok`.
+ */
+export function countCompletedHeartbeatRuns(): number {
+  const db = getDb();
+  const row = db
+    .select({ count: sql<number>`count(*)` })
+    .from(heartbeatRuns)
+    .where(eq(heartbeatRuns.status, "ok"))
+    .get();
+  return row?.count ?? 0;
 }
 
 /**

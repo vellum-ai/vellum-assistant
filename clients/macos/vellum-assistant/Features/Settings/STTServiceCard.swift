@@ -100,6 +100,18 @@ struct STTServiceCard: View {
         .task {
             await refreshSTTProviderRegistry()
             sttRegistry = loadSTTProviderRegistry()
+            // Pull the current api_key inventory so `sttKeyExists` reports
+            // correctly. `.onAppear` runs before this `.task` body resolves,
+            // so we re-evaluate after the refresh lands. If the bulk refresh
+            // fails on first load (cache empty), fall back to a per-provider
+            // check so we don't show "not configured" when a key is actually
+            // present.
+            let refreshed = await store.refreshProviderKeys()
+            if refreshed || !store.providerKeys.isEmpty {
+                sttProviderHasKey = sttKeyExists(for: draftSTTProvider)
+            } else {
+                sttProviderHasKey = await store.hasSTTKey(sttProviderId: draftSTTProvider)
+            }
         }
         .onAppear {
             draftSTTProvider = sttProviderRaw
@@ -148,7 +160,7 @@ struct STTServiceCard: View {
 
     private func sttKeyExists(for sttProviderId: String) -> Bool {
         let keyProvider = SettingsStore.sttApiKeyProviderName(for: sttProviderId)
-        return APIKeyManager.getKey(for: keyProvider) != nil
+        return store.providerKeys.contains(keyProvider)
     }
 
     private func resetSTTKey() {

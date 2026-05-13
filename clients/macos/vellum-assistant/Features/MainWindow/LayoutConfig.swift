@@ -41,6 +41,19 @@ extension NativePanelId: Codable {
     }
 }
 
+extension NativePanelId {
+    /// Returns false for panels whose feature flag is off in this build, so wire/persisted
+    /// layouts can't pin a slot to a panel this client cannot route or recover from.
+    static func isAvailableInThisBuild(_ panel: NativePanelId) -> Bool {
+        switch panel {
+        case .acpSessions:
+            return MacOSClientFeatureFlagManager.shared.isEnabled("coding-agents-panel")
+        default:
+            return true
+        }
+    }
+}
+
 public enum SlotContent: Equatable, Sendable {
     case native(NativePanelId)
     case surface(surfaceId: String)
@@ -76,7 +89,8 @@ extension SlotContent: Codable {
             case "debug", "usageDashboard":
                 self = .native(.logsAndUsage)
             default:
-                if let panel = NativePanelId(rawValue: rawPanel) {
+                if let panel = NativePanelId(rawValue: rawPanel),
+                   NativePanelId.isAvailableInThisBuild(panel) {
                     self = .native(panel)
                 } else {
                     self = .empty
@@ -175,7 +189,8 @@ extension SlotContent {
             case "debug", "usageDashboard":
                 id = .logsAndUsage
             default:
-                guard let parsed = NativePanelId(rawValue: panel) else { return nil }
+                guard let parsed = NativePanelId(rawValue: panel),
+                      NativePanelId.isAvailableInThisBuild(parsed) else { return nil }
                 id = parsed
             }
             return .native(id)

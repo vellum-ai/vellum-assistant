@@ -1,39 +1,11 @@
 /**
- * Safely set a nested field on a raw config object's `llm.default` map.
- *
- * Ensures the `llm` and `llm.default` objects exist before writing, so
- * callers don't need to guard against undefined intermediate keys.
- *
- * Example: `setLlmDefaultField(raw, "model", "claude-sonnet-4-6")`
- * produces `raw.llm.default.model = "claude-sonnet-4-6"`.
- */
-export function setLlmDefaultField(
-  raw: Record<string, unknown>,
-  field: string,
-  value: unknown,
-): void {
-  const llm: Record<string, unknown> =
-    raw.llm != null && typeof raw.llm === "object" && !Array.isArray(raw.llm)
-      ? (raw.llm as Record<string, unknown>)
-      : {};
-  const existing = llm.default;
-  const defaultBlock: Record<string, unknown> =
-    existing != null && typeof existing === "object" && !Array.isArray(existing)
-      ? (existing as Record<string, unknown>)
-      : {};
-  defaultBlock[field] = value;
-  llm.default = defaultBlock;
-  raw.llm = llm;
-}
-
-/**
  * Safely set a nested field on a raw config object's `services` map.
  *
  * Ensures the `services` and service-level objects exist before writing,
  * so callers don't need to guard against undefined intermediate keys.
  *
- * Example: `setServiceField(raw, "inference", "mode", "managed")`
- * produces `raw.services.inference.mode = "managed"`.
+ * Example: `setServiceField(raw, "image-generation", "mode", "managed")`
+ * produces `raw.services["image-generation"].mode = "managed"`.
  */
 export function setServiceField(
   raw: Record<string, unknown>,

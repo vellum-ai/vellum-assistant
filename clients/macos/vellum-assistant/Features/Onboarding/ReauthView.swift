@@ -175,6 +175,15 @@ struct ReauthView: View {
         let router = ReturningUserRouter()
         do {
             let landscape = try await router.fetchLandscape()
+            // Reconcile the lockfile against the authoritative platform list
+            // before routing — this is what catches assistants that were
+            // retired on another device (drop them from the lockfile) or
+            // newly hatched there (pull them in).
+            if landscape.platformWasConsulted {
+                LockfileReconciler.reconcile(
+                    platformAssistants: landscape.platformAssistants
+                )
+            }
             let decision = router.decide(for: landscape)
             guard !didComplete else { return }
             log.info("ReauthView router decision=\(String(describing: decision), privacy: .public)")

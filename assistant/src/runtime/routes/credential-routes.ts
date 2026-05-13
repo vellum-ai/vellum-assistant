@@ -1,0 +1,540 @@
+/**
+ * Transport-agnostic route definitions for credential management CLI operations.
+ *
+ * These routes provide higher-level credential operations (list with metadata,
+ * inspect, reveal, set, delete, status) that compose the lower-level secret
+ * storage primitives with metadata, OAuth connections, and platform-managed
+ * credential catalogs.
+ *
+ * POST   /v1/credentials/list    — list all credentials with metadata
+ * POST   /v1/credentials/inspect — inspect a single credential (masked)
+ * POST   /v1/credentials/reveal  — reveal a credential's plaintext value
+ * POST   /v1/credentials/set     — store a credential with metadata
+ * POST   /v1/credentials/delete  — delete a credential, metadata, and OAuth
+ * GET    /v1/credentials/status  — show active credential backend info
+ */
+
+import { z } from "zod";
+
+import {
+  fetchManagedCatalog,
+  type ManagedCredentialDescriptor,
+} from "../../credential-execution/managed-catalog.js";
+import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
+import {
+  disconnectOAuthProvider,
+  getConnectionByProvider,
+  listConnections,
+  type OAuthConnectionRow,
+} from "../../oauth/oauth-store.js";
+import { credentialKey } from "../../security/credential-key.js";
+import {
+  deleteSecureKeyAsync,
+  getActiveBackendInfoAsync,
+  getActiveBackendName,
+  getSecureKeyAsync,
+  getSecureKeyResultAsync,
+  setSecureKeyAsync,
+} from "../../security/secure-keys.js";
+import {
+  assertMetadataWritable,
+  type CredentialMetadata,
+  deleteCredentialMetadata,
+  getCredentialMetadata,
+  getCredentialMetadataById,
+  listCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
+import { BadRequestError, InternalError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+function scrubSecret(secret: string | undefined): string {
+  if (secret == null || secret.length === 0) return "(not set)";
+  if (secret.length <= 4) return "****";
+  return "****" + secret.slice(-4);
+}
+
+function safeGetConnectionByProvider(
+  service: string,
+): OAuthConnectionRow | undefined {
+  try {
+    return getConnectionByProvider(service);
+  } catch {
+    return undefined;
+  }
+}
+
+function safeListConnections(): OAuthConnectionRow[] {
+  try {
+    return listConnections();
+  } catch {
+    return [];
+  }
+}
+
+function buildCredentialOutput(
+  metadata: CredentialMetadata,
+  secret: string | undefined,
+  connection?: OAuthConnectionRow,
+): Record<string, unknown> {
+  const output: Record<string, unknown> = {
+    service: metadata.service,
+    field: metadata.field,
+    credentialId: metadata.credentialId,
+    scrubbedValue: scrubSecret(secret),
+    hasSecret: secret != null && secret.length > 0,
+    alias: metadata.alias ?? null,
+    usageDescription: metadata.usageDescription ?? null,
+    allowedTools: metadata.allowedTools,
+    allowedDomains: metadata.allowedDomains,
+    createdAt: new Date(metadata.createdAt).toISOString(),
+    updatedAt: new Date(metadata.updatedAt).toISOString(),
+    injectionTemplateCount: metadata.injectionTemplates?.length ?? 0,
+    grantedScopes: connection ? JSON.parse(connection.grantedScopes) : null,
+    expiresAt: connection?.expiresAt
+      ? new Date(connection.expiresAt).toISOString()
+      : null,
+  };
+
+  if (connection) {
+    output.oauthConnectionId = connection.id;
+    output.oauthAccountInfo = connection.accountInfo ?? null;
+    output.oauthStatus = connection.status;
+    output.oauthHasRefreshToken = connection.hasRefreshToken === 1;
+    output.oauthLabel = connection.label ?? null;
+  }
+
+  return output;
+}
+
+function buildManagedCredentialOutput(
+  descriptor: ManagedCredentialDescriptor,
+): Record<string, unknown> {
+  return {
+    source: "platform",
+    handle: descriptor.handle,
+    provider: descriptor.provider,
+    connectionId: descriptor.connectionId,
+    accountInfo: descriptor.accountInfo,
+    grantedScopes: descriptor.grantedScopes,
+    status: descriptor.status,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Credential lookup resolution
+// ---------------------------------------------------------------------------
+
+interface CredentialLookup {
+  storageKey: string;
+  metadata: CredentialMetadata | undefined;
+  service: string | undefined;
+  field: string | undefined;
+}
+
+/**
+ * Resolve a credential lookup from service+field or UUID.
+ * Throws BadRequestError when neither is provided or the UUID is not found.
+ */
+function resolveCredentialLookup(body: Record<string, unknown>): CredentialLookup {
+  const { service, field, id } = body as {
+    service?: string;
+    field?: string;
+    id?: string;
+  };
+
+  if (service && field) {
+    return {
+      storageKey: credentialKey(service, field),
+      metadata: getCredentialMetadata(service, field),
+      service,
+      field,
+    };
+  }
+
+  if (id) {
+    const metadata = getCredentialMetadataById(id);
+    if (!metadata) {
+      throw new BadRequestError("Credential not found");
+    }
+    return {
+      storageKey: credentialKey(metadata.service, metadata.field),
+      metadata,
+      service: metadata.service,
+      field: metadata.field,
+    };
+  }
+
+  throw new BadRequestError("Either service+field or id is required");
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+async function handleCredentialsList({ body }: RouteHandlerArgs) {
+  const search = (body as { search?: string } | undefined)?.search;
+
+  let allMetadata = listCredentialMetadata();
+
+  if (search) {
+    const query = search.toLowerCase();
+    allMetadata = allMetadata.filter((m) => {
+      const service = m.service.toLowerCase();
+      const field = m.field.toLowerCase();
+      const alias = (m.alias ?? "").toLowerCase();
+      const description = (m.usageDescription ?? "").toLowerCase();
+      return (
+        service.includes(query) ||
+        field.includes(query) ||
+        alias.includes(query) ||
+        description.includes(query)
+      );
+    });
+  }
+
+  // Build a lookup of oauth connections keyed by provider for enrichment.
+  const allConnections = safeListConnections();
+  const connectionsByProvider = new Map<string, OAuthConnectionRow>();
+  for (const conn of allConnections) {
+    if (conn.status !== "active") continue;
+    const existing = connectionsByProvider.get(conn.provider);
+    if (!existing || conn.createdAt > existing.createdAt) {
+      connectionsByProvider.set(conn.provider, conn);
+    }
+  }
+
+  const credentials = await Promise.all(
+    allMetadata.map(async (m) => {
+      const secret = await getSecureKeyAsync(credentialKey(m.service, m.field));
+      const connection = connectionsByProvider.get(m.service);
+      return buildCredentialOutput(m, secret, connection);
+    }),
+  );
+
+  // Fetch platform-managed credentials (best-effort).
+  const managedResult = await fetchManagedCatalog();
+  let managedCredentials: Record<string, unknown>[] = [];
+  if (managedResult.ok && managedResult.descriptors.length > 0) {
+    let descriptors = managedResult.descriptors;
+    if (search) {
+      const query = search.toLowerCase();
+      descriptors = descriptors.filter(
+        (d) =>
+          d.provider.toLowerCase().includes(query) ||
+          d.handle.toLowerCase().includes(query) ||
+          (d.accountInfo ?? "").toLowerCase().includes(query),
+      );
+    }
+    managedCredentials = descriptors.map(buildManagedCredentialOutput);
+  }
+
+  return { credentials, managedCredentials };
+}
+
+async function handleCredentialsInspect({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const lookup = resolveCredentialLookup(body);
+  const { value: secret, unreachable } =
+    await getSecureKeyResultAsync(lookup.storageKey);
+
+  if (!lookup.metadata && (secret == null || secret.length === 0)) {
+    if (unreachable) {
+      throw new InternalError(
+        "Credential store is unreachable — ensure the assistant is running",
+      );
+    }
+    throw new BadRequestError("Credential not found");
+  }
+
+  // Secret exists but no metadata — build a minimal output.
+  if (!lookup.metadata) {
+    return {
+      service: lookup.service,
+      field: lookup.field,
+      credentialId: null,
+      scrubbedValue: scrubSecret(secret),
+      hasSecret: secret != null && secret.length > 0,
+      alias: null,
+      usageDescription: null,
+      allowedTools: [],
+      allowedDomains: [],
+      createdAt: null,
+      updatedAt: null,
+      injectionTemplateCount: 0,
+    };
+  }
+
+  const connection = safeGetConnectionByProvider(lookup.metadata.service);
+  const output = buildCredentialOutput(lookup.metadata, secret, connection);
+
+  if (unreachable && (secret == null || secret.length === 0)) {
+    output.scrubbedValue = "(credential store unreachable)";
+    output.brokerUnreachable = true;
+  }
+
+  return output;
+}
+
+async function handleCredentialsReveal({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const lookup = resolveCredentialLookup(body);
+  const { value: secret, unreachable } =
+    await getSecureKeyResultAsync(lookup.storageKey);
+
+  if (secret == null || secret.length === 0) {
+    if (unreachable) {
+      throw new InternalError(
+        "Credential store is unreachable — ensure the assistant is running",
+      );
+    }
+    throw new BadRequestError("Credential not found");
+  }
+
+  return { value: secret };
+}
+
+async function handleCredentialsSet({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const { service, field, value, label, description, allowedTools } = body as {
+    service?: string;
+    field?: string;
+    value?: string;
+    label?: string;
+    description?: string;
+    allowedTools?: string[];
+  };
+
+  if (!service || typeof service !== "string") {
+    throw new BadRequestError("service is required");
+  }
+  if (!field || typeof field !== "string") {
+    throw new BadRequestError("field is required");
+  }
+  if (!value || typeof value !== "string") {
+    throw new BadRequestError("value is required");
+  }
+
+  assertMetadataWritable();
+
+  const key = credentialKey(service, field);
+  const stored = await setSecureKeyAsync(key, value);
+  if (!stored) {
+    throw new InternalError(
+      `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
+    );
+  }
+
+  const metadata = upsertCredentialMetadata(service, field, {
+    alias: label,
+    usageDescription: description,
+    allowedTools,
+  });
+  await syncManualTokenConnection(service);
+
+  return {
+    credentialId: metadata.credentialId,
+    service,
+    field,
+  };
+}
+
+async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const { service, field } = body as {
+    service?: string;
+    field?: string;
+  };
+
+  if (!service || typeof service !== "string") {
+    throw new BadRequestError("service is required");
+  }
+  if (!field || typeof field !== "string") {
+    throw new BadRequestError("field is required");
+  }
+
+  assertMetadataWritable();
+
+  const key = credentialKey(service, field);
+  const existing = await getSecureKeyAsync(key);
+  const deleteResult = existing != null
+    ? await deleteSecureKeyAsync(key)
+    : "not-found";
+
+  if (deleteResult === "error") {
+    throw new InternalError(
+      `Failed to delete credential from secure storage: ${service}:${field}`,
+    );
+  }
+
+  const metadataDeleted = deleteCredentialMetadata(service, field);
+
+  // Clean up OAuth connection (best-effort).
+  let oauthResult: "disconnected" | "not-found" | "error" = "not-found";
+  try {
+    oauthResult = await disconnectOAuthProvider(service);
+  } catch {
+    // Best-effort — OAuth tables may not exist yet
+  }
+
+  if (oauthResult === "error") {
+    throw new InternalError(
+      "Failed to disconnect OAuth provider — please try again",
+    );
+  }
+
+  if (
+    deleteResult !== "deleted" &&
+    !metadataDeleted &&
+    oauthResult !== "disconnected"
+  ) {
+    throw new BadRequestError("Credential not found");
+  }
+
+  return { service, field };
+}
+
+async function handleCredentialsStatus() {
+  const info = await getActiveBackendInfoAsync();
+  return info;
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "credentials_list",
+    endpoint: "credentials/list",
+    method: "POST",
+    policyKey: "secrets",
+    summary: "List all credentials with metadata",
+    description:
+      "Return all stored credentials with metadata, OAuth connection info, and platform-managed credentials.",
+    tags: ["credentials"],
+    requestBody: z.object({
+      search: z.string().optional().describe("Filter by substring match"),
+    }),
+    responseBody: z.object({
+      credentials: z.array(z.unknown()).describe("Local credentials with metadata"),
+      managedCredentials: z.array(z.unknown()).describe("Platform-managed credentials"),
+    }),
+    handler: handleCredentialsList,
+  },
+  {
+    operationId: "credentials_inspect",
+    endpoint: "credentials/inspect",
+    method: "POST",
+    policyKey: "secrets",
+    summary: "Inspect a credential",
+    description:
+      "Return metadata and a masked preview of a stored credential. Does not reveal the plaintext value.",
+    tags: ["credentials"],
+    requestBody: z.object({
+      service: z.string().optional().describe("Service namespace"),
+      field: z.string().optional().describe("Field name"),
+      id: z.string().optional().describe("Credential UUID for lookup by ID"),
+    }),
+    responseBody: z.object({
+      service: z.string(),
+      field: z.string(),
+      credentialId: z.string().nullable(),
+      scrubbedValue: z.string(),
+      hasSecret: z.boolean(),
+    }),
+    handler: handleCredentialsInspect,
+  },
+  {
+    operationId: "credentials_reveal",
+    endpoint: "credentials/reveal",
+    method: "POST",
+    policyKey: "secrets",
+    summary: "Reveal a credential's plaintext value",
+    description:
+      "Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode.",
+    tags: ["credentials"],
+    requestBody: z.object({
+      service: z.string().optional().describe("Service namespace"),
+      field: z.string().optional().describe("Field name"),
+      id: z.string().optional().describe("Credential UUID for lookup by ID"),
+    }),
+    responseBody: z.object({
+      value: z.string().describe("The plaintext credential value"),
+    }),
+    handler: handleCredentialsReveal,
+  },
+  {
+    operationId: "credentials_set",
+    endpoint: "credentials/set",
+    method: "POST",
+    policyKey: "secrets",
+    summary: "Store a credential with metadata",
+    description:
+      "Store a secret value and create or update its metadata (label, description, allowed tools).",
+    tags: ["credentials"],
+    requestBody: z.object({
+      service: z.string().describe("Service namespace (e.g. google)"),
+      field: z.string().describe("Field name (e.g. client_secret)"),
+      value: z.string().describe("Secret value to store"),
+      label: z.string().optional().describe("Human-friendly label"),
+      description: z.string().optional().describe("What this credential is used for"),
+      allowedTools: z.array(z.string()).optional().describe("Tool names that may use this credential"),
+    }),
+    responseBody: z.object({
+      credentialId: z.string(),
+      service: z.string(),
+      field: z.string(),
+    }),
+    handler: handleCredentialsSet,
+  },
+  {
+    operationId: "credentials_delete",
+    endpoint: "credentials/delete",
+    method: "POST",
+    policyKey: "secrets",
+    summary: "Delete a credential",
+    description:
+      "Remove a secret, its metadata, and any associated OAuth connection from the vault.",
+    tags: ["credentials"],
+    requestBody: z.object({
+      service: z.string().describe("Service namespace"),
+      field: z.string().describe("Field name"),
+    }),
+    responseBody: z.object({
+      service: z.string(),
+      field: z.string(),
+    }),
+    handler: handleCredentialsDelete,
+  },
+  {
+    operationId: "credentials_status",
+    endpoint: "credentials/status",
+    method: "GET",
+    policyKey: "secrets",
+    summary: "Credential backend status",
+    description:
+      "Return the active credential storage backend and its configuration details.",
+    tags: ["credentials"],
+    responseBody: z.object({
+      backend: z.string(),
+    }),
+    handler: handleCredentialsStatus,
+  },
+];

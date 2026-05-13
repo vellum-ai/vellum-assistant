@@ -247,7 +247,7 @@ Body.
       "vercel-labs",
       "agent-skills",
       "react-best-practices",
-      true, // overwrite
+      true, // overwrite — handler default is true for HTTP API back-compat; CLI passes explicit false
       undefined, // ref
       undefined, // contactId
     );
@@ -330,7 +330,7 @@ Body.
       "owner",
       "repo",
       "my-skill",
-      true,
+      true, // overwrite — handler default is true for HTTP API back-compat; CLI passes explicit false
       undefined, // ref
       undefined, // contactId
     );

@@ -1,23 +1,13 @@
 /**
- * Memory v2 route definitions — backfill + validate + reembed-skills.
- *
- * Migrated from `ipc/routes/memory-v2-backfill.ts` and
- * `ipc/routes/memory-v2-validate.ts` into the shared ROUTES array.
+ * Memory v2 route definitions — backfill, validate, concept-page reads,
+ * reembed-skills, and the activation-log concept-frequency aggregator.
  */
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
+
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { loadConfig } from "../../config/loader.js";
-import {
-  applyCorrectionIfCalibrated,
-  explainedVarianceRatio,
-  fitAnisotropyCalibration,
-  saveCalibration,
-} from "../../memory/anisotropy.js";
-import {
-  embedWithBackend,
-  selectEmbeddingBackend,
-} from "../../memory/embedding-backend.js";
 import {
   enqueueMemoryJob,
   type MemoryJobType,
@@ -32,25 +22,42 @@ import {
   validateEdgeTargets,
 } from "../../memory/v2/edge-index.js";
 import {
+  getConceptsDir,
   listPages,
   readPage,
   renderPageContent,
 } from "../../memory/v2/page-store.js";
-import {
-  hybridQueryConceptPages,
-  sampleConceptPageDenseVectors,
-} from "../../memory/v2/qdrant.js";
-import { effectiveWeights } from "../../memory/v2/sim.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
-import {
-  generateBm25QueryEmbedding,
-  getConceptPageCorpusStats,
-  rebuildConceptPageCorpusStats,
-} from "../../memory/v2/sparse-bm25.js";
+import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { RouteError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 import type { RouteHandlerArgs } from "./types.js";
+
+const log = getLogger("memory-v2-routes");
+
+/**
+ * Wire-format error code emitted when v2 routes reject a request because
+ * `memory.v2.enabled` is false. Exported so tests and the macOS client can
+ * reference the same string without drift.
+ */
+export const MEMORY_V2_DISABLED_CODE = "MEMORY_V2_DISABLED";
+
+/**
+ * Reject the request when memory v2 is not active. Returning 409 (rather
+ * than serving a partial response) keeps clients honest — the desktop
+ * Memories panel reads this code to render an explicit "disabled in
+ * config" empty state.
+ */
+function requireMemoryV2Enabled(): void {
+  if (!loadConfig().memory.v2.enabled) {
+    throw new RouteError(
+      "Memory v2 is not enabled — set memory.v2.enabled to true to use this command.",
+      MEMORY_V2_DISABLED_CODE,
+      409,
+    );
+  }
+}
 
 // ── Backfill ────────────────────────────────────────────────────────────
 
@@ -76,6 +83,7 @@ const OP_TO_JOB_TYPE: Record<MemoryV2BackfillOp, MemoryJobType> = {
 async function handleBackfill({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2BackfillResult> {
+  requireMemoryV2Enabled();
   const { op, force } = MemoryV2BackfillParams.parse(body);
   const payload: Record<string, unknown> =
     op === "migrate" && force === true ? { force: true } : {};
@@ -102,6 +110,11 @@ export type MemoryV2ValidateResult = {
 async function handleValidate({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2ValidateResult> {
+  // Intentionally NOT gated on `memory.v2.enabled`. Validate is a read-only
+  // diagnostic walk over the on-disk concept-page workspace and must be
+  // runnable before flipping the flag — operators (and the
+  // vellum-memory-v2-migration skill) use it as the final dry-run check
+  // immediately before enabling v2.
   MemoryV2ValidateParams.parse(body);
 
   const workspaceDir = getWorkspaceDir();
@@ -117,7 +130,7 @@ async function handleValidate({
       const page = await readPage(workspaceDir, slug);
       if (!page) continue;
       knownSlugs.add(slug);
-      const chars = Buffer.byteLength(page.body, "utf8");
+      const chars = page.body.length;
       if (chars > maxPageChars) {
         oversizedPages.push({ slug, chars });
       }
@@ -158,6 +171,7 @@ export type MemoryV2GetConceptPageResult = {
 async function handleGetConceptPage({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2GetConceptPageResult> {
+  requireMemoryV2Enabled();
   const { slug } = MemoryV2GetConceptPageParams.parse(body);
   const workspaceDir = getWorkspaceDir();
   let page;
@@ -180,38 +194,57 @@ async function handleGetConceptPage({
   return { slug, rendered: renderPageContent(page) };
 }
 
-// ── Rebuild BM25 corpus stats ───────────────────────────────────────────
+// ── List concept pages ──────────────────────────────────────────────────
 
-const MemoryV2RebuildCorpusStatsParams = z.object({}).strict();
+const MemoryV2ListConceptPagesParams = z.object({}).strict();
 
-export interface MemoryV2RebuildCorpusStatsResult {
-  totalDocs: number;
-  avgDl: number;
-  /** Number of distinct hashed-token buckets that received any DF count. */
-  vocabularyBuckets: number;
-}
+export type MemoryV2ListConceptPagesResult = {
+  pages: Array<{
+    slug: string;
+    bodyBytes: number;
+    edgeCount: number;
+    updatedAtMs: number;
+  }>;
+};
 
-async function handleRebuildCorpusStats({
+async function handleListConceptPages({
   body = {},
-}: RouteHandlerArgs): Promise<MemoryV2RebuildCorpusStatsResult> {
-  MemoryV2RebuildCorpusStatsParams.parse(body);
+}: RouteHandlerArgs): Promise<MemoryV2ListConceptPagesResult> {
+  requireMemoryV2Enabled();
+  MemoryV2ListConceptPagesParams.parse(body);
+
   const workspaceDir = getWorkspaceDir();
-  await rebuildConceptPageCorpusStats(workspaceDir);
-  const stats = getConceptPageCorpusStats();
-  if (!stats) {
-    // The rebuild always swaps in a non-null table on success, so a missing
-    // value here means an unexpected reset between rebuild and read.
-    throw new RouteError(
-      "Corpus stats rebuild completed but no table is loaded",
-      "MEMORY_V2_CORPUS_STATS_MISSING",
-      500,
-    );
-  }
-  return {
-    totalDocs: stats.totalDocs,
-    avgDl: stats.avgDl,
-    vocabularyBuckets: stats.df.size,
-  };
+  const conceptsDir = getConceptsDir(workspaceDir);
+  const slugs = await listPages(workspaceDir);
+
+  const settled = await Promise.all(
+    slugs.map(async (slug) => {
+      try {
+        const page = await readPage(workspaceDir, slug);
+        if (!page) return null;
+        const stats = await stat(join(conceptsDir, `${slug}.md`));
+        return {
+          slug,
+          bodyBytes: Buffer.byteLength(page.body, "utf8"),
+          edgeCount: page.frontmatter.edges.length,
+          updatedAtMs: Math.floor(stats.mtimeMs),
+        };
+      } catch (err) {
+        // A single corrupt page (bad YAML, schema mismatch, etc.) shouldn't
+        // poison the whole listing — the validate route is the place to
+        // surface those; this one is read-only and best-effort.
+        log.warn(
+          `Skipping concept page '${slug}' in list-concept-pages: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return null;
+      }
+    }),
+  );
+  const pages = settled.filter(
+    (p): p is MemoryV2ListConceptPagesResult["pages"][number] => p !== null,
+  );
+
+  return { pages };
 }
 
 // ── Reembed skills ──────────────────────────────────────────────────────
@@ -225,242 +258,17 @@ export type MemoryV2ReembedSkillsResult = {
 async function handleReembedSkills({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2ReembedSkillsResult> {
+  requireMemoryV2Enabled();
   MemoryV2ReembedSkillsParams.parse(body);
-
-  // Gate the route on both the feature flag and the per-workspace config
-  // toggle so the v2 skill collection never gets re-seeded against a
-  // workspace whose v2 subsystem is intentionally off.
-  const config = loadConfig();
-  if (
-    !isAssistantFeatureFlagEnabled("memory-v2-enabled", config) ||
-    !config.memory.v2.enabled
-  ) {
-    throw new RouteError(
-      "Memory v2 is not enabled — flip both the memory-v2-enabled feature flag and memory.v2.enabled to use this command.",
-      "MEMORY_V2_DISABLED",
-      409,
-    );
-  }
 
   // Unlike the queued backfill jobs above, this is a CLI-driven sync
   // request: the operator wants the cache replaced before the next prompt
-  // assembly, so we await the seed inline rather than enqueueing it.
-  await seedV2SkillEntries();
+  // assembly, so we await the seed inline rather than enqueueing it. Pass
+  // `throwOnError` so embedding/Qdrant failures surface to the CLI instead
+  // of being swallowed by the default best-effort behavior.
+  await seedV2SkillEntries({ throwOnError: true });
 
   return { success: true };
-}
-
-// ── Explain similarity ──────────────────────────────────────────────────
-
-const MemoryV2ExplainSimilarityParams = z
-  .object({
-    userText: z.string().min(1),
-    assistantText: z.string().optional(),
-    nowText: z.string().optional(),
-    top: z.number().int().min(1).default(25),
-  })
-  .strict();
-
-export interface MemoryV2ExplainSimilarityRow {
-  slug: string;
-  /** Raw dense cosine score, or null when the slug missed the dense channel. */
-  denseScore: number | null;
-  /** Raw sparse score (Qdrant scale), or null when the slug missed sparse. */
-  sparseRaw: number | null;
-  /** Sparse score divided by the per-batch max, in [0, 1]. */
-  sparseNorm: number | null;
-  /** `clamp01(dense_weight·dense + sparse_weight·sparseNorm)` — the simBatch fused value. */
-  fused: number;
-}
-
-export interface MemoryV2ExplainSimilarityStats {
-  count: number;
-  min: number;
-  max: number;
-  mean: number;
-  stddev: number;
-}
-
-export interface MemoryV2ExplainSimilarityChannel {
-  channel: "user" | "assistant" | "now";
-  textPreview: string;
-  maxSparse: number;
-  /**
-   * Spread (max - min) of normalized sparse scores across this channel's
-   * hits. Drives adaptive sparse weighting — low spread means the sparse
-   * channel can't discriminate, so its weight collapses for this query.
-   */
-  sparseSpread: number;
-  /** Sparse weight after adaptive collapse (≤ the configured base). */
-  effectiveSparseWeight: number;
-  /** Dense weight after adaptive compensation (≥ the configured base). */
-  effectiveDenseWeight: number;
-  rows: MemoryV2ExplainSimilarityRow[];
-  stats: {
-    dense: MemoryV2ExplainSimilarityStats;
-    sparseRaw: MemoryV2ExplainSimilarityStats;
-    sparseNorm: MemoryV2ExplainSimilarityStats;
-    fused: MemoryV2ExplainSimilarityStats;
-  };
-}
-
-export interface MemoryV2ExplainSimilarityResult {
-  config: {
-    dense_weight: number;
-    sparse_weight: number;
-  };
-  channels: MemoryV2ExplainSimilarityChannel[];
-}
-
-function summarizeStats(values: number[]): MemoryV2ExplainSimilarityStats {
-  if (values.length === 0) {
-    return { count: 0, min: 0, max: 0, mean: 0, stddev: 0 };
-  }
-  let min = Infinity;
-  let max = -Infinity;
-  let sum = 0;
-  for (const v of values) {
-    if (v < min) min = v;
-    if (v > max) max = v;
-    sum += v;
-  }
-  const mean = sum / values.length;
-  let sqDiff = 0;
-  for (const v of values) sqDiff += (v - mean) * (v - mean);
-  const stddev = Math.sqrt(sqDiff / values.length);
-  return { count: values.length, min, max, mean, stddev };
-}
-
-async function scoreChannel(
-  channel: "user" | "assistant" | "now",
-  text: string,
-  top: number,
-  denseWeight: number,
-  sparseWeight: number,
-  config: ReturnType<typeof loadConfig>,
-): Promise<MemoryV2ExplainSimilarityChannel> {
-  const denseResult = await embedWithBackend(config, [text]);
-  const denseVec = await applyCorrectionIfCalibrated(
-    denseResult.vectors[0],
-    denseResult.provider,
-    denseResult.model,
-  );
-  const sparseVec = generateBm25QueryEmbedding(text);
-
-  const hits = await hybridQueryConceptPages(denseVec, sparseVec, top);
-
-  let maxSparse = 0;
-  for (const hit of hits) {
-    if (hit.sparseScore !== undefined && hit.sparseScore > maxSparse) {
-      maxSparse = hit.sparseScore;
-    }
-  }
-
-  // Mirror simBatch's adaptive weighting so the printed `fused` matches what
-  // production retrieval would actually score for this query — otherwise
-  // operators staring at the diagnostic would see different numbers than
-  // the activation pipeline saw.
-  const {
-    dense: effDense,
-    sparse: effSparse,
-    spread: sparseSpread,
-  } = effectiveWeights(hits, maxSparse, denseWeight, sparseWeight, config);
-
-  const rows: MemoryV2ExplainSimilarityRow[] = hits.map((hit) => {
-    const dense = hit.denseScore ?? 0;
-    const sparseNorm =
-      hit.sparseScore !== undefined && maxSparse > 0
-        ? hit.sparseScore / maxSparse
-        : 0;
-    const fusedRaw = effDense * dense + effSparse * sparseNorm;
-    const fused = Math.max(0, Math.min(1, fusedRaw));
-    return {
-      slug: hit.slug,
-      denseScore: hit.denseScore ?? null,
-      sparseRaw: hit.sparseScore ?? null,
-      sparseNorm: hit.sparseScore !== undefined ? sparseNorm : null,
-      fused,
-    };
-  });
-
-  rows.sort((a, b) => b.fused - a.fused);
-
-  const denseValues: number[] = [];
-  const sparseRawValues: number[] = [];
-  const sparseNormValues: number[] = [];
-  const fusedValues: number[] = [];
-  for (const row of rows) {
-    if (row.denseScore !== null) denseValues.push(row.denseScore);
-    if (row.sparseRaw !== null) sparseRawValues.push(row.sparseRaw);
-    if (row.sparseNorm !== null) sparseNormValues.push(row.sparseNorm);
-    fusedValues.push(row.fused);
-  }
-
-  return {
-    channel,
-    textPreview: text.length > 120 ? `${text.slice(0, 120)}…` : text,
-    maxSparse,
-    sparseSpread,
-    effectiveSparseWeight: effSparse,
-    effectiveDenseWeight: effDense,
-    rows,
-    stats: {
-      dense: summarizeStats(denseValues),
-      sparseRaw: summarizeStats(sparseRawValues),
-      sparseNorm: summarizeStats(sparseNormValues),
-      fused: summarizeStats(fusedValues),
-    },
-  };
-}
-
-async function handleExplainSimilarity({
-  body = {},
-}: RouteHandlerArgs): Promise<MemoryV2ExplainSimilarityResult> {
-  const params = MemoryV2ExplainSimilarityParams.parse(body);
-  const config = loadConfig();
-  const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
-    config.memory.v2;
-
-  const channels: MemoryV2ExplainSimilarityChannel[] = [];
-  channels.push(
-    await scoreChannel(
-      "user",
-      params.userText,
-      params.top,
-      denseWeight,
-      sparseWeight,
-      config,
-    ),
-  );
-  if (params.assistantText && params.assistantText.length > 0) {
-    channels.push(
-      await scoreChannel(
-        "assistant",
-        params.assistantText,
-        params.top,
-        denseWeight,
-        sparseWeight,
-        config,
-      ),
-    );
-  }
-  if (params.nowText && params.nowText.length > 0) {
-    channels.push(
-      await scoreChannel(
-        "now",
-        params.nowText,
-        params.top,
-        denseWeight,
-        sparseWeight,
-        config,
-      ),
-    );
-  }
-
-  return {
-    config: { dense_weight: denseWeight, sparse_weight: sparseWeight },
-    channels,
-  };
 }
 
 // ── Concept injection frequency (debug-only) ────────────────────────────
@@ -475,96 +283,11 @@ const MemoryV2ConceptFrequencyParams = z
 async function handleConceptFrequency({
   body = {},
 }: RouteHandlerArgs): Promise<ConceptFrequencyResponse> {
+  requireMemoryV2Enabled();
   const { conversationId, sinceMs } =
     MemoryV2ConceptFrequencyParams.parse(body);
   const workspaceDir = getWorkspaceDir();
   return getConceptFrequencySummary(workspaceDir, { conversationId, sinceMs });
-}
-
-// ── Fit anisotropy calibration ──────────────────────────────────────────
-
-const MemoryV2FitAnisotropyParams = z
-  .object({
-    /**
-     * Number of leading principal components to project out at apply time.
-     * `1` is the canonical default for transformer embeddings; raise to 2-3
-     * only when the variance spectrum shows multiple dominant directions.
-     */
-    k: z.number().int().min(1).max(16).default(1),
-    /**
-     * Maximum number of stored vectors to pull from Qdrant for the fit.
-     * 5_000 is plenty for 3072-dim Gemini — power iteration converges fast
-     * and pulling the full corpus would just cost wall-clock time.
-     */
-    sample: z.number().int().min(1).max(100_000).default(5_000),
-  })
-  .strict();
-
-export interface MemoryV2FitAnisotropyResult {
-  provider: string;
-  model: string;
-  dim: number;
-  k: number;
-  sampleCount: number;
-  totalVariance: number;
-  componentVariance: number[];
-  /** `componentVariance[i] / totalVariance` for each component. */
-  explainedVarianceRatio: number[];
-  /** Absolute path the calibration was written to. */
-  path: string;
-}
-
-async function handleFitAnisotropy({
-  body = {},
-}: RouteHandlerArgs): Promise<MemoryV2FitAnisotropyResult> {
-  const { k, sample } = MemoryV2FitAnisotropyParams.parse(body);
-  const config = loadConfig();
-
-  const selection = await selectEmbeddingBackend(config);
-  if (!selection.backend) {
-    throw new RouteError(
-      `Cannot fit anisotropy calibration: ${selection.reason ?? "no embedding backend configured"}`,
-      "MEMORY_V2_NO_EMBEDDING_BACKEND",
-      409,
-    );
-  }
-
-  const vectors = await sampleConceptPageDenseVectors(sample);
-  if (vectors.length === 0) {
-    throw new RouteError(
-      "Cannot fit anisotropy calibration: the v2 concept-page collection is empty. " +
-        "Embed some concept pages first (run `assistant memory v2 reembed`), then retry.",
-      "MEMORY_V2_NO_VECTORS",
-      409,
-    );
-  }
-  if (vectors.length < k * 4) {
-    // PCA on too-few samples is unstable — refuse rather than hand back
-    // overfit components. The 4× heuristic is conservative; in practice
-    // anisotropy fits stabilise at a few hundred samples per component.
-    throw new RouteError(
-      `Cannot fit k=${k} components from only ${vectors.length} vectors — need at least ${k * 4}. ` +
-        "Embed more concept pages or fit a smaller k.",
-      "MEMORY_V2_INSUFFICIENT_VECTORS",
-      409,
-    );
-  }
-
-  const { provider, model } = selection.backend;
-  const calib = fitAnisotropyCalibration(vectors, k, { provider, model });
-  const path = await saveCalibration(calib);
-
-  return {
-    provider,
-    model,
-    dim: calib.dim,
-    k,
-    sampleCount: calib.sampleCount,
-    totalVariance: calib.totalVariance,
-    componentVariance: calib.componentVariance,
-    explainedVarianceRatio: explainedVarianceRatio(calib),
-    path,
-  };
 }
 
 // ── Route definitions ───────────────────────────────────────────────────
@@ -588,7 +311,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleValidate,
     summary: "Validate memory v2 workspace state",
     description:
-      "Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse failures.",
+      "Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse failures. Runnable regardless of memory.v2.enabled so operators can dry-run validation before flipping the flag.",
     tags: ["memory"],
     requestBody: MemoryV2ValidateParams,
   },
@@ -604,37 +327,26 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: MemoryV2GetConceptPageParams,
   },
   {
+    operationId: "memory_v2_list_concept_pages",
+    method: "POST",
+    endpoint: "memory/v2/list-concept-pages",
+    handler: handleListConceptPages,
+    summary: "List all memory v2 concept pages with metadata",
+    description:
+      "Returns slugs, body sizes, edge counts, and last-modified timestamps for every concept page on disk. Read-only; used by the desktop About → Memories surface to render a browse-able list.",
+    tags: ["memory"],
+    requestBody: MemoryV2ListConceptPagesParams,
+  },
+  {
     operationId: "memory_v2_reembed_skills",
     method: "POST",
     endpoint: "memory/v2/reembed-skills",
     handler: handleReembedSkills,
     summary: "Re-seed v2 skill entries from the current skill catalog",
     description:
-      "Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on memory-v2-enabled flag and config.memory.v2.enabled.",
+      "Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on config.memory.v2.enabled.",
     tags: ["memory"],
     requestBody: MemoryV2ReembedSkillsParams,
-  },
-  {
-    operationId: "memory_v2_explain_similarity",
-    method: "POST",
-    endpoint: "memory/v2/explain-similarity",
-    handler: handleExplainSimilarity,
-    summary: "Diagnose dense vs sparse similarity score distributions",
-    description:
-      "Read-only diagnostic. Embeds the supplied text(s), runs hybrid dense + sparse queries against the concept-page collection, and returns per-slug raw dense, raw sparse, normalized sparse, and fused scores plus per-channel summary stats. Used to investigate score-compression at the head of the activation distribution.",
-    tags: ["memory"],
-    requestBody: MemoryV2ExplainSimilarityParams,
-  },
-  {
-    operationId: "memory_v2_rebuild_corpus_stats",
-    method: "POST",
-    endpoint: "memory/v2/rebuild-corpus-stats",
-    handler: handleRebuildCorpusStats,
-    summary: "Rebuild the BM25 corpus statistics for memory v2",
-    description:
-      "Walks every concept page on disk, recomputes the document-frequency table and average document length used by the BM25 sparse channel, and atomically swaps the in-memory stats. Run after bulk content imports or to recover from a rebuild that errored at startup. Does not reembed individual page sparse vectors — pair with `assistant memory v2 reembed` when document-side weights need refreshing.",
-    tags: ["memory"],
-    requestBody: MemoryV2RebuildCorpusStatsParams,
   },
   {
     operationId: "memory_v2_concept_frequency",
@@ -646,16 +358,5 @@ export const ROUTES: RouteDefinition[] = [
       "Debug-only. Aggregates the existing memory_v2_activation_logs table by (slug, status) and cross-references on-disk concept pages so an operator can see which concepts get injected often, which get scored but rejected, and which on-disk pages never even surface as candidates. Optional filters: conversationId narrows to a single conversation; sinceMs restricts to logs created at-or-after the given epoch ms timestamp.",
     tags: ["memory"],
     requestBody: MemoryV2ConceptFrequencyParams,
-  },
-  {
-    operationId: "memory_v2_fit_anisotropy",
-    method: "POST",
-    endpoint: "memory/v2/fit-anisotropy",
-    handler: handleFitAnisotropy,
-    summary: "Fit the embedding anisotropy correction for memory v2",
-    description:
-      "Samples stored dense vectors from the concept-page Qdrant collection, fits a corpus mean + top-k principal components (Mu & Viswanath 'all-but-the-top'), and persists the calibration so subsequent embeds and queries apply the correction. Run `assistant memory v2 reembed` after fitting so stored vectors are written under the new calibration — until then, queries (corrected) and stored vectors (uncorrected) live in different spaces.",
-    tags: ["memory"],
-    requestBody: MemoryV2FitAnisotropyParams,
   },
 ];

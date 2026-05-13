@@ -27,13 +27,13 @@ import {
 import {
   type DeterministicRecallSearchOptions,
   type DeterministicRecallSearchResult,
-  isAutoInjectedPkbContextEvidence,
   runDeterministicRecallSearch,
 } from "./search.js";
 import {
   extractWorkspacePathLiterals,
   inspectWorkspacePaths,
   isSafeWorkspaceRelativePath,
+  normalizeWorkspacePathLiteral,
 } from "./sources/workspace.js";
 import type {
   RecallAnswer,
@@ -212,19 +212,6 @@ const FINISH_NEGATIVE_PATTERNS = [
   /\bcan't (?:answer|determine|find|provide)\b/i,
   /\bonly the locator path\b/i,
   /\bno text\b/i,
-];
-
-const PKB_RELATIVE_PATH_PREFIXES = [
-  "archive/",
-  "dpo/",
-  "essentials.md",
-  "INDEX.md",
-  "intimate/",
-  "people/",
-  "preferences/",
-  "procedures/",
-  "schedule/",
-  "us-arcs/",
 ];
 
 export async function runAgenticRecall(
@@ -429,7 +416,7 @@ export async function runAgenticRecall(
  * Redact secrets from workspace-sourced evidence excerpts before they are
  * serialised into a prompt that will be sent to an external LLM provider.
  *
- * Memory, PKB, and conversation evidence is already controlled content —
+ * Memory and conversation evidence is already controlled content —
  * only workspace files can contain arbitrary secrets (API keys, tokens, etc.)
  * written by the user or by tools. This runs the same pattern-based scanner
  * used for shell command summaries and approval prompts, replacing any
@@ -499,7 +486,7 @@ async function runSeedRecallSearch(
       context,
       searchOptions,
     );
-    evidence = mergeEvidence(expansionResult.evidence, evidence);
+    evidence = mergeEvidence(evidence, expansionResult.evidence);
   }
 
   return withFallbackEvidence(baseResult, evidence);
@@ -694,6 +681,13 @@ function finishRecallFromToolUse(
   }
 
   const citedEvidence = selectCitedEvidence(promptEvidence, finish.citationIds);
+  if (citedEvidence.length === 0) {
+    return {
+      ok: false,
+      reason: "citation_validation_failed",
+      detail: "finish_recall returned no resolvable citations",
+    };
+  }
   debug.finish = {
     confidence: finish.confidence,
     citationIds: finish.citationIds,
@@ -960,14 +954,16 @@ async function executeInspectWorkspacePaths(
 }> {
   const reason = readSearchReason(payload.reason);
   const requestedPaths = readInspectPaths(payload.paths);
-  const allowedPaths = collectInspectableWorkspacePaths(input.query, evidence);
+  const workspaceSourceEnabled = input.sources.includes("workspace");
+  const allowedPaths = workspaceSourceEnabled
+    ? collectInspectableWorkspacePaths(input.query, evidence)
+    : new Set<string>();
   const acceptedPaths: string[] = [];
   const rejectedPaths: string[] = [];
   for (const requestedPath of requestedPaths) {
-    const acceptedPath = normalizeRequestedWorkspaceInspectionPath(
-      requestedPath,
-      allowedPaths,
-    );
+    const acceptedPath = workspaceSourceEnabled
+      ? normalizeRequestedWorkspaceInspectionPath(requestedPath, allowedPaths)
+      : null;
     if (acceptedPath) {
       acceptedPaths.push(acceptedPath);
     } else {
@@ -994,6 +990,7 @@ async function executeInspectWorkspacePaths(
       ],
       debug: {
         ...debug,
+        evidenceCount: 1,
         errors: [
           {
             path: "inspect_workspace_paths",
@@ -1006,8 +1003,9 @@ async function executeInspectWorkspacePaths(
 
   const errors = rejectedPaths.map((path) => ({
     path,
-    reason:
-      "path was not a safe relative workspace file surfaced by the query or prior evidence",
+    reason: workspaceSourceEnabled
+      ? "path was not a safe relative workspace file surfaced by the query or prior evidence"
+      : "workspace source is disabled for this recall request",
   }));
 
   let inspectionEvidence: RecallEvidence[] = [];
@@ -1049,7 +1047,7 @@ async function runAutomaticWorkspaceInspection(
   evidence: RecallEvidence[];
   debug?: AgenticRecallInspectDebug;
 }> {
-  if (!input.sources.includes("workspace") && !input.sources.includes("pkb")) {
+  if (!input.sources.includes("workspace")) {
     return { evidence: [] };
   }
 
@@ -1113,7 +1111,7 @@ function collectAutomaticWorkspaceInspectionPaths(
   for (const item of evidence) {
     collectEvidenceWorkspacePaths(item).forEach((path) => paths.add(path));
   }
-  return [...paths].filter(isSafeWorkspaceRelativePath).slice(0, 3);
+  return [...paths].slice(0, 3);
 }
 
 function collectInspectableWorkspacePaths(
@@ -1128,62 +1126,33 @@ function collectInspectableWorkspacePaths(
 }
 
 function collectEvidenceWorkspacePaths(item: RecallEvidence): string[] {
-  if (isAutoInjectedPkbContextEvidence(item)) {
-    return [];
-  }
-
-  const rawPaths = new Set<string>();
+  const paths = new Set<string>();
   const metadataPath = item.metadata?.path;
-  if (typeof metadataPath === "string") {
-    rawPaths.add(metadataPath);
+  if (
+    typeof metadataPath === "string" &&
+    isSafeWorkspaceRelativePath(metadataPath)
+  ) {
+    paths.add(metadataPath);
   }
   for (const text of [item.locator, item.title, item.excerpt]) {
     for (const path of extractWorkspacePathLiterals(text)) {
-      rawPaths.add(path);
-    }
-  }
-
-  const paths: string[] = [];
-  for (const rawPath of rawPaths) {
-    for (const path of normalizeEvidenceWorkspacePath(rawPath, item.source)) {
       if (isSafeWorkspaceRelativePath(path)) {
-        paths.push(path);
+        paths.add(path);
       }
     }
   }
-  return [...new Set(paths)];
+  return [...paths];
 }
 
 function normalizeRequestedWorkspaceInspectionPath(
   requestedPath: string,
   allowedPaths: ReadonlySet<string>,
 ): string | null {
-  const pkbPrefixedPath = `pkb/${requestedPath}`;
-  if (!requestedPath.startsWith("pkb/") && allowedPaths.has(pkbPrefixedPath)) {
-    return pkbPrefixedPath;
+  const normalized = normalizeWorkspacePathLiteral(requestedPath);
+  if (!normalized) {
+    return null;
   }
-
-  if (allowedPaths.has(requestedPath)) {
-    return requestedPath;
-  }
-
-  return null;
-}
-
-function normalizeEvidenceWorkspacePath(
-  path: string,
-  source: RecallSource,
-): string[] {
-  if (path.startsWith("pkb/")) {
-    return [path];
-  }
-  if (
-    source === "pkb" ||
-    PKB_RELATIVE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
-  ) {
-    return [`pkb/${path}`];
-  }
-  return [path];
+  return allowedPaths.has(normalized) ? normalized : null;
 }
 
 function makeWorkspaceInspectionErrorEvidence(options: {
@@ -1240,24 +1209,7 @@ function mergeEvidence(
     merged.push(item);
   }
 
-  return demoteAutoInjectedContextEvidence(merged);
-}
-
-function demoteAutoInjectedContextEvidence(
-  evidence: readonly RecallEvidence[],
-): RecallEvidence[] {
-  const regularEvidence: RecallEvidence[] = [];
-  const autoInjectedContextEvidence: RecallEvidence[] = [];
-
-  for (const item of evidence) {
-    if (isAutoInjectedPkbContextEvidence(item)) {
-      autoInjectedContextEvidence.push(item);
-    } else {
-      regularEvidence.push(item);
-    }
-  }
-
-  return [...regularEvidence, ...autoInjectedContextEvidence];
+  return merged;
 }
 
 function toRecallInput(input: NormalizedRecallInput): RecallInput {
@@ -1284,7 +1236,7 @@ function withFallbackEvidence(
   result: DeterministicRecallSearchResult,
   evidence: readonly RecallEvidence[],
 ): DeterministicRecallSearchResult {
-  const orderedEvidence = demoteAutoInjectedContextEvidence(evidence);
+  const orderedEvidence = dedupeEvidenceByContent(evidence);
   const evidenceCountBySource = new Map<RecallSource, number>();
   for (const item of orderedEvidence) {
     evidenceCountBySource.set(
@@ -1301,6 +1253,29 @@ function withFallbackEvidence(
       evidenceCount: evidenceCountBySource.get(note.source) ?? 0,
     })),
   };
+}
+
+function dedupeEvidenceByContent(
+  evidence: readonly RecallEvidence[],
+): RecallEvidence[] {
+  const seenIds = new Set<string>();
+  const seenContent = new Set<string>();
+  const deduped: RecallEvidence[] = [];
+
+  for (const item of evidence) {
+    if (seenIds.has(item.id)) {
+      continue;
+    }
+    const contentKey = `${item.source}\0${item.locator}\0${item.excerpt}`;
+    if (seenContent.has(contentKey)) {
+      continue;
+    }
+    seenIds.add(item.id);
+    seenContent.add(contentKey);
+    deduped.push(item);
+  }
+
+  return deduped;
 }
 
 function deterministicFallback(

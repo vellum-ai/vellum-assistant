@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
+import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
 
 /**
  * Parity guard: daemon LLM provider catalog vs client LLM catalog JSON.
@@ -27,6 +29,19 @@ function getRepoRoot(): string {
   return join(process.cwd(), "..");
 }
 
+const META_JSON_PATH = join(
+  getRepoRoot(),
+  "meta",
+  "llm-provider-catalog.json",
+);
+const SWIFTPM_MIRROR_PATH = join(
+  getRepoRoot(),
+  "clients",
+  "shared",
+  "Resources",
+  "llm-provider-catalog.json",
+);
+
 interface ClientCatalogCredentialsGuide {
   description: string;
   url: string;
@@ -50,6 +65,13 @@ interface ClientCatalogModel {
     outputPer1mTokens: number;
     cacheWritePer1mTokens?: number;
     cacheReadPer1mTokens?: number;
+    tiers?: Array<{
+      inputTokenThreshold: number;
+      inputPer1mTokens: number;
+      outputPer1mTokens: number;
+      cacheReadPer1mTokens?: number;
+      cacheWritePer1mTokens?: number;
+    }>;
   };
 }
 
@@ -62,6 +84,7 @@ interface ClientCatalogEntry {
   envVar?: string;
   apiKeyPlaceholder?: string;
   credentialsGuide?: ClientCatalogCredentialsGuide;
+  supportsPlatformAuth?: boolean;
   defaultModel: string;
   models: ClientCatalogModel[];
 }
@@ -72,8 +95,7 @@ interface ClientCatalog {
 }
 
 function loadClientCatalog(): ClientCatalog {
-  const catalogPath = join(getRepoRoot(), "meta", "llm-provider-catalog.json");
-  const raw = readFileSync(catalogPath, "utf-8");
+  const raw = readFileSync(META_JSON_PATH, "utf-8");
   return JSON.parse(raw);
 }
 
@@ -114,10 +136,26 @@ describe("LLM catalog parity: daemon vs client", () => {
       expect(clientEntry.setupHint).toBe(daemonEntry.setupHint);
       expect(clientEntry.envVar).toBe(daemonEntry.envVar);
       expect(clientEntry.apiKeyPlaceholder).toBe(daemonEntry.apiKeyPlaceholder);
+      expect(clientEntry.supportsPlatformAuth).toBe(
+        daemonEntry.supportsPlatformAuth,
+      );
       expect(clientEntry.credentialsGuide).toEqual(
         daemonEntry.credentialsGuide,
       );
       expect(clientEntry.defaultModel).toBe(daemonEntry.defaultModel);
+    }
+  });
+
+  test("supportsPlatformAuth mirrors PLATFORM_PROVIDER_META", () => {
+    // The catalog field is derived from PLATFORM_PROVIDER_META at build
+    // time. This test guards against future hand-edits to model-catalog.ts
+    // that would let the two drift. Adding a provider to PLATFORM_PROVIDER_META
+    // must auto-propagate; flipping `managed: true` to `false` (or vice
+    // versa) must propagate too.
+    for (const entry of PROVIDER_CATALOG) {
+      const expectedSupportsManagedAuth =
+        PLATFORM_PROVIDER_META[entry.id]?.managed === true;
+      expect(entry.supportsPlatformAuth).toBe(expectedSupportsManagedAuth);
     }
   });
 
@@ -248,6 +286,126 @@ describe("LLM catalog parity: daemon vs client", () => {
     });
   });
 
+  // -----------------------------------------------------------------------
+  // pricing.ts ↔ model-catalog.ts parity
+  //
+  // `assistant/src/util/pricing.ts` reads pricing from `PROVIDER_CATALOG`
+  // (catalog-first) with a legacy fallback table for models we still bill
+  // for but no longer advertise. These tests probe `resolvePricing` /
+  // `resolvePricingForUsage` for every priced catalog model so any drift
+  // between the catalog row and the resolver's output (including cache
+  // discounts and long-context tier rates) fails CI.
+  // -----------------------------------------------------------------------
+
+  test("each priced catalog model has matching base rates in pricing.ts", () => {
+    // 100k tokens stays below every long-context tier threshold in the
+    // catalog (smallest threshold is 200k), so resolvePricing returns the
+    // base rate uncontaminated by tier selection.
+    const PROBE_TOKENS = 100_000;
+    const TOKENS_PER_MILLION = 1_000_000;
+
+    for (const provider of PROVIDER_CATALOG) {
+      for (const model of provider.models) {
+        if (!model.pricing) continue;
+
+        const inputResult = resolvePricing(
+          provider.id,
+          model.id,
+          PROBE_TOKENS,
+          0,
+        );
+        expect(
+          inputResult.pricingStatus,
+          `${provider.id}/${model.id} unpriced in pricing.ts`,
+        ).toBe("priced");
+        const inputRate =
+          (inputResult.estimatedCostUsd ?? 0) *
+          (TOKENS_PER_MILLION / PROBE_TOKENS);
+        expect(
+          inputRate,
+          `${provider.id}/${model.id} input rate drift`,
+        ).toBeCloseTo(model.pricing.inputPer1mTokens, 6);
+
+        const outputResult = resolvePricing(
+          provider.id,
+          model.id,
+          0,
+          PROBE_TOKENS,
+        );
+        const outputRate =
+          (outputResult.estimatedCostUsd ?? 0) *
+          (TOKENS_PER_MILLION / PROBE_TOKENS);
+        expect(
+          outputRate,
+          `${provider.id}/${model.id} output rate drift`,
+        ).toBeCloseTo(model.pricing.outputPer1mTokens, 6);
+      }
+    }
+  });
+
+  test("each priced catalog model has matching cache-read rate in pricing.ts", () => {
+    const PROBE_TOKENS = 100_000;
+    const TOKENS_PER_MILLION = 1_000_000;
+
+    for (const provider of PROVIDER_CATALOG) {
+      for (const model of provider.models) {
+        const cacheReadCatalogRate = model.pricing?.cacheReadPer1mTokens;
+        if (cacheReadCatalogRate === undefined) continue;
+
+        const result = resolvePricingForUsage(provider.id, model.id, {
+          directInputTokens: 0,
+          outputTokens: 0,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: PROBE_TOKENS,
+          anthropicCacheCreation: null,
+        });
+        expect(
+          result.pricingStatus,
+          `${provider.id}/${model.id} unpriced in pricing.ts`,
+        ).toBe("priced");
+        const cacheReadResolvedRate =
+          (result.estimatedCostUsd ?? 0) * (TOKENS_PER_MILLION / PROBE_TOKENS);
+        expect(
+          cacheReadResolvedRate,
+          `${provider.id}/${model.id} cache-read rate drift`,
+        ).toBeCloseTo(cacheReadCatalogRate, 6);
+      }
+    }
+  });
+
+  test("each priced catalog tier resolves at its tier rate", () => {
+    const TOKENS_PER_MILLION = 1_000_000;
+
+    for (const provider of PROVIDER_CATALOG) {
+      for (const model of provider.models) {
+        const tiers = model.pricing?.tiers;
+        if (!tiers || tiers.length === 0) continue;
+
+        for (const tier of tiers) {
+          const probeTokens = tier.inputTokenThreshold + 1_000;
+          const result = resolvePricingForUsage(provider.id, model.id, {
+            directInputTokens: probeTokens,
+            outputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+            anthropicCacheCreation: null,
+          });
+          expect(
+            result.pricingStatus,
+            `${provider.id}/${model.id} unpriced at tier ${tier.inputTokenThreshold}`,
+          ).toBe("priced");
+          const resolvedRate =
+            (result.estimatedCostUsd ?? 0) *
+            (TOKENS_PER_MILLION / probeTokens);
+          expect(
+            resolvedRate,
+            `${provider.id}/${model.id} input rate drift at tier ${tier.inputTokenThreshold}`,
+          ).toBeCloseTo(tier.inputPer1mTokens, 6);
+        }
+      }
+    }
+  });
+
   test("Gemini 2.5 Pro catalog context matches provider limits", () => {
     const gemini = PROVIDER_CATALOG.find((entry) => entry.id === "gemini");
     expect(
@@ -260,5 +418,20 @@ describe("LLM catalog parity: daemon vs client", () => {
       longContextPricingThresholdTokens: 200000,
       longContextMode: "native-model",
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // Mirror byte-equality
+  // -----------------------------------------------------------------------
+
+  test("SwiftPM mirror is byte-identical to meta/ copy", () => {
+    // `sync-llm-catalog.ts` writes both files from the same serializer; this
+    // guard catches any case where one copy is regenerated without the other.
+    // Byte equality is required because SwiftPM bundles the resource verbatim
+    // into `VellumAssistantShared` while the meta/ JSON is consumed as a
+    // cross-package artifact (web codegen, etc.).
+    const metaBytes = readFileSync(META_JSON_PATH);
+    const swiftPmBytes = readFileSync(SWIFTPM_MIRROR_PATH);
+    expect(swiftPmBytes.equals(metaBytes)).toBe(true);
   });
 });

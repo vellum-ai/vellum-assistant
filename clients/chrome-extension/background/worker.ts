@@ -40,8 +40,9 @@ import {
   type HostBrowserSessionInvalidatedEnvelope,
 } from "./host-browser-dispatcher.js";
 import { SseConnection, type SseMode } from "./sse-connection.js";
-import { fetchAssistants, getCsrfToken } from "./cloud-api.js";
+import { fetchAssistants } from "./cloud-api.js";
 import { appendEvent, clearEventLog, getEventLog, getOperations, getOperationById, recordRequest, recordResponse } from "./event-log.js";
+import { getClientId } from "./client-identity.js";
 import {
   startCloudLogin,
   getStoredSession,
@@ -383,6 +384,10 @@ async function dispatchHostBrowserResult(
 
     const headers: Record<string, string> = {
       "content-type": "application/json",
+      // Identifies this extension to the daemon's actor-binding check.
+      // The daemon validates this matches the client recorded at request
+      // time before resolving the pending host_browser interaction.
+      "X-Vellum-Client-Id": await getClientId(),
     };
     if (mode.kind === "vellum-cloud") {
       if (mode.token) {
@@ -394,10 +399,6 @@ async function dispatchHostBrowserResult(
       }
       if (mode.organizationId) {
         headers["Vellum-Organization-Id"] = mode.organizationId;
-      }
-      const csrfToken = await getCsrfToken(baseUrl);
-      if (csrfToken) {
-        headers["X-CSRFToken"] = csrfToken;
       }
     } else if (selfHostedPairToken) {
       headers["authorization"] = `Bearer ${selfHostedPairToken}`;
@@ -420,7 +421,10 @@ async function dispatchHostBrowserResult(
   if (userMode !== "cloud") {
     const gatewayUrl = await getStoredGatewayUrl();
     try {
-      const fallbackHeaders: Record<string, string> = { "content-type": "application/json" };
+      const fallbackHeaders: Record<string, string> = {
+        "content-type": "application/json",
+        "X-Vellum-Client-Id": await getClientId(),
+      };
       if (selfHostedPairToken) {
         fallbackHeaders["authorization"] = `Bearer ${selfHostedPairToken}`;
       }
@@ -468,22 +472,17 @@ function dispatchHostBrowserEvent(envelope: HostBrowserEventEnvelope): void {
     if (mode.organizationId) {
       headers["Vellum-Organization-Id"] = mode.organizationId;
     }
-    // Resolve CSRF token and session token concurrently — both are needed
-    // for authenticated cross-site POSTs but neither is available synchronously.
-    void Promise.all([getCsrfToken(baseUrl), getStoredSession()]).then(
-      ([csrfToken, freshSession]) => {
-        if (csrfToken) headers["X-CSRFToken"] = csrfToken;
-        if (freshSession?.sessionToken) {
-          headers["X-Session-Token"] = freshSession.sessionToken;
-        }
-        void fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(envelope),
-          credentials: "include",
-        }).catch(() => { /* fire and forget */ });
-      },
-    );
+    void getStoredSession().then((freshSession) => {
+      if (freshSession?.sessionToken) {
+        headers["X-Session-Token"] = freshSession.sessionToken;
+      }
+      void fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(envelope),
+        credentials: "include",
+      }).catch(() => { /* fire and forget */ });
+    });
     return;
   } else if (selfHostedPairToken) {
     headers["authorization"] = `Bearer ${selfHostedPairToken}`;
@@ -520,20 +519,17 @@ function dispatchHostBrowserSessionInvalidated(
     if (mode.organizationId) {
       headers["Vellum-Organization-Id"] = mode.organizationId;
     }
-    void Promise.all([getCsrfToken(baseUrl), getStoredSession()]).then(
-      ([csrfToken, freshSession]) => {
-        if (csrfToken) headers["X-CSRFToken"] = csrfToken;
-        if (freshSession?.sessionToken) {
-          headers["X-Session-Token"] = freshSession.sessionToken;
-        }
-        void fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(envelope),
-          credentials: "include",
-        }).catch(() => { /* fire and forget */ });
-      },
-    );
+    void getStoredSession().then((freshSession) => {
+      if (freshSession?.sessionToken) {
+        headers["X-Session-Token"] = freshSession.sessionToken;
+      }
+      void fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(envelope),
+        credentials: "include",
+      }).catch(() => { /* fire and forget */ });
+    });
     return;
   } else if (selfHostedPairToken) {
     headers["authorization"] = `Bearer ${selfHostedPairToken}`;
@@ -623,6 +619,10 @@ function createSseConnection(mode: SseMode): SseConnection {
       );
       if (authError) {
         shouldConnect = false;
+        // Auth-required is a hard stop: no automatic reconnect will
+        // succeed until the user re-signs-in, so let the worker idle
+        // out instead of waking every 30 s.
+        void clearKeepaliveAlarm();
         setConnectionHealth("auth_required", {
           lastErrorMessage: authError,
         });
@@ -900,6 +900,54 @@ function disconnect(): void {
   }
 }
 
+// ── Keep-alive (MV3 service-worker liveness) ─────────────────────────
+
+const KEEPALIVE_ALARM_NAME = "vellum-relay-keepalive";
+const KEEPALIVE_PERIOD_MIN = 0.5;
+
+async function ensureKeepaliveAlarm(): Promise<void> {
+  const existing = await chrome.alarms.get(KEEPALIVE_ALARM_NAME);
+  if (existing) return;
+  await chrome.alarms.create(KEEPALIVE_ALARM_NAME, {
+    periodInMinutes: KEEPALIVE_PERIOD_MIN,
+  });
+}
+
+async function clearKeepaliveAlarm(): Promise<void> {
+  await chrome.alarms.clear(KEEPALIVE_ALARM_NAME);
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== KEEPALIVE_ALARM_NAME) return;
+  if (shouldConnect && !(sseConnection?.isOpen() ?? false)) {
+    void connect({ interactive: false }).catch((err) => {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.warn(`[vellum-relay] Keepalive reconnect failed: ${detail}`);
+    });
+  }
+});
+
+// On install/update, only register the alarm if we already have an
+// active auto-connect intent (e.g. an update installing over a
+// connected install). For a fresh install with no prior connect,
+// the alarm is created when the user first presses Connect — that
+// avoids burning a wake-up every 30 s on installs that never connect.
+chrome.runtime.onInstalled.addListener(() => {
+  void chrome.storage.local.get(AUTO_CONNECT_KEY).then((result) => {
+    if (result[AUTO_CONNECT_KEY] === true) {
+      void ensureKeepaliveAlarm();
+    }
+  });
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  void chrome.storage.local.get(AUTO_CONNECT_KEY).then((result) => {
+    if (result[AUTO_CONNECT_KEY] === true) {
+      void ensureKeepaliveAlarm();
+    }
+  });
+});
+
 // ── Extension message listener (from popup) ─────────────────────────
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
@@ -914,6 +962,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         // was in-flight — their pause intent takes precedence.
         if (shouldConnect) {
           await setAutoConnect(true);
+          await ensureKeepaliveAlarm();
         }
         sendResponseFn({ ok: true });
       })
@@ -926,6 +975,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         // must not leave the flag set, otherwise the next bootstrap
         // would retry a doomed connect.
         await setAutoConnect(false);
+        await clearKeepaliveAlarm();
         const serializedError = serializeWorkerError(err);
         const errorMessage = serializedError.error;
         // Classify the failure: auth-related errors (MissingTokenError)
@@ -951,6 +1001,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   if (message.type === "pause" || message.type === "disconnect") {
     shouldConnect = false;
     setConnectionHealth("paused");
+    void clearKeepaliveAlarm();
     // Await the storage write so MV3 can't terminate the worker before
     // the autoConnect flag is persisted to false.
     setAutoConnect(false)
@@ -1242,6 +1293,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       disconnect();
       setConnectionHealth("paused");
       clearEventLog();
+      await clearKeepaliveAlarm();
       await setAutoConnect(false);
       await clearSession();
       await clearSelectedAssistant();
@@ -1257,6 +1309,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       disconnect();
       setConnectionHealth("paused");
       clearEventLog();
+      await clearKeepaliveAlarm();
       await setAutoConnect(false);
       await clearStoredUserMode();
       sendResponseFn({ ok: true });
@@ -1329,6 +1382,7 @@ async function bootstrap(): Promise<void> {
   const result = await chrome.storage.local.get(AUTO_CONNECT_KEY);
   if (result[AUTO_CONNECT_KEY] !== true) return;
   shouldConnect = true;
+  await ensureKeepaliveAlarm();
   try {
     await connect({ interactive: false });
   } catch (err) {
@@ -1337,6 +1391,7 @@ async function bootstrap(): Promise<void> {
     // sign in / pair to try again. Persist the error detail exactly
     // once so the popup can surface it, then stop retrying.
     shouldConnect = false;
+    void clearKeepaliveAlarm();
     if (err instanceof MissingTokenError) {
       console.warn(`[vellum-relay] Skipping auto-connect: ${err.message}`);
       setConnectionHealth("auth_required", {

@@ -56,6 +56,19 @@ let autoAnalyzeEnabled = true;
 // `disposeConversation` must skip the `graph_extract` enqueue.
 const autoAnalysisConversations = new Set<string>();
 
+// Toggles the `memory.v2.enabled` flag the disposal code reads via
+// `getConfig()`. Defaults to false so the bulk of the suite — which asserts
+// v1 graph_extract still fires — keeps its semantics. The dedicated v2 cases
+// flip this to true.
+let v2Enabled = false;
+
+const realLoader = await import("../../config/loader.js");
+mock.module("../../config/loader.js", () => ({
+  ...realLoader,
+  getConfig: () => ({ memory: { v2: { enabled: v2Enabled } } }),
+  loadConfig: () => ({ memory: { v2: { enabled: v2Enabled } } }),
+}));
+
 mock.module("../../memory/auto-analysis-guard.js", () => ({
   AUTO_ANALYSIS_SOURCE: "auto-analysis",
   isAutoAnalysisConversation: (conversationId: string) =>
@@ -71,7 +84,10 @@ mock.module("../../memory/jobs-store.js", () => ({
   },
 }));
 
+const realAutoAnalysisEnqueue =
+  await import("../../memory/auto-analysis-enqueue.js");
 mock.module("../../memory/auto-analysis-enqueue.js", () => ({
+  ...realAutoAnalysisEnqueue,
   enqueueAutoAnalysisIfEnabled: (args: {
     conversationId: string;
     trigger: "batch" | "idle" | "lifecycle";
@@ -81,17 +97,46 @@ mock.module("../../memory/auto-analysis-enqueue.js", () => ({
   },
 }));
 
+let memoryRetroEnabled = false;
+const memoryRetroCalls: Array<{
+  conversationId: string;
+  trigger: string;
+}> = [];
+
+mock.module("../../memory/memory-retrospective-enqueue.js", () => ({
+  enqueueMemoryRetrospectiveIfEnabled: (args: {
+    conversationId: string;
+    trigger: string;
+  }) => {
+    if (!memoryRetroEnabled) return;
+    memoryRetroCalls.push(args);
+  },
+  // Also export sibling functions other modules import from this file, so
+  // mocking it here doesn't break transitive imports loaded during the
+  // `disposeConversation` dynamic-import chain.
+  enqueueMemoryRetrospectiveOnCompaction: () => {},
+  isMemoryRetrospectiveConversation: (_id: string) => false,
+}));
+
 // Stub all side-effecting cleanup helpers that disposeConversation chains
 // into after the enqueue block. We assert on enqueue behavior only.
+const realBrowserScreencast =
+  await import("../../tools/browser/browser-screencast.js");
 mock.module("../../tools/browser/browser-screencast.js", () => ({
+  ...realBrowserScreencast,
   unregisterConversationSender: () => {},
 }));
 
+const realConversationNotifiers = await import("../conversation-notifiers.js");
 mock.module("../conversation-notifiers.js", () => ({
+  ...realConversationNotifiers,
   unregisterCallNotifiers: () => {},
 }));
 
+const realConversationSkillTools =
+  await import("../conversation-skill-tools.js");
 mock.module("../conversation-skill-tools.js", () => ({
+  ...realConversationSkillTools,
   resetSkillToolProjection: () => {},
 }));
 
@@ -158,8 +203,11 @@ describe("disposeConversation — auto-analysis enqueue", () => {
   beforeEach(() => {
     memoryJobCalls.length = 0;
     autoAnalyzeCalls.length = 0;
+    memoryRetroCalls.length = 0;
     autoAnalyzeEnabled = true;
+    memoryRetroEnabled = false;
     autoAnalysisConversations.clear();
+    v2Enabled = false;
   });
 
   test("guardian conversation with auto-analyze ON — enqueues both graph_extract and conversation_analyze (via helper)", () => {
@@ -312,5 +360,102 @@ describe("disposeConversation — auto-analysis enqueue", () => {
       },
     }));
     autoAnalyzeEnabled = originalEnabled;
+  });
+
+  test("memory v2 enabled — graph_extract enqueue is suppressed (auto-analysis still runs)", () => {
+    // Under memory v2, the v1 graph has no readers (retrieval is bypassed at
+    // conversation-graph-memory.ts), so producing extraction jobs just fills
+    // the queue with stale work. Auto-analysis is orthogonal and must keep
+    // running.
+    v2Enabled = true;
+    const ctx = makeDisposeContext({
+      conversationId: "conv-v2-on",
+      trustClass: "guardian",
+    });
+
+    disposeConversation(ctx);
+
+    expect(memoryJobCalls).toHaveLength(0);
+    expect(autoAnalyzeCalls).toHaveLength(1);
+    expect(autoAnalyzeCalls[0]).toEqual({
+      conversationId: "conv-v2-on",
+      trigger: "lifecycle",
+    });
+  });
+});
+
+describe("disposeConversation — memory-retrospective lifecycle safety net", () => {
+  beforeEach(() => {
+    memoryJobCalls.length = 0;
+    autoAnalyzeCalls.length = 0;
+    memoryRetroCalls.length = 0;
+    autoAnalyzeEnabled = false;
+    memoryRetroEnabled = false;
+    autoAnalysisConversations.clear();
+    v2Enabled = false;
+  });
+
+  test("guardian conversation + flag on — enqueues memory-retrospective with trigger 'lifecycle'", () => {
+    memoryRetroEnabled = true;
+    const ctx = makeDisposeContext({
+      conversationId: "conv-retro",
+      trustClass: "guardian",
+    });
+
+    disposeConversation(ctx);
+
+    expect(memoryRetroCalls).toHaveLength(1);
+    expect(memoryRetroCalls[0]).toEqual({
+      conversationId: "conv-retro",
+      trigger: "lifecycle",
+    });
+  });
+
+  test("flag off — no memory-retrospective enqueue", () => {
+    memoryRetroEnabled = false;
+    const ctx = makeDisposeContext({
+      conversationId: "conv-retro-off",
+      trustClass: "guardian",
+    });
+
+    disposeConversation(ctx);
+
+    expect(memoryRetroCalls).toHaveLength(0);
+  });
+
+  test("untrusted actor — no memory-retrospective enqueue even when flag is on", () => {
+    memoryRetroEnabled = true;
+    const ctx = makeDisposeContext({
+      conversationId: "conv-retro-untrusted",
+      trustClass: "unknown",
+    });
+
+    disposeConversation(ctx);
+
+    // The outer trust-class guard in disposeConversation gates ALL three
+    // enqueues (graph_extract, auto-analyze, memory-retrospective). When
+    // the actor is untrusted, none of them fire.
+    expect(memoryRetroCalls).toHaveLength(0);
+    expect(autoAnalyzeCalls).toHaveLength(0);
+  });
+
+  // Regression test: the retrospective lifecycle enqueue was previously
+  // outside the `!isAutoAnalysis` guard, so it fired even for auto-analysis
+  // conversations. Mirrors the indexer-time gate in `indexer.ts` and
+  // matches the existing graph_extract recursion-guard semantics.
+  test("auto-analysis conversation — does NOT enqueue memory-retrospective even with flag on", () => {
+    memoryRetroEnabled = true;
+    autoAnalysisConversations.add("conv-auto-retro");
+    const ctx = makeDisposeContext({
+      conversationId: "conv-auto-retro",
+      trustClass: "guardian",
+    });
+
+    disposeConversation(ctx);
+
+    expect(memoryRetroCalls).toHaveLength(0);
+    // graph_extract is also recursion-guarded by the same `!isAutoAnalysis`
+    // block, so it should be skipped here too.
+    expect(memoryJobCalls).toHaveLength(0);
   });
 });

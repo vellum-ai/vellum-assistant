@@ -95,8 +95,6 @@ export const defaultEmptyResponsePlugin: Plugin = {
   manifest: {
     name: "default-empty-response",
     version: "1.0.0",
-    provides: { emptyResponseApi: "v1" },
-    requires: { pluginRuntime: "v1", emptyResponseApi: "v1" },
   },
   middleware: {
     emptyResponse: passthrough,

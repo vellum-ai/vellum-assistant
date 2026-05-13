@@ -4,6 +4,7 @@
   "ignoreDependencies": [
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
+    "@vellumai/ipc-server-utils",
     "@vellumai/service-contracts",
     "@vellumai/slack-text",
     "@vellumai/twilio-client"

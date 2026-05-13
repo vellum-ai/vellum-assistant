@@ -59,6 +59,7 @@ credential_store:
   placeholder: "lin_api_xxxxxxxxxx"
   description: "API key for your Linear app (used to authenticate API requests)"
   allowed_domains: ["api.linear.app"]
+  allowed_tools: ["bash"]
   injection_templates:
     - hostPattern: "api.linear.app"
       injectionType: header

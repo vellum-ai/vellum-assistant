@@ -18,6 +18,7 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     var activatedConversationId: UUID?
     var createConversationCallCount = 0
     var archivedConversationIds: Set<String> = []
+    var loadedHistoryReconciliationRequests: [(localId: UUID, daemonConversationId: String)] = []
     private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
 
@@ -78,21 +79,71 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
         // no-op for tests
     }
 
-    func mergeAssistantAttention(
+    func reconcileLoadedConversationHistory(localId: UUID, daemonConversationId: String) {
+        loadedHistoryReconciliationRequests.append((localId, daemonConversationId))
+    }
+
+    func applyAssistantAttention(
         from item: ConversationListResponseItem,
-        intoConversationAt index: Int
+        into conversation: inout ConversationModel
     ) {
-        conversations[index].hasUnseenLatestAssistantMessage =
+        conversation.hasUnseenLatestAssistantMessage =
             item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
-        conversations[index].latestAssistantMessageAt =
+        conversation.latestAssistantMessageAt =
             item.assistantAttention?.latestAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             }
-        conversations[index].lastSeenAssistantMessageAt =
+        conversation.lastSeenAssistantMessageAt =
             item.assistantAttention?.lastSeenAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             }
     }
+
+    func mergeAssistantAttention(
+        from item: ConversationListResponseItem,
+        intoConversationAt index: Int
+    ) {
+        var conversation = conversations[index]
+        applyAssistantAttention(from: item, into: &conversation)
+        conversations[index] = conversation
+    }
+}
+
+private struct NoopConversationHistoryClient: ConversationHistoryClientProtocol {
+    func fetchHistory(
+        conversationId: String,
+        limit: Int?,
+        beforeTimestamp: Double?,
+        mode: String?,
+        maxTextChars: Int?,
+        maxToolResultChars: Int?
+    ) async -> HistoryResponse? {
+        nil
+    }
+}
+
+private actor RecordingConversationListClient: ConversationListClientProtocol {
+    private(set) var fetchRequests: [(offset: Int, limit: Int, conversationType: String?)] = []
+
+    func fetchConversationList(offset: Int, limit: Int, conversationType: String?) async -> ConversationListResponse? {
+        fetchRequests.append((offset: offset, limit: limit, conversationType: conversationType))
+        return ConversationListResponse(
+            type: "conversation_list_response",
+            conversations: [],
+            hasMore: false,
+            nextOffset: nil,
+            groups: nil
+        )
+    }
+
+    func switchConversation(conversationId: String) async -> Bool { true }
+    func renameConversation(conversationId: String, name: String) async -> Bool { true }
+    func clearAllConversations() async -> Bool { true }
+    func cancelGeneration(conversationId: String) async -> Bool { true }
+    func undoLastMessage(conversationId: String) async -> Int? { nil }
+    func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?) async -> ConversationSearchResponse? { nil }
+    func reorderConversations(updates: [ReorderConversationsRequestUpdate]) async -> Bool { true }
+    func sendConversationSeen(_ signal: ConversationSeenSignal) async -> Bool { true }
 }
 
 // MARK: - Helpers
@@ -748,6 +799,40 @@ struct ConversationRestorerTests {
         #expect(conversationAfter?.lastInteractedAt == expectedDate)
     }
 
+    @Test @MainActor
+    func refreshRequestsLatestHistoryReconciliationWhenLatestMessageTimestampChanges() {
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        let conversation = ConversationModel(title: "Chat A", conversationId: "sa")
+        delegate.conversations = [conversation]
+
+        let firstRefresh = makeConversationListResponse(conversationDicts: [[
+            "id": "sa",
+            "title": "Chat A",
+            "updatedAt": 2_000,
+            "lastMessageAt": 2_000,
+        ]])
+        restorer.handleConversationListResponse(firstRefresh)
+
+        #expect(delegate.loadedHistoryReconciliationRequests.count == 1)
+        #expect(delegate.loadedHistoryReconciliationRequests.first?.localId == conversation.id)
+        #expect(delegate.loadedHistoryReconciliationRequests.first?.daemonConversationId == "sa")
+
+        restorer.handleConversationListResponse(firstRefresh)
+        #expect(delegate.loadedHistoryReconciliationRequests.count == 1)
+
+        restorer.handleConversationListResponse(makeConversationListResponse(conversationDicts: [[
+            "id": "sa",
+            "title": "Chat A",
+            "updatedAt": 3_000,
+            "lastMessageAt": 3_000,
+        ]]))
+        #expect(delegate.loadedHistoryReconciliationRequests.count == 2)
+    }
+
     /// Verifies that a default-titled conversation gets its title updated
     /// from the server during an invalidation refetch.
     @Test @MainActor
@@ -798,5 +883,56 @@ struct ConversationRestorerTests {
         // THEN the conversation state is unchanged (debounce hasn't fired yet)
         #expect(delegate.conversations.count == 1)
         #expect(delegate.conversations[0].id == conversation.id)
+    }
+
+    @Test @MainActor
+    func syncMessageRouteQueuesActiveConversationHistoryAndRefreshesList() async {
+        let dc = GatewayConnectionManager()
+        let listClient = RecordingConversationListClient()
+        let restorer = ConversationRestorer(
+            connectionManager: dc,
+            eventStreamClient: dc.eventStreamClient,
+            conversationHistoryClient: NoopConversationHistoryClient(),
+            conversationListClient: listClient
+        )
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        let active = ConversationModel(title: "Active", conversationId: "conv-active")
+        let inactive = ConversationModel(title: "Inactive", conversationId: "conv-inactive")
+        delegate.conversations = [active, inactive]
+
+        restorer.handleSyncRoutes(
+            [
+                .conversationMessages(conversationId: "conv-active"),
+                .conversationMessages(conversationId: "conv-inactive"),
+            ],
+            activeConversationId: "conv-active"
+        )
+
+        #expect(restorer.pendingHistoryByConversationId["conv-active"] == active.id)
+        #expect(restorer.pendingHistoryByConversationId["conv-inactive"] == nil)
+
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        #expect(await listClient.fetchRequests.count == 2)
+    }
+
+    @Test @MainActor
+    func broadSyncRefreshQueuesActiveConversationHistory() {
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(
+            connectionManager: dc,
+            eventStreamClient: dc.eventStreamClient,
+            conversationHistoryClient: NoopConversationHistoryClient()
+        )
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        let active = ConversationModel(title: "Active", conversationId: "conv-active")
+        delegate.conversations = [active]
+
+        restorer.handleBroadSyncRefresh(activeConversationId: "conv-active")
+
+        #expect(restorer.pendingHistoryByConversationId["conv-active"] == active.id)
     }
 }

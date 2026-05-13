@@ -81,7 +81,27 @@ public struct TTSClient: TTSClientProtocol {
         default:
             let body = String(data: response.data, encoding: .utf8) ?? "unknown"
             log.error("TTS synthesis failed (HTTP \(response.statusCode)): \(body)")
-            return .error(statusCode: response.statusCode, message: "TTS synthesis failed (HTTP \(response.statusCode))")
+            let message = Self.parseEnvelopeMessage(response.data)
+                ?? "TTS synthesis failed (HTTP \(response.statusCode))"
+            return .error(statusCode: response.statusCode, message: message)
         }
+    }
+
+    /// Best-effort extraction of `error.message` from the daemon's standard
+    /// JSON error envelope: `{"error":{"code":"...","message":"..."}}`.
+    ///
+    /// Returns `nil` when the body is missing, not JSON, or doesn't match
+    /// the expected shape — callers should fall back to a generic message.
+    /// Exposed at file scope for parity tests.
+    static func parseEnvelopeMessage(_ data: Data) -> String? {
+        guard !data.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let errorObj = json["error"] as? [String: Any],
+              let message = errorObj["message"] as? String
+        else {
+            return nil
+        }
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

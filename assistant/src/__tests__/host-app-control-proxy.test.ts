@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 const sentMessages: unknown[] = [];
 const resolvedInteractionIds: string[] = [];
 let mockHasClient = false;
+// clientId → actorPrincipalId for the hub mock
+const mockActorMap = new Map<string, string>();
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: unknown) => sentMessages.push(msg),
@@ -11,11 +13,22 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       cap === "host_app_control" && mockHasClient
         ? { id: "mock-client" }
         : null,
+    getActorPrincipalIdForClient: (clientId: string) =>
+      mockActorMap.get(clientId),
   },
 }));
 
+interface RegisteredInteraction {
+  conversationId: string;
+  kind: string;
+  targetClientId?: string;
+  targetActorPrincipalId?: string;
+}
+const registeredInteractions: RegisteredInteraction[] = [];
+
 mock.module("../runtime/pending-interactions.js", () => ({
-  register: () => undefined,
+  register: (_requestId: string, entry: RegisteredInteraction) =>
+    registeredInteractions.push(entry),
   resolve: (requestId: string) => {
     resolvedInteractionIds.push(requestId);
     return undefined;
@@ -58,7 +71,9 @@ describe("HostAppControlProxy", () => {
   beforeEach(() => {
     sentMessages.length = 0;
     resolvedInteractionIds.length = 0;
+    registeredInteractions.length = 0;
     mockHasClient = false;
+    mockActorMap.clear();
     _resetActiveAppControlSession();
   });
 
@@ -578,6 +593,172 @@ describe("HostAppControlProxy", () => {
   });
 
   // -------------------------------------------------------------------------
+  // (c.1) Failed re-start restores the prior session
+  // -------------------------------------------------------------------------
+
+  describe("failed re-start restores prior session", () => {
+    test("non-running re-start in the same conversation restores the prior session", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      // Establish an active session targeting the editor.
+      const p1 = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.editor" },
+        "conv-1",
+        ctrl.signal,
+      );
+      proxy.resolve(
+        (sentMessages[0] as Record<string, unknown>).requestId as string,
+        payload({ pngBase64: PNG_A }),
+      );
+      await p1;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.editor");
+
+      // Re-start against a different app — host returns "missing".
+      sentMessages.length = 0;
+      const p2 = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.other" },
+        "conv-1",
+        ctrl.signal,
+      );
+      proxy.resolve(
+        (sentMessages[0] as Record<string, unknown>).requestId as string,
+        payload({ state: "missing" }),
+      );
+      await p2;
+
+      // Prior session restored (editor) — not stranded as undefined and not
+      // overwritten with the failed re-start target.
+      const session = _getActiveAppControlSession();
+      expect(session?.conversationId).toBe("conv-1");
+      expect(session?.app).toBe("com.example.editor");
+
+      proxy.dispose();
+    });
+
+    test("dispatch failure on re-start in the same conversation restores the prior session", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      const p1 = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.editor" },
+        "conv-1",
+        ctrl.signal,
+      );
+      proxy.resolve(
+        (sentMessages[0] as Record<string, unknown>).requestId as string,
+        payload({ pngBase64: PNG_A }),
+      );
+      await p1;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.editor");
+
+      // Re-start against a different app, then abort before the host
+      // responds. The catch path in `request()` should restore the prior
+      // session rather than stranding the lock.
+      sentMessages.length = 0;
+      const reCtrl = new AbortController();
+      const p2 = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.other" },
+        "conv-1",
+        reCtrl.signal,
+      );
+      reCtrl.abort();
+      const r = await p2;
+      expect(r.isError).toBe(true);
+      expect(r.content).toContain("Aborted");
+
+      const session = _getActiveAppControlSession();
+      expect(session?.conversationId).toBe("conv-1");
+      expect(session?.app).toBe("com.example.editor");
+
+      proxy.dispose();
+    });
+
+    test("late-failing start does not clobber a newer successful start (out-of-order rollback)", async () => {
+      // Overlapping starts from the same conversation where the older one
+      // fails AFTER the newer succeeds. Identity-keyed rollback must make
+      // the stale failure a no-op rather than restoring the pre-A session.
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      // Establish prior session A.
+      const pA = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.a" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdA = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(reqIdA, payload({ pngBase64: PNG_A }));
+      await pA;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.a");
+
+      // Start B is dispatched but its host response is delayed.
+      sentMessages.length = 0;
+      const pB = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.b" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdB = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+
+      // Start C overtakes B and succeeds first.
+      sentMessages.length = 0;
+      const pC = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.c" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdC = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(reqIdC, payload({ pngBase64: PNG_A }));
+      await pC;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // Now B finally fails — rollback must NOT restore A or clobber C.
+      proxy.resolve(reqIdB, payload({ state: "missing" }));
+      await pB;
+
+      const session = _getActiveAppControlSession();
+      expect(session?.conversationId).toBe("conv-1");
+      expect(session?.app).toBe("com.example.c");
+
+      proxy.dispose();
+    });
+
+    test("first-start failure releases the lock (no prior session to restore)", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      // No prior session; re-start the first time and get a non-running.
+      const p1 = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.editor" },
+        "conv-1",
+        ctrl.signal,
+      );
+      proxy.resolve(
+        (sentMessages[0] as Record<string, unknown>).requestId as string,
+        payload({ state: "missing" }),
+      );
+      await p1;
+
+      // Lock released so another conversation can acquire.
+      expect(_getActiveAppControlSession()).toBeUndefined();
+
+      proxy.dispose();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // (d) dispose releases the lock
   // -------------------------------------------------------------------------
 
@@ -766,6 +947,97 @@ describe("HostAppControlProxy", () => {
       const proxy = new HostAppControlProxy("conv-1");
       mockHasClient = true;
       expect(proxy.isAvailable()).toBe(true);
+      proxy.dispose();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // (g) sourceActorPrincipalId + targetClientId plumbing
+  // -------------------------------------------------------------------------
+
+  describe("actor principal + targetClientId plumbing", () => {
+    test("request() accepts sourceActorPrincipalId and targetClientId without crashing", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.app",
+      });
+
+      const resultPromise = proxy.request(
+        "app_control_observe",
+        { tool: "observe", app: "com.example.app" },
+        "conv-1",
+        ctrl.signal,
+        "actor-principal-1", // sourceActorPrincipalId
+        "client-A", // targetClientId
+      );
+
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.type).toBe("host_app_control_request");
+      // targetClientId propagates to the broadcast envelope
+      expect(sent.targetClientId).toBe("client-A");
+
+      // pending interactions registers targetClientId
+      expect(registeredInteractions).toHaveLength(1);
+      expect(registeredInteractions[0].targetClientId).toBe("client-A");
+
+      // Resolve to unblock the promise
+      proxy.resolve(sent.requestId as string, payload({ pngBase64: PNG_A }));
+      await resultPromise;
+
+      proxy.dispose();
+    });
+
+    test("request() with targetClientId + known actor: registers targetActorPrincipalId", async () => {
+      mockActorMap.set("client-A", "user-1");
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+      _setActiveAppControlSession({
+        conversationId: "conv-1",
+        app: "com.example.app",
+      });
+
+      const resultPromise = proxy.request(
+        "app_control_observe",
+        { tool: "observe", app: "com.example.app" },
+        "conv-1",
+        ctrl.signal,
+        "user-1", // sourceActorPrincipalId
+        "client-A", // targetClientId → hub resolves actorPrincipalId = "user-1"
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      // targetActorPrincipalId was looked up from hub and stored
+      expect(registeredInteractions[0].targetActorPrincipalId).toBe("user-1");
+
+      proxy.resolve(sent.requestId as string, payload({ pngBase64: PNG_A }));
+      await resultPromise;
+
+      proxy.dispose();
+    });
+
+    test("request() without targetClientId: does not register targetActorPrincipalId", async () => {
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      const resultPromise = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.app" },
+        "conv-1",
+        ctrl.signal,
+        "user-1", // sourceActorPrincipalId
+        undefined, // no targetClientId
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(registeredInteractions[0].targetClientId).toBeUndefined();
+      expect(registeredInteractions[0].targetActorPrincipalId).toBeUndefined();
+
+      proxy.resolve(sent.requestId as string, payload({ pngBase64: PNG_A }));
+      await resultPromise;
+
       proxy.dispose();
     });
   });

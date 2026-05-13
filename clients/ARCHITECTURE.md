@@ -453,12 +453,13 @@ The video webview applies three hardening layers:
 
 ### Settings Persistence
 
-Appearance-related preferences that must be shared with the daemon live in the workspace config file (`~/.vellum/workspace/config.json`) under `ui`:
+Preferences that must be shared with the daemon live in the workspace config file (`~/.vellum/workspace/config.json`) under `ui`:
 
 ```json
 {
   "ui": {
     "userTimezone": "America/New_York",
+    "detectedTimezone": "America/New_York",
     "mediaEmbeds": {
       "enabled": true,
       "enabledSince": "2026-02-15T12:00:00Z",
@@ -468,7 +469,11 @@ Appearance-related preferences that must be shared with the daemon live in the w
 }
 ```
 
-`SettingsStore` loads these values on init via `WorkspaceConfigIO.read` and writes them back via `WorkspaceConfigIO.merge`. `ui.userTimezone` provides an explicit user-local timezone hint for daemon-side temporal grounding when profile memory is unavailable. The `enabledSince` timestamp ensures only messages created after the user enabled embeds are eligible, so toggling the feature on doesn't retroactively embed every historical link.
+`SettingsStore` hydrates these values from the assistant config endpoint, patches changes back through the same config API, and uses its local `configPath` helpers only for tests/local file-backed flows. `ui.userTimezone` is a manual timezone override used by daemon-side temporal grounding and is authoritative for `<turn_context>` `current_time` when set. `ui.detectedTimezone` is the automatic device-derived default that clients persist from the local environment on config load and system timezone changes; it is used only when there is no manual override and the current message does not carry a client timezone. The `ui` namespace is historical and includes runtime-affecting settings, not only visual presentation settings. The web or native client may detect and send a timezone, but workspace config remains the persisted source of truth for these settings.
+
+When the daemon sees a manual `ui.userTimezone` that differs from the current device timezone, `<turn_context>` includes mismatch guidance for the assistant. After explicit user confirmation, the assistant can persist the device timezone through the normal config path, for example `assistant config set ui.userTimezone "America/Los_Angeles"`.
+
+The `enabledSince` timestamp ensures only messages created after the user enabled embeds are eligible, so toggling the feature on doesn't retroactively embed every historical link.
 
 ### Key Source Files
 
@@ -488,7 +493,7 @@ Appearance-related preferences that must be shared with the daemon live in the w
 | `clients/macos/.../MediaEmbeds/InlineVideoWebView.swift` | Privacy-hardened WKWebView wrapper |
 | `clients/macos/.../MediaEmbeds/InlineVideoEmbedState.swift` | Video embed lifecycle state + manager |
 | `clients/macos/.../Features/Settings/MediaEmbedSettings.swift` | Centralized defaults and domain normalization |
-| `clients/macos/.../Features/Settings/SettingsStore.swift` | Settings persistence (reads/writes `ui.userTimezone` and `ui.mediaEmbeds` in workspace config) |
+| `clients/macos/.../Features/Settings/SettingsStore.swift` | Settings persistence (reads/writes `ui.userTimezone`, `ui.detectedTimezone`, and `ui.mediaEmbeds` in workspace config) |
 
 ---
 

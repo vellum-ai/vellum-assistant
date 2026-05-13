@@ -83,9 +83,9 @@ function writeConfig(obj: unknown): void {
 describe("AssistantConfigSchema", () => {
   test("parses empty object with full defaults", () => {
     const result = AssistantConfigSchema.parse({});
-    // services.inference now carries only `mode`; provider/model live under
-    // llm.default.{provider,model} (see PR 19 of unify-llm-callsites).
-    expect(result.services.inference.mode).toBe("your-own");
+    // services.inference is now an empty object; provider/model live under
+    // llm.default.{provider,model}, auth routing via provider_connections.
+    expect(result.services.inference).toEqual({});
     expect(result.llm.default.provider).toBe("anthropic");
     expect(result.llm.default.model).toBe("claude-opus-4-7");
     expect(result.services["image-generation"].provider).toBe("gemini");
@@ -132,6 +132,17 @@ describe("AssistantConfigSchema", () => {
       allowOneTimeSend: false,
     });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
+  });
+
+  test("accepts Tavily as a web search provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "web-search": { mode: "your-own", provider: "tavily" },
+      },
+    });
+
+    expect(result.services["web-search"].provider).toBe("tavily");
+    expect(result.services["web-search"].mode).toBe("your-own");
   });
 
   test("accepts valid complete config", () => {
@@ -348,6 +359,27 @@ describe("AssistantConfigSchema", () => {
       maxInjectTokens: 16000,
       targetHeadroomTokens: 10000,
     });
+  });
+
+  test("scratchpad injection defaults to enabled", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.retrieval.scratchpadInjection).toEqual({
+      enabled: true,
+    });
+  });
+
+  test("scratchpad injection accepts disabled override", () => {
+    const result = AssistantConfigSchema.parse({
+      memory: { retrieval: { scratchpadInjection: { enabled: false } } },
+    });
+    expect(result.memory.retrieval.scratchpadInjection.enabled).toBe(false);
+  });
+
+  test("scratchpad injection rejects non-boolean enabled", () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { retrieval: { scratchpadInjection: { enabled: "yes" } } },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("applies memory.cleanup defaults", () => {

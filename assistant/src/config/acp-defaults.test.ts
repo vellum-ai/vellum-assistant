@@ -29,10 +29,14 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
     });
   });
 
-  test("is frozen at runtime so mutation throws in strict mode", () => {
+  test("is deeply frozen so mutation throws in strict mode", () => {
     expect(Object.isFrozen(DEFAULT_ACP_AGENT_PROFILES)).toBe(true);
     for (const profile of Object.values(DEFAULT_ACP_AGENT_PROFILES)) {
       expect(Object.isFrozen(profile)).toBe(true);
+      // `args` arrays must also be frozen — `Object.freeze` is shallow, so
+      // an unfrozen `args` would let one caller silently corrupt every other
+      // read of the shared default via `.push(...)` / `.splice(...)`.
+      expect(Object.isFrozen(profile.args)).toBe(true);
     }
   });
 });

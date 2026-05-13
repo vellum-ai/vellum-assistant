@@ -10,15 +10,22 @@ import {
   markTargetInvalidated,
   publishCdpEvent,
 } from "../../browser-session/events.js";
-import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
+import {
+  enforceSameActorOrThrow,
+  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+} from "../auth/same-actor.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
- * Result of attempting to resolve a host browser result frame. Used by both
- * the HTTP endpoint and the WS relay path so they share the same validation
- * and resolution semantics.
+ * Result of attempting to resolve a host browser result frame.
  *
  * Success → the pending interaction was consumed and the conversation was
  * notified.
@@ -30,8 +37,8 @@ export type HostBrowserResultResolution =
   | { ok: true }
   | {
       ok: false;
-      code: "BAD_REQUEST" | "NOT_FOUND" | "CONFLICT";
-      status: 400 | 404 | 409;
+      code: "BAD_REQUEST" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT";
+      status: 400 | 403 | 404 | 409;
       message: string;
     };
 
@@ -40,22 +47,26 @@ export type HostBrowserResultResolution =
  * the pending interaction by requestId, validates its kind is
  * `host_browser`, and forwards the response to the owning conversation.
  *
- * NOTE: The WebSocket `host_browser_result` frame path does NOT go
- * through this function — it is handled by `HostBrowserProxy.resolveResult`
- * directly, which only consults `pendingInteractions` and does not
- * currently perform a kind check. That asymmetry is pre-existing; if
- * the WS path is ever opened to less-trusted clients, it should adopt
- * the same kind-check guard added here.
+ * Same-actor binding: when the pending interaction has a
+ * `targetClientId` (set by the proxy at request time when an actor is
+ * known), the submitting client must (a) identify itself via
+ * `x-vellum-client-id` matching the captured target, and (b) the
+ * submitting actor's principal must match the actor captured for that
+ * client at registration time. Mirrors the host-cu / host-bash result
+ * routes.
  *
  * This function does NOT perform auth — callers are expected to have
  * already authenticated the caller (the HTTP route uses
  * `requireBoundGuardian`).
  */
-export function resolveHostBrowserResultByRequestId(frame: {
-  requestId?: unknown;
-  content?: unknown;
-  isError?: unknown;
-}): HostBrowserResultResolution {
+export function resolveHostBrowserResultByRequestId(
+  frame: {
+    requestId?: unknown;
+    content?: unknown;
+    isError?: unknown;
+  },
+  headers?: Record<string, string | undefined>,
+): HostBrowserResultResolution {
   const { requestId, content, isError } = frame;
 
   if (!requestId || typeof requestId !== "string") {
@@ -86,11 +97,60 @@ export function resolveHostBrowserResultByRequestId(frame: {
     };
   }
 
+  // Validate submitting client matches the targeted client (if any).
+  if (peeked.targetClientId != null) {
+    const headerMap = headers ?? {};
+    const submittingClientId =
+      headerMap["x-vellum-client-id"]?.trim() || undefined;
+    if (!submittingClientId) {
+      return {
+        ok: false,
+        code: "BAD_REQUEST",
+        status: 400,
+        message:
+          "x-vellum-client-id header is missing for a targeted host browser request.",
+      };
+    }
+    if (submittingClientId !== peeked.targetClientId) {
+      return {
+        ok: false,
+        code: "FORBIDDEN",
+        status: 403,
+        message: `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
+      };
+    }
+
+    // Defense-in-depth: require the submitting actor's principal id to match
+    // the actor principal id captured when the target client opened its SSE
+    // stream. This prevents a different authenticated user with knowledge of
+    // both the requestId and target clientId from submitting a result on
+    // behalf of the targeted client.
+    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+    );
+    try {
+      enforceSameActorOrThrow({
+        sourceActorPrincipalId: submittingActorPrincipalId,
+        targetActorPrincipalId: peeked.targetActorPrincipalId,
+        targetClientId: peeked.targetClientId,
+        op: "host_browser",
+      });
+    } catch (err) {
+      // enforceSameActorOrThrow throws ForbiddenError on rejection.
+      return {
+        ok: false,
+        code: "FORBIDDEN",
+        status: 403,
+        message: err instanceof Error ? err.message : "Same-actor check failed",
+      };
+    }
+  }
+
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
 
-  const proxy = HostBrowserProxy.instance;
-  proxy.resolveResult(requestId, {
+  const interaction = pendingInteractions.resolve(requestId);
+  interaction?.rpcResolve?.({
     content: normalizedContent,
     isError: normalizedIsError,
   });
@@ -188,13 +248,18 @@ export function resolveHostBrowserSessionInvalidated(frame: {
 // POST /v1/host-browser-result
 // ---------------------------------------------------------------------------
 
-function handleHostBrowserResult({ body }: RouteHandlerArgs) {
+function handleHostBrowserResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
 
-  const resolution = resolveHostBrowserResultByRequestId(body);
+  const resolution = resolveHostBrowserResultByRequestId(
+    body,
+    headers as Record<string, string | undefined> | undefined,
+  );
   if (!resolution.ok) {
+    if (resolution.code === "FORBIDDEN")
+      throw new ForbiddenError(resolution.message);
     if (resolution.code === "NOT_FOUND")
       throw new NotFoundError(resolution.message);
     if (resolution.code === "CONFLICT")
@@ -260,6 +325,22 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "x-vellum-client-id header is missing for a targeted host browser request.",
+      },
+      "403": {
+        description: SAME_ACTOR_FORBIDDEN_DESCRIPTION,
+      },
+      "404": {
+        description: "No pending browser request for the given requestId.",
+      },
+      "409": {
+        description:
+          "Pending interaction kind is not host_browser (mismatched proxy ID space).",
+      },
+    },
     handler: handleHostBrowserResult,
   },
   {

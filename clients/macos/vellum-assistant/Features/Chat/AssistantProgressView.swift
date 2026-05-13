@@ -521,9 +521,21 @@ struct AssistantProgressView: View {
     @MainActor
     private func fetchSuggestionAndOpenEditor(for toolCall: ToolCallData) async {
         let client = TrustRuleClient()
-        let scopeOpts: [(pattern: String, label: String)] = (toolCall.riskScopeOptions ?? []).map {
-            (pattern: $0.pattern, label: $0.label)
-        }
+        // Priority: prefer the Minimatch-glob save-path ladder
+        // (`riskAllowlistOptions`) because that is what the chips render and
+        // what the rule editor will persist — feeding the LLM the same
+        // pattern shapes it can save. Fall back to the regex-shaped legacy
+        // `riskScopeOptions` ladder for tool calls without allowlist
+        // coverage yet (and for the pre-tool_result "Allow and Create Rule"
+        // path where the daemon may not have populated either field yet, in
+        // which case both are empty and the suggester runs on command text
+        // alone — same behavior as before #29826).
+        let scopeOpts: [(pattern: String, label: String)] = {
+            if let allowlist = toolCall.riskAllowlistOptions, !allowlist.isEmpty {
+                return allowlist.map { (pattern: $0.pattern, label: $0.label) }
+            }
+            return (toolCall.riskScopeOptions ?? []).map { (pattern: $0.pattern, label: $0.label) }
+        }()
         let dirScopeOpts: [(scope: String, label: String)] = (toolCall.riskDirectoryScopeOptions ?? []).map {
             (scope: $0.scope, label: $0.label)
         }
@@ -1076,9 +1088,10 @@ struct ToolCallStepDetailRow: View {
     /// ``ACPSessionStore`` and re-renders as the daemon streams status
     /// updates for this session, so an inline block transitions
     /// running → completed/failed without the user expanding it. When the
-    /// store has no entry for the session id (history cleared, daemon
-    /// restarted) the dot falls back to the static tool-call result so a
-    /// successful spawn still reads as "completed".
+    /// store has no entry for the session id (spawn-event race window or
+    /// history-cleared) the dot falls back to a muted indeterminate glyph
+    /// rather than a positive check, so the resolver never claims a
+    /// terminal state we can't prove.
     @ViewBuilder
     private func acpSpawnDeepLinkRow(acpSessionId: String) -> some View {
         Button {
@@ -1200,30 +1213,50 @@ struct ToolCallStepDetailRow: View {
 
     // MARK: - Scope Options
 
-    /// Constructs scope option items from the tool call's risk scope options.
-    /// Falls back to a wildcard when no server-provided options exist, since
-    /// `inputSummary` may be a natural-language activity description (e.g. for
-    /// `remember`) rather than a matchable command pattern.
+    /// Constructs scope option items from the tool call's risk options for the
+    /// Rule Editor modal "Apply to" chip ladder.
+    ///
+    /// Priority order (narrowest correct shape wins):
+    ///   1. `riskAllowlistOptions` — Minimatch-glob patterns produced by the
+    ///      classifier. This is the **save-correct** shape: the gateway
+    ///      matches saved trust rules as Minimatch globs, so chips built from
+    ///      this field actually fire on subsequent invocations.
+    ///   2. `riskScopeOptions` — display-shape regex patterns (legacy).
+    ///      Useful as a UI fallback only; saving these patterns produces
+    ///      ghost rules that look saved but never match. Kept here so we
+    ///      don't lose the chip ladder for tools whose classifiers haven't
+    ///      yet been migrated to emit allowlistOptions.
+    ///   3. Synthesized "*" wildcard when neither field is populated (e.g.
+    ///      for unclassified MCP tools or natural-language activity strings
+    ///      like `remember`).
     static func scopeOptions(from toolCall: ToolCallData) -> [ScopeOptionItem] {
-        guard let options = toolCall.riskScopeOptions, !options.isEmpty else {
-            // Determine whether inputRawValue is a real command or just the
-            // activity description. Priority-key tools (bash → `command`) give
-            // a structured value; others fall through alphabetically and end up
-            // with the natural-language activity text.
-            let raw = toolCall.inputRawValue
-            let isNaturalLanguage = !raw.isEmpty && raw == (toolCall.reasonDescription ?? "")
-            let pattern = (isNaturalLanguage || raw.isEmpty) ? "*" : raw
-            let label = pattern == "*"
-                ? "Any \(toolCall.toolName) call"
-                : pattern
-            return [ScopeOptionItem(label: label, pattern: pattern)]
+        if let allowlist = toolCall.riskAllowlistOptions, !allowlist.isEmpty {
+            return allowlist.map { option in
+                ScopeOptionItem(
+                    label: option.label,
+                    pattern: option.pattern
+                )
+            }
         }
-        return options.map { option in
-            ScopeOptionItem(
-                label: option.label,
-                pattern: option.pattern
-            )
+        if let options = toolCall.riskScopeOptions, !options.isEmpty {
+            return options.map { option in
+                ScopeOptionItem(
+                    label: option.label,
+                    pattern: option.pattern
+                )
+            }
         }
+        // Determine whether inputRawValue is a real command or just the
+        // activity description. Priority-key tools (bash → `command`) give
+        // a structured value; others fall through alphabetically and end up
+        // with the natural-language activity text.
+        let raw = toolCall.inputRawValue
+        let isNaturalLanguage = !raw.isEmpty && raw == (toolCall.reasonDescription ?? "")
+        let pattern = (isNaturalLanguage || raw.isEmpty) ? "*" : raw
+        let label = pattern == "*"
+            ? "Any \(toolCall.toolName) call"
+            : pattern
+        return [ScopeOptionItem(label: label, pattern: pattern)]
     }
 
     /// Returns the best structured text to display in the "Command" header of
@@ -1268,9 +1301,16 @@ struct ToolCallStepDetailRow: View {
     }
 
     private func fetchSuggestionForEditor(_ toolCall: ToolCallData, existingRule: TrustRule?) async throws -> TrustRuleSuggestion {
-        let scopeOpts: [(pattern: String, label: String)] = (toolCall.riskScopeOptions ?? []).map {
-            (pattern: $0.pattern, label: $0.label)
-        }
+        // Same priority as `fetchSuggestionAndOpenEditor`: feed the LLM the
+        // glob-shaped save-path ladder (the chips it can pick from), falling
+        // back to the regex-shaped display ladder when allowlist coverage
+        // is absent.
+        let scopeOpts: [(pattern: String, label: String)] = {
+            if let allowlist = toolCall.riskAllowlistOptions, !allowlist.isEmpty {
+                return allowlist.map { (pattern: $0.pattern, label: $0.label) }
+            }
+            return (toolCall.riskScopeOptions ?? []).map { (pattern: $0.pattern, label: $0.label) }
+        }()
         let dirScopeOpts: [(scope: String, label: String)] = (toolCall.riskDirectoryScopeOptions ?? []).map {
             (scope: $0.scope, label: $0.label)
         }

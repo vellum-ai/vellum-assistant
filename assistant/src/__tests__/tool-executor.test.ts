@@ -73,6 +73,11 @@ let cachedAssessmentOverride:
       riskLevel: string;
       reason: string;
       scopeOptions: Array<{ pattern: string; label: string }>;
+      allowlistOptions?: Array<{
+        label: string;
+        description: string;
+        pattern: string;
+      }>;
       directoryScopeOptions?: Array<{ scope: string; label: string }>;
       matchType: string;
     }
@@ -200,6 +205,32 @@ describe("ToolExecutor allowedToolNames gating", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe("ok");
+  });
+
+  test("canonicalizes app-builder create_app alias before active-tool gating", async () => {
+    const executor = new ToolExecutor(makePrompter());
+    const allowed = new Set(["app_create"]);
+    const result = await executor.execute(
+      "create_app",
+      { name: "Calculator" },
+      makeContext({ allowedToolNames: allowed }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("ok");
+  });
+
+  test("preserves exact active create_app tool before applying compatibility aliases", async () => {
+    const executor = new ToolExecutor(makePrompter());
+    const allowed = new Set(["create_app", "app_create"]);
+    const result = await executor.execute(
+      "create_app",
+      { name: "Custom App" },
+      makeContext({ allowedToolNames: allowed }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(lastCheckArgs?.toolName).toBe("create_app");
   });
 
   test("blocks execution when tool is NOT in the allowed set", async () => {
@@ -811,8 +842,12 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 // ---------------------------------------------------------------------------
 
 // Import the real buildSanitizedEnv (not mocked) for baseline credential tests
-const { buildSanitizedEnv, SAFE_ENV_VARS, ALWAYS_INJECTED_ENV_VARS } =
-  await import("../tools/terminal/safe-env.js");
+const {
+  buildSanitizedEnv,
+  KATA_SAFE_ENV_VARS,
+  SAFE_ENV_VARS,
+  ALWAYS_INJECTED_ENV_VARS,
+} = await import("../tools/terminal/safe-env.js");
 
 describe("buildSanitizedEnv — baseline: credential exclusion", () => {
   // Credential-like env vars that must never appear in the sanitized env.
@@ -870,7 +905,11 @@ describe("buildSanitizedEnv — baseline: credential exclusion", () => {
   });
 
   test("sanitized env only contains keys from the allowlist", () => {
-    const allowed: string[] = [...SAFE_ENV_VARS, ...ALWAYS_INJECTED_ENV_VARS];
+    const allowed: string[] = [
+      ...SAFE_ENV_VARS,
+      ...KATA_SAFE_ENV_VARS,
+      ...ALWAYS_INJECTED_ENV_VARS,
+    ];
     const env = buildSanitizedEnv();
     for (const key of Object.keys(env)) {
       expect(allowed).toContain(key);
@@ -1121,6 +1160,132 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     ]);
     expect(result.riskDirectoryScopeOptions).toEqual([
       { scope: "/tmp", label: "Anywhere in tmp/" },
+    ]);
+  });
+
+  test("auto-approved tool result includes riskAllowlistOptions when classifier emits them (Minimatch-glob shape for save path)", async () => {
+    cachedAssessmentOverride = {
+      riskLevel: "medium",
+      reason: "Reads workspace files",
+      // Display ladder (regex shape — not for save).
+      scopeOptions: [
+        { pattern: "^echo\\b.*hello$", label: "echo hello" },
+        { pattern: "^echo\\b", label: "echo *" },
+      ],
+      // Save ladder (Minimatch-glob shape — what gateway matches against).
+      allowlistOptions: [
+        {
+          label: "echo hello",
+          description: "This exact command",
+          pattern: "echo hello",
+        },
+        {
+          label: "echo *",
+          description: "Any echo command",
+          pattern: "action:echo",
+        },
+      ],
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext({ requireFreshApproval: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // Both shapes flow through independently — same labels, different patterns.
+    expect(result.riskScopeOptions).toEqual([
+      { pattern: "^echo\\b.*hello$", label: "echo hello" },
+      { pattern: "^echo\\b", label: "echo *" },
+    ]);
+    expect(result.riskAllowlistOptions).toEqual([
+      {
+        label: "echo hello",
+        description: "This exact command",
+        pattern: "echo hello",
+      },
+      {
+        label: "echo *",
+        description: "Any echo command",
+        pattern: "action:echo",
+      },
+    ]);
+  });
+
+  test("riskAllowlistOptions is undefined when classifier did not produce allowlist (e.g. web-risk classifier)", async () => {
+    cachedAssessmentOverride = {
+      riskLevel: "low",
+      reason: "GET request to public URL",
+      scopeOptions: [
+        { pattern: "https://example.com/.*", label: "example.com" },
+      ],
+      // allowlistOptions intentionally omitted — some classifiers don't emit them.
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext({ requireFreshApproval: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // Display ladder still flows; save ladder is absent so the client must
+    // fall back to a synthesized option (or omit save).
+    expect(result.riskScopeOptions).toEqual([
+      { pattern: "https://example.com/.*", label: "example.com" },
+    ]);
+    expect(result.riskAllowlistOptions).toBeUndefined();
+  });
+
+  test("riskAllowlistOptions is undefined when no classifier ran (MCP tools)", async () => {
+    // cachedAssessmentOverride is undefined — no classifier ran.
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.riskScopeOptions).toBeUndefined();
+    expect(result.riskAllowlistOptions).toBeUndefined();
+  });
+
+  test("denied tool result still carries riskAllowlistOptions for the rule editor save path", async () => {
+    checkResultOverride = { decision: "deny", reason: "Blocked by deny rule" };
+    cachedAssessmentOverride = {
+      riskLevel: "high",
+      reason: "Recursive force delete",
+      scopeOptions: [{ pattern: "^rm\\s+-rf", label: "rm -rf *" }],
+      allowlistOptions: [
+        {
+          label: "rm -rf *",
+          description: "Any rm -rf command",
+          pattern: "action:rm",
+        },
+      ],
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "anything" },
+      makeContext({ requireFreshApproval: true }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.riskAllowlistOptions).toEqual([
+      {
+        label: "rm -rf *",
+        description: "Any rm -rf command",
+        pattern: "action:rm",
+      },
     ]);
   });
 });

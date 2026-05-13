@@ -20,12 +20,6 @@ export interface SecretPromptResult {
   error?: "unsupported_channel";
 }
 
-interface PendingSecretPrompt {
-  resolve: (result: SecretPromptResult) => void;
-  reject: (reason: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
 export interface SecretPrompterChannelContext {
   /** The channel the conversation was initiated from (e.g. "slack", "macos"). */
   channel?: string;
@@ -34,7 +28,13 @@ export interface SecretPrompterChannelContext {
 }
 
 export class SecretPrompter {
-  private pending = new Map<string, PendingSecretPrompt>();
+  /**
+   * Tracks which requestIds belong to this prompter instance so that
+   * dispose can scope its cleanup to this conversation.
+   * The full per-request state (callbacks, timer) lives in pendingInteractions,
+   * matching the host proxy and PermissionPrompter pattern.
+   */
+  private ownedIds = new Set<string>();
   private channelContext?: SecretPrompterChannelContext;
 
   setChannelContext(ctx: SecretPrompterChannelContext | undefined): void {
@@ -45,12 +45,9 @@ export class SecretPrompter {
    * Broadcast a secret_request to all connected clients and wait for a
    * response.
    *
-   * The request is always published to the SSE hub via
-   * {@link broadcastMessage} so any connected client (desktop, web) can
-   * display the secure prompt dialog.
-   *
-   * Pending interaction registration is handled by {@link broadcastMessage}
-   * when the secret_request event is published to the hub.
+   * Registers all lifecycle state (rpcResolve, rpcReject, timer) in
+   * pendingInteractions before broadcasting — identical to the host proxy
+   * and PermissionPrompter pattern.
    *
    * SECURITY: Logs only metadata (requestId, service, field) — never the
    * returned secret value. The timeout path also returns a null value
@@ -72,21 +69,24 @@ export class SecretPrompter {
 
     return new Promise((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
+
       const timer = setTimeout(() => {
-        this.pending.delete(requestId);
         pendingInteractions.resolve(requestId);
+        this.ownedIds.delete(requestId);
         log.warn({ requestId, service, field }, "Secret prompt timed out");
         resolve({ value: null, delivery: "store" });
       }, timeoutMs);
 
-      this.pending.set(requestId, { resolve, reject, timer });
-
-      // Self-register in pendingInteractions so /v1/secret can route the
-      // response to this conversation without relying on broadcastMessage.
+      // Register all lifecycle state in pendingInteractions — same pattern as
+      // host proxies and PermissionPrompter. The prompter tracks ownership via ownedIds.
       pendingInteractions.register(requestId, {
         conversationId: effectiveConversationId,
         kind: "secret",
+        rpcResolve: resolve as (value: unknown) => void,
+        rpcReject: reject,
+        timer,
       });
+      this.ownedIds.add(requestId);
 
       const config = getConfig();
       const msg: SecretRequestMessage = {
@@ -109,7 +109,7 @@ export class SecretPrompter {
   }
 
   hasPendingRequest(requestId: string): boolean {
-    return this.pending.has(requestId);
+    return this.ownedIds.has(requestId);
   }
 
   /**
@@ -124,26 +124,26 @@ export class SecretPrompter {
     value?: string,
     delivery?: SecretDelivery,
   ): void {
-    const pending = this.pending.get(requestId);
-    if (!pending) {
+    if (!this.ownedIds.has(requestId)) {
       log.warn({ requestId }, "No pending prompt for secret response");
       return;
     }
-    clearTimeout(pending.timer);
-    this.pending.delete(requestId);
-    // Clean up the global map (may already be removed by approval-routes).
-    pendingInteractions.resolve(requestId);
-    pending.resolve({ value: value ?? null, delivery: delivery ?? "store" });
+    // approval-routes calls pendingInteractions.get() before routing here;
+    // the prompter owns deregistration so it fires the Promise callback cleanly.
+    const interaction = pendingInteractions.resolve(requestId);
+    this.ownedIds.delete(requestId);
+    (interaction?.rpcResolve as ((v: SecretPromptResult) => void) | undefined)?.(
+      { value: value ?? null, delivery: delivery ?? "store" },
+    );
   }
 
   dispose(): void {
-    for (const [requestId, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      pendingInteractions.resolve(requestId);
-      pending.reject(
+    for (const requestId of [...this.ownedIds]) {
+      const interaction = pendingInteractions.resolve(requestId);
+      this.ownedIds.delete(requestId);
+      interaction?.rpcReject?.(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),
       );
     }
-    this.pending.clear();
   }
 }

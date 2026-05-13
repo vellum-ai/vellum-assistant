@@ -28,9 +28,13 @@
  * back to a shorter deterministic path so CLI commands can still connect.
  */
 
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { dirname } from "node:path";
+
+import {
+  ensureSocketDir,
+  SocketWatchdog,
+} from "@vellumai/ipc-server-utils";
 
 import { findLocalGuardianPrincipalId } from "../runtime/local-actor-identity.js";
 import { RouteError } from "../runtime/routes/errors.js";
@@ -49,6 +53,10 @@ import {
   writeStreamEnd,
 } from "./ipc-framing.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
+import {
+  type DbProxyTransactionParams,
+  handleDbProxyTransaction,
+} from "./routes/db-proxy-transaction.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
@@ -130,13 +138,30 @@ function isIpcBinaryResponse(value: unknown): value is IpcBinaryResponse {
 // Server
 // ---------------------------------------------------------------------------
 
+/** Optional configuration for {@link AssistantIpcServer}. */
+export interface AssistantIpcServerOptions {
+  /**
+   * How often the socket-file watchdog stats the listening socket path.
+   * Set to `0` to disable. Defaults to {@link SocketWatchdog}'s 5000ms.
+   */
+  watchdogIntervalMs?: number;
+}
+
 export class AssistantIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
   private methods = new Map<string, RouteDefinition["handler"]>();
   private socketPath: string;
+  private watchdog: SocketWatchdog;
+  /**
+   * Servers whose listener path has been replaced by a re-bind. Kept around
+   * so already-connected sockets continue to work; closed gracefully once
+   * their accept loops drain.
+   */
+  private legacyServers = new Set<Server>();
+  private abortControllers = new Map<string, AbortController>();
 
-  constructor() {
+  constructor(options?: AssistantIpcServerOptions) {
     const resolution = resolveIpcSocketPath("assistant");
     this.socketPath = resolution.path;
     log.info(
@@ -147,29 +172,109 @@ export class AssistantIpcServer {
       this.methods.set(route.operationId, route.handler);
     }
 
-    // ⚠️  TEMPORARY — gateway→assistant DB proxy (see ipc/routes/db-proxy.ts).
-    // This is the ONLY route defined directly here; all other routes go in ROUTES.
-    // Remove once contacts/guardian-binding logic is fully migrated to the
-    // gateway's own database.
+    // ⚠️  TEMPORARY — gateway→assistant DB proxies (see ipc/routes/db-proxy.ts
+    // and ipc/routes/db-proxy-transaction.ts). These are the ONLY routes
+    // defined directly here; all other routes go in ROUTES. Remove once
+    // contacts/guardian-binding logic is fully migrated to the gateway's
+    // own database.
     this.methods.set("db_proxy", (params) =>
       handleDbProxy(params as unknown as DbProxyParams),
     );
+    this.methods.set("db_proxy_transaction", (params) =>
+      handleDbProxyTransaction(params as unknown as DbProxyTransactionParams),
+    );
+
+    this.methods.set("$cancel", (params) => {
+      const targetId = (params as { targetId?: string }).targetId;
+      if (targetId) this.abortControllers.get(targetId)?.abort();
+      return null;
+    });
+
+    this.watchdog = new SocketWatchdog({
+      socketPath: this.socketPath,
+      intervalMs: options?.watchdogIntervalMs,
+      getServer: () => this.server,
+      createServer: () => this.createListeningServer(),
+      onRebind: (newServer, oldServer) => {
+        this.server = newServer;
+        this.legacyServers.add(oldServer);
+        oldServer.close(() => {
+          this.legacyServers.delete(oldServer);
+        });
+      },
+      log,
+    });
   }
 
   /** Start listening on the Unix domain socket. */
   async start(): Promise<void> {
     // Ensure the parent directory exists before listening.
-    const socketDir = dirname(this.socketPath);
-    if (!existsSync(socketDir)) {
-      mkdirSync(socketDir, { recursive: true, mode: 0o700 });
-    }
+    ensureSocketDir(this.socketPath);
 
     // Probe before unlink so a second daemon can't silently orphan an active
     // listener (Unix lets you unlink a still-bound socket file). See
     // `ensureSocketPathFree` for the behavior matrix.
     await ensureSocketPathFree(this.socketPath);
 
-    this.server = createServer((socket) => {
+    this.server = this.createListeningServer();
+    this.server.listen(this.socketPath, () => {
+      log.info({ path: this.socketPath }, "Assistant IPC server listening");
+    });
+
+    this.watchdog.start();
+  }
+
+  /** Stop the server and disconnect all clients. */
+  stop(): void {
+    this.watchdog.stop();
+
+    for (const ctrl of this.abortControllers.values()) ctrl.abort();
+    this.abortControllers.clear();
+
+    for (const client of this.clients) {
+      if (!client.destroyed) client.destroy();
+    }
+    this.clients.clear();
+
+    for (const legacy of this.legacyServers) {
+      legacy.close();
+    }
+    this.legacyServers.clear();
+
+    if (this.server) {
+      this.server.close();
+      this.server = null;
+    }
+
+    if (existsSync(this.socketPath)) {
+      try {
+        unlinkSync(this.socketPath);
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /** Get the socket path (for diagnostics). */
+  getSocketPath(): string {
+    return this.socketPath;
+  }
+
+  /**
+   * Re-bind the listening socket if its path entry is missing on disk.
+   *
+   * Public for tests so the watchdog can be exercised deterministically
+   * without waiting for the interval. Returns `true` when a re-bind was
+   * performed, `false` otherwise.
+   */
+  async rebindIfMissing(): Promise<boolean> {
+    return this.watchdog.rebindIfMissing();
+  }
+
+  // ── Internal ──────────────────────────────────────────────────────────
+
+  private createListeningServer(): Server {
+    const server = createServer((socket) => {
       this.clients.add(socket);
       log.debug("IPC client connected");
 
@@ -194,42 +299,12 @@ export class AssistantIpcServer {
       });
     });
 
-    this.server.on("error", (err) => {
+    server.on("error", (err) => {
       log.error({ err }, "Assistant IPC server error");
     });
 
-    this.server.listen(this.socketPath, () => {
-      log.info({ path: this.socketPath }, "Assistant IPC server listening");
-    });
+    return server;
   }
-
-  /** Stop the server and disconnect all clients. */
-  stop(): void {
-    for (const client of this.clients) {
-      if (!client.destroyed) client.destroy();
-    }
-    this.clients.clear();
-
-    if (this.server) {
-      this.server.close();
-      this.server = null;
-    }
-
-    if (existsSync(this.socketPath)) {
-      try {
-        unlinkSync(this.socketPath);
-      } catch {
-        // Ignore
-      }
-    }
-  }
-
-  /** Get the socket path (for diagnostics). */
-  getSocketPath(): string {
-    return this.socketPath;
-  }
-
-  // ── Internal ──────────────────────────────────────────────────────────
 
   private handleEnvelope(
     socket: Socket,
@@ -259,16 +334,33 @@ export class AssistantIpcServer {
 
     void binary;
 
+    // Skip AbortController for the $cancel meta-method itself
+    const needsAbortTracking = req.method !== "$cancel";
+    let abortController: AbortController | undefined;
+    if (needsAbortTracking) {
+      abortController = new AbortController();
+      this.abortControllers.set(req.id, abortController);
+    }
+
     try {
-      const handlerArgs = injectLocalActorHeader(req.params);
+      const handlerArgs = {
+        ...injectLocalActorHeader(req.params),
+        ...(abortController && { abortSignal: abortController.signal }),
+      };
       const result = handler(handlerArgs);
 
       if (result instanceof Promise) {
         result
           .then((value) => {
+            // For streaming responses, keep the AbortController alive until the
+            // stream ends — sendStreamingResponse deletes it on completion/error.
+            if (!isIpcStreamingResponse(value)) {
+              this.abortControllers.delete(req.id);
+            }
             this.sendResult(socket, reader, req.id, value);
           })
           .catch((err) => {
+            this.abortControllers.delete(req.id);
             log.warn({ err, method: req.method }, "IPC handler error");
             this.sendResponse(
               socket,
@@ -277,9 +369,13 @@ export class AssistantIpcServer {
             );
           });
       } else {
+        if (!isIpcStreamingResponse(result)) {
+          this.abortControllers.delete(req.id);
+        }
         this.sendResult(socket, reader, req.id, result);
       }
     } catch (err) {
+      this.abortControllers.delete(req.id);
       log.warn({ err, method: req.method }, "IPC handler error");
       this.sendResponse(socket, reader, this.buildErrorResponse(req.id, err));
     }
@@ -345,7 +441,11 @@ export class AssistantIpcServer {
     requestId: string,
     response: IpcStreamingResponse,
   ): void {
-    if (socket.destroyed) return;
+    if (socket.destroyed) {
+      this.abortControllers.get(requestId)?.abort();
+      this.abortControllers.delete(requestId);
+      return;
+    }
 
     // Legacy clients can't handle chunked streaming — fall back to
     // buffering the full stream and sending as a single binary response.
@@ -369,10 +469,13 @@ export class AssistantIpcServer {
         .read()
         .then(({ done, value }) => {
           if (socket.destroyed) {
+            this.abortControllers.get(requestId)?.abort();
+            this.abortControllers.delete(requestId);
             streamReader.cancel().catch(() => {});
             return;
           }
           if (done) {
+            this.abortControllers.delete(requestId);
             writeStreamEnd(socket);
             return;
           }
@@ -380,6 +483,7 @@ export class AssistantIpcServer {
           pump();
         })
         .catch((err) => {
+          this.abortControllers.delete(requestId);
           log.warn({ err }, "IPC stream read error");
           if (!socket.destroyed) {
             writeStreamEnd(socket);
@@ -407,6 +511,7 @@ export class AssistantIpcServer {
         .read()
         .then(({ done, value }) => {
           if (done) {
+            this.abortControllers.delete(requestId);
             const totalLength = chunks.reduce(
               (sum, c) => sum + c.byteLength,
               0,
@@ -431,6 +536,7 @@ export class AssistantIpcServer {
           pump();
         })
         .catch((err) => {
+          this.abortControllers.delete(requestId);
           log.warn({ err }, "IPC legacy stream buffer error");
           this.sendResponse(socket, reader, {
             id: requestId,

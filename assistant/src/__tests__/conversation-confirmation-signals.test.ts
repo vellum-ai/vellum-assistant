@@ -280,21 +280,13 @@ function seedPendingConfirmation(
   conversation: Conversation,
   requestId: string,
 ): void {
+  // Access private ownedIds so denyAllPending/dispose can find this request.
+  // promptResolve/promptReject callbacks are stored in pendingInteractions via
+  // registerPendingInteraction, which is called separately in each test.
   const prompter = conversation["prompter"] as unknown as {
-    pending: Map<
-      string,
-      {
-        resolve: (...args: unknown[]) => void;
-        reject: (...args: unknown[]) => void;
-        timer: ReturnType<typeof setTimeout>;
-      }
-    >;
+    ownedIds: Set<string>;
   };
-  prompter.pending.set(requestId, {
-    resolve: () => {},
-    reject: () => {},
-    timer: setTimeout(() => {}, 60_000),
-  });
+  prompter.ownedIds.add(requestId);
 }
 
 // ---------------------------------------------------------------------------

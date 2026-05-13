@@ -22,7 +22,14 @@ extension HomeFeedStore {
                 if Task.isCancelled { break }
                 guard let self else { break }
                 if case .homeFeedUpdated = message {
+                    // Refresh the feed first so the next time the user
+                    // opens Home the new items are already in `items`,
+                    // then notify the wired-in callback (typically
+                    // ``HomeStore.flagUnseenChanges()`` gated on
+                    // off-surface visibility) so the toolbar's unread
+                    // dot lights up on off-surface activity.
                     await self.load()
+                    self.onSSEUpdate?()
                 }
             }
         }

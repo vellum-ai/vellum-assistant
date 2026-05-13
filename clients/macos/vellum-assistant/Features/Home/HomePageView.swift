@@ -65,12 +65,6 @@ struct HomePageView<DetailPanel: View>: View {
     /// refresh. Persistent per-account dismissal is a follow-up.
     @State private var suggestionsDismissed: Bool = false
 
-    /// Types the user has tapped in the filter bar. Empty means "show
-    /// everything" — a non-empty set is treated as an inclusion filter
-    /// in ``groupedFeed``. Deliberately view-local (not persisted):
-    /// the filter is a transient read-time affordance, not a setting.
-    @State private var activeFilter: FeedItemType? = nil
-
     /// Editorial column width. Bumped from 600pt to 960pt to match the
     /// Figma redesign — the new three-block layout reads as a wider page,
     /// not a narrow column.
@@ -132,15 +126,6 @@ struct HomePageView<DetailPanel: View>: View {
                         }
                     )
                 }
-
-                HomeFeedFilterBar(
-                    selected: activeFilter,
-                    onToggle: { type in
-                        // Single-select: tapping the active chip clears
-                        // the filter; tapping a different chip replaces it.
-                        activeFilter = (activeFilter == type) ? nil : type
-                    }
-                )
 
                 ForEach(Array(groupedFeed.enumerated()), id: \.element.group) { _, bucket in
                     VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -251,27 +236,16 @@ struct HomePageView<DetailPanel: View>: View {
     /// Sorts the feed by `priority desc, createdAt desc`, hides
     /// dismissed items (so `dismissItem(_:)` gives immediate feedback
     /// without waiting for a server refresh to rewrite the array),
-    /// applies the active type filter (nil = show all), buckets via
-    /// `HomeFeedTimeGroup.bucket(_:)`, then collapses contiguous
-    /// low-priority digest runs within each bucket via
+    /// buckets via `HomeFeedTimeGroup.bucket(_:)`, then collapses
+    /// contiguous low-priority digest runs within each bucket via
     /// `HomeFeedGrouping.group(_:)`.
     // Exposed for HomePageViewGroupingTests — kept out of public API via no-op accessor; grouping is a behavior that benefits from direct unit testing.
     var groupedFeed: [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
-        groupedFeed(for: activeFilter)
-    }
-
-    /// Pure grouping pipeline exposed for unit tests. Mirrors the logic
-    /// used by ``groupedFeed`` but takes the filter as a parameter so
-    /// tests don't need to manipulate `@State`.
-    func groupedFeed(for filter: FeedItemType?) -> [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
         let sorted = feedStore.items.sorted { a, b in
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
-        let filtered = sorted.filter { item in
-            item.status != .dismissed
-                && (filter == nil || filter == item.type)
-        }
+        let filtered = sorted.filter { $0.status != .dismissed }
         let buckets = HomeFeedTimeGroup.bucket(filtered)
         return buckets.map { bucket in
             (group: bucket.group, rows: HomeFeedGrouping.group(bucket.items))
@@ -290,49 +264,26 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Recap row styling
 
-    /// Icon glyph for a feed item, driven by type:
-    ///   nudge  → heart     (Heartbeat)
-    ///   action → arrowLeft (Needs attention)
-    ///   digest → bell      (Just so you know)
-    ///   thread → calendar  (Scheduled)
-    private func icon(for item: FeedItem) -> VIcon {
-        switch item.type {
-        case .nudge:
-            // Assistant-authored nudges are the canonical heart case; any
-            // other source falls through to the same glyph — there is no
-            // non-assistant nudge variant in the spec today.
-            return .heart
-        case .action:
-            return .arrowLeft
-        case .digest:
-            return .bell
-        case .thread:
-            return .calendar
-        }
+    /// Icon glyph for a feed item. The v2 schema collapsed all items to
+    /// the single `notification` type, so every row uses the same glyph
+    /// — a per-item visual language driven by `urgency` or
+    /// `detailPanel.kind` is a future iteration. The `FeedItem` parameter
+    /// is retained (internal name dropped to flag intentionally unused) so
+    /// a future per-urgency / per-detail-panel-kind dispatch can re-thread
+    /// it without touching every call site.
+    private func icon(for _: FeedItem) -> VIcon {
+        .bell
     }
 
-    /// Foreground (glyph) color for the recap icon. Each feed type maps
-    /// to its dedicated Figma identifier pair (pink / blue / teal /
-    /// amber) — see the `feed*` and `systemInfo*` tokens in
-    /// `ColorTokens.swift`. Rows and filter chips share one source of
-    /// truth so the visual language stays consistent.
-    private func iconForeground(for item: FeedItem) -> Color {
-        switch item.type {
-        case .nudge:   return VColor.feedNudgeStrong
-        case .action:  return VColor.systemInfoStrong
-        case .digest:  return VColor.feedDigestStrong
-        case .thread:  return VColor.feedThreadStrong
-        }
+    /// Foreground (glyph) color for the recap icon. See the `feed*`
+    /// tokens in `ColorTokens.swift`.
+    private func iconForeground(for _: FeedItem) -> Color {
+        VColor.feedDigestStrong
     }
 
     /// Background (circle fill) color for the recap icon.
-    private func iconBackground(for item: FeedItem) -> Color {
-        switch item.type {
-        case .nudge:   return VColor.feedNudgeWeak
-        case .action:  return VColor.systemInfoWeak
-        case .digest:  return VColor.feedDigestWeak
-        case .thread:  return VColor.feedThreadWeak
-        }
+    private func iconBackground(for _: FeedItem) -> Color {
+        VColor.feedDigestWeak
     }
 
     // MARK: - Actions

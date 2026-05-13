@@ -8,43 +8,25 @@ import { type FeedItem, feedItemSchema, parseFeedFile } from "../feed-types.js";
 
 const NOW_ISO = "2026-04-14T12:00:00.000Z";
 
-function minimalNudge(): Record<string, unknown> {
+function minimalNotification(): Record<string, unknown> {
   return {
-    id: "nudge-1",
-    type: "nudge",
+    id: "notif-1",
+    type: "notification",
     priority: 50,
     title: "Follow up on the Figma file",
     summary: "You mentioned wanting to review the onboarding designs.",
     timestamp: NOW_ISO,
-    author: "assistant",
     createdAt: NOW_ISO,
   };
 }
 
-function minimalDigest(): Record<string, unknown> {
+function notificationWithActions(): Record<string, unknown> {
   return {
-    id: "digest-gmail",
-    type: "digest",
-    priority: 40,
-    title: "3 new emails",
-    summary: "Since yesterday",
-    source: "gmail",
-    timestamp: NOW_ISO,
-    author: "platform",
-    createdAt: NOW_ISO,
-  };
-}
-
-function minimalAction(): Record<string, unknown> {
-  return {
-    id: "action-1",
-    type: "action",
+    ...minimalNotification(),
+    id: "notif-action-1",
     priority: 60,
     title: "Approve expense report",
     summary: "Pending since Tuesday",
-    timestamp: NOW_ISO,
-    author: "assistant",
-    createdAt: NOW_ISO,
     actions: [
       {
         id: "approve",
@@ -55,59 +37,50 @@ function minimalAction(): Record<string, unknown> {
   };
 }
 
-function minimalThread(): Record<string, unknown> {
-  return {
-    id: "thread-1",
-    type: "thread",
-    priority: 30,
-    title: "Draft reply to Alice",
-    summary: "Waiting on your input",
-    timestamp: NOW_ISO,
-    author: "assistant",
-    createdAt: NOW_ISO,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Valid minimal items
 // ---------------------------------------------------------------------------
 
 describe("feedItemSchema — valid minimal items", () => {
-  test("valid minimal nudge parses successfully", () => {
-    const parsed = feedItemSchema.parse(minimalNudge());
-    expect(parsed.type).toBe("nudge");
+  test("valid minimal notification parses successfully", () => {
+    const parsed = feedItemSchema.parse(minimalNotification());
+    expect(parsed.type).toBe("notification");
     // `status` defaults to "new" when absent.
     expect(parsed.status).toBe("new");
-    expect(parsed.author).toBe("assistant");
   });
 
-  test("valid minimal digest parses successfully", () => {
-    const parsed = feedItemSchema.parse(minimalDigest());
-    expect(parsed.type).toBe("digest");
-    expect(parsed.source).toBe("gmail");
-    expect(parsed.author).toBe("platform");
-  });
-
-  test("valid minimal action parses successfully", () => {
-    const parsed = feedItemSchema.parse(minimalAction());
-    expect(parsed.type).toBe("action");
+  test("notification with actions array parses and preserves the prompt", () => {
+    const parsed = feedItemSchema.parse(notificationWithActions());
+    expect(parsed.type).toBe("notification");
     expect(parsed.actions).toHaveLength(1);
     expect(parsed.actions?.[0]?.prompt).toBe("Approve the expense report.");
   });
 
-  test("valid minimal thread parses successfully", () => {
-    const parsed = feedItemSchema.parse(minimalThread());
-    expect(parsed.type).toBe("thread");
-  });
-
   test("status defaults to 'new' when omitted", () => {
-    const parsed = feedItemSchema.parse(minimalNudge());
+    const parsed = feedItemSchema.parse(minimalNotification());
     expect(parsed.status).toBe("new");
   });
 
   test("explicit status value is preserved", () => {
-    const parsed = feedItemSchema.parse({ ...minimalNudge(), status: "seen" });
+    const parsed = feedItemSchema.parse({
+      ...minimalNotification(),
+      status: "seen",
+    });
     expect(parsed.status).toBe("seen");
+  });
+
+  test("urgency, conversationId, expiresAt, detailPanel pass through", () => {
+    const parsed = feedItemSchema.parse({
+      ...minimalNotification(),
+      urgency: "high",
+      conversationId: "conv-abc",
+      expiresAt: "2026-04-15T00:00:00.000Z",
+      detailPanel: { kind: "emailDraft" },
+    });
+    expect(parsed.urgency).toBe("high");
+    expect(parsed.conversationId).toBe("conv-abc");
+    expect(parsed.expiresAt).toBe("2026-04-15T00:00:00.000Z");
+    expect(parsed.detailPanel?.kind).toBe("emailDraft");
   });
 });
 
@@ -118,34 +91,34 @@ describe("feedItemSchema — valid minimal items", () => {
 describe("feedItemSchema — priority validation", () => {
   test("rejects priority -1", () => {
     expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), priority: -1 }),
+      feedItemSchema.parse({ ...minimalNotification(), priority: -1 }),
     ).toThrow();
   });
 
   test("rejects priority 101", () => {
     expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), priority: 101 }),
+      feedItemSchema.parse({ ...minimalNotification(), priority: 101 }),
     ).toThrow();
   });
 
   test("rejects priority as string '5'", () => {
     expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), priority: "5" }),
+      feedItemSchema.parse({ ...minimalNotification(), priority: "5" }),
     ).toThrow();
   });
 
   test("rejects non-integer priority (e.g. 50.5)", () => {
     expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), priority: 50.5 }),
+      feedItemSchema.parse({ ...minimalNotification(), priority: 50.5 }),
     ).toThrow();
   });
 
   test("accepts boundary values 0 and 100", () => {
     expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), priority: 0 }),
+      feedItemSchema.parse({ ...minimalNotification(), priority: 0 }),
     ).not.toThrow();
     expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), priority: 100 }),
+      feedItemSchema.parse({ ...minimalNotification(), priority: 100 }),
     ).not.toThrow();
   });
 });
@@ -157,63 +130,21 @@ describe("feedItemSchema — priority validation", () => {
 describe("feedItemSchema — enum validation", () => {
   test("rejects unknown `type`", () => {
     expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), type: "banner" }),
+      feedItemSchema.parse({ ...minimalNotification(), type: "banner" }),
     ).toThrow();
+  });
+
+  test("rejects legacy v1 `type` values (nudge/digest/action/thread)", () => {
+    for (const legacy of ["nudge", "digest", "action", "thread"] as const) {
+      expect(() =>
+        feedItemSchema.parse({ ...minimalNotification(), type: legacy }),
+      ).toThrow();
+    }
   });
 
   test("rejects unknown `status`", () => {
     expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), status: "archived" }),
-    ).toThrow();
-  });
-
-  test("rejects unknown `source` (e.g. 'facebook')", () => {
-    expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), source: "facebook" }),
-    ).toThrow();
-  });
-
-  test("rejects unknown `author`", () => {
-    expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), author: "user" }),
-    ).toThrow();
-  });
-
-  test("allows omitted `source`", () => {
-    const raw = minimalNudge();
-    delete (raw as Record<string, unknown>).source;
-    expect(() => feedItemSchema.parse(raw)).not.toThrow();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// minTimeAway validation
-// ---------------------------------------------------------------------------
-
-describe("feedItemSchema — minTimeAway validation", () => {
-  test("accepts non-negative integer", () => {
-    const parsed = feedItemSchema.parse({
-      ...minimalNudge(),
-      minTimeAway: 3600,
-    });
-    expect(parsed.minTimeAway).toBe(3600);
-  });
-
-  test("accepts 0", () => {
-    expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), minTimeAway: 0 }),
-    ).not.toThrow();
-  });
-
-  test("rejects negative values", () => {
-    expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), minTimeAway: -1 }),
-    ).toThrow();
-  });
-
-  test("rejects non-integer values", () => {
-    expect(() =>
-      feedItemSchema.parse({ ...minimalNudge(), minTimeAway: 1.5 }),
+      feedItemSchema.parse({ ...minimalNotification(), status: "archived" }),
     ).toThrow();
   });
 });
@@ -223,31 +154,26 @@ describe("feedItemSchema — minTimeAway validation", () => {
 // ---------------------------------------------------------------------------
 
 describe("parseFeedFile", () => {
-  test("accepts empty file with version 1", () => {
+  test("accepts empty file with version 2", () => {
     const parsed = parseFeedFile({
-      version: 1,
+      version: 2,
       items: [],
       updatedAt: NOW_ISO,
     });
-    expect(parsed.version).toBe(1);
+    expect(parsed.version).toBe(2);
     expect(parsed.items).toEqual([]);
     expect(parsed.updatedAt).toBe(NOW_ISO);
   });
 
   test("accepts file with multiple valid items", () => {
     const parsed = parseFeedFile({
-      version: 1,
-      items: [
-        minimalNudge(),
-        minimalDigest(),
-        minimalAction(),
-        minimalThread(),
-      ],
+      version: 2,
+      items: [minimalNotification(), notificationWithActions()],
       updatedAt: NOW_ISO,
     });
-    expect(parsed.items).toHaveLength(4);
+    expect(parsed.items).toHaveLength(2);
     const types = parsed.items.map((i: FeedItem) => i.type);
-    expect(types).toEqual(["nudge", "digest", "action", "thread"]);
+    expect(types).toEqual(["notification", "notification"]);
   });
 
   test("throws on non-object input", () => {
@@ -257,17 +183,23 @@ describe("parseFeedFile", () => {
     expect(() => parseFeedFile(42)).toThrow();
   });
 
-  test("throws on wrong version", () => {
+  test("throws on legacy v1 version", () => {
     expect(() =>
-      parseFeedFile({ version: 2, items: [], updatedAt: NOW_ISO }),
+      parseFeedFile({ version: 1, items: [], updatedAt: NOW_ISO }),
+    ).toThrow();
+  });
+
+  test("throws on unknown version", () => {
+    expect(() =>
+      parseFeedFile({ version: 99, items: [], updatedAt: NOW_ISO }),
     ).toThrow();
   });
 
   test("throws when an item in the file is invalid", () => {
     expect(() =>
       parseFeedFile({
-        version: 1,
-        items: [{ ...minimalNudge(), priority: 999 }],
+        version: 2,
+        items: [{ ...minimalNotification(), priority: 999 }],
         updatedAt: NOW_ISO,
       }),
     ).toThrow();

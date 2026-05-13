@@ -10,7 +10,6 @@
 import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-store.js";
-import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -62,8 +61,9 @@ function handleConfirm({ body }: RouteHandlerArgs) {
     throw new BadRequestError("decision must resolve to allow or deny");
   }
 
-  // Validation passed — consume the pending interaction.
-  const interaction = pendingInteractions.resolve(requestId)!;
+  // Validation passed. Use get() here — the prompter (or ACP directResolve path)
+  // owns deregistration via pendingInteractions.resolve().
+  const interaction = peeked;
 
   log.info(
     {
@@ -75,25 +75,10 @@ function handleConfirm({ body }: RouteHandlerArgs) {
     "Confirmation resolved",
   );
 
-  const approved = effectiveDecision === "allow";
-  const toolName = interaction.confirmationDetails?.toolName ?? "unknown tool";
-  void emitFeedEvent({
-    source: "assistant",
-    title: `${approved ? "Approved" : "Denied"} use of ${toolName}.`,
-    summary: `${approved ? "Approved" : "Denied"} use of ${toolName}.`,
-    dedupKey: `tool-approval:${requestId}`,
-    urgency: approved ? undefined : "medium",
-    conversationId: interaction.conversationId,
-    detailPanel: { kind: "toolPermission" },
-  }).catch((err) => {
-    log.warn(
-      { err, requestId },
-      "Failed to emit tool approval resolution feed event",
-    );
-  });
-
   // ACP permissions: resolve directly without a Conversation object.
+  // No PermissionPrompter involved, so the route owns deregistration.
   if (interaction.directResolve) {
+    pendingInteractions.resolve(requestId);
     interaction.directResolve(effectiveDecision as UserDecision);
     return { accepted: true };
   }
@@ -139,7 +124,8 @@ function handleSecret({ body }: RouteHandlerArgs) {
     throw new BadRequestError('delivery must be "store" or "transient_send"');
   }
 
-  const interaction = pendingInteractions.resolve(requestId);
+  // Use get() — SecretPrompter.resolveSecret() owns deregistration.
+  const interaction = pendingInteractions.get(requestId);
   if (!interaction) {
     throw new NotFoundError("No pending interaction found for this requestId");
   }

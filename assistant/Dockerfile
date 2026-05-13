@@ -22,16 +22,18 @@ COPY packages/service-contracts ./packages/service-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
 COPY packages/gateway-client ./packages/gateway-client
+COPY packages/ipc-server-utils ./packages/ipc-server-utils
 COPY packages/skill-host-contracts ./packages/skill-host-contracts
 COPY packages/slack-text ./packages/slack-text
 COPY packages/twilio-client ./packages/twilio-client
 
-# Install deps for shared packages that have their own file: dependencies.
-# Without this, bun's module resolution at runtime walks up from e.g.
-# packages/ces-client/src/ and never finds the transitive dependency
-# (ces-contracts) because only assistant/node_modules gets populated.
+# Install deps for shared packages whose source is loaded at runtime.
+# Without this, bun's module resolution walks up from packages/<name>/src/
+# and can't find the package's own deps (zod, transitive file: refs)
+# because only assistant/node_modules gets populated.
 RUN cd /app/packages/ces-client && bun install --frozen-lockfile
 RUN cd /app/packages/gateway-client && bun install --frozen-lockfile
+RUN cd /app/packages/service-contracts && bun install --frozen-lockfile
 
 # Install assistant dependencies first for cache reuse
 COPY assistant/package.json assistant/bun.lock ./assistant/
@@ -71,6 +73,9 @@ RUN apt-get update && apt-get install -y \
     bubblewrap \
     ca-certificates \
     curl \
+    debootstrap \
+    debian-archive-keyring \
+    debconf \
     ffmpeg \
     fonts-freefont-ttf \
     g++ \
@@ -115,6 +120,7 @@ RUN apt-get update && apt-get install -y \
     unzip \
     uuid-runtime \
     vim \
+    wget \
     xclip \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
@@ -145,6 +151,76 @@ ENV PATH="${BUN_INSTALL}/bin:${PATH}"
 ENV PYTHONUSERBASE="/home/assistant/.python"
 ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
 
+RUN printf '%s\n' \
+    'if [ -r /app/assistant/docker-kata-apt-env.sh ]; then' \
+    '  . /app/assistant/docker-kata-apt-env.sh' \
+    'fi' \
+    > /etc/profile.d/vellum-kata-apt-root.sh && \
+    printf '%s\n' \
+    '' \
+    'if [ -r /etc/profile.d/vellum-kata-apt-root.sh ]; then' \
+    '  . /etc/profile.d/vellum-kata-apt-root.sh' \
+    'fi' \
+    >> /etc/bash.bashrc && \
+    printf '%s\n' \
+    '' \
+    'if [ -r /etc/profile.d/vellum-kata-apt-root.sh ]; then' \
+    '  . /etc/profile.d/vellum-kata-apt-root.sh' \
+    'fi' \
+    >> /root/.bashrc && \
+    printf '%s\n' \
+    '' \
+    'if [ -r /etc/profile.d/vellum-kata-apt-root.sh ]; then' \
+    '  . /etc/profile.d/vellum-kata-apt-root.sh' \
+    'fi' \
+    >> /home/assistant/.bashrc && \
+    chown assistant:assistant /home/assistant/.bashrc
+
+RUN printf '%s\n' \
+    '#!/usr/bin/env sh' \
+    'set -eu' \
+    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    '  exec /usr/bin/apt-get "$@"' \
+    'fi' \
+    'export DEBIAN_FRONTEND=noninteractive' \
+    'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
+    '/app/assistant/docker-init-apt-root.sh' \
+    'if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/apt-get" ] && [ -f "${DATA_ROOT}/.rootfs-initialized" ] && ! grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then' \
+    '  exec chroot "${DATA_ROOT}" /usr/bin/apt-get "$@"' \
+    'fi' \
+    'exec /usr/bin/apt-get "$@"' \
+    > /usr/local/bin/apt-get && \
+    chmod +x /usr/local/bin/apt-get && \
+    printf '%s\n' \
+    '#!/usr/bin/env sh' \
+    'set -eu' \
+    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    '  exec /usr/bin/apt "$@"' \
+    'fi' \
+    'export DEBIAN_FRONTEND=noninteractive' \
+    'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
+    '/app/assistant/docker-init-apt-root.sh' \
+    'if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/apt" ] && [ -f "${DATA_ROOT}/.rootfs-initialized" ] && ! grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then' \
+    '  exec chroot "${DATA_ROOT}" /usr/bin/apt "$@"' \
+    'fi' \
+    'exec /usr/bin/apt "$@"' \
+    > /usr/local/bin/apt && \
+    chmod +x /usr/local/bin/apt && \
+    printf '%s\n' \
+    '#!/usr/bin/env sh' \
+    'set -eu' \
+    'if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then' \
+    '  exec /usr/bin/dpkg "$@"' \
+    'fi' \
+    'DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"' \
+    '/app/assistant/docker-init-apt-root.sh' \
+    'if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/dpkg" ] && [ -f "${DATA_ROOT}/.rootfs-initialized" ] && ! grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then' \
+    '  exec chroot "${DATA_ROOT}" /usr/bin/dpkg "$@"' \
+    'fi' \
+    'exec /usr/bin/dpkg "$@"' \
+    > /usr/local/bin/dpkg && \
+    chmod +x /usr/local/bin/dpkg
+
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
 
@@ -159,7 +235,7 @@ ENV IS_CONTAINERIZED=true
 # and the generated meet-join manifest from the builder stage.
 COPY --from=builder /app /app
 
-RUN chmod +x /app/assistant/docker-entrypoint.sh
+RUN chmod +x /app/assistant/docker-entrypoint.sh /app/assistant/docker-init-apt-root.sh /app/assistant/docker-kata-apt-env.sh
 
 # Run the daemon + http server
 CMD ["/app/assistant/docker-entrypoint.sh"]

@@ -34,7 +34,9 @@ import {
   embedWithBackend,
   generateSparseEmbedding,
 } from "../embedding-backend.js";
+import { invalidatePageIndex } from "./page-index.js";
 import {
+  backfillKindOnPointsWithPrefix,
   pruneSlugsWithPrefixExcept,
   upsertConceptPageEmbedding,
 } from "./qdrant.js";
@@ -42,6 +44,10 @@ import {
   augmentMcpSetupDescription,
   buildSkillContent,
 } from "./skill-content.js";
+import {
+  generateBm25DocEmbedding,
+  getConceptPageCorpusStats,
+} from "./sparse-bm25.js";
 import type { SkillEntry } from "./types.js";
 
 const log = getLogger("memory-v2-skill-store");
@@ -53,6 +59,14 @@ const log = getLogger("memory-v2-skill-store");
  * prefix coexists with hand-authored concept pages without escape work.
  */
 export const SKILL_SLUG_PREFIX = "skills/";
+
+/**
+ * Payload discriminator written on every skill-seeded Qdrant point. Keeps
+ * skill rows distinguishable from user-authored concept pages that happen to
+ * be slugged under `skills/...`, so prefix pruning never deletes a hand-
+ * authored page sitting in the same namespace.
+ */
+const SKILL_PAYLOAD_KIND = "skill";
 
 /** Compose the unified-collection slug for a skill id. */
 export function skillSlugFor(id: string): string {
@@ -68,14 +82,31 @@ let entries: Map<string, SkillEntry> | null = null;
 let requestedSeedGeneration = 0;
 let processedSeedGeneration = 0;
 let activeSeedDrain: Promise<void> | null = null;
+let lastSeedError: unknown = null;
 const seedWaiters: Array<{ generation: number; resolve: () => void }> = [];
 
 /**
  * Seed (or re-seed) skill embeddings into the unified concept-page collection.
- * Idempotent: safe to call repeatedly. Best-effort: never throws — any
- * failure leaves the prior `entries` cache in place and logs a warning.
+ * Idempotent. Defaults to best-effort (errors are logged but swallowed) for
+ * background callers like daemon startup; pass `{ throwOnError: true }` from
+ * synchronous CLI-driven paths that need to surface failures to the operator.
  *
- * Steps:
+ * Single-flight + coalesced: at most one seed runs at a time. Requests made
+ * while a seed is in flight advance the requested generation; stale in-flight
+ * snapshots are skipped before they write embeddings or replace the cache,
+ * then the drain loop immediately processes the latest generation. Strict
+ * callers observe the awaited generation's latest outcome via `lastSeedError`.
+ */
+
+/**
+ * In-process latch for the legacy `kind` backfill (see
+ * {@link backfillKindOnPointsWithPrefix}). New upserts always write `kind`,
+ * so once the latch is set there is no follow-up work to do this process.
+ */
+let legacyKindBackfillDone = false;
+
+/**
+ * Steps (per run):
  *   1. Enumerate the local skill catalog and resolve each skill's enabled
  *      state (`resolveSkillStates`).
  *   2. Build a `SkillEntry` per enabled skill, applying the mcp-setup
@@ -94,13 +125,18 @@ const seedWaiters: Array<{ generation: number; resolve: () => void }> = [];
  *      stale points from prior catalog state (e.g. uninstalled skills).
  *   7. Replace the module-level `entries` cache with the freshly built map.
  */
-export function seedV2SkillEntries(): Promise<void> {
+export async function seedV2SkillEntries(
+  opts: { throwOnError?: boolean } = {},
+): Promise<void> {
   const generation = ++requestedSeedGeneration;
   const waiter = new Promise<void>((resolve) => {
     seedWaiters.push({ generation, resolve });
   });
   startSeedDrainIfNeeded();
-  return waiter;
+  await waiter;
+  if (opts.throwOnError && lastSeedError) {
+    throw lastSeedError;
+  }
 }
 
 function startSeedDrainIfNeeded(): void {
@@ -159,11 +195,19 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
     // Seed uninstalled catalog skills so their activation hints are
     // discoverable by intent. Track whether the catalog was available so we
     // can guard pruning below.
+    //
+    // Build the legacy-backfill allowlist in parallel: every locally
+    // installed skill id (regardless of enabled state) plus every remote
+    // catalog id. Restricting the backfill to this set keeps user-authored
+    // concept pages that happen to live under `skills/<slug>` from being
+    // mis-tagged and then pruned. See `backfillKindOnPointsWithPrefix`.
+    const knownSkillIds = new Set<string>(installedIds);
     let catalogAvailable = false;
     try {
       const fullCatalog = await getCatalog();
       catalogAvailable = fullCatalog.length > 0;
       for (const entry of fullCatalog) {
+        knownSkillIds.add(entry.id);
         if (installedIds.has(entry.id)) continue;
         const flagKey = entry.metadata?.vellum?.["feature-flag"];
         if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
@@ -178,39 +222,68 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
       );
     }
 
-    // Embed all content strings in one batched call. Sparse vectors are
-    // computed in-process (no network).
-    const embedded = await embedWithBackend(
-      config,
-      seeds.map((s) => s.content),
-    );
-    const denseVectors = await Promise.all(
-      embedded.vectors.map((v) =>
-        applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),
-      ),
-    );
+    // Embed all content strings in one batched call when there is anything to
+    // embed. Skipping the call when `seeds` is empty avoids throwing on an
+    // unavailable embedding backend in the all-disabled case, so pruning and
+    // cache replacement still run and clear stale state.
+    const nextEntries = new Map<string, SkillEntry>();
+    let denseVectors: number[][] = [];
+    let encodeSparse: (
+      input: string,
+    ) => ReturnType<typeof generateSparseEmbedding> = generateSparseEmbedding;
+    if (seeds.length > 0) {
+      const embedded = await embedWithBackend(
+        config,
+        seeds.map((s) => s.content),
+      );
+      denseVectors = await Promise.all(
+        embedded.vectors.map((v) =>
+          applyCorrectionIfCalibrated(v, embedded.provider, embedded.model),
+        ),
+      );
+
+      // Skills share the concept-page Qdrant collection, so the sparse vector
+      // must use the same stemmed BM25 encoding the concept-page documents
+      // carry — otherwise the stemmed BM25 query vectors used by callers (see
+      // `simBatch`, `activation.selectCandidates`, recall) hash to different
+      // buckets than the stored skill vectors and skip the sparse channel
+      // entirely. Fall back to the legacy TF encoder only during the cold-start
+      // window before corpus stats finish building.
+      const corpusStats = getConceptPageCorpusStats();
+      encodeSparse = (input: string) =>
+        corpusStats
+          ? generateBm25DocEmbedding(input, corpusStats, {
+              k1: config.memory.v2.bm25_k1,
+              b: config.memory.v2.bm25_b,
+            })
+          : generateSparseEmbedding(input);
+    }
+
     if (generation !== requestedSeedGeneration) {
       log.info(
         { generation, latestGeneration: requestedSeedGeneration },
         "Skipping stale v2 skill seed result",
       );
+      lastSeedError = null;
       return;
     }
 
-    const now = Date.now();
-    const nextEntries = new Map<string, SkillEntry>();
-    await Promise.all(
-      seeds.map((seed, i) =>
-        upsertConceptPageEmbedding({
-          slug: skillSlugFor(seed.id),
-          dense: denseVectors[i],
-          sparse: generateSparseEmbedding(seed.content),
-          updatedAt: now,
-        }),
-      ),
-    );
-    for (const seed of seeds) {
-      nextEntries.set(seed.id, seed);
+    if (seeds.length > 0) {
+      const now = Date.now();
+      await Promise.all(
+        seeds.map((seed, i) =>
+          upsertConceptPageEmbedding({
+            slug: skillSlugFor(seed.id),
+            dense: denseVectors[i],
+            sparse: encodeSparse(seed.content),
+            updatedAt: now,
+            kind: SKILL_PAYLOAD_KIND,
+          }),
+        ),
+      );
+      for (const seed of seeds) {
+        nextEntries.set(seed.id, seed);
+      }
     }
 
     // Prune stale skill slugs. When the catalog is unavailable (empty array
@@ -218,9 +291,29 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
     // uninstalled catalog skills should exist, so skip pruning entirely to
     // avoid aggressively removing previously-seeded catalog skill embeddings.
     if (catalogAvailable) {
+      // Tag legacy skill points missing `payload.kind` before pruning so the
+      // kind-scoped prune can see them. Once-per-process; the backfill is
+      // idempotent (server-side `is_empty` filter), so a partial failure
+      // converges on retry.
+      if (!legacyKindBackfillDone) {
+        try {
+          await backfillKindOnPointsWithPrefix(
+            SKILL_SLUG_PREFIX,
+            SKILL_PAYLOAD_KIND,
+            knownSkillIds,
+          );
+          legacyKindBackfillDone = true;
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to backfill kind on legacy skill points — pruning may leave orphans this run",
+          );
+        }
+      }
       await pruneSlugsWithPrefixExcept(
         SKILL_SLUG_PREFIX,
         seeds.map((s) => s.id),
+        { kind: SKILL_PAYLOAD_KIND },
       );
     } else {
       log.info(
@@ -230,7 +323,13 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
 
     // Atomically replace the cache only after every step above succeeds.
     entries = nextEntries;
+    // Drop the page-index cache so the next router invocation observes the
+    // freshly seeded skill set (skill entries share the unified concept-page
+    // collection and surface in the same index).
+    invalidatePageIndex();
+    lastSeedError = null;
   } catch (err) {
+    lastSeedError = err;
     log.warn({ err }, "Failed to seed v2 skill entries");
   }
 }
@@ -243,17 +342,38 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
  * Accepts either a bare skill id (`example-skill`) or its unified-collection
  * slug (`skills/example-skill`) so render-side callers can pass through what
  * they have without a manual prefix strip.
+ *
+ * Returns a frozen copy so callers cannot mutate the underlying cache entry
+ * — matches the defensive-copy contract of `listSkillEntries`.
  */
 export function getSkillCapability(idOrSlug: string): SkillEntry | null {
   const id = idOrSlug.startsWith(SKILL_SLUG_PREFIX)
     ? idOrSlug.slice(SKILL_SLUG_PREFIX.length)
     : idOrSlug;
-  return entries?.get(id) ?? null;
+  const entry = entries?.get(id);
+  return entry ? Object.freeze({ ...entry }) : null;
 }
 
 /** True iff the slug refers to a skill entry in the unified collection. */
 export function isSkillSlug(slug: string): boolean {
   return slug.startsWith(SKILL_SLUG_PREFIX);
+}
+
+/**
+ * Snapshot of the in-process skill cache, sorted by skill id (ASCII order)
+ * for determinism. Returns a freshly allocated array of frozen entry copies
+ * on each call, so callers cannot mutate the underlying cache — neither by
+ * reassigning the array nor by writing through entry fields.
+ *
+ * The cache is replaced atomically by `seedV2SkillEntries`, so a snapshot
+ * may be stale once a subsequent seed run completes. Callers that need
+ * up-to-the-moment state must re-call this after awaiting the seed.
+ */
+export function listSkillEntries(): SkillEntry[] {
+  if (!entries) return [];
+  return [...entries.values()]
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((entry) => Object.freeze({ ...entry }));
 }
 
 /** @internal Test-only: clear the module-level cache. */
@@ -263,4 +383,6 @@ export function _resetSkillStoreForTests(): void {
   processedSeedGeneration = 0;
   activeSeedDrain = null;
   seedWaiters.splice(0, seedWaiters.length);
+  lastSeedError = null;
+  legacyKindBackfillDone = false;
 }

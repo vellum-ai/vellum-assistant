@@ -7,10 +7,7 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
-import {
-  initFeatureFlagOverrides,
-  isAssistantFeatureFlagEnabled,
-} from "../config/assistant-feature-flags.js";
+import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import {
   getPlatformAssistantId,
   getRuntimeHttpHost,
@@ -34,10 +31,6 @@ import {
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import {
-  type FeedSchedulerHandle,
-  startFeedScheduler,
-} from "../home/feed-scheduler.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
@@ -47,6 +40,7 @@ import {
 } from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
@@ -60,10 +54,12 @@ import {
 } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { installPluginRuntime } from "../plugins/external-api.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
+import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
@@ -117,7 +113,10 @@ import {
 } from "./guardian-action-generators.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
-import { maybeSeedMemoryV2Skills } from "./memory-v2-startup.js";
+import {
+  maybeRebuildMemoryV2Concepts,
+  rebuildBm25CorpusStatsAndReseedSkills,
+} from "./memory-v2-startup.js";
 import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -319,21 +318,14 @@ export async function runDaemon(): Promise<void> {
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 
-    // Pre-populate
-    // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
-    // Fired non-blocking so a slow or unreachable gateway doesn't delay
-    // daemon startup (the IPC call has a 3s connect + 5s call timeout
-    // that would otherwise stall the critical path).
-    //
-    // On resolve, retry the v2 skill seed: the synchronous gate at the
-    // skill-seed call site below evaluates the memory-v2-enabled flag
-    // before the gateway has populated overrides, so a cold-boot race
-    // can leave the v2 skill collection unseeded for the lifetime of
-    // the daemon. seedV2SkillEntries is idempotent, so re-running after
-    // overrides land is safe.
-    void initFeatureFlagOverrides()
-      .then(() => maybeSeedMemoryV2Skills(loadConfig()))
-      .catch((err) => log.warn({ err }, "Background feature flag init failed"));
+    // Pre-populate feature flag overrides so subsequent sync
+    // isAssistantFeatureFlagEnabled() calls have data. Fired non-blocking
+    // so a slow or unreachable gateway doesn't delay daemon startup (the
+    // IPC call has a 3s connect + 5s call timeout that would otherwise
+    // stall the critical path).
+    void initFeatureFlagOverrides().catch((err) =>
+      log.warn({ err }, "Background feature flag init failed"),
+    );
 
     seedInterfaceFiles();
 
@@ -375,6 +367,20 @@ export async function runDaemon(): Promise<void> {
     if (dbReady) {
       await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
       log.info("Daemon startup: workspace migrations complete");
+
+      // Seed canonical inference provider_connections and backfill any legacy
+      // profiles that pre-date the connection field. Runs after workspace
+      // migrations so migration 076 has already stripped services.inference.mode
+      // before backfill reads config. Idempotent — runs every boot so new
+      // canonicals propagate and manual config.json edits self-heal.
+      try {
+        runProviderConnectionsBackfill(getDb());
+      } catch (err) {
+        log.warn(
+          { err },
+          "provider_connections backfill failed — continuing startup",
+        );
+      }
 
       // Profiler retention sweep — prune completed profiler runs to stay
       // within configured byte-count, run-count, and free-space budgets.
@@ -500,12 +506,23 @@ export async function runDaemon(): Promise<void> {
       }
     } // end if (dbReady)
 
-    // Seed managed inference profiles into the workspace config. Runs
-    // after workspace migrations (which may have created the initial
-    // profile slots) and before mergeDefaultWorkspaceConfig / loadConfig
-    // so the profiles are on disk for the first config load.
+    // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
+    // into the workspace config file before profile seeding and the first
+    // loadConfig() call so onboarding/platform preferences are visible to the
+    // seeder and persisted alongside schema defaults.
+    const defaultConfigMerge = mergeDefaultWorkspaceConfig();
+
+    // Seed inference profiles into the workspace config. Managed Anthropic
+    // profiles are overwritten on every boot so Vellum can push updates.
+    // Off-platform hatches additionally create user profiles + a personal
+    // provider connection for the hatch provider.
     try {
-      seedInferenceProfiles();
+      seedInferenceProfiles({
+        preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
+        preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
+        isHatch: defaultConfigMerge.hadOverlay,
+        db: dbReady ? getDb() : undefined,
+      });
       log.info("Inference profile seeding complete");
     } catch (err) {
       log.warn(
@@ -513,11 +530,6 @@ export async function runDaemon(): Promise<void> {
         "Inference profile seeding failed — continuing startup",
       );
     }
-
-    // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
-    // into the workspace config file before the first loadConfig() call so
-    // onboarding preferences are persisted alongside schema defaults.
-    mergeDefaultWorkspaceConfig();
 
     log.info("Daemon startup: loading config");
     const config = loadConfig();
@@ -638,6 +650,12 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
+    // Install the `globalThis.__vellumPluginRuntime` bridge before scanning
+    // for user plugins. Plugins that touch the bridge from their module body
+    // would throw without this — see `plugins/external-api.ts` for the
+    // rationale (compiled-binary module identity).
+    installPluginRuntime();
+
     // Populate the registry with user plugins from `<workspaceDir>/plugins/*`
     // AFTER first-party plugins have already registered via their static
     // side-effect imports. User plugins may fail to load individually; a
@@ -737,82 +755,113 @@ export async function runDaemon(): Promise<void> {
       }
 
       if (qdrantStarted) {
-        try {
-          const embeddingSelection = await selectEmbeddingBackend(config);
-          // Sentinel only encodes the dense provider+model identity; sparse
-          // encoder changes never require collection recreation, so they
-          // intentionally do not contribute to the v1 collection identity.
-          const embeddingModel = embeddingSelection.backend
-            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
-            : undefined;
-          const qdrantClient = initQdrantClient({
-            url: qdrantUrl,
-            collection: config.memory.qdrant.collection,
-            vectorSize: config.memory.qdrant.vectorSize,
-            onDisk: config.memory.qdrant.onDisk,
-            quantization: config.memory.qdrant.quantization,
-            embeddingModel,
-          });
+        // Skip the v1 Qdrant collection lifecycle when memory v2 is active —
+        // the v1 collection has no writers (handleRemember returns early) or
+        // readers (graph search is bypassed) under v2, so ensuring/migrating
+        // it just maintains a dead-on-arrival collection. Existing on-disk
+        // collections are left intact so flipping v2 off restores v1 cleanly.
+        if (!config.memory.v2.enabled) {
+          try {
+            const embeddingSelection = await selectEmbeddingBackend(config);
+            // Sentinel only encodes the dense provider+model identity; sparse
+            // encoder changes never require collection recreation, so they
+            // intentionally do not contribute to the v1 collection identity.
+            const embeddingModel = embeddingSelection.backend
+              ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
+              : undefined;
+            const qdrantClient = initQdrantClient({
+              url: qdrantUrl,
+              collection: config.memory.qdrant.collection,
+              vectorSize: config.memory.qdrant.vectorSize,
+              onDisk: config.memory.qdrant.onDisk,
+              quantization: config.memory.qdrant.quantization,
+              embeddingModel,
+            });
 
-          // Eagerly ensure the collection exists so we detect migrations
-          // (unnamed→named vectors, dimension/model changes) at startup.
-          // If a destructive migration occurred, enqueue a rebuild_index job
-          // to re-embed all memory items from the SQLite cache.
-          const { migrated } = await qdrantClient.ensureCollection();
-          if (migrated) {
-            enqueueMemoryJob("rebuild_index", {});
-            log.info(
-              "Qdrant collection was migrated — enqueued rebuild_index job",
+            // Eagerly ensure the collection exists so we detect migrations
+            // (unnamed→named vectors, dimension/model changes) at startup.
+            // If a destructive migration occurred, enqueue a rebuild_index job
+            // to re-embed all memory items from the SQLite cache.
+            const { migrated } = await qdrantClient.ensureCollection();
+            if (migrated) {
+              enqueueMemoryJob("rebuild_index", {});
+              log.info(
+                "Qdrant collection was migrated — enqueued rebuild_index job",
+              );
+            }
+
+            log.info("Qdrant vector store initialized");
+          } catch (err) {
+            log.warn(
+              { err },
+              "Qdrant client initialization failed — memory features will be degraded",
             );
           }
+        }
 
-          log.info("Qdrant vector store initialized");
+        // Detect schema drift on the v2 concept-page collection (e.g.
+        // pre-#29823 collections lacking summary_dense / summary_sparse) and
+        // recreate + enqueue a reembed when needed. Awaited inline so the
+        // reembed enqueue happens before the memory worker drains its first
+        // batch; the call's own try/catch keeps any v2-side failure from
+        // blocking the v1 PKB reconcile or BM25 build below.
+        try {
+          await maybeRebuildMemoryV2Concepts(config);
         } catch (err) {
           log.warn(
             { err },
-            "Qdrant client initialization failed — memory features will be degraded",
+            "Memory v2 collection schema check threw — continuing startup",
           );
         }
 
-        // Reconcile the PKB Qdrant index against the on-disk tree. Kept
-        // inside the `qdrantStarted` guard so we don't call
-        // `getQdrantClient()` (which throws "not initialized") on every
-        // startup when Qdrant is unavailable. Fire-and-forget so enqueued
-        // re-index jobs drain in the background and first-turn latency
-        // stays unaffected.
-        void (async () => {
-          try {
-            const { reconcilePkbIndex } =
-              await import("../memory/pkb/pkb-reconcile.js");
-            const { PKB_WORKSPACE_SCOPE } =
-              await import("../memory/pkb/types.js");
-            const pkbRoot = join(getWorkspaceDir(), "pkb");
-            await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
-          } catch (err) {
-            log.warn(
-              { err },
-              "PKB index reconciliation failed — continuing startup",
-            );
-          }
-        })();
+        // Reconcile the PKB Qdrant index against the on-disk tree. Gated on
+        // !v2 because PKB is the v1 storage layer; under v2 the v1 collection
+        // is not initialized, so calling `getQdrantClient()` here would throw.
+        // Fire-and-forget so enqueued re-index jobs drain in the background
+        // and first-turn latency stays unaffected.
+        if (!config.memory.v2.enabled) {
+          void (async () => {
+            try {
+              const { reconcilePkbIndex } =
+                await import("../memory/pkb/pkb-reconcile.js");
+              const { PKB_WORKSPACE_SCOPE } =
+                await import("../memory/pkb/types.js");
+              const pkbRoot = join(getWorkspaceDir(), "pkb");
+              await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
+            } catch (err) {
+              log.warn(
+                { err },
+                "PKB index reconciliation failed — continuing startup",
+              );
+            }
+          })();
+        }
 
         // Build the BM25 corpus stats (per-token document frequencies and
-        // average document length) used by the v2 sparse channel. Without
-        // this, document-side sparse embeddings fall back to legacy TF-only
-        // weighting via the chicken-and-egg guard in
-        // `embed-concept-page.ts`. Fire-and-forget for the same reason as
-        // PKB reconcile — the stats are an optional optimization, never a
-        // boot-blocking dependency.
+        // average document length) used by the v2 sparse channel, then
+        // re-seed v2 skill entries so any skill vectors written during the
+        // cold-start window with the legacy TF encoder get rewritten with
+        // stemmed BM25 vectors. Fire-and-forget for the same reason as PKB
+        // reconcile — the stats and skill reseed are optional optimizations,
+        // never boot-blocking dependencies.
+        void rebuildBm25CorpusStatsAndReseedSkills(config);
+
+        // Validate every concept page's frontmatter against the strict
+        // schema and emit a `warn` per offender. Surfaces schema drift
+        // (unknown keys, type mismatches) at boot time instead of waiting
+        // for the failure to manifest as a silent V2 retrieval no-op when
+        // a bad page first lands in a conversation's top-K. Fire-and-forget
+        // and the sweep itself never throws — defense in depth via the
+        // outer try/catch.
         void (async () => {
           try {
-            const { rebuildConceptPageCorpusStats } =
-              await import("../memory/v2/sparse-bm25.js");
-            await rebuildConceptPageCorpusStats(getWorkspaceDir());
-            log.info("Memory v2 BM25 corpus stats built");
+            const { sweepConceptPageFrontmatter } =
+              await import("../memory/v2/frontmatter-sweep.js");
+            await sweepConceptPageFrontmatter(getWorkspaceDir());
           } catch (err) {
             log.warn(
               { err },
-              "BM25 corpus-stats rebuild failed — sparse channel will fall back to TF-only until next rebuild",
+              "Concept page frontmatter sweep threw — continuing startup",
             );
           }
         })();
@@ -926,24 +975,6 @@ export async function runDaemon(): Promise<void> {
           dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
         });
       },
-      (params) => {
-        void emitNotificationSignal({
-          sourceEventName: "watcher.escalation",
-          sourceChannel: "watcher",
-          sourceContextId: `watcher-escalation-${Date.now()}`,
-          attentionHints: {
-            requiresAction: true,
-            urgency: "high",
-            isAsyncBackground: false,
-            visibleInSourceNow: false,
-          },
-          contextPayload: {
-            title: params.title,
-            body: params.body,
-          },
-          dedupeKey: `watcher:escalation:${crypto.randomUUID()}`,
-        });
-      },
       (info) => {
         broadcastMessage({
           type: "schedule_conversation_created",
@@ -953,19 +984,6 @@ export async function runDaemon(): Promise<void> {
         });
       },
     );
-
-    // Home activity feed scheduler — drives the assistant reflection
-    // loop + the platform Gmail digest. Fire-and-forget; a startup
-    // failure must never block the rest of daemon boot (CLAUDE.md).
-    let feedScheduler: FeedSchedulerHandle | null = null;
-    try {
-      feedScheduler = startFeedScheduler();
-    } catch (err) {
-      log.warn(
-        { err },
-        "Failed to start home feed scheduler — continuing startup",
-      );
-    }
 
     // Start the runtime HTTP server for optional REST API access.
     // Defaults to port 7821.
@@ -1269,14 +1287,11 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Proactive artifact backfill failed");
     }
 
-    // Filing yields to the memory v2 consolidation job when the flag is on —
+    // Filing yields to the memory v2 consolidation job when v2 is enabled —
     // both serve the same role (periodic background memory processing) and
     // running both is redundant. The consolidation job runs through the
     // memory jobs worker (see `maybeEnqueueGraphMaintenanceJobs`).
-    const memoryV2Enabled = isAssistantFeatureFlagEnabled(
-      "memory-v2-enabled",
-      config,
-    );
+    const memoryV2Enabled = config.memory.v2.enabled;
     let filing: FilingService | null = null;
     if (!memoryV2Enabled) {
       const filingConfig = config.filing;
@@ -1309,7 +1324,6 @@ export async function runDaemon(): Promise<void> {
       filing,
       runtimeHttp,
       scheduler,
-      feedScheduler,
       getMemoryWorker: () => bgRefs.memoryWorker,
       getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,

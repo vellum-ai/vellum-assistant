@@ -6,8 +6,9 @@
  *   1. LLM providers — names come from `PROVIDER_CATALOG` in
  *      `model-catalog.ts`. `getLlmProviderEnvVar` consults the catalog
  *      directly.
- *   2. Search providers — hardcoded in `SEARCH_PROVIDER_ENV_VAR_NAMES`
- *      below. The env var name follows the pattern `${ID}_API_KEY`.
+ *   2. Search providers — names come from `SEARCH_PROVIDER_CATALOG` in
+ *      `search-provider-catalog.ts`. `getSearchProviderEnvVar` consults
+ *      the catalog directly.
  *
  * Use `getLlmProviderEnvVar` when you're scoped to LLM providers,
  * `getSearchProviderEnvVar` when you're scoped to search providers, and
@@ -18,12 +19,21 @@
  * unknown IDs, and providers outside the helper's scope.
  */
 import { PROVIDER_CATALOG } from "./model-catalog.js";
+import { SEARCH_PROVIDER_CATALOG } from "./search-provider-catalog.js";
 
-/** Search-provider env var names. */
-const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
-  brave: "BRAVE_API_KEY",
-  perplexity: "PERPLEXITY_API_KEY",
-};
+/**
+ * Search-provider env var names, derived from `SEARCH_PROVIDER_CATALOG`.
+ * Adding a BYOK provider to the catalog automatically extends this map —
+ * managed providers (no `envVar`) are filtered out.
+ */
+const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = Object.freeze(
+  Object.fromEntries(
+    SEARCH_PROVIDER_CATALOG.filter((p) => p.envVar !== undefined).map((p) => [
+      p.id,
+      p.envVar!,
+    ]),
+  ),
+);
 
 export function getLlmProviderEnvVar(providerId: string): string | undefined {
   return PROVIDER_CATALOG.find((p) => p.id === providerId)?.envVar;

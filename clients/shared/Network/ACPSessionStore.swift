@@ -326,8 +326,11 @@ open class ACPSessionStore {
     /// Send a steering instruction to an active session. Does not mutate
     /// state directly — the daemon emits a regular update event the store
     /// then reflects via ``handle(_:)``.
+    ///
+    /// `open` so detail-view tests can subclass and observe invocation
+    /// without an HTTP round-trip — see ``ACPSessionStore`` doc.
     @discardableResult
-    public func steer(id: String, instruction: String) async -> Result<Bool, ACPClientError> {
+    open func steer(id: String, instruction: String) async -> Result<Bool, ACPClientError> {
         return await ACPClient.steerSession(id: id, instruction: instruction)
     }
 

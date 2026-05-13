@@ -141,8 +141,10 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
     signal?: AbortSignal,
     extraFields?: Record<string, unknown>,
     targetClientId?: string,
+    timeoutMsOverride?: number,
   ): Promise<TResultPayload> {
     const requestId = uuid();
+    const effectiveTimeoutMs = timeoutMsOverride ?? this.timeoutMs;
 
     return new Promise<TResultPayload>((resolve, reject) => {
       // Declared up-front so onAbort can close over a stable reference once
@@ -158,7 +160,7 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
           "Host proxy request timed out",
         );
         reject(new HostProxyRequestError("timeout", "timeout"));
-      }, this.timeoutMs);
+      }, effectiveTimeoutMs);
 
       if (signal) {
         const onAbort = () => {
@@ -204,10 +206,20 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
       // (HostCuProxy bypasses dispatchRequest entirely with its own inline
       //  request method that registers directly, which is why CU works
       //  without this base-level fix.)
+      // Snapshot the target's actorPrincipalId at registration time so the
+      // result-route same-actor check has a stable value to compare against —
+      // the target client's SSE subscription may briefly disconnect between
+      // dispatch and result submission, which would make a live hub lookup
+      // falsely 403 a legitimate result.
+      const targetActorPrincipalId =
+        targetClientId != null
+          ? assistantEventHub.getActorPrincipalIdForClient(targetClientId)
+          : undefined;
       pendingInteractions.register(requestId, {
         conversationId,
         kind: this.resultPendingKind,
         ...(targetClientId != null ? { targetClientId } : {}),
+        ...(targetActorPrincipalId != null ? { targetActorPrincipalId } : {}),
       });
 
       try {

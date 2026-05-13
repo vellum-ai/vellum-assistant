@@ -7,6 +7,13 @@ import { LLMSchema } from "../config/schemas/llm.js";
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
+// Default the warm-pool gate to OPEN for existing tests — they predate
+// the gate and expect filing's runOnce() to fire on every tick.
+mock.module("../runtime/pre-first-message-gate.js", () => ({
+  hasReceivedUserMessage: () => true,
+  _resetPreFirstMessageGateCacheForTests: () => {},
+}));
+
 // Mock config loader. Filing's `runOnce()` reads `getConfig().filing`, and
 // `executeRun()` no longer reads `config.speed` (PR 8) — the call site is
 // hardcoded to 'filingAgent' and the resolver picks up `llm.callSites.filingAgent`
@@ -34,12 +41,13 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-const { _setOverridesForTesting } =
-  await import("../config/assistant-feature-flags.js");
-
 // Mock conversation store
-const createdConversations: Array<{ title: string; conversationType: string }> =
-  [];
+const createdConversations: Array<{
+  title: string;
+  conversationType: string;
+  source?: string;
+  groupId?: string;
+}> = [];
 let conversationIdCounter = 0;
 
 mock.module("../memory/conversation-crud.js", () => ({
@@ -66,7 +74,12 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  createConversation: (opts: { title: string; conversationType: string }) => {
+  createConversation: (opts: {
+    title: string;
+    conversationType: string;
+    source?: string;
+    groupId?: string;
+  }) => {
     createdConversations.push(opts);
     return { id: `conv-${++conversationIdCounter}`, ...opts };
   },
@@ -128,7 +141,6 @@ describe("FilingService", () => {
     } catch {
       // best-effort
     }
-    _setOverridesForTesting({});
   });
 
   beforeEach(() => {
@@ -224,6 +236,10 @@ describe("FilingService", () => {
     expect(createdConversations).toHaveLength(1);
     expect(createdConversations[0].title).toBe("Generating title...");
     expect(createdConversations[0].conversationType).toBe("background");
+    // Confirms FilingService routes through runBackgroundJob:
+    //   source="filing" + runner-default groupId="system:background".
+    expect(createdConversations[0].source).toBe("filing");
+    expect(createdConversations[0].groupId).toBe("system:background");
   });
 
   describe("runCompactionOnce()", () => {
@@ -287,6 +303,146 @@ describe("FilingService", () => {
       expect(processMessageCalls).toHaveLength(1);
     });
 
+    // Helpers for the compaction-retry tests: hold the filing run open by
+    // making processMessage return a manually-resolved promise, so `activeRun`
+    // stays set and runCompactionOnce() sees the contention path.
+    function holdFilingRun(): {
+      release: () => void;
+      filingCalls: () => number;
+      compactionCalls: () => number;
+      waitForFilingStarted: () => Promise<void>;
+    } {
+      let release: (() => void) | undefined;
+      let started = false;
+      let filingCalls = 0;
+      let compactionCalls = 0;
+
+      setTestProcessMessage((...args: unknown[]) => {
+        const callSite = (args[3] as { callSite?: string } | undefined)
+          ?.callSite;
+        if (callSite === "filingAgent") {
+          filingCalls += 1;
+          started = true;
+          return new Promise((resolve) => {
+            release = () => resolve({ messageId: "filing-done" });
+          });
+        }
+        if (callSite === "compactionAgent") {
+          compactionCalls += 1;
+        }
+        return Promise.resolve({ messageId: "mock" });
+      });
+
+      return {
+        release: () => release?.(),
+        filingCalls: () => filingCalls,
+        compactionCalls: () => compactionCalls,
+        waitForFilingStarted: async () => {
+          while (!started) await Promise.resolve();
+        },
+      };
+    }
+
+    test("schedules a near-term retry when filing run is in-flight", async () => {
+      const hold = holdFilingRun();
+      // 5s retry override paired with a production-realistic 24h compaction
+      // interval — the assertion proves retry << interval.
+      const retryMs = 5_000;
+      mockConfig.filing.compactionIntervalMs = 24 * 60 * 60 * 1000;
+      const service = new FilingService({
+        compactionContendedRetryMs: retryMs,
+      });
+      const filingPromise = service.runOnce();
+      await hold.waitForFilingStarted();
+
+      const beforeRetry = Date.now();
+      const ran = await service.runCompactionOnce();
+
+      expect(ran).toBe(false);
+      expect(service.nextCompactionAt).not.toBeNull();
+      const nextAt = service.nextCompactionAt!;
+      expect(nextAt - beforeRetry).toBeLessThan(
+        mockConfig.filing.compactionIntervalMs,
+      );
+      expect(nextAt - beforeRetry).toBeLessThanOrEqual(retryMs + 100);
+
+      hold.release();
+      await filingPromise;
+      await service.stop();
+    });
+
+    test("retry fires after filing run completes", async () => {
+      const hold = holdFilingRun();
+      const service = new FilingService({ compactionContendedRetryMs: 1 });
+      const filingPromise = service.runOnce();
+      await hold.waitForFilingStarted();
+
+      const skipped = await service.runCompactionOnce();
+      expect(skipped).toBe(false);
+      expect(hold.compactionCalls()).toBe(0);
+
+      hold.release();
+      await filingPromise;
+
+      const start = Date.now();
+      while (hold.compactionCalls() === 0 && Date.now() - start < 1000) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      expect(hold.filingCalls()).toBe(1);
+      expect(hold.compactionCalls()).toBe(1);
+
+      await service.stop();
+    });
+
+    test("stop() clears a scheduled compaction retry", async () => {
+      const hold = holdFilingRun();
+      const service = new FilingService({ compactionContendedRetryMs: 50 });
+      const filingPromise = service.runOnce();
+      await hold.waitForFilingStarted();
+      await service.runCompactionOnce();
+      expect(service.nextCompactionAt).not.toBeNull();
+
+      hold.release();
+      await filingPromise;
+      await service.stop();
+
+      // After stop, the retry timer must be cleared and never fire.
+      expect(service.nextCompactionAt).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(hold.compactionCalls()).toBe(0);
+    });
+
+    test("stop() prevents retry callback from re-arming a fresh timer", async () => {
+      // Race: the retry callback fires while filing is still in-flight and
+      // stop() has begun. The callback already cleared compactionRetryTimer,
+      // so clearCompactionRetry is a no-op. Without a stopped flag, the
+      // callback's runCompactionOnce() hits the activeRun branch and schedules
+      // a fresh retry, leaving a live timer after stop() resolves.
+      const hold = holdFilingRun();
+      const service = new FilingService({ compactionContendedRetryMs: 5 });
+      const filingPromise = service.runOnce();
+      await hold.waitForFilingStarted();
+      await service.runCompactionOnce();
+      expect(service.nextCompactionAt).not.toBeNull();
+
+      // Begin stop without awaiting — it would block on the held filing run.
+      // stop() flips `stopped` synchronously before the retry timer fires.
+      const stopPromise = service.stop();
+
+      // Wait past the retry delay. Without the guard, the callback would call
+      // runCompactionOnce(), observe activeRun, and re-arm a new retry.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(service.nextCompactionAt).toBeNull();
+
+      hold.release();
+      await filingPromise;
+      await stopPromise;
+
+      expect(service.nextCompactionAt).toBeNull();
+      expect(hold.compactionCalls()).toBe(0);
+    });
+
     test("respects active hours", async () => {
       mockConfig.filing.activeHoursStart = 9;
       mockConfig.filing.activeHoursEnd = 17;
@@ -331,8 +487,7 @@ describe("FilingService", () => {
   });
 
   describe("memory v2 gate", () => {
-    test("start() does not schedule timers when v2 flag and config are both on", () => {
-      _setOverridesForTesting({ "memory-v2-enabled": true });
+    test("start() does not schedule timers when memory.v2.enabled is true", () => {
       mockConfig.memory.v2.enabled = true;
 
       const service = createService();
@@ -342,20 +497,8 @@ describe("FilingService", () => {
       expect(service.nextCompactionAt).toBeNull();
     });
 
-    test("start() does not schedule timers when only the flag is on", () => {
-      _setOverridesForTesting({ "memory-v2-enabled": true });
+    test("start() schedules timers when memory.v2.enabled is false (v1 filing runs)", () => {
       mockConfig.memory.v2.enabled = false;
-
-      const service = createService();
-      service.start();
-
-      expect(service.nextRunAt).toBeNull();
-      expect(service.nextCompactionAt).toBeNull();
-    });
-
-    test("start() schedules timers when only the config is on", () => {
-      _setOverridesForTesting({ "memory-v2-enabled": false });
-      mockConfig.memory.v2.enabled = true;
 
       const service = createService();
       service.start();

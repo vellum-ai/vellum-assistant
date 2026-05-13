@@ -1,6 +1,6 @@
 import { loadConfig } from "../config/loader.js";
-import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
-import { getProvider, listProviders } from "../providers/registry.js";
+import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
+import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import type { Provider } from "../providers/types.js";
 import {
   APPROVAL_COPY_MAX_TOKENS,
@@ -79,15 +79,18 @@ const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
 export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
   return async (context, options = {}) => {
     const config = loadConfig();
-    let baseProvider: Provider;
-    try {
-      baseProvider = getProvider(config.llm.default.provider);
-    } catch {
-      return null;
-    }
+    // Connection-aware default-provider resolution. Throws
+    // `ConnectionResolutionError` on hard config errors (missing /
+    // unknown / mismatched connection). Returns null on soft credential
+    // failures (vault miss, transient auth) — we treat null as "no
+    // provider available" and skip generating copy.
+    const baseProvider: Provider | null = await resolveDefaultProvider(config);
+    if (!baseProvider) return null;
     // Wrap so per-call `callSite` can route to an alternative provider
     // transport when `llm.callSites.<id>.provider` overrides the default.
-    const provider = wrapWithCallSiteRouting(baseProvider);
+    // The `wrapWithCallSiteRouting` helper threads `config` through so the
+    // wrapper's per-call resolution is also connection-aware.
+    const provider = wrapWithCallSiteRouting(baseProvider, config);
 
     const fallbackText =
       options.fallbackText?.trim() || getFallbackMessage(context);
@@ -136,12 +139,19 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
 export function createApprovalConversationGenerator(): ApprovalConversationGenerator {
   return async (context) => {
     const config = loadConfig();
-    if (!listProviders().includes(config.llm.default.provider)) {
+    // Connection-aware default + per-call routing. `resolveDefaultProvider`
+    // throws `ConnectionResolutionError` on hard config errors (missing /
+    // unknown / mismatched connection) and returns null on soft credential
+    // failures (vault miss, transient auth) — we treat null as "no
+    // provider available" and throw a domain-specific error below. We do
+    // not pre-gate on `listProviders()` because the default provider lives
+    // behind a `provider_connection` and never appears in the registry's
+    // initialization-time provider list.
+    const baseProvider = await resolveDefaultProvider(config);
+    if (!baseProvider) {
       throw new Error("No provider available for approval conversation");
     }
-    const provider = wrapWithCallSiteRouting(
-      getProvider(config.llm.default.provider),
-    );
+    const provider = wrapWithCallSiteRouting(baseProvider, config);
 
     const pendingDescription = context.pendingApprovals
       .map((p) => `- Request ${p.requestId}: tool "${p.toolName}"`)
@@ -211,20 +221,4 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
     }
     return result;
   };
-}
-
-/**
- * Wrap a base Provider so per-call `callSite` metadata can route the actual
- * transport to a different provider when `llm.callSites.<id>.provider`
- * differs from the default. Without this wrapper, only request metadata
- * reflects the callSite — the HTTP transport stays bound to the default.
- */
-function wrapWithCallSiteRouting(base: Provider): Provider {
-  return new CallSiteRoutingProvider(base, (name) => {
-    try {
-      return getProvider(name);
-    } catch {
-      return undefined;
-    }
-  });
 }

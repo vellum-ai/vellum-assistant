@@ -108,21 +108,22 @@ function cloneDefaultConfig(): AssistantConfig {
 
 /**
  * Returns deployment-context-aware config defaults that override schema
- * defaults for platform-managed assistants. Only applied when initializing
- * a fresh config (config.json does not yet exist).
+ * defaults for platform-managed assistants. Applied to every `loadConfig()`
+ * call as a fill-only pass — they only fill keys that are absent from the
+ * raw config on disk, so an explicit user choice (e.g. saving "your-own"
+ * via the macOS Models & Services UI) always wins.
  *
  * IS_PLATFORM is set by the Vellum platform launcher for all hosted
  * assistant deployments. Local, Docker, and bare-metal assistants are
  * unaffected.
  */
-function getDeploymentContextDefaults(): Record<string, unknown> {
+export function getDeploymentContextDefaults(): Record<string, unknown> {
   if (process.env.IS_PLATFORM !== "true" && process.env.IS_PLATFORM !== "1") {
     return {};
   }
   const managed = { mode: "managed" as const };
   return {
     services: {
-      inference: managed,
       "image-generation": managed,
       "web-search": managed,
       "google-oauth": managed,
@@ -132,13 +133,53 @@ function getDeploymentContextDefaults(): Record<string, unknown> {
       "notion-oauth": managed,
       "asana-oauth": managed,
       "todoist-oauth": managed,
-      "dropbox-oauth": managed,
       "discord-oauth": managed,
-      "airtable-oauth": managed,
       "hubspot-oauth": managed,
-      "salesforce-oauth": managed,
     },
   };
+}
+
+/**
+ * Apply `contextDefaults` to `target` for any leaf keys that are absent from
+ * `fileConfig` (the raw config-on-disk payload). Mutates `target` in place.
+ *
+ * "Absent" is checked at the leaf level by walking the `contextDefaults`
+ * shape: nested objects recurse so a partial override on disk (e.g.
+ * `{services: {inference: {model: "x"}}}` with no explicit `mode`) lets the
+ * context default for `mode` win while leaving the user's `model` untouched.
+ *
+ * Pre-condition: `target` has already been passed through `validateWithSchema`
+ * so every nested object in `contextDefaults` has a corresponding object in
+ * `target`. The defensive whole-subtree assignment in the `!targetChild`
+ * branch only fires for malformed inputs.
+ */
+export function fillContextDefaultsForMissingKeys(
+  target: Record<string, unknown>,
+  fileConfig: Record<string, unknown>,
+  contextDefaults: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(contextDefaults)) {
+    const fileVal = fileConfig[key];
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+    ) {
+      const targetChild = readPlainObject(target[key]);
+      const fileChild = readPlainObject(fileVal);
+      if (targetChild) {
+        fillContextDefaultsForMissingKeys(
+          targetChild,
+          fileChild ?? {},
+          value as Record<string, unknown>,
+        );
+      } else {
+        target[key] = structuredClone(value);
+      }
+    } else if (fileVal === undefined) {
+      target[key] = value;
+    }
+  }
 }
 
 /**
@@ -407,6 +448,13 @@ function stripNullLeaves(value: unknown): unknown {
   return out;
 }
 
+function readPlainObject(value: unknown): Record<string, unknown> | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 /**
  * Deep-merge `overrides` into `target`, overwriting leaf values.
  * Recursively merges nested objects; scalars and arrays from `overrides`
@@ -470,6 +518,20 @@ export function deepMergeOverwrite(
   }
 }
 
+export type DefaultWorkspaceConfigMergeResult = {
+  hadOverlay: boolean;
+  providedLlmProfileNames: Set<string>;
+  providedLlmActiveProfile: boolean;
+};
+
+function emptyDefaultWorkspaceConfigMergeResult(): DefaultWorkspaceConfigMergeResult {
+  return {
+    hadOverlay: false,
+    providedLlmProfileNames: new Set(),
+    providedLlmActiveProfile: false,
+  };
+}
+
 /**
  * Merge default workspace config from the file referenced by
  * VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH into the workspace config on disk.
@@ -479,9 +541,11 @@ export function deepMergeOverwrite(
  * Schema defaults are no longer materialized into the file on load — the
  * in-memory `loadConfig()` cache applies them at access time instead.
  */
-export function mergeDefaultWorkspaceConfig(): void {
+export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult {
   const defaultConfigPath = process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
-  if (!defaultConfigPath || !existsSync(defaultConfigPath)) return;
+  if (!defaultConfigPath || !existsSync(defaultConfigPath)) {
+    return emptyDefaultWorkspaceConfigMergeResult();
+  }
 
   let defaults: unknown;
   try {
@@ -492,7 +556,7 @@ export function mergeDefaultWorkspaceConfig(): void {
       "Failed to read default workspace config from %s",
       defaultConfigPath,
     );
-    return;
+    return emptyDefaultWorkspaceConfigMergeResult();
   }
 
   if (
@@ -500,16 +564,45 @@ export function mergeDefaultWorkspaceConfig(): void {
     typeof defaults !== "object" ||
     Array.isArray(defaults)
   ) {
-    return;
+    return emptyDefaultWorkspaceConfigMergeResult();
   }
+
+  const llmDefaults = readPlainObject(
+    (defaults as Record<string, unknown>).llm,
+  );
+  const providedProfiles = readPlainObject(llmDefaults?.profiles);
+  const mergeResult: DefaultWorkspaceConfigMergeResult = {
+    hadOverlay: true,
+    providedLlmProfileNames: new Set(
+      providedProfiles ? Object.keys(providedProfiles) : [],
+    ),
+    providedLlmActiveProfile:
+      llmDefaults != null &&
+      Object.prototype.hasOwnProperty.call(llmDefaults, "activeProfile"),
+  };
 
   const configPath = getConfigPath();
   let existing: Record<string, unknown> = {};
   if (existsSync(configPath)) {
     try {
       existing = JSON.parse(readFileSync(configPath, "utf-8"));
-    } catch {
-      // If existing config is corrupt, start fresh
+    } catch (err) {
+      quarantineCorruptConfig(configPath, err);
+      // After preserving the corrupt file, start fresh so the default overlay
+      // can still initialize a valid config for this startup.
+    }
+  }
+
+  if (mergeResult.providedLlmProfileNames.size > 0) {
+    // Default-config profile entries are authoritative fragments. Remove any
+    // old same-name profile first so recursive merge does not leave stale
+    // provider-specific leaves behind.
+    const existingLlm = readPlainObject(existing.llm);
+    const existingProfiles = readPlainObject(existingLlm?.profiles);
+    if (existingProfiles) {
+      for (const name of mergeResult.providedLlmProfileNames) {
+        delete existingProfiles[name];
+      }
     }
   }
 
@@ -536,6 +629,8 @@ export function mergeDefaultWorkspaceConfig(): void {
   } catch {
     log.info("Merged default workspace config from %s", defaultConfigPath);
   }
+
+  return mergeResult;
 }
 
 export function loadConfig(): AssistantConfig {
@@ -556,7 +651,24 @@ export function loadConfig(): AssistantConfig {
     let configFileExisted = true;
     if (existsSync(configPath)) {
       try {
-        fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+        const parsed: unknown = JSON.parse(readFileSync(configPath, "utf-8"));
+        if (!isPlainObject(parsed)) {
+          // Same shape contract as `loadRawConfig`: top-level value must be a
+          // plain object. A `null`, primitive, or array is treated like a
+          // parse error so downstream code (`warnAndStripDeprecatedFields`,
+          // `setNestedValue` in the managed-Gemini migration block, etc.)
+          // never iterates a non-record. Quarantine + fall through to defaults.
+          quarantineCorruptConfig(
+            configPath,
+            new Error(
+              `config.json must contain a JSON object at the top level; got ${describeJsonShape(parsed)}`,
+            ),
+          );
+          fileConfig = {};
+          configFileExisted = false;
+        } else {
+          fileConfig = parsed;
+        }
       } catch (err) {
         // The daemon must never block startup (assistant/CLAUDE.md). A config
         // file that fails JSON.parse — truncated during a mid-write crash, or
@@ -617,11 +729,31 @@ export function loadConfig(): AssistantConfig {
       }
     }
 
+    // Layer deployment-context defaults (e.g. IS_PLATFORM=true → all service
+    // modes = "managed") onto the in-memory config for any leaves that aren't
+    // explicitly set in `fileConfig`. This runs on every load — not just the
+    // first — because the workspace config file is written by upstream
+    // lifecycle steps (`mergeDefaultWorkspaceConfig`, `seedInferenceProfiles`)
+    // before `loadConfig()` is reached. Gating on `!configFileExisted` would
+    // make the context defaults dead code on platform-managed daemons whose
+    // config.json was created by those earlier steps without service-mode
+    // entries. Explicit user choices on disk are preserved because the helper
+    // only fills missing keys.
+    const contextDefaults = getDeploymentContextDefaults();
+    if (Object.keys(contextDefaults).length > 0) {
+      fillContextDefaultsForMissingKeys(
+        config as unknown as Record<string, unknown>,
+        fileConfig,
+        contextDefaults,
+      );
+    }
+
     // First-launch seed only: when config.json does not exist, write the full
-    // schema defaults to disk so users can discover and edit all available
-    // options. When the file already exists, leave it alone — disk represents
-    // user intent, while the in-memory `cached: AssistantConfig` (above) has
-    // all schema defaults applied via `applyNestedDefaults`/`validateWithSchema`,
+    // schema defaults (with any deployment-context overrides already applied
+    // above) to disk so users can discover and edit all available options.
+    // When the file already exists, leave it alone — disk represents user
+    // intent, while the in-memory `cached: AssistantConfig` (above) has all
+    // schema defaults applied via `applyNestedDefaults`/`validateWithSchema`,
     // so consumers calling `getConfig().memory.v2.bm25_b` continue to receive
     // the schema default whenever the field is absent on disk.
     //
@@ -639,18 +771,6 @@ export function loadConfig(): AssistantConfig {
         }
         // Strip dataDir (runtime-derived) from the persisted config
         const { dataDir: _, ...persistable } = config;
-
-        // Layer deployment context defaults on top of schema defaults.
-        // These are overrides the daemon derives from its environment (e.g.
-        // IS_PLATFORM → all service modes = "managed"). Schema defaults
-        // remain the fallback for non-platform deployments.
-        const contextDefaults = getDeploymentContextDefaults();
-        if (Object.keys(contextDefaults).length > 0) {
-          deepMergeOverwrite(
-            persistable as Record<string, unknown>,
-            contextDefaults,
-          );
-        }
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
       } catch (err) {
@@ -726,24 +846,67 @@ export function invalidateConfigCache(): void {
  * Load the raw config from disk without any secure-storage merging.
  * Used by CLI config commands to read/write the file directly.
  * API keys in secure storage are managed via `assistant keys` commands.
+ *
+ * Contract: returns a plain object (`Record<string, unknown>`). When
+ * `config.json` is missing → returns `{}`. When the file is unparseable
+ * (truncated, hand-edited to invalid JSON) OR when it parses to a value
+ * that is technically valid JSON but NOT a plain object (`null`, a
+ * primitive like `42`, `"hello"`, `true`, or an array `[…]`) → quarantines
+ * the file and returns `{}`. Callers can therefore rely on the return
+ * type without runtime shape-checking — the boundary check happens here.
  */
 export function loadRawConfig(): Record<string, unknown> {
   ensureMigratedDataDir();
   const configPath = getConfigPath();
-  let raw: Record<string, unknown> = {};
-  if (existsSync(configPath)) {
-    try {
-      raw = JSON.parse(readFileSync(configPath, "utf-8"));
-    } catch (err) {
-      // Mirror loadConfig(): quarantine the corrupt file and return an empty
-      // object rather than throwing. This prevents /v1/config from surfacing
-      // a 500 when the user's config.json is malformed.
-      quarantineCorruptConfig(configPath, err);
-      raw = {};
-    }
+  if (!existsSync(configPath)) {
+    return {};
   }
 
-  return raw;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(configPath, "utf-8"));
+  } catch (err) {
+    // Mirror loadConfig(): quarantine the corrupt file and return an empty
+    // object rather than throwing. This prevents /v1/config from surfacing
+    // a 500 when the user's config.json is malformed.
+    quarantineCorruptConfig(configPath, err);
+    return {};
+  }
+
+  if (!isPlainObject(parsed)) {
+    // Valid JSON but the wrong shape — `null`, a primitive, or an array.
+    // Treat the same as a parse error so the return-type contract above is
+    // truthful and downstream callers (e.g. /v1/config handlers, twilio
+    // integration routes, settings routes) can iterate keys safely.
+    quarantineCorruptConfig(
+      configPath,
+      new Error(
+        `config.json must contain a JSON object at the top level; got ${describeJsonShape(parsed)}`,
+      ),
+    );
+    return {};
+  }
+
+  return parsed;
+}
+
+/**
+ * Predicate for "the value is a plain JSON object" — i.e. not `null`, not
+ * a primitive, and not an array. The cast on the truthy branch is safe
+ * because the caller's static type narrowed accordingly.
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Human-readable shape label for error messages. Distinguishes the four
+ * non-object JSON shapes the loader rejects.
+ */
+function describeJsonShape(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "an array";
+  return `a ${typeof value}`;
 }
 
 export function saveRawConfig(config: Record<string, unknown>): void {

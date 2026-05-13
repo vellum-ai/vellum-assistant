@@ -50,6 +50,7 @@ mock.module("../config/loader.js", () => ({
     "openrouter",
     "brave",
     "perplexity",
+    "tavily",
   ],
 }));
 

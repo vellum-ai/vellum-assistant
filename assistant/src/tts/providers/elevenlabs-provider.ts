@@ -50,6 +50,73 @@ export class ElevenLabsTtsError extends Error {
 }
 
 // ---------------------------------------------------------------------------
+// Error-body parser
+// ---------------------------------------------------------------------------
+
+/** Maximum number of characters of a fallback raw body to surface in an error message. */
+const MAX_RAW_ERROR_BODY_CHARS = 200;
+
+/**
+ * Best-effort extraction of a user-facing error message from an ElevenLabs
+ * error response body.
+ *
+ * ElevenLabs returns structured errors in the shape:
+ * ```json
+ * { "detail": { "status": "...", "code": "...", "message": "..." } }
+ * ```
+ * but also occasionally returns `{ "message": "..." }`, `{ "detail": "..." }`,
+ * HTML pages (502/503 from their CDN), or free-form text. We try the
+ * structured shapes first, fall back to a trimmed/truncated raw body, and
+ * return `undefined` when nothing useful is present.
+ *
+ * Exported for unit testing.
+ */
+export function extractElevenLabsErrorMessage(
+  body: string,
+): string | undefined {
+  if (!body) return undefined;
+  const trimmed = body.trim();
+  if (!trimmed) return undefined;
+
+  // Try JSON envelopes first.
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === "object") {
+        const root = parsed as { detail?: unknown; message?: unknown };
+
+        // Standard ElevenLabs shape: { detail: { message } }
+        if (root.detail && typeof root.detail === "object") {
+          const detailMessage = (root.detail as { message?: unknown }).message;
+          if (typeof detailMessage === "string" && detailMessage.trim()) {
+            return detailMessage.trim();
+          }
+        }
+
+        // Fallback shape: { detail: "..." }
+        if (typeof root.detail === "string" && root.detail.trim()) {
+          return root.detail.trim();
+        }
+
+        // Fallback shape: { message: "..." }
+        if (typeof root.message === "string" && root.message.trim()) {
+          return root.message.trim();
+        }
+      }
+    } catch {
+      // Not valid JSON — fall through to the raw-body fallback.
+    }
+  }
+
+  // Raw body fallback (HTML pages, plain text). Truncate to keep error
+  // messages reasonable when surfaced to UI clients.
+  if (trimmed.length > MAX_RAW_ERROR_BODY_CHARS) {
+    return `${trimmed.slice(0, MAX_RAW_ERROR_BODY_CHARS)}…`;
+  }
+  return trimmed;
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -180,9 +247,16 @@ export function createElevenLabsProvider(): TtsProvider {
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "");
+        // Surface the upstream provider message verbatim when extractable —
+        // the daemon route wraps it with a single "TTS synthesis failed:"
+        // prefix on the way out. The HTTP status is preserved on `statusCode`
+        // and logged by the daemon, so we don't embed it in the message text.
+        const message =
+          extractElevenLabsErrorMessage(errorText) ??
+          `ElevenLabs returned HTTP ${response.status}`;
         throw new ElevenLabsTtsError(
           "ELEVENLABS_TTS_HTTP_ERROR",
-          `ElevenLabs TTS returned ${response.status}: ${errorText}`,
+          message,
           response.status,
         );
       }

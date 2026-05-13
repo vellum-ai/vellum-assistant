@@ -15,6 +15,7 @@ private class CommandPalettePanel: NSPanel {
 @MainActor
 final class CommandPaletteWindow {
     private var panel: NSPanel?
+    private var hostingController: NSHostingController<CommandPaletteView>?
     private var resignObserver: Any?
     private var isDismissing = false
     private let viewModel = CommandPaletteViewModel()
@@ -24,9 +25,6 @@ final class CommandPaletteWindow {
 
     /// Callback invoked when the user selects a search result conversation (by daemon session ID).
     var onSelectSearchConversation: ((String) -> Void)?
-
-    /// Callback invoked when the user selects a memory search result (by memory ID).
-    var onSelectMemory: ((String) -> Void)?
 
     /// Static actions to show in the palette.
     var actions: [CommandPaletteAction] = []
@@ -63,13 +61,16 @@ final class CommandPaletteWindow {
             onSelectConversation: { [weak self] convId in
                 self?.onSelectSearchConversation?(convId)
             },
-            onSelectMemory: { [weak self] memoryId in
-                self?.onSelectMemory?(memoryId)
+            onResizeNeeded: { [weak self] in
+                DispatchQueue.main.async {
+                    self?.updatePanelSize(animated: true)
+                }
             }
         )
 
         let hostingController = NSHostingController(rootView: view)
-        hostingController.sizingOptions = [.intrinsicContentSize]
+        hostingController.sizingOptions = []
+        self.hostingController = hostingController
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.cornerRadius = VRadius.lg
         hostingController.view.layer?.masksToBounds = true
@@ -141,6 +142,7 @@ final class CommandPaletteWindow {
             MainActor.assumeIsolated {
                 panel.close()
                 self?.panel = nil
+                self?.hostingController = nil
                 self?.isDismissing = false
             }
         })
@@ -148,6 +150,34 @@ final class CommandPaletteWindow {
 
     var isVisible: Bool {
         panel?.isVisible ?? false
+    }
+
+    // MARK: - Sizing
+
+    private func updatePanelSize(animated: Bool) {
+        guard let panel, let hostingController else { return }
+        let idealSize = hostingController.sizeThatFits(
+            in: CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
+        )
+        let width = max(idealSize.width, 600)
+        let height = idealSize.height
+
+        let currentFrame = panel.frame
+        guard abs(currentFrame.height - height) > 1 else { return }
+
+        // Anchor the top edge so the panel grows/shrinks downward.
+        let newY = currentFrame.maxY - height
+        let newFrame = NSRect(x: currentFrame.origin.x, y: newY, width: width, height: height)
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = VAnimation.durationFast
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                panel.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            panel.setFrame(newFrame, display: true)
+        }
     }
 
     // MARK: - Positioning
@@ -159,17 +189,17 @@ final class CommandPaletteWindow {
             ?? NSScreen.screens.first
         guard let screenFrame = screen?.visibleFrame else { return }
 
-        if let fittingSize = panel.contentView?.fittingSize {
-            let width = max(fittingSize.width, 600)
-            let height = fittingSize.height
-            let x = screenFrame.midX - width / 2
-            let y = screenFrame.midY - height / 2
-            panel.setFrame(
-                NSRect(x: x, y: y, width: width, height: height),
-                display: true
-            )
-        } else {
-            panel.center()
-        }
+        guard let hostingController else { panel.center(); return }
+        let idealSize = hostingController.sizeThatFits(
+            in: CGSize(width: 600, height: CGFloat.greatestFiniteMagnitude)
+        )
+        let width = max(idealSize.width, 600)
+        let height = idealSize.height
+        let x = screenFrame.midX - width / 2
+        let y = screenFrame.midY - height / 2
+        panel.setFrame(
+            NSRect(x: x, y: y, width: width, height: height),
+            display: true
+        )
     }
 }

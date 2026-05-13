@@ -9,7 +9,7 @@ import type {
   RecallSearchContext,
   RecallSearchResult,
 } from "../types.js";
-import { isMemoryV2ReadActive, searchMemoryV2Source } from "./memory-v2.js";
+import { searchMemoryV2Source } from "./memory-v2.js";
 
 const log = getLogger("context-search-memory-source");
 
@@ -23,7 +23,7 @@ export async function searchMemorySource(
     return { evidence: [] };
   }
 
-  if (isMemoryV2ReadActive(context.config)) {
+  if (context.config.memory.v2.enabled) {
     return searchMemoryV2Source(query, context, normalizedLimit);
   }
 
@@ -34,6 +34,7 @@ export async function searchMemorySource(
     });
     queryVector = result.vectors[0] ?? null;
   } catch (err) {
+    if (context.signal?.aborted || isAbortError(err)) throw err;
     log.warn({ err }, "Failed to embed memory recall query");
     return { evidence: [] };
   }
@@ -67,9 +68,15 @@ export async function searchMemorySource(
 
     return { evidence };
   } catch (err) {
+    if (context.signal?.aborted || isAbortError(err)) throw err;
     log.warn({ err }, "Failed to search memory graph for recall");
     return { evidence: [] };
   }
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === "AbortError" || err.name === "APIUserAbortError";
 }
 
 function memoryNodeToEvidence(node: MemoryNode, score: number): RecallEvidence {

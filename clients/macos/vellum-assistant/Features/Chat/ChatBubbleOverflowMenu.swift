@@ -26,6 +26,9 @@ struct ChatBubbleOverflowMenu: View {
     let showInspectButton: Bool
     var onForkFromMessage: ((String) -> Void)?
     var onInspectMessage: ((String?) -> Void)?
+    var bookmarkStore: BookmarkStore?
+    var onToggleBookmark: ((String, String) -> Void)?
+    var conversationId: String?
 
     @State private var audioPlayer = MessageAudioPlayer()
     @State private var showCopyConfirmation = false
@@ -46,8 +49,12 @@ struct ChatBubbleOverflowMenu: View {
         onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming && MacOSClientFeatureFlagManager.shared.isEnabled("fork-from-message")
     }
 
+    private var canBookmarkMessage: Bool {
+        onToggleBookmark != nil && bookmarkStore != nil && message.daemonMessageId != nil && conversationId != nil && !message.isStreaming && MacOSClientFeatureFlagManager.shared.isEnabled("bookmarks")
+    }
+
     private var hasOverflowActions: Bool {
-        hasCopyableText || canInspectMessage || canForkFromMessage
+        hasCopyableText || canInspectMessage || canForkFromMessage || canBookmarkMessage
     }
 
     private var showOverflowMenu: Bool {
@@ -155,6 +162,22 @@ struct ChatBubbleOverflowMenu: View {
                 }
                 .equatable()
                 .vTooltip("Inspect", edge: .bottom)
+            }
+            if let onToggleBookmark, let store = bookmarkStore,
+               let daemonMessageId = message.daemonMessageId,
+               let conversationId,
+               !message.isStreaming,
+               MacOSClientFeatureFlagManager.shared.isEnabled("bookmarks") {
+                let isBookmarked = store.bookmarkedMessageIds.contains(daemonMessageId)
+                ChatEquatableButton(
+                    label: isBookmarked ? "Remove bookmark" : "Bookmark message",
+                    iconOnly: VIcon.bookmark.rawValue,
+                    iconColorRole: isBookmarked ? .primaryBase : .contentTertiary
+                ) {
+                    onToggleBookmark(daemonMessageId, conversationId)
+                }
+                .equatable()
+                .vTooltip(isBookmarked ? "Bookmarked" : "Bookmark", edge: .bottom)
             }
         }
         .textSelection(.disabled)

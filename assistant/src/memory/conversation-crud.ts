@@ -9,10 +9,12 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   isNull,
   like,
   lt,
   lte,
+  or,
   sql,
 } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
@@ -45,8 +47,11 @@ import {
 } from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
-import { getDb } from "./db-connection.js";
+import { getDb, getSqliteFrom } from "./db-connection.js";
+import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
+import { MEMORY_RETROSPECTIVE_SOURCE } from "./memory-retrospective-constants.js";
+import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
   channelInboundEvents,
@@ -60,6 +65,7 @@ import {
   toolInvocations,
 } from "./schema.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
+import { forkActivationState } from "./v2/activation-store.js";
 
 const log = getLogger("conversation-store");
 
@@ -112,6 +118,7 @@ export const messageMetadataSchema = z
     workspaceBlock: z.string().optional(),
     nowScratchpadBlock: z.string().optional(),
     pkbContextBlock: z.string().optional(),
+    memoryV2StaticBlock: z.string().optional(),
   })
   .passthrough();
 
@@ -186,6 +193,8 @@ export interface ConversationRow {
   lastMessageAt: number | null;
   archivedAt: number | null;
   inferenceProfile: string | null;
+  inferenceProfileSessionId: string | null;
+  inferenceProfileExpiresAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -216,6 +225,8 @@ export const parseConversation = createRowMapper<
   lastMessageAt: "lastMessageAt",
   archivedAt: "archivedAt",
   inferenceProfile: "inferenceProfile",
+  inferenceProfileSessionId: "inferenceProfileSessionId",
+  inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
 });
 
 export interface MessageRow {
@@ -425,6 +436,60 @@ export function findAnalysisConversationFor(
     .limit(1)
     .get();
   return row ? { id: row.id } : null;
+}
+
+/**
+ * Find the most recent memory-retrospective background conversation rooted
+ * at `parentConversationId`. Used by the memory-retrospective job handler
+ * to load the prior retrospective's `remember` calls into the new run's
+ * `<already_remembered>` block — bounded source-of-truth for "what the
+ * prior pass already saved" that scales as the source conversation grows.
+ *
+ * Walks up `forkParentConversationId` when no retrospective exists at the
+ * current level. This lets a forked conversation inherit dedup context from
+ * its source's most recent retro on the fork's *first* retrospective —
+ * otherwise the fork would re-save every fact the source already retro'd.
+ * Once the fork accumulates its own retros, those are found at the first
+ * iteration and we never walk up.
+ *
+ * Returns `null` when no prior retrospective exists anywhere in the fork
+ * chain (true first-run case).
+ *
+ * Hits `idx_conversations_fork_parent_conversation_id` for the
+ * `forkParentConversationId` lookup.
+ */
+const MAX_FORK_CHAIN_DEPTH = 16;
+
+export function findMostRecentRetrospectiveFor(
+  parentConversationId: string,
+): { id: string } | null {
+  const db = getDb();
+  let currentId: string | null = parentConversationId;
+  for (let depth = 0; depth < MAX_FORK_CHAIN_DEPTH && currentId; depth++) {
+    const row = db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.source, MEMORY_RETROSPECTIVE_SOURCE),
+          eq(conversations.forkParentConversationId, currentId),
+        ),
+      )
+      .orderBy(desc(conversations.createdAt))
+      .limit(1)
+      .get();
+    if (row) return { id: row.id };
+
+    const parent = db
+      .select({
+        forkParentConversationId: conversations.forkParentConversationId,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, currentId))
+      .get();
+    currentId = parent?.forkParentConversationId ?? null;
+  }
+  return null;
 }
 
 /**
@@ -659,6 +724,24 @@ export function forkConversation(params: {
       conversationId: fc.id,
       latestAssistantMessageId: latestForkedAssistant?.messageId ?? null,
       latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
+    });
+
+    // Carry the parent's per-conversation memory state into the child so the
+    // forked thread resumes with the same activation/injection log and
+    // in-context tracker the parent had at fork time. Only valid for
+    // full-history forks: a truncated fork would inherit activation/tracker
+    // entries for turns the child does not actually contain.
+    const isFullHistoryFork = copyBoundaryIndex === sourceMessages.length - 1;
+    if (isFullHistoryFork) {
+      forkActivationState(db, sourceConversation.id, fc.id);
+      forkGraphMemoryState(sourceConversation.id, fc.id);
+    }
+    forkRetrospectiveState({
+      database: db,
+      sourceConversationId: sourceConversation.id,
+      forkedConversationId: fc.id,
+      forkedMessageIds,
+      lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
     });
 
     return fc;
@@ -1004,6 +1087,111 @@ export function selectSlackMetaCandidateMetadata(
 }
 
 /**
+ * Count messages in a conversation that were created strictly after the
+ * `afterMessageId` reference message. If `afterMessageId` is `null` or empty,
+ * counts all messages in the conversation. If the referenced message no
+ * longer exists (e.g. deleted by a separate flow), returns 0 — callers
+ * decide how to react to a vanished reference, and the conservative answer
+ * here is "no new work."
+ *
+ * Used by the memory-retrospective trigger check to decide whether to fire
+ * the message-count trigger without loading message bodies.
+ */
+export function countMessagesAfter(
+  conversationId: string,
+  afterMessageId: string | null,
+): number {
+  const db = getDb();
+  if (afterMessageId === null || afterMessageId === "") {
+    const row = db
+      .select({ c: count() })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .get();
+    return row?.c ?? 0;
+  }
+  const ref = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.id, afterMessageId))
+    .get();
+  if (!ref) return 0;
+  // Tie-breaker on `messages.id` so rows that share a millisecond timestamp
+  // with the reference are not permanently skipped. Mirrors the
+  // `(createdAt, id)` cursor pattern used by the backfill job-handler and
+  // turn-events-store.
+  const row = db
+    .select({ c: count() })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        or(
+          gt(messages.createdAt, ref.createdAt),
+          and(
+            eq(messages.createdAt, ref.createdAt),
+            gt(messages.id, afterMessageId),
+          ),
+        ),
+      ),
+    )
+    .get();
+  return row?.c ?? 0;
+}
+
+/**
+ * Return messages in a conversation created strictly after the
+ * `afterMessageId` reference. If the reference is `null`/empty, returns all
+ * messages. If the reference doesn't exist, returns an empty array (mirrors
+ * `countMessagesAfter`'s conservative semantics). Used by the
+ * memory-retrospective job handler to load the message slice it processes.
+ */
+export function getMessagesAfter(
+  conversationId: string,
+  afterMessageId: string | null,
+): MessageRow[] {
+  const db = getDb();
+  if (afterMessageId === null || afterMessageId === "") {
+    // Secondary `asc(messages.id)` matches the non-null path's cursor
+    // ordering, so callers tracking `cutoffMessageId` across runs see a
+    // consistent ordering when multiple rows share a millisecond timestamp.
+    return db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt), asc(messages.id))
+      .all()
+      .map(parseMessage);
+  }
+  const ref = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.id, afterMessageId))
+    .get();
+  if (!ref) return [];
+  // Same `(createdAt, id)` cursor as `countMessagesAfter` — rows sharing
+  // the reference's millisecond timestamp would otherwise be skipped.
+  return db
+    .select()
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        or(
+          gt(messages.createdAt, ref.createdAt),
+          and(
+            eq(messages.createdAt, ref.createdAt),
+            gt(messages.id, afterMessageId),
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(messages.createdAt), asc(messages.id))
+    .all()
+    .map(parseMessage);
+}
+
+/**
  * Efficient existence check — returns true if the conversation has at least
  * one message row. Uses `LIMIT 1` + `select({ 1 })` to avoid loading and
  * parsing any message content.
@@ -1226,6 +1414,10 @@ export function unarchiveConversation(id: string): boolean {
  * Set or clear the inference profile override for a conversation.
  * Pass `null` to clear the override and fall back to the workspace
  * `llm.activeProfile` resolution.
+ *
+ * Also clears any stale session columns (`inferenceProfileSessionId`,
+ * `inferenceProfileExpiresAt`) so that the reaper and lazy expiry check
+ * cannot later clobber the newly-set profile.
  */
 export function setConversationInferenceProfile(
   conversationId: string,
@@ -1233,17 +1425,130 @@ export function setConversationInferenceProfile(
 ): void {
   const db = getDb();
   db.update(conversations)
-    .set({ inferenceProfile: profile, updatedAt: Date.now() })
+    .set({
+      inferenceProfile: profile,
+      inferenceProfileSessionId: null,
+      inferenceProfileExpiresAt: null,
+      updatedAt: Date.now(),
+    })
     .where(eq(conversations.id, conversationId))
     .run();
 }
 
 /**
+ * Atomically set the inference profile, session id, and expiry timestamp for
+ * a conversation. Pass `null` for all three to clear the session-backed
+ * override and fall back to the workspace `llm.activeProfile` resolution.
+ */
+export function setConversationInferenceProfileSession(
+  conversationId: string,
+  profile: string | null,
+  sessionId: string | null,
+  expiresAt: number | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      inferenceProfile: profile,
+      inferenceProfileSessionId: sessionId,
+      inferenceProfileExpiresAt: expiresAt,
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+/**
+ * Clear all conversations whose session-backed inference profile has expired.
+ * Returns an array of `{ conversationId, sessionId }` for each cleared row so
+ * callers can emit the appropriate update events.
+ */
+export function clearExpiredInferenceProfiles(
+  now: number,
+): Array<{ conversationId: string; sessionId: string | null }> {
+  const raw = getSqliteFrom(getDb());
+  // Two-step approach: SELECT to get pre-clear sessionIds, then UPDATE.
+  // The UPDATE re-applies the WHERE condition for CAS safety.
+  // RETURNING the id lets us know which rows were actually cleared.
+  const expired = raw
+    .prepare(
+      `
+    SELECT id AS conversationId, inference_profile_session_id AS sessionId
+    FROM conversations
+    WHERE inference_profile_expires_at IS NOT NULL AND inference_profile_expires_at <= ?
+  `,
+    )
+    .all(now) as Array<{ conversationId: string; sessionId: string | null }>;
+
+  if (expired.length === 0) return [];
+
+  const ids = expired.map((r) => r.conversationId);
+  const placeholders = ids.map(() => "?").join(", ");
+
+  const actuallyCleared = raw
+    .prepare(
+      `
+    UPDATE conversations
+    SET inference_profile = NULL, inference_profile_session_id = NULL, inference_profile_expires_at = NULL
+    WHERE id IN (${placeholders}) AND inference_profile_expires_at IS NOT NULL AND inference_profile_expires_at <= ?
+    RETURNING id AS conversationId
+  `,
+    )
+    .all(...ids, now) as Array<{ conversationId: string }>;
+
+  const clearedSet = new Set(actuallyCleared.map((r) => r.conversationId));
+  return expired.filter((r) => clearedSet.has(r.conversationId));
+}
+
+/**
+ * List conversations with an active (non-expired) session-backed inference
+ * profile. Pass a `conversationId` to narrow to a single conversation.
+ */
+export function listActiveInferenceProfileSessions(
+  conversationId?: string,
+): Array<{
+  conversationId: string;
+  conversationTitle: string | null;
+  profile: string;
+  sessionId: string;
+  expiresAt: number;
+}> {
+  const db = getDb();
+  const now = Date.now();
+  const baseConditions = [
+    isNotNull(conversations.inferenceProfile),
+    isNotNull(conversations.inferenceProfileExpiresAt),
+    gt(conversations.inferenceProfileExpiresAt, now),
+    isNotNull(conversations.inferenceProfileSessionId),
+  ];
+  if (conversationId) {
+    baseConditions.push(eq(conversations.id, conversationId));
+  }
+  return db
+    .select({
+      conversationId: conversations.id,
+      conversationTitle: conversations.title,
+      profile: conversations.inferenceProfile,
+      sessionId: conversations.inferenceProfileSessionId,
+      expiresAt: conversations.inferenceProfileExpiresAt,
+    })
+    .from(conversations)
+    .where(and(...baseConditions))
+    .all() as Array<{
+    conversationId: string;
+    conversationTitle: string | null;
+    profile: string;
+    sessionId: string;
+    expiresAt: number;
+  }>;
+}
+
+/**
  * Resolve the per-turn inference-profile override from an already-loaded
- * conversation row. Returns the row's `inferenceProfile` for non-background
- * conversations, `undefined` otherwise — background turns (subagent fan-out,
- * scheduled tasks, update bulletins) run on the workspace defaults rather
- * than inheriting an interactive override.
+ * conversation row. Returns the row's `inferenceProfile` for interactive
+ * conversations, `undefined` for automation threads (subagent fan-out,
+ * scheduled tasks, update bulletins) so they run on the workspace defaults
+ * rather than inheriting an interactive override.
  *
  * Prefer this row-based form when the caller already needs to read the
  * conversation row for other reasons (e.g. the agent loop's title check).
@@ -1251,7 +1556,27 @@ export function setConversationInferenceProfile(
 export function getConversationOverrideProfileFromRow(
   conv: ConversationRow | null,
 ): string | undefined {
-  if (conv?.conversationType === "background") return undefined;
+  if (
+    conv?.conversationType === "background" ||
+    conv?.conversationType === "scheduled"
+  ) {
+    return undefined;
+  }
+  // Treat an expired session as if the override is absent. The eager reaper
+  // clears the row and emits the update event; the lazy check here ensures
+  // correctness on read paths before the reaper fires.
+  //
+  // `<=` (not `<`) for boundary consistency with the rest of the session
+  // logic: the reaper SQL uses `expires_at <= ?`, and the active-session
+  // queries use `expiresAt > now` (i.e. treat exact-expiry as inactive).
+  // Without this, a session at the exact-expiry millisecond would be served
+  // for one extra turn here while being cleared by the reaper.
+  if (
+    conv?.inferenceProfileExpiresAt != null &&
+    conv.inferenceProfileExpiresAt <= Date.now()
+  ) {
+    return undefined;
+  }
   return conv?.inferenceProfile ?? undefined;
 }
 
@@ -1481,8 +1806,10 @@ export function updateMessageMetadata(
 /**
  * Bulk-remove the metadata fields that back the blocks stripped by
  * `stripInjectionsForCompaction` — currently `pkbSystemReminderBlock`
- * (`<system_reminder>`), `nowScratchpadBlock` (`<NOW.md …>`), and
- * `pkbContextBlock` (`<knowledge_base>`). Called from compaction-strip
+ * (`<system_reminder>`), `nowScratchpadBlock` (`<NOW.md …>`),
+ * `pkbContextBlock` (`<knowledge_base>`), and `memoryV2StaticBlock`
+ * (the static `<memory>\n…</memory>` block matched by the `<memory>\n`
+ * prefix in `RUNTIME_INJECTION_PREFIXES`). Called from compaction-strip
  * sites so post-restart rehydration stays consistent with the in-memory
  * state produced by `stripInjectionsForCompaction` (which removes those
  * tags from live messages but cannot touch the DB). Fields backing
@@ -1498,7 +1825,8 @@ export function clearStrippedInjectionMetadataForConversation(
           metadata,
           '$.pkbSystemReminderBlock',
           '$.nowScratchpadBlock',
-          '$.pkbContextBlock'
+          '$.pkbContextBlock',
+          '$.memoryV2StaticBlock'
         )
       WHERE conversation_id = ?
         AND role = 'user'
@@ -1507,6 +1835,7 @@ export function clearStrippedInjectionMetadataForConversation(
           json_extract(metadata, '$.pkbSystemReminderBlock') IS NOT NULL
           OR json_extract(metadata, '$.nowScratchpadBlock') IS NOT NULL
           OR json_extract(metadata, '$.pkbContextBlock') IS NOT NULL
+          OR json_extract(metadata, '$.memoryV2StaticBlock') IS NOT NULL
         )`,
     conversationId,
   );

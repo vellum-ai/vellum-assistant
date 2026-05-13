@@ -134,7 +134,8 @@ public enum HistoryReconstructionService {
                 chatMsg = ChatMessage(role: role, text: item.text, timestamp: timestamp, attachments: attachments, toolCalls: toolCalls)
             }
 
-            chatMsg.daemonMessageId = item.id
+            chatMsg.displayMessageId = item.id
+            chatMsg.daemonMessageId = item.daemonMessageId ?? item.id
             chatMsg.wasTruncated = item.wasTruncated ?? false
             for i in chatMsg.attachments.indices {
                 chatMsg.attachments[i].data = ""

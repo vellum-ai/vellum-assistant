@@ -11,10 +11,13 @@ import { z } from "zod";
 
 import type { ChannelId } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
+import type { Conversation } from "../../daemon/conversation.js";
 import {
   findConversation,
   findConversationBySurfaceId,
+  getOrCreateConversation,
 } from "../../daemon/conversation-store.js";
+import { rawGet } from "../../memory/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -87,6 +90,37 @@ function applyTrustContext(
   }
 }
 
+/**
+ * Resolve the conversation owning a surface, rehydrating from the DB when
+ * the in-memory lookup misses (daemon restart or LRU eviction). The DB scan
+ * is also the source of truth that the surface exists — without it,
+ * `getOrCreateConversation` would silently create a phantom conversation
+ * for any caller-supplied id.
+ */
+async function resolveSurfaceConversation(
+  conversationId: string | null | undefined,
+  surfaceId: string,
+): Promise<Conversation | undefined> {
+  const found = conversationId
+    ? findConversation(conversationId)
+    : findConversationBySurfaceId(surfaceId);
+  if (found) return found;
+
+  // Escape LIKE wildcards so a `surfaceId` like "%" or "_" can't match
+  // unrelated rows.
+  const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
+  const row = rawGet<{ conversation_id: string }>(
+    `SELECT conversation_id FROM messages
+     WHERE content LIKE ? ESCAPE '\\'
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    `%"surfaceId":"${escaped}"%`,
+  );
+  if (!row) return undefined;
+  if (conversationId && conversationId !== row.conversation_id) return undefined;
+  return await getOrCreateConversation(row.conversation_id);
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -113,9 +147,10 @@ async function handleSurfaceAction({
     throw new BadRequestError("conversationId must be a string");
   }
 
-  const conversation = conversationId
-    ? findConversation(conversationId)
-    : findConversationBySurfaceId(surfaceId);
+  const conversation = await resolveSurfaceConversation(
+    conversationId,
+    surfaceId,
+  );
 
   if (!conversation) {
     throw new NotFoundError("No active conversation found");
@@ -175,7 +210,7 @@ async function handleSurfaceAction({
   }
 }
 
-function handleSurfaceUndo({ body, pathParams }: RouteHandlerArgs) {
+async function handleSurfaceUndo({ body, pathParams }: RouteHandlerArgs) {
   const surfaceId = pathParams?.id;
   if (!surfaceId) {
     throw new BadRequestError("surfaceId path parameter is required");
@@ -186,9 +221,10 @@ function handleSurfaceUndo({ body, pathParams }: RouteHandlerArgs) {
     throw new BadRequestError("conversationId must be a string");
   }
 
-  const conversation = conversationId
-    ? findConversation(conversationId)
-    : findConversationBySurfaceId(surfaceId);
+  const conversation = await resolveSurfaceConversation(
+    conversationId,
+    surfaceId,
+  );
 
   if (!conversation) {
     throw new NotFoundError("No active conversation found");
