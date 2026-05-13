@@ -102,8 +102,10 @@ describe("bookmark-crud", () => {
       conversationId: "conv-1",
     });
 
-    expect(second.id).toBe(first.id);
-    expect(second.createdAt).toBe(first.createdAt);
+    expect(first.inserted).toBe(true);
+    expect(second.inserted).toBe(false);
+    expect(second.bookmark.id).toBe(first.bookmark.id);
+    expect(second.bookmark.createdAt).toBe(first.bookmark.createdAt);
 
     const all = listBookmarks(db);
     expect(all.length).toBe(1);
@@ -119,11 +121,13 @@ describe("bookmark-crud", () => {
       messageRole: "assistant",
     });
 
-    const summary = createBookmark(db, {
+    const result = createBookmark(db, {
       messageId: "msg-summary",
       conversationId: "conv-summary",
     });
 
+    expect(result.inserted).toBe(true);
+    const summary = result.bookmark;
     expect(summary.conversationTitle).toBe("Title goes here");
     expect(summary.messagePreview).toBe("summary body");
     expect(summary.messageRole).toBe("assistant");
@@ -223,7 +227,7 @@ describe("bookmark-crud", () => {
       messageRole: "user",
     });
 
-    const summary = createBookmark(db, {
+    const { bookmark: summary } = createBookmark(db, {
       messageId: "msg-blocks",
       conversationId: "conv-blocks",
     });
@@ -248,7 +252,7 @@ describe("bookmark-crud", () => {
       messageRole: "assistant",
     });
 
-    const summary = createBookmark(db, {
+    const { bookmark: summary } = createBookmark(db, {
       messageId: "msg-multi",
       conversationId: "conv-multi",
     });
