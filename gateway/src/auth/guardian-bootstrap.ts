@@ -94,6 +94,11 @@ interface GuardianLookupRow {
   principal_id: string | null;
 }
 
+interface ExistingChannelRow {
+  id: string;
+  contactId: string;
+}
+
 /**
  * Find the existing guardian contact for the "vellum" channel.
  * Mirrors assistant's `findGuardianForChannel("vellum")`.
@@ -180,7 +185,8 @@ export interface CreateGuardianBindingResult {
  *
  * Writes to both the assistant DB (via IPC proxy, primary) and gateway DB
  * (secondary). Uses upsert semantics: looks up an existing contact by
- * principalId and an existing channel by (contactId, type), updating if found.
+ * principalId, then claims any preseeded channel for the same actor before
+ * falling back to an existing guardian channel by (contactId, type).
  */
 export async function createGuardianBinding(
   params: CreateGuardianBindingParams,
@@ -199,23 +205,54 @@ export async function createGuardianBinding(
       `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
       [params.guardianPrincipalId],
     );
+    const existingGuardianContactId = existingContacts[0]?.id;
 
-    contactId = existingContacts[0]?.id ?? uuid();
+    const claimableChannels = await assistantDbQuery<ExistingChannelRow>(
+      `SELECT cc.id, cc.contact_id AS contactId
+       FROM contact_channels cc
+       WHERE cc.type = ?
+         AND cc.status != 'blocked'
+         AND (cc.address = ? OR cc.external_user_id = ?)
+       ORDER BY
+         CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
+         CASE WHEN cc.contact_id = ? THEN 0 ELSE 1 END,
+         CASE WHEN cc.external_user_id = ? THEN 0 ELSE 1 END,
+         CASE cc.status
+           WHEN 'active' THEN 0
+           WHEN 'unverified' THEN 1
+           ELSE 2
+         END,
+         cc.updated_at DESC
+       LIMIT 1`,
+      [
+        params.channel,
+        params.externalUserId,
+        params.externalUserId,
+        params.externalUserId,
+        existingGuardianContactId ?? "",
+        params.externalUserId,
+      ],
+    );
+
+    contactId =
+      existingContacts[0]?.id ?? claimableChannels[0]?.contactId ?? uuid();
 
     let existingChannels: { id: string }[] = [];
-    if (existingContacts[0]) {
+    if (!claimableChannels[0] && existingContacts[0]) {
       existingChannels = await assistantDbQuery<{ id: string }>(
         `SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? LIMIT 1`,
         [contactId, params.channel],
       );
     }
 
-    channelId = existingChannels[0]?.id ?? uuid();
+    channelId = claimableChannels[0]?.id ?? existingChannels[0]?.id ?? uuid();
 
-    if (existingContacts[0]) {
+    if (existingContacts[0] || claimableChannels[0]) {
       await assistantDbRun(
-        `UPDATE contacts SET display_name = ?, updated_at = ? WHERE id = ?`,
-        [displayName, now, contactId],
+        `UPDATE contacts
+         SET display_name = ?, role = 'guardian', principal_id = ?, updated_at = ?
+         WHERE id = ?`,
+        [displayName, params.guardianPrincipalId, now, contactId],
       );
     } else {
       await assistantDbRun(
@@ -225,14 +262,17 @@ export async function createGuardianBinding(
       );
     }
 
-    if (existingChannels[0]) {
+    if (claimableChannels[0] || existingChannels[0]) {
       await assistantDbRun(
         `UPDATE contact_channels
-         SET address = ?, external_user_id = ?, external_chat_id = ?,
+         SET contact_id = ?, address = ?, external_user_id = ?, external_chat_id = ?,
+             is_primary = 1,
              status = 'active', policy = 'allow', verified_at = ?,
-             verified_via = ?, updated_at = ?
+             verified_via = ?, revoked_reason = NULL, blocked_reason = NULL,
+             updated_at = ?
          WHERE id = ?`,
         [
+          contactId,
           params.externalUserId,
           params.externalUserId,
           params.deliveryChatId,
@@ -287,7 +327,12 @@ export async function createGuardianBinding(
         })
         .onConflictDoUpdate({
           target: gwContacts.id,
-          set: { displayName, updatedAt: now },
+          set: {
+            displayName,
+            role: "guardian",
+            principalId: params.guardianPrincipalId,
+            updatedAt: now,
+          },
         })
         .run();
 
@@ -310,13 +355,18 @@ export async function createGuardianBinding(
         .onConflictDoUpdate({
           target: gwContactChannels.id,
           set: {
+            contactId,
             address: params.externalUserId,
             externalUserId: params.externalUserId,
             externalChatId: params.deliveryChatId,
+            isPrimary: true,
             status: "active",
             policy: "allow",
             verifiedAt: now,
             verifiedVia,
+            revokedReason: null,
+            blockedReason: null,
+            updatedAt: now,
           },
         })
         .run();

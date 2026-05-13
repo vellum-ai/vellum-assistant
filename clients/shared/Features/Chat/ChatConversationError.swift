@@ -16,6 +16,7 @@ public enum ConversationErrorCategory: Equatable, Sendable {
     case regenerateFailed
     case authenticationRequired
     case providerNotConfigured
+    case providerInvalidKey
     case managedKeyInvalid
     case unknown
 
@@ -49,6 +50,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             self = .authenticationRequired
         case .providerNotConfigured:
             self = .providerNotConfigured
+        case .providerInvalidKey:
+            self = .providerInvalidKey
         case .managedKeyInvalid:
             self = .managedKeyInvalid
         case .unknown:
@@ -87,6 +90,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             return "Sign in or check your credentials in Settings to continue."
         case .providerNotConfigured:
             return "Add your API key in Settings to continue."
+        case .providerInvalidKey:
+            return "Update the API key in Settings — the provider rejected the current one."
         case .managedKeyInvalid:
             return "The assistant API key is being refreshed. Please retry in a moment."
         case .unknown:
@@ -100,6 +105,12 @@ public enum ConversationErrorPresentationSurface: Equatable, Sendable {
     case managedCreditsBanner
     case providerBillingBanner
     case missingApiKeyBanner
+    /// Daemon says the upstream provider rejected the configured key
+    /// (`PROVIDER_INVALID_KEY` — e.g. Anthropic 401/403). Distinct from
+    /// `missingApiKeyBanner` so the chat surface can render an "Invalid
+    /// API key" banner with an Update-in-Settings CTA, rather than the
+    /// "API key required" copy that asks the user to add one.
+    case invalidApiKeyBanner
     case generic
 }
 
@@ -113,6 +124,14 @@ public struct ConversationError: Equatable {
     public let debugDetails: String?
     /// Machine-readable error category for log report metadata and triage.
     public let errorCategory: String?
+    /// Optional `provider_connections.name` carried over from the wire
+    /// message for credential-related errors. Used by `InvalidApiKeyBanner`
+    /// / `MissingApiKeyBanner` to name the slot to fix.
+    public let connectionName: String?
+    /// Optional resolved profile name carried over from the wire message.
+    /// Same purpose as `connectionName` — surfaces in the banner when the
+    /// connection identifier is generic.
+    public let profileName: String?
 
     public init(from msg: ConversationErrorMessage) {
         self.category = ConversationErrorCategory(from: msg.code)
@@ -122,9 +141,11 @@ public struct ConversationError: Equatable {
         self.conversationId = msg.conversationId
         self.debugDetails = msg.debugDetails
         self.errorCategory = msg.errorCategory
+        self.connectionName = msg.connectionName
+        self.profileName = msg.profileName
     }
 
-    public init(category: ConversationErrorCategory, message: String, isRetryable: Bool, conversationId: String, debugDetails: String? = nil, errorCategory: String? = nil) {
+    public init(category: ConversationErrorCategory, message: String, isRetryable: Bool, conversationId: String, debugDetails: String? = nil, errorCategory: String? = nil, connectionName: String? = nil, profileName: String? = nil) {
         self.category = category
         self.message = message
         self.isRetryable = isRetryable
@@ -132,6 +153,8 @@ public struct ConversationError: Equatable {
         self.conversationId = conversationId
         self.debugDetails = debugDetails
         self.errorCategory = errorCategory
+        self.connectionName = connectionName
+        self.profileName = profileName
     }
 
     /// Whether this error indicates that Vellum-managed credits are exhausted.
@@ -158,6 +181,9 @@ public struct ConversationError: Equatable {
         if isProviderBilling {
             return .providerBillingBanner
         }
+        if isProviderInvalidKey {
+            return .invalidApiKeyBanner
+        }
         if isProviderNotConfigured {
             return .missingApiKeyBanner
         }
@@ -175,6 +201,14 @@ public struct ConversationError: Equatable {
     /// Whether this error indicates that no provider is configured for inference.
     public var isProviderNotConfigured: Bool {
         category == .providerNotConfigured
+    }
+
+    /// Whether this error indicates the upstream provider rejected the
+    /// configured API key (e.g. Anthropic 401/403). Distinct from
+    /// `isProviderNotConfigured` (key never set) — the banner copy and
+    /// CTA differ between the two states.
+    public var isProviderInvalidKey: Bool {
+        category == .providerInvalidKey
     }
 
     /// Whether this error indicates the managed assistant API key is invalid and should be reprovisioned.

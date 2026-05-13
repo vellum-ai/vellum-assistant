@@ -97,11 +97,16 @@ final class ConversationManager: ConversationRestorerDelegate {
     /// message POST includes it for assistant personalization.
     var preChatContext: PreChatOnboardingContext?
 
-    // MARK: - Notification Catch-Up
+    // MARK: - History Catch-Up
 
-    /// Daemon conversation IDs that need a notification catch-up (history fetch)
-    /// once the associated ChatViewModel finishes its current send/think cycle.
-    @ObservationIgnored private var pendingNotificationCatchUpIds: Set<String> = []
+    private struct PendingHistoryCatchUp {
+        let requiresLoadedHistory: Bool
+    }
+
+    /// Daemon conversation IDs that need a history catch-up once the associated
+    /// ChatViewModel finishes an observed send/think/queue or history-load block.
+    @ObservationIgnored private var pendingHistoryCatchUpsByDaemonId: [String: PendingHistoryCatchUp] = [:]
+    @ObservationIgnored private var pendingHistoryCatchUpRetryTasks: [String: Task<Void, Never>] = [:]
 
     // MARK: - App-Layer Callbacks
 
@@ -244,7 +249,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         wireStoreCallbacks()
 
         activityStore.onBusyToIdle = { [weak self] conversationId in
-            self?.drainPendingNotificationCatchUp(for: conversationId)
+            self?.drainPendingHistoryCatchUp(for: conversationId)
         }
         activityStore.onAssistantActivityChange = { [weak self] conversationId, previousSnapshot, currentSnapshot in
             self?.handleAssistantMessageArrival(conversationId: conversationId, previousSnapshot: previousSnapshot, currentSnapshot: currentSnapshot)
@@ -408,6 +413,10 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     func appendConversations(from response: ConversationListResponseMessage) {
         listStore.appendConversations(from: response)
+    }
+
+    func reconcileLoadedConversationHistory(localId: UUID, daemonConversationId: String) {
+        requestHistoryCatchUp(localId: localId, daemonConversationId: daemonConversationId, requiresLoadedHistory: true)
     }
 
     func mergeAssistantAttention(from item: ConversationListResponseItem, intoConversationAt index: Int) {
@@ -1089,7 +1098,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     func refreshActiveConversation() {
         guard let conversationId = activeConversation?.conversationId else { return }
-        activeViewModel?.prepareForNotificationCatchUp()
+        activeViewModel?.prepareForLatestHistoryReconciliation()
         conversationRestorer.requestReconnectHistory(conversationId: conversationId)
     }
 
@@ -1404,12 +1413,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
         listStore.conversations[idx] = conversation
 
-        if let vm = selectionStore.chatViewModels[localId], !vm.isThinking, !vm.isSending {
-            pendingNotificationCatchUpIds.remove(daemonConversationId)
-            vm.prepareForNotificationCatchUp()
-            conversationRestorer.requestReconnectHistory(conversationId: daemonConversationId)
-        } else if selectionStore.chatViewModels[localId] != nil {
-            pendingNotificationCatchUpIds.insert(daemonConversationId)
+        if selectionStore.chatViewModels[localId] != nil {
+            requestHistoryCatchUp(localId: localId, daemonConversationId: daemonConversationId)
         }
     }
 
@@ -1608,14 +1613,90 @@ final class ConversationManager: ConversationRestorerDelegate {
         activityStore.unsubscribeAll(for: id)
     }
 
-    // MARK: - Notification Catch-Up
+    // MARK: - History Catch-Up
 
-    private func drainPendingNotificationCatchUp(for conversationId: UUID) {
+    private func requestHistoryCatchUp(
+        localId: UUID,
+        daemonConversationId: String,
+        requiresLoadedHistory: Bool = false
+    ) {
+        guard let vm = selectionStore.chatViewModels[localId] else { return }
+        if requiresLoadedHistory, !vm.isHistoryLoaded {
+            guard vm.isLoadingHistory else {
+                clearPendingHistoryCatchUp(daemonConversationId)
+                return
+            }
+            queuePendingHistoryCatchUp(
+                daemonConversationId: daemonConversationId,
+                requiresLoadedHistory: requiresLoadedHistory,
+                retryAfterDelayFor: localId
+            )
+            return
+        }
+        if requiresLoadedHistory, vm.isLoadingHistory || vm.isLoadingMoreMessages {
+            queuePendingHistoryCatchUp(
+                daemonConversationId: daemonConversationId,
+                requiresLoadedHistory: requiresLoadedHistory,
+                retryAfterDelayFor: localId
+            )
+            return
+        }
+        guard !isHistoryCatchUpBlockedByObservedActivity(vm) else {
+            queuePendingHistoryCatchUp(
+                daemonConversationId: daemonConversationId,
+                requiresLoadedHistory: requiresLoadedHistory
+            )
+            return
+        }
+        clearPendingHistoryCatchUp(daemonConversationId)
+        vm.prepareForLatestHistoryReconciliation()
+        conversationRestorer.requestReconnectHistory(conversationId: daemonConversationId)
+    }
+
+    private func drainPendingHistoryCatchUp(for conversationId: UUID) {
         guard let daemonId = listStore.conversations.first(where: { $0.id == conversationId })?.conversationId,
-              pendingNotificationCatchUpIds.remove(daemonId) != nil,
-              let vm = selectionStore.chatViewModels[conversationId] else { return }
-        vm.prepareForNotificationCatchUp()
-        conversationRestorer.requestReconnectHistory(conversationId: daemonId)
+              let pending = pendingHistoryCatchUpsByDaemonId[daemonId] else { return }
+        guard selectionStore.chatViewModels[conversationId] != nil else {
+            clearPendingHistoryCatchUp(daemonId)
+            return
+        }
+        requestHistoryCatchUp(
+            localId: conversationId,
+            daemonConversationId: daemonId,
+            requiresLoadedHistory: pending.requiresLoadedHistory
+        )
+    }
+
+    private func isHistoryCatchUpBlockedByObservedActivity(_ vm: ChatViewModel) -> Bool {
+        vm.isSending || vm.isThinking || vm.pendingQueuedCount > 0
+    }
+
+    private func queuePendingHistoryCatchUp(
+        daemonConversationId: String,
+        requiresLoadedHistory: Bool,
+        retryAfterDelayFor localId: UUID? = nil
+    ) {
+        let existing = pendingHistoryCatchUpsByDaemonId[daemonConversationId]
+        pendingHistoryCatchUpsByDaemonId[daemonConversationId] = PendingHistoryCatchUp(
+            requiresLoadedHistory: (existing?.requiresLoadedHistory ?? true) && requiresLoadedHistory
+        )
+        guard let localId else { return }
+        schedulePendingHistoryCatchUpRetry(daemonConversationId: daemonConversationId, localId: localId)
+    }
+
+    private func clearPendingHistoryCatchUp(_ daemonConversationId: String) {
+        pendingHistoryCatchUpsByDaemonId.removeValue(forKey: daemonConversationId)
+        pendingHistoryCatchUpRetryTasks.removeValue(forKey: daemonConversationId)?.cancel()
+    }
+
+    private func schedulePendingHistoryCatchUpRetry(daemonConversationId: String, localId: UUID) {
+        guard pendingHistoryCatchUpRetryTasks[daemonConversationId] == nil else { return }
+        pendingHistoryCatchUpRetryTasks[daemonConversationId] = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.pendingHistoryCatchUpRetryTasks.removeValue(forKey: daemonConversationId)
+            self.drainPendingHistoryCatchUp(for: localId)
+        }
     }
 
     // MARK: - Managed Key Reprovisioning

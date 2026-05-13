@@ -6,7 +6,7 @@
  */
 
 import { getPlatformAssistantId } from "../config/env.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";

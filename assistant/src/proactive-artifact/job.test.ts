@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { SYNC_TAGS } from "../daemon/message-types/sync.js";
+import {
+  conversationMessagesSyncTag,
+  SYNC_TAGS,
+} from "../daemon/message-types/sync.js";
 
 // ── Mock state ──────────────────────────────────────────────────────────
 
@@ -740,7 +743,10 @@ describe("injectAuxAssistantMessage", () => {
     const syncMsg = broadcastCalls.find((c) => c.type === "sync_changed");
     expect(syncMsg).toEqual({
       type: "sync_changed",
-      tags: [SYNC_TAGS.conversationsList],
+      tags: [
+        SYNC_TAGS.conversationsList,
+        conversationMessagesSyncTag("conv-inject-1"),
+      ],
     });
   });
 
@@ -837,7 +843,13 @@ describe("injectAuxAssistantMessage", () => {
       broadcastCalls.filter((c) => c.type === "conversation_list_invalidated"),
     ).toHaveLength(1);
     expect(broadcastCalls.filter((c) => c.type === "sync_changed")).toEqual([
-      { type: "sync_changed", tags: [SYNC_TAGS.conversationsList] },
+      {
+        type: "sync_changed",
+        tags: [
+          SYNC_TAGS.conversationsList,
+          conversationMessagesSyncTag("conv-inject-3"),
+        ],
+      },
     ]);
   });
 
@@ -866,7 +878,13 @@ describe("injectAuxAssistantMessage", () => {
       broadcastCalls.filter((c) => c.type === "conversation_list_invalidated"),
     ).toHaveLength(1);
     expect(broadcastCalls.filter((c) => c.type === "sync_changed")).toEqual([
-      { type: "sync_changed", tags: [SYNC_TAGS.conversationsList] },
+      {
+        type: "sync_changed",
+        tags: [
+          SYNC_TAGS.conversationsList,
+          conversationMessagesSyncTag("conv-inject-4"),
+        ],
+      },
     ]);
   });
 });

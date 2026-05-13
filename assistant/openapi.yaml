@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.8.0
+  version: 0.8.1
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -3075,6 +3075,42 @@ paths:
           schema:
             type: string
           description: Optional channel ID filter
+  /v1/channels/available:
+    get:
+      operationId: channels_available_get
+      summary: Get available channels
+      description:
+        Return the channel ids this assistant can surface to clients. Today this is a fixed base list plus `email`
+        when an inbox is registered; will become plugin/skill-driven in future.
+      tags:
+        - channels
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  channels:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - telegram
+                        - phone
+                        - vellum
+                        - whatsapp
+                        - slack
+                        - email
+                        - platform
+                    description: Channel ids in display order
+                required:
+                  - success
+                  - channels
+                additionalProperties: false
   /v1/channels/conversation:
     delete:
       operationId: channels_conversation_delete
@@ -13665,6 +13701,44 @@ paths:
                   description: Source text for drafting
               required:
                 - sourceText
+              additionalProperties: false
+  /v1/skills/import:
+    post:
+      operationId: skills_import_post
+      summary: Import skill from file
+      description: Import a custom skill by uploading a ZIP or tar.gz archive containing a SKILL.md file.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  skillId:
+                    type: string
+                required:
+                  - ok
+                  - skillId
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fileName:
+                  type: string
+                fileContent:
+                  type: string
+              required:
+                - fileName
+                - fileContent
               additionalProperties: false
   /v1/skills/install:
     post:

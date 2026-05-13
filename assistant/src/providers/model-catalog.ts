@@ -1,4 +1,4 @@
-import { MANAGED_PROVIDER_META } from "./managed-proxy/constants.js";
+import { PLATFORM_PROVIDER_META } from "./platform-proxy/constants.js";
 
 export type LongContextMode =
   | "native-model"
@@ -91,12 +91,12 @@ export interface ProviderCatalogEntry {
   /**
    * Whether this provider supports the `platform` auth type (Vellum-managed
    * keys routed through the platform proxy). Derived from
-   * `MANAGED_PROVIDER_META` at catalog build time so the two stay in lock
+   * `PLATFORM_PROVIDER_META` at catalog build time so the two stay in lock
    * step. Clients use this field to hide the "Platform (managed by Vellum)"
    * option from the auth-type dropdown for providers like Fireworks or
    * OpenRouter where managed keys are not available.
    */
-  supportsManagedAuth?: boolean;
+  supportsPlatformAuth?: boolean;
 }
 
 /**
@@ -236,8 +236,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.5,
           tiers: [
             {
-              inputTokenThreshold:
-                OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 10,
               outputPer1mTokens: 45,
               cacheReadPer1mTokens: 1,
@@ -261,8 +260,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 180.0,
           tiers: [
             {
-              inputTokenThreshold:
-                OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 60,
               outputPer1mTokens: 270,
             },
@@ -286,8 +284,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.25,
           tiers: [
             {
-              inputTokenThreshold:
-                OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 5,
               outputPer1mTokens: 22.5,
               cacheReadPer1mTokens: 0.5,
@@ -696,6 +693,39 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.27, outputPer1mTokens: 1.1 },
       },
+      {
+        id: "deepseek/deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 384000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 0.435, outputPer1mTokens: 0.87 },
+      },
+      {
+        id: "deepseek/deepseek-v4-flash",
+        displayName: "DeepSeek V4 Flash",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 384000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 0.14, outputPer1mTokens: 0.28 },
+      },
+      {
+        id: "deepseek/deepseek-v3.2-speciale",
+        displayName: "DeepSeek V3.2 Speciale",
+        contextWindowTokens: 163840,
+        maxOutputTokens: 163840,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: false,
+        pricing: { inputPer1mTokens: 0.287, outputPer1mTokens: 0.431 },
+      },
       // Qwen
       {
         id: "qwen/qwen3.5-plus-02-15",
@@ -844,11 +874,11 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
   RAW_PROVIDER_CATALOG.map((entry) => ({
     ...entry,
     models: entry.models.map(catalogModel),
-    // Derive supportsManagedAuth from MANAGED_PROVIDER_META so the catalog
+    // Derive supportsPlatformAuth from PLATFORM_PROVIDER_META so the catalog
     // and the proxy routing table can never drift. Adding a provider to
-    // MANAGED_PROVIDER_META with `managed: true` automatically opts it into
+    // PLATFORM_PROVIDER_META with `managed: true` automatically opts it into
     // the Platform auth-type dropdown in the clients.
-    supportsManagedAuth: MANAGED_PROVIDER_META[entry.id]?.managed === true,
+    supportsPlatformAuth: PLATFORM_PROVIDER_META[entry.id]?.managed === true,
   }));
 
 /** Check if a model ID is in the catalog for a given provider. */

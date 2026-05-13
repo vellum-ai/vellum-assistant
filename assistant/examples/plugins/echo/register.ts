@@ -137,9 +137,10 @@ function makeObserver<A, R>(
  * `PipelineMiddlewareMap` — all thin observers produced by `makeObserver`.
  *
  * Manifest:
- * - `requires.pluginRuntime: "v1"` satisfies the registry's mandatory
- *   capability negotiation.
- * - `provides: {}` — the plugin exposes no capabilities to other plugins.
+ * - Host-compat range lives in `package.json` under
+ *   `peerDependencies["@vellumai/plugin-api"]`. The external-plugin loader
+ *   validates it against the running assistant version via
+ *   `semver.satisfies()` before this file is even imported.
  * - No `requiresCredential` or `requiresFlag` — the plugin needs no external
  *   state and runs unconditionally.
  */
@@ -147,8 +148,6 @@ const echoPlugin: Plugin = {
   manifest: {
     name: PLUGIN_NAME,
     version: "0.1.0",
-    provides: {},
-    requires: { pluginRuntime: "v1" },
   },
   middleware: {
     turn: makeObserver<TurnArgs, TurnResult>("turn"),

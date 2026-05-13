@@ -9,7 +9,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  ASSISTANT_API_VERSIONS,
   closeRegistration,
   getInjectors,
   getMiddlewaresFor,
@@ -30,13 +29,11 @@ import {
 function buildPlugin(
   name: string,
   extras: Partial<Omit<Plugin, "manifest">> = {},
-  requiresOverride?: Record<string, string>,
 ): Plugin {
   return {
     manifest: {
       name,
       version: "0.0.1",
-      requires: requiresOverride ?? { pluginRuntime: "v1" },
     },
     ...extras,
   };
@@ -106,7 +103,6 @@ describe("plugin registry", () => {
     const bad = {
       manifest: {
         version: "0.0.1",
-        requires: { pluginRuntime: "v1" },
       },
     } as unknown as Plugin;
     expect(() => registerPlugin(bad)).toThrow(/manifest\.name is required/);
@@ -148,82 +144,9 @@ describe("plugin registry", () => {
     const bad = {
       manifest: {
         name: "missing-version",
-        requires: { pluginRuntime: "v1" },
       },
     } as unknown as Plugin;
     expect(() => registerPlugin(bad)).toThrow(/manifest\.version is required/);
-  });
-
-  test("throws when manifest.requires is missing", () => {
-    const bad = {
-      manifest: { name: "missing-requires", version: "0.0.1" },
-    } as unknown as Plugin;
-    expect(() => registerPlugin(bad)).toThrow(/manifest\.requires is required/);
-  });
-
-  test("throws when requires.pluginRuntime is missing", () => {
-    const plugin = buildPlugin(
-      "no-runtime",
-      {},
-      // Valid shape but no pluginRuntime entry.
-      { memoryApi: "v1" },
-    );
-    expect(() => registerPlugin(plugin)).toThrow(PluginExecutionError);
-    expect(() => registerPlugin(plugin)).toThrow(/pluginRuntime/);
-  });
-
-  test("throws with version-mismatch message when a required version is not exposed", () => {
-    // The assistant seeds memoryApi with ["v1"]. Requesting v2 must fail.
-    const plugin = buildPlugin(
-      "too-new",
-      {},
-      {
-        pluginRuntime: "v1",
-        memoryApi: "v2",
-      },
-    );
-
-    expect(() => registerPlugin(plugin)).toThrow(PluginExecutionError);
-
-    // Sanity-check the assistant actually exposes only v1 for memoryApi so
-    // this test fails loudly if the capability table ever adds v2.
-    expect(ASSISTANT_API_VERSIONS.memoryApi).toEqual(["v1"]);
-
-    try {
-      registerPlugin(plugin);
-      throw new Error("expected registerPlugin to throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(PluginExecutionError);
-      const msg = (err as PluginExecutionError).message;
-      // Error message must reference plugin name, API, required version,
-      // and the versions the assistant exposes.
-      expect(msg).toContain("too-new");
-      expect(msg).toContain("memoryApi");
-      expect(msg).toContain("v2");
-      expect(msg).toContain("v1");
-      expect((err as PluginExecutionError).pluginName).toBe("too-new");
-    }
-  });
-
-  test("throws with clear message when a required capability is unknown", () => {
-    const plugin = buildPlugin(
-      "asks-for-mystery",
-      {},
-      {
-        pluginRuntime: "v1",
-        thisDoesNotExist: "v1",
-      },
-    );
-    expect(() => registerPlugin(plugin)).toThrow(PluginExecutionError);
-    try {
-      registerPlugin(plugin);
-      throw new Error("expected registerPlugin to throw");
-    } catch (err) {
-      const msg = (err as PluginExecutionError).message;
-      expect(msg).toContain("asks-for-mystery");
-      expect(msg).toContain("thisDoesNotExist");
-      expect(msg).toContain("(none)");
-    }
   });
 
   test("getInjectors returns injectors sorted by order ascending", () => {

@@ -12,7 +12,7 @@ mock.module("../security/secure-keys.js", () => ({
   getProviderKeyAsync: async (_provider: string) => mockProviderKey,
 }));
 
-mock.module("../providers/managed-proxy/context.js", () => ({
+mock.module("../providers/platform-proxy/context.js", () => ({
   resolveManagedProxyContext: async () => ({
     enabled: !!mockPlatformBaseUrl && !!mockAssistantApiKey,
     platformBaseUrl: mockPlatformBaseUrl,

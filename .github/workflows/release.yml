@@ -73,6 +73,33 @@ jobs:
           fi
           echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Cancel run if release already published
+        # Pushes to release/v$VERSION after the production release has been cut
+        # (typically manual merge-back fixups when merge-release-branch fails)
+        # otherwise kick off a duplicate staging build. workflow_dispatch is
+        # left untouched because that path is always intentional (e.g. retrying
+        # a failed publish step on an already-shipped version).
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          BASE_VERSION="${{ steps.extract.outputs.base_version }}"
+          HTTP_STATUS=$(curl -sSL -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v$BASE_VERSION")
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "::warning::GitHub Release v$BASE_VERSION is already published. Cancelling this run to avoid a duplicate staging build. Use workflow_dispatch if you need to retry a published version."
+            curl -sSL -X POST \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/cancel" > /dev/null
+            # Wait for the cancellation to land. If it doesn't, fall through and
+            # fail-fast so downstream jobs don't run.
+            sleep 60
+            exit 1
+          fi
+
       - name: Detect staging release
         id: detect-staging
         run: |
@@ -333,6 +360,10 @@ jobs:
       - name: Upload to Chrome Web Store
         env:
           EXTENSION_ID: ${{ steps.read-extension-id.outputs.id }}
+          # chrome-webstore-upload-cli reads credentials from CLIENT_ID,
+          # CLIENT_SECRET, and REFRESH_TOKEN env vars. The equivalent CLI
+          # flags were removed and now cause the CLI to exit with an error.
+          # See https://github.com/fregante/chrome-webstore-upload-cli/issues/80.
           CLIENT_ID: ${{ vars.CWS_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
@@ -344,10 +375,7 @@ jobs:
           set +e
           OUTPUT=$(chrome-webstore-upload upload \
             --source "$UPLOAD_FILE" \
-            --extension-id "$EXTENSION_ID" \
-            --client-id "$CLIENT_ID" \
-            --client-secret "$CLIENT_SECRET" \
-            --refresh-token "$REFRESH_TOKEN" 2>&1)
+            --extension-id "$EXTENSION_ID" 2>&1)
           EXIT=$?
           set -e
           echo "$OUTPUT"
@@ -369,10 +397,7 @@ jobs:
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
         run: |
           chrome-webstore-upload publish \
-            --extension-id "$EXTENSION_ID" \
-            --client-id "$CLIENT_ID" \
-            --client-secret "$CLIENT_SECRET" \
-            --refresh-token "$REFRESH_TOKEN"
+            --extension-id "$EXTENSION_ID"
 
   push-assistant-image:
     needs: [extract-version, ci-assistant]
@@ -2258,16 +2283,18 @@ jobs:
             --head "$BRANCH")
 
           # Try the normal merge first. If it fails (e.g. due to cherry-picked
-          # commits causing conflicts), rebase onto main to skip already-applied
-          # commits and retry.
+          # commits causing conflicts), rebase onto main with `-X theirs` to
+          # auto-resolve textual conflicts in favor of the release branch and
+          # retry. The release branch is the source of truth for the version
+          # being shipped, so taking its side is the safe default.
           if ! gh pr merge "$PR_URL" --squash --admin --delete-branch; then
-            echo "Merge failed — rebasing to resolve cherry-pick conflicts"
+            echo "Merge failed — rebasing with -X theirs to resolve cherry-pick conflicts"
 
             git config user.name "vellum-automation[bot]"
             git config user.email "192048195+vellum-automation[bot]@users.noreply.github.com"
 
             git fetch origin main
-            git rebase origin/main
+            git rebase -X theirs origin/main
 
             # Append [skip ci] so the force-push doesn't re-trigger this workflow
             git commit --allow-empty --amend -m "$(git log -1 --format=%B) [skip ci]"

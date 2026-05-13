@@ -62,7 +62,7 @@ struct ChatGallerySection: View {
                 // MARK: - SubagentStatusChip
                 GallerySectionHeader(
                     title: "SubagentStatusChip",
-                    description: "Status chip and conversation view for subagent progress. Includes SubagentConversationView."
+                    description: "Status chip and group container for subagent progress."
                 )
 
                 VCard {
@@ -95,36 +95,31 @@ struct ChatGallerySection: View {
 
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        Text("SubagentConversationView")
+                        Text("SubagentGroupContainer")
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentSecondary)
 
-                        SubagentConversationView(
-                            subagent: SubagentInfo(id: "t-1", label: "Research Agent", status: .running),
-                            events: [
-                                SubagentEventItem(timestamp: Date(), kind: .toolUse(name: "web_search"), content: "SwiftUI adaptive colors"),
-                                SubagentEventItem(timestamp: Date(), kind: .text, content: "Found several relevant resources on adaptive color tokens.")
+                        SubagentGroupContainer(
+                            subagents: [
+                                SubagentInfo(id: "g-running-1", label: "Research Agent", status: .running),
+                                SubagentInfo(id: "g-running-2", label: "Code Review Agent", status: .running),
+                                SubagentInfo(id: "g-running-3", label: "Deploy Agent", status: .pending)
                             ]
                         )
 
-                        SubagentConversationView(
-                            subagent: SubagentInfo(id: "t-2", label: "Code Review Agent", status: .completed),
-                            events: [
-                                SubagentEventItem(timestamp: Date(), kind: .text, content: "All checks passed. No issues found."),
-                                SubagentEventItem(timestamp: Date(), kind: .text, content: "LGTM — ready to merge.")
+                        SubagentGroupContainer(
+                            subagents: [
+                                SubagentInfo(id: "g-done-1", label: "Research Agent", status: .completed),
+                                SubagentInfo(id: "g-done-2", label: "Code Review Agent", status: .completed),
+                                SubagentInfo(id: "g-done-3", label: "Deploy Agent", status: .failed)
                             ]
                         )
 
-                        SubagentConversationView(
-                            subagent: SubagentInfo(id: "t-3", label: "Deploy Agent", status: .failed),
-                            events: [
-                                SubagentEventItem(timestamp: Date(), kind: .error, content: "Connection timed out after 30s")
+                        SubagentGroupContainer(
+                            subagents: [
+                                SubagentInfo(id: "g-all-done-1", label: "Research Agent", status: .completed),
+                                SubagentInfo(id: "g-all-done-2", label: "Cleanup Agent", status: .completed)
                             ]
-                        )
-
-                        SubagentConversationView(
-                            subagent: SubagentInfo(id: "t-4", label: "Cleanup Agent", status: .aborted),
-                            events: []
                         )
                     }
                 }

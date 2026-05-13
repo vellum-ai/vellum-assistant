@@ -7,7 +7,7 @@
 
 import { API_KEY_PROVIDERS } from "../config/loader.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
-import { managedFallbackEnabledFor } from "./managed-proxy/context.js";
+import { managedFallbackEnabledFor } from "./platform-proxy/context.js";
 
 /**
  * Check whether a single provider is usable — via a user-provided key

@@ -361,6 +361,27 @@ describe("AssistantConfigSchema", () => {
     });
   });
 
+  test("scratchpad injection defaults to enabled", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.retrieval.scratchpadInjection).toEqual({
+      enabled: true,
+    });
+  });
+
+  test("scratchpad injection accepts disabled override", () => {
+    const result = AssistantConfigSchema.parse({
+      memory: { retrieval: { scratchpadInjection: { enabled: false } } },
+    });
+    expect(result.memory.retrieval.scratchpadInjection.enabled).toBe(false);
+  });
+
+  test("scratchpad injection rejects non-boolean enabled", () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { retrieval: { scratchpadInjection: { enabled: "yes" } } },
+    });
+    expect(result.success).toBe(false);
+  });
+
   test("applies memory.cleanup defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.cleanup).toEqual({

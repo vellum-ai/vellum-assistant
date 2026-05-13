@@ -162,7 +162,7 @@ struct ChatConversationErrorToast: View {
             return .refreshCw
         case .authenticationRequired:
             return .lock
-        case .providerNotConfigured, .managedKeyInvalid:
+        case .providerNotConfigured, .providerInvalidKey, .managedKeyInvalid:
             return .keyRound
         case .unknown:
             return .circleAlert
@@ -369,5 +369,75 @@ struct MissingApiKeyBanner: View {
         )
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .layoutHangSignpost("chat.missingApiKeyBanner")
+    }
+}
+
+// MARK: - Invalid API Key Banner
+
+/// Inline banner shown when the upstream provider rejected the configured API
+/// key (`PROVIDER_INVALID_KEY` — e.g. Anthropic returned 401). Distinct from
+/// `MissingApiKeyBanner` (key never set): the copy and CTA tell the user the
+/// key is wrong / expired and to UPDATE it, rather than to ADD one. When the
+/// daemon attributes the failure to a specific connection or profile, the
+/// subtitle names it so the user knows which slot to fix.
+struct InvalidApiKeyBanner: View {
+    /// Optional name of the `provider_connections.name` whose key the
+    /// provider rejected. Surfaced in the subtitle when present.
+    let connectionName: String?
+    /// Optional name of the resolved profile in play. Preferred over
+    /// `connectionName` in subtitle copy because the profile is what the
+    /// user picks in the chat profile picker.
+    let profileName: String?
+    let onOpenSettings: () -> Void
+    let onDismiss: (() -> Void)?
+
+    private var subtitle: String {
+        if let profileName, !profileName.isEmpty {
+            return "The API key for profile \u{201C}\(profileName)\u{201D} was rejected by the provider. Update it in Settings."
+        }
+        if let connectionName, !connectionName.isEmpty {
+            return "The API key for connection \u{201C}\(connectionName)\u{201D} was rejected by the provider. Update it in Settings."
+        }
+        return "The API key was rejected by the provider. Update it in Settings."
+    }
+
+    var body: some View {
+        VStack(spacing: VSpacing.md) {
+            HStack {
+                Spacer()
+                Button { onDismiss?() } label: {
+                    VIconView(.x, size: 12)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
+            }
+
+            VStack(spacing: VSpacing.xs) {
+                Text("Invalid API key")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentEmphasized)
+                Text(subtitle)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VButton(label: "Open Settings", style: .primary, isFullWidth: true) {
+                onOpenSettings()
+            }
+        }
+        .padding(VSpacing.lg)
+        .background(VColor.surfaceActive)
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: VRadius.lg,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: VRadius.lg
+            )
+        )
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .layoutHangSignpost("chat.invalidApiKeyBanner")
     }
 }

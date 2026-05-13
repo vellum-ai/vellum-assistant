@@ -14,7 +14,7 @@
  * combination logic.
  */
 
-import { hasManagedProxyPrereqs } from "../../providers/managed-proxy/context.js";
+import { hasManagedProxyPrereqs } from "../../providers/platform-proxy/context.js";
 import { getDaemonRuntimeMode } from "../runtime-mode.js";
 
 export type VBundleOriginMode =

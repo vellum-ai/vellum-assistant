@@ -577,7 +577,7 @@ function handleValidateAllowlist() {
   }
 }
 
-function handleReplaceInferenceProfile({
+async function handleReplaceInferenceProfile({
   pathParams = {},
   body,
 }: RouteHandlerArgs) {
@@ -616,32 +616,36 @@ function handleReplaceInferenceProfile({
       );
     }
   }
-  try {
-    const raw = loadRawConfig();
-    if (isManaged) {
-      // Partial overlay: keep every existing key intact, only update label
-      // and/or status from the fragment. Using `replaceInferenceProfileConfig`
-      // here would wipe the UI-owned seed fields (provider, model, advanced
-      // params) because that function assumes the body carries the full UI
-      // surface.
-      patchManagedProfileFields(
-        raw,
-        name,
-        parsed.data as Record<string, unknown>,
-      );
-    } else {
-      replaceInferenceProfileConfig(
-        raw,
-        name,
-        parsed.data as Record<string, unknown>,
-      );
-    }
-    saveRawConfig(raw);
-    return { ok: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new InternalError(`Failed to replace inference profile: ${message}`);
+  const raw = loadRawConfig();
+  if (isManaged) {
+    // Partial overlay: keep every existing key intact, only update label
+    // and/or status from the fragment. Using `replaceInferenceProfileConfig`
+    // here would wipe the UI-owned seed fields (provider, model, advanced
+    // params) because that function assumes the body carries the full UI
+    // surface.
+    patchManagedProfileFields(
+      raw,
+      name,
+      parsed.data as Record<string, unknown>,
+    );
+  } else {
+    replaceInferenceProfileConfig(
+      raw,
+      name,
+      parsed.data as Record<string, unknown>,
+    );
   }
+  // Route through `commitConfigWrite` so profile edits flow through the
+  // post-write side effects shared with `handlePatchConfig` /
+  // `handleSetConfig`: file-watcher suppression so the in-process reload
+  // doesn't race the explicit reinit, embedding backend cache clear,
+  // in-process `getConfig` cache invalidation, and provider registry
+  // reinitialization. `status: "disabled"` on a managed profile (and any
+  // `provider` / `model` / `provider_connection` change on a custom
+  // profile) must take effect immediately rather than waiting for the
+  // next watcher tick.
+  await commitConfigWrite(raw, "replace inference profile");
+  return { ok: true };
 }
 
 /**

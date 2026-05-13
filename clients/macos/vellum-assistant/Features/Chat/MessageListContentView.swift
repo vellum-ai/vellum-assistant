@@ -167,24 +167,6 @@ struct MessageListContentView: View, Equatable {
         }
     }
 
-    @ViewBuilder
-    fileprivate func orphanSubagentRow(_ subagent: SubagentInfo, isFlipped: Bool = true) -> some View {
-        HStack(spacing: 0) {
-            SubagentEventsReader(
-                store: subagentDetailStore,
-                subagent: subagent,
-                onAbort: { onAbortSubagent?(subagent.id) },
-                onTap: { onSubagentTap?(subagent.id) }
-            )
-            Spacer(minLength: 0)
-        }
-        .id("subagent-\(subagent.id)")
-        .transition(.opacity)
-        .if(isFlipped) { view in
-            view.flipped()
-        }
-    }
-
     // MARK: - Transcript row rendering
 
     /// Renders a single transcript row (either a real message cell or the
@@ -356,6 +338,7 @@ struct MessageListContentView: View, Equatable {
 
             if let anchorMessage = pinnedTurnPartition.anchorMessage,
                let anchorRow = rowsByMessageId[anchorMessage.id] {
+
                 PinnedLatestTurnSection(
                     contentView: self,
                     partition: pinnedTurnPartition,
@@ -380,10 +363,6 @@ struct MessageListContentView: View, Equatable {
                 // at the visual bottom. Place current-activity indicators here.
                 latestEdgeSentinel()
                 latestEdgeActivityRow()
-
-                ForEach(state.orphanSubagents) { subagent in
-                    orphanSubagentRow(subagent)
-                }
 
                 // ── Messages ──
                 ForEach(displayedItems.reversed()) { item in
@@ -477,7 +456,6 @@ private struct PinnedLatestTurnSection: View {
 
     private var hasResponseContent: Bool {
         contentView.showsStandaloneLatestEdgeActivity
-            || !contentView.state.orphanSubagents.isEmpty
             || !partition.responseItems.isEmpty
     }
 
@@ -548,10 +526,6 @@ private struct PinnedLatestTurnSection: View {
                     thinkingLabel: thinkingLabel,
                     isFlipped: false
                 )
-            }
-
-            ForEach(contentView.state.orphanSubagents) { subagent in
-                contentView.orphanSubagentRow(subagent, isFlipped: false)
             }
 
             contentView.latestEdgeActivityRow(isFlipped: false)

@@ -12,15 +12,12 @@
  *   only sees rows the mirror cron has flushed). See
  *   `llm-request-log-source-clickhouse.ts`.
  *
- * The active source is cached at module level and invalidated on config
- * change (see `daemon/config-watcher.ts`) so a config edit takes effect
- * without restarting the daemon.
+ * Implementations are cheap to instantiate, so there's no module-level
+ * cache — each call resolves config fresh and constructs a new instance.
+ * Config edits take effect on the next request without an invalidation hook.
  */
 import { getConfig } from "../config/loader.js";
-import { getLogger } from "../util/logger.js";
 import type { LogRow } from "./llm-request-log-store.js";
-
-const log = getLogger("llm-request-log-source");
 
 export interface LlmRequestLogSource {
   /** Fetch a single log row by its primary key. Returns null if not found. */
@@ -36,62 +33,32 @@ export interface LlmRequestLogSource {
   getRequestLogsByMessageId(messageId: string): Promise<LogRow[]>;
 }
 
-let cached: LlmRequestLogSource | null = null;
-let cachedKind: "local" | "clickhouse" | null = null;
-
 /**
- * Return the currently configured LLM request log source.
+ * Return the configured LLM request log source.
  *
- * The result is cached for the lifetime of the process. Callers should
- * never hang on to the instance across config reloads — always re-resolve
- * through this function. The factory is async because BOTH implementations
- * are loaded via dynamic `import()` on first use. This is deliberate: it
- * keeps the static module graph for `llm-request-log-source.ts` (and for
- * everything that transitively imports it, including `config-watcher`)
- * free of `llm-request-log-store → conversation-crud → indexer → embedding-backend`,
+ * The factory is async because both implementations are loaded via
+ * dynamic `import()` on first use. This is deliberate: it keeps the
+ * static module graph for `llm-request-log-source.ts` (and for
+ * everything that transitively imports it) free of
+ * `llm-request-log-store → conversation-crud → indexer → embedding-backend`,
  * which would otherwise force test files that stub `embedding-backend.js`
- * to also stub every export `indexer.ts` reaches for. Callers MUST `await`
- * the source methods because the active source may swap to one with real
- * I/O at any time.
+ * to also stub every export `indexer.ts` reaches for.
+ *
+ * Callers must `await` both the factory and the source methods.
  */
 export async function getLlmRequestLogSource(): Promise<LlmRequestLogSource> {
-  if (cached) return cached;
-
   const config = getConfig();
-  const kind = config.llmRequestLogs?.readSource ?? "local";
+  const cfg = config.llmRequestLogs ?? { readSource: "local" as const };
 
-  if (kind === "clickhouse") {
+  if (cfg.readSource === "clickhouse") {
     const { ClickHouseLlmRequestLogSource } = await import(
       "./llm-request-log-source-clickhouse.js"
     );
-    cached = new ClickHouseLlmRequestLogSource(config.llmRequestLogs.clickhouse);
-    cachedKind = "clickhouse";
-    log.info(
-      { table: config.llmRequestLogs.clickhouse.table },
-      "Using ClickHouse for LLM request log reads",
-    );
-  } else {
-    const { LocalLlmRequestLogSource } = await import(
-      "./llm-request-log-source-local.js"
-    );
-    cached = new LocalLlmRequestLogSource();
-    cachedKind = "local";
+    return new ClickHouseLlmRequestLogSource(cfg.clickhouse);
   }
 
-  return cached;
-}
-
-/**
- * Drop the cached source so the next `getLlmRequestLogSource()` call
- * resolves fresh from config. Called on workspace config reload.
- */
-export function invalidateLlmRequestLogSourceCache(): void {
-  if (cached !== null) {
-    log.debug(
-      { previousKind: cachedKind },
-      "Invalidating LLM request log source cache",
-    );
-  }
-  cached = null;
-  cachedKind = null;
+  const { LocalLlmRequestLogSource } = await import(
+    "./llm-request-log-source-local.js"
+  );
+  return new LocalLlmRequestLogSource();
 }

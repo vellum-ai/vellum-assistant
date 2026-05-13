@@ -8,6 +8,10 @@
  * from the credential store (`clickhouse:url`, `clickhouse:password`).
  * The connection options below describe everything else (database/table/user).
  *
+ * The shape is a discriminated union on `readSource` so the `clickhouse`
+ * block only exists on the ClickHouse branch — there's no stray defaults
+ * sitting around when the source is local.
+ *
  * Note: the existing retention setting lives under
  * `memory.cleanup.llmRequestLogRetentionMs` and is independent of this block.
  * That covers when local rows get pruned; this block governs where reads
@@ -37,18 +41,38 @@ export const LlmRequestLogsClickHouseConfigSchema = z
     "ClickHouse connection settings used when `readSource` is `clickhouse`",
   );
 
-export const LlmRequestLogsConfigSchema = z
+const LocalLlmRequestLogsConfigSchema = z
   .object({
-    readSource: z
-      .enum(["local", "clickhouse"])
-      .default("local")
-      .describe(
-        "Where to read LLM request logs from for Inspector queries. `local` reads the SQLite source-of-truth (default, lowest latency). `clickhouse` reads the mirror, which retains data longer than local but only sees writes that the mirror job has flushed.",
-      ),
+    readSource: z.literal("local"),
+  })
+  .describe("Read LLM request logs from local SQLite (default).");
+
+const ClickHouseLlmRequestLogsConfigSchema = z
+  .object({
+    readSource: z.literal("clickhouse"),
     clickhouse: LlmRequestLogsClickHouseConfigSchema.default(
       LlmRequestLogsClickHouseConfigSchema.parse({}),
     ),
   })
+  .describe(
+    "Read LLM request logs from the ClickHouse mirror. Requires the `clickhouse:url` and `clickhouse:password` credentials to be set.",
+  );
+
+// The default is baked into the export so the schema matches the sibling
+// pattern across `assistant/src/config/schemas/*` — `Schema.parse(undefined)`
+// returns documented defaults. The discriminated union has no inherent
+// default (no shared discriminator value), so we explicitly select the
+// `local` branch.
+//
+// Note: `LlmRequestLogsConfigSchema.parse({})` still throws — a discriminated
+// union cannot pick a branch without a discriminator. Use `parse(undefined)`
+// or omit the field entirely to get the default.
+export const LlmRequestLogsConfigSchema = z
+  .discriminatedUnion("readSource", [
+    LocalLlmRequestLogsConfigSchema,
+    ClickHouseLlmRequestLogsConfigSchema,
+  ])
+  .default({ readSource: "local" })
   .describe("LLM request log read source configuration");
 
 export type LlmRequestLogsConfig = z.infer<typeof LlmRequestLogsConfigSchema>;

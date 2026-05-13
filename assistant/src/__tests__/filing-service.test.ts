@@ -7,6 +7,13 @@ import { LLMSchema } from "../config/schemas/llm.js";
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
+// Default the warm-pool gate to OPEN for existing tests — they predate
+// the gate and expect filing's runOnce() to fire on every tick.
+mock.module("../runtime/pre-first-message-gate.js", () => ({
+  hasReceivedUserMessage: () => true,
+  _resetPreFirstMessageGateCacheForTests: () => {},
+}));
+
 // Mock config loader. Filing's `runOnce()` reads `getConfig().filing`, and
 // `executeRun()` no longer reads `config.speed` (PR 8) — the call site is
 // hardcoded to 'filingAgent' and the resolver picks up `llm.callSites.filingAgent`

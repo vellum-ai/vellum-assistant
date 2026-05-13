@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Default the warm-pool gate to OPEN — these tests probe disk-pressure
+// behavior, not the pre-first-message guard.
+mock.module("../runtime/pre-first-message-gate.js", () => ({
+  hasReceivedUserMessage: () => true,
+  _resetPreFirstMessageGateCacheForTests: () => {},
+}));
+
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},

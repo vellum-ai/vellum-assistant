@@ -113,7 +113,10 @@ import type {
 } from "../http-types.js";
 import { resolveLocalTrustContext } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { publishConversationListAndMetadataChanged } from "../sync/resource-sync-events.js";
+import {
+  publishConversationListAndMetadataChanged,
+  publishConversationMessagesChanged,
+} from "../sync/resource-sync-events.js";
 import {
   resolveTrustContext,
   withSourceChannel,
@@ -339,6 +342,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       });
       onEvent({ type: "message_complete", conversationId: conversationId });
     }
+    publishConversationMessagesChanged(conversationId);
   } catch (err) {
     log.warn(
       { err, conversationId },
@@ -1519,6 +1523,7 @@ export async function handleSendMessage(
           conversationId,
         });
         broadcastMessage({ type: "message_complete", conversationId });
+        publishConversationMessagesChanged(conversationId);
         conversation.processing = false;
         silentlyWithLog(
           conversation.drainQueue(),
@@ -1822,6 +1827,7 @@ export async function handleSendMessage(
           type: "message_complete",
           conversationId: conversationId,
         });
+        publishConversationMessagesChanged(conversationId);
         conversation.processing = false;
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
       }, 0);
@@ -1863,6 +1869,7 @@ export async function handleSendMessage(
     // forceCompact() makes an LLM call that can exceed the client's
     // HTTP timeout on large contexts, causing a false "Failed to send".
     (async () => {
+      let assistantMessagePersisted = false;
       try {
         broadcastMessage({
           type: "user_message_echo",
@@ -1871,6 +1878,7 @@ export async function handleSendMessage(
           messageId: persisted.id,
           clientMessageId,
         });
+        publishConversationMessagesChanged(conversationId);
         conversation.emitActivityState(
           "thinking",
           "context_compacting",
@@ -1888,6 +1896,7 @@ export async function handleSendMessage(
           JSON.stringify(assistantMsg.content),
           channelMeta,
         );
+        assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);
 
         broadcastMessage({
@@ -1896,7 +1905,11 @@ export async function handleSendMessage(
           conversationId,
         });
         broadcastMessage({ type: "message_complete", conversationId });
+        publishConversationMessagesChanged(conversationId);
       } catch (err) {
+        if (assistantMessagePersisted) {
+          publishConversationMessagesChanged(conversationId);
+        }
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({
           type: "conversation_error",
@@ -1944,6 +1957,7 @@ export async function handleSendMessage(
     requestId,
     clientMessageId,
   });
+  publishConversationMessagesChanged(mapping.conversationId);
 
   // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
   conversation

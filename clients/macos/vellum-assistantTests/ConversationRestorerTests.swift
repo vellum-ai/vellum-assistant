@@ -18,6 +18,7 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     var activatedConversationId: UUID?
     var createConversationCallCount = 0
     var archivedConversationIds: Set<String> = []
+    var loadedHistoryReconciliationRequests: [(localId: UUID, daemonConversationId: String)] = []
     private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
 
@@ -76,6 +77,10 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
 
     func appendConversations(from response: ConversationListResponseMessage) {
         // no-op for tests
+    }
+
+    func reconcileLoadedConversationHistory(localId: UUID, daemonConversationId: String) {
+        loadedHistoryReconciliationRequests.append((localId, daemonConversationId))
     }
 
     func applyAssistantAttention(
@@ -755,6 +760,40 @@ struct ConversationRestorerTests {
         // AND mutable metadata (lastInteractedAt) was refreshed from the server
         let expectedDate = Date(timeIntervalSince1970: TimeInterval(5000) / 1000.0)
         #expect(conversationAfter?.lastInteractedAt == expectedDate)
+    }
+
+    @Test @MainActor
+    func refreshRequestsLatestHistoryReconciliationWhenLatestMessageTimestampChanges() {
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        let conversation = ConversationModel(title: "Chat A", conversationId: "sa")
+        delegate.conversations = [conversation]
+
+        let firstRefresh = makeConversationListResponse(conversationDicts: [[
+            "id": "sa",
+            "title": "Chat A",
+            "updatedAt": 2_000,
+            "lastMessageAt": 2_000,
+        ]])
+        restorer.handleConversationListResponse(firstRefresh)
+
+        #expect(delegate.loadedHistoryReconciliationRequests.count == 1)
+        #expect(delegate.loadedHistoryReconciliationRequests.first?.localId == conversation.id)
+        #expect(delegate.loadedHistoryReconciliationRequests.first?.daemonConversationId == "sa")
+
+        restorer.handleConversationListResponse(firstRefresh)
+        #expect(delegate.loadedHistoryReconciliationRequests.count == 1)
+
+        restorer.handleConversationListResponse(makeConversationListResponse(conversationDicts: [[
+            "id": "sa",
+            "title": "Chat A",
+            "updatedAt": 3_000,
+            "lastMessageAt": 3_000,
+        ]]))
+        #expect(delegate.loadedHistoryReconciliationRequests.count == 2)
     }
 
     /// Verifies that a default-titled conversation gets its title updated

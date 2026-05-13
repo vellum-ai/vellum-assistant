@@ -189,10 +189,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/slack/adapter.ts", // Slack bot token lookup for Socket Mode connectivity check
       "credential-health/credential-health-service.ts", // proactive credential health monitoring
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
-      "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
+      "providers/platform-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
-      "runtime/routes/integrations/slack/share.ts", // Slack share routes credential lookup
+      "runtime/routes/integrations/slack/token.ts", // shared Slack token resolver (bot/user token lookup for CLI use routes)
       "mcp/client.ts", // MCP client cached-token lookup
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "oauth/credential-token-resolver.ts", // centralized access-token key resolution for OAuth and manual-token providers

@@ -82,9 +82,7 @@ export const AssistantConfigSchema = z
     // ensures the loader's leaf-deletion recovery path can repair a partially
     // invalid `llm` block without falling back to `cloneDefaultConfig()`.
     llm: LLMSchema.default(LLMSchema.parse({})),
-    llmRequestLogs: LlmRequestLogsConfigSchema.default(
-      LlmRequestLogsConfigSchema.parse({}),
-    ),
+    llmRequestLogs: LlmRequestLogsConfigSchema,
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),

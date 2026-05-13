@@ -126,9 +126,28 @@ Examples:
   // remain available even without a workspace.
   // Workspace-independent commands are exempt:
   //   completions — pure shell-script generation, no workspace files needed
-  const workspaceExemptCommands = new Set(["completions", "status"]);
+  //   status     — diagnostic; should run even when the workspace is broken
+  //   changelog  — pure read-only network surface backed by GitHub Releases;
+  //                its on-disk cache is best-effort and tolerates a missing
+  //                workspace dir (see changelog.ts:writeCache)
+  const workspaceExemptCommands = new Set([
+    "completions",
+    "status",
+    "changelog",
+  ]);
+  // An action command's `.name()` returns the leaf (e.g. "show" for
+  // `changelog show <ver>`), so we walk up the parent chain to see whether
+  // any ancestor — typically the top-level subcommand — is exempt.
+  const isExemptFromWorkspaceCheck = (command: Command): boolean => {
+    let current: Command | null | undefined = command;
+    while (current && current !== program) {
+      if (workspaceExemptCommands.has(current.name())) return true;
+      current = current.parent;
+    }
+    return false;
+  };
   program.hook("preAction", (_thisCommand, actionCommand) => {
-    if (workspaceExemptCommands.has(actionCommand.name())) {
+    if (isExemptFromWorkspaceCheck(actionCommand)) {
       return;
     }
     const workspaceDir = getWorkspaceDir();

@@ -124,6 +124,7 @@ import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
@@ -771,6 +772,18 @@ export async function runAgentLoopImpl(
 
   ctx.profiler.startRequest();
   let turnStarted = false;
+  const state = createEventHandlerState();
+  let persistedErrorAssistantMessage = false;
+
+  const publishLoopMessagesChanged = (): void => {
+    if (
+      state.lastAssistantMessageId ||
+      state.persistedToolUseIds.size > 0 ||
+      persistedErrorAssistantMessage
+    ) {
+      publishConversationMessagesChanged(ctx.conversationId);
+    }
+  };
 
   // Populate Sentry scope with conversation-specific tags so any exception
   // captured during this turn (e.g. inside agent/loop.ts) can be
@@ -1112,8 +1125,6 @@ export async function runAgentLoopImpl(
       }
     }
 
-    const state = createEventHandlerState();
-
     // Register confirmation outcome tracker so the agent loop can link
     // confirmation decisions to tool_use_ids for persistence.
     ctx.onConfirmationOutcome = (
@@ -1440,9 +1451,13 @@ export async function runAgentLoopImpl(
     // are never stripped on normal turns — this preserves the cached prefix.
     // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
     // so plugins can override either source without touching the agent loop.
-    const currentNowContent = personalMemoryAllowed
-      ? memoryResult.nowContent
-      : null;
+    // NOW.md injection can be disabled via `memory.retrieval.scratchpadInjection.enabled`.
+    const scratchpadInjectionEnabled =
+      getConfig().memory.retrieval.scratchpadInjection.enabled;
+    const currentNowContent =
+      personalMemoryAllowed && scratchpadInjectionEnabled
+        ? memoryResult.nowContent
+        : null;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
@@ -2825,6 +2840,7 @@ export async function runAgentLoopImpl(
         buildPluginTurnContext(ctx, reqId),
         DEFAULT_TIMEOUTS.persistence,
       );
+      persistedErrorAssistantMessage = true;
       newMessages.push(errorAssistantMessage);
       // Do NOT send assistant_text_delta here — handleProviderError already
       // emitted a conversation_error event for this same error text, and the
@@ -2900,7 +2916,6 @@ export async function runAgentLoopImpl(
         convForDisk.createdAt,
       );
     };
-
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
     // so the client can re-enable the UI without delay.
@@ -2919,6 +2934,7 @@ export async function runAgentLoopImpl(
         type: "generation_cancelled",
         conversationId: ctx.conversationId,
       });
+      publishLoopMessagesChanged();
     } else {
       // Resolve attachments (only when not cancelled — this is expensive async I/O)
       const attachmentResult = await resolveAssistantAttachments(
@@ -2959,6 +2975,7 @@ export async function runAgentLoopImpl(
           type: "generation_cancelled",
           conversationId: ctx.conversationId,
         });
+        publishLoopMessagesChanged();
       } else if (yieldedForHandoff) {
         ctx.traceEmitter.emit(
           "generation_handoff",
@@ -2987,6 +3004,7 @@ export async function runAgentLoopImpl(
             ? { displayMessageId: clientDisplayMessageId }
             : {}),
         });
+        publishLoopMessagesChanged();
       } else {
         ctx.emitActivityState("idle", "message_complete", "global", reqId);
         ctx.traceEmitter.emit(
@@ -3013,6 +3031,7 @@ export async function runAgentLoopImpl(
             ? { displayMessageId: clientDisplayMessageId }
             : {}),
         });
+        publishLoopMessagesChanged();
 
         // Proactive artifact: fire once when the processed turn was the 4th user message.
         // Only trigger for real user-authored turns (not subagent/system messages).
@@ -3098,6 +3117,7 @@ export async function runAgentLoopImpl(
         type: "generation_cancelled",
         conversationId: ctx.conversationId,
       });
+      publishLoopMessagesChanged();
     } else {
       ctx.emitActivityState("idle", "error_terminal", "global", reqId);
       const message = err instanceof Error ? err.message : String(err);
@@ -3122,6 +3142,7 @@ export async function runAgentLoopImpl(
         errorCategory: classified.errorCategory,
       });
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
+      publishLoopMessagesChanged();
     }
   } finally {
     if (turnStarted) {

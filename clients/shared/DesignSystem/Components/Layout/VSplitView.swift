@@ -35,7 +35,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                 dragDivider(availableWidth: availableWidth)
 
                 panel
-                    .frame(width: panelWidth)
+                    .frame(width: panelWidth, alignment: .topLeading)
                     .animation(nil, value: panelWidth)  // Disable animation on width changes
                     .background(VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))

@@ -426,6 +426,20 @@ struct ChatView: View {
                 .animation(nil, value: queuedMessages.isEmpty)
             }
 
+            if let error = viewModel.errorManager.conversationError,
+               error.presentationSurface == .invalidApiKeyBanner {
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    InvalidApiKeyBanner(
+                        connectionName: error.connectionName,
+                        profileName: error.profileName,
+                        onOpenSettings: { onOpenModelsAndServices?() },
+                        onDismiss: { viewModel.dismissConversationError() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
             if let until = viewModel.compactionCircuitOpenUntil, until > Date() {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     // CompactionCircuitOpenBanner is natural-width; spacers center it

@@ -230,7 +230,10 @@ export class SubagentManager {
         config.systemPromptOverride ??
         buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
     }
-    const maxTokens = resolveCallSiteConfig("subagentSpawn", appConfig.llm).maxTokens;
+    const maxTokens = resolveCallSiteConfig(
+      "subagentSpawn",
+      appConfig.llm,
+    ).maxTokens;
     const workingDir = getSandboxWorkingDir();
 
     // ── Initialise state ────────────────────────────────────────────
@@ -270,6 +273,7 @@ export class SubagentManager {
       managed.parentSendToClient({
         type: "subagent_event",
         subagentId,
+        conversationId: config.parentConversationId,
         event: msg,
       } as ServerMessage);
     };

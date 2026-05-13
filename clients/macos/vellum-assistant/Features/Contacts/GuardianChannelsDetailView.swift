@@ -7,7 +7,11 @@ import VellumAssistantShared
 /// Mirrors the card-per-channel layout of AssistantChannelsDetailView.
 @MainActor
 struct GuardianChannelsDetailView: View {
-    private static let allChannelTypes = ["slack", "telegram", "phone"]
+    /// Channel ids surfaced as cards. Hydrated from the gateway's
+    /// `channels/available` endpoint on first appearance; falls back to the
+    /// pre-availability-endpoint default if that fetch fails so the UI is
+    /// never empty mid-rollout.
+    @State private var availableChannelTypes: [String] = ["slack", "telegram", "phone"]
     private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
 
     let contact: ContactPayload
@@ -82,6 +86,9 @@ struct GuardianChannelsDetailView: View {
         }
         .task {
             channelReadiness = await channelClient.fetchChannelReadiness()
+            if let available = await channelClient.fetchChannelAvailability() {
+                availableChannelTypes = available
+            }
             isLoadingReadiness = false
         }
         .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
@@ -91,7 +98,7 @@ struct GuardianChannelsDetailView: View {
 
     private var visibleTypes: [String] {
         // Show only channels the assistant has configured (ready/incomplete).
-        return Self.allChannelTypes.filter { type in
+        return availableChannelTypes.filter { type in
             let hasExisting = displayContact.channels.contains { $0.type == type && $0.status != "revoked" }
             guard !hasExisting else { return true }
             guard let info = channelReadiness[type] else { return false }
@@ -151,6 +158,7 @@ struct GuardianChannelsDetailView: View {
         case "slack": return .hash
         case "telegram": return .send
         case "phone": return .phone
+        case "email": return .mail
         default: return .messageCircle
         }
     }
@@ -460,7 +468,7 @@ struct GuardianChannelsDetailView: View {
 
     /// Skeleton placeholder rows matching the number of channels the assistant has set up.
     private func channelSkeletonRows() -> some View {
-        let configuredCount = Self.allChannelTypes.filter { type in
+        let configuredCount = availableChannelTypes.filter { type in
             let status = store?.channelSetupStatus[type]
             return status == "ready"
         }.count

@@ -94,8 +94,6 @@ time. Its shape (see
 export interface PluginManifest {
   name: string; // kebab-case, unique
   version: string; // semver, informational
-  provides?: Record<string, string>; // reserved; not consumed at runtime today
-  requires: Record<string, string>; // capability → version required from the assistant
   requiresCredential?: string[]; // credential keys resolved before init()
   requiresFlag?: string[]; // feature flag keys that must all be enabled
   config?: unknown; // Zod-like parser for plugins.<name>
@@ -106,23 +104,43 @@ export interface PluginManifest {
 | -------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`               | yes      | Unique plugin identifier. Duplicate names fail registration. Used as the directory under `<workspaceDir>/plugins-data/<name>/` and the attribution tag in logs.                                                                                                                                                |
 | `version`            | yes      | Plugin's own semver. Informational — the registry does not compare it.                                                                                                                                                                                                                                         |
-| `provides`           | no       | Reserved for future cross-plugin composition and not currently consumed by the assistant. Plugin authors may set this field, but no runtime code reads it yet — it is declared here so future cross-plugin work can land without a manifest version bump. Do not rely on it for any runtime behavior today.    |
-| `requires`           | yes      | Must include `pluginRuntime: "v1"` at minimum. The registry checks every entry against `ASSISTANT_API_VERSIONS` and refuses to register plugins that ask for a capability or version the assistant does not expose.                                                                                            |
 | `requiresCredential` | no       | Credential keys the plugin needs. The bootstrap resolves them via the credential store before `init()` runs and hands the values to the plugin in `ctx.credentials`. A missing credential fails startup with a clear error.                                                                                    |
 | `requiresFlag`       | no       | Assistant feature-flag keys that must all be ON for the plugin to activate. If any listed flag is disabled at bootstrap, the plugin is skipped entirely: `init()` is not invoked and no tools, routes, skills, or shutdown hooks are registered for it. See [Feature-flag gating](#feature-flag-gating) below. |
 | `config`             | no       | A parser-like validator (Zod schema, or any object with a `.parse(input)` method). If supplied, the bootstrap validates `config.plugins.<name>` through it before passing the result into `init()`.                                                                                                            |
 
-The exposed capability table (`ASSISTANT_API_VERSIONS`) lives in
-[`registry.ts`](../src/plugins/registry.ts). It lists:
+### Host-compat: `peerDependencies["@vellumai/plugin-api"]`
 
-- `pluginRuntime` — the base runtime every plugin must negotiate for.
-- `memoryApi`, `compactionApi`, `persistenceApi` — top-level subsystem APIs.
-- One `*Api` entry per pipeline slot (e.g. `llmCallApi`, `toolExecuteApi`,
-  `titleGenerateApi`, …).
+Plugins declare which assistant versions they support via standard
+`peerDependencies` in their `package.json`:
 
-Every entry is currently on `v1`. Removing or changing a version tag is a
-breaking change — plugins relying on it will fail to register until they
-update their `requires` map.
+```json
+{
+  "name": "@me/my-logger",
+  "version": "1.2.3",
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.8.0"
+  }
+}
+```
+
+At load time, the external-plugin loader resolves the assistant's running
+version and runs `semver.satisfies(assistantVersion, range)` against the
+declared range. The contract is currently soft while the plugin-installation
+flow is in flux:
+
+- **Range satisfied** — plugin loads.
+- **Range not satisfied** — loader logs an error (`log.error`) and loads
+  the plugin anyway.
+- **Range unparseable** — loader logs an error and loads the plugin anyway.
+- **`@vellumai/plugin-api` peerDep absent** — loader logs a warning and
+  loads the plugin without a host-compat claim.
+
+Once the install flow settles, the two error-logging branches above will
+harden into hard rejections (with per-plugin isolation catching the
+throw so one bad plugin can't brick the rest of the registry).
+
+In-tree default plugins do not declare a peerDep — they ship with the
+assistant binary and are version-locked by construction.
 
 ### Example manifest
 
@@ -130,11 +148,6 @@ update their `requires` map.
 const manifest: PluginManifest = {
   name: "my-logger",
   version: "1.2.3",
-  provides: {},
-  requires: {
-    pluginRuntime: "v1",
-    llmCallApi: "v1",
-  },
   requiresCredential: ["LOGGER_API_KEY"],
   requiresFlag: ["my-logger-enabled"],
   config: z.object({
@@ -206,7 +219,6 @@ const myPlugin: Plugin = {
   manifest: {
     name: "my-plugin",
     version: "0.1.0",
-    requires: { pluginRuntime: "v1" },
   },
   middleware: {
     /* ... */
@@ -452,7 +464,6 @@ Declare required credential keys in `manifest.requiresCredential`:
 const manifest: PluginManifest = {
   name: "my-plugin",
   version: "1.0.0",
-  requires: { pluginRuntime: "v1" },
   requiresCredential: ["MY_PLUGIN_API_KEY"],
 };
 ```
@@ -491,7 +502,6 @@ const configSchema = z.object({
 const manifest: PluginManifest = {
   name: "my-plugin",
   version: "1.0.0",
-  requires: { pluginRuntime: "v1" },
   config: configSchema,
 };
 ```
@@ -520,8 +530,8 @@ export interface PluginInitContext {
   credentials: Record<string, string>; // resolved credentials from requiresCredential
   logger: unknown; // pino child logger, tagged { plugin: <name> }
   pluginStorageDir: string; // <workspaceDir>/plugins-data/<name>/ (created by bootstrap)
-  assistantVersion: string; // assistant semver
-  apiVersions: Record<string, string[]>; // ASSISTANT_API_VERSIONS, for runtime checks
+  assistantVersion: string; // assistant semver — same value used by the loader
+  //                          against your peerDependencies range
 }
 ```
 
@@ -668,14 +678,6 @@ assistant's module graph.
 Do not add new HTTP endpoints to implement plugin-to-plugin messaging
 inside a single assistant process.
 
-`manifest.provides` is reserved as the hook for a future cross-plugin
-capability-negotiation protocol but is **not currently consumed by any
-runtime code**. Declaring `provides` today has no behavioral effect —
-plugins must not depend on it for capability discovery or any other
-runtime purpose. The field is intentionally retained on the manifest so
-that adding real consumers later does not require bumping
-`pluginRuntime` or any other capability version.
-
 ## Hot reload
 
 **Not supported in v1.** Registering a plugin takes effect at assistant
@@ -694,23 +696,29 @@ loop externally.
 
 ## Troubleshooting
 
-### "plugin X must declare requires.pluginRuntime"
+### `external plugin X: peerDependencies["@vellumai/plugin-api"] requires "<range>" but assistant is <version> — loading anyway`
 
-The manifest's `requires` map is missing the `pluginRuntime` entry. Every
-plugin must negotiate against the base runtime:
+Logged at `error` level. Your plugin's declared
+`peerDependencies["@vellumai/plugin-api"]` range does not include the
+running assistant's version. The plugin still loads while the install
+flow is being shaped, but a future release will turn this into a hard
+rejection. Either widen the range in your `package.json` (typically by
+bumping the major in `^X.Y.Z`) or upgrade the assistant.
 
-```typescript
-requires: { pluginRuntime: "v1" },
-```
+### `external plugin X: peerDependencies["@vellumai/plugin-api"] is not a valid semver range — loading anyway`
 
-### "plugin X requires Y@vN, assistant exposes (none|v...)"
+Logged at `error` level, same lenient policy as above. The value declared
+under `peerDependencies["@vellumai/plugin-api"]` is not parseable as a
+semver range. Use a standard range expression such as `^0.8.0`,
+`>=0.8.0 <0.10`, or an exact version.
 
-The `requires` map names a capability the assistant does not expose, or
-asks for a version not listed under that capability. See
-`ASSISTANT_API_VERSIONS` in
-[`registry.ts`](../src/plugins/registry.ts) for the currently-exposed
-list. Either downgrade the required version or update your plugin to
-match.
+### `external plugin X missing plugin-api peerDependency — loading without host-compat claim`
+
+Warning, not an error. Your plugin's `package.json` does not declare a
+`peerDependencies["@vellumai/plugin-api"]` entry, so the loader has no
+host-compat range to check and loads the plugin without that guard. Add
+the peerDep so future assistant upgrades surface incompatibility before
+the plugin runs.
 
 ### "plugin X is already registered"
 

@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
 
 /**
@@ -28,6 +28,19 @@ import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
 function getRepoRoot(): string {
   return join(process.cwd(), "..");
 }
+
+const META_JSON_PATH = join(
+  getRepoRoot(),
+  "meta",
+  "llm-provider-catalog.json",
+);
+const SWIFTPM_MIRROR_PATH = join(
+  getRepoRoot(),
+  "clients",
+  "shared",
+  "Resources",
+  "llm-provider-catalog.json",
+);
 
 interface ClientCatalogCredentialsGuide {
   description: string;
@@ -71,7 +84,7 @@ interface ClientCatalogEntry {
   envVar?: string;
   apiKeyPlaceholder?: string;
   credentialsGuide?: ClientCatalogCredentialsGuide;
-  supportsManagedAuth?: boolean;
+  supportsPlatformAuth?: boolean;
   defaultModel: string;
   models: ClientCatalogModel[];
 }
@@ -82,8 +95,7 @@ interface ClientCatalog {
 }
 
 function loadClientCatalog(): ClientCatalog {
-  const catalogPath = join(getRepoRoot(), "meta", "llm-provider-catalog.json");
-  const raw = readFileSync(catalogPath, "utf-8");
+  const raw = readFileSync(META_JSON_PATH, "utf-8");
   return JSON.parse(raw);
 }
 
@@ -124,8 +136,8 @@ describe("LLM catalog parity: daemon vs client", () => {
       expect(clientEntry.setupHint).toBe(daemonEntry.setupHint);
       expect(clientEntry.envVar).toBe(daemonEntry.envVar);
       expect(clientEntry.apiKeyPlaceholder).toBe(daemonEntry.apiKeyPlaceholder);
-      expect(clientEntry.supportsManagedAuth).toBe(
-        daemonEntry.supportsManagedAuth,
+      expect(clientEntry.supportsPlatformAuth).toBe(
+        daemonEntry.supportsPlatformAuth,
       );
       expect(clientEntry.credentialsGuide).toEqual(
         daemonEntry.credentialsGuide,
@@ -134,16 +146,16 @@ describe("LLM catalog parity: daemon vs client", () => {
     }
   });
 
-  test("supportsManagedAuth mirrors MANAGED_PROVIDER_META", () => {
-    // The catalog field is derived from MANAGED_PROVIDER_META at build
+  test("supportsPlatformAuth mirrors PLATFORM_PROVIDER_META", () => {
+    // The catalog field is derived from PLATFORM_PROVIDER_META at build
     // time. This test guards against future hand-edits to model-catalog.ts
-    // that would let the two drift. Adding a provider to MANAGED_PROVIDER_META
+    // that would let the two drift. Adding a provider to PLATFORM_PROVIDER_META
     // must auto-propagate; flipping `managed: true` to `false` (or vice
     // versa) must propagate too.
     for (const entry of PROVIDER_CATALOG) {
       const expectedSupportsManagedAuth =
-        MANAGED_PROVIDER_META[entry.id]?.managed === true;
-      expect(entry.supportsManagedAuth).toBe(expectedSupportsManagedAuth);
+        PLATFORM_PROVIDER_META[entry.id]?.managed === true;
+      expect(entry.supportsPlatformAuth).toBe(expectedSupportsManagedAuth);
     }
   });
 
@@ -406,5 +418,20 @@ describe("LLM catalog parity: daemon vs client", () => {
       longContextPricingThresholdTokens: 200000,
       longContextMode: "native-model",
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // Mirror byte-equality
+  // -----------------------------------------------------------------------
+
+  test("SwiftPM mirror is byte-identical to meta/ copy", () => {
+    // `sync-llm-catalog.ts` writes both files from the same serializer; this
+    // guard catches any case where one copy is regenerated without the other.
+    // Byte equality is required because SwiftPM bundles the resource verbatim
+    // into `VellumAssistantShared` while the meta/ JSON is consumed as a
+    // cross-package artifact (web codegen, etc.).
+    const metaBytes = readFileSync(META_JSON_PATH);
+    const swiftPmBytes = readFileSync(SWIFTPM_MIRROR_PATH);
+    expect(swiftPmBytes.equals(metaBytes)).toBe(true);
   });
 });

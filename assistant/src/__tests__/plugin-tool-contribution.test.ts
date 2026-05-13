@@ -134,7 +134,6 @@ function buildPlugin(
     manifest: {
       name,
       version: "0.0.1",
-      requires: { pluginRuntime: "v1" },
     },
     ...rest,
     ...(mergedHooks ? { hooks: mergedHooks } : {}),

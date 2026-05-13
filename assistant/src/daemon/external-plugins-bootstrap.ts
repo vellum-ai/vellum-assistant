@@ -61,7 +61,6 @@ import {
   unregisterPluginSkills,
 } from "../plugins/plugin-skill-contributions.js";
 import {
-  ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
   unregisterPlugin,
 } from "../plugins/registry.js";
@@ -315,7 +314,6 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
         logger: log.child({ plugin: name }),
         pluginStorageDir,
         assistantVersion: ctx.assistantVersion,
-        apiVersions: ASSISTANT_API_VERSIONS,
       };
 
       if (plugin.hooks?.init) {
