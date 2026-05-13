@@ -10,9 +10,9 @@ release branch, the squash commit body contains only the *titles* of the
 cherry-picked commits — not their bodies. So any Linear identifiers that were
 referenced in the original PRs' bodies are lost.
 
-The Linear Release CLI scans commit messages for `LUM-1234` etc. only when
-preceded by a magic word (`Closes`, `Fixes`, `Resolves`, `Part of`, `Refs`,
-…). Bare mentions are ignored. See:
+The Linear Release CLI scans commit messages for Linear identifiers (e.g.
+``LUM-NNNN``) only when preceded by a magic word (``Closes``, ``Fixes``,
+``Resolves``, ``Part of``, ``Refs``, ...). Bare mentions are ignored. See:
 
   https://github.com/linear/linear-release/blob/main/src/extractors.ts
 
