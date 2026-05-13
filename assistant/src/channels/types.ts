@@ -27,6 +27,136 @@ export interface TurnChannelContext {
   assistantMessageChannel: ChannelId;
 }
 
+/**
+ * Display metadata for a channel, returned alongside the channel id from
+ * `/v1/channels/available`. Owning this in the gateway (rather than letting
+ * each client carry its own icon/label/copy switch) keeps the Contacts /
+ * Channels UI consistent across macOS, web, and any future surface, and
+ * lets us add or rename a channel without shipping new client builds.
+ */
+export interface ChannelInfo {
+  id: ChannelId;
+  /** Title shown on the channel card, e.g. "Slack". */
+  label: string;
+  /** One-line description shown under the title. */
+  subtitle: string;
+  /**
+   * Lucide icon name without the `lucide-` prefix, e.g. `"mail"` or
+   * `"hash"`. macOS clients resolve to `VIcon(rawValue: "lucide-\(icon)")`;
+   * web clients import the matching component from `lucide-react`.
+   */
+  icon: string;
+  /**
+   * Whether this channel has a client-side verification flow (the
+   * `ChannelVerificationFlowView` on macOS, equivalent on web). When
+   * `false`, clients skip pre-warming verification status and render the
+   * card in display-only mode.
+   */
+  supportsVerification: boolean;
+  /** Suggested first-turn user messages that open the conversation that drives setup. */
+  setupMessages: {
+    guardian: string;
+    contact: string;
+  };
+}
+
+/**
+ * Source of truth for per-channel display metadata. Add an entry here when
+ * introducing a new `ChannelId` so the Contacts UI renders it without any
+ * client-side change. Unsurfaced channels (`vellum`, `platform`) carry
+ * placeholder entries so the type system stays exhaustive; they are not
+ * currently returned from `/v1/channels/available`.
+ */
+export const CHANNEL_METADATA: Record<ChannelId, ChannelInfo> = {
+  slack: {
+    id: "slack",
+    label: "Slack",
+    subtitle: "Message your assistant from Slack",
+    icon: "hash",
+    supportsVerification: true,
+    setupMessages: {
+      guardian:
+        "I'd like to verify my identity as your guardian on Slack. Can you help me set that up?",
+      contact:
+        "I'd like to verify a contact's Slack identity. Can you walk me through it?",
+    },
+  },
+  telegram: {
+    id: "telegram",
+    label: "Telegram",
+    subtitle: "Message your assistant from Telegram",
+    icon: "send",
+    supportsVerification: true,
+    setupMessages: {
+      guardian:
+        "I'd like to verify my identity as your guardian on Telegram. Can you help me set that up?",
+      contact:
+        "I'd like to verify a contact's Telegram identity. Can you walk me through it?",
+    },
+  },
+  phone: {
+    id: "phone",
+    label: "Phone Calling",
+    subtitle: "Call or text your assistant via phone",
+    icon: "phone",
+    supportsVerification: true,
+    setupMessages: {
+      guardian:
+        "I'd like to verify my identity as your guardian for phone calls. Can you help me set that up?",
+      contact:
+        "I'd like to verify a contact's phone number. Can you help me set that up?",
+    },
+  },
+  email: {
+    id: "email",
+    label: "Email",
+    subtitle: "Reach your assistant by email",
+    icon: "mail",
+    supportsVerification: false,
+    setupMessages: {
+      guardian:
+        "I'd like to set up email as a way for me to reach you. Can you walk me through it?",
+      contact:
+        "I'd like to set up email as a way to reach this contact. Can you walk me through it?",
+    },
+  },
+  whatsapp: {
+    id: "whatsapp",
+    label: "WhatsApp",
+    subtitle: "Message your assistant on WhatsApp",
+    icon: "message-square",
+    supportsVerification: false,
+    setupMessages: {
+      guardian:
+        "I'd like to verify my identity as your guardian on WhatsApp. Can you help me set that up?",
+      contact:
+        "I'd like to verify a contact's WhatsApp identity. Can you walk me through it?",
+    },
+  },
+  vellum: {
+    id: "vellum",
+    label: "Vellum",
+    subtitle: "Use the Vellum desktop app",
+    icon: "message-circle",
+    supportsVerification: false,
+    setupMessages: {
+      guardian: "I'd like to set up the Vellum desktop app as a channel.",
+      contact: "I'd like to set up the Vellum desktop app as a channel.",
+    },
+  },
+  platform: {
+    id: "platform",
+    label: "Platform",
+    subtitle: "Connect via the Vellum platform",
+    icon: "globe",
+    supportsVerification: false,
+    setupMessages: {
+      guardian: "I'd like to set up the Vellum platform as a channel.",
+      contact: "I'd like to set up the Vellum platform as a channel.",
+    },
+  },
+};
+
 export const INTERFACE_IDS = [
   "macos",
   "ios",
