@@ -342,6 +342,16 @@ struct ACPSessionDetailView: View {
                     // the next offset reading, which lowers the watermark by the
                     // observed content shift instead.
                     pendingHeadTrim = true
+                    // If the trim removed non-rendered content (e.g. a `.thought`
+                    // row while `showThoughts` is off), the visible offset won't
+                    // change and no preference callback fires to consume the
+                    // sentinel. Drop it on the next runloop tick so the user's
+                    // next real scroll isn't misread as a layout artifact. The
+                    // SwiftUI preference callback for this update runs during
+                    // the current runloop pass, before this async block.
+                    DispatchQueue.main.async {
+                        pendingHeadTrim = false
+                    }
                 }
                 .onChange(of: showThoughts) {
                     // Toggling thought visibility shrinks/grows the timeline,
