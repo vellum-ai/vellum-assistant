@@ -13,6 +13,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
+import type { ConversationCreateType } from "../memory/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
 import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
 import { PlatformPushAdapter } from "./adapters/platform.js";
@@ -204,6 +205,7 @@ export interface EmitSignalParams<TEventName extends string = string> {
     groupId?: string;
     scheduleJobId?: string;
     source?: string;
+    conversationType?: ConversationCreateType;
   };
 }
 

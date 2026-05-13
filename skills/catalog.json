@@ -320,6 +320,18 @@
       "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
+      "id": "llm-cost-optimizer",
+      "name": "llm-cost-optimizer",
+      "description": "Analyze and reduce LLM spend by mapping call-site overrides to managed profiles (Balanced / Quality / Speed). Covers spend analysis, profile assignment, and config correctness.",
+      "metadata": {
+        "emoji": "💸",
+        "vellum": {
+          "display-name": "LLM Cost Optimizer"
+        }
+      },
+      "updatedAt": "2026-05-13T21:21:36Z"
+    },
+    {
       "id": "macos-automation",
       "name": "macos-automation",
       "description": "Automate native macOS apps and system interactions via osascript (AppleScript)",

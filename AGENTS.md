@@ -4,6 +4,7 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
+- `apps/` — End-user app surfaces (web, iOS, macOS/Electron, Chrome extension). Scaffolding-only today; surfaces will move here in follow-up PRs. See `apps/AGENTS.md`.
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
 - `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
