@@ -122,6 +122,30 @@ private struct NoopConversationHistoryClient: ConversationHistoryClientProtocol 
     }
 }
 
+private actor RecordingConversationListClient: ConversationListClientProtocol {
+    private(set) var fetchRequests: [(offset: Int, limit: Int, conversationType: String?)] = []
+
+    func fetchConversationList(offset: Int, limit: Int, conversationType: String?) async -> ConversationListResponse? {
+        fetchRequests.append((offset: offset, limit: limit, conversationType: conversationType))
+        return ConversationListResponse(
+            type: "conversation_list_response",
+            conversations: [],
+            hasMore: false,
+            nextOffset: nil,
+            groups: nil
+        )
+    }
+
+    func switchConversation(conversationId: String) async -> Bool { true }
+    func renameConversation(conversationId: String, name: String) async -> Bool { true }
+    func clearAllConversations() async -> Bool { true }
+    func cancelGeneration(conversationId: String) async -> Bool { true }
+    func undoLastMessage(conversationId: String) async -> Int? { nil }
+    func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?) async -> ConversationSearchResponse? { nil }
+    func reorderConversations(updates: [ReorderConversationsRequestUpdate]) async -> Bool { true }
+    func sendConversationSeen(_ signal: ConversationSeenSignal) async -> Bool { true }
+}
+
 // MARK: - Helpers
 
 /// Build a ConversationListResponseMessage via JSON round-trip.
@@ -862,12 +886,14 @@ struct ConversationRestorerTests {
     }
 
     @Test @MainActor
-    func syncMessageRouteQueuesActiveConversationHistoryOnly() {
+    func syncMessageRouteQueuesActiveConversationHistoryAndRefreshesList() async {
         let dc = GatewayConnectionManager()
+        let listClient = RecordingConversationListClient()
         let restorer = ConversationRestorer(
             connectionManager: dc,
             eventStreamClient: dc.eventStreamClient,
-            conversationHistoryClient: NoopConversationHistoryClient()
+            conversationHistoryClient: NoopConversationHistoryClient(),
+            conversationListClient: listClient
         )
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         restorer.delegate = delegate
@@ -886,6 +912,9 @@ struct ConversationRestorerTests {
 
         #expect(restorer.pendingHistoryByConversationId["conv-active"] == active.id)
         #expect(restorer.pendingHistoryByConversationId["conv-inactive"] == nil)
+
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        #expect(await listClient.fetchRequests.count == 2)
     }
 
     @Test @MainActor
