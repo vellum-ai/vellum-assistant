@@ -3365,8 +3365,11 @@ public final class SettingsStore: ObservableObject {
             // config push (via `applyDaemonConfig` → `loadInferenceProfiles`)
             // can replace `profiles` during the suspension, invalidating
             // `existingIndex` and risking an out-of-bounds subscript or
-            // a write to the wrong row.
-            if let index = profiles.firstIndex(where: { $0.name == name }) {
+            // a write to the wrong row. The same post-await result must
+            // gate the reorder branch below so the merge/append and
+            // reorder decisions stay consistent.
+            let postAwaitIndex = profiles.firstIndex(where: { $0.name == name })
+            if let index = postAwaitIndex {
                 // Daemon deep-merges the patch (toJSON omits nil fields).
                 // Mirror that locally so fields the fragment leaves nil
                 // retain whatever the daemon already had.
@@ -3383,7 +3386,7 @@ public final class SettingsStore: ObservableObject {
                     profileOrder = profiles.map(\.name)
                 }
             }
-            if let nextOrder, existingIndex != nil {
+            if let nextOrder, postAwaitIndex != nil {
                 profileOrder = nextOrder
                 reorderPublishedProfiles(to: nextOrder)
             }
