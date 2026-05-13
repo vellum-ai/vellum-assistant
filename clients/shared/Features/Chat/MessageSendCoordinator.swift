@@ -712,6 +712,7 @@ final class MessageSendCoordinator {
         delegate.activeRequestIdToMessageId = [:]
         delegate.pendingLocalDeletions.removeAll()
         messageManager.pendingUserTurnCount = 0
+        messageManager.staleCancelEventsExpected = 0
     }
 
     // MARK: - Offline Queue Flush

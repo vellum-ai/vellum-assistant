@@ -248,6 +248,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.discardPartialOutputBuffer()
                     self.messageManager.isSending = false
                     self.messageManager.pendingUserTurnCount = 0
+                    self.messageManager.staleCancelEventsExpected = 0
                     self.sendingWatchdogTask?.cancel()
                     self.sendingWatchdogTask = nil
                     self.thinkingWatchdogTask = nil
@@ -385,6 +386,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.activeRequestIdToMessageId.removeAll()
                     self.pendingLocalDeletions.removeAll()
                     self.messageManager.pendingUserTurnCount = 0
+                    self.messageManager.staleCancelEventsExpected = 0
                     // Cancel stale cancel-timeout task
                     self.cancelTimeoutTask?.cancel()
                     self.cancelTimeoutTask = nil
@@ -1515,6 +1517,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 // so clear pending turns to avoid bumping
                 // `interactiveTurnCompletionTick` on the next turn.
                 self?.messageManager.pendingUserTurnCount = 0
+                self?.messageManager.staleCancelEventsExpected = 0
                 if let existingId = self?.currentAssistantMessageId {
                     self?.messages.finalizeStreamingMessage(id: existingId, completeToolCalls: .none)
                 }
