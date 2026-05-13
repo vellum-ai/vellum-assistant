@@ -47,21 +47,20 @@ export function requireState(): PluginState {
 }
 
 /**
- * Case-insensitive substring search across every entry, regardless of
- * conversation. Results are returned newest-first (descending
- * `createdAt`) and capped at `limit`. An empty / whitespace-only
- * query returns no results — callers should pre-validate so they can
- * surface a clearer error.
+ * Regex search across every entry, regardless of conversation. The
+ * pattern is applied with `RegExp.test` against each entry's text;
+ * callers compile and case-flag it. Results are returned newest-first
+ * (descending `createdAt`) and capped at `limit`.
  */
-export function searchEntries(query: string, limit: number): MemoryEntry[] {
-  const needle = query.trim().toLowerCase();
-  if (needle.length === 0) {
-    return [];
-  }
+export function searchEntries(pattern: RegExp, limit: number): MemoryEntry[] {
   const all = requireState().entries;
   const matches: MemoryEntry[] = [];
   for (const entry of all) {
-    if (entry.text.toLowerCase().includes(needle)) {
+    // `test()` advances `lastIndex` on global/sticky regexes; the tool
+    // never compiles with those flags, but reset defensively in case a
+    // future caller does.
+    pattern.lastIndex = 0;
+    if (pattern.test(entry.text)) {
       matches.push(entry);
     }
   }
