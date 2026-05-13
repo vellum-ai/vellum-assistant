@@ -2,22 +2,26 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
-import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import {
+  BUNDLED_SYSTEM_SECTIONS,
+  type BundledSection,
+} from "./templates/system-sections.js";
 
 const log = getLogger("system-prompt-sections");
 
 /**
  * Render context passed by the caller of `renderWorkspaceSections`. Sections
- * declare their `enabled` predicate in YAML frontmatter, and the predicate
- * is evaluated against keys in this object.
+ * declare their `enabled` predicate as a context key (or `!key`), and the
+ * predicate is evaluated against fields on this object.
  *
  * Intentionally an open record — the registry never references specific keys.
  * Callers (currently `buildSystemPrompt`) hand in the same options object
  * they received, so any field on `BuildSystemPromptOptions` can be
- * referenced by name in a section's frontmatter.
+ * referenced by name in a section's `enabled` predicate or `{{variable}}`
+ * interpolation.
  */
 export type SectionRenderContext = Record<string, unknown>;
 
@@ -25,50 +29,36 @@ export type SectionRenderContext = Record<string, unknown>;
  * Workspace override location for user-authored system prompt sections.
  * Layout: `<workspace>/prompts/system/<NN-name>.md`.
  *
- * Bundled `templates/system/` files are the source of default truth; this
- * directory is an optional override layer.  Drop a file with the same
- * filename as a bundled section to replace its body, or drop a file with
- * a new `<NN-name>` to add a workspace-only section.  Either path is
- * opt-in — the directory may not exist on a fresh install.
+ * The bundled section registry (`templates/system-sections.ts`) is the
+ * source of default truth; this directory is an optional override layer.
+ * Drop a file with the same id as a bundled section to replace its body,
+ * or drop a file with a brand-new `<NN-name>` to add a workspace-only
+ * section.  Either path is opt-in — the directory may not exist on a
+ * fresh install, and the renderer will simply use bundled defaults.
  */
 export function getWorkspaceSystemPromptDir(): string {
   return join(getWorkspaceDir(), "prompts", "system");
 }
 
 /**
- * Bundled location for the default system prompt sections shipped with
- * the daemon.  The renderer reads from here unless the workspace has a
- * file with the same name, in which case the workspace file wins.
- *
- * Resolved through `resolveBundledDir` so it works in both source builds
- * (relative to `prompts/`) and packaged bun binaries (macOS .app Resources
- * dir or alongside the binary).
- */
-export function getBundledSystemPromptDir(): string {
-  const callerDir = import.meta.dirname ?? __dirname;
-  return join(resolveBundledDir(callerDir, "templates", "templates"), "system");
-}
-
-/**
- * Render every section in filename order, returning the trimmed body of
- * each enabled section.  Discovery walks both `<bundled>/templates/system/`
- * and `<workspace>/prompts/system/` and takes the union of section ids.
+ * Render every section in id-sort order, returning the trimmed body of
+ * each enabled section.  Discovery walks the bundled registry plus any
+ * `.md` files in the workspace override dir, and takes the union of ids.
  *
  * Resolution per id:
- *   - workspace file present → use workspace body (override)
- *   - workspace file absent  → use bundled body (default)
+ *   - workspace `.md` file present → use workspace body (override)
+ *   - workspace file absent        → use bundled registry entry (default)
  *
  * Bundled is the source of default truth.  Workspace acts as an override
- * layer — a user can replace a bundled section by writing the same
- * filename in their workspace, or add a brand-new section by writing a
- * filename that doesn't exist in bundled.  The workspace directory does
- * not need to exist on a fresh install; the renderer will fall through to
- * bundled-only.
+ * layer — a user can replace a bundled section by writing the same id in
+ * their workspace, or add a brand-new section by writing an id that
+ * doesn't appear in the bundled registry.  Workspace-only ids skip the
+ * bundled lookup entirely.
  *
  * Render contract per section:
- *   1. resolve path (workspace wins over bundled)
- *   2. parse YAML frontmatter (optional); body is everything after
- *   3. evaluate `enabled` against `ctx`; falsy → skip
+ *   1. resolve `{ enabled, body }` (workspace .md wins over bundled TS)
+ *   2. evaluate `enabled` against `ctx`; falsy → skip
+ *   3. apply mustache section / inverted-section / variable interpolation
  *   4. strip lines starting with `_` (legacy inline-comment convention)
  *   5. trim; emit if non-empty, otherwise skip
  *
@@ -78,69 +68,76 @@ export function getBundledSystemPromptDir(): string {
  * of only `_`-comments).  This is the supported "disable a bundled
  * default" path.
  *
- * The numeric prefix is load-bearing for sort order; pick a number that
- * places the section where it should appear in the final prompt.
+ * The numeric prefix on each id is load-bearing for sort order; pick a
+ * number that places the section where it should appear in the final
+ * prompt.
  */
 export function renderWorkspaceSections(ctx: SectionRenderContext): string[] {
-  const bundledDir = getBundledSystemPromptDir();
   const workspaceDir = getWorkspaceSystemPromptDir();
-
-  const ids = collectSectionIds(bundledDir, workspaceDir);
+  const ids = collectSectionIds(workspaceDir);
 
   const out: string[] = [];
   for (const id of ids) {
-    const rendered = renderSection(id, ctx, bundledDir, workspaceDir);
+    const rendered = renderSection(id, ctx, workspaceDir);
     if (rendered) out.push(rendered);
   }
   return out;
 }
 
-function collectSectionIds(
-  bundledDir: string,
-  workspaceDir: string,
-): string[] {
+function collectSectionIds(workspaceDir: string): string[] {
   const ids = new Set<string>();
-  for (const dir of [bundledDir, workspaceDir]) {
-    if (!existsSync(dir)) continue;
-    let entries: string[];
+  for (const section of BUNDLED_SYSTEM_SECTIONS) ids.add(section.id);
+  if (existsSync(workspaceDir)) {
     try {
-      entries = readdirSync(dir);
+      for (const name of readdirSync(workspaceDir)) {
+        if (name.endsWith(".md")) ids.add(name.slice(0, -".md".length));
+      }
     } catch (err) {
-      log.warn({ err, dir }, "Failed to list system prompt directory");
-      continue;
-    }
-    for (const name of entries) {
-      if (name.endsWith(".md")) ids.add(name.slice(0, -".md".length));
+      log.warn({ err, workspaceDir }, "Failed to list workspace system prompt dir");
     }
   }
   return [...ids].sort();
 }
 
+interface ResolvedSection {
+  enabled: string | boolean | undefined;
+  body: string;
+}
+
+function resolveSection(
+  id: string,
+  workspaceDir: string,
+): ResolvedSection | null {
+  const workspacePath = join(workspaceDir, `${id}.md`);
+  if (existsSync(workspacePath)) {
+    let raw: string;
+    try {
+      raw = readFileSync(workspacePath, "utf-8");
+    } catch (err) {
+      log.warn({ err, workspacePath }, "Failed to read workspace section override");
+      return null;
+    }
+    const parsed = parseFrontmatterFields(raw);
+    const fields = parsed?.fields ?? {};
+    const body = parsed?.body ?? raw;
+    return { enabled: fields["enabled"] as string | boolean | undefined, body };
+  }
+  const bundled = BUNDLED_SYSTEM_SECTIONS.find((s) => s.id === id);
+  if (!bundled) return null;
+  return { enabled: bundled.enabled, body: bundled.body };
+}
+
 function renderSection(
   id: string,
   ctx: SectionRenderContext,
-  bundledDir: string,
   workspaceDir: string,
 ): string | null {
-  const workspacePath = join(workspaceDir, `${id}.md`);
-  const bundledPath = join(bundledDir, `${id}.md`);
-  const path = existsSync(workspacePath) ? workspacePath : bundledPath;
+  const section = resolveSection(id, workspaceDir);
+  if (section === null) return null;
 
-  let raw: string;
-  try {
-    raw = readFileSync(path, "utf-8");
-  } catch (err) {
-    log.warn({ err, path }, "Failed to read system prompt section");
-    return null;
-  }
+  if (!isEnabled(section.enabled, ctx)) return null;
 
-  const parsed = parseFrontmatterFields(raw);
-  const fields = parsed?.fields ?? {};
-  const body = parsed?.body ?? raw;
-
-  if (!isEnabled(fields["enabled"], ctx)) return null;
-
-  const stripped = stripCommentLines(body).trim();
+  const stripped = stripCommentLines(section.body).trim();
   if (stripped.length === 0) return null;
   return interpolateVariables(stripped, ctx);
 }
@@ -238,7 +235,7 @@ const SECTION = new RegExp(
 const VARIABLE = new RegExp(`\\{\\{(${IDENT_PATTERN})\\}\\}`, "g");
 
 /**
- * Evaluate an `enabled:` frontmatter value.  Supported shapes:
+ * Evaluate an `enabled:` predicate.  Supported shapes:
  *
  *   - omitted / undefined  → always enabled
  *   - boolean              → use as-is
@@ -247,8 +244,8 @@ const VARIABLE = new RegExp(`\\{\\{(${IDENT_PATTERN})\\}\\}`, "g");
  *
  * Predicate forms are intentionally limited to a single identifier (with
  * optional leading `!`).  Anything more elaborate is rejected so the
- * frontmatter stays declarative — if a section needs richer logic, route
- * a pre-computed boolean through the context map and reference that.
+ * predicate stays declarative — if a section needs richer logic, route a
+ * pre-computed boolean through the context map and reference that.
  */
 function isEnabled(value: unknown, ctx: SectionRenderContext): boolean {
   if (value === undefined) return true;
@@ -281,3 +278,7 @@ function isEnabled(value: unknown, ctx: SectionRenderContext): boolean {
   const result = Boolean(ctx[trimmed]);
   return negate ? !result : result;
 }
+
+// Re-export the registry type so callers (rare) can introspect bundled
+// content without reaching into the templates directory directly.
+export type { BundledSection };
