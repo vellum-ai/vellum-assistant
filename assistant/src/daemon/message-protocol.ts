@@ -149,6 +149,7 @@ import type {
 export interface SubagentEvent {
   type: "subagent_event";
   subagentId: string;
+  conversationId: string;
   event: ServerMessage;
 }
 
