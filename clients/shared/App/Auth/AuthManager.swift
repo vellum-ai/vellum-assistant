@@ -158,11 +158,24 @@ public final class AuthManager {
             // Build /accounts/native/start?state={state}. The server
             // determines the callback scheme from settings.ENVIRONMENT
             // — the client no longer sends it (ATL-454).
+            //
+            // ``client_version`` is forwarded so the server can attribute
+            // callback hits to a specific macOS build in
+            // ``native_login_callback`` (ATL-466). Absence of the param on
+            // the server-side fallback branch is the signal that a
+            // pre-ATL-454 (≤ v0.7.2) build initiated the flow — when that
+            // signal disappears from the logs, ``session_token`` can be
+            // dropped from the legacy redirect.
             guard var startComponents = URLComponents(string: VellumEnvironment.resolvedWebURL) else {
                 throw AuthServiceError.invalidURL
             }
             startComponents.path = "/accounts/native/start"
-            startComponents.queryItems = [URLQueryItem(name: "state", value: stateParam)]
+            var queryItems = [URLQueryItem(name: "state", value: stateParam)]
+            if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+               !clientVersion.isEmpty {
+                queryItems.append(URLQueryItem(name: "client_version", value: clientVersion))
+            }
+            startComponents.queryItems = queryItems
 
             guard let loginURL = startComponents.url else {
                 throw AuthServiceError.invalidURL
