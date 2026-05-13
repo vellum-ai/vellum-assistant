@@ -94,7 +94,7 @@ mock.module("../../../tts/synthesize-text.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { RouteError } from "../errors.js";
-import { ROUTES } from "../tts-routes.js";
+import { formatTtsFailureMessage, ROUTES } from "../tts-routes.js";
 import type { RouteHandlerArgs } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -284,6 +284,69 @@ describe("tts-routes", () => {
       () => handler(makeMessageTtsArgs()),
       502,
       "BAD_GATEWAY",
+    );
+  });
+
+  test("propagates the underlying error message into the 502 response", async () => {
+    // Mimics what `synthesize-text.ts` re-throws when an ElevenLabs adapter
+    // raises ELEVENLABS_TTS_HTTP_ERROR with a parsed upstream message.
+    mockSynthesizeError = new MockTtsSynthesisError(
+      "TTS_SYNTHESIS_FAILED",
+      "TTS synthesis failed (provider: elevenlabs): Free users cannot use library voices via the API. Please upgrade your subscription to use this voice.",
+    );
+
+    const { handler } = getRoute("messages/:messageId/tts");
+    const err = await expectRouteError(
+      () => handler(makeMessageTtsArgs()),
+      502,
+      "BAD_GATEWAY",
+    );
+    expect(err.message).toContain("Free users cannot use library voices");
+    expect(err.message).toContain("Please upgrade your subscription");
+    // No double-prefix — message stays as the inner self-describing form.
+    expect(err.message.startsWith("TTS synthesis failed")).toBe(true);
+    expect(
+      err.message.startsWith("TTS synthesis failed: TTS synthesis failed"),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — formatTtsFailureMessage
+// ---------------------------------------------------------------------------
+
+describe("formatTtsFailureMessage", () => {
+  test("returns the base message when given a non-Error value", () => {
+    expect(formatTtsFailureMessage(undefined)).toBe("TTS synthesis failed");
+    expect(formatTtsFailureMessage(null)).toBe("TTS synthesis failed");
+    expect(formatTtsFailureMessage("oops")).toBe("TTS synthesis failed");
+  });
+
+  test("returns the base message when the error has no message text", () => {
+    const err = new Error("");
+    expect(formatTtsFailureMessage(err)).toBe("TTS synthesis failed");
+  });
+
+  test("prefixes raw provider error messages with the base", () => {
+    const err = new Error("Voice not found");
+    expect(formatTtsFailureMessage(err)).toBe(
+      "TTS synthesis failed: Voice not found",
+    );
+  });
+
+  test("passes pre-prefixed messages through verbatim (no double-prefix)", () => {
+    const err = new Error(
+      "TTS synthesis failed (provider: elevenlabs): Free users cannot use library voices via the API.",
+    );
+    expect(formatTtsFailureMessage(err)).toBe(
+      "TTS synthesis failed (provider: elevenlabs): Free users cannot use library voices via the API.",
+    );
+  });
+
+  test("trims surrounding whitespace from messages", () => {
+    const err = new Error("   Quota exceeded   ");
+    expect(formatTtsFailureMessage(err)).toBe(
+      "TTS synthesis failed: Quota exceeded",
     );
   });
 });

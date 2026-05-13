@@ -94,8 +94,33 @@ async function doSynthesize(
       throw new ServiceUnavailableError("TTS provider is not configured");
     }
 
-    throw new BadGatewayError("TTS synthesis failed");
+    throw new BadGatewayError(formatTtsFailureMessage(err));
   }
+}
+
+/**
+ * Build a user-facing error message for a failed TTS synthesis, embedding the
+ * upstream provider's message when available.
+ *
+ * The provider adapters surface a clean upstream message (e.g. "Free users
+ * cannot use library voices via the API…") and `synthesize-text` already
+ * prefixes those with `"TTS synthesis failed (provider: <id>): "`. We pass
+ * pre-prefixed messages through verbatim and only add the base prefix for
+ * raw provider errors, so users never see double- or triple-prefixed
+ * messages on the desktop / channels.
+ *
+ * Exported for unit testing.
+ */
+export function formatTtsFailureMessage(err: unknown): string {
+  const base = "TTS synthesis failed";
+  if (err instanceof Error && err.message && err.message.trim()) {
+    const trimmed = err.message.trim();
+    if (/^TTS synthesis failed\b/i.test(trimmed)) {
+      return trimmed;
+    }
+    return `${base}: ${trimmed}`;
+  }
+  return base;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +216,7 @@ async function handleSynthesizeCliTts({ body }: RouteHandlerArgs) {
       throw new ServiceUnavailableError("TTS provider is not configured");
     }
 
-    throw new BadGatewayError("TTS synthesis failed");
+    throw new BadGatewayError(formatTtsFailureMessage(err));
   }
 }
 
