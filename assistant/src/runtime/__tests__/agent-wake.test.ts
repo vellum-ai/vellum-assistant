@@ -68,6 +68,33 @@ mock.module("../../daemon/disk-pressure-guard.js", () => ({
   getDiskPressureStatus: () => mockDiskPressureStatus,
 }));
 
+const recordRequestLogCalls: Array<{
+  conversationId: string;
+  requestPayload: string;
+  responsePayload: string;
+  messageId?: string;
+  provider?: string;
+}> = [];
+mock.module("../../memory/llm-request-log-store.js", () => ({
+  recordRequestLog: (
+    conversationId: string,
+    requestPayload: string,
+    responsePayload: string,
+    messageId?: string,
+    provider?: string,
+  ) => {
+    recordRequestLogCalls.push({
+      conversationId,
+      requestPayload,
+      responsePayload,
+      messageId,
+      provider,
+    });
+    return "log-id-test";
+  },
+  backfillMessageIdOnLogs: () => {},
+}));
+
 import type { AgentEvent } from "../../agent/loop.js";
 import type { Message } from "../../providers/types.js";
 import {
@@ -220,6 +247,7 @@ function makeTarget(options: {
 
 beforeEach(() => {
   __resetWakeChainForTests();
+  recordRequestLogCalls.length = 0;
   mockDiskPressureStatus = {
     enabled: false,
     state: "disabled",
@@ -1435,4 +1463,86 @@ describe("wakeAgentForOpportunity", () => {
       expect(uiBlock!.surfaceId).toBe(wakeProducedOutputCalls[0]);
     },
   );
+
+  test(
+    "silent no-op wake drops LLM request logs so a future backfillMessageIdOnLogs " +
+      "sweep cannot misattach them to an unrelated assistant reply",
+    async () => {
+      const usageEvent: AgentEvent = {
+        type: "usage",
+        inputTokens: 100,
+        outputTokens: 5,
+        model: "test-model",
+        actualProvider: "test-provider",
+        providerDurationMs: 10,
+        rawRequest: { request: "no-op wake" },
+        rawResponse: { response: "no output" },
+      };
+      const target = makeTarget({
+        baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        scriptedEvents: [usageEvent],
+        // Empty assistant text → silent no-op.
+        scriptedAssistant: {
+          role: "assistant",
+          content: [{ type: "text", text: "" }],
+        },
+      });
+
+      const result = await wakeAgentForOpportunity(
+        {
+          conversationId: target.conversationId,
+          hint: "consider doing nothing",
+          source: "unit-test",
+        },
+        { resolveTarget: async () => target },
+      );
+
+      expect(result).toEqual({ invoked: true, producedToolCalls: false });
+      // Nothing emitted, nothing persisted to the conversation.
+      expect(target.emittedEvents).toHaveLength(0);
+      expect(target.persistedTailCalls).toHaveLength(0);
+      // Critical: the LLM request log must NOT be inserted with messageId=NULL,
+      // otherwise the next user turn's backfillMessageIdOnLogs sweep would
+      // misattach this row to an unrelated future assistant reply.
+      expect(recordRequestLogCalls).toHaveLength(0);
+    },
+  );
+
+  test("wake that produces output persists buffered LLM request logs", async () => {
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actualProvider: "test-provider",
+      providerDurationMs: 10,
+      rawRequest: { request: "produced wake" },
+      rawResponse: { response: "real reply" },
+    };
+    const target = makeTarget({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "real reply" }],
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "do reply",
+        source: "unit-test",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(recordRequestLogCalls).toHaveLength(1);
+    expect(recordRequestLogCalls[0]).toMatchObject({
+      conversationId: target.conversationId,
+      provider: "test-provider",
+      messageId: undefined,
+    });
+  });
 });
