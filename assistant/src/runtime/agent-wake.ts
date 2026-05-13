@@ -537,6 +537,36 @@ export async function wakeAgentForOpportunity(
     // only after `agentLoop.run()` returns.
     let mode: "buffering" | "live" = "buffering";
     const buffered: AgentEvent[] = [];
+    // LLM request logs accumulated while buffering. Persisted only if the
+    // wake transitions to live (i.e. produced output). A silent no-op wake
+    // drops them — otherwise the next user-turn's `backfillMessageIdOnLogs`
+    // sweep would misattach these NULL-messageId rows to an unrelated
+    // future assistant message, contaminating inspector context.
+    const pendingLogs: Array<{
+      requestPayload: string;
+      responsePayload: string;
+      provider?: string;
+    }> = [];
+    const persistLog = (record: {
+      requestPayload: string;
+      responsePayload: string;
+      provider?: string;
+    }): void => {
+      try {
+        recordRequestLog(
+          conversationId,
+          record.requestPayload,
+          record.responsePayload,
+          undefined,
+          record.provider,
+        );
+      } catch (err) {
+        log.warn(
+          { err, conversationId, source },
+          "agent-wake: failed to persist LLM request log (non-fatal)",
+        );
+      }
+    };
     const safeEmit = (event: AgentEvent): void => {
       try {
         target.emitAgentEvent(event);
@@ -550,20 +580,17 @@ export async function wakeAgentForOpportunity(
     const onEvent = (event: AgentEvent): void => {
       // Replicates the recordRequestLog side-effect in `handleUsage` because
       // wakes own their own onEvent and never reach `dispatchAgentEvent`.
+      // Defer persistence while buffering — see `pendingLogs` above.
       if (event.type === "usage" && event.rawRequest && event.rawResponse) {
-        try {
-          recordRequestLog(
-            conversationId,
-            JSON.stringify(event.rawRequest),
-            JSON.stringify(event.rawResponse),
-            undefined,
-            event.actualProvider,
-          );
-        } catch (err) {
-          log.warn(
-            { err, conversationId, source },
-            "agent-wake: failed to persist LLM request log (non-fatal)",
-          );
+        const record = {
+          requestPayload: JSON.stringify(event.rawRequest),
+          responsePayload: JSON.stringify(event.rawResponse),
+          provider: event.actualProvider,
+        };
+        if (mode === "buffering") {
+          pendingLogs.push(record);
+        } else {
+          persistLog(record);
         }
       }
       if (mode === "buffering") {
@@ -620,6 +647,10 @@ export async function wakeAgentForOpportunity(
         safeEmit(event);
       }
       buffered.length = 0;
+      for (const record of pendingLogs) {
+        persistLog(record);
+      }
+      pendingLogs.length = 0;
       mode = "live";
     };
 
