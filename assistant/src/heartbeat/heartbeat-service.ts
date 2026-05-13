@@ -262,6 +262,11 @@ export class HeartbeatService {
               isAsyncBackground: true,
               visibleInSourceNow: false,
             },
+            conversationMetadata: {
+              source: "heartbeat",
+              groupId: "system:background",
+              conversationType: "background",
+            },
           }).catch((err) => {
             log.warn(
               { err },
