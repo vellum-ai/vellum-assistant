@@ -8,7 +8,7 @@ metadata:
     display-name: "Slack"
 ---
 
-You help users interact with their Slack workspace. All Slack operations use the **Slack Web API** directly via `assistant oauth request --provider slack` -- there are no dedicated Slack tools.
+You help users interact with their Slack workspace. All Slack operations use the **Slack Web API** directly via `assistant oauth request --provider slack_channel` -- there are no dedicated Slack tools.
 
 ## Resolution Scripts
 
@@ -29,12 +29,12 @@ The cache is stored locally under `~/.vellum/workspace/data/slack-skill/`. On fi
 
 ## Making Slack API Calls
 
-Use `assistant oauth request --provider slack` to call any Slack Web API method. Auth is handled transparently -- the provider injects the bot token automatically.
+Use `assistant oauth request --provider slack_channel` to call any Slack Web API method. Auth is handled transparently -- the provider injects the bot token automatically.
 
 General pattern:
 
 ```bash
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C123","text":"Hello world"}' \
   https://slack.com/api/chat.postMessage --json
@@ -45,7 +45,7 @@ The model knows the full Slack API from training data. Refer to https://api.slac
 ### Send a message
 
 ```bash
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C0123456789","text":"Hello from the assistant!"}' \
   https://slack.com/api/chat.postMessage --json
@@ -54,7 +54,7 @@ assistant oauth request --provider slack \
 ### Read channel history
 
 ```bash
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C0123456789","limit":20}' \
   https://slack.com/api/conversations.history --json
@@ -63,7 +63,7 @@ assistant oauth request --provider slack \
 ### Read thread replies
 
 ```bash
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C0123456789","ts":"1716000000.000001"}' \
   https://slack.com/api/conversations.replies --json
@@ -72,7 +72,7 @@ assistant oauth request --provider slack \
 ### Add a reaction
 
 ```bash
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C0123456789","timestamp":"1716000000.000001","name":"thumbsup"}' \
   https://slack.com/api/reactions.add --json
@@ -81,7 +81,7 @@ assistant oauth request --provider slack \
 ### Send with blocks (rich formatting)
 
 ```bash
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   -X POST \
   -d '{
     "channel":"C0123456789",
@@ -100,14 +100,14 @@ File uploads use a multi-step flow: get an upload URL, upload the file, then com
 
 ```bash
 # Step 1: Get an upload URL
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"filename":"notes.txt","length":42}' \
   https://slack.com/api/files.getUploadURLExternal --json
 
 # Step 2: Upload file content to the returned upload_url (use curl directly)
 # Step 3: Complete the upload
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"files":[{"id":"FILE_ID","title":"Meeting Notes"}],"channel_id":"C0123456789"}' \
   https://slack.com/api/files.completeUploadExternal --json
@@ -116,14 +116,14 @@ assistant oauth request --provider slack \
 ### Search messages
 
 ```bash
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   "https://slack.com/api/search.messages?query=project+launch+in%3A%23general" --json
 ```
 
 ### Open a DM
 
 ```bash
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"users":"U0123456789"}' \
   https://slack.com/api/conversations.open --json
@@ -132,14 +132,14 @@ assistant oauth request --provider slack \
 ## Typical Workflow
 
 1. **Resolve the channel**: `bun skills/slack/scripts/slack-resolve.ts channel general` to get the channel ID.
-2. **Call the API**: Use `assistant oauth request --provider slack` with that ID for the actual operation (send, read, react, etc.).
+2. **Call the API**: Use `assistant oauth request --provider slack_channel` with that ID for the actual operation (send, read, react, etc.).
 3. **For DMs**: Use `bun skills/slack/scripts/slack-resolve.ts user <name>` to get the user ID, then `conversations.open` to get the DM channel ID, then `chat.postMessage` to send the message.
 
 ## User Resolution
 
 When you need to send a DM or look up a Slack user by name, check contacts first to avoid redundant API calls:
 
-1. **Before calling the resolve script**: Use `contact_search` with `query: "<name>"` and `channel_type: "slack"`. If a matching contact has `externalUserId` (Slack user ID) and `externalChatId` (DM channel ID), skip the API lookups and use those IDs directly with `chat.postMessage` via `assistant oauth request --provider slack`.
+1. **Before calling the resolve script**: Use `contact_search` with `query: "<name>"` and `channel_type: "slack"`. If a matching contact has `externalUserId` (Slack user ID) and `externalChatId` (DM channel ID), skip the API lookups and use those IDs directly with `chat.postMessage` via `assistant oauth request --provider slack_channel`.
 
    When `contact_search` returns notes for the recipient, use them to inform the message's tone, formality, and content. Contact notes capture relationship context and communication preferences that should shape how you write to this person.
 
@@ -160,7 +160,7 @@ When you need to send a DM or look up a Slack user by name, check contacts first
 When responding to messages from Slack channels, replies should be threaded. Pass `thread_ts` to `chat.postMessage` to reply in a thread rather than posting a new top-level message:
 
 ```bash
-assistant oauth request --provider slack \
+assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C0123456789","text":"Replying in thread","thread_ts":"1716000000.000001"}' \
   https://slack.com/api/chat.postMessage --json
@@ -182,6 +182,6 @@ If a Slack API call fails due to missing or invalid credentials -- for example, 
 
 ## Delivery Notes
 
-- For rich content (digests, reports, formatted summaries): use `chat.postMessage` with blocks via `assistant oauth request --provider slack`
+- For rich content (digests, reports, formatted summaries): use `chat.postMessage` with blocks via `assistant oauth request --provider slack_channel`
 - For short alerts: `assistant notifications send` via `bash` is fine -- it lets the notification router pick the best channel
 - For scheduled tasks: always include an explicit Slack API call to deliver results, otherwise output only lives in the conversation log

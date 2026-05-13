@@ -71,7 +71,7 @@ export async function slackRequest<T = unknown>(
       "oauth",
       "request",
       "--provider",
-      "slack",
+      "slack_channel",
     ];
 
     args.push("-X", method);
