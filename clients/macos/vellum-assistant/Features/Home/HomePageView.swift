@@ -42,6 +42,11 @@ struct HomePageView: View {
             }
         }
         .background(VColor.surfaceBase)
+        .onChange(of: presentCategories) { _, cats in
+            if let active = activeFilter, !cats.contains(active) {
+                activeFilter = nil
+            }
+        }
         .task {
             await store.load()
             await feedStore.load()
