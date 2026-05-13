@@ -31,6 +31,7 @@ const runBackgroundJobOptions: Array<{
   onConversationCreated?: (id: string) => void;
 }> = [];
 let runBackgroundJobShouldFail = false;
+let runBackgroundJobBootstrapFails = false;
 mock.module("../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: {
     prompt: string;
@@ -40,6 +41,25 @@ mock.module("../runtime/background-job-runner.js", () => ({
     suppressFailureNotifications?: boolean;
     onConversationCreated?: (id: string) => void;
   }) => {
+    runBackgroundJobOptions.push({
+      conversationType: opts.conversationType,
+      scheduleJobId: opts.scheduleJobId,
+      groupId: opts.groupId,
+      suppressFailureNotifications: opts.suppressFailureNotifications,
+      onConversationCreated: opts.onConversationCreated,
+    });
+    // Bootstrap-failure path: the real runner returns conversationId: ""
+    // when `bootstrapConversation` throws before assignment. Skip the
+    // callback (it was never reached) and surface the empty id to the
+    // scheduler so it can exercise the sentinel guard.
+    if (runBackgroundJobBootstrapFails) {
+      return {
+        conversationId: "",
+        ok: false,
+        error: new Error("Bootstrap failure"),
+        errorKind: "exception" as const,
+      };
+    }
     const { createConversation } =
       await import("../memory/conversation-crud.js");
     const conv = createConversation({
@@ -48,13 +68,6 @@ mock.module("../runtime/background-job-runner.js", () => ({
       source: "schedule",
       ...(opts.groupId ? { groupId: opts.groupId } : {}),
       ...(opts.scheduleJobId ? { scheduleJobId: opts.scheduleJobId } : {}),
-    });
-    runBackgroundJobOptions.push({
-      conversationType: opts.conversationType,
-      scheduleJobId: opts.scheduleJobId,
-      groupId: opts.groupId,
-      suppressFailureNotifications: opts.suppressFailureNotifications,
-      onConversationCreated: opts.onConversationCreated,
     });
     // Mirror the real runner's contract: fire the SSE callback synchronously
     // BEFORE the job's processMessage finishes, with the bootstrap-returned
@@ -137,6 +150,7 @@ describe("scheduler conversation reuse", () => {
     processedMessages.length = 0;
     runBackgroundJobOptions.length = 0;
     runBackgroundJobShouldFail = false;
+    runBackgroundJobBootstrapFails = false;
   });
 
   test("recurring schedule with reuseConversation=true reuses conversation across runs", async () => {
@@ -393,6 +407,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     processedMessages.length = 0;
     runBackgroundJobOptions.length = 0;
     runBackgroundJobShouldFail = false;
+    runBackgroundJobBootstrapFails = false;
   });
 
   test("talk-mode propagates conversationType=scheduled, scheduleJobId, and quiet=>suppressFailureNotifications", async () => {
@@ -441,6 +456,38 @@ describe("scheduler talk-mode runner option propagation", () => {
     expect(runBackgroundJobOptions[0]!.suppressFailureNotifications).toBe(
       false,
     );
+  });
+
+  test("talk-mode bootstrap failure writes sentinel conversationId, not empty string", async () => {
+    /**
+     * Regression: `runBackgroundJob` returns `{ conversationId: "", ok: false }`
+     * when bootstrap throws before the conversation row is assigned. The
+     * scheduler previously stored that empty string in the cron_runs DB row.
+     * Guard ensures we substitute a recognizable sentinel.
+     */
+    const rruleExpr = buildEveryMinuteRrule();
+    const schedule = createSchedule({
+      name: "Bootstrap Failure",
+      cronExpression: rruleExpr,
+      message: "x",
+      syntax: "rrule",
+      expression: rruleExpr,
+    });
+    forceScheduleDue(schedule.id);
+    runBackgroundJobBootstrapFails = true;
+
+    const processMessage = async () => {};
+    const scheduler = startScheduler(processMessage, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs.length).toBe(1);
+    expect(runs[0].status).toBe("error");
+    // Critical: must NOT be empty — the DB column should carry a marker that
+    // identifies this run as a bootstrap-failure case.
+    expect(runs[0].conversationId).not.toBe("");
+    expect(runs[0].conversationId).toBe(`bootstrap-error:${schedule.id}`);
   });
 
   test("talk-mode fires onScheduleConversationCreated synchronously via runner callback (BEFORE the runner returns)", async () => {

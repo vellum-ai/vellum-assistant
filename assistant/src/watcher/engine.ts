@@ -263,8 +263,12 @@ export async function runWatchersOnce(
     });
 
     // Persist the per-tick conversation id so downstream surfaces (UI,
-    // store reads) can link back to the most recent watcher run.
-    setWatcherConversationId(watcher.id, result.conversationId);
+    // store reads) can link back to the most recent watcher run. Skip
+    // persistence when the runner failed before bootstrap (conversationId
+    // is empty) — otherwise we'd overwrite a valid prior id with "".
+    if (result.conversationId !== "") {
+      setWatcherConversationId(watcher.id, result.conversationId);
+    }
 
     if (result.ok) {
       // Mark events as silent by default. The LLM is expected to use

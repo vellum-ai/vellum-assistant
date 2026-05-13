@@ -549,7 +549,13 @@ export async function runScheduleOnce(
           });
         },
       });
-      conversationId = result.conversationId;
+      // Bootstrap-failure path returns `conversationId: ""`. Substitute a
+      // sentinel so the schedule-run DB row carries a recognizable marker
+      // instead of an empty string.
+      conversationId =
+        result.conversationId !== ""
+          ? result.conversationId
+          : `bootstrap-error:${job.id}`;
       ok = result.ok;
       errorMsg = result.error?.message;
     }
