@@ -1,3 +1,5 @@
+import { LLM_PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
+
 export interface ApiKeyCheckResult {
   hasKey: boolean;
 }
@@ -22,22 +24,17 @@ function isPlaceholder(value: string | undefined): boolean {
  * The CLI's job is to spawn the daemon and pass configuration via environment
  * variables — it does not read from the .vellum/ directory (see AGENTS.md).
  * Checking process.env is sufficient: the daemon forwards whatever is set
- * in the environment, so exporting a key before running `vellum wake` is the
- * correct way to supply it.
+ * in the environment, so exporting a key before running `vellum hatch` is
+ * the correct way to supply it.
+ *
+ * Uses the canonical LLM provider env-var catalog so the list stays in sync
+ * automatically as new providers are added.
  */
 export function checkProviderApiKey(): ApiKeyCheckResult {
-  const PROVIDER_KEYS = [
-    "ANTHROPIC_API_KEY",
-    "OPENAI_API_KEY",
-    "GEMINI_API_KEY",
-    "OLLAMA_API_KEY",
-  ] as const;
-
-  for (const key of PROVIDER_KEYS) {
-    if (!isPlaceholder(process.env[key])) {
+  for (const envVar of Object.values(LLM_PROVIDER_ENV_VAR_NAMES)) {
+    if (!isPlaceholder(process.env[envVar])) {
       return { hasKey: true };
     }
   }
-
   return { hasKey: false };
 }

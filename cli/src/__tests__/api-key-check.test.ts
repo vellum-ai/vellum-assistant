@@ -6,7 +6,8 @@ const PROVIDER_KEYS = [
   "ANTHROPIC_API_KEY",
   "OPENAI_API_KEY",
   "GEMINI_API_KEY",
-  "OLLAMA_API_KEY",
+  "FIREWORKS_API_KEY",
+  "OPENROUTER_API_KEY",
 ] as const;
 
 beforeEach(() => {
@@ -63,8 +64,14 @@ describe("checkProviderApiKey", () => {
     expect(result.hasKey).toBe(true);
   });
 
-  test("returns hasKey:true when OLLAMA_API_KEY is a real key", () => {
-    process.env.OLLAMA_API_KEY = "ollama-real-key";
+  test("returns hasKey:true when FIREWORKS_API_KEY is a real key", () => {
+    process.env.FIREWORKS_API_KEY = "fw-realkey123";
+    const result = checkProviderApiKey();
+    expect(result.hasKey).toBe(true);
+  });
+
+  test("returns hasKey:true when OPENROUTER_API_KEY is a real key", () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-realkey123";
     const result = checkProviderApiKey();
     expect(result.hasKey).toBe(true);
   });

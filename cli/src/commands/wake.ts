@@ -17,7 +17,6 @@ import {
   startGateway,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
-import { checkProviderApiKey } from "../lib/api-key-check.js";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -155,16 +154,6 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
-    const apiKeyCheck = checkProviderApiKey();
-    if (!apiKeyCheck.hasKey) {
-      console.warn("");
-      console.warn(
-        "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
-      );
-      console.warn("  To fix, export your key before running vellum wake:");
-      console.warn("  export ANTHROPIC_API_KEY=<your-key>");
-      console.warn("");
-    }
     await startLocalDaemon(watch, resources, { foreground, signingKey });
   }
 
