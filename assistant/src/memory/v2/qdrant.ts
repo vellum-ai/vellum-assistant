@@ -492,6 +492,72 @@ export async function pruneSlugsWithPrefixExcept(
 }
 
 /**
+ * Set `payload.kind` on every point whose slug starts with `prefix` and is
+ * currently missing the `kind` discriminator. Used to tag legacy rows that
+ * predate the kind field so the kind-scoped
+ * {@link pruneSlugsWithPrefixExcept} no longer leaves them as orphans.
+ *
+ * The "missing kind" predicate is pushed to Qdrant via `is_empty`, so once
+ * every legacy row has been tagged the scroll returns the bounded set of
+ * other kindless concept pages without ever touching the already-tagged
+ * rows. Idempotent across retries: a row tagged by an earlier partial run
+ * no longer matches the filter and is silently skipped.
+ */
+export async function backfillKindOnPointsWithPrefix(
+  prefix: string,
+  kind: string,
+): Promise<number> {
+  await ensureConceptPageCollection();
+
+  const client = getClient();
+
+  const doBackfill = async (): Promise<number> => {
+    const pointIds: Array<string | number> = [];
+    let offset: string | number | undefined = undefined;
+    const maxIterations = 10_000;
+    const batchSize = 256;
+    for (let i = 0; i < maxIterations; i++) {
+      const result = await client.scroll(MEMORY_V2_COLLECTION, {
+        limit: batchSize,
+        with_payload: true,
+        with_vector: false,
+        filter: { must: [{ is_empty: { key: "kind" } }] },
+        ...(offset !== undefined ? { offset } : {}),
+      });
+      for (const point of result.points) {
+        const slug = (point.payload as { slug?: unknown } | null)?.slug;
+        if (typeof slug !== "string") continue;
+        if (!slug.startsWith(prefix)) continue;
+        pointIds.push(point.id);
+      }
+      const next = result.next_page_offset;
+      if (next == null) break;
+      offset = typeof next === "string" ? next : (next as number);
+    }
+
+    if (pointIds.length === 0) return 0;
+
+    await client.setPayload(MEMORY_V2_COLLECTION, {
+      payload: { kind },
+      points: pointIds,
+      wait: true,
+    });
+    return pointIds.length;
+  };
+
+  try {
+    return await doBackfill();
+  } catch (err) {
+    if (isCollectionMissing(err)) {
+      _collectionReady = false;
+      await ensureConceptPageCollection();
+      return await doBackfill();
+    }
+    throw err;
+  }
+}
+
+/**
  * Approximate count of points in the v2 concept-page collection. Used by the
  * daemon-startup rebuild hook to detect "collection exists but empty" — the
  * crash-mid-rebuild recovery case where a prior boot dropped + recreated the

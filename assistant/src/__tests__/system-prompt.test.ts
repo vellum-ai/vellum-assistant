@@ -217,14 +217,6 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain("browser automation as last resort");
   });
 
-  test("includes inline media attachment guidance", () => {
-    const result = buildSystemPrompt();
-    expect(result).toContain(
-      "Image and video attachments can render inline in chat.",
-    );
-    expect(result).toContain("attach it instead of only printing its path");
-  });
-
   test("does not include removed sections", () => {
     const result = buildSystemPrompt();
     expect(result).not.toContain("## External Communications Identity");
@@ -752,17 +744,46 @@ describe("buildSystemPrompt", () => {
         expect(staticBlock).toContain("## Assistant CLI");
       });
 
-      test("renders before the attachment section so CLI guidance comes first", () => {
+      test("omits the section when the workspace file is missing", () => {
+        // No write — workspace dir empty (or only contains other sections).
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("## Assistant CLI");
+      });
+    });
+
+    describe("attachment section (slot 04)", () => {
+      const ATTACHMENT_FILE = join(SYSTEM_PROMPTS_DIR, "04-attachment.md");
+
+      test("workspace attachment file is rendered into the static block", () => {
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
         writeFileSync(
-          CLI_REFERENCE_FILE,
+          ATTACHMENT_FILE,
+          "## Sending Files to the User\n\nUse the `<vellum-attachment />` tag.\n",
+        );
+        const result = buildSystemPrompt();
+        expect(result).toContain("## Sending Files to the User");
+        expect(result).toContain("Use the `<vellum-attachment />` tag.");
+        // Section lives in the static (cached) block.
+        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        expect(boundaryIdx).toBeGreaterThan(-1);
+        const staticBlock = result.slice(0, boundaryIdx);
+        expect(staticBlock).toContain("## Sending Files to the User");
+      });
+
+      test("renders after the cli-reference section to preserve original order", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          join(SYSTEM_PROMPTS_DIR, "03-cli-reference.md"),
           "## Assistant CLI\n\nUse `assistant --help`.\n",
+        );
+        writeFileSync(
+          ATTACHMENT_FILE,
+          "## Sending Files to the User\n\nbody.\n",
         );
         const result = buildSystemPrompt();
         const cliIdx = result.indexOf("## Assistant CLI");
-        const attachmentIdx = result.indexOf(
-          "## Sending Files to the User",
-        );
+        const attachmentIdx = result.indexOf("## Sending Files to the User");
         expect(cliIdx).toBeGreaterThan(-1);
         expect(attachmentIdx).toBeGreaterThan(-1);
         expect(cliIdx).toBeLessThan(attachmentIdx);
@@ -772,7 +793,7 @@ describe("buildSystemPrompt", () => {
         // No write — workspace dir empty (or only contains other sections).
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
         const result = buildSystemPrompt();
-        expect(result).not.toContain("## Assistant CLI");
+        expect(result).not.toContain("## Sending Files to the User");
       });
     });
 

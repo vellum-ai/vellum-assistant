@@ -24,6 +24,11 @@
 //     conversation might be the active one. We're conservative and only
 //     sweep when no job exists at all, since the worst-case false-positive
 //     is leaving a few extra orphans for the next sweep to catch.)
+//   - AND the row is NOT the most-recent retrospective for its source
+//     conversation. The next retrospective run reads the most-recent prior
+//     retro via `findMostRecentRetrospectiveFor` to seed its
+//     `<already_remembered>` dedup block; sweeping it would force the
+//     next run to re-save facts the prior pass already captured.
 
 import { and, eq, inArray, isNotNull, lt, notInArray, sql } from "drizzle-orm";
 
@@ -53,7 +58,14 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   const cutoff = now - ORPHAN_AGE_MS;
   const db = getDb();
 
-  const activeJobConversationIds = db
+  // Job payloads encode the SOURCE conversation id (the conversation being
+  // analyzed), not the background-conversation id of the retrospective itself.
+  // The background conversation links back to its source via
+  // `forkParentConversationId` (set when bootstrapped — see
+  // memory-retrospective-job.ts). To protect in-flight jobs we therefore
+  // compare source-id to source-id by filtering on
+  // `conversations.forkParentConversationId`, not `conversations.id`.
+  const activeJobSourceConversationIds = db
     .select({
       conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
     })
@@ -68,6 +80,40 @@ export function sweepOrphanMemoryRetrospectiveConversations(
     .map((row) => row.conversationId)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 
+  // Compute the most-recent retro per source so we can preserve it.
+  // `findMostRecentRetrospectiveFor` (called by the next retrospective run)
+  // pulls dedup context from this row; sweeping it would re-introduce the
+  // unbounded-growth bug PR #30331 was created to fix.
+  const allRetros = db
+    .select({
+      id: conversations.id,
+      forkParentConversationId: conversations.forkParentConversationId,
+      createdAt: conversations.createdAt,
+    })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.source, MEMORY_RETROSPECTIVE_SOURCE),
+        isNotNull(conversations.forkParentConversationId),
+      ),
+    )
+    .all();
+  const mostRecentPerSource = new Map<
+    string,
+    { id: string; createdAt: number }
+  >();
+  for (const row of allRetros) {
+    const parent = row.forkParentConversationId;
+    if (parent === null) continue;
+    const cur = mostRecentPerSource.get(parent);
+    if (!cur || row.createdAt > cur.createdAt) {
+      mostRecentPerSource.set(parent, { id: row.id, createdAt: row.createdAt });
+    }
+  }
+  const preservedIds = new Set(
+    Array.from(mostRecentPerSource.values(), (v) => v.id),
+  );
+
   const orphans = db
     .select({ id: conversations.id })
     .from(conversations)
@@ -79,12 +125,16 @@ export function sweepOrphanMemoryRetrospectiveConversations(
         // last_message_at value are too fresh to assess.
         isNotNull(conversations.lastMessageAt),
         lt(conversations.lastMessageAt, cutoff),
-        activeJobConversationIds.length > 0
-          ? notInArray(conversations.id, activeJobConversationIds)
+        activeJobSourceConversationIds.length > 0
+          ? notInArray(
+              conversations.forkParentConversationId,
+              activeJobSourceConversationIds,
+            )
           : sql`1=1`,
       ),
     )
-    .all();
+    .all()
+    .filter((row) => !preservedIds.has(row.id));
 
   let swept = 0;
   for (const row of orphans) {

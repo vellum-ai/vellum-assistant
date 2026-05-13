@@ -18,6 +18,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
+import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -31,12 +32,14 @@ import { getLogger } from "../util/logger.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
+import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { repairHistory } from "./history-repair.js";
 import type {
   SurfaceData,
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
+import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-lifecycle");
 
@@ -113,7 +116,7 @@ export interface LoadFromDbContext {
   usageStats: UsageStats;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
-  trustContext?: { trustClass: TrustClass };
+  trustContext?: TrustContext;
   loadedHistoryTrustClass?: TrustClass;
 }
 
@@ -184,7 +187,16 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
   }
 
-  const personalMemoryAllowed = !isUntrustedTrustClass(trustClass);
+  // Mirror the injection-time gate (`shouldExposePersonalMemory` in
+  // `conversation-agent-loop.ts`) so background/local conversations
+  // (sourceChannel `undefined` or `"vellum"`) can rehydrate the persisted
+  // v2 static memory block. Use `resolveTrustClass` for parity with the
+  // agent loop — it folds in the HTTP-auth-disabled dev bypass so
+  // rehydration and injection agree on the effective trust class.
+  const personalMemoryAllowed = shouldExposePersonalMemory({
+    sourceChannel: ctx.trustContext?.sourceChannel,
+    isTrustedActor: resolveTrustClass(ctx.trustContext) === "guardian",
+  });
   const parsedMessages: Message[] = dbMessages
     .slice(ctx.contextCompactedMessageCount)
     .map((m, index, arr) => {
@@ -212,21 +224,19 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           const meta = JSON.parse(m.metadata);
           const isTail = index === arr.length - 1;
 
-          // All rehydration steps are prepends — the ordering below
-          // (innermost block first, outermost last) builds the documented
-          // shape right-to-left, since each prepend shifts previously-
-          // prepended blocks one slot right:
-          //   [<workspace>, <turn_context>, <NOW.md>, <memory __injected>,
-          //    <memory>\n…</memory>, <system_reminder>, <knowledge_base>,
-          //    ...original]
-          //
-          // Persisted non-tail rows rehydrate the full set so Anthropic's
-          // prefix cache keeps matching msg[0] across daemon restarts and
-          // conversation eviction. The tail row gets fresh blocks via
-          // applyRuntimeInjections on the next turn, so rehydration for the
-          // tail is limited to blocks that the next turn's injection pipeline
-          // cannot reconstruct (currently just `memoryInjectedBlock`, which
-          // is not always re-injected on the next turn).
+          // Rehydrate in reverse injection order (innermost block first)
+          // so the resulting layout matches `applyRuntimeInjections`'s
+          // after-memory-prefix splices in ascending injector order
+          // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
+          // now-md 40 — the v2 static block lands inside the memory
+          // prefix, so now-md splices *after* it):
+          //   [<workspace>, <turn_context>, <memory __injected>,
+          //    <memory>\n…</memory>, <NOW.md>, <system_reminder>,
+          //    <knowledge_base>, ...original]
+          // Required so Anthropic's prefix cache keeps matching msg[0]
+          // across daemon restart and conversation eviction. The tail
+          // row only rehydrates `memoryInjectedBlock` — the next turn
+          // re-injects the rest fresh.
           if (!isTail && typeof meta.pkbContextBlock === "string") {
             content = [
               { type: "text" as const, text: meta.pkbContextBlock },
@@ -237,6 +247,13 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
             content = [
               { type: "text" as const, text: meta.pkbSystemReminderBlock },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.nowScratchpadBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.nowScratchpadBlock },
               ...content,
             ];
           }
@@ -277,13 +294,6 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
                 type: "text" as const,
                 text: `<memory>\n${inner}\n</memory>`,
               },
-              ...content,
-            ];
-          }
-
-          if (!isTail && typeof meta.nowScratchpadBlock === "string") {
-            content = [
-              { type: "text" as const, text: meta.nowScratchpadBlock },
               ...content,
             ];
           }
@@ -423,6 +433,23 @@ export function disposeConversation(ctx: DisposeContext): void {
           // Best-effort — don't block conversation disposal
         }
       }
+
+      try {
+        // Memory-retrospective lifecycle safety-net. The periodic triggers
+        // (interval / message_count / pre-compaction) handle the common
+        // path; lifecycle catches the gap between the last interval fire
+        // and conversation eviction. The job's `no_new_messages` early
+        // return makes this a cheap no-op when the periodic path already
+        // covered things. Lives inside the `!isAutoAnalysis` guard so
+        // auto-analysis conversations don't trigger retrospective enqueues
+        // on disposal — mirrors the indexer-time gate in `indexer.ts`.
+        enqueueMemoryRetrospectiveIfEnabled({
+          conversationId: ctx.conversationId,
+          trigger: "lifecycle",
+        });
+      } catch {
+        // Best-effort — don't block conversation disposal
+      }
     }
 
     try {
@@ -430,22 +457,6 @@ export function disposeConversation(ctx: DisposeContext): void {
       // (it checks `isAutoAnalysisConversation()`), so it's safe to call
       // unconditionally here.
       enqueueAutoAnalysisIfEnabled({
-        conversationId: ctx.conversationId,
-        trigger: "lifecycle",
-      });
-    } catch {
-      // Best-effort — don't block conversation disposal
-    }
-
-    try {
-      // Memory-retrospective lifecycle safety-net. The periodic triggers
-      // (interval / message_count / pre-compaction) handle the common
-      // path; lifecycle catches the gap between the last interval fire
-      // and conversation eviction. The job's `no_new_messages` early
-      // return makes this a cheap no-op when the periodic path already
-      // covered things. `enqueueMemoryRetrospectiveIfEnabled` has its
-      // own internal recursion guard.
-      enqueueMemoryRetrospectiveIfEnabled({
         conversationId: ctx.conversationId,
         trigger: "lifecycle",
       });

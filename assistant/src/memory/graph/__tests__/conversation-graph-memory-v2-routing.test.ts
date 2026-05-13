@@ -107,18 +107,20 @@ mock.module("@qdrant/js-client-rest", () => ({
   QdrantClient: MockQdrantClient,
 }));
 
+const embedWithBackendMock = mock(async (_config, texts: string[]) => ({
+  provider: "local",
+  model: "test-model",
+  vectors: texts.map(() => [0.1, 0.2, 0.3]) as number[][],
+}));
+const generateSparseEmbeddingMock = mock((_text: string) => ({
+  indices: [1, 2, 3],
+  values: [0.5, 0.5, 0.5] as number[],
+}));
 const realEmbeddingBackend = await import("../../embedding-backend.js");
 mock.module("../../embedding-backend.js", () => ({
   ...realEmbeddingBackend,
-  embedWithBackend: async () => ({
-    provider: "local",
-    model: "test-model",
-    vectors: [[0.1, 0.2, 0.3]] as number[][],
-  }),
-  generateSparseEmbedding: () => ({
-    indices: [1, 2, 3],
-    values: [0.5, 0.5, 0.5] as number[],
-  }),
+  embedWithBackend: embedWithBackendMock,
+  generateSparseEmbedding: generateSparseEmbeddingMock,
 }));
 
 const realQdrantClient = await import("../../qdrant-client.js");
@@ -293,6 +295,8 @@ beforeEach(() => {
   qdrantState.queryResponses.sparse.length = 0;
   loadContextMemoryMock.mockClear();
   retrieveForTurnMock.mockClear();
+  embedWithBackendMock.mockClear();
+  generateSparseEmbeddingMock.mockClear();
   _resetMemoryV2QdrantForTests();
 });
 
@@ -388,6 +392,59 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
     expect(firstBlock.text.match(/<\/memory>/g)?.length).toBe(1);
     expect(firstBlock.text).toContain("# memory/concepts/alice-vscode.md");
+  });
+
+  test("per-turn dense embedding is computed from combined assistant+user text", async () => {
+    // Short referential follow-ups ("do that one") carry no semantic signal
+    // on their own — the dense PKB query embedding must mirror v1's
+    // `retrieveForTurn` and combine the prior assistant turn so hint search
+    // still resolves what "that one" refers to. The sparse vector matches
+    // v1 by using the user message alone so lexical signal isn't diluted.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    const memory = makeMemory();
+    const config = makeConfig(true);
+    const assistantText =
+      "Alice prefers VS Code as her editor — she finds the extension ecosystem unmatched.";
+    const userText = "do that one";
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text" as const, text: "what editors did we cover?" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text" as const, text: assistantText }],
+      },
+      { role: "user", content: [{ type: "text" as const, text: userText }] },
+    ];
+
+    await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+
+    // v1's `retrieveForTurn` joins assistantLast + userLast with "\n\n" and
+    // embeds the combined string as the dense query vector. Assert the v2
+    // path makes the exact same embed call somewhere during this turn.
+    const expectedCombined = `${assistantText}\n\n${userText}`;
+    const matchingCall = embedWithBackendMock.mock.calls.find((call) => {
+      const texts = call[1] as string[];
+      return texts.length === 1 && texts[0] === expectedCombined;
+    });
+    expect(matchingCall).toBeDefined();
+
+    // Sparse embedding for the per-turn query uses userLast only.
+    expect(generateSparseEmbeddingMock.mock.calls).toContainEqual([userText]);
+    expect(
+      generateSparseEmbeddingMock.mock.calls.some((call) =>
+        (call[0] as string).includes(assistantText),
+      ),
+    ).toBe(false);
   });
 
   test("config on with empty Qdrant hits → no v2 block, v1 fallback skipped", async () => {

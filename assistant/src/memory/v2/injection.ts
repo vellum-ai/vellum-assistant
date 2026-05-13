@@ -144,6 +144,7 @@ export async function injectMemoryV2Block(
   } = params;
 
   const workspaceDir = getWorkspaceDir();
+  const mode: InjectMemoryV2Mode = params.mode ?? "per-turn";
 
   // (1) Hydrate. Missing rows are normal at conversation start — proceed
   // with an effective empty prior state so the first turn can still inject.
@@ -155,7 +156,14 @@ export async function injectMemoryV2Block(
   // for persistence, render, and telemetry. The activation pipeline below
   // remains the default (flag-off) behavior — every code path past this
   // branch only runs when the router is disabled.
-  if (config.memory.v2.router.enabled) {
+  //
+  // Restricted to `mode === "per-turn"`: `context-load` (the full top-K
+  // bootstrap after compaction/reload) must always re-emit pages the user
+  // just lost. The router's abstention + `everInjected` dedupe is correct
+  // for per-turn delta injection but breaks context-restoration — pages
+  // already in `everInjected` from before compaction would be filtered out
+  // and never re-attached.
+  if (config.memory.v2.router.enabled && mode === "per-turn") {
     return injectViaRouter({
       workspaceDir,
       database,
@@ -214,7 +222,6 @@ export async function injectMemoryV2Block(
   // prior cached attachments don't exist or have been thrown away. The user
   // message gets a complete top-K dump alongside the static
   // essentials/threads/recent block, then per-turn turns just add deltas.
-  const mode: InjectMemoryV2Mode = params.mode ?? "per-turn";
   const priorEverInjected: readonly EverInjectedEntry[] =
     priorState?.everInjected ?? [];
   const { topNow, toInject } = selectInjections({
@@ -310,6 +317,14 @@ async function finalizeInjection(args: {
   telemetryRows: MemoryV2ConceptRowRecord[];
   config: AssistantConfig;
   nextStateMap: Record<string, number>;
+  /**
+   * When true, errors thrown inside the helper (save / render / status
+   * finalization) are logged and swallowed instead of re-thrown. Used by
+   * the router-failure path, which is already a best-effort cleanup: a
+   * transient SQLite write here must not abort the turn on top of the
+   * router failure that already happened. Defaults to throwing.
+   */
+  bestEffort?: boolean;
 }): Promise<InjectMemoryV2BlockResult> {
   const {
     workspaceDir,
@@ -449,9 +464,16 @@ async function finalizeInjection(args: {
   } catch (err) {
     // Stash the error and let `finally` flush a best-effort telemetry row
     // before we re-throw to the caller. `mode = "errored"` flags the row
-    // for observability dashboards / inspector queries.
+    // for observability dashboards / inspector queries. On the best-effort
+    // path the error is logged and swallowed so the trailing return stands.
     caughtErr = err;
     mode = "errored";
+    if (args.bestEffort) {
+      log.warn(
+        { err, conversationId, turn: currentTurn },
+        "Memory v2 finalizeInjection error on best-effort path — swallowing",
+      );
+    }
   } finally {
     try {
       recordMemoryV2ActivationLog({
@@ -469,7 +491,7 @@ async function finalizeInjection(args: {
     }
   }
 
-  if (caughtErr !== undefined) throw caughtErr;
+  if (caughtErr !== undefined && !args.bestEffort) throw caughtErr;
   return { block, toInject: newlyInjected };
 }
 
@@ -537,7 +559,10 @@ async function injectViaRouter(args: {
     // (preserving `priorEverInjected` so future turns still subtract
     // previously-attached slugs) and writes the telemetry row through the
     // same code path as the success branch — no inline duplication of
-    // `save` + `recordMemoryV2ActivationLog`.
+    // `save` + `recordMemoryV2ActivationLog`. `bestEffort: true` matches
+    // the pre-refactor inline behavior of logging and continuing if the
+    // stub-state `save()` throws — we don't want a transient SQLite write
+    // to abort the turn on top of the router failure that already happened.
     return finalizeInjection({
       workspaceDir,
       database,
@@ -550,6 +575,7 @@ async function injectViaRouter(args: {
       telemetryRows: [],
       config,
       nextStateMap: {},
+      bestEffort: true,
     });
   }
 

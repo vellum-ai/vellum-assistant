@@ -36,6 +36,7 @@ import {
 } from "../embedding-backend.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
+  backfillKindOnPointsWithPrefix,
   pruneSlugsWithPrefixExcept,
   upsertConceptPageEmbedding,
 } from "./qdrant.js";
@@ -94,6 +95,13 @@ let entries: Map<string, SkillEntry> | null = null;
 let seedTail: Promise<void> = Promise.resolve();
 let seedPending: Promise<void> | null = null;
 let lastSeedError: unknown = null;
+
+/**
+ * In-process latch for the legacy `kind` backfill (see
+ * {@link backfillKindOnPointsWithPrefix}). New upserts always write `kind`,
+ * so once the latch is set there is no follow-up work to do this process.
+ */
+let legacyKindBackfillDone = false;
 
 export async function seedV2SkillEntries(
   opts: { throwOnError?: boolean } = {},
@@ -233,6 +241,24 @@ async function runSeedOnce(): Promise<void> {
     // uninstalled catalog skills should exist, so skip pruning entirely to
     // avoid aggressively removing previously-seeded catalog skill embeddings.
     if (catalogAvailable) {
+      // Tag legacy skill points missing `payload.kind` before pruning so the
+      // kind-scoped prune can see them. Once-per-process; the backfill is
+      // idempotent (server-side `is_empty` filter), so a partial failure
+      // converges on retry.
+      if (!legacyKindBackfillDone) {
+        try {
+          await backfillKindOnPointsWithPrefix(
+            SKILL_SLUG_PREFIX,
+            SKILL_PAYLOAD_KIND,
+          );
+          legacyKindBackfillDone = true;
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to backfill kind on legacy skill points — pruning may leave orphans this run",
+          );
+        }
+      }
       await pruneSlugsWithPrefixExcept(
         SKILL_SLUG_PREFIX,
         seeds.map((s) => s.id),
@@ -301,4 +327,5 @@ export function _resetSkillStoreForTests(): void {
   seedTail = Promise.resolve();
   seedPending = null;
   lastSeedError = null;
+  legacyKindBackfillDone = false;
 }
