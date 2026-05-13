@@ -375,6 +375,47 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(stored?.contextWindowMaxInputTokens, 175000)
     }
 
+    /// Regression: when `replaceInferenceProfile` succeeds but the
+    /// follow-up `profileOrder` PATCH fails, the local cache must not be
+    /// left in a state where `profiles` contains a new entry that is
+    /// missing from `profileOrder`. Otherwise a caller retry sees the
+    /// "already exists" collision in `profiles` and
+    /// `reorderPublishedProfiles` silently drops the unlisted entry on the
+    /// next reorder pass.
+    func testReplaceProfileFailedOrderPatchRebuildsLocalOrder() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profileOrder": ["balanced"],
+                "profiles": [
+                    "balanced": ["model": "claude-sonnet-4-6"],
+                ],
+            ]
+        ])
+        // The first PATCH after `replaceInferenceProfile` is the
+        // `profileOrder` patch — fail it to exercise the recovery path.
+        mockSettingsClient.patchConfigResponse = false
+
+        let newProfile = InferenceProfile(
+            name: "experimental",
+            provider: "anthropic",
+            model: "claude-opus-4-7"
+        )
+        let success = await store.replaceProfile(name: "experimental", fragment: newProfile)
+        XCTAssertFalse(success)
+
+        // The server-side replace already succeeded, so the new profile
+        // must be present in the local cache to mirror persisted state.
+        XCTAssertTrue(store.profiles.contains(where: { $0.name == "experimental" }))
+        // profileOrder must be rebuilt as a stable sort over `profiles`
+        // so it includes the new name. A retry must not see a stuck
+        // "already exists" collision against an out-of-order cache.
+        XCTAssertEqual(store.profileOrder, ["balanced", "experimental"])
+        XCTAssertEqual(Set(store.profileOrder), Set(store.profiles.map(\.name)))
+        // `reorderPublishedProfiles` must not silently drop the new
+        // profile — published `profiles` and `profileOrder` must agree.
+        XCTAssertEqual(store.profiles.map(\.name).sorted(), store.profileOrder)
+    }
+
     // MARK: - deleteProfile blocked-by-active
 
     func testDeleteProfileBlockedByActive() async {
