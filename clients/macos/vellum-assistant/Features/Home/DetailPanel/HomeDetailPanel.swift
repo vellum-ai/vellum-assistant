@@ -64,7 +64,7 @@ struct HomeDetailPanel<Content: View>: View {
 
             Spacer(minLength: 0)
         }
-        .frame(width: Self.defaultWidth)
+        .frame(maxWidth: .infinity)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         .overlay(
@@ -121,7 +121,6 @@ struct HomeDetailPanel<Content: View>: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity)
         .padding(EdgeInsets(
             top: VSpacing.md,
             leading: VSpacing.lg,
