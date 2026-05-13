@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import { detectUnknownCommand } from "../lib/unknown-command.js";
+import { buildCliProgram } from "../program.js";
 import { runAssistantCommandFull } from "./run-assistant-command.js";
 
 describe("unknown command handling", () => {
@@ -29,5 +31,27 @@ describe("unknown command handling", () => {
 
     expect(stderr).toContain("unknown command 'xyzzy'");
     expect(stderr).not.toContain("Did you mean");
+  });
+
+  // The `--help` flag triggers Commander's help short-circuit before any
+  // action or hook runs, so the in-action detection in default-action.ts
+  // can't catch it. The entrypoint pre-scans argv via detectUnknownCommand
+  // to surface the error before Commander handles --help. This test guards
+  // that path against regression.
+  it("detects an unknown subcommand even when --help is passed", async () => {
+    const program = await buildCliProgram();
+    expect(detectUnknownCommand(program, ["invalid", "--help"])).toEqual({
+      token: "invalid",
+    });
+    expect(detectUnknownCommand(program, ["confg", "--help"])).toEqual({
+      token: "confg",
+      suggestion: "config",
+    });
+  });
+
+  it("does not flag known commands when --help is passed", async () => {
+    const program = await buildCliProgram();
+    expect(detectUnknownCommand(program, ["status", "--help"])).toBeNull();
+    expect(detectUnknownCommand(program, ["config", "list", "--help"])).toBeNull();
   });
 });
