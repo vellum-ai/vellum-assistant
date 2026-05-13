@@ -69,6 +69,12 @@ export interface SkillsDraftRequest {
   sourceText: string;
 }
 
+export interface SkillsImportRequest {
+  type: "skills_import";
+  fileName: string;
+  fileContent: string; // base64-encoded ZIP or tar.gz
+}
+
 export interface SkillsCreateRequest {
   type: "skills_create";
   skillId: string;
@@ -265,7 +271,8 @@ export type _SkillsClientMessages =
   | SkillsSearchRequest
   | SkillsInspectRequest
   | SkillsDraftRequest
-  | SkillsCreateRequest;
+  | SkillsCreateRequest
+  | SkillsImportRequest;
 
 export type _SkillsServerMessages =
   | SkillsListResponse
