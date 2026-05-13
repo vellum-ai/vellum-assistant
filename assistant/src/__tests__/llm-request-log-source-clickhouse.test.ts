@@ -162,6 +162,40 @@ describe("ClickHouseLlmRequestLogSource", () => {
     expect(rows).toEqual([]);
   });
 
+  test("getRequestLogsByMessageId binds message ids via parameterized placeholders", async () => {
+    // Regression for ATL-537. `getAssistantMessageIdsInTurn` returns the
+    // caller-supplied id straight through when the message lookup misses,
+    // so the value passed in here is what the IN clause receives. The id
+    // ends in a backslash on purpose: with the old inline-literal approach
+    // (quote-doubling only), ClickHouse would honor `\'` as an escaped
+    // quote and the string literal would break out of the IN clause.
+    // The fix binds each id as a typed `{id_N:String}` parameter, so the
+    // hostile content flows as data, never syntax.
+    const recorder: FakeFetchCall[] = [];
+    const malicious = "foo\\";
+    const src = makeSource({
+      body: "",
+      recorder,
+      resolveTurnMessageIds: () => [malicious, "msg-b"],
+    });
+    await src.getRequestLogsByMessageId(malicious);
+    expect(recorder).toHaveLength(1);
+    const call = recorder[0]!;
+    const parsed = new URL(call.url);
+    expect(parsed.searchParams.get("param_assistant_id")).toBe(
+      "asst-fixture-001",
+    );
+    expect(parsed.searchParams.get("param_id_0")).toBe(malicious);
+    expect(parsed.searchParams.get("param_id_1")).toBe("msg-b");
+    const body = String(call.init?.body ?? "");
+    expect(body).toContain("message_id IN ({id_0:String},{id_1:String})");
+    // No inline single-quoted literal should appear for the IN clause:
+    // if any caller-supplied id surfaces unbound in the SQL, that's the
+    // injection surface the regression test guards against.
+    expect(body).not.toContain(`'${malicious}'`);
+    expect(body).not.toContain(`'msg-b'`);
+  });
+
   test("missing clickhouse:url credential surfaces a clear error", async () => {
     const src = new ClickHouseLlmRequestLogSource(DEFAULT_CONFIG, {
       resolveUrl: async () => null,

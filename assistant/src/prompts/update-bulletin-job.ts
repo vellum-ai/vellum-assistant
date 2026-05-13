@@ -7,6 +7,7 @@ import {
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
+import { hasReceivedUserMessage } from "../runtime/pre-first-message-gate.js";
 import { getLogger } from "../util/logger.js";
 import {
   getWorkspaceDirDisplay,
@@ -74,6 +75,21 @@ function readTrimmedContent(path: string): ReadResult {
  */
 export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
   if (getConfig().updates.enabled === false) {
+    return;
+  }
+
+  // Warm-pool guard: don't process release notes before a real user has
+  // interacted with the assistant. Provider credentials are typically not
+  // registered until the user hatches the image, so this job would fail
+  // and leave a "Background job failed: update-bulletin" row in the
+  // sidebar the user inherits at hatch time. The checkpoint is left
+  // untouched on purpose — once the user sends their first message, the
+  // job runs on the next daemon start (or after the next UPDATES.md
+  // change) with normal semantics.
+  if (!hasReceivedUserMessage()) {
+    log.info(
+      "update-bulletin-job: skipped — daemon has not received a first user message yet",
+    );
     return;
   }
 

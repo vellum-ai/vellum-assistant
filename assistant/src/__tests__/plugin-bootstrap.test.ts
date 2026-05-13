@@ -43,7 +43,6 @@ import {
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
-  ASSISTANT_API_VERSIONS,
   getInjectors,
   getMiddlewaresFor,
   registerPlugin,
@@ -84,7 +83,6 @@ function buildPlugin(
     onShutdown?: () => Promise<void>;
   } = {},
   options: {
-    requires?: Record<string, string>;
     requiresCredential?: string[];
     requiresFlag?: string[];
   } = {},
@@ -111,7 +109,6 @@ function buildPlugin(
     manifest: {
       name,
       version: "0.0.1",
-      requires: options.requires ?? { pluginRuntime: "v1" },
       ...(options.requiresCredential
         ? { requiresCredential: options.requiresCredential }
         : {}),
@@ -161,10 +158,6 @@ describe("plugin bootstrap", () => {
     );
     expect(existsSync(ctx.pluginStorageDir)).toBe(true);
     expect(ctx.assistantVersion).toBe("9.9.9-test");
-    // apiVersions must surface the canonical capability table from the
-    // registry so plugins can negotiate at runtime.
-    expect(ctx.apiVersions).toBe(ASSISTANT_API_VERSIONS);
-    expect(ctx.apiVersions.pluginRuntime).toEqual(["v1"]);
   });
 
   test("credential resolution: init receives the resolved value under credentials[key]", async () => {
@@ -215,29 +208,15 @@ describe("plugin bootstrap", () => {
     expect(msg).toContain("absent-key");
   });
 
-  test("version mismatch: registration surfaces a clear error naming the plugin", () => {
-    // The assistant only exposes pluginRuntime@v1 — asking for v99 must fail
-    // registration with the plugin name in the message. The error is raised
-    // at registerPlugin() rather than bootstrap, because the registry is the
-    // single authoritative point of capability validation.
-    const plugin = buildPlugin(
-      "from-the-future",
-      {},
-      { requires: { pluginRuntime: "v99" } },
-    );
-
-    let caught: unknown;
-    try {
-      registerPlugin(plugin);
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(PluginExecutionError);
-    const msg = (caught as PluginExecutionError).message;
-    expect(msg).toContain("from-the-future");
-    expect(msg).toContain("pluginRuntime");
-    expect(msg).toContain("v99");
-    expect((caught as PluginExecutionError).pluginName).toBe("from-the-future");
+  test("version mismatch: external plugin loader rejects when peerDependency unsatisfied", async () => {
+    // Host-compat negotiation lives in the external-plugin loader against
+    // `peerDependencies["@vellumai/plugin-api"]`. The registry no longer
+    // re-validates a manifest-level `requires` block — the loader is the
+    // single authoritative point. End-to-end coverage of the loader path
+    // lives in `external-plugin-loader.test.ts`; this test asserts the
+    // bootstrap doesn't gain its own validation surface.
+    const plugin = buildPlugin("compat-claim-checked-upstream");
+    expect(() => registerPlugin(plugin)).not.toThrow();
   });
 
   test("plugin init throw: bootstrap throws a PluginExecutionError naming the plugin", async () => {

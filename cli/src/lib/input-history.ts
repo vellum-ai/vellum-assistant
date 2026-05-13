@@ -1,16 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { homedir } from "os";
-import { dirname, join } from "path";
+import { dirname } from "path";
+
+import { getInputHistoryPath } from "./environments/paths.js";
 
 const MAX_ENTRIES = 1000;
 
-function historyPath(): string {
-  return join(homedir(), ".vellum", "input-history");
-}
-
 export function loadHistory(): string[] {
   try {
-    const path = historyPath();
+    const path = getInputHistoryPath();
     if (!existsSync(path)) return [];
     const content = readFileSync(path, "utf-8");
     return content
@@ -26,7 +23,7 @@ export function appendHistory(entry: string): void {
   const trimmed = entry.trim();
   if (!trimmed || trimmed.startsWith("/")) return;
   try {
-    const path = historyPath();
+    const path = getInputHistoryPath();
     const dir = dirname(path);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });

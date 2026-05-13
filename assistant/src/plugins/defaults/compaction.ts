@@ -112,10 +112,6 @@ export const defaultCompactionPlugin: Plugin = {
   manifest: {
     name: DEFAULT_COMPACTION_PLUGIN_NAME,
     version: "1.0.0",
-    requires: {
-      pluginRuntime: "v1",
-      compactionApi: "v1",
-    },
   },
   middleware: {
     compaction: defaultCompactionMiddleware,

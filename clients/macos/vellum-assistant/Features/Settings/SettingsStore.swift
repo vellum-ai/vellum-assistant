@@ -1187,17 +1187,23 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Provider Capability Helpers
 
-    /// Provider IDs that support managed proxy routing (i.e., can be used in managed mode).
-    /// Mirrors the `MANAGED_PROVIDER_META` table in the backend.
-    private static let managedCapableProviderIds: Set<String> = ["anthropic", "openai", "gemini"]
-
     /// Provider IDs that support native web search (inference-provider-native).
     /// Anthropic and OpenAI pass `useNativeWebSearch` to their providers; others do not.
     private static let nativeWebSearchCapableProviderIds: Set<String> = ["anthropic", "openai"]
 
     /// Returns the catalog entries for providers that support managed proxy routing.
+    /// Source of truth: the `supportsManagedAuth` field on `LLMProviderRegistry`
+    /// entries, which is derived upstream from `MANAGED_PROVIDER_META` at catalog
+    /// build time. Reading from the registry (not `providerCatalog`) keeps the
+    /// answer stable across daemon `model_info` refreshes — the wire-protocol
+    /// `ProviderCatalogEntry` doesn't carry capability flags.
     var managedCapableProviders: [ProviderCatalogEntry] {
-        providerCatalog.filter { Self.managedCapableProviderIds.contains($0.id) }
+        let managedIds = Set(
+            LLMProviderRegistry.providers
+                .filter { $0.supportsManagedAuth == true }
+                .map(\.id)
+        )
+        return providerCatalog.filter { managedIds.contains($0.id) }
     }
 
     /// Returns the catalog entries for providers that support native web search.
@@ -1206,8 +1212,9 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Whether a given provider supports managed proxy routing.
+    /// See `managedCapableProviders` for the source-of-truth rationale.
     func isManagedCapable(_ provider: String) -> Bool {
-        Self.managedCapableProviderIds.contains(provider)
+        LLMProviderRegistry.provider(id: provider)?.supportsManagedAuth == true
     }
 
     /// Whether the current inference selection supports native web search.
@@ -3474,27 +3481,19 @@ public final class SettingsStore: ObservableObject {
     /// with a 400 — see `handleReplaceInferenceProfile` in
     /// `assistant/src/runtime/routes/conversation-query-routes.ts`.
     ///
-    /// Wire-payload shaping is constrained by the daemon's `ProfileEntry`
-    /// Zod schema (`assistant/src/config/schemas/llm.ts`):
-    ///   `label: z.string().min(1).optional()`
-    ///   `status: ProfileStatusSchema.optional()` // enum: "active" | "disabled"
-    /// Neither field is `.nullable()`, so sending `null` for either fails
-    /// `safeParse` and the daemon rejects the entire request with 400
-    /// (Codex P1 on #30368). The wire payload must therefore include a
-    /// valid value or omit the key entirely — never null.
-    ///
-    /// - `label`: whitespace-trimmed, then included only when non-empty.
-    ///   Whitespace-only / nil input → key omitted → daemon's partial
-    ///   overlay leaves the existing on-disk label untouched. This means
-    ///   there is no way via this method to clear a previously-set label
-    ///   override back to the seed default; that would require the daemon
-    ///   schema to be `.nullable()` (separate follow-up).
-    /// - `status`: normalized to the literal enum values the daemon
-    ///   accepts. `nil` / empty / anything other than `"disabled"` becomes
-    ///   `"active"` so the toggle from disabled → active flips on disk
-    ///   (omitting the key would leave `"disabled"` stored). Local
-    ///   convention is `status == nil` for active; the wire shape uses
-    ///   `"active"` explicitly because Zod rejects null.
+    /// `label` and `status` use a nil-as-clear convention so the wire shape
+    /// matches the daemon's `patchManagedProfileFields` semantics. Both
+    /// `ProfileEntry.label` and `ProfileEntry.status` are now
+    /// `.nullable().optional()` in the daemon Zod schema (landed in #30387 —
+    /// see `assistant/src/config/schemas/llm.ts`), so `null` is the explicit
+    /// "clear this override" sentinel:
+    /// - `nil` / whitespace-only `label` → request body has `label: null`,
+    ///   daemon deletes the `label` key on disk and the profile renders
+    ///   without a custom label (local cache also mirrors `nil`).
+    /// - `nil` / empty `status` → request body has `status: null`, daemon
+    ///   deletes the `status` key on disk; the profile is then considered
+    ///   active by absence (matches `setProfileStatus`'s local convention).
+    /// - non-nil values are stored verbatim.
     ///
     /// On success the local `profiles` cache is patched in place so the UI
     /// reflects the new values without waiting for the next daemon config
@@ -3508,14 +3507,12 @@ public final class SettingsStore: ObservableObject {
         status: String?
     ) async -> Bool {
         let trimmedLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasLabel = !(trimmedLabel ?? "").isEmpty
-        let normalizedStatus: String = (status == "disabled") ? "disabled" : "active"
-        var fragment: [String: Any] = ["status": normalizedStatus]
-        if hasLabel {
-            fragment["label"] = trimmedLabel
-        } else {
-            fragment["label"] = NSNull()
-        }
+        let labelCleared = (trimmedLabel ?? "").isEmpty
+        let statusCleared = (status ?? "").isEmpty
+        let fragment: [String: Any] = [
+            "label": labelCleared ? NSNull() : (trimmedLabel as Any),
+            "status": statusCleared ? NSNull() : (status as Any),
+        ]
         let success = await settingsClient.replaceInferenceProfile(
             name: name,
             fragment: fragment
@@ -3526,18 +3523,8 @@ public final class SettingsStore: ObservableObject {
             // index would be stale.
             if let index = profiles.firstIndex(where: { $0.name == name }) {
                 var updated = profiles[index]
-                if hasLabel {
-                    updated.label = trimmedLabel
-                } else {
-                    updated.label = nil
-                }
-                // Local cache stores `nil` for active to match the rest
-                // of the codebase's nil-as-active convention. The wire
-                // sent "active" verbatim; both shapes hit `isStatusActive`
-                // as the same bucket, and the next daemon config push
-                // would normalize the local cache to "active" anyway —
-                // either store is functionally equivalent.
-                updated.status = normalizedStatus == "active" ? nil : "disabled"
+                updated.label = labelCleared ? nil : trimmedLabel
+                updated.status = statusCleared ? nil : status
                 profiles[index] = updated
             }
         } else {

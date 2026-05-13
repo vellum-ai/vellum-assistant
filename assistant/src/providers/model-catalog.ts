@@ -1,3 +1,5 @@
+import { MANAGED_PROVIDER_META } from "./managed-proxy/constants.js";
+
 export type LongContextMode =
   | "native-model"
   | "provider-request-option"
@@ -86,6 +88,15 @@ export interface ProviderCatalogEntry {
     url: string;
     linkLabel: string;
   };
+  /**
+   * Whether this provider supports the `platform` auth type (Vellum-managed
+   * keys routed through the platform proxy). Derived from
+   * `MANAGED_PROVIDER_META` at catalog build time so the two stay in lock
+   * step. Clients use this field to hide the "Platform (managed by Vellum)"
+   * option from the auth-type dropdown for providers like Fireworks or
+   * OpenRouter where managed keys are not available.
+   */
+  supportsManagedAuth?: boolean;
 }
 
 /**
@@ -833,6 +844,11 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
   RAW_PROVIDER_CATALOG.map((entry) => ({
     ...entry,
     models: entry.models.map(catalogModel),
+    // Derive supportsManagedAuth from MANAGED_PROVIDER_META so the catalog
+    // and the proxy routing table can never drift. Adding a provider to
+    // MANAGED_PROVIDER_META with `managed: true` automatically opts it into
+    // the Platform auth-type dropdown in the clients.
+    supportsManagedAuth: MANAGED_PROVIDER_META[entry.id]?.managed === true,
   }));
 
 /** Check if a model ID is in the catalog for a given provider. */

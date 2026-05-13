@@ -50,6 +50,7 @@ import { pathToFileURL } from "node:url";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
+import { ensurePluginApiShim } from "./ensure-plugin-api-shim.js";
 import { loadExternalPlugin } from "./external-plugin-loader.js";
 import { closeRegistration } from "./registry.js";
 
@@ -92,6 +93,24 @@ export async function loadUserPlugins(
   options: { importTimeoutMs?: number } = {},
 ): Promise<void> {
   const importTimeoutMs = options.importTimeoutMs ?? USER_PLUGIN_IMPORT_TIMEOUT_MS;
+
+  // Materialize the workspace-level `@vellumai/plugin-api` shim *before*
+  // we dynamic-import any user plugins. The shim file must exist on disk
+  // before the first plugin's `import "@vellumai/plugin-api"` is parsed.
+  //
+  // Wrapped in try/catch because per `AGENTS.md` the daemon must never
+  // block startup. A shim-write failure (ENOSPC, read-only workspace,
+  // perms) is logged and we continue — plugins that try to import the
+  // public specifier will fail individually inside the per-plugin import
+  // loop below, which is already isolated.
+  try {
+    await ensurePluginApiShim();
+  } catch (err) {
+    log.warn(
+      { err },
+      "loadUserPlugins: plugin-api shim materialization failed — continuing with degraded plugin support",
+    );
+  }
 
   const pluginsDir = getWorkspacePluginsDir();
 

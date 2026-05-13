@@ -12,7 +12,7 @@ Spend on the user's behalf using the [Stripe Link CLI](https://github.com/stripe
 
 ## Required tools
 
-- `bash` for all `link-cli` invocations. The CLI runs fine in the sandbox pod; use `host_bash` only if a specific flow genuinely requires host-level access (e.g. reading a local file the user has on their machine).
+- `bash` for all `link-cli` invocations. Use `host_bash` only if a specific flow genuinely requires host-level access (e.g. reading a local file the user has on their machine).
 
 ## Hard constraints
 
@@ -47,10 +47,14 @@ Whenever **any** flow (MCP tool, API call, web request, or otherwise) produces a
 ## Step 0: Check installation and auth
 
 ```bash
-command -v link-cli >/dev/null && link-cli auth status --format json
+if command -v link-cli >/dev/null; then
+  link-cli auth status --format json
+else
+  bunx @stripe/link-cli auth status --format json
+fi
 ```
 
-- Command missing — fall to **Setup: install**.
+- `link-cli` missing — use `bunx @stripe/link-cli` for Step 0 and every command below.
 - Exit 0 but `"authenticated": false` — fall to **Setup: login**.
 - Authenticated — proceed to the requested flow.
 - `"update"` key present in auth status — mention the update to the user but don't block on it.
@@ -61,21 +65,13 @@ command -v link-cli >/dev/null && link-cli auth status --format json
 
 ### If `link-cli` is missing
 
-First, determine your deployment context:
+Invoke the CLI on demand with `bunx`:
 
-- **Pod/cloud hosted** (e.g. hostname looks like a Kubernetes pod, `/workspace` is a mounted volume): don't install — the container layer is ephemeral and a global install won't survive pod restarts or new shells. Invoke the CLI per call with `bunx`:
-  ```bash
-  bunx @stripe/link-cli <subcommand>
-  ```
-  In every example below, substitute `bunx @stripe/link-cli` wherever you see `link-cli`.
-- **Locally hosted** (`bash` and `host_bash` are the same machine): ask the user to install it - don't silently modify their system:
-  > Stripe's Link CLI isn't installed. Run this once and I can take it from there:
-  >
-  > ```bash
-  > npm install -g @stripe/link-cli
-  > ```
-  >
-  > Tell me when it's done.
+```bash
+bunx @stripe/link-cli <subcommand>
+```
+
+In every example below, substitute `bunx @stripe/link-cli` wherever you see `link-cli`.
 
 ### If installed but not authenticated
 
@@ -270,15 +266,15 @@ link-cli spend-request cancel <id> --format json
 
 ## Error handling
 
-| Error / condition                       | Action                                                                                                                        |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `link-cli` not found                    | In a pod/cloud sandbox, invoke via `bunx @stripe/link-cli` per call (no install needed). Locally, ask the user to install it. |
-| Not authenticated                       | Run `auth login --client-name "<your assistant name>"` (see Setup)                                                            |
-| `POLLING_TIMEOUT` on retrieve           | Report to user; offer cancel or fresh spend request                                                                           |
-| SPT payment fails (402 again after pay) | SPT is consumed — create a new spend request                                                                                  |
-| `amount` > 50000                        | Tell user the cap is $500 per transaction                                                                                     |
-| `context` < 100 chars                   | Expand it before retrying                                                                                                     |
-| Card file already exists                | Use `--force` to overwrite, or pick a different path                                                                          |
+| Error / condition                       | Action                                                                                              |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `link-cli` not found                    | Invoke it with `bunx @stripe/link-cli` and substitute that prefix wherever examples use `link-cli`. |
+| Not authenticated                       | Run `auth login --client-name "<your assistant name>"` (see Setup)                                  |
+| `POLLING_TIMEOUT` on retrieve           | Report to user; offer cancel or fresh spend request                                                 |
+| SPT payment fails (402 again after pay) | SPT is consumed — create a new spend request                                                        |
+| `amount` > 50000                        | Tell user the cap is \$500 per transaction                                                          |
+| `context` < 100 chars                   | Expand it before retrying                                                                           |
+| Card file already exists                | Use `--force` to overwrite, or pick a different path                                                |
 
 ---
 

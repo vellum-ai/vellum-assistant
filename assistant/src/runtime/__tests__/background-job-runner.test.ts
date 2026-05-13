@@ -84,6 +84,14 @@ mock.module("../../notifications/emit-signal.js", () => ({
   },
 }));
 
+// Stub the pre-first-message gate. Default OPEN — every pre-existing
+// test assumes a fully-onboarded daemon. The dedicated "gate closed"
+// test flips this to false.
+let preFirstMessageGateOpen = true;
+mock.module("../pre-first-message-gate.js", () => ({
+  hasReceivedUserMessage: () => preFirstMessageGateOpen,
+}));
+
 // Import after mocks are in place.
 const { runBackgroundJob } = await import("../background-job-runner.js");
 
@@ -113,6 +121,7 @@ beforeEach(() => {
   processMessageCalls.length = 0;
   emitCalls.length = 0;
   addMessageCalls.length = 0;
+  preFirstMessageGateOpen = true;
   processMessageImpl = async () => ({ messageId: "msg-1" });
   emitImpl = async () => ({
     signalId: "sig-1",
@@ -316,5 +325,33 @@ describe("runBackgroundJob", () => {
     expect(processMessageCalls[0].content).toBe("");
     // processMessage observed all 3 sandwich messages already in place.
     expect(addMessageCountAtProcessMessageStart).toBe(3);
+  });
+
+  describe("pre-first-message gate", () => {
+    test("gate closed: no bootstrap, no processMessage, no notification — result reports skipReason", async () => {
+      preFirstMessageGateOpen = false;
+
+      const result = await runBackgroundJob(baseOpts());
+
+      expect(result.ok).toBe(true);
+      expect(result.skipReason).toBe("pre_first_user_message");
+      expect(result.conversationId).toBe("");
+      expect(bootstrapCalls).toBe(0);
+      expect(processMessageCalls).toHaveLength(0);
+      expect(emitCalls).toHaveLength(0);
+    });
+
+    test("gate closed but allowPreFirstUserMessage=true: runs normally", async () => {
+      preFirstMessageGateOpen = false;
+
+      const result = await runBackgroundJob(
+        baseOpts({ allowPreFirstUserMessage: true }),
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.skipReason).toBeUndefined();
+      expect(bootstrapCalls).toBe(1);
+      expect(processMessageCalls).toHaveLength(1);
+    });
   });
 });

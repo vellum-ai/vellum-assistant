@@ -72,8 +72,6 @@ export const defaultTokenEstimatePlugin: Plugin = {
   manifest: {
     name: "default-token-estimate",
     version: "1.0.0",
-    provides: { tokenEstimate: "v1" },
-    requires: { pluginRuntime: "v1", tokenEstimateApi: "v1" },
   },
   middleware: {
     tokenEstimate: passthrough,

@@ -54,6 +54,7 @@ import {
 } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { installPluginRuntime } from "../plugins/external-api.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -647,6 +648,12 @@ export async function runDaemon(): Promise<void> {
         }
       });
     }
+
+    // Install the `globalThis.__vellumPluginRuntime` bridge before scanning
+    // for user plugins. Plugins that touch the bridge from their module body
+    // would throw without this — see `plugins/external-api.ts` for the
+    // rationale (compiled-binary module identity).
+    installPluginRuntime();
 
     // Populate the registry with user plugins from `<workspaceDir>/plugins/*`
     // AFTER first-party plugins have already registered via their static

@@ -77,7 +77,10 @@ mock.module("../config/loader.js", () => ({
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
-    memory: { v2: { enabled: false } },
+    memory: {
+      v2: { enabled: false },
+      retrieval: { scratchpadInjection: { enabled: true } },
+    },
     conversations: { skipAutoRetitling: false },
     timeouts: { permissionTimeoutSec: 1 },
     skills: { entries: {}, allowBundled: true },

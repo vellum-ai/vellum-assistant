@@ -374,7 +374,16 @@ struct ProvidersSheet: View {
         }
         .onChange(of: editorDraft.provider) { _, newProvider in
             if case .create = editorState, !newProvider.isEmpty {
-                editorDraft.credential = "credential/\(newProvider)/api_key"
+                if newProvider == "ollama" {
+                    editorDraft.authType = "none"
+                    editorDraft.credential = ""
+                } else {
+                    if editorDraft.authType == "none" ||
+                        (editorDraft.authType == "platform" && !store.isManagedCapable(newProvider)) {
+                        editorDraft.authType = "api_key"
+                    }
+                    editorDraft.credential = "credential/\(newProvider)/api_key"
+                }
                 maskedCredentialValue = nil
                 Task { await loadAvailableCredentials() }
             }
@@ -403,7 +412,8 @@ struct ProvidersSheet: View {
             }
             Spacer(minLength: 0)
             VButton(
-                label: "Cancel",
+                label: "Close",
+                iconOnly: VIcon.x.rawValue,
                 style: .ghost,
                 tintColor: VColor.contentTertiary
             ) {
@@ -470,15 +480,51 @@ struct ProvidersSheet: View {
 
     private var editorProviderField: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Provider")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
+            HStack(spacing: VSpacing.xs) {
+                Text("Provider")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                // Warning badge — only renders in create mode while the
+                // dropdown is still empty. Edit mode pins the value to the
+                // connection's saved provider (the dropdown is disabled in
+                // that path), so `isProviderMissing` can never trip there.
+                if isProviderMissing {
+                    VBadge(label: "Pick a provider", tone: .warning, emphasis: .subtle)
+                }
+            }
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
                 selection: $editorDraft.provider,
                 options: store.providerCatalog.map { (label: $0.displayName, value: $0.id) }
             )
         }
+    }
+
+    private var authTypeOptions: [(label: String, value: String)] {
+        let provider = editorDraft.provider
+        if provider == "ollama" {
+            return [(label: "None (no credentials)", value: "none")]
+        }
+        var options: [(label: String, value: String)] = [
+            (label: "API Key", value: "api_key"),
+        ]
+        if store.isManagedCapable(provider) {
+            options.append((label: "Platform (managed by Vellum)", value: "platform"))
+        }
+        // Preserve the current auth type in edit mode so existing connections
+        // display their saved value even if the type is no longer offered for
+        // new connections (e.g. a non-ollama connection with "none" auth).
+        let current = editorDraft.authType
+        if !current.isEmpty && !options.contains(where: { $0.value == current }) {
+            let label: String = switch current {
+            case "none": "None (no credentials)"
+            case "platform": "Platform (managed by Vellum)"
+            case "api_key": "API Key"
+            default: current
+            }
+            options.append((label: label, value: current))
+        }
+        return options
     }
 
     private var editorAuthTypeField: some View {
@@ -489,11 +535,7 @@ struct ProvidersSheet: View {
             VDropdown(
                 placeholder: "Select auth type\u{2026}",
                 selection: $editorDraft.authType,
-                options: [
-                    (label: "API Key", value: "api_key"),
-                    (label: "Platform (managed by Vellum)", value: "platform"),
-                    (label: "None (no credentials)", value: "none"),
-                ]
+                options: authTypeOptions
             )
         }
     }
@@ -697,7 +739,7 @@ struct ProvidersSheet: View {
                     saveAsNewFromManagedEdit()
                 }
             }
-            VButton(label: editorPrimaryLabel, style: .primary) {
+            VButton(label: editorPrimaryLabel, style: .primary, isDisabled: !canSave) {
                 Task { await commitEditor() }
             }
         }
@@ -714,6 +756,29 @@ struct ProvidersSheet: View {
         case .create: return "Create"
         case .edit, .managedEdit, .none: return "Save"
         }
+    }
+
+    // MARK: - Editor Validation
+
+    /// True when the user hasn't picked a provider yet. Provider is required
+    /// for a new connection — the dropdown starts empty in `beginCreate` so
+    /// the user has to make an explicit choice rather than silently
+    /// inheriting the first catalog entry (Anthropic), which previously led
+    /// to OpenRouter / Fireworks keys being saved against the wrong provider
+    /// when users pasted-and-saved without scanning the dropdown. Mirrors
+    /// `InferenceProfileEditor.isProviderMissing` (PR #30313).
+    private var isProviderMissing: Bool {
+        editorDraft.provider.isEmpty
+    }
+
+    /// Combined gate for the primary footer button. Today provider is the
+    /// only piece we lift out of `commitEditor` so the user gets immediate
+    /// feedback (greyed-out Save + warning badge) instead of an error after
+    /// a click; name/credential validation still runs server-side in
+    /// `commitEditor` because those errors need context the dropdown can't
+    /// convey (e.g. duplicate-name conflicts only the daemon knows about).
+    private var canSave: Bool {
+        !isProviderMissing
     }
 
     // MARK: - Conflict Sheet
@@ -759,13 +824,15 @@ struct ProvidersSheet: View {
     private func beginCreate() {
         actionError = nil
         isKeyDirty = false
-        let provider = store.providerCatalog.first?.id ?? ""
-        editorDraft = ConnectionDraft(
-            provider: provider
-        )
-        if !provider.isEmpty {
-            editorDraft.credential = "credential/\(provider)/api_key"
-        }
+        // Provider intentionally left empty — the old pre-fill to
+        // `providerCatalog.first?.id` quietly defaulted to Anthropic and led
+        // users (e.g. Marina QA on 0.8.1) to paste an OpenRouter key and
+        // hit Save without noticing the dropdown was still on Anthropic,
+        // persisting the row as `provider=anthropic` with the OpenRouter key
+        // in the credential slot. Forcing an explicit selection eliminates
+        // that whole class of mismatched-provider bug. Mirrors the
+        // `isProviderMissing` guard in InferenceProfileEditor (PR #30313).
+        editorDraft = ConnectionDraft()
         editorState = .create
         maskedCredentialValue = nil
         Task { await loadAvailableCredentials() }
@@ -849,13 +916,13 @@ struct ProvidersSheet: View {
             existingNames: Set(connections.map { $0.name })
         )
         isKeyDirty = true
-        // Default to api_key auth — the whole reason to clone a managed
-        // connection is to use your own key, so `platform` isn't the
-        // right default for the fork. Seed the credential reference to
-        // the provider's default slot so an immediate save (with no
-        // Advanced expansion) lands the key under `credential/<provider>/api_key`.
-        editorDraft.authType = "api_key"
-        editorDraft.credential = "credential/\(provider)/api_key"
+        if provider == "ollama" {
+            editorDraft.authType = "none"
+            editorDraft.credential = ""
+        } else {
+            editorDraft.authType = "api_key"
+            editorDraft.credential = "credential/\(provider)/api_key"
+        }
         editorDraft.apiKeyValue = ""
         // New connection starts active by convention; user can toggle off
         // before saving if they want it disabled.
@@ -943,6 +1010,17 @@ struct ProvidersSheet: View {
             actionError = "Name is required."
             return
         }
+        // Belt-and-suspenders for the Save button's `isDisabled: !canSave`
+        // gate: if a future caller exposes a path that bypasses the disabled
+        // button (programmatic Enter-key submit, future keyboard shortcuts,
+        // accidentally re-enabled state), surface the same error inline
+        // instead of POSTing a row with `provider=""` to the daemon. The
+        // daemon's zod schema would reject it, but the user-facing message
+        // belongs here.
+        guard !draft.provider.isEmpty else {
+            actionError = "Select a provider."
+            return
+        }
 
         var credentialRef = draft.credential.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -987,18 +1065,35 @@ struct ProvidersSheet: View {
 
         switch editorState {
         case .create:
-            guard let created = await client.createProviderConnection(
+            let result = await client.createProviderConnection(
                 name: name,
                 provider: draft.provider,
                 auth: auth,
                 label: label,
                 status: status
-            ) else {
+            )
+            switch result {
+            case .created(let created):
+                connections.append(created)
+                editorState = nil
+            case .duplicate:
+                // 409 — surface the actual reason instead of the generic
+                // fallback so users immediately see that the key (the
+                // editor's "Key" field, which becomes the connection's
+                // unique name) collides with an existing connection.
+                actionError = "A connection named \"\(name)\" already exists."
+                return
+            case .invalid(let message):
+                // 400 — daemon often includes a useful structured reason
+                // (e.g. `Invalid provider "x". Valid: ...`). Surface it
+                // verbatim when present; fall back to a generic invalid
+                // message otherwise.
+                actionError = message ?? "Invalid configuration. Check the provider and auth settings."
+                return
+            case .error:
                 actionError = "Couldn't create connection. Please try again."
                 return
             }
-            connections.append(created)
-            editorState = nil
 
         case .edit(let originalName), .managedEdit(let originalName):
             // Managed-edit and user-edit share the same PATCH path. The auth

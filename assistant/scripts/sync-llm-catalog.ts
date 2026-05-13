@@ -97,6 +97,8 @@ function projectProvider(entry: ProviderCatalogEntry): Record<string, unknown> {
     projected.apiKeyPlaceholder = entry.apiKeyPlaceholder;
   if (entry.credentialsGuide !== undefined)
     projected.credentialsGuide = entry.credentialsGuide;
+  if (entry.supportsManagedAuth !== undefined)
+    projected.supportsManagedAuth = entry.supportsManagedAuth;
   projected.defaultModel = entry.defaultModel;
   projected.models = entry.models.map(projectModel);
   // NOTE: `apiKeyUrl` intentionally omitted — clients use

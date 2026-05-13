@@ -47,6 +47,16 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({ updates: updatesConfig }),
 }));
 
+// ── pre-first-message gate stub ──────────────────────────────────────
+// Default: gate open (user has interacted) so the existing happy/sad
+// paths exercise the bulletin logic. A dedicated test below flips this
+// to false to assert the gate trips.
+let preFirstMessageGateOpen = true;
+
+mock.module("../runtime/pre-first-message-gate.js", () => ({
+  hasReceivedUserMessage: () => preFirstMessageGateOpen,
+}));
+
 // ── runBackgroundJob mock ────────────────────────────────────────────
 let runBackgroundJobCalls = 0;
 let runBackgroundJobLastArgs: Record<string, unknown> | null = null;
@@ -112,6 +122,7 @@ describe("runUpdateBulletinJobIfNeeded", () => {
     runBackgroundJobSideEffect = null;
     readFileSyncOverride = null;
     updatesConfig.enabled = true;
+    preFirstMessageGateOpen = true;
     if (existsSync(workspacePath)) {
       rmSync(workspacePath);
     }
@@ -125,6 +136,17 @@ describe("runUpdateBulletinJobIfNeeded", () => {
 
   test("config disabled — no job, no checkpoint change", async () => {
     updatesConfig.enabled = false;
+    writeFileSync(workspacePath, "## Real content", "utf-8");
+
+    await runUpdateBulletinJobIfNeeded();
+
+    expect(runBackgroundJobCalls).toBe(0);
+    expect(setCheckpointCallCount).toBe(0);
+    expect(store.has(HASH_CHECKPOINT_KEY)).toBe(false);
+  });
+
+  test("pre-first-message gate closed — no job, checkpoint left UNCHANGED so the job retries after the user interacts", async () => {
+    preFirstMessageGateOpen = false;
     writeFileSync(workspacePath, "## Real content", "utf-8");
 
     await runUpdateBulletinJobIfNeeded();
