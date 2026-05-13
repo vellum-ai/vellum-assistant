@@ -141,9 +141,7 @@ struct SubagentDetailPanel: View {
     /// subagent is terminal. Text / error events render inline in either mode.
     @ViewBuilder
     private var eventList: some View {
-        let groups = isRunning
-            ? SubagentEventGrouping.build(events: events)
-            : SubagentEventGrouping.buildCompleted(events: events)
+        let groups = SubagentEventGrouping.build(events: events)
 
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             Text("Timeline")
@@ -242,8 +240,8 @@ struct SubagentDetailPanel: View {
             timelineCard(title: "Tool Result") {
                 toolResultCardContent(event)
             }
-        case .completedToolCalls(let pairs):
-            completedToolCallsSection(pairs)
+        case .completedToolCalls:
+            EmptyView()
         }
     }
 
@@ -323,46 +321,6 @@ struct SubagentDetailPanel: View {
                 .foregroundStyle(VColor.contentDefault)
                 .lineLimit(4)
                 .textSelection(.enabled)
-        }
-    }
-
-    /// The "Completed N events" section shown when the subagent is terminal.
-    /// Mirrors the `AssistantProgressView.swift` main-thread pattern.
-    ///
-    /// Each group tracks its own expansion state via a per-group key — the
-    /// first pair's `id` — so when text/error events split a run of tool
-    /// calls into multiple `.completedToolCalls` groups, expanding one does
-    /// not toggle the others. If `pairs.first?.id` is unexpectedly `nil`
-    /// (empty group — should not happen), the section short-circuits.
-    @ViewBuilder
-    private func completedToolCallsSection(_ pairs: [SubagentToolCallPair]) -> some View {
-        if let groupKey = pairs.first?.id {
-            let groupBinding = Binding<Bool>(
-                get: { state?.completedGroupExpandedIds.contains(groupKey) ?? false },
-                set: { newValue in
-                    if newValue {
-                        state?.completedGroupExpandedIds.insert(groupKey)
-                    } else {
-                        state?.completedGroupExpandedIds.remove(groupKey)
-                    }
-                }
-            )
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                SubagentCompletedStepsHeader(
-                    count: pairs.count,
-                    totalDuration: SubagentEventGrouping.duration(across: pairs),
-                    isExpanded: groupBinding
-                )
-                if groupBinding.wrappedValue {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        ForEach(pairs, id: \.id) { pair in
-                            timelineCard(title: "Tool Call") {
-                                toolCallCardContent(pair)
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -679,41 +637,3 @@ private struct SubagentCopyButton: View {
     }
 }
 
-// MARK: - Completed Steps Header
-
-/// Collapsible "Completed N events" header for terminal subagents. Mirrors
-/// the main-thread pattern from `AssistantProgressView.swift`.
-private struct SubagentCompletedStepsHeader: View {
-    let count: Int
-    let totalDuration: TimeInterval?
-    @Binding var isExpanded: Bool
-
-    var body: some View {
-        Button {
-            withAnimation(VAnimation.fast) { isExpanded.toggle() }
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.circleCheck, size: 12)
-                    .foregroundStyle(VColor.primaryBase)
-                    .frame(width: 16)
-                Text("Completed \(count) event\(count == 1 ? "" : "s")")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(1)
-                Spacer()
-                if let totalDuration {
-                    Text(VCollapsibleStepRowDurationFormatter.format(totalDuration))
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-                VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-    }
-}
