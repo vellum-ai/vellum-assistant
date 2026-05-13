@@ -121,6 +121,7 @@ struct HomeDetailPanel<Content: View>: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity)
         .padding(EdgeInsets(
             top: VSpacing.md,
             leading: VSpacing.lg,
