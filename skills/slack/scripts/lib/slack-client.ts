@@ -91,7 +91,7 @@ export async function slackRequest<T = unknown>(
       args.push("--account", opts.account);
     }
 
-    let path = `https://slack.com/api${opts.path}`;
+    let path = opts.path.startsWith("/") ? opts.path : `/${opts.path}`;
     if (opts.query && Object.keys(opts.query).length > 0) {
       const qs = new URLSearchParams(opts.query).toString();
       path += "?" + qs;

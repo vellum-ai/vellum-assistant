@@ -22,6 +22,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 interface MockProviderRow {
   provider: string;
   managedServiceConfigKey: string | null;
+  baseUrl: string | null;
+  injectionTemplates: string | null;
   pingUrl: string | null;
   pingMethod: string | null;
   pingHeaders: string | null;
@@ -31,6 +33,8 @@ interface MockProviderRow {
 const baseProvider: MockProviderRow = {
   provider: "google",
   managedServiceConfigKey: "google-oauth",
+  baseUrl: "https://api.google.com",
+  injectionTemplates: null,
   pingUrl: null,
   pingMethod: null,
   pingHeaders: null,
@@ -45,7 +49,10 @@ let mockApps: Record<string, unknown> = {};
 let mockTokenValue = "tok-fake";
 let platformAvailable = true;
 let platformAssistantId: string | null = "assistant-1";
-let mockFetchImpl: (path: string, init?: RequestInit) => Promise<{
+let mockFetchImpl: (
+  path: string,
+  init?: RequestInit,
+) => Promise<{
   ok: boolean;
   status: number;
   json: () => Promise<unknown>;
@@ -61,6 +68,7 @@ let mockResolveResponse: {
   headers: Record<string, string>;
   body: unknown;
 } = { status: 200, headers: {}, body: { ok: true } };
+let mockResolveRequests: unknown[] = [];
 
 const mockDisconnectOAuthProvider = mock(() => Promise.resolve());
 const mockSaveRawConfig = mock(() => undefined);
@@ -102,7 +110,10 @@ mock.module("../oauth/oauth-store.js", () => ({
 
 mock.module("../oauth/connection-resolver.js", () => ({
   resolveOAuthConnection: async (_provider: string) => ({
-    request: async () => mockResolveResponse,
+    request: async (req: unknown) => {
+      mockResolveRequests.push(req);
+      return mockResolveResponse;
+    },
   }),
 }));
 
@@ -119,17 +130,19 @@ mock.module("../platform/client.js", () => ({
 }));
 
 mock.module("../security/token-manager.js", () => ({
-  withValidToken: async <T,>(
-    _provider: string,
-    fn: (t: string) => Promise<T>,
-  ) => fn(mockTokenValue),
+  withValidToken: async <T>(_provider: string, fn: (t: string) => Promise<T>) =>
+    fn(mockTokenValue),
 }));
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({ services: {} }),
   loadRawConfig: () => ({ services: {} }),
   saveRawConfig: mockSaveRawConfig,
-  setNestedValue: (obj: Record<string, unknown>, path: string, value: unknown) => {
+  setNestedValue: (
+    obj: Record<string, unknown>,
+    path: string,
+    value: unknown,
+  ) => {
     const parts = path.split(".");
     let cur: Record<string, unknown> = obj;
     for (let i = 0; i < parts.length - 1; i++) {
@@ -152,7 +165,11 @@ mock.module("../config/schemas/services.js", () => ({
   },
 }));
 
-import { BadRequestError, InternalError, NotFoundError } from "../runtime/routes/errors.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+} from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/oauth-commands-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
@@ -194,6 +211,7 @@ beforeEach(() => {
     text: async () => "",
   });
   mockResolveResponse = { status: 200, headers: {}, body: { ok: true } };
+  mockResolveRequests = [];
   mockDisconnectOAuthProvider.mockClear();
   mockSaveRawConfig.mockClear();
 });
@@ -430,7 +448,10 @@ describe("GET oauth/status", () => {
     ];
     const result = (await getRoute("GET", "oauth/status").handler(
       makeArgs({ queryParams: { provider: "google" } }),
-    )) as { mode: string; connections: Array<{ id: string; grantedScopes: string[] }> };
+    )) as {
+      mode: string;
+      connections: Array<{ id: string; grantedScopes: string[] }>;
+    };
     expect(result.mode).toBe("byo");
     expect(result.connections).toHaveLength(1);
     expect(result.connections[0]!.id).toBe("conn-1");
@@ -507,7 +528,11 @@ describe("POST oauth/ping", () => {
       ...baseProvider,
       pingUrl: "https://api.google.com/v1/me",
     };
-    mockResolveResponse = { status: 401, headers: {}, body: { error: "unauthorized" } };
+    mockResolveResponse = {
+      status: 401,
+      headers: {},
+      body: { error: "unauthorized" },
+    };
     const result = (await getRoute("POST", "oauth/ping").handler(
       makeArgs({ body: { provider: "google" } }),
     )) as { ok: boolean; status: number; hint?: string };
@@ -543,7 +568,9 @@ describe("POST oauth/token", () => {
     // No active connections registered for google
     await expect(
       getRoute("POST", "oauth/token").handler(
-        makeArgs({ body: { provider: "google", account: "missing@example.com" } }),
+        makeArgs({
+          body: { provider: "google", account: "missing@example.com" },
+        }),
       ),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
@@ -576,6 +603,130 @@ describe("POST oauth/request", () => {
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
     expect(result.body).toEqual({ hello: "world" });
+  });
+
+  test("rejects absolute URL host outside provider base host when no injection templates exist", async () => {
+    await expect(
+      getRoute("POST", "oauth/request").handler(
+        makeArgs({
+          body: { provider: "google", url: "https://attacker.example/v1/me" },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(mockResolveRequests).toHaveLength(0);
+  });
+
+  test("rejects protocol downgrade for absolute OAuth request URLs", async () => {
+    await expect(
+      getRoute("POST", "oauth/request").handler(
+        makeArgs({
+          body: { provider: "google", url: "http://api.google.com/v1/me" },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(mockResolveRequests).toHaveLength(0);
+  });
+
+  test("rejects absolute URL host outside provider injection templates", async () => {
+    mockProviders.slack_channel = {
+      ...baseProvider,
+      provider: "slack_channel",
+      managedServiceConfigKey: null,
+      baseUrl: "https://slack.com/api",
+      injectionTemplates: JSON.stringify([
+        {
+          hostPattern: "slack.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ]),
+    };
+
+    await expect(
+      getRoute("POST", "oauth/request").handler(
+        makeArgs({
+          body: {
+            provider: "slack_channel",
+            url: "https://attacker.example/api/auth.test",
+          },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(mockResolveRequests).toHaveLength(0);
+  });
+
+  test("allows absolute URL host matching provider injection templates", async () => {
+    mockProviders.slack_channel = {
+      ...baseProvider,
+      provider: "slack_channel",
+      managedServiceConfigKey: null,
+      baseUrl: "https://slack.com/api",
+      injectionTemplates: JSON.stringify([
+        {
+          hostPattern: "slack.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ]),
+    };
+
+    await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "slack_channel",
+          url: "https://slack.com/api/auth.test?team=T123",
+        },
+      }),
+    );
+
+    expect(mockResolveRequests).toEqual([
+      {
+        method: "GET",
+        path: "/api/auth.test",
+        query: { team: "T123" },
+        baseUrl: "https://slack.com",
+      },
+    ]);
+  });
+
+  test("allows cross-host absolute URLs declared by provider injection templates", async () => {
+    mockProviders.google = {
+      ...baseProvider,
+      baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+      injectionTemplates: JSON.stringify([
+        {
+          hostPattern: "gmail.googleapis.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+        {
+          hostPattern: "www.googleapis.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ]),
+    };
+
+    await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://www.googleapis.com/calendar/v3/calendars",
+        },
+      }),
+    );
+
+    expect(mockResolveRequests).toEqual([
+      {
+        method: "GET",
+        path: "/calendar/v3/calendars",
+        baseUrl: "https://www.googleapis.com",
+      },
+    ]);
   });
 
   test("attaches reconnect hint on 401 response", async () => {
@@ -681,10 +832,7 @@ describe("GET oauth/managed-connect/poll", () => {
       ],
       text: async () => "",
     });
-    const result = (await getRoute(
-      "GET",
-      "oauth/managed-connect/poll",
-    ).handler(
+    const result = (await getRoute("GET", "oauth/managed-connect/poll").handler(
       makeArgs({ queryParams: { provider: "google" } }),
     )) as {
       ok: boolean;
@@ -696,7 +844,11 @@ describe("GET oauth/managed-connect/poll", () => {
     };
     expect(result.ok).toBe(true);
     expect(result.connections).toEqual([
-      { id: "conn-1", account_label: "alice@example.com", scopes_granted: ["email"] },
+      {
+        id: "conn-1",
+        account_label: "alice@example.com",
+        scopes_granted: ["email"],
+      },
     ]);
   });
 
