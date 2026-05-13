@@ -53,7 +53,14 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   const cutoff = now - ORPHAN_AGE_MS;
   const db = getDb();
 
-  const activeJobConversationIds = db
+  // Job payloads encode the SOURCE conversation id (the conversation being
+  // analyzed), not the background-conversation id of the retrospective itself.
+  // The background conversation links back to its source via
+  // `forkParentConversationId` (set when bootstrapped — see
+  // memory-retrospective-job.ts). To protect in-flight jobs we therefore
+  // compare source-id to source-id by filtering on
+  // `conversations.forkParentConversationId`, not `conversations.id`.
+  const activeJobSourceConversationIds = db
     .select({
       conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
     })
@@ -79,8 +86,11 @@ export function sweepOrphanMemoryRetrospectiveConversations(
         // last_message_at value are too fresh to assess.
         isNotNull(conversations.lastMessageAt),
         lt(conversations.lastMessageAt, cutoff),
-        activeJobConversationIds.length > 0
-          ? notInArray(conversations.id, activeJobConversationIds)
+        activeJobSourceConversationIds.length > 0
+          ? notInArray(
+              conversations.forkParentConversationId,
+              activeJobSourceConversationIds,
+            )
           : sql`1=1`,
       ),
     )

@@ -15,6 +15,7 @@ type ConvRow = {
   id: string;
   source: string | null;
   last_message_at: number | null;
+  fork_parent_conversation_id: string | null;
 };
 type JobRow = {
   type: string;
@@ -58,11 +59,10 @@ mock.module("../db-connection.js", () => ({
                   return { conversationId: convId };
                 });
             }
-            // Otherwise, this is the conversation query.
-            // The test harness applies its OWN filter logic below since the
-            // production code uses drizzle's combinator. We expose all rows
-            // tagged with the right source/last_message_at, and the test
-            // post-filters them to mirror the production query.
+            // Otherwise, this is the conversation query. The production
+            // predicate now compares `forkParentConversationId` (the source
+            // ID encoded on the background conversation row) against the
+            // set of source IDs extracted from active jobs.
             return mockConversations
               .filter((c) => c.source === "memory-retrospective")
               .filter(
@@ -70,7 +70,11 @@ mock.module("../db-connection.js", () => ({
                   c.last_message_at !== null &&
                   c.last_message_at < injectedNowMinusOrphanAgeMs,
               )
-              .filter((c) => !activeJobConvIds.has(c.id))
+              .filter(
+                (c) =>
+                  c.fork_parent_conversation_id === null ||
+                  !activeJobSourceConvIds.has(c.fork_parent_conversation_id),
+              )
               .map((c) => ({ id: c.id }));
           },
         }),
@@ -79,7 +83,7 @@ mock.module("../db-connection.js", () => ({
   }),
 }));
 
-let activeJobConvIds = new Set<string>();
+let activeJobSourceConvIds = new Set<string>();
 let injectedNowMinusOrphanAgeMs = 0;
 
 mock.module("../conversation-crud.js", () => ({
@@ -94,7 +98,7 @@ import { sweepOrphanMemoryRetrospectiveConversations } from "../memory-retrospec
 const ORPHAN_AGE_MS = 60 * 60 * 1000;
 
 function rebuildActiveJobSet(): void {
-  activeJobConvIds = new Set();
+  activeJobSourceConvIds = new Set();
   for (const j of mockJobs) {
     if (
       j.type !== "memory_retrospective" ||
@@ -105,7 +109,7 @@ function rebuildActiveJobSet(): void {
     try {
       const parsed = JSON.parse(j.payload) as { conversationId?: unknown };
       if (typeof parsed.conversationId === "string") {
-        activeJobConvIds.add(parsed.conversationId);
+        activeJobSourceConvIds.add(parsed.conversationId);
       }
     } catch {
       // ignore
@@ -118,7 +122,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     mockConversations = [];
     mockJobs = [];
     deletedIds = [];
-    activeJobConvIds = new Set();
+    activeJobSourceConvIds = new Set();
     injectedNowMinusOrphanAgeMs = 0;
   });
 
@@ -135,6 +139,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
         id: "old-orphan",
         source: "memory-retrospective",
         last_message_at: now - 2 * ORPHAN_AGE_MS,
+        fork_parent_conversation_id: "source-A",
       },
     ];
     rebuildActiveJobSet();
@@ -153,6 +158,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
         id: "fresh-bg",
         source: "memory-retrospective",
         last_message_at: now - 60_000,
+        fork_parent_conversation_id: "source-A",
       },
     ];
     rebuildActiveJobSet();
@@ -171,6 +177,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
         id: "auto-analysis-old",
         source: "auto-analysis",
         last_message_at: now - 2 * ORPHAN_AGE_MS,
+        fork_parent_conversation_id: "source-A",
       },
     ];
     rebuildActiveJobSet();
@@ -180,21 +187,29 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     expect(result.swept).toBe(0);
   });
 
-  test("does NOT sweep an orphan whose source conversation has an active job", () => {
+  // Regression test for the previously-broken active-job guard. Before the
+  // fix, the predicate compared `conversations.id` (the BACKGROUND-conv id)
+  // to source-conv ids extracted from job payloads — two different identifier
+  // spaces — so the guard never matched and in-flight retros were swept.
+  test("does NOT sweep a background conversation whose SOURCE has an active job (different identifier spaces)", () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
+    // The background conv has its own id, distinct from the source it forks
+    // from. The active job's payload references the SOURCE, not the
+    // background.
     mockConversations = [
       {
-        id: "orphan-but-protected",
+        id: "background-conv-id",
         source: "memory-retrospective",
         last_message_at: now - 2 * ORPHAN_AGE_MS,
+        fork_parent_conversation_id: "source-conv-id",
       },
     ];
     mockJobs = [
       {
         type: "memory_retrospective",
         status: "pending",
-        payload: JSON.stringify({ conversationId: "orphan-but-protected" }),
+        payload: JSON.stringify({ conversationId: "source-conv-id" }),
       },
     ];
     rebuildActiveJobSet();
@@ -203,6 +218,34 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
 
     expect(result.swept).toBe(0);
     expect(deletedIds).toEqual([]);
+  });
+
+  test("sweeps a background conversation whose source has NO active job, even when another unrelated job is pending", () => {
+    const now = Date.now();
+    injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
+    mockConversations = [
+      {
+        id: "background-A",
+        source: "memory-retrospective",
+        last_message_at: now - 2 * ORPHAN_AGE_MS,
+        fork_parent_conversation_id: "source-A",
+      },
+    ];
+    // Active job references a DIFFERENT source — the orphan above is not
+    // protected because its forkParent doesn't match.
+    mockJobs = [
+      {
+        type: "memory_retrospective",
+        status: "pending",
+        payload: JSON.stringify({ conversationId: "source-B" }),
+      },
+    ];
+    rebuildActiveJobSet();
+
+    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+
+    expect(result.swept).toBe(1);
+    expect(deletedIds).toEqual(["background-A"]);
   });
 
   test("running across an empty workspace returns swept=0 without errors", () => {

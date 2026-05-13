@@ -14,6 +14,7 @@ import {
   like,
   lt,
   lte,
+  or,
   sql,
 } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
@@ -1115,13 +1116,23 @@ export function countMessagesAfter(
     .where(eq(messages.id, afterMessageId))
     .get();
   if (!ref) return 0;
+  // Tie-breaker on `messages.id` so rows that share a millisecond timestamp
+  // with the reference are not permanently skipped. Mirrors the
+  // `(createdAt, id)` cursor pattern used by the backfill job-handler and
+  // turn-events-store.
   const row = db
     .select({ c: count() })
     .from(messages)
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        gt(messages.createdAt, ref.createdAt),
+        or(
+          gt(messages.createdAt, ref.createdAt),
+          and(
+            eq(messages.createdAt, ref.createdAt),
+            gt(messages.id, afterMessageId),
+          ),
+        ),
       ),
     )
     .get();
@@ -1155,16 +1166,24 @@ export function getMessagesAfter(
     .where(eq(messages.id, afterMessageId))
     .get();
   if (!ref) return [];
+  // Same `(createdAt, id)` cursor as `countMessagesAfter` — rows sharing
+  // the reference's millisecond timestamp would otherwise be skipped.
   return db
     .select()
     .from(messages)
     .where(
       and(
         eq(messages.conversationId, conversationId),
-        gt(messages.createdAt, ref.createdAt),
+        or(
+          gt(messages.createdAt, ref.createdAt),
+          and(
+            eq(messages.createdAt, ref.createdAt),
+            gt(messages.id, afterMessageId),
+          ),
+        ),
       ),
     )
-    .orderBy(asc(messages.createdAt))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
     .all()
     .map(parseMessage);
 }

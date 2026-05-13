@@ -424,4 +424,24 @@ describe("disposeConversation — memory-retrospective lifecycle safety net", ()
     expect(memoryRetroCalls).toHaveLength(0);
     expect(autoAnalyzeCalls).toHaveLength(0);
   });
+
+  // Regression test: the retrospective lifecycle enqueue was previously
+  // outside the `!isAutoAnalysis` guard, so it fired even for auto-analysis
+  // conversations. Mirrors the indexer-time gate in `indexer.ts` and
+  // matches the existing graph_extract recursion-guard semantics.
+  test("auto-analysis conversation — does NOT enqueue memory-retrospective even with flag on", () => {
+    memoryRetroEnabled = true;
+    autoAnalysisConversations.add("conv-auto-retro");
+    const ctx = makeDisposeContext({
+      conversationId: "conv-auto-retro",
+      trustClass: "guardian",
+    });
+
+    disposeConversation(ctx);
+
+    expect(memoryRetroCalls).toHaveLength(0);
+    // graph_extract is also recursion-guarded by the same `!isAutoAnalysis`
+    // block, so it should be skipped here too.
+    expect(memoryJobCalls).toHaveLength(0);
+  });
 });
