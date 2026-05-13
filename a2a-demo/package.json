@@ -3,11 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "bun run build:ui && bun run src/server.ts",
-    "peers:start": "bun run src/peers/start-all.ts",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/",
-    "build:ui": "bun build ui/src/main.tsx --outdir ui/dist --bundle --minify && cp ui/index.html ui/src/styles.css ui/dist/"
+    "test": "bun test src/"
   },
   "dependencies": {
     "@a2a-js/sdk": "0.3.13",

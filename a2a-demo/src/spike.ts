@@ -168,6 +168,12 @@ export function createSpikeServer(port: number) {
 export async function runSpike(port: number) {
   const server = createSpikeServer(port);
 
+  // Wait for the server to be listening before connecting the client
+  await new Promise<void>((resolve) => {
+    server.once('listening', resolve);
+    if (server.listening) resolve();
+  });
+
   try {
     // Create client via ClientFactory (NOT deprecated A2AClient)
     const factory = new ClientFactory(
