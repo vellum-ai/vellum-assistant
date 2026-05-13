@@ -1545,4 +1545,46 @@ describe("wakeAgentForOpportunity", () => {
       messageId: undefined,
     });
   });
+
+  test("non-serializable usage payload does not abort the wake", async () => {
+    // Circular reference in rawRequest — JSON.stringify throws on this.
+    // Serialization must happen inside persistLog's try/catch so the
+    // failure is swallowed as a non-fatal log warning rather than
+    // escaping and aborting the wake.
+    const circular: Record<string, unknown> = { request: "produced wake" };
+    circular.self = circular;
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actualProvider: "test-provider",
+      providerDurationMs: 10,
+      rawRequest: circular,
+      rawResponse: { response: "real reply" },
+    };
+    const target = makeTarget({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "real reply" }],
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "do reply",
+        source: "unit-test",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // Wake still produced output even though logging failed.
+    expect(target.persistedTailCalls).toHaveLength(1);
+    // No log row was inserted because JSON.stringify threw.
+    expect(recordRequestLogCalls).toHaveLength(0);
+  });
 });

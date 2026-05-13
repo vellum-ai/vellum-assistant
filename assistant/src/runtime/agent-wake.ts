@@ -542,21 +542,18 @@ export async function wakeAgentForOpportunity(
     // drops them — otherwise the next user-turn's `backfillMessageIdOnLogs`
     // sweep would misattach these NULL-messageId rows to an unrelated
     // future assistant message, contaminating inspector context.
-    const pendingLogs: Array<{
-      requestPayload: string;
-      responsePayload: string;
+    type PendingLog = {
+      rawRequest: unknown;
+      rawResponse: unknown;
       provider?: string;
-    }> = [];
-    const persistLog = (record: {
-      requestPayload: string;
-      responsePayload: string;
-      provider?: string;
-    }): void => {
+    };
+    const pendingLogs: PendingLog[] = [];
+    const persistLog = (record: PendingLog): void => {
       try {
         recordRequestLog(
           conversationId,
-          record.requestPayload,
-          record.responsePayload,
+          JSON.stringify(record.rawRequest),
+          JSON.stringify(record.rawResponse),
           undefined,
           record.provider,
         );
@@ -583,8 +580,8 @@ export async function wakeAgentForOpportunity(
       // Defer persistence while buffering — see `pendingLogs` above.
       if (event.type === "usage" && event.rawRequest && event.rawResponse) {
         const record = {
-          requestPayload: JSON.stringify(event.rawRequest),
-          responsePayload: JSON.stringify(event.rawResponse),
+          rawRequest: event.rawRequest,
+          rawResponse: event.rawResponse,
           provider: event.actualProvider,
         };
         if (mode === "buffering") {
