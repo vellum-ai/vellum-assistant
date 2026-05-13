@@ -10982,6 +10982,7 @@ paths:
                         - low
                         - medium
                         - high
+                        - critical
                     deadlineAt:
                       type: number
                     isAsyncBackground:
