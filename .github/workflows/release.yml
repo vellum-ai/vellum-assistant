@@ -153,9 +153,12 @@ jobs:
   notify-release-start:
     name: Slack Notification (Release Build Started)
     needs: extract-version
-    # Only fire for push events — workflow_dispatch releases already get a
-    # "Release Started" notification from create-release-branch.yml.
-    if: ${{ github.event_name == 'push' }}
+    # Fires on:
+    #   - push to release/v* (cherry-pick merge → staging build)
+    #   - workflow_dispatch on release/v* (Go-live → production build)
+    # The fresh-branch-creation push from create-release-branch.yml is
+    # suppressed inside the job; that workflow has its own notify-start.
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'release/v')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -168,7 +171,12 @@ jobs:
         id: check
         run: |
           # create-release-branch.yml commits with "Release vX.Y.Z" — skip
-          # to avoid duplicating its own Slack notification.
+          # to avoid duplicating its own Slack notification. Only applies
+          # to push events; workflow_dispatch always notifies.
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           HEAD_MSG=$(git log -1 --format=%s)
           if [[ "$HEAD_MSG" =~ ^Release\ v[0-9] ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -185,14 +193,19 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           BRANCH="${GITHUB_REF_NAME}"
           PUSHER="${{ github.actor }}"
+          EVENT_NAME="${{ github.event_name }}"
 
-          if [ "$IS_STAGING" = "true" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # Go-live promotion of an existing release branch to production.
+            HEADER="🚀 Production Release v${VERSION} Building"
+            BODY=$(printf 'Production release dispatched on `%s`.\n\n*Version:* `%s`\n*Branch:* `%s`\n*Triggered by:* %s' "$BRANCH" "$VERSION" "$BRANCH" "$PUSHER")
+          elif [ "$IS_STAGING" = "true" ]; then
             HEADER="🔄 Staging Release v${VERSION} Building (cherry-pick)"
+            BODY=$(printf 'A release build was triggered by a cherry-pick merge to `%s`.\n\n*Version:* `%s`\n*Branch:* `%s`\n*Pushed by:* %s' "$BRANCH" "$VERSION" "$BRANCH" "$PUSHER")
           else
             HEADER="🔄 Release v${VERSION} Building (cherry-pick)"
+            BODY=$(printf 'A release build was triggered by a cherry-pick merge to `%s`.\n\n*Version:* `%s`\n*Branch:* `%s`\n*Pushed by:* %s' "$BRANCH" "$VERSION" "$BRANCH" "$PUSHER")
           fi
-
-          BODY=$(printf 'A release build was triggered by a cherry-pick merge to `%s`.\n\n*Version:* `%s`\n*Branch:* `%s`\n*Pushed by:* %s' "$BRANCH" "$VERSION" "$BRANCH" "$PUSHER")
 
           BLOCKS="[]"
           BLOCKS=$(echo "$BLOCKS" | jq --arg header "$HEADER" '. + [{ type: "header", text: { type: "plain_text", text: $header } }]')
