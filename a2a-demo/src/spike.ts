@@ -169,9 +169,11 @@ export async function runSpike(port: number) {
   const server = createSpikeServer(port);
 
   await new Promise<void>((resolve, reject) => {
-    server.once('listening', resolve);
-    server.once('error', reject);
-    if (server.listening) resolve();
+    const onListening = () => { server.removeListener('error', onError); resolve(); };
+    const onError = (err: Error) => { server.removeListener('listening', onListening); reject(err); };
+    server.once('listening', onListening);
+    server.once('error', onError);
+    if (server.listening) { server.removeListener('error', onError); resolve(); }
   });
 
   try {
