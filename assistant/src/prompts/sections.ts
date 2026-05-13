@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
+import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
@@ -21,75 +22,109 @@ const log = getLogger("system-prompt-sections");
 export type SectionRenderContext = Record<string, unknown>;
 
 /**
- * Workspace location for editable system prompt section files.
+ * Workspace override location for user-authored system prompt sections.
  * Layout: `<workspace>/prompts/system/<NN-name>.md`.
  *
- * The bundled `templates/system/` directory shipped with the daemon is the
- * seed corpus: `ensurePromptFiles()` (in `system-prompt.ts`) copies any
- * missing template into this directory at startup.  The renderer never
- * reads from the bundled directory — once seeded, the workspace is the
- * single source of truth.
+ * Bundled `templates/system/` files are the source of default truth; this
+ * directory is an optional override layer.  Drop a file with the same
+ * filename as a bundled section to replace its body, or drop a file with
+ * a new `<NN-name>` to add a workspace-only section.  Either path is
+ * opt-in — the directory may not exist on a fresh install.
  */
 export function getWorkspaceSystemPromptDir(): string {
   return join(getWorkspaceDir(), "prompts", "system");
 }
 
 /**
- * Render every `<NN-name>.md` file under `<workspace>/prompts/system/` in
- * filename order, returning the trimmed body of each enabled section.
+ * Bundled location for the default system prompt sections shipped with
+ * the daemon.  The renderer reads from here unless the workspace has a
+ * file with the same name, in which case the workspace file wins.
  *
- * Discovery is filesystem-driven and workspace-only — there is no in-code
- * registry of section ids and the renderer never falls back to the bundled
- * directory.  `ensurePromptFiles()` runs at daemon startup and copies any
- * missing bundled section template into the workspace; from that point on
- * the workspace file IS the contract.
+ * Resolved through `resolveBundledDir` so it works in both source builds
+ * (relative to `prompts/`) and packaged bun binaries (macOS .app Resources
+ * dir or alongside the binary).
+ */
+export function getBundledSystemPromptDir(): string {
+  const callerDir = import.meta.dirname ?? __dirname;
+  return join(resolveBundledDir(callerDir, "templates", "templates"), "system");
+}
+
+/**
+ * Render every section in filename order, returning the trimmed body of
+ * each enabled section.  Discovery walks both `<bundled>/templates/system/`
+ * and `<workspace>/prompts/system/` and takes the union of section ids.
+ *
+ * Resolution per id:
+ *   - workspace file present → use workspace body (override)
+ *   - workspace file absent  → use bundled body (default)
+ *
+ * Bundled is the source of default truth.  Workspace acts as an override
+ * layer — a user can replace a bundled section by writing the same
+ * filename in their workspace, or add a brand-new section by writing a
+ * filename that doesn't exist in bundled.  The workspace directory does
+ * not need to exist on a fresh install; the renderer will fall through to
+ * bundled-only.
  *
  * Render contract per section:
- *   1. read `<workspace>/prompts/system/<id>.md`
+ *   1. resolve path (workspace wins over bundled)
  *   2. parse YAML frontmatter (optional); body is everything after
  *   3. evaluate `enabled` against `ctx`; falsy → skip
  *   4. strip lines starting with `_` (legacy inline-comment convention)
  *   5. trim; emit if non-empty, otherwise skip
  *
- * The empty-body case is intentional — it lets a user silence a section by
- * clearing its file without deleting it.  Deleting the file removes it from
- * discovery entirely until the next `ensurePromptFiles()` re-seeds it.
+ * The empty-body case is intentional — a user can silence a bundled
+ * section by overriding it with a file that strips down to nothing
+ * (frontmatter `enabled: false`, or a frontmatter-only file, or a body
+ * of only `_`-comments).  This is the supported "disable a bundled
+ * default" path.
  *
- * Drop a new `<NN-name>.md` into the workspace dir and it joins the render
- * order automatically.  The numeric prefix is load-bearing for sort order;
- * pick a number that places the section where it should appear in the final
- * prompt.
+ * The numeric prefix is load-bearing for sort order; pick a number that
+ * places the section where it should appear in the final prompt.
  */
 export function renderWorkspaceSections(ctx: SectionRenderContext): string[] {
-  const dir = getWorkspaceSystemPromptDir();
-  if (!existsSync(dir)) {
-    log.debug({ dir }, "Workspace system prompt directory missing");
-    return [];
-  }
+  const bundledDir = getBundledSystemPromptDir();
+  const workspaceDir = getWorkspaceSystemPromptDir();
 
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch (err) {
-    log.warn({ err, dir }, "Failed to list workspace system prompt dir");
-    return [];
-  }
-
-  const ids = entries
-    .filter((name) => name.endsWith(".md"))
-    .map((name) => name.slice(0, -".md".length))
-    .sort();
+  const ids = collectSectionIds(bundledDir, workspaceDir);
 
   const out: string[] = [];
   for (const id of ids) {
-    const rendered = renderSection(id, ctx);
+    const rendered = renderSection(id, ctx, bundledDir, workspaceDir);
     if (rendered) out.push(rendered);
   }
   return out;
 }
 
-function renderSection(id: string, ctx: SectionRenderContext): string | null {
-  const path = join(getWorkspaceSystemPromptDir(), `${id}.md`);
+function collectSectionIds(
+  bundledDir: string,
+  workspaceDir: string,
+): string[] {
+  const ids = new Set<string>();
+  for (const dir of [bundledDir, workspaceDir]) {
+    if (!existsSync(dir)) continue;
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch (err) {
+      log.warn({ err, dir }, "Failed to list system prompt directory");
+      continue;
+    }
+    for (const name of entries) {
+      if (name.endsWith(".md")) ids.add(name.slice(0, -".md".length));
+    }
+  }
+  return [...ids].sort();
+}
+
+function renderSection(
+  id: string,
+  ctx: SectionRenderContext,
+  bundledDir: string,
+  workspaceDir: string,
+): string | null {
+  const workspacePath = join(workspaceDir, `${id}.md`);
+  const bundledPath = join(bundledDir, `${id}.md`);
+  const path = existsSync(workspacePath) ? workspacePath : bundledPath;
 
   let raw: string;
   try {
