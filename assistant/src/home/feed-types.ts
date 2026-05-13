@@ -38,6 +38,14 @@ export type FeedItemStatus = "new" | "seen" | "acted_on" | "dismissed";
 /** Visual urgency treatment — controls badge color independently of sort priority. */
 export type FeedItemUrgency = "low" | "medium" | "high" | "critical";
 
+/** Broad category for grouping and filtering feed items. */
+export type FeedItemCategory =
+  | "security"
+  | "scheduling"
+  | "background"
+  | "email"
+  | "system";
+
 /**
  * A single action button attached to a feed item.
  *
@@ -96,6 +104,10 @@ export interface FeedItem {
   conversationId?: string;
   /** Server-driven detail panel descriptor; when present, the client opens this panel kind. */
   detailPanel?: FeedItemDetailPanel;
+  /** Broad category for grouping and filtering feed items. */
+  category?: FeedItemCategory;
+  /** Arbitrary structured data the detail panel or other consumers can use. */
+  metadata?: Record<string, unknown>;
   /** Internal: ISO-8601 writer-record time, used for ordering + TTL. */
   createdAt: string;
 }
@@ -164,6 +176,14 @@ const feedItemDetailPanelSchema = z.object({
   kind: feedItemDetailPanelKindSchema,
 });
 
+const feedItemCategorySchema = z.enum([
+  "security",
+  "scheduling",
+  "background",
+  "email",
+  "system",
+]);
+
 /**
  * Schema for a single `FeedItem`.
  *
@@ -187,6 +207,8 @@ export const feedItemSchema = z.object({
   urgency: feedItemUrgencySchema.optional(),
   conversationId: z.string().optional(),
   detailPanel: feedItemDetailPanelSchema.optional(),
+  category: feedItemCategorySchema.optional(),
+  metadata: z.record(z.unknown()).optional(),
   createdAt: z.string(),
 });
 
