@@ -69,7 +69,7 @@ struct SubagentDetailPanel: View {
                     subtitle: "Events will appear as the subagent runs",
                     icon: "waveform.path"
                 )
-            } else if panelContentWidth > 0 {
+            } else {
                 eventList
             }
         }
