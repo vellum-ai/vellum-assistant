@@ -1,5 +1,4 @@
 import { spawn } from "child_process";
-import { randomUUID } from "crypto";
 import { basename } from "path";
 import {
   useCallback,
@@ -14,7 +13,6 @@ import { Box, render as inkRender, Text, useInput, useStdout } from "ink";
 import { removeAssistantEntry } from "../lib/assistant-config";
 
 import { SPECIES_CONFIG, type Species } from "../lib/constants";
-import { callDoctorDaemon, type ChatLogEntry } from "../lib/doctor-client";
 import { checkHealth } from "../lib/health-check";
 import { appendHistory, loadHistory } from "../lib/input-history";
 import { tuiLog } from "../lib/tui-log";
@@ -41,7 +39,6 @@ export const ANSI = {
 export const SLASH_COMMANDS = [
   "/btw",
   "/clear",
-  "/doctor",
   "/exit",
   "/help",
   "/q",
@@ -103,7 +100,7 @@ const MIN_FEED_ROWS = 3;
 // Feed item height estimation
 const TOOL_CALL_CHROME_LINES = 2; // header (┌) + footer (└)
 const MESSAGE_SPACING = 1;
-const HELP_DISPLAY_HEIGHT = 8;
+const HELP_DISPLAY_HEIGHT = 7;
 
 interface ListMessagesResponse {
   messages: RuntimeMessage[];
@@ -733,10 +730,6 @@ function HelpDisplay(): ReactElement {
       <Text>
         {"  /btw <question>   "}
         <Text dimColor>Ask a side question while the assistant is working</Text>
-      </Text>
-      <Text>
-        {"  /doctor [question] "}
-        <Text dimColor>Run diagnostics on the remote instance via SSH</Text>
       </Text>
       <Text>
         {"  /retire           "}
@@ -1405,11 +1398,9 @@ function ChatApp({
   const connectedRef = useRef(false);
   const connectingRef = useRef(false);
   const seenMessageIdsRef = useRef(new Set<string>());
-  const chatLogRef = useRef<ChatLogEntry[]>([]);
   const sseAbortRef = useRef<AbortController | null>(null);
   const streamingTextRef = useRef("");
   const streamingToolCallsRef = useRef<ToolCallInfo[]>([]);
-  const doctorSessionIdRef = useRef(randomUUID());
   const handleRef_ = useRef<ChatAppHandle | null>(null);
 
   const { stdout } = useStdout();
@@ -1840,10 +1831,6 @@ function ChatApp({
                   };
                   seenMessageIdsRef.current.add(msg.id);
                   hRef.addMessage(msg);
-                  chatLogRef.current.push({
-                    role: "assistant",
-                    content: text,
-                  });
                   process.stdout.write("\x07");
                 }
 
@@ -2012,79 +1999,6 @@ function ChatApp({
         return;
       }
 
-      if (trimmed === "/doctor" || trimmed.startsWith("/doctor ")) {
-        if (!project || !zone) {
-          h.showError(
-            "No instance info available. Connect to a hatched instance first.",
-          );
-          return;
-        }
-        const userPrompt = trimmed.slice("/doctor".length).trim() || undefined;
-        const recentChatContext = chatLogRef.current.slice(-20);
-
-        chatLogRef.current.push({ role: "user", content: trimmed });
-
-        if (userPrompt) {
-          const doctorUserMsg: RuntimeMessage = {
-            id: "local-user-" + Date.now(),
-            role: "user",
-            content: userPrompt,
-            timestamp: new Date().toISOString(),
-            label: "You (to Doctor):",
-          };
-          h.addMessage(doctorUserMsg);
-        }
-
-        h.showSpinner(`Analyzing ${assistantId}...`);
-
-        try {
-          const result = await callDoctorDaemon(
-            assistantId,
-            project,
-            zone,
-            userPrompt,
-            (event) => {
-              switch (event.phase) {
-                case "invoking_prompt":
-                  handleRef_.current?.showSpinner(
-                    `Analyzing ${assistantId}...`,
-                  );
-                  break;
-                case "calling_tool":
-                  handleRef_.current?.showSpinner(
-                    `Running ${event.toolName ?? "tool"} on ${assistantId}...`,
-                  );
-                  break;
-                case "processing_tool_result":
-                  handleRef_.current?.showSpinner(
-                    `Reviewing diagnostics for ${assistantId}...`,
-                  );
-                  break;
-              }
-            },
-            doctorSessionIdRef.current,
-            recentChatContext,
-          );
-          h.hideSpinner();
-          if (result.recommendation) {
-            h.addStatus(`Recommendation:\n${result.recommendation}`);
-            chatLogRef.current.push({
-              role: "assistant",
-              content: result.recommendation,
-            });
-          } else if (result.error) {
-            h.showError(result.error);
-            chatLogRef.current.push({ role: "error", content: result.error });
-          }
-        } catch (err) {
-          h.hideSpinner();
-          const errorMsg = `Doctor assistant unreachable: ${err instanceof Error ? err.message : err}`;
-          h.showError(errorMsg);
-          chatLogRef.current.push({ role: "error", content: errorMsg });
-        }
-        return;
-      }
-
       // If a connection attempt is already in progress, don't silently drop input
       if (connectingRef.current) {
         h.addStatus(
@@ -2201,7 +2115,6 @@ function ChatApp({
           );
           clearTimeout(timeoutId);
           if (sendResult.accepted) {
-            chatLogRef.current.push({ role: "user", content: trimmed });
             h.addStatus(
               "Message queued — will be processed after current response",
               "gray",
@@ -2233,7 +2146,6 @@ function ChatApp({
         return;
       }
 
-      chatLogRef.current.push({ role: "user", content: trimmed });
       seenMessageIdsRef.current.add("pending-user-" + Date.now());
 
       h.showSpinner("Sending...");
@@ -2264,7 +2176,6 @@ function ChatApp({
         const errorMsg =
           sendErr instanceof Error ? sendErr.message : String(sendErr);
         h.showError(errorMsg);
-        chatLogRef.current.push({ role: "error", content: errorMsg });
         return;
       }
 
