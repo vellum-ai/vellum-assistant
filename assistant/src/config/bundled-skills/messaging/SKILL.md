@@ -8,6 +8,7 @@ metadata:
     display-name: "Messaging"
     activation-hints:
       - "Email, messaging, inbox management, read/send/search on any platform"
+      - "User wants to connect, set up, or configure Gmail, Outlook, email, or messaging"
       - "Handles credential flows -- do not improvise setup instructions"
 ---
 
