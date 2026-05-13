@@ -678,6 +678,62 @@ describe("HostAppControlProxy", () => {
       proxy.dispose();
     });
 
+    test("late-failing start does not clobber a newer successful start (out-of-order rollback)", async () => {
+      // Overlapping starts from the same conversation where the older one
+      // fails AFTER the newer succeeds. Identity-keyed rollback must make
+      // the stale failure a no-op rather than restoring the pre-A session.
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      // Establish prior session A.
+      const pA = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.a" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdA = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(reqIdA, payload({ pngBase64: PNG_A }));
+      await pA;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.a");
+
+      // Start B is dispatched but its host response is delayed.
+      sentMessages.length = 0;
+      const pB = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.b" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdB = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+
+      // Start C overtakes B and succeeds first.
+      sentMessages.length = 0;
+      const pC = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.c" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdC = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(reqIdC, payload({ pngBase64: PNG_A }));
+      await pC;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // Now B finally fails — rollback must NOT restore A or clobber C.
+      proxy.resolve(reqIdB, payload({ state: "missing" }));
+      await pB;
+
+      const session = _getActiveAppControlSession();
+      expect(session?.conversationId).toBe("conv-1");
+      expect(session?.app).toBe("com.example.c");
+
+      proxy.dispose();
+    });
+
     test("first-start failure releases the lock (no prior session to restore)", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();
