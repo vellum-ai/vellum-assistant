@@ -178,9 +178,9 @@ function substitutePlaceholders(
   const assistant = opts.assistantName?.trim() || "the assistant";
   const user = opts.userName?.trim() || "the user";
   return template
-    .replaceAll(ASSISTANT_NAME_PLACEHOLDER, assistant)
-    .replaceAll(USER_NAME_PLACEHOLDER, user)
-    .replaceAll(PAGE_INDEX_PLACEHOLDER, opts.pageIndexBlock);
+    .replaceAll(ASSISTANT_NAME_PLACEHOLDER, () => assistant)
+    .replaceAll(USER_NAME_PLACEHOLDER, () => user)
+    .replaceAll(PAGE_INDEX_PLACEHOLDER, () => opts.pageIndexBlock);
 }
 
 function resolveOverridePath(overridePath: string): string {
