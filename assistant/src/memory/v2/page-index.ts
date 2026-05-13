@@ -31,6 +31,16 @@ const log = getLogger("memory-v2-page-index");
 const SUMMARY_MAX_LENGTH = 200;
 
 /**
+ * Collapse every run of whitespace (including embedded newlines and tabs) to a
+ * single space and trim. The router prompt renders one entry per line, so an
+ * embedded newline anywhere in `summary` would split that entry across lines
+ * and corrupt the format the router parses.
+ */
+function normalizeSummary(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim().slice(0, SUMMARY_MAX_LENGTH);
+}
+
+/**
  * One row in the rendered page index. `id` is a 1-based dense integer that is
  * stable within a single index version (i.e. a single build). It changes when
  * the index is rebuilt because IDs are derived from the slug-sorted position;
@@ -97,6 +107,21 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     outgoingSlugs: string[];
   }
 
+  const { listSkillEntries, SKILL_SLUG_PREFIX } =
+    await import("./skill-store.js");
+
+  // Build the skill-slug set first so we can drop colliding concept pages.
+  // Collision policy: **skill entries win**. Skill rows are seeded from the
+  // curated catalog and the router needs them to be reachable under their
+  // canonical slugs; a hand-authored page sitting under `skills/<id>` is
+  // either a stale leftover from a prior write or a user mistake. `bySlug`
+  // is last-writer-wins, so without explicit dedupe one side would silently
+  // shadow the other depending on iteration order.
+  const skillEntries = listSkillEntries();
+  const skillSlugs = new Set(
+    skillEntries.map((entry) => `${SKILL_SLUG_PREFIX}${entry.id}`),
+  );
+
   const drafts: DraftEntry[] = [];
   for (let i = 0; i < settled.length; i++) {
     const result = settled[i];
@@ -110,20 +135,25 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     }
     const page = result.value;
     if (!page) continue;
+    if (skillSlugs.has(slug)) {
+      log.warn(
+        { slug },
+        "Dropping concept page from index — slug collides with a seeded skill entry; skill wins",
+      );
+      continue;
+    }
     const summarySource = page.frontmatter.summary?.trim() || page.body.trim();
     drafts.push({
       slug,
-      summary: summarySource.slice(0, SUMMARY_MAX_LENGTH),
+      summary: normalizeSummary(summarySource),
       outgoingSlugs: page.frontmatter.edges,
     });
   }
 
-  const { listSkillEntries, SKILL_SLUG_PREFIX } =
-    await import("./skill-store.js");
-  for (const entry of listSkillEntries()) {
+  for (const entry of skillEntries) {
     drafts.push({
       slug: `${SKILL_SLUG_PREFIX}${entry.id}`,
-      summary: entry.content.trim().slice(0, SUMMARY_MAX_LENGTH),
+      summary: normalizeSummary(entry.content),
       outgoingSlugs: [],
     });
   }
