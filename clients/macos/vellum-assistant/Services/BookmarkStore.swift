@@ -30,6 +30,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Bookm
 public final class BookmarkStore {
     public private(set) var bookmarks: [BookmarkSummary] = []
     public private(set) var bookmarkedMessageIds: Set<String> = []
+    public private(set) var isLoading = true
 
     @ObservationIgnored private let client: BookmarkClient
     @ObservationIgnored private var sseChangeCancellable: AnyCancellable?
@@ -50,6 +51,8 @@ public final class BookmarkStore {
     /// local state. Call once the gateway connection is established, and
     /// whenever a `bookmark.*` SSE event arrives from another window.
     public func reload() async {
+        isLoading = true
+        defer { isLoading = false }
         do {
             let fetched = try await client.listBookmarks()
             bookmarks = fetched
