@@ -86,6 +86,10 @@ public final class BookmarkStore {
                     messageId: messageId,
                     conversationId: conversationId
                 )
+                // Re-insert into the id set in case a concurrent reload()
+                // overwrote the optimistic insert before createBookmark
+                // returned — keeps bookmarkedMessageIds and bookmarks in sync.
+                bookmarkedMessageIds.insert(created.messageId)
                 // Guard against a duplicate row if an SSE-driven reload
                 // landed the same record first.
                 if !bookmarks.contains(where: { $0.messageId == created.messageId }) {
