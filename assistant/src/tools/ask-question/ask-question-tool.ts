@@ -31,21 +31,33 @@ const InputSchema = z.object({
 export type AskQuestionInput = z.infer<typeof InputSchema>;
 
 // ── Tool description ────────────────────────────────────────────────
+// The input schema accepts a single `question` + `options` payload only.
+// Do not advertise a batched `questions` shape here — the executor will
+// reject it as invalid input. (Batching is planned but lives behind a
+// schema extension that has not landed yet.)
 
 const DESCRIPTION = [
-  "Ask the user a clarifying question with a small set of structured options.",
-  "Prefer this over a plain-text clarification when ambiguity can be resolved",
-  "by 2–4 discrete choices; a single option tap is faster than free-form",
-  "back-and-forth.",
+  "Use this tool whenever the user's request is ambiguous and can be resolved",
+  "by 2–4 discrete choices. Prefer it over plain-text clarification — a single",
+  "option tap is faster than free-form back-and-forth, and avoids guessing.",
+  "",
+  "When in doubt between (a) asking inline and (b) calling ask_question with",
+  "structured options: call ask_question. The structured choices are better UX.",
   "",
   'Example: if the user says "schedule lunch with Alice next week" and there',
   "are two plausible Alice contacts, ask which Alice with options like",
   '`{id: "alice_work", label: "Alice (work)"}` and',
   '`{id: "alice_personal", label: "Alice (personal)"}`.',
   "",
-  "Do not over-use this. Skip it when the answer is obvious from context, when",
-  "only one reasonable interpretation exists, or when the question is",
-  "open-ended with more than about 4 plausible answers.",
+  "When NOT to use this tool:",
+  "- The answer is obvious from context or recent conversation.",
+  "- The question is genuinely open-ended (more than ~4 plausible answers) —",
+  "  fall back to plain text.",
+  "- You're about to take a low-stakes reversible action and can adjust based",
+  "  on feedback.",
+  "",
+  "If the user skips the question, proceed with reasonable defaults rather",
+  "than re-asking — they're signaling they don't want to be interrupted further.",
   "",
   "Provide 2–4 options. A free-text fallback is always added by the UI — do not",
   "include a 'something else' option yourself.",

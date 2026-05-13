@@ -68,4 +68,22 @@ describe("subagent-only tool filtering", () => {
     // A regular tool not in SUBAGENT_ONLY_TOOL_NAMES should still be active
     expect(isToolActiveForContext("bash", ctx)).toBe(true);
   });
+
+  test("respects subagentAllowedTools — tools outside the allowlist are inactive", () => {
+    // Mirrors `createResolveToolsCallback`'s post-filter so callers using this
+    // helper for system-prompt gating see the same final tool set.
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(),
+      toolsDisabledDepth: 0,
+      hasNoClient: false,
+      isSubagent: true,
+      subagentAllowedTools: new Set(["bash"]),
+    };
+
+    expect(isToolActiveForContext("bash", ctx)).toBe(true);
+    expect(isToolActiveForContext("ask_question", ctx)).toBe(false);
+    expect(isToolActiveForContext(TEST_TOOL_NAME, ctx)).toBe(false);
+  });
 });

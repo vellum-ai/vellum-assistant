@@ -58,7 +58,7 @@ mock.module("../../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-const { buildSystemPrompt, SYSTEM_PROMPT_CACHE_BOUNDARY } =
+const { buildSystemPrompt, ensurePromptFiles, SYSTEM_PROMPT_CACHE_BOUNDARY } =
   await import("../system-prompt.js");
 
 describe("buildSystemPrompt — Background Conversation gating", () => {
@@ -101,5 +101,51 @@ describe("buildSystemPrompt — Background Conversation gating", () => {
     );
     expect(staticBlock).toContain("## Background Conversation");
     expect(dynamicBlock).not.toContain("## Background Conversation");
+  });
+});
+
+describe("buildSystemPrompt — Clarifying questions section gating", () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    // Seed the workspace from the bundled templates so the
+    // `04-ask-question.md` section file exists for the renderer to find.
+    ensurePromptFiles();
+  });
+
+  test("hasAskQuestion: true — renders the Clarifying questions section", () => {
+    const result = buildSystemPrompt({ hasAskQuestion: true });
+    expect(result).toContain("## Clarifying questions");
+    expect(result).toContain("`ask_question`");
+  });
+
+  test("hasAskQuestion: false — section is omitted", () => {
+    const result = buildSystemPrompt({ hasAskQuestion: false });
+    expect(result).not.toContain("## Clarifying questions");
+  });
+
+  test("options undefined — section is omitted", () => {
+    const result = buildSystemPrompt(undefined);
+    expect(result).not.toContain("## Clarifying questions");
+  });
+
+  test("options provided without the flag — section is omitted", () => {
+    const result = buildSystemPrompt({});
+    expect(result).not.toContain("## Clarifying questions");
+  });
+
+  test("section lives in the static (cached) block, not the dynamic suffix", () => {
+    // The section is computed from the conversation's resolved tool set,
+    // which is stable across turns within a single conversation. It belongs
+    // in staticParts so it shares the cache block with other workspace
+    // sections.
+    const result = buildSystemPrompt({ hasAskQuestion: true });
+    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+    expect(boundaryIdx).toBeGreaterThan(-1);
+    const staticBlock = result.slice(0, boundaryIdx);
+    const dynamicBlock = result.slice(
+      boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length,
+    );
+    expect(staticBlock).toContain("## Clarifying questions");
+    expect(dynamicBlock).not.toContain("## Clarifying questions");
   });
 });

@@ -417,6 +417,14 @@ export function isToolActiveForContext(
   name: string,
   ctx: SkillProjectionContext,
 ): boolean {
+  // When the conversation is acting as a subagent, the parent orchestrator
+  // restricts the tool list. A tool that isn't on the allowlist is not
+  // available for this turn — short-circuit before any capability checks so
+  // callers using this helper for system-prompt gating (e.g. hasAskQuestion)
+  // see the same final tool set as `createResolveToolsCallback`.
+  if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
+    return false;
+  }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
   }
