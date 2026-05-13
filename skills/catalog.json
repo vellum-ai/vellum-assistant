@@ -187,7 +187,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-01T13:55:47-04:00"
+      "updatedAt": "2026-05-13T09:21:12-04:00"
     },
     {
       "id": "google-calendar",
@@ -201,7 +201,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-19T09:24:39-04:00"
+      "updatedAt": "2026-05-13T09:21:12-04:00"
     },
     {
       "id": "guardian-verify-setup",
@@ -584,7 +584,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T20:12:14-04:00"
+      "updatedAt": "2026-05-12T20:20:27-04:00"
     },
     {
       "id": "slack-app-setup",
@@ -830,7 +830,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-11T15:40:02-04:00"
+      "updatedAt": "2026-05-13T09:21:12-04:00"
     },
     {
       "id": "vellum-self-knowledge",

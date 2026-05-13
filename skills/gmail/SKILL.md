@@ -34,7 +34,7 @@ All operations use CLI scripts that return JSON:
 | `gmail-scan.ts`    | `outreach-scan`         | Identify cold outreach senders (no List-Unsubscribe header)                  |
 | `gmail-archive.ts` | `archive`               | Archive messages (single, batch message_ids, cache_key+sender-emails, query) |
 | `gmail-archive.ts` | `archive --dry-run`     | Preview what would be archived without executing (writes staged ops to log)  |
-| `gmail-archive.ts` | `archive --resume`      | Resume an interrupted archive run from its last checkpoint                    |
+| `gmail-archive.ts` | `archive --resume`      | Resume an interrupted archive run from its last checkpoint                   |
 | `gmail-commit.ts`  | `commit`                | Execute all staged ops from a dry-run                                        |
 | `gmail-commit.ts`  | `cancel`                | Delete a run log without executing anything                                  |
 | `gmail-runs.ts`    | `list`                  | List recent operation runs with status summaries                             |
@@ -161,6 +161,7 @@ bun run scripts/gmail-commit.ts cancel --run-id "<run-id>"
 ```
 
 Label and filter operations also support `--dry-run`:
+
 ```bash
 bun run scripts/gmail-manage.ts label --message-ids "..." --add-labels "..." --dry-run
 bun run scripts/gmail-manage.ts filters --action create --from "..." --remove-labels "INBOX" --dry-run
@@ -191,6 +192,7 @@ bun run scripts/gmail-reverse.ts --run-id "run_20260420_a1b2c3d4" --thread "18f.
 ```
 
 Reversal semantics:
+
 - **archive** → adds INBOX label back (un-archives)
 - **label_add** → removes the labels that were added
 - **label_remove** → adds back the labels that were removed
