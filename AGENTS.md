@@ -352,10 +352,11 @@ The IPC protocol is newline-delimited JSON over the Unix domain socket:
 - Request:  `{ "id": string, "method": string, "params"?: object }`
 - Response: `{ "id": string, "result"?: unknown, "error"?: string }`
 
-When you need to publish events to connected clients (e.g. `open_url`,
-`avatar_updated`) from code running inside the daemon process, import and
-call the `assistantEventHub` singleton directly rather than adding a new
-HTTP endpoint.
+When you need to publish domain/live events to connected clients (e.g.
+`open_url`) from code running inside the daemon process, import and call the
+`assistantEventHub` singleton directly rather than adding a new HTTP endpoint.
+For persisted multi-client state invalidation, use `sync_changed` via
+`publishSyncInvalidation()` instead.
 
 ## See Also
 
