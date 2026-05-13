@@ -378,7 +378,7 @@ struct SubagentDetailPanel: View {
 
     @ViewBuilder
     private func metricCard(icon: VIcon, label: String, value: String) -> some View {
-        HStack(spacing: VSpacing.lg) {
+        HStack(spacing: VSpacing.sm) {
             VIconView(icon, size: 16)
                 .foregroundStyle(VColor.contentTertiary)
                 .padding(VSpacing.sm)
@@ -390,13 +390,15 @@ struct SubagentDetailPanel: View {
                 Text(value)
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Text(label)
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
             Spacer(minLength: 0)
         }
-        .padding(VSpacing.md)
+        .padding(VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .strokeBorder(VColor.borderBase, lineWidth: 1)

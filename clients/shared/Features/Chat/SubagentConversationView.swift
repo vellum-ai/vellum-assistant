@@ -186,13 +186,13 @@ public struct SubagentGroupRow: View {
             }
 
             if isRunning, let onAbort {
-                VIconView(.x, size: 9)
+                VIconView(.square, size: 9)
                     .foregroundStyle(VColor.contentTertiary)
                     .padding(VSpacing.xs)
                     .contentShape(Rectangle())
                     .highPriorityGesture(TapGesture().onEnded { onAbort() })
                     .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel("Abort subagent")
+                    .accessibilityLabel("Stop subagent")
                     .accessibilityAction { onAbort() }
             }
 
