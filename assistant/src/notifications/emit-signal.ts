@@ -284,15 +284,16 @@ export async function emitNotificationSignal<TEventName extends string>(
     // notification via the vellum channel, regardless of what the
     // decision engine selected. This ensures macOS surfaces a banner
     // even when the app is focused.
+    const urgency = signal.attentionHints.urgency;
     if (
-      signal.attentionHints.urgency === "high" &&
+      (urgency === "high" || urgency === "critical") &&
       decision.shouldNotify &&
       !decision.selectedChannels.includes("vellum")
     ) {
       decision = {
         ...decision,
         selectedChannels: ["vellum", ...decision.selectedChannels],
-        reasoningSummary: `${decision.reasoningSummary} (vellum forced: high urgency)`,
+        reasoningSummary: `${decision.reasoningSummary} (vellum forced: ${urgency} urgency)`,
       };
     }
 

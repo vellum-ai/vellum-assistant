@@ -119,7 +119,7 @@ export type NotificationSourceEventName =
 
 export interface AttentionHints {
   requiresAction: boolean;
-  urgency: "low" | "medium" | "high";
+  urgency: "low" | "medium" | "high" | "critical";
   deadlineAt?: number; // epoch ms
   isAsyncBackground: boolean;
   visibleInSourceNow: boolean;
