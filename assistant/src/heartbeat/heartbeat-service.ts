@@ -648,6 +648,7 @@ export class HeartbeatService {
           conversationMetadata: {
             source: "heartbeat",
             groupId: "system:background",
+            conversationType: "background",
           },
         });
       } catch (err) {
@@ -714,6 +715,7 @@ export class HeartbeatService {
       conversationMetadata: {
         source: "heartbeat",
         groupId: "system:background",
+        conversationType: "background",
       },
     });
   }
