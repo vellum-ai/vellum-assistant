@@ -3,9 +3,14 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChannelClient")
 
-/// Focused client for channel readiness operations routed through the gateway.
+/// Focused client for channel readiness + availability operations routed through the gateway.
 public protocol ChannelClientProtocol {
     func fetchChannelReadiness() async -> [String: ChannelReadinessInfo]
+
+    /// Channel ids this assistant can surface to clients, in display order.
+    /// Returns `nil` when the gateway can't be reached so callers can fall
+    /// back to a static default; never block the UI on availability failures.
+    func fetchChannelAvailability() async -> [String]?
 }
 
 /// Per-channel readiness state returned by the gateway.
@@ -90,6 +95,28 @@ public struct ChannelClient: ChannelClientProtocol {
         } catch {
             log.error("fetchChannelReadiness error: \(error.localizedDescription)")
             return [:]
+        }
+    }
+
+    private struct AvailabilityResponse: Decodable {
+        let success: Bool
+        let channels: [String]
+    }
+
+    public func fetchChannelAvailability() async -> [String]? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "channels/available", timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchChannelAvailability failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let decoded = try JSONDecoder().decode(AvailabilityResponse.self, from: response.data)
+            return decoded.channels
+        } catch {
+            log.error("fetchChannelAvailability error: \(error.localizedDescription)")
+            return nil
         }
     }
 }
