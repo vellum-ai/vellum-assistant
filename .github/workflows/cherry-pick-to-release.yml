@@ -128,6 +128,14 @@ jobs:
       # commit carries every cherry-picked PR's Linear identifiers in the
       # magic-word format the Linear Release CLI scans for. Best-effort: a
       # failure here never blocks the cherry-pick itself.
+      #
+      # The previous step left the working tree on the cherry-pick branch,
+      # which is based on the release branch — a branch that pre-dates this
+      # script. Load the script from origin/main into /tmp so it's always
+      # available regardless of which release branch is being cherry-picked
+      # to. The script itself only reads git refs (via `git log`,
+      # `git rev-parse`, etc.) so the current working directory is fine.
+      #
       # See: .github/scripts/enrich-cherry-pick-pr.py
       - name: Enrich cherry-pick PR with Linear refs
         if: steps.cherry_pick.outputs.cherry_pick_pr != ''
@@ -143,4 +151,7 @@ jobs:
           # a workspace-scoped Linear API key, distinct from the pipeline
           # access key.
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-        run: python3 .github/scripts/enrich-cherry-pick-pr.py
+        run: |
+          git fetch origin main --quiet
+          git show origin/main:.github/scripts/enrich-cherry-pick-pr.py > /tmp/enrich-cherry-pick-pr.py
+          python3 /tmp/enrich-cherry-pick-pr.py
