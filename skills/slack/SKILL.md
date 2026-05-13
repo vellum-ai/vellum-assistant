@@ -8,7 +8,7 @@ metadata:
     display-name: "Slack"
 ---
 
-You help users interact with their Slack workspace. All Slack operations use the **Slack Web API** directly via `assistant oauth request --provider slack_channel` -- there are no dedicated Slack tools.
+You help users interact with their Slack workspace. All Slack operations use the **Slack Web API** directly via `assistant oauth request --provider slack_channel` -- there are no dedicated Slack tools. Use relative Slack API method paths such as `/chat.postMessage`; the provider supplies the Slack host.
 
 ## Resolution Scripts
 
@@ -29,7 +29,7 @@ The cache is stored locally under `~/.vellum/workspace/data/slack-skill/`. On fi
 
 ## Making Slack API Calls
 
-Use `assistant oauth request --provider slack_channel` to call any Slack Web API method. Auth is handled transparently -- the provider injects the bot token automatically.
+Use `assistant oauth request --provider slack_channel` to call any Slack Web API method. Auth is handled transparently -- the provider injects the bot token automatically. Pass relative method paths; do not include a host.
 
 General pattern:
 
@@ -37,7 +37,7 @@ General pattern:
 assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C123","text":"Hello world"}' \
-  https://slack.com/api/chat.postMessage --json
+  /chat.postMessage --json
 ```
 
 The model knows the full Slack API from training data. Refer to https://api.slack.com/methods for the complete list of available endpoints.
@@ -48,7 +48,7 @@ The model knows the full Slack API from training data. Refer to https://api.slac
 assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C0123456789","text":"Hello from the assistant!"}' \
-  https://slack.com/api/chat.postMessage --json
+  /chat.postMessage --json
 ```
 
 ### Read channel history
@@ -57,7 +57,7 @@ assistant oauth request --provider slack_channel \
 assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C0123456789","limit":20}' \
-  https://slack.com/api/conversations.history --json
+  /conversations.history --json
 ```
 
 ### Read thread replies
@@ -66,7 +66,7 @@ assistant oauth request --provider slack_channel \
 assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C0123456789","ts":"1716000000.000001"}' \
-  https://slack.com/api/conversations.replies --json
+  /conversations.replies --json
 ```
 
 ### Add a reaction
@@ -75,7 +75,7 @@ assistant oauth request --provider slack_channel \
 assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C0123456789","timestamp":"1716000000.000001","name":"thumbsup"}' \
-  https://slack.com/api/reactions.add --json
+  /reactions.add --json
 ```
 
 ### Send with blocks (rich formatting)
@@ -91,7 +91,7 @@ assistant oauth request --provider slack_channel \
       {"type":"section","text":{"type":"mrkdwn","text":"*Project Alpha*: on track\n*Project Beta*: needs review"}}
     ]
   }' \
-  https://slack.com/api/chat.postMessage --json
+  /chat.postMessage --json
 ```
 
 ### Upload a file
@@ -103,21 +103,21 @@ File uploads use a multi-step flow: get an upload URL, upload the file, then com
 assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"filename":"notes.txt","length":42}' \
-  https://slack.com/api/files.getUploadURLExternal --json
+  /files.getUploadURLExternal --json
 
 # Step 2: Upload file content to the returned upload_url (use curl directly)
 # Step 3: Complete the upload
 assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"files":[{"id":"FILE_ID","title":"Meeting Notes"}],"channel_id":"C0123456789"}' \
-  https://slack.com/api/files.completeUploadExternal --json
+  /files.completeUploadExternal --json
 ```
 
 ### Search messages
 
 ```bash
 assistant oauth request --provider slack_channel \
-  "https://slack.com/api/search.messages?query=project+launch+in%3A%23general" --json
+  "/search.messages?query=project+launch+in%3A%23general" --json
 ```
 
 ### Open a DM
@@ -126,7 +126,7 @@ assistant oauth request --provider slack_channel \
 assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"users":"U0123456789"}' \
-  https://slack.com/api/conversations.open --json
+  /conversations.open --json
 ```
 
 ## Typical Workflow
@@ -163,7 +163,7 @@ When responding to messages from Slack channels, replies should be threaded. Pas
 assistant oauth request --provider slack_channel \
   -X POST \
   -d '{"channel":"C0123456789","text":"Replying in thread","thread_ts":"1716000000.000001"}' \
-  https://slack.com/api/chat.postMessage --json
+  /chat.postMessage --json
 ```
 
 ## Connection

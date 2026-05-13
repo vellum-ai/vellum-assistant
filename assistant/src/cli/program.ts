@@ -51,6 +51,7 @@ import { registerUiCommand } from "./commands/ui.js";
 import { registerUsageCommand } from "./commands/usage.js";
 import { registerWatchersCommand } from "./commands/watchers.js";
 import { registerWebhooksCommand } from "./commands/webhooks.js";
+import { red } from "./lib/cli-colors.js";
 import { log } from "./logger.js";
 
 /**
@@ -66,6 +67,13 @@ export async function buildCliProgram(): Promise<Command> {
     .description("Local AI assistant")
     .version(APP_VERSION)
     .allowExcessArguments(true);
+
+  // Color Commander-emitted error output red (unknown options, missing args,
+  // cmd.error() calls). Plain success output and --help text are untouched.
+  // The `red` helper is a no-op when stderr isn't a TTY or NO_COLOR is set.
+  program.configureOutput({
+    outputError: (str, write) => write(red(str)),
+  });
 
   program.addHelpText(
     "after",

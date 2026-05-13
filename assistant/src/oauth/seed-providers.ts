@@ -722,6 +722,14 @@ export const PROVIDER_SEED_DATA: Record<
     requiresClientSecret: false,
     logoUrl: "https://cdn.simpleicons.org/slack",
     defaultScopes: [],
+    injectionTemplates: [
+      {
+        hostPattern: "slack.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
   },
 
   telegram: {

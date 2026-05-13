@@ -12,7 +12,17 @@
  *
  * Long-term: when channel_verification_sessions migrates fully to the gateway DB,
  * this poller will query the gateway DB directly and the IPC dependency
- * will be removed.
+ * will be removed. The cursor is intentionally in-memory because of that
+ * migration on the horizon — a persisted table would just be carry-cost.
+ *
+ * Replay protection (ATL-514). The poller's lookback window can include
+ * sessions that were consumed legitimately at the time but have since been
+ * superseded by manual revocation or a sibling binding path (e.g. inbound
+ * voice verification). `createPhoneGuardianBinding` enforces a recency check
+ * vs `contact_channels`: a consumed session whose `updated_at` is older
+ * than the most recent guardian binding event (active OR revoked) for the
+ * channel is rejected as stale. This is the security-critical guarantee;
+ * the in-memory cursor is just a polling optimization.
  */
 
 import { existsSync } from "node:fs";
@@ -23,6 +33,7 @@ import { getLogger } from "../logger.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import {
   getExistingGuardianBinding,
+  getMostRecentChannelGuardianTimestamp,
   resolveCanonicalPrincipal,
   revokeExistingChannelGuardian,
 } from "./binding-helpers.js";
@@ -32,7 +43,9 @@ const log = getLogger("outbound-voice-verification-sync");
 const POLL_INTERVAL_MS = 5_000;
 
 // On startup, catch up any sessions consumed within the last 24 hours so
-// nothing is missed across gateway restarts.
+// nothing is missed across gateway restarts. The recency check inside
+// createPhoneGuardianBinding rejects any session in that window that has
+// been superseded since.
 const STARTUP_LOOKBACK_MS = 24 * 60 * 60 * 1_000;
 
 interface DbProxyResult {
@@ -78,7 +91,7 @@ async function syncOutboundVoiceVerifications(): Promise<void> {
   // would just churn through superseded rebinds before landing on the same
   // final state.
   const result = (await ipcCallAssistant("db_proxy", {
-    sql: `SELECT consumed_by_external_user_id, consumed_by_chat_id
+    sql: `SELECT consumed_by_external_user_id, consumed_by_chat_id, updated_at
           FROM channel_verification_sessions
           WHERE channel = 'phone'
             AND status = 'consumed'
@@ -93,14 +106,17 @@ async function syncOutboundVoiceVerifications(): Promise<void> {
 
   const row = result.rows?.[0];
   if (!row) {
+    // No rows in [since, now]. Advance cursor to `now` — no race possible
+    // when there is nothing to miss.
     lastSyncAt = now;
     return;
   }
 
   const phoneNumber = row.consumed_by_external_user_id as string | null;
-  if (!phoneNumber) {
+  const sessionUpdatedAt = row.updated_at as number | null;
+  if (!phoneNumber || sessionUpdatedAt == null) {
     log.warn(
-      "Outbound voice verification sync: newest row missing consumed_by_external_user_id; advancing cursor",
+      "Outbound voice verification sync: newest row missing phone or updated_at; advancing cursor",
     );
     lastSyncAt = now;
     return;
@@ -109,8 +125,13 @@ async function syncOutboundVoiceVerifications(): Promise<void> {
   const chatId = (row.consumed_by_chat_id as string | null) ?? phoneNumber;
 
   try {
-    await createPhoneGuardianBinding(phoneNumber, chatId);
-    lastSyncAt = now;
+    await createPhoneGuardianBinding(phoneNumber, chatId, sessionUpdatedAt);
+    // Advance cursor to the processed row's updated_at — NOT wall-clock now.
+    // If another session was consumed concurrently with updated_at <= now
+    // (same-ms timestamps are sufficient), advancing to `now` would skip it
+    // on the next pass. Advancing to sessionUpdatedAt keeps the strict-`>`
+    // filter inclusive of any sibling row at or after this timestamp.
+    lastSyncAt = sessionUpdatedAt;
   } catch (err) {
     log.warn(
       { err, phoneNumber },
@@ -121,18 +142,37 @@ async function syncOutboundVoiceVerifications(): Promise<void> {
   }
 }
 
-async function createPhoneGuardianBinding(
+export async function createPhoneGuardianBinding(
   phoneNumber: string,
   chatId: string,
+  sessionUpdatedAt: number,
 ): Promise<void> {
+  // Recency check (security backstop, ATL-514). The poller's lookback
+  // window can include sessions that were consumed legitimately at the
+  // time but have since been superseded — by manual revocation, or by a
+  // sibling binding path (e.g. inbound verification).
+  // `getExistingGuardianBinding` only checks active bindings, so without
+  // this guard we would reactivate a revoked binding or revoke an active
+  // one in favor of a stale session.
+  const lastBindingTs =
+    await getMostRecentChannelGuardianTimestamp("phone");
+  if (lastBindingTs != null && sessionUpdatedAt <= lastBindingTs) {
+    log.warn(
+      { phoneNumber, sessionUpdatedAt, lastBindingTs },
+      "Outbound voice verification sync: session older than most recent binding event; skipping (replay-protection)",
+    );
+    return;
+  }
+
   const canonicalPrincipal = await resolveCanonicalPrincipal(phoneNumber);
   const existingBinding = await getExistingGuardianBinding("phone");
 
   if (existingBinding) {
     if (existingBinding.externalUserId === phoneNumber) {
-      // Idempotent — binding already exists for this number. This can happen
-      // on gateway restart (STARTUP_LOOKBACK_MS catches old sessions) or if
-      // the poller fires twice before lastSyncAt advances.
+      // Idempotent — binding already exists for this number. Can happen
+      // on gateway restart when the in-memory cursor falls back to the
+      // 24h lookback and re-encounters an already-processed session, or
+      // if the poller fires twice before lastSyncAt advances.
       log.info(
         { phoneNumber },
         "Outbound voice verification sync: binding already exists, skipping",
@@ -149,6 +189,9 @@ async function createPhoneGuardianBinding(
     // expected_phone_e164 set. So an outbound code-redemption is always a
     // deliberate rebind. Inbound's conservative skip exists because anyone
     // could call in with a stolen code; outbound has no such attack surface.
+    //
+    // The recency check above ensures we only rebind when the consumed
+    // session is newer than the current binding's last-touched timestamp.
     log.warn(
       { phoneNumber, existingGuardian: existingBinding.externalUserId },
       "Outbound voice verification sync: revoking conflicting phone guardian binding",

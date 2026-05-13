@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { getWorkspacePluginsDir } from "../util/platform.js";
+import { getWorkspacePluginsDir } from "../../util/platform.js";
 
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";

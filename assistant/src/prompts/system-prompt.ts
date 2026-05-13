@@ -302,27 +302,23 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // the first cache block so they remain cached even when workspace files
   // (IDENTITY.md, SOUL.md, users/<slug>.md, etc.) are edited between turns.
   //
-  // The remaining `build*Section` helpers will be migrated into the
-  // workspace-section convention in follow-up PRs (see
-  // `/workspace/data/plan-system-prompt-workspace.md`).
-  const staticParts: string[] = [];
-  staticParts.push(...renderWorkspaceSections({ ...options }));
-  if (getIsContainerized()) staticParts.push(buildContainerizedSection());
-  staticParts.push(buildCliReferenceSection());
-  // Tool Permissions section removed — guidance lives in tool descriptions.
-  // Tool Routing section removed — guidance lives in tool descriptions.
+  // Section render context.  Workspace section frontmatter `enabled:`
+  // predicates and `{{key}}` body interpolation both resolve against this
+  // map, so anything the renderer needs to see (runtime gates, paths) must
+  // be lifted onto `ctx` rather than branched on at the call site.
+  const ctx = {
+    ...options,
+    isContainerized: getIsContainerized(),
+    workspaceDir: getWorkspaceDir(),
+  };
+  const staticParts: string[] = [...renderWorkspaceSections(ctx)];
   staticParts.push(buildAttachmentSection());
-  // System Permissions section removed — guidance lives in request_system_permission tool description.
-  // Parallel Task Orchestration section removed — orchestration skill description + hints cover this.
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
   staticParts.push(buildCredentialSecuritySection());
   staticParts.push(buildExternalContentSection());
   if (options?.isBackgroundConversation) {
     staticParts.push(buildBackgroundConversationSection());
   }
-  // Memory Persistence, Memory Recall, Workspace Reflection, Learning from Mistakes
-  // sections removed — guidance lives in memory_manage/memory_recall tool descriptions
-  // and the Proactive Workspace Editing subsection in Configuration.
 
   // ── Dynamic sections (may change between turns) ──
   // Workspace files, config, external comms identity, connected services,
@@ -501,37 +497,6 @@ function buildIntegrationSection(): string {
   }
 
   return lines.join("\n");
-}
-
-function buildContainerizedSection(): string {
-  const workspaceDir = getWorkspaceDir();
-  return [
-    "## Running in a Container - Data Persistence",
-    "",
-    `You are running inside a container. Only the directory \`${workspaceDir}\` is mounted to a persistent volume.`,
-    "",
-    "**Any new files or data you create MUST be written inside that directory, or they will be lost when the container restarts.**",
-    "",
-    "Rules:",
-    `- Always store new data, notes, memories, configs, and downloads under \`${workspaceDir}\``,
-    "- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume",
-    "- When in doubt, prefer paths nested under the data directory",
-    "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done - disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
-  ].join("\n");
-}
-
-export function buildCliReferenceSection(): string {
-  return [
-    "## Assistant CLI",
-    "",
-    "The `assistant` CLI is available in the sandbox for managing assistant settings, integrations, and services. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
-    "",
-    "Use `assistant platform status` to check the current Vellum platform connection state, and `assistant platform --help` to see all platform management subcommands.",
-    "",
-    "Run `assistant --help` to see all available commands, or `assistant <command> --help` for detailed help on any subcommand.",
-    "",
-    "**Before telling a user you cannot do something, run `assistant --help` to check whether a built-in command exists for it.** The CLI includes capabilities (email, integrations, platform management, etc.) that you may not know about from training data alone. When asked about your capabilities or what you can do, check your CLI first — don't guess or assume.",
-  ].join("\n");
 }
 
 // Re-export from shared util so existing importers don't break.

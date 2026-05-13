@@ -671,6 +671,121 @@ describe("buildSystemPrompt", () => {
       expect(orgIdx).toBeGreaterThan(parallelIdx);
     });
 
+    describe("containerized section (slot 02)", () => {
+      const CONTAINERIZED_FILE = join(SYSTEM_PROMPTS_DIR, "02-containerized.md");
+
+      // The runtime gate is `isContainerized` on the render context, sourced
+      // from `getIsContainerized()` which reads `process.env.IS_CONTAINERIZED`.
+      // Tests toggle the env var directly and restore it in `finally`.
+      let priorIsContainerized: string | undefined;
+
+      beforeEach(() => {
+        priorIsContainerized = process.env.IS_CONTAINERIZED;
+      });
+
+      afterEach(() => {
+        if (priorIsContainerized === undefined)
+          delete process.env.IS_CONTAINERIZED;
+        else process.env.IS_CONTAINERIZED = priorIsContainerized;
+      });
+
+      test("renders the section when IS_CONTAINERIZED=true with {{workspaceDir}} interpolated", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CONTAINERIZED_FILE,
+          "---\nenabled: isContainerized\n---\n" +
+            "Container mounted at `{{workspaceDir}}`. Persist accordingly.\n",
+        );
+        process.env.IS_CONTAINERIZED = "true";
+        const result = buildSystemPrompt();
+        expect(result).toContain(
+          `Container mounted at \`${TEST_DIR}\`. Persist accordingly.`,
+        );
+        // The literal `{{workspaceDir}}` must be substituted, not leaked.
+        expect(result).not.toContain("{{workspaceDir}}");
+      });
+
+      test("omits the section when IS_CONTAINERIZED is unset", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CONTAINERIZED_FILE,
+          "---\nenabled: isContainerized\n---\nContainer guidance body.\n",
+        );
+        delete process.env.IS_CONTAINERIZED;
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("Container guidance body.");
+      });
+
+      test("omits the section when IS_CONTAINERIZED=false (string)", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CONTAINERIZED_FILE,
+          "---\nenabled: isContainerized\n---\nContainer guidance body.\n",
+        );
+        process.env.IS_CONTAINERIZED = "false";
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("Container guidance body.");
+      });
+    });
+
+    describe("cli-reference section (slot 03)", () => {
+      const CLI_REFERENCE_FILE = join(
+        SYSTEM_PROMPTS_DIR,
+        "03-cli-reference.md",
+      );
+
+      test("workspace cli-reference file is rendered into the static block", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CLI_REFERENCE_FILE,
+          "## Assistant CLI\n\nRun `assistant --help` to discover commands.\n",
+        );
+        const result = buildSystemPrompt();
+        expect(result).toContain("## Assistant CLI");
+        expect(result).toContain(
+          "Run `assistant --help` to discover commands.",
+        );
+        // Section lives in the static (cached) block.
+        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        expect(boundaryIdx).toBeGreaterThan(-1);
+        const staticBlock = result.slice(0, boundaryIdx);
+        expect(staticBlock).toContain("## Assistant CLI");
+      });
+
+      test("renders before the attachment section so CLI guidance comes first", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          CLI_REFERENCE_FILE,
+          "## Assistant CLI\n\nUse `assistant --help`.\n",
+        );
+        const result = buildSystemPrompt();
+        const cliIdx = result.indexOf("## Assistant CLI");
+        const attachmentIdx = result.indexOf(
+          "## Sending Files to the User",
+        );
+        expect(cliIdx).toBeGreaterThan(-1);
+        expect(attachmentIdx).toBeGreaterThan(-1);
+        expect(cliIdx).toBeLessThan(attachmentIdx);
+      });
+
+      test("omits the section when the workspace file is missing", () => {
+        // No write — workspace dir empty (or only contains other sections).
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("## Assistant CLI");
+      });
+    });
+
+    test("unresolved {{variable}} is left as a literal in the body", () => {
+      mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+      writeFileSync(
+        PREFIX_FILE,
+        PREFIX_FRONTMATTER + "Has {{somethingMissing}} in body.\n",
+      );
+      const result = buildSystemPrompt();
+      expect(result).toContain("Has {{somethingMissing}} in body.");
+    });
+
   });
 });
 
