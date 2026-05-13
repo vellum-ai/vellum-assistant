@@ -435,8 +435,10 @@ final class LiveVoiceChannelManager {
             guard generation == self.sessionGeneration else { return }
 
             self.sessionGeneration &+= 1
+            let closingGeneration = self.sessionGeneration
             self.state = .ending
             await completedClient?.close()
+            guard closingGeneration == self.sessionGeneration else { return }
             self.resetIgnoredSessionState()
             self.sessionId = nil
             self.state = .idle
