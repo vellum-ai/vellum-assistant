@@ -34,5 +34,3 @@ export const messageBookmarks = sqliteTable(
     index("message_bookmarks_created_at_idx").on(table.createdAt),
   ],
 );
-
-export type MessageBookmarkRow = typeof messageBookmarks.$inferSelect;

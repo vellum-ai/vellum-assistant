@@ -152,7 +152,7 @@ export function stringifyMessageContent(stored: string): string {
     return stored.trim();
   }
   if (typeof parsed === "string") return parsed.trim();
-  if (!Array.isArray(parsed)) return "";
+  if (!Array.isArray(parsed)) return stored.trim();
   const parts: string[] = [];
   for (const block of parsed) {
     if (
