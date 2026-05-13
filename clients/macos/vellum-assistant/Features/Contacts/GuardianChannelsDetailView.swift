@@ -234,6 +234,10 @@ struct GuardianChannelsDetailView: View {
                                 setupExpanded.insert(type)
                             }
                         }
+                    } else if !isGuardian, let channel = existingChannels.first {
+                        VButton(label: "Mark Verified", style: .outlined, isDisabled: actionInProgress != nil) {
+                            verifyChannel(channelId: channel.id, type: type)
+                        }
                     }
                 }
                 .frame(minHeight: 36)
@@ -252,6 +256,11 @@ struct GuardianChannelsDetailView: View {
         } else if (isGuardian && store?.channelVerificationState(for: type).verified == true)
             || (!existingChannels.isEmpty && !dismissedChannels.contains(type))
             || setupExpanded.contains(type) {
+            if showCardBorders && !isGuardian, let channel = existingChannels.first {
+                VButton(label: "Mark Verified", style: .outlined, isDisabled: actionInProgress != nil) {
+                    verifyChannel(channelId: channel.id, type: type)
+                }
+            }
             verificationFlowContent(for: type)
         } else {
             VButton(label: setupButtonLabel, style: .outlined) {
@@ -403,9 +412,10 @@ struct GuardianChannelsDetailView: View {
         }
     }
 
-    // MARK: - Disconnect Channel
+    // MARK: - Channel Actions
 
-    private func disconnectChannel(channelId: String, type: String) {
+    /// Runs an async channel action with shared loading/error/refresh handling.
+    private func performChannelAction(channelId: String, type: String, errorLabel: String, action: () async throws -> Void) {
         guard actionInProgress == nil else { return }
         actionInProgress = channelId
         errorMessage = nil
@@ -413,16 +423,28 @@ struct GuardianChannelsDetailView: View {
 
         Task {
             do {
-                _ = try await contactClient.updateContactChannel(channelId: channelId, status: "revoked", policy: nil, reason: nil)
+                try await action()
                 let refreshed = try await contactClient.fetchContact(contactId: displayContact.id)
                 if let refreshed {
                     currentContact = refreshed
                 }
             } catch {
-                errorMessage = "Failed to update channel: \(error.localizedDescription)"
+                errorMessage = "Failed to \(errorLabel) channel: \(error.localizedDescription)"
                 errorChannelType = type
             }
             actionInProgress = nil
+        }
+    }
+
+    private func disconnectChannel(channelId: String, type: String) {
+        performChannelAction(channelId: channelId, type: type, errorLabel: "update") {
+            _ = try await contactClient.updateContactChannel(channelId: channelId, status: "revoked", policy: nil, reason: nil)
+        }
+    }
+
+    private func verifyChannel(channelId: String, type: String) {
+        performChannelAction(channelId: channelId, type: type, errorLabel: "verify") {
+            _ = try await contactClient.verifyContactChannel(channelId: channelId)
         }
     }
 

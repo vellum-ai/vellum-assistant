@@ -104,6 +104,18 @@ public final class ContactsStore {
         }
     }
 
+    /// Verify a contact channel by ID.
+    public func verifyContactChannel(channelId: String) {
+        Task {
+            do {
+                _ = try await contactClient.verifyContactChannel(channelId: channelId)
+                loadContacts()
+            } catch {
+                // Silently ignore — matches existing updateContactChannel pattern
+            }
+        }
+    }
+
     /// Delete a contact by ID.
     public func deleteContact(id: String) {
         Task {
