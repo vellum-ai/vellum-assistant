@@ -21,10 +21,7 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { normalizeOnboardingContext } from "./normalize-onboarding.js";
-import {
-  getWorkspaceSystemPromptDir,
-  renderWorkspaceSections,
-} from "./sections.js";
+import { renderWorkspaceSections } from "./sections.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
@@ -106,54 +103,13 @@ export function ensurePromptFiles(): void {
     }
   }
 
-  // Seed `<workspace>/prompts/system/` from `templates/system/`.  Same
-  // copy-if-missing semantics as SOUL.md / IDENTITY.md — user edits are
-  // sticky; bundled defaults only land when the file does not exist.
-  // Discovery is filesystem-driven: every `.md` file in `templates/system/`
-  // is treated as a section.  No in-code registry of section ids.
-  const systemPromptDir = getWorkspaceSystemPromptDir();
-  const systemTemplatesDir = join(templatesDir, "system");
-  if (existsSync(systemTemplatesDir)) {
-    try {
-      mkdirSync(systemPromptDir, { recursive: true });
-    } catch (err) {
-      log.warn(
-        { err, systemPromptDir },
-        "Failed to create system prompt directory",
-      );
-    }
-
-    let templateFiles: string[] = [];
-    try {
-      templateFiles = readdirSync(systemTemplatesDir).filter((f) =>
-        f.endsWith(".md"),
-      );
-    } catch (err) {
-      log.warn(
-        { err, systemTemplatesDir },
-        "Failed to list system prompt templates",
-      );
-    }
-
-    for (const filename of templateFiles) {
-      const dest = join(systemPromptDir, filename);
-      if (existsSync(dest)) continue;
-
-      const src = join(systemTemplatesDir, filename);
-      try {
-        copyFileSync(src, dest);
-        log.info(
-          { filename, dest },
-          "Created system prompt section from template",
-        );
-      } catch (err) {
-        log.warn(
-          { err, filename },
-          "Failed to create system prompt section from template",
-        );
-      }
-    }
-  }
+  // Note: section templates under `<bundled>/templates/system/` are NOT
+  // seeded into the workspace.  Bundled files are the source of default
+  // truth and the renderer reads them directly; users opt into customizing
+  // a section by writing their own file at
+  // `<workspace>/prompts/system/<NN-name>.md`, which overrides the
+  // bundled body.  The workspace dir is created lazily if and when a user
+  // writes an override.
 
   // Only seed BOOTSTRAP.md on a truly fresh install so that deleting it
   // reliably signals onboarding completion across daemon restarts.
