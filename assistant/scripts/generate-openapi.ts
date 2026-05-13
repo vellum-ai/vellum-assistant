@@ -545,19 +545,6 @@ async function main() {
     }
     if (existing !== yamlOutput) {
       console.error("openapi.yaml is stale. Run: bun run generate:openapi");
-      // Temporary debug: emit first ~30 differing lines so CI shows what changed.
-      const existingLines = existing.split("\n");
-      const outputLines = yamlOutput.split("\n");
-      const max = Math.max(existingLines.length, outputLines.length);
-      let printed = 0;
-      for (let i = 0; i < max && printed < 30; i++) {
-        if (existingLines[i] !== outputLines[i]) {
-          console.error(
-            `line ${i + 1}:\n  -committed: ${JSON.stringify(existingLines[i] ?? "<eof>")}\n  +generated: ${JSON.stringify(outputLines[i] ?? "<eof>")}`,
-          );
-          printed++;
-        }
-      }
       process.exit(1);
     }
     console.log("openapi.yaml is up to date.");
