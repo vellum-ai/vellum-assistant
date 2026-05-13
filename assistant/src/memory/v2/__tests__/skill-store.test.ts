@@ -578,6 +578,38 @@ describe("getSkillCapability", () => {
 
     expect(getSkillCapability("does-not-exist")).toBeNull();
   });
+
+  test("mutating the returned entry does not corrupt the cache", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    const first = getSkillCapability("example-skill-a");
+    expect(first).not.toBeNull();
+    const originalContent = first!.content;
+
+    // Frozen entries throw in strict mode when mutated; suppress so we can
+    // prove cache invariance even if a future refactor swaps freeze for a
+    // plain clone.
+    try {
+      (first as unknown as { id: string }).id = "tampered";
+      (first as unknown as { content: string }).content = "tampered";
+    } catch {
+      // expected under Object.freeze
+    }
+
+    const second = getSkillCapability("example-skill-a");
+    expect(second?.id).toBe("example-skill-a");
+    expect(second?.content).toBe(originalContent);
+
+    // listSkillEntries path also unaffected.
+    const viaList = listSkillEntries();
+    expect(viaList[0].id).toBe("example-skill-a");
+    expect(viaList[0].content).toBe(originalContent);
+  });
 });
 
 describe("listSkillEntries", () => {

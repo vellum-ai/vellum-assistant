@@ -291,12 +291,16 @@ async function runSeedOnce(): Promise<void> {
  * Accepts either a bare skill id (`example-skill`) or its unified-collection
  * slug (`skills/example-skill`) so render-side callers can pass through what
  * they have without a manual prefix strip.
+ *
+ * Returns a frozen copy so callers cannot mutate the underlying cache entry
+ * — matches the defensive-copy contract of `listSkillEntries`.
  */
 export function getSkillCapability(idOrSlug: string): SkillEntry | null {
   const id = idOrSlug.startsWith(SKILL_SLUG_PREFIX)
     ? idOrSlug.slice(SKILL_SLUG_PREFIX.length)
     : idOrSlug;
-  return entries?.get(id) ?? null;
+  const entry = entries?.get(id);
+  return entry ? Object.freeze({ ...entry }) : null;
 }
 
 /** True iff the slug refers to a skill entry in the unified collection. */
