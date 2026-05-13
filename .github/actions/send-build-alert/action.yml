@@ -57,7 +57,7 @@ runs:
         if [ "$SHOULD_TAG" = "true" ]; then
           ACTOR="<@$SLACK_USER_ID>"
         else
-          ACTOR="$SLACK_USER_ID"
+          ACTOR="$GITHUB_ACTOR"
         fi
 
         REPOSITORY_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
