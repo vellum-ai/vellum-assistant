@@ -91,14 +91,18 @@ struct SubagentDetailPanel: View {
 
             // Objective
             if let objective, !objective.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("OBJECTIVE")
-                        .font(VFont.labelSmall)
-                        .foregroundStyle(VColor.contentTertiary)
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Objective")
+                        .font(VFont.bodyMediumEmphasised)
+                        .foregroundStyle(VColor.contentEmphasized)
                     Text(objective)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentSecondary)
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentDefault)
+                        .lineSpacing(18 - 14)
                 }
+                .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.md, bottom: VSpacing.lg, trailing: VSpacing.md))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vCard(background: VColor.surfaceOverlay)
             }
 
             // Usage metrics row
