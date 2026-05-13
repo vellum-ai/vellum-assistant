@@ -1,0 +1,324 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* Header */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.app-header h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.connection-count {
+  font-size: 0.875rem;
+  color: #888;
+  margin-right: auto;
+}
+
+.start-button {
+  padding: 10px 24px;
+  border: none;
+  border-radius: 8px;
+  background: #4361ee;
+  color: #fff;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.start-button:hover:not(:disabled) {
+  background: #3a56d4;
+}
+
+.start-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Peer Cards Grid */
+
+.peer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+@media (max-width: 900px) {
+  .peer-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 500px) {
+  .peer-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Peer Card */
+
+.peer-card {
+  background: #16213e;
+  border-radius: 12px;
+  padding: 20px;
+  border: 2px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.peer-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.peer-name {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.peer-relationship {
+  font-size: 0.75rem;
+  color: #888;
+  text-transform: capitalize;
+}
+
+.peer-status {
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  display: inline-block;
+  margin-bottom: 8px;
+}
+
+/* Status Colors */
+
+.status-idle {
+  color: #888;
+  border-color: #333;
+}
+
+.peer-status.status-idle {
+  background: rgba(136, 136, 136, 0.1);
+}
+
+.status-sent {
+  color: #60a5fa;
+  border-color: #3b82f6;
+}
+
+.peer-status.status-sent {
+  background: rgba(59, 130, 246, 0.15);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.status-awaiting {
+  color: #fb923c;
+  border-color: #f97316;
+}
+
+.peer-status.status-awaiting {
+  background: rgba(249, 115, 22, 0.15);
+}
+
+.status-stale {
+  color: #facc15;
+  border-color: #eab308;
+}
+
+.peer-status.status-stale {
+  background: rgba(234, 179, 8, 0.15);
+  animation: flash 0.8s ease-in-out infinite;
+}
+
+.status-done {
+  color: #a3e635;
+  border-color: #84cc16;
+}
+
+.peer-status.status-done {
+  background: rgba(132, 204, 22, 0.1);
+}
+
+/* Peer card border matches status */
+.peer-card.status-idle {
+  border-color: #333;
+}
+
+.peer-card.status-sent {
+  border-color: #3b82f6;
+}
+
+.peer-card.status-awaiting {
+  border-color: #f97316;
+}
+
+.peer-card.status-stale {
+  border-color: #eab308;
+}
+
+.peer-card.status-done {
+  border-color: #84cc16;
+}
+
+/* Animations */
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Response */
+
+.peer-response {
+  margin-top: 8px;
+}
+
+.response-text {
+  font-size: 0.875rem;
+  color: #ccc;
+  margin-bottom: 8px;
+}
+
+/* Badges */
+
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.badge-standing {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+.badge-confirmed {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.badge-inferred {
+  background: rgba(234, 179, 8, 0.2);
+  color: #facc15;
+}
+
+.badge-unreachable {
+  background: rgba(136, 136, 136, 0.2);
+  color: #888;
+}
+
+/* Protocol Log Section */
+
+.log-section h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 12px;
+}
+
+.protocol-log {
+  background: #0f0f23;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.log-empty {
+  color: #555;
+  font-style: italic;
+}
+
+.log-entry {
+  margin-bottom: 4px;
+}
+
+.log-line {
+  color: #b0b0c0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Collapsible raw JSON */
+
+.log-raw {
+  margin-top: 4px;
+  margin-left: 16px;
+}
+
+.log-raw summary {
+  color: #666;
+  cursor: pointer;
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+.log-raw summary:hover {
+  color: #999;
+}
+
+.log-raw pre {
+  background: #0a0a1a;
+  border: 1px solid #2a2a4a;
+  border-radius: 4px;
+  padding: 8px;
+  margin-top: 4px;
+  color: #8888aa;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+}
