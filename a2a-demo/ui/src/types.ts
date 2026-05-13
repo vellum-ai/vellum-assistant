@@ -44,7 +44,7 @@ export type SSEEvent =
   | {
       type: 'task_error';
       peer: string;
-      taskId: string;
+      taskId: string | null;
       error: string;
     }
   | {
