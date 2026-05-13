@@ -72,6 +72,26 @@ const RETRYABLE_STREAM_PATTERNS = [
  */
 const RETRYABLE_PROVIDER_MESSAGE_PATTERNS = [/overloaded/i];
 
+/**
+ * Patterns that indicate the provider SDK reported a transport-level abort
+ * (TCP close mid-stream, edge LB idle cutoff, Bun fetch deadline) rather than
+ * a caller-initiated cancellation. Anthropic in particular surfaces both
+ * cases as ``Request was aborted`` from the SDK with ``error.status ===
+ * undefined``; the catch-site in ``providers/anthropic/client.ts`` tags
+ * caller cancellations with ``abortReason`` so they short-circuit *above*
+ * this check in {@link isRetryableError}. By the time a ProviderError with
+ * an aborted-request message reaches this predicate, ``abortReason`` is
+ * undefined — meaning the abort came from the transport, not the daemon —
+ * and a retry should issue a fresh request rather than letting the user
+ * stare at a blank screen until the client-side SSE watchdog fires.
+ *
+ * This is the daemon-side counterpart to the vembda graceful-close behavior
+ * for upstream disconnects (LUM-1536) — together they collapse the 45 s
+ * silent-stall window the web client used to observe whenever Anthropic's
+ * stream was cut mid-token.
+ */
+const RETRYABLE_TRANSPORT_ABORT_PATTERNS = [/request was aborted/i];
+
 function isRetryableStreamError(error: unknown): boolean {
   if (!(error instanceof ProviderError)) return false;
   if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
@@ -82,6 +102,15 @@ function isRetryableProviderMessage(error: unknown): boolean {
   if (!(error instanceof ProviderError)) return false;
   if (error.statusCode !== undefined) return false; // has a real HTTP status — handled by status check
   return RETRYABLE_PROVIDER_MESSAGE_PATTERNS.some((p) => p.test(error.message));
+}
+
+function isRetryableTransportAbort(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) return false;
+  // Transport aborts surface with ``status === undefined`` (the SDK never
+  // saw an HTTP response). A real HTTP status here means a server error,
+  // which is handled by the status check.
+  if (error.statusCode !== undefined) return false;
+  return RETRYABLE_TRANSPORT_ABORT_PATTERNS.some((p) => p.test(error.message));
 }
 
 function isRetryableError(error: unknown): boolean {
@@ -103,6 +132,7 @@ function isRetryableError(error: unknown): boolean {
   }
   if (isRetryableProviderMessage(error)) return true;
   if (isRetryableStreamError(error)) return true;
+  if (isRetryableTransportAbort(error)) return true;
   return isRetryableNetworkError(error);
 }
 
@@ -482,7 +512,9 @@ export class RetryProvider implements Provider {
                   ? "provider_overloaded"
                   : isRetryableStreamError(error)
                     ? "stream_corruption"
-                    : "network_error";
+                    : isRetryableTransportAbort(error)
+                      ? "transport_abort"
+                      : "network_error";
           log.warn(
             {
               attempt: attempt + 1,
