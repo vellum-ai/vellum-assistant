@@ -11,7 +11,7 @@
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
-} from "../../providers/managed-proxy/context.js";
+} from "../../providers/platform-proxy/context.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import type { Auth, ResolvedAuth } from "./auth.js";
 

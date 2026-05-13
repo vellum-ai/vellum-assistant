@@ -35,7 +35,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 // Managed proxy context — always unavailable in this test (no platform auth).
-mock.module("../providers/managed-proxy/context.js", () => ({
+mock.module("../providers/platform-proxy/context.js", () => ({
   buildManagedBaseUrl: async () => null,
   resolveManagedProxyContext: async () => {
     throw new Error("managed proxy not available in test");

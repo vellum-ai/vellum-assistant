@@ -14,7 +14,7 @@
         "url": "https://console.anthropic.com/settings/keys",
         "linkLabel": "Open Anthropic Console"
       },
-      "supportsManagedAuth": true,
+      "supportsPlatformAuth": true,
       "defaultModel": "claude-opus-4-7",
       "models": [
         {
@@ -107,7 +107,7 @@
         "url": "https://platform.openai.com/api-keys",
         "linkLabel": "Open OpenAI Platform"
       },
-      "supportsManagedAuth": true,
+      "supportsPlatformAuth": true,
       "defaultModel": "gpt-5.5",
       "models": [
         {
@@ -252,7 +252,7 @@
         "url": "https://aistudio.google.com/apikey",
         "linkLabel": "Open Google AI Studio"
       },
-      "supportsManagedAuth": true,
+      "supportsPlatformAuth": true,
       "defaultModel": "gemini-2.5-flash",
       "models": [
         {
@@ -414,7 +414,7 @@
         "url": "https://ollama.com/download",
         "linkLabel": "Download Ollama"
       },
-      "supportsManagedAuth": false,
+      "supportsPlatformAuth": false,
       "defaultModel": "llama3.2",
       "models": [
         {
@@ -456,7 +456,7 @@
         "url": "https://fireworks.ai/account/api-keys",
         "linkLabel": "Open Fireworks Dashboard"
       },
-      "supportsManagedAuth": false,
+      "supportsPlatformAuth": false,
       "defaultModel": "accounts/fireworks/models/kimi-k2p5",
       "models": [
         {
@@ -490,7 +490,7 @@
         "url": "https://openrouter.ai/keys",
         "linkLabel": "Open OpenRouter"
       },
-      "supportsManagedAuth": false,
+      "supportsPlatformAuth": false,
       "defaultModel": "x-ai/grok-4.20-beta",
       "models": [
         {

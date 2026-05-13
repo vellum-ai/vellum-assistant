@@ -4,8 +4,8 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getOllamaBaseUrlEnv } from "../config/env.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import type { AssistantConfig } from "../config/types.js";
-import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
-import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
+import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
+import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
@@ -311,7 +311,7 @@ export async function selectEmbeddingBackend(
   ) {
     const proxyCtx = await resolveManagedProxyContext();
     if (proxyCtx.enabled) {
-      const meta = MANAGED_PROVIDER_META["gemini"];
+      const meta = PLATFORM_PROVIDER_META["gemini"];
       if (meta?.managed && meta.proxyPath) {
         const managedBaseUrl = `${proxyCtx.platformBaseUrl}${meta.proxyPath}`;
         const managedModel = config.memory.embeddings.geminiModel;
@@ -685,7 +685,7 @@ async function selectFallbackBackends(
         ) {
           // Try managed proxy Gemini as fallback when no direct key exists.
           const proxyCtx = await resolveManagedProxyContext();
-          const meta = MANAGED_PROVIDER_META["gemini"];
+          const meta = PLATFORM_PROVIDER_META["gemini"];
           if (proxyCtx.enabled && meta?.managed && meta.proxyPath) {
             const managedBaseUrl = `${proxyCtx.platformBaseUrl}${meta.proxyPath}`;
             const managedModel = config.memory.embeddings.geminiModel;
