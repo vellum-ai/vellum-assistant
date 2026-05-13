@@ -1,11 +1,6 @@
 <!-- PR title format: type(scope): description -->
 <!-- Examples: feat(slack): add user token support, fix(cli): handle missing config, docs(architecture): update API table -->
 
-<!-- Link Linear issues with a closing keyword anywhere in this body so they're -->
-<!-- picked up by the Linear Release CLI when this ships. Closes / Fixes / -->
-<!-- Resolves all work; bare identifier mentions do not. -->
-<!-- e.g. `Closes LUM-NNNN`, `Part of ATL-NNN`. -->
-
 ## Prompt / plan
 <!-- What prompt or plan was used to generate this code? Link to a plan file, paste the prompt, or describe the approach. -->
 
