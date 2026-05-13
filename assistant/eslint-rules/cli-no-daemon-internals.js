@@ -65,6 +65,12 @@ const ALLOWED_PREFIXES = {
     // service-contracts RPC; daemon is not involved.
     "../../credential-execution/",
     "@vellumai/service-contracts",
+    // Hybrid local + IPC: a local-primary command may opportunistically
+    // notify the running daemon after a filesystem mutation (e.g.
+    // `plugins install` writes files then asks the daemon to live-load).
+    // The CLI must still work when the daemon is offline — the IPC call
+    // is best-effort, never required.
+    "../../ipc/cli-client",
   ],
   bootstrap: [
     "node:",

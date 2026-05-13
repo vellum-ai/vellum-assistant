@@ -285,12 +285,24 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
 }
 
 /**
- * Load the external plugin at `pluginDir` and register it.
+ * Build the external plugin at `pluginDir` and return the constructed
+ * {@link Plugin} without touching the registry. Used by both the boot-time
+ * {@link loadExternalPlugin} path (which then calls {@link registerPlugin})
+ * and the post-boot install path (which calls {@link registerPluginPostBoot}
+ * via the IPC route fired by `assistant plugins install`).
+ *
+ * Returns `undefined` when the build exceeds `importTimeoutMs`. Throws on
+ * any other build failure — callers attribute and decide what to do.
+ *
+ * Timeout semantics match {@link loadExternalPlugin}: the build keeps
+ * running in the background if it eventually resolves, but the caller has
+ * already moved on. A terminal `.catch` is attached to swallow late
+ * rejections so they don't surface as unhandled-rejection crashes.
  */
-export async function loadExternalPlugin(
+export async function buildExternalPlugin(
   pluginDir: string,
   opts: LoadExternalPluginOptions = {},
-): Promise<void> {
+): Promise<Plugin | undefined> {
   const timeoutMs = opts.importTimeoutMs ?? DEFAULT_IMPORT_TIMEOUT_MS;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -301,24 +313,41 @@ export async function loadExternalPlugin(
     });
     const result = await Promise.race([buildPromise, timeoutPromise]);
     if (result === timeoutSentinel) {
-      // Abandoned build — surface imports may still be running. Attach a
-      // terminal `.catch` so a late rejection does not surface as an
-      // unhandled-rejection crash. The closed-registration latch in
-      // `registry.ts` rejects any late `registerPlugin()` call from a
-      // surface module that finishes evaluating after this loader has
-      // moved on.
       buildPromise.catch(() => {
-        /* swallow — see comment above */
+        /* swallow — see module docstring on per-plugin isolation */
       });
       log.warn(
         { pluginDir, timeoutMs },
-        `Timed out loading external plugin ${pluginDir} after ${timeoutMs}ms — skipping`,
+        `Timed out building external plugin ${pluginDir} after ${timeoutMs}ms — skipping`,
       );
-      return;
+      return undefined;
     }
-    registerPlugin(result);
+    return result;
+  } finally {
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+  }
+}
+
+/**
+ * Load the external plugin at `pluginDir` and register it.
+ *
+ * Boot-time entry point: combines {@link buildExternalPlugin} with
+ * {@link registerPlugin}. Per-plugin isolation is the loader's job here —
+ * a build failure is logged with attribution and swallowed so one bad
+ * plugin can't crash daemon startup. Post-boot callers should use
+ * {@link buildExternalPlugin} directly and decide their own
+ * register/error policy.
+ */
+export async function loadExternalPlugin(
+  pluginDir: string,
+  opts: LoadExternalPluginOptions = {},
+): Promise<void> {
+  try {
+    const plugin = await buildExternalPlugin(pluginDir, opts);
+    if (plugin === undefined) return;
+    registerPlugin(plugin);
     log.info(
-      { pluginDir, name: result.manifest.name },
+      { pluginDir, name: plugin.manifest.name },
       "loaded external plugin",
     );
   } catch (err) {
@@ -329,7 +358,5 @@ export async function loadExternalPlugin(
       { err, pluginDir },
       `Failed to load external plugin ${pluginDir}: ${message}`,
     );
-  } finally {
-    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
   }
 }

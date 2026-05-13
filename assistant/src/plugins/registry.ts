@@ -144,6 +144,16 @@ export function getRegisteredPlugins(): Plugin[] {
 }
 
 /**
+ * Look up a single plugin by `manifest.name`. Returns `undefined` when no
+ * plugin with that name has been registered. Used by post-boot install
+ * paths that need to decide whether to live-register a newly-materialized
+ * plugin or surface an `already registered` error.
+ */
+export function getRegisteredPlugin(name: string): Plugin | undefined {
+  return registeredPlugins.get(name);
+}
+
+/**
  * Collect the middleware each registered plugin contributes for the given
  * pipeline, in registration order. Consumers feed the returned array into the
  * pipeline runner's `composeMiddleware` helper (PR 12), which applies the
@@ -195,6 +205,70 @@ export function getInjectors(): Injector[] {
  */
 export function closeRegistration(): void {
   registrationClosed = true;
+}
+
+/**
+ * Register a plugin AFTER {@link closeRegistration} has flipped the per-boot
+ * latch. Used by post-boot install paths (e.g. the
+ * `registerInstalledPlugin` IPC route fired by `assistant plugins install`)
+ * that need to extend the live daemon's plugin set without waiting for the
+ * next boot.
+ *
+ * Performs every validation {@link registerPlugin} performs — shape, manifest
+ * fields, kebab-case name, version presence, duplicate-name detection — but
+ * skips the closed-registration latch. The intent is that this entry point
+ * is only callable from trusted host code paths (the IPC handler), never
+ * from a user plugin's module evaluation: a late-arriving user registration
+ * after the registration window closed is still a bug and must continue to
+ * throw via {@link registerPlugin}.
+ *
+ * Throws {@link PluginExecutionError} with the same shape and messages as
+ * {@link registerPlugin} for every validation failure other than the closed
+ * latch.
+ */
+export function registerPluginPostBoot(plugin: Plugin): void {
+  // Validation duplicates `registerPlugin` so the two entry points share
+  // exactly one set of failure messages. Factoring out a private helper
+  // would force callers to handle the latch decision through a flag arg,
+  // which obscures the intent of the public surface.
+  if (!plugin || typeof plugin !== "object") {
+    throw new PluginExecutionError(
+      "registerPlugin requires a Plugin object",
+      undefined,
+    );
+  }
+  const manifest = plugin.manifest;
+  if (!manifest || typeof manifest !== "object") {
+    throw new PluginExecutionError("plugin manifest is missing", undefined);
+  }
+  const name = manifest.name;
+  if (typeof name !== "string" || name.length === 0) {
+    throw new PluginExecutionError(
+      "plugin manifest.name is required",
+      undefined,
+    );
+  }
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
+    throw new PluginExecutionError(
+      `plugin manifest.name "${name}" must be kebab-case (lowercase letters, digits, and single hyphens)`,
+      name,
+    );
+  }
+  if (typeof manifest.version !== "string" || manifest.version.length === 0) {
+    throw new PluginExecutionError(
+      `plugin ${name} manifest.version is required`,
+      name,
+    );
+  }
+  if (registeredPlugins.has(name)) {
+    throw new PluginExecutionError(
+      `plugin ${name} is already registered`,
+      name,
+    );
+  }
+  // Intentionally no `registrationClosed` check — that's the whole point of
+  // this entry point.
+  registeredPlugins.set(name, plugin);
 }
 
 /**
