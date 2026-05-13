@@ -36,37 +36,39 @@ private struct HomeFeedFilterPill: View {
 
 /// Horizontal pill/chip bar that filters the home feed by `FeedItemCategory`.
 ///
-/// Renders an "All" pill (selected by default when `activeFilter` is nil)
-/// followed by one pill per `FeedItemCategory` case. The parent owns the
-/// filter state and passes it down; tapping a pill fires `onFilterChanged`
-/// with the new selection (nil for "All").
+/// Data-driven: only renders pills for categories that have at least one item
+/// in the current feed. The "All" pill always appears. If only one category
+/// (or none) is present, the bar hides entirely since filtering would be
+/// meaningless.
 struct HomeFeedFilterBar: View {
     let activeFilter: FeedItemCategory?
+    let presentCategories: Set<FeedItemCategory>
     let onFilterChanged: (FeedItemCategory?) -> Void
 
-    /// Display labels derived from `FeedItemCategory` raw values.
-    private static let categories: [(label: String, category: FeedItemCategory)] =
-        FeedItemCategory.allCases.map { category in
-            (label: category.rawValue.capitalized, category: category)
-        }
-
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: VSpacing.sm) {
-                HomeFeedFilterPill(
-                    label: "All",
-                    isSelected: activeFilter == nil,
-                    onTap: { onFilterChanged(nil) }
-                )
-
-                ForEach(Self.categories, id: \.category) { entry in
+        if presentCategories.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: VSpacing.sm) {
                     HomeFeedFilterPill(
-                        label: entry.label,
-                        isSelected: activeFilter == entry.category,
-                        onTap: { onFilterChanged(entry.category) }
+                        label: "All",
+                        isSelected: activeFilter == nil,
+                        onTap: { onFilterChanged(nil) }
                     )
+
+                    ForEach(sortedCategories, id: \.self) { category in
+                        HomeFeedFilterPill(
+                            label: category.rawValue.capitalized,
+                            isSelected: activeFilter == category,
+                            onTap: { onFilterChanged(category) }
+                        )
+                    }
                 }
             }
         }
+    }
+
+    /// Stable ordering so pills don't jump around as items arrive.
+    private var sortedCategories: [FeedItemCategory] {
+        FeedItemCategory.allCases.filter { presentCategories.contains($0) }
     }
 }

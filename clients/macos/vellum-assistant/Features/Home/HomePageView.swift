@@ -132,6 +132,7 @@ struct HomePageView<DetailPanel: View>: View {
 
                 HomeFeedFilterBar(
                     activeFilter: activeFilter,
+                    presentCategories: presentCategories,
                     onFilterChanged: { activeFilter = $0 }
                 )
 
@@ -251,6 +252,18 @@ struct HomePageView<DetailPanel: View>: View {
     }
 
     // MARK: - Feed grouping
+
+    /// Categories present in the visible feed (non-dismissed, non-high-urgency).
+    /// Drives the filter bar — only categories with items get a pill.
+    private var presentCategories: Set<FeedItemCategory> {
+        var cats = Set<FeedItemCategory>()
+        for item in feedStore.items {
+            guard item.status != .dismissed else { continue }
+            if item.urgency == .high || item.urgency == .critical { continue }
+            if let cat = item.category { cats.insert(cat) }
+        }
+        return cats
+    }
 
     /// Sorts the feed by `priority desc, createdAt desc`, hides
     /// dismissed items (so `dismissItem(_:)` gives immediate feedback
