@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
@@ -12,6 +12,10 @@ import type { WorkspaceMigration } from "./types.js";
  * vectors at write time, so without this nudge workspaces that never pinned
  * the field would silently mix old and new length normalization until a
  * manual reembed.
+ *
+ * Skipped when `memory.v2.enabled` is explicitly `false`. Those workspaces
+ * have no v2 concept pages to refresh, so the job would be a no-op (or
+ * worse, confusing) once the v2 worker is disabled.
  */
 export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
   id: "075-memory-v2-bm25-b-default-reembed",
@@ -19,6 +23,8 @@ export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
     "Enqueue memory_v2_reembed so existing concept pages pick up the new bm25_b=0.4 default",
 
   run(workspaceDir: string): void {
+    if (isMemoryV2Disabled(workspaceDir)) return;
+
     const dbPath = join(workspaceDir, "data", "db", "assistant.db");
     if (!existsSync(dbPath)) return; // Fresh install — pages will embed at the new default.
 
@@ -59,3 +65,20 @@ export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
     // Forward-only: the reembed is a one-shot data refresh.
   },
 };
+
+/**
+ * Returns true only when `memory.v2.enabled` is explicitly set to `false` in
+ * the workspace `config.json`. Missing/unparseable config falls through to
+ * the schema default (enabled), matching `MemoryV2ConfigSchema`.
+ */
+function isMemoryV2Disabled(workspaceDir: string): boolean {
+  const configPath = join(workspaceDir, "config.json");
+  if (!existsSync(configPath)) return false;
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    const memory = (raw as { memory?: { v2?: { enabled?: unknown } } })?.memory;
+    return memory?.v2?.enabled === false;
+  } catch {
+    return false;
+  }
+}
